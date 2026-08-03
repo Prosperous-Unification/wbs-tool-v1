@@ -127,6 +127,7 @@ broken, and say so in the comment — see AGENTS.md R5.
 | `docs/superpowers/specs/2026-08-02-compose-blue-green-deploy-design.md` | why the pipeline is shaped this way            |
 | `docs/runbook-dagger-engine-registry-dns.md`                            | engine can't resolve `registry`                |
 | `docs/local-dev.md`                                                     | running locally                                |
+| `HUMAN_README.md`                                                       | operating prod; triage runbook; openclaw path  |
 | `openspec/changes/scaffold-tech-setup/`                                 | original scaffold — **stale**, spec above wins |
 
 Conventions: pure planners + thin IO shell; `strictTypeChecked`; comments say **why** and state what

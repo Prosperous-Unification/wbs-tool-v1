@@ -42,6 +42,7 @@ machine-facing:
 
 | File                                     | Read it when                                         |
 | ---------------------------------------- | ---------------------------------------------------- |
+| **[HUMAN_README.md](./HUMAN_README.md)** | operating this: deploying, prod triage, from a phone |
 | **[AGENTS.md](./AGENTS.md)**             | always — five rules that govern every change         |
 | [LLM_README.md](./LLM_README.md)         | orienting in the codebase: landmines, open findings  |
 | [docs/local-dev.md](./docs/local-dev.md) | running things locally                               |
