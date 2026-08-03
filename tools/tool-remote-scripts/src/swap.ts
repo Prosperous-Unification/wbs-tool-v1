@@ -734,27 +734,121 @@ function argOf(flag: string): string {
   return hit === undefined ? '' : hit.slice(flag.length + 3);
 }
 
+const TIERS: readonly Tier[] = ['be', 'gw', 'fe'];
+
+/**
+ * Finding I1: the deploy lock is taken by `withLock` inside this executor,
+ * but a multi-tier deploy used to be one SSH invocation *per tier* — so the
+ * lock was acquired and released three times, and two concurrent `--all`
+ * deploys could interleave (A swaps be, B swaps all three, A then swaps gw
+ * and fe) into a stack that neither release intended.
+ *
+ * The fix is structural rather than a second lock: one invocation now names
+ * every tier of the run, so the single existing lock spans the whole run.
+ * Deliberately no "the caller already holds it" bypass flag — that would be
+ * a lock that can be silently switched off, which is the failure mode this
+ * codebase keeps rediscovering.
+ */
+export function parseTierList(raw: string): Tier[] {
+  const parts = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+  if (parts.length === 0) {
+    throw new Error(`expected at least one tier (be, gw, fe), got "${raw}"`);
+  }
+  const out: Tier[] = [];
+  for (const p of parts) {
+    if (!TIERS.includes(p as Tier)) {
+      throw new Error(`unknown tier "${p}" — expected one of ${TIERS.join(', ')}`);
+    }
+    // A repeated tier inside one lock hold would swap it twice: the second
+    // pass observes the colour the first pass just moved to and swaps it
+    // straight back, ending where it started while reporting success.
+    if (out.includes(p as Tier)) {
+      throw new Error(`repeated tier "${p}" in "${raw}" — each tier may appear at most once`);
+    }
+    out.push(p as Tier);
+  }
+  return out;
+}
+
+/** Injectable seams for `runSwaps`; production passes the real IO. */
+export interface SwapRunDeps {
+  withLock: <T>(lockPath: string, fn: () => Promise<T>) => Promise<T>;
+  observe: (tier: Tier) => Promise<Observed>;
+  execute: (plan: SwapPlan, image: string, sha: string) => Promise<void>;
+}
+
+/**
+ * Drives every tier of one deploy run under a single lock hold.
+ *
+ * Each tier is observed *after* the previous tier committed, not all up
+ * front: `be`'s swap changes what `gw` should be planned against, and
+ * planning from state read before exclusion was won is the same staleness
+ * bug the per-tier `withLock` comment describes.
+ *
+ * A tier that throws aborts the run and leaves the remaining tiers
+ * untouched. That is deliberate — the failed tier has already run its own
+ * abort/rollback path (`abortSwap`), and continuing on to deploy the next
+ * tier against a half-swapped predecessor is exactly the mismatched stack
+ * this lock exists to prevent.
+ */
+export async function runSwaps(
+  tiers: Tier[],
+  images: Partial<Record<Tier, string>>,
+  sha: string,
+  deps: SwapRunDeps,
+): Promise<void> {
+  await deps.withLock(`${ROOT}/state/deploy.lock`, async () => {
+    for (const tier of tiers) {
+      const image = images[tier];
+      if (image === undefined) {
+        throw new Error(`no --image-${tier}= given for tier "${tier}"`);
+      }
+      const plan = planSwap(tier, await deps.observe(tier));
+      console.log(describePlan(tier, plan));
+      await deps.execute(plan, image, sha);
+    }
+  });
+}
+
 function describePlan(tier: Tier, plan: SwapPlan): string {
   return `[swap-${tier}] ${String(plan.from)} -> ${plan.to}: ${plan.steps.join(' -> ')}`;
 }
 
 const USAGE =
-  'usage: swap <be|gw|fe> --image=<registry/name@sha256:…> --sha=<git-sha> [--execute|--preflight]';
+  'usage: swap <tier[,tier...]> --image-<tier>=<registry/name@sha256:…> --sha=<git-sha> ' +
+  '[--execute|--preflight]';
+
+/**
+ * Per-tier images. One invocation carries the whole run (see runSwaps), so
+ * the image can no longer be a single `--image=`: each tier needs its own,
+ * and a missing one has to be an error rather than a silent reuse of some
+ * other tier's image.
+ */
+function imagesFor(tiers: Tier[]): { tier: Tier; image: string }[] {
+  return tiers.map((tier) => {
+    const raw = argOf(`image-${tier}`);
+    if (raw === '') {
+      throw new Error(`--image-${tier}=<registry/name@sha256:…> is required. ${USAGE}`);
+    }
+    return { tier, image: assertDigestPinnedRef(raw, tier) };
+  });
+}
 
 async function main(): Promise<void> {
-  const tier = process.argv[2];
-  if (tier !== 'be' && tier !== 'gw' && tier !== 'fe') {
-    throw new Error(USAGE);
-  }
+  const tiers = parseTierList(process.argv[2] ?? '');
 
   // Registry reachability/auth check on its own, with no lock and no state
   // change: tool-deploy runs this for every tier before executing any of
   // them, so a registry problem cannot leave one tier swapped and the next
   // one refusing to start (design decision 10).
   if (process.argv.includes('--preflight')) {
-    const image = assertDigestPinnedRef(argOf('image'), tier);
-    await preflightRegistry(image);
-    console.log(`[swap-${tier}] preflight ok: ${image} is present and authenticated`);
+    for (const { tier, image } of imagesFor(tiers)) {
+      await preflightRegistry(image);
+      console.log(`[swap-${tier}] preflight ok: ${image} is present and authenticated`);
+    }
     return;
   }
 
@@ -762,8 +856,9 @@ async function main(): Promise<void> {
     // Advisory only — nothing acts on this plan, so it's fine for it to be
     // observed outside the lock and to go stale by the time a real
     // --execute runs.
-    const plan = planSwap(tier, await observe(tier));
-    console.log(describePlan(tier, plan));
+    for (const tier of tiers) {
+      console.log(describePlan(tier, planSwap(tier, await observe(tier))));
+    }
     console.log('[swap] dry-run (default). re-run with --execute to perform the swap.');
     return;
   }
@@ -771,24 +866,21 @@ async function main(): Promise<void> {
   // Everything that can be rejected without touching the host, rejected
   // first: malformed arguments, then the registry. Only then is the lock
   // taken (design decision 10, "abort before anything starts").
-  const image = assertDigestPinnedRef(argOf('image'), tier);
+  const resolved = imagesFor(tiers);
   const sha = argOf('sha');
   if (sha === '') throw new Error(`--sha=<git-sha> is required to execute. ${USAGE}`);
-  await preflightRegistry(image);
+  for (const { image } of resolved) await preflightRegistry(image);
+  const images: Partial<Record<Tier, string>> = {};
+  for (const { tier, image } of resolved) images[tier] = image;
 
-  await withLock(`${ROOT}/state/deploy.lock`, async () => {
-    // Observed and planned AFTER winning the lock, not before: withLock
-    // refuses rather than waits, so a truly concurrent second deploy is
-    // rejected outright, but a merely *sequential* one is not — a process
-    // that observed state, then sat idle while a full swap ran and
-    // released the lock, would otherwise execute a plan derived from state
-    // that's no longer current, and its stale `commit` step would silently
-    // overwrite the sha the other process actually deployed. Deriving the
-    // plan from state read after exclusion is won closes that window.
-    const plan = planSwap(tier, await observe(tier));
-    console.log(describePlan(tier, plan));
-    await execute(plan, image, sha);
-  });
+  // One lock for every tier in the run. Each tier is still observed and
+  // planned only after exclusion is won — see runSwaps, and the staleness
+  // argument it inherits from the original per-tier comment: a process that
+  // observed state, then sat idle while another full swap ran, would
+  // otherwise execute a plan derived from state that is no longer current,
+  // and its stale `commit` step would silently overwrite the sha the other
+  // process actually deployed.
+  await runSwaps(tiers, images, sha, { withLock, observe, execute });
 }
 
 if (import.meta.main) {

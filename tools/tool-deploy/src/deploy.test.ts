@@ -8,7 +8,7 @@ import {
   parseSha256sumOutput,
   type ReleaseRecord,
 } from './deploy';
-import type { RemoteTierState } from './remote-state';
+import { parseRemoteStateOutput, type RemoteTierState } from './remote-state';
 import { buildScpInvocation, buildSshInvocation } from './ssh';
 
 describe('parseDeployArgs', () => {
@@ -109,6 +109,7 @@ function fakeDeps(overrides: Partial<DeployPlanDeps> = {}): DeployPlanDeps {
     readRemoteState: () => Promise.resolve({} as Partial<Record<Tier, RemoteTierState>>),
     listMigrations: () => ['0001_init'],
     readRelease: () => Promise.resolve(RELEASE),
+    dirtyPaths: () => [],
     ...overrides,
   };
 }
@@ -119,8 +120,9 @@ describe('buildDeployPlan', () => {
     expect(p.tiers).toEqual(['be', 'gw', 'fe']);
     expect(p.dryRun).toBe(true);
     expect(p.host).toBe('h2puni');
-    expect(p.commands).toHaveLength(3);
-    expect(p.commands[0]).toContain('bin/swap.js be');
+    // One invocation for the whole run — see the I1 test below.
+    expect(p.commands).toHaveLength(1);
+    expect(p.commands[0]).toContain('bin/swap.js be,gw,fe');
     expect(p.commands[0]).not.toContain('--execute');
   });
 
@@ -131,23 +133,44 @@ describe('buildDeployPlan', () => {
   it('passes the whole digest-pinned ref through to swap.js, registry address included', async () => {
     const p = await buildDeployPlan(['--all'], [], HEAD, fakeDeps());
     expect(p.commands[0]).toContain(
-      `--image=registry.infra.bulletpoints.club/wbs-be-01@${entry('be').digest}`,
+      `--image-be=registry.infra.bulletpoints.club/wbs-be-01@${entry('be').digest}`,
     );
-    expect(p.commands[1]).toContain('/wbs-gw-01@');
-    expect(p.commands[2]).toContain('/wbs-fe-01@');
+    expect(p.commands[0]).toContain('--image-gw=registry.infra.bulletpoints.club/wbs-gw-01@');
+    expect(p.commands[0]).toContain('--image-fe=registry.infra.bulletpoints.club/wbs-fe-01@');
     expect(p.commands[0]).not.toContain('--digest=');
   });
 
   // Decision 10: a registry problem must abort before the FIRST tier moves,
   // not between tiers.
-  it('emits one read-only preflight per tier, none of them carrying --execute', async () => {
+  it('preflights every tier before any of them swaps, without --execute', async () => {
     const p = await buildDeployPlan(['--all', '--execute'], [], HEAD, fakeDeps());
-    expect(p.preflightCommands).toHaveLength(3);
-    for (const cmd of p.preflightCommands) {
-      expect(cmd).toContain('--preflight');
-      expect(cmd).toContain('--image=');
-      expect(cmd).not.toContain('--execute');
-    }
+    expect(p.preflightCommands).toHaveLength(1);
+    const cmd = p.preflightCommands[0];
+    expect(cmd).toContain('--preflight');
+    expect(cmd).toContain('--image-be=');
+    expect(cmd).toContain('--image-gw=');
+    expect(cmd).toContain('--image-fe=');
+    expect(cmd).not.toContain('--execute');
+  });
+
+  // I1: the deploy lock lives inside swap.js, so one SSH invocation per tier
+  // meant the lock was released between tiers and two concurrent --all runs
+  // could interleave. The whole run is now a single invocation, which is what
+  // makes the existing single lock cover it.
+  it('drives every tier from one swap.js invocation so the lock spans the run', async () => {
+    const p = await buildDeployPlan(['--all', '--execute'], [], HEAD, fakeDeps());
+    expect(p.commands).toHaveLength(1);
+    expect(p.commands[0]).toContain('bin/swap.js be,gw,fe');
+    expect(p.commands[0]).toContain('--execute');
+  });
+
+  it('names only the selected tiers in that one invocation', async () => {
+    const p = await buildDeployPlan(['be', 'fe', '--execute'], [], HEAD, fakeDeps());
+    expect(p.commands).toHaveLength(1);
+    expect(p.commands[0]).toContain('bin/swap.js be,fe');
+    expect(p.commands[0]).toContain('--image-be=');
+    expect(p.commands[0]).toContain('--image-fe=');
+    expect(p.commands[0]).not.toContain('--image-gw=');
   });
 
   // I3: the gate diffs migrations in git at HEAD, which describes the image
@@ -163,6 +186,54 @@ describe('buildDeployPlan', () => {
       message = e instanceof Error ? e.message : String(e);
     }
     expect(message).toMatch(/built at some-other-sha but HEAD is abc1234/);
+  });
+
+  // I4: the installed-bundle gate (assertBundleInstalled) only proves the
+  // remote bin/ matches the local dist/. Both can be stale together, so it
+  // never establishes that the orchestrator about to drive the swap is the
+  // one at HEAD. `deploy`'s dependsOn rebuilds dist/ from the worktree, so
+  // the one remaining link is worktree == HEAD — which is exactly what a
+  // dirty tree breaks. Refusing here supplies that link; the chain is then
+  // clean tree -> dist built from HEAD -> remote bundle == dist == HEAD.
+  it('refuses to plan a deploy from a dirty worktree', async () => {
+    const deps = fakeDeps({
+      dirtyPaths: () => ['tools/tool-remote-scripts/src/swap.ts'],
+    });
+    let message = '';
+    try {
+      await buildDeployPlan(['be'], [], HEAD, deps);
+    } catch (e: unknown) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toMatch(/uncommitted/);
+    expect(message).toContain('tools/tool-remote-scripts/src/swap.ts');
+  });
+
+  // The refusal has to land before anything reaches the network, like the
+  // migration gate and --stop-the-world — including on a dry run, so the
+  // operator learns about it before typing --execute rather than after.
+  it('refuses a dirty worktree on a dry run too, before reading remote state', async () => {
+    let readRemote = false;
+    const deps = fakeDeps({
+      dirtyPaths: () => ['apps/be-01/src/main.ts'],
+      readRemoteState: () => {
+        readRemote = true;
+        return Promise.resolve({});
+      },
+    });
+    let message = '';
+    try {
+      await buildDeployPlan(['--all'], [], HEAD, deps);
+    } catch (e: unknown) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toMatch(/uncommitted/);
+    expect(readRemote).toBe(false);
+  });
+
+  it('plans normally when the worktree is clean', async () => {
+    const p = await buildDeployPlan(['be'], [], HEAD, fakeDeps({ dirtyPaths: () => [] }));
+    expect(p.tiers).toEqual(['be']);
   });
 
   it('honors an explicit --host', async () => {
@@ -334,5 +405,63 @@ describe('buildSmokeCommand', () => {
     );
     expect(cmd).not.toContain('SMOKE_GW_URL');
     expect(cmd).not.toContain('SMOKE_FE_URL');
+  });
+});
+
+// Codex P0: readRemoteState used `cat ... 2>/dev/null || true`, which
+// swallows EVERY failure, not just "file missing". An unreadable state file
+// therefore parsed as "this tier was never deployed", and a never-deployed
+// tier makes hasNewMigrations return false — which silently disables the
+// --with-migrations acknowledgment gate. Break: `chmod 000
+// /srv/wbs/state/be.json`, then deploy a destructive migration with no flag.
+describe('parseRemoteStateOutput', () => {
+  const present = (tier: string, sha: string) =>
+    `== ${tier} present\n{"tier":"${tier}","activeColor":"blue","lastDeployedSha":"${sha}"}\n`;
+
+  it('parses every present tier', () => {
+    const out = present('be', 'a') + present('gw', 'b') + present('fe', 'c');
+    const state = parseRemoteStateOutput(out);
+    expect(state.be?.lastDeployedSha).toBe('a');
+    expect(state.gw?.lastDeployedSha).toBe('b');
+    expect(state.fe?.lastDeployedSha).toBe('c');
+  });
+
+  // The one case this is genuinely meant to tolerate: a fresh host that has
+  // never deployed that tier. There is no previous release to be
+  // backward-compatible with, so absent really does mean absent.
+  it('treats a genuinely absent state file as "never deployed"', () => {
+    const out = `== be absent\n${present('gw', 'b')}== fe absent\n`;
+    const state = parseRemoteStateOutput(out);
+    expect(state.be).toBeUndefined();
+    expect(state.fe).toBeUndefined();
+    expect(state.gw?.lastDeployedSha).toBe('b');
+  });
+
+  it('refuses an unreadable state file instead of calling it never-deployed', () => {
+    const out = `== be unreadable\n${present('gw', 'b')}== fe absent\n`;
+    expect(() => parseRemoteStateOutput(out)).toThrow(/be/);
+    expect(() => parseRemoteStateOutput(out)).toThrow(/could not be read/);
+  });
+
+  it('refuses a state file whose contents are not valid JSON', () => {
+    const out = '== be present\nnot json at all\n';
+    expect(() => parseRemoteStateOutput(out)).toThrow(/be/);
+  });
+
+  // A present-but-empty file is corruption, not absence: something wrote it.
+  it('refuses a present but empty state file', () => {
+    const out = '== be present\n\n== gw absent\n== fe absent\n';
+    expect(() => parseRemoteStateOutput(out)).toThrow(/be/);
+  });
+
+  // Truncated ssh output must not read as "all three tiers never deployed".
+  it('refuses output that does not report all three tiers', () => {
+    expect(() => parseRemoteStateOutput('== be absent\n')).toThrow(/gw|fe/);
+  });
+});
+
+describe('parseRemoteStateOutput header handling', () => {
+  it('refuses a header missing its status word rather than reading it as a tier', () => {
+    expect(() => parseRemoteStateOutput('== be\n')).toThrow(/unreadable header/);
   });
 });

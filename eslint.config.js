@@ -129,6 +129,40 @@ export default [
     },
   },
 
+  // `openDatabase` is where WAL, busy_timeout and foreign_keys are set and
+  // asserted. Two of those three are per-*connection*, not stored in the
+  // database file, so a second connection opened directly with `new
+  // Database(...)` silently runs with busy_timeout=0 and foreign_keys=OFF —
+  // and blue/green means two be-01 processes share one SQLite file, which is
+  // exactly the situation those pragmas exist for.
+  //
+  // Nothing structural prevented that bypass: `openDatabase` is currently
+  // called from `repository/migrate.ts` alone, so whoever first wires the
+  // server to SQLite has to know to route through it. This makes the
+  // compiler-adjacent tooling enforce it instead of a comment. Type-only
+  // imports stay allowed — they cannot open a connection.
+  {
+    files: ['apps/be-01/src/**/*.ts'],
+    ignores: ['apps/be-01/src/repository/db.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'bun:sqlite',
+              allowTypeImports: true,
+              message:
+                'Open connections through openDatabase() in repository/db.ts — it sets and ' +
+                'asserts WAL, busy_timeout and foreign_keys, and busy_timeout/foreign_keys ' +
+                'are per-connection, so a direct `new Database()` silently loses them.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   {
     files: ['**/*.{test,spec,integration.test,property.test,contract.test}.{ts,tsx}'],
     rules: {

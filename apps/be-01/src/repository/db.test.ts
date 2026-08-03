@@ -39,6 +39,20 @@ describe('openDatabase', () => {
     db.close();
   });
 
+  // `openDatabase` set the pragmas and `assertPragmas` verified them, but
+  // calling the second was left to the caller — and the only caller was
+  // repository/migrate.ts. Any future caller that forgot it would get a
+  // connection whose pragmas were requested but never confirmed. Asserting
+  // inside `openDatabase` makes "set" and "verified" one step.
+  //
+  // An in-memory database is the concrete case: SQLite silently keeps
+  // journal_mode=memory there rather than failing, so `:memory:` used to hand
+  // back a connection that looked fine and was not in WAL at all. Tests
+  // reaching for `:memory:` are exactly how that would get normalised.
+  it('refuses an in-memory database, which cannot honour WAL', () => {
+    expect(() => openDatabase(':memory:')).toThrow(/journal_mode/);
+  });
+
   it('assertPragmas throws when WAL is absent', () => {
     const db = openDatabase(join(dir, 'test.db'));
     db.run('PRAGMA journal_mode = DELETE;');

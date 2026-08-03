@@ -8,7 +8,11 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "shellcheck -s sh tools/tool-bootstrap/src/bootstrap.sh || echo '[tool-bootstrap] shellcheck not installed — skipping'"
+        "commands": [
+          "command -v shellcheck >/dev/null 2>&1 || { echo '[tool-bootstrap] shellcheck is required but not installed. macOS: brew install shellcheck. Debian/Ubuntu: apt-get install shellcheck.' >&2; exit 1; }",
+          "shellcheck -s sh tools/tool-bootstrap/src/bootstrap.sh tools/tool-bootstrap/src/configure.sh"
+        ],
+        "parallel": false
       }
     },
     "push": {

@@ -3,7 +3,11 @@ import { Database } from 'bun:sqlite';
 const BUSY_TIMEOUT_MS = 5000;
 
 /**
- * The only place a SQLite connection is opened.
+ * The only place a SQLite connection is opened. An ESLint rule enforces that
+ * (`bun:sqlite` is restricted everywhere else under `apps/be-01/src`), because
+ * two of the three pragmas below are per-*connection* rather than stored in
+ * the database file: a second connection opened directly with `new Database()`
+ * silently runs with `busy_timeout=0` and `foreign_keys=OFF`.
  *
  * Blue/green runs two be-01 processes against one database file during a swap.
  * Without WAL, a writer takes an EXCLUSIVE lock that blocks readers too, and
@@ -17,10 +21,18 @@ export function openDatabase(dbPath: string): Database {
   db.run('PRAGMA journal_mode = WAL;');
   db.run(`PRAGMA busy_timeout = ${String(BUSY_TIMEOUT_MS)};`);
   db.run('PRAGMA foreign_keys = ON;');
+  // Asserted here, not left to the caller. Setting a PRAGMA is a request, not
+  // a guarantee — SQLite reports the mode it actually adopted and does not
+  // error when it declines, which is why `:memory:` quietly stays on
+  // journal_mode=memory. Verifying at the point of opening also means the
+  // check cannot be skipped by forgetting to call it: until now `assertPragmas`
+  // had exactly one caller (repository/migrate.ts), so every other connection
+  // would have been unverified.
+  assertPragmas(db);
   return db;
 }
 
-/** Fails loudly at startup if the pragmas ever regress. */
+/** Fails loudly if the pragmas were not actually adopted. */
 export function assertPragmas(db: Database): void {
   const journal = db.query<{ journal_mode: string }, []>('PRAGMA journal_mode;').get();
   const mode = journal?.journal_mode.toLowerCase();

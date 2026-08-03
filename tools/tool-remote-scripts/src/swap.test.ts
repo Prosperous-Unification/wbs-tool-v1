@@ -8,7 +8,14 @@ import { assembleCaddyfile } from './lib/caddy';
 import { drain } from './lib/drain';
 import { waitForHealthy } from './lib/health';
 import { flipColor, parseStateJson, renderStateJson } from './lib/state';
-import { pollActiveConnections, readSiteCaddy, shouldRestoreSiteCaddy } from './swap';
+import {
+  parseTierList,
+  pollActiveConnections,
+  readSiteCaddy,
+  runSwaps,
+  shouldRestoreSiteCaddy,
+  type SwapRunDeps,
+} from './swap';
 
 describe('state', () => {
   it('flips color', () => {
@@ -285,3 +292,135 @@ describe('shouldRestoreSiteCaddy (abortSwap restore guard)', () => {
 // that executes its plan — its pure command builders and parsers live in
 // `./lib/docker.ts` and `./lib/site.ts` (tested in `docker.test.ts` and
 // `site.test.ts`).
+
+// I1: swap.js took the deploy lock once per tier, but tool-deploy drove a
+// multi-tier deploy as one SSH invocation per tier. The lock was therefore
+// released between tiers, and two concurrent `--all` deploys could interleave
+// into a mismatched stack (be from run A, gw from run B). One invocation now
+// carries every tier of a run, so the lock spans the whole run.
+describe('parseTierList', () => {
+  it('accepts a single tier', () => {
+    expect(parseTierList('be')).toEqual(['be']);
+  });
+
+  it('accepts a comma-separated list, preserving deploy order', () => {
+    expect(parseTierList('be,gw,fe')).toEqual(['be', 'gw', 'fe']);
+  });
+
+  it('rejects an unknown tier', () => {
+    expect(() => parseTierList('be,xx')).toThrow(/unknown tier/);
+  });
+
+  it('rejects an empty list', () => {
+    expect(() => parseTierList('')).toThrow(/at least one tier/);
+  });
+
+  // A repeated tier would swap the same tier twice inside one lock hold: the
+  // second pass observes the colour the first just moved to and swaps it
+  // straight back, so the run ends where it started while reporting success.
+  it('rejects a repeated tier', () => {
+    expect(() => parseTierList('be,gw,be')).toThrow(/repeated tier/);
+  });
+});
+
+describe('runSwaps', () => {
+  function fakeRunDeps(overrides: Partial<SwapRunDeps> = {}): SwapRunDeps {
+    return {
+      withLock: (_path, fn) => fn(),
+      observe: () =>
+        Promise.resolve({
+          routedColor: 'blue' as const,
+          runningColors: ['blue' as const],
+          recordedColor: 'blue' as const,
+          phase: 'committed' as const,
+        }),
+      execute: () => Promise.resolve(),
+      ...overrides,
+    };
+  }
+
+  it('takes the lock exactly once for a three-tier run', async () => {
+    let locks = 0;
+    const deps = fakeRunDeps({
+      withLock: (_path, fn) => {
+        locks++;
+        return fn();
+      },
+    });
+    await runSwaps(['be', 'gw', 'fe'], { be: 'img-be', gw: 'img-gw', fe: 'img-fe' }, 'sha1', deps);
+    expect(locks).toBe(1);
+  });
+
+  it('executes every tier in the order given, inside that one lock', async () => {
+    const events: string[] = [];
+    const deps = fakeRunDeps({
+      withLock: async (_path, fn) => {
+        events.push('lock');
+        const r = await fn();
+        events.push('unlock');
+        return r;
+      },
+      execute: (plan) => {
+        events.push(`execute:${plan.tier}`);
+        return Promise.resolve();
+      },
+    });
+    await runSwaps(['be', 'gw', 'fe'], { be: 'img-be', gw: 'img-gw', fe: 'img-fe' }, 'sha1', deps);
+    expect(events).toEqual(['lock', 'execute:be', 'execute:gw', 'execute:fe', 'unlock']);
+  });
+
+  it('passes each tier its own image', async () => {
+    const seen: string[] = [];
+    const deps = fakeRunDeps({
+      execute: (_plan, image) => {
+        seen.push(image);
+        return Promise.resolve();
+      },
+    });
+    await runSwaps(['be', 'fe'], { be: 'img-be', fe: 'img-fe' }, 'sha1', deps);
+    expect(seen).toEqual(['img-be', 'img-fe']);
+  });
+
+  // A failure partway through must not silently continue into the next tier:
+  // the whole point of one lock is that the run is one unit.
+  it('stops at the first failing tier and does not start the next', async () => {
+    const started: string[] = [];
+    const deps = fakeRunDeps({
+      execute: (plan) => {
+        started.push(plan.tier);
+        return plan.tier === 'gw' ? Promise.reject(new Error('gw blew up')) : Promise.resolve();
+      },
+    });
+    let message = '';
+    try {
+      await runSwaps(['be', 'gw', 'fe'], { be: 'b', gw: 'g', fe: 'f' }, 'sha1', deps);
+    } catch (e: unknown) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toMatch(/gw blew up/);
+    expect(started).toEqual(['be', 'gw']);
+  });
+
+  // Each tier is observed after the previous tier's swap committed, not all
+  // up front: `be`'s swap changes what `gw` should be planned against.
+  it('observes each tier after the previous tier finished', async () => {
+    const events: string[] = [];
+    const deps = fakeRunDeps({
+      observe: (tier) => {
+        events.push(`observe:${tier}`);
+        return Promise.resolve({
+          routedColor: 'blue' as const,
+          runningColors: ['blue' as const],
+          recordedColor: 'blue' as const,
+          phase: 'committed' as const,
+        });
+      },
+      execute: (plan) => {
+        events.push(`execute:${plan.tier}`);
+        return Promise.resolve();
+      },
+    });
+    await runSwaps(['be', 'gw'], { be: 'b', gw: 'g' }, 'sha1', deps);
+    expect(events).toEqual(['observe:be', 'execute:be', 'observe:gw', 'execute:gw']);
+  });
+});

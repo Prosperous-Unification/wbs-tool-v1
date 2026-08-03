@@ -39,14 +39,20 @@ export type ReleaseRecord = Partial<Record<Tier, ReleaseEntry>>;
 export interface DeployPlan {
   tiers: Tier[];
   steps: string[];
-  /** One real remote command per tier, in the same order as `tiers`. */
+  /**
+   * The single remote command that swaps every tier of this run, or empty if
+   * no tier is selected. One command, not one per tier: the deploy lock lives
+   * inside swap.js, so per-tier invocations released it between tiers and let
+   * two concurrent `--all` deploys interleave (finding I1).
+   */
   commands: string[];
   /**
-   * Read-only registry checks, one per tier, run to completion before ANY
-   * command above executes (design decision 10: "SSH, registry, or registry
-   * auth unavailable at start — abort before anything starts"). Running them
-   * all up front is the point: a per-tier check inside each swap would still
-   * let tier 1 deploy and tier 2 fail, which is a half-deployed stack.
+   * Read-only registry check covering every tier, run to completion before
+   * the command above executes (design decision 10: "SSH, registry, or
+   * registry auth unavailable at start — abort before anything starts").
+   * Checking all tiers up front is the point: a per-tier check inside each
+   * swap would still let tier 1 deploy and tier 2 fail, which is a
+   * half-deployed stack.
    */
   preflightCommands: string[];
   dryRun: boolean;
@@ -58,6 +64,67 @@ export interface DeployPlanDeps {
   /** Migration folder names present under apps/be-01/drizzle at `sha`. */
   listMigrations: (sha: string) => string[];
   readRelease: (path: string) => Promise<ReleaseRecord>;
+  /**
+   * Paths with uncommitted changes in the worktree this CLI is running from;
+   * empty means clean. See assertCleanWorktree for why the plan needs it.
+   */
+  dirtyPaths: () => string[];
+}
+
+/**
+ * Uncommitted paths, as `git status --porcelain` reports them — staged,
+ * unstaged, and untracked alike. Untracked files count: a new
+ * `lib/whatever.ts` that `swap.js` imports is uncommitted source that the
+ * bundle would nonetheless be built from.
+ */
+function defaultDirtyPaths(): string[] {
+  const p = Bun.spawnSync(['git', 'status', '--porcelain']);
+  if (p.exitCode !== 0) {
+    throw new Error(`git status --porcelain failed: ${p.stderr.toString('utf8').trim()}`);
+  }
+  return (
+    p.stdout
+      .toString('utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      // Porcelain v1 is "XY <path>" with the status in the first two columns.
+      .map((l) => l.slice(3).trim())
+  );
+}
+
+/**
+ * Finding I4: `assertBundleInstalled` proves the remote `/srv/wbs/bin/`
+ * bundles match the local `dist/` ones, and nothing more. Two stale
+ * artifacts match each other perfectly, so on its own that check never
+ * establishes which *commit* the orchestrator driving the swap came from.
+ *
+ * The missing link is supplied here rather than by hashing anything else.
+ * `tool-deploy:deploy` declares `dependsOn` builds of `tool-remote-scripts`
+ * and `tool-smoke`, so `dist/` is always rebuilt from the current worktree
+ * before this CLI runs; if the worktree also equals HEAD, then
+ * `dist/` == HEAD, and the existing remote-vs-local hash comparison carries
+ * that all the way to the server. A dirty tree is precisely the case that
+ * breaks the chain — the bundle would be built from source that exists on
+ * no commit, while `release.json`'s images were built by tool-dagger from a
+ * clean tree at HEAD. That mismatch is what this refuses.
+ *
+ * It runs before `readRemoteState`, alongside the `--stop-the-world` and
+ * migration gates, so it aborts "before anything starts" (decision 10) —
+ * and it runs on dry runs too, so the operator finds out before typing
+ * `--execute` rather than after.
+ */
+function assertCleanWorktree(dirty: string[]): void {
+  if (dirty.length === 0) return;
+  const shown = dirty.slice(0, 10);
+  const more = dirty.length - shown.length;
+  throw new Error(
+    `refusing to deploy from a worktree with uncommitted changes (${String(dirty.length)} path(s)):\n` +
+      shown.map((p) => `  ${p}`).join('\n') +
+      (more > 0 ? `\n  ...and ${String(more)} more` : '') +
+      '\n  The executor bundles are rebuilt from this worktree, so deploying now would\n' +
+      '  drive the swap with orchestrator code that exists on no commit, while the\n' +
+      '  images in release.json were built from a clean tree. Commit or stash first.',
+  );
 }
 
 async function defaultReadRelease(path: string): Promise<ReleaseRecord> {
@@ -76,6 +143,7 @@ export const defaultDeployPlanDeps: DeployPlanDeps = {
   readRemoteState,
   listMigrations: migrationsAtSha,
   readRelease: defaultReadRelease,
+  dirtyPaths: defaultDirtyPaths,
 };
 
 /**
@@ -97,11 +165,16 @@ export async function buildDeployPlan(
   // assertStopTheWorldNotImplemented's doc comment for why this can't be
   // left to fall through as a migration-gate bypass).
   assertStopTheWorldNotImplemented(args.stopTheWorld);
+  // Also before any tier is examined, and before readRemoteState touches the
+  // network: the bundle this run would deploy with is built from the
+  // worktree, so the worktree has to be a commit. See assertCleanWorktree.
+  assertCleanWorktree(deps.dirtyPaths());
   const tiers = materialize(args, affected);
   const host = args.host ?? DEFAULT_HOST;
   const steps: string[] = [];
   const commands: string[] = [];
   const preflightCommands: string[] = [];
+  const imageArgs: string[] = [];
 
   const remote = await deps.readRemoteState(host);
   const release = await deps.readRelease(args.bundle ?? DEFAULT_RELEASE_PATH);
@@ -148,16 +221,31 @@ export async function buildDeployPlan(
       );
     }
 
+    // `--image-<tier>` carries the whole publish address; nothing on the far
+    // side reconstructs it (see ReleaseEntry.image).
+    imageArgs.push(`--image-${t}=${entry.image}`);
+  }
+
+  if (tiers.length > 0) {
+    // Finding I1: this used to be one `ssh` invocation *per tier*. The deploy
+    // lock lives inside swap.js, so per-tier invocations released it between
+    // tiers and two concurrent `--all` deploys could interleave (A swaps be,
+    // B swaps all three, A then swaps gw and fe) into a stack neither
+    // release intended. One invocation naming every tier is what makes the
+    // single existing lock cover the whole run — see swap.ts's runSwaps.
+    //
     // Verified against the live host: swap.js is invoked as `ssh h2puni
     // 'cd /srv/wbs && bun bin/swap.js ...'` — no explicit user (the ssh
     // config alias already carries it) and no absolute bun path.
-    //
-    // `--image` carries the whole publish address; nothing on the far side
-    // reconstructs it (see ReleaseEntry.image).
-    const base = `cd /srv/wbs && bun bin/swap.js ${t} --image=${entry.image} --sha=${entry.sha}`;
+    const base =
+      `cd /srv/wbs && bun bin/swap.js ${tiers.join(',')} ` +
+      `${imageArgs.join(' ')} --sha=${headSha}`;
     const remoteCmd = base + (args.dryRun ? '' : ' --execute');
-    steps.push(`[plan] ${t}: ssh ${host} ${JSON.stringify(remoteCmd)}`);
+    steps.push(`[plan] ssh ${host} ${JSON.stringify(remoteCmd)}`);
     commands.push(remoteCmd);
+    // Still read-only, still ahead of every swap: decision 10 requires a
+    // registry/auth problem to abort before the FIRST tier starts, and
+    // swap.js's --preflight loops all the named tiers without taking a lock.
     preflightCommands.push(`${base} --preflight`);
   }
 
