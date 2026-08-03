@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -62,10 +62,24 @@ describe('plaintext-secrets.scan', () => {
   });
 
   it('returns null for a path that does not exist', async () => {
-    // ENOENT is the one modeled absence: a commit that deletes a file stages a
-    // path that is already gone. Nothing to scan there is the truth.
+    // ENOENT is a modeled absence: a commit that deletes a file stages a path
+    // that is already gone. Nothing to scan there is the truth.
     const d = await mkdtemp(join(tmpdir(), 'hooks-'));
     expect(await scan(join(d, 'never-existed.env'))).toBeNull();
+  });
+
+  it('returns null for a directory and for a symlink to one', async () => {
+    // `git ls-files` lists .claude/skills/* — symlinks to directories under
+    // .agents/skills/. A directory has no file contents, which is not the same
+    // as a file that went unread. The link targets are tracked and scanned on
+    // their own, so nothing is skipped by stepping over the link itself.
+    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    const realDir = join(d, 'a-directory');
+    await mkdir(realDir);
+    const link = join(d, 'link-to-dir');
+    await symlink(realDir, link);
+    expect(await scan(realDir)).toBeNull();
+    expect(await scan(link)).toBeNull();
   });
 });
 

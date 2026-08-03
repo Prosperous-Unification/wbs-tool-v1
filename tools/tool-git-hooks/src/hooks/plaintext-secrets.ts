@@ -34,20 +34,29 @@ export class UnscannableFileError extends Error {
  * exists inverted: a secret in a file the scanner cannot open is exactly the
  * case where a silent pass is most expensive.
  *
- * ENOENT is the one modeled absence: lefthook passes staged paths, and a commit
- * that deletes a file stages a path that is already gone. Nothing to scan there
- * is the truth, not a guess. Every other errno — EACCES, EISDIR, EIO — means
- * the file exists and was not read, and is raised.
+ * Exactly two errnos are modeled, and neither is a guess about content:
+ *
+ * - ENOENT — lefthook passes staged paths, and a commit that deletes a file
+ *   stages a path that is already gone. There is nothing to scan.
+ * - EISDIR — a directory, or a symlink to one, has no file contents at all.
+ *   `.claude/skills/*` are symlinks to directories under `.agents/skills/`,
+ *   and `git ls-files` lists them. Their real files are tracked and scanned
+ *   individually, so nothing goes unexamined by stepping over the link.
+ *
+ * Every other errno — EACCES, EIO, ELOOP — means bytes exist that were not
+ * read, and is raised. The distinction that matters is between "there is
+ * nothing here to scan" and "there is something here I did not look at".
  *
  * Proof: `scan()` on a chmod-000 file throws UnscannableFileError; on a missing
- * path it returns null. See hooks.test.ts, "unreadable file".
+ * path and on a directory it returns null. See hooks.test.ts.
  */
 export async function scan(file: string): Promise<ScanResult | null> {
   let raw: string;
   try {
     raw = await readFile(file, 'utf8');
   } catch (e: unknown) {
-    if (e !== null && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') return null;
+    const code = e !== null && typeof e === 'object' && 'code' in e ? e.code : undefined;
+    if (code === 'ENOENT' || code === 'EISDIR') return null;
     throw new UnscannableFileError(file, e);
   }
   for (const p of PATTERNS) {
