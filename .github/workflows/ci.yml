@@ -1,0 +1,84 @@
+# The gate. Before this existed, lefthook pre-commit was the only mechanical
+# check in the repo and `--no-verify` bypassed all of it, so every rule in
+# AGENTS.md was advisory. This is what makes them binding.
+#
+# Every step here is proven to fail on a real fault, not assumed to:
+#   secrets-scan   Proof: `plaintext-secrets.ts` on a file containing a literal
+#                  AWS access key id exits 1 naming that pattern. (The example
+#                  key is not reproduced here — the scanner reads this file and
+#                  would flag it, which is itself the proof.)
+#   migration-lint Proof: `migration-lint.ts` on a file containing
+#                  `DROP TABLE users;` exits 1 with "destructive statement".
+# Both were run against the real scripts before this file was committed. See
+# AGENTS.md, "Non-vacuous checks".
+#
+# Deliberately run-many, not affected: at ~10k LOC the whole suite is cheap, and
+# `nx affected` needs a base ref that is wrong or missing often enough to make
+# the gate silently narrow. A gate that skips work it should have run is the
+# exact failure this repo keeps hitting.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # `nx run-many -t build` shellchecks the deploy scripts and is no longer
+      # allowed to skip itself when shellcheck is absent. ubuntu-latest ships
+      # it, but assert rather than discovering the absence as a green build
+      # that checked nothing.
+      - name: Assert shellcheck present
+        run: shellcheck --version
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Format
+        run: bunx nx format:check
+
+      - name: Gate — test, lint, typecheck, build
+        run: bunx nx run-many -t test lint typecheck build
+
+      # The two lefthook hooks, re-run here over every tracked file rather than
+      # only the staged ones. A `--no-verify` commit reaches this.
+      - name: Secrets scan
+        run: |
+          set -euo pipefail
+          files="$(git ls-files)"
+          test -n "$files" || { echo "no tracked files — scan would be vacuous"; exit 1; }
+          # shellcheck disable=SC2086
+          bun run tools/tool-git-hooks/src/hooks/plaintext-secrets.ts $files
+
+      - name: Migration lint
+        run: |
+          set -euo pipefail
+          files="$(git ls-files '*.sql')"
+          if [ -z "$files" ]; then
+            echo "no .sql files tracked — nothing to lint"
+            exit 0
+          fi
+          # shellcheck disable=SC2086
+          bun run tools/tool-git-hooks/src/hooks/migration-lint.ts $files
+
+      - name: OpenSpec
+        run: bunx openspec validate --all --json

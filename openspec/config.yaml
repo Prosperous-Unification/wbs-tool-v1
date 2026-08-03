@@ -1,20 +1,62 @@
-schema: sdd-plus-superpowers
+schema: sdd-lean
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# sdd-lean collapses sdd-plus-superpowers' seven artifacts to four required plus
+# one optional: brainstorm+proposal -> intent, plan folded into tasks.
+# The intent artifact writes proposal.md — that filename is hardcoded in the
+# OpenSpec CLI, so a change directory without it is invisible to list/validate/archive.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+context: |
+  Read AGENTS.md before producing any artifact. Rules R1-R5 there govern every
+  artifact and every line of code. The two that bite hardest:
+
+  R5 — Unknown is not OK. Missing file, unreadable state, absent tool, malformed
+  trusted data, unexpected nullish: throw. Never default them away. Every new
+  safety check needs a negative test on its production call path, watched failing
+  with the check removed, and an adjacent `Proof:` comment naming the injected
+  fault. Checks that cannot fail have shipped here six times.
+
+  R3 — Knowledge about a symbol lives in JSDoc on that symbol. Knowledge that
+  spans files lives in docs/ and is linked from the JSDoc. CONTEXT.md is the
+  domain glossary, terms only. docs/adr/ is for decisions that are hard to
+  reverse, surprising, and had real alternatives.
+
+  Stack: Nx monorepo, Bun everywhere, never npm. be-01 (Elysia + Drizzle +
+  bun:sqlite, :3100), gw-01 (WS gateway, :3200), fe-01 (Vite + React).
+  Blue/green deploy: two be-01 processes share one SQLite file during a swap,
+  so migrations must be backward-compatible.
+
+  Use CONTEXT.md's terms exactly. If you need a term it lacks, resolve it in the
+  design interview and add it to CONTEXT.md before using it in an artifact.
+
+  There is no CI. The gate is `bunx nx run-many -t test lint typecheck`.
+
+rules:
+  intent:
+    - Max 400 words, excluding the template's HTML comments. Hard cap. If the
+      intent does not fit, the change is too big — split it.
+    - Must state problem, desired outcome, non-goals, and constraints.
+    - Alternatives belong in an ADR, not here.
+    - Run grill-with-docs alongside superpowers:brainstorming as ONE interview.
+    - Write resolved domain terms to CONTEXT.md as they resolve, not batched at the end.
+    - CONTEXT.md is a glossary only — no implementation detail, no design decisions.
+    - Create an ADR under docs/adr/ only when the decision is hard to reverse,
+      surprising, and had real alternatives. Link it; do not copy its rationale.
+    - Do not create brainstorm.md. This artifact replaced it.
+  specs:
+    - Every requirement needs at least one scenario.
+    - Scenarios use exactly four hashtags.
+  design:
+    - Only create this when the technical shape is non-trivial. Skipping it is
+      the expected case, not an exception.
+    - Do not restate rationale that already lives in a linked ADR.
+  tasks:
+    - Coherent TDD slices, not two-minute keystrokes.
+    - Each slice names the test that proves it.
+    - A slice that adds a safety check must also name the negative test proving
+      the check fails when the guarded thing is broken.
+    - Do not create plan.md. This artifact absorbed it.
+  verify:
+    - 'Include a failure-proof table. For each new or changed check: the fault
+      injected, the test that observed it failing, and the result.'
+    - A check with no observed failure is not done. Reasoning is not proof.
+    - Record the actual output of `bunx nx run-many -t test lint typecheck`.

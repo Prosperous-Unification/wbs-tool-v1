@@ -7,6 +7,12 @@ pre-commit:
     format:
       run: bunx prettier --check {staged_files}
       glob: '*.{ts,tsx,js,json,md,yml,yaml,css}'
+      # Symlinks to AGENTS.md. Prettier exits 2 on an explicitly-named symlink
+      # rather than following it, and staged_files names them explicitly, so
+      # .prettierignore does not apply. Same reason they are in .nxignore.
+      exclude:
+        - CLAUDE.md
+        - GEMINI.md
     plaintext-secrets:
       run: bun run tools/tool-git-hooks/src/hooks/plaintext-secrets.ts {staged_files}
     migration-lint:

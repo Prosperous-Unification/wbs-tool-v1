@@ -12,3 +12,9 @@ node_modules/
 .claude/skills/
 
 /.nx/workspace-data
+
+# Symlinks to AGENTS.md, so the four agent CLIs each find the file they look
+# for. Prettier exits 2 on an explicitly-listed symlink rather than following
+# it, which fails `nx format:check`. AGENTS.md itself is still formatted.
+/CLAUDE.md
+/GEMINI.md

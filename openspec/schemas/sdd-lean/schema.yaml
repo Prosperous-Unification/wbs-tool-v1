@@ -1,0 +1,190 @@
+name: sdd-lean
+version: 1
+description: >
+  Spec-driven workflow: intent → specs → tasks → verify, with design optional.
+  Collapses sdd-plus-superpowers' seven artifacts to four required plus one
+  optional. `brainstorm` and `proposal` merge into `intent`; `plan` folds into
+  `tasks`. The intent interview runs superpowers:brainstorming and
+  grill-with-docs together, so domain vocabulary lands in CONTEXT.md and
+  hard-to-reverse decisions land in docs/adr/ as they are made.
+
+  The `intent` artifact writes `proposal.md`, not `intent.md`. That filename is
+  hardcoded in the OpenSpec CLI (utils/item-discovery.js, core/archive.js,
+  commands/change.js): a change directory without `proposal.md` is invisible to
+  `openspec list`, `openspec validate --all`, and `openspec archive`. The
+  artifact id is `intent` because that is what it captures; the filename is a
+  compatibility constraint, not a naming choice.
+
+  Apply uses git worktrees + subagent-driven-development, which brings TDD and
+  code-review transitively.
+
+artifacts:
+  - id: intent
+    generates: proposal.md
+    description: Problem, outcome and non-goals, from one combined design interview
+    template: proposal.md
+    instruction: |
+      Run ONE design interview using both skills together:
+      - Skill tool → **superpowers:brainstorming** for approach exploration
+      - Skill tool → **grill-with-docs** for domain language and decisions
+
+      IMPORTANT output redirection:
+      - Do NOT write to `docs/superpowers/specs/`. The interview's conclusions
+        go into this change's `proposal.md`.
+      - Do NOT create a separate `brainstorm.md`. This artifact replaces it.
+
+      During the interview:
+      - When a domain term resolves, write it to root `CONTEXT.md` immediately.
+        Do not batch them. `CONTEXT.md` is a glossary ONLY — no implementation
+        detail, no design decisions, no specs.
+      - Create an ADR under `docs/adr/` only when the decision is hard to
+        reverse, surprising, AND had real alternatives. All three, or no ADR.
+        Link it from proposal.md. Do not copy its rationale into proposal.md
+        or design.md — the link is the point.
+
+      Then write proposal.md from the template.
+
+      HARD CAP: 400 words, excluding the template's HTML comments. Alternatives
+      belong in an ADR. Approach detail belongs in design.md if it is needed at
+      all. If you cannot state the intent in 400 words, the change is too big —
+      split it.
+
+      The `## Why` and `## What Changes` headers are required by OpenSpec's
+      validator and `## Why` must be 50-1000 characters. The Capabilities
+      section is the contract with the specs artifact: every capability listed
+      there needs a spec file.
+    requires: []
+
+  - id: specs
+    generates: 'specs/**/*.md'
+    description: Delta specs defining WHAT the system should do
+    template: spec.md
+    instruction: |
+      Create one spec file per capability listed in proposal.md's Capabilities
+      section.
+      - New capabilities: specs/<capability>/spec.md, kebab-case, matching the
+        proposal exactly.
+      - Modified capabilities: reuse the existing folder name from
+        openspec/specs/<capability>/.
+
+      Delta operations (## headers):
+      - **ADDED Requirements**
+      - **MODIFIED Requirements** — MUST include the full updated content
+      - **REMOVED Requirements** — MUST include **Reason** and **Migration**
+      - **RENAMED Requirements** — FROM:/TO: format
+
+      Format:
+      - `### Requirement: <name>` followed by the description
+      - SHALL/MUST for normative requirements. Never should/may.
+      - `#### Scenario: <name>` with WHEN/THEN
+      - **CRITICAL**: scenarios use exactly four hashtags. Three hashtags or a
+        bullet fails silently.
+      - Every requirement needs at least one scenario.
+
+      Each scenario is a test case. Write them so they can be executed.
+    requires:
+      - intent
+
+  - id: design
+    generates: design.md
+    description: Technical shape — only when it is non-trivial
+    template: design.md
+    instruction: |
+      OPTIONAL. Create this only when the technical shape is non-trivial:
+      cross-app flow, a migration, a security boundary, or deploy sequencing.
+      A change that is obvious once the specs are read does not need it. Skipping
+      this artifact is the expected case, not an exception.
+
+      Sections: Context, Goals / Non-Goals, Decisions, Risks / Trade-offs,
+      Migration Plan, Open Questions.
+
+      Do not restate rationale that already lives in a linked ADR. Link it.
+      Architecture and approach only, never line-by-line implementation.
+    requires:
+      - intent
+
+  - id: tasks
+    generates: tasks.md
+    description: Ordered TDD slices — this artifact absorbs the old plan.md
+    template: tasks.md
+    instruction: |
+      Break the implementation into ordered, testable slices. There is NO
+      separate plan artifact — do not create plan.md.
+
+      **Follow the template exactly.** The apply phase parses `- [ ]` checkboxes
+      to track progress; anything else is untracked.
+
+      Each slice:
+      - is a checkbox: `- [ ] X.Y <description>`
+      - names the test that proves it
+      - is a coherent unit of behavior, not a two-minute keystroke. "Add a
+        failing test for X, then make it pass" is one slice, not two.
+      - is ordered by dependency
+
+      Where a slice adds a safety check, the slice MUST also name the negative
+      test that proves the check fails when the thing it guards is broken. See
+      AGENTS.md, "Non-vacuous checks". A slice that adds a check with no
+      negative test is incomplete.
+    requires:
+      - specs
+
+  - id: verify
+    generates: verify.md
+    description: Post-implementation verification, including failure proofs
+    template: verify.md
+    instruction: |
+      Use the Skill tool to invoke **openspec-verify-change**.
+
+      TIMING: verify.md is produced AFTER apply completes, not during planning.
+      The `requires: [tasks]` edge exists for the schema graph only.
+
+      Record in verify.md:
+
+      1. **Structural validation** — run `openspec validate --all --json`;
+         every item must be `"valid": true`.
+      2. **Task completion** — every checkbox `- [x]`. Document any remaining
+         `- [ ]` and whether it blocks archive.
+      3. **Delta spec sync** — for each dir under `specs/`, one of: ✓ synced /
+         ✗ needs sync / N/A.
+      4. **Failure-proof table** — REQUIRED. For every new or changed safety
+         check: the fault injected, the test that observed it failing, and the
+         result. A check with no proof is not done. Checks that cannot fail have
+         shipped in this repo six times; this table is why the artifact exists.
+      5. **Gate output** — the actual output of
+         `bunx nx run-many -t test lint typecheck`. There is no CI; this is the
+         only gate.
+      6. **Implementation signal** — no unstaged files; cite the commit range.
+
+      Re-run as often as needed; each run overwrites verify.md.
+    requires:
+      - tasks
+
+apply:
+  requires: [tasks]
+  tracks: tasks.md
+  instruction: |
+    1. **Workspace**: Skill tool → **superpowers:using-git-worktrees** for an
+       isolated worktree.
+
+    2. **Executor**: Skill tool → **superpowers:subagent-driven-development**,
+       executing the slices in tasks.md with a fresh subagent per slice.
+
+       Tell the executor to read tasks.md in this change directory, update its
+       checkboxes as slices complete, and work inside the worktree.
+
+       Transitive — do NOT invoke these manually:
+       - **superpowers:test-driven-development** — RED-GREEN-REFACTOR per slice.
+         Implementation written before a failing test is deleted.
+       - **superpowers:requesting-code-review** — a reviewer subagent after each
+         slice, plus a final review before apply concludes.
+
+       Fallback only where subagents are unavailable: **superpowers:executing-plans**,
+       which does NOT bring TDD or code-review. You then owe both manually.
+
+    3. **Debugging**: unexpected failures go through
+       **superpowers:systematic-debugging** before any fix is proposed.
+
+    4. **Verification**: produce the `verify` artifact. Re-run until no blocking
+       issues remain. The failure-proof table is not optional.
+
+    5. **Completion**: Skill tool → **superpowers:finishing-a-development-branch**.
