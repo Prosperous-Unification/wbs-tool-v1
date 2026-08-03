@@ -90,5 +90,13 @@ jobs:
           # shellcheck disable=SC2086
           bun run tools/tool-git-hooks/src/hooks/migration-lint.ts $files
 
+      # The scope and version are both explicit on purpose. `bunx openspec`
+      # resolves an unrelated package on npm that has no bin, so the step died
+      # with "could not determine executable" rather than validating anything;
+      # it only worked locally because volta has the real CLI on PATH. Pinning
+      # the version stops a CLI release from changing what this gate means.
+      #
+      # Proof: with a change's scenarios written `###` instead of `####`,
+      # this exits 1 with failed: 1. Restored, it exits 0 with passed: 2.
       - name: OpenSpec
-        run: bunx openspec validate --all --json
+        run: bunx @fission-ai/openspec@1.3.0 validate --all --json
