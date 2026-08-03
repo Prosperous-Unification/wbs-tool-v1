@@ -37,7 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Full history: with the default depth of 1 the `main` ref is absent, and
+      # nx falls back to a different file scope rather than failing. Depth 0
+      # also keeps `nx affected` usable if this ever moves off run-many.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -53,8 +58,13 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      # --all, not the default base..HEAD comparison. Without it the scope is
+      # whatever `git diff main HEAD` returns, which is EMPTY on a push to main
+      # — a format gate that checks nothing and passes. When the base ref is
+      # missing entirely, nx silently widens to all files instead of failing.
+      # Both are scope that moves without saying so. --all does not move.
       - name: Format
-        run: bunx nx format:check
+        run: bunx nx format:check --all
 
       - name: Gate — test, lint, typecheck, build
         run: bunx nx run-many -t test lint typecheck build

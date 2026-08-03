@@ -4,6 +4,14 @@ coverage/
 node_modules/
 *.gen.ts
 
+# drizzle-kit writes these; reformatting them fights the generator on the next
+# `drizzle-kit generate`, exactly as with *.gen.ts above.
+apps/be-01/drizzle/**/snapshot.json
+
+# Sibling checkouts of this same repo. Their contents belong to whatever commit
+# that worktree has out, so formatting them here is both wrong and unstable.
+.worktrees/
+
 *.env.sops
 
 # Vendored skill definitions — content-hashed in skills-lock.json, so
