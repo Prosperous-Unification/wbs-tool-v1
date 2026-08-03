@@ -9,6 +9,7 @@ import drizzle from 'eslint-plugin-drizzle';
 import unusedImports from 'eslint-plugin-unused-imports';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
 import unicorn from 'eslint-plugin-unicorn';
+import jsdoc from 'eslint-plugin-jsdoc';
 import prettier from 'eslint-config-prettier';
 import nxPlugin from '@nx/eslint-plugin';
 
@@ -160,6 +161,40 @@ export default [
           ],
         },
       ],
+    },
+  },
+
+  // AGENTS.md R3: knowledge about a symbol lives in JSDoc on that symbol.
+  //
+  // Deliberately NOT `jsdoc/require-jsdoc`. A rule demanding a comment on every
+  // export is satisfied by `/** The user service. */ class UserService` — it can
+  // be silenced without conveying anything, so it cannot fail in the only sense
+  // that matters. That is the exact defect class R5 exists to stop, and adding
+  // it as an R3 enforcement would be self-defeating.
+  //
+  // These rules instead check that JSDoc which DOES exist is true: that its
+  // parameter names match the signature, that its tags are real, and that it
+  // does not restate types the compiler already knows. Whether a symbol needs
+  // documenting at all stays a review judgement, as it has to.
+  {
+    files: ['**/*.{ts,tsx}'],
+    plugins: { jsdoc },
+    rules: {
+      // A @param naming an argument that does not exist is worse than no
+      // @param: it describes a signature that is not there.
+      'jsdoc/check-param-names': 'error',
+      'jsdoc/check-tag-names': ['error', { typed: true }],
+      'jsdoc/check-alignment': 'error',
+      'jsdoc/no-undefined-types': 'off',
+      // TypeScript owns the types. `@param {string} name` duplicates the
+      // signature and goes stale independently of it.
+      'jsdoc/no-types': 'error',
+      // An empty `@param foo` or a bare `@returns` is the vacuous form again —
+      // if the tag is present it has to carry information.
+      'jsdoc/require-param-description': 'error',
+      'jsdoc/require-returns-description': 'error',
+      'jsdoc/empty-tags': 'error',
+      'jsdoc/no-multi-asterisks': 'error',
     },
   },
 

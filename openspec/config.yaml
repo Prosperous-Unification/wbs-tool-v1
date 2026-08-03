@@ -36,7 +36,11 @@ rules:
       intent does not fit, the change is too big — split it.
     - Must state problem, desired outcome, non-goals, and constraints.
     - Alternatives belong in an ADR, not here.
-    - Run grill-with-docs alongside superpowers:brainstorming as ONE interview.
+    - Run grilling and domain-modeling alongside superpowers:brainstorming as ONE
+      interview. Not grill-with-docs — it is a router marked
+      disable-model-invocation, so an agent cannot invoke it.
+    - CONTEXT.md and ADR format come from .agents/skills/domain-modeling/. Do not
+      invent a second format.
     - Write resolved domain terms to CONTEXT.md as they resolve, not batched at the end.
     - CONTEXT.md is a glossary only — no implementation detail, no design decisions.
     - Create an ADR under docs/adr/ only when the decision is hard to reverse,

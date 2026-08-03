@@ -1,0 +1,21 @@
+{
+  "name": "tool-dev-setup",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/dev",
+  "projectType": "library",
+  "tags": ["scope:infra", "type:scripts", "runtime:bun"],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "options": { "command": "bun test", "cwd": "tools/dev" }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": { "command": "bunx eslint tools/dev" }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": { "command": "bunx tsc --noEmit -p tools/dev/tsconfig.json" }
+    }
+  }
+}

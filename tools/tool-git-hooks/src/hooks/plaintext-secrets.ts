@@ -13,8 +13,43 @@ export interface ScanResult {
   finding: string;
 }
 
+/** Thrown when a file could not be read, so its contents were never scanned. */
+export class UnscannableFileError extends Error {
+  constructor(
+    readonly file: string,
+    readonly readError: unknown,
+  ) {
+    super(`${file}: could not be read, so it was never scanned for secrets`);
+    this.name = 'UnscannableFileError';
+  }
+}
+
+/**
+ * Scans one file, returning the first pattern that matches or `null` for clean.
+ *
+ * Read failures throw rather than resolving to `''`. They used to be swallowed
+ * with `.catch(() => '')`, which made an unreadable file scan as clean — the
+ * scanner's answer for "this file definitely holds no secret" and its answer
+ * for "I never looked" were the same value. That is the whole reason this hook
+ * exists inverted: a secret in a file the scanner cannot open is exactly the
+ * case where a silent pass is most expensive.
+ *
+ * ENOENT is the one modeled absence: lefthook passes staged paths, and a commit
+ * that deletes a file stages a path that is already gone. Nothing to scan there
+ * is the truth, not a guess. Every other errno — EACCES, EISDIR, EIO — means
+ * the file exists and was not read, and is raised.
+ *
+ * Proof: `scan()` on a chmod-000 file throws UnscannableFileError; on a missing
+ * path it returns null. See hooks.test.ts, "unreadable file".
+ */
 export async function scan(file: string): Promise<ScanResult | null> {
-  const raw = await readFile(file, 'utf8').catch(() => '');
+  let raw: string;
+  try {
+    raw = await readFile(file, 'utf8');
+  } catch (e: unknown) {
+    if (e !== null && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') return null;
+    throw new UnscannableFileError(file, e);
+  }
   for (const p of PATTERNS) {
     if (p.re.test(raw)) return { file, finding: p.name };
   }
@@ -24,15 +59,28 @@ export async function scan(file: string): Promise<ScanResult | null> {
 async function main(): Promise<void> {
   const files = process.argv.slice(2);
   const findings: ScanResult[] = [];
+  const unscannable: UnscannableFileError[] = [];
   for (const f of files) {
-    const hit = await scan(f);
-    if (hit) findings.push(hit);
+    try {
+      const hit = await scan(f);
+      if (hit) findings.push(hit);
+    } catch (e: unknown) {
+      // Collected rather than thrown immediately so one unreadable file does
+      // not hide a real secret in a later one. Both abort.
+      if (e instanceof UnscannableFileError) unscannable.push(e);
+      else throw e;
+    }
   }
   if (findings.length > 0) {
     console.error('[tool-git-hooks] plaintext secret detected — aborting commit:');
     for (const f of findings) console.error(`  ${f.file}: ${f.finding}`);
-    process.exit(1);
   }
+  if (unscannable.length > 0) {
+    console.error('[tool-git-hooks] files could not be scanned — aborting rather than assuming');
+    console.error('  they are clean. Fix permissions, or remove them from the scan set.');
+    for (const u of unscannable) console.error(`  ${u.file}`);
+  }
+  if (findings.length > 0 || unscannable.length > 0) process.exit(1);
 }
 
 if (import.meta.main) {

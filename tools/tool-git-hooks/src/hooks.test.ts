@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,7 +6,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { isConventional } from './hooks/conventional';
 import { lintMigration } from './hooks/migration-lint';
-import { scan } from './hooks/plaintext-secrets';
+import { scan, UnscannableFileError } from './hooks/plaintext-secrets';
 
 describe('conventional', () => {
   it('accepts conventional subjects', () => {
@@ -41,6 +41,31 @@ describe('plaintext-secrets.scan', () => {
     const f = join(d, 'clean.env');
     await writeFile(f, 'PORT=3000\n', 'utf8');
     expect(await scan(f)).toBeNull();
+  });
+
+  // The negative test for the read path. scan() used to `.catch(() => '')`, so
+  // a file it could not open scanned as clean — "definitely no secret" and "I
+  // never looked" were the same answer. These two cases are what separate them.
+  it('throws on an unreadable file rather than reporting it clean', async () => {
+    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    const f = join(d, 'locked.env');
+    const fakeAwsKey = ['AKIA', 'ABCDEFGHIJKLMNOP'].join('');
+    await writeFile(f, `AWS_KEY=${fakeAwsKey}\n`, 'utf8');
+    await chmod(f, 0o000);
+    try {
+      // The file genuinely holds a secret, so a `null` here would be the exact
+      // false clean the old code produced.
+      expect(scan(f)).rejects.toThrow(UnscannableFileError);
+    } finally {
+      await chmod(f, 0o600);
+    }
+  });
+
+  it('returns null for a path that does not exist', async () => {
+    // ENOENT is the one modeled absence: a commit that deletes a file stages a
+    // path that is already gone. Nothing to scan there is the truth.
+    const d = await mkdtemp(join(tmpdir(), 'hooks-'));
+    expect(await scan(join(d, 'never-existed.env'))).toBeNull();
   });
 });
 

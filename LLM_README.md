@@ -19,17 +19,23 @@ Tool choices bias novel over mainstream (Bun, Elysia, ArkType, Dagger) on purpos
 ## Commands
 
 ```sh
-bun install                               # first, on a fresh clone
-bun run dev:setup                         # writes the .env files dev needs
-bunx nx run-many -t test lint typecheck   # the gate; run before claiming done
-bun run dev                               # be + gw + fe locally
+bun install                                     # first, on a fresh clone
+bun run dev:setup                               # writes the .env files dev needs
+bunx nx format:check --all                      # the gate, part 1
+bunx nx run-many -t test lint typecheck build   # the gate, part 2
+bun run dev                                     # be + gw + fe locally
 ```
 
-`bun test` from the repo root is **not** the whole suite — fe-01's tests don't run through it. The
-Nx gate above is the reliable command. `nx run-many -t build` additionally needs `shellcheck`
-installed (`brew install shellcheck`); it is no longer allowed to skip itself when absent.
+`bun test` from the repo root is **not** the whole suite — it runs 0 of fe-01's test files, which
+are Vitest/jsdom and invisible to `bun:test`, and reports a clean run anyway. `build` needs
+`shellcheck` (`brew install shellcheck`); it is no longer allowed to skip itself when absent.
 
-lefthook runs prettier, eslint, a secrets scan and migration lint pre-commit. Never `--no-verify`.
+**Rules: `AGENTS.md`** (symlinked to CLAUDE.md/GEMINI.md) — read it, it governs every change.
+
+`.github/workflows/ci.yml` runs the gate above plus the secrets scan, migration lint and
+`openspec validate` on every push and PR. lefthook runs a subset pre-commit and `--no-verify`
+skips it; CI is not skippable. Format uses `--all` on purpose: the default base-ref comparison
+checks nothing on a push to main.
 
 ## Deploy
 
@@ -95,15 +101,23 @@ reinstalled after this change or `assertBundleInstalled` will (correctly) refuse
    from a commit carrying a migration reports progress and leaves the DB unmigrated.
 5. Health endpoints are status flags, not dependency checks. be-01 trusts an in-memory boolean,
    gw-01's is unconditional. Break `BE_URL` or delete the SQLite file and both still report 200.
+6. `swap.js`'s `readRecordedColor` collapses absent, unreadable and malformed state files to
+   `null` — the same defect already fixed in `tool-deploy`'s `readRemoteState`, in the file that
+   decides which colour is live. Found by scan, not yet fixed; needs deploy-semantics judgement.
+7. `configure.sh:182` — `grep -v '^REGISTRY_PASS=' .env > tmp 2>/dev/null || true`. On first run
+   the absent `.env` is the intended case, but an **unreadable** `.env` also yields an empty tmp,
+   and the next line `mv`s it into place: every other app secret in that file is silently dropped.
 
 Also known, lower priority: fe/smoke health accepts any non-empty body; the WS smoke passes on any
 first message _containing_ `"pong"`; gateway drain reads a malformed metrics body as zero live
 sockets; `tool-secrets` is a placeholder that only prints what it would run, despite its README.
 
-Checks-that-cannot-fail have appeared **six** times here — `assertPragmas` with no runtime caller,
-the migration lint's unreachable `ALTER TABLE ... RENAME COLUMN` branch, `readRemoteState` reading an
-unreadable file as never-deployed, and `shellcheck … || echo` are the ones already fixed. Prove your
-check fails when the thing is broken, and say so in the comment.
+Checks-that-cannot-fail have appeared **eight** times here. Fixed: `assertPragmas` with no runtime
+caller, the migration lint's unreachable `ALTER TABLE ... RENAME COLUMN` branch, `readRemoteState`
+reading an unreadable file as never-deployed, `shellcheck … || echo`, the secrets scanner's
+`.catch(() => '')` (an unreadable file scanned as clean — in a CI gate), and `dev:setup` skipping a
+missing `.env.example`. Open: findings 6 and 7 above. Prove your check fails when the thing is
+broken, and say so in the comment — see AGENTS.md R5.
 
 ## More
 

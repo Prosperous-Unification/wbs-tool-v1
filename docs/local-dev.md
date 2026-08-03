@@ -10,7 +10,10 @@ bun install
 bun run dev:setup        # copies apps/*/.env.example → apps/*/.env (non-destructive)
 ```
 
-That seeds three local env files with safe dev-only defaults:
+That seeds three local env files with safe dev-only defaults. It never overwrites
+an existing `.env`, and it **fails** rather than skipping if a committed
+`.env.example` is missing — that means the checkout is incomplete, and seeding
+around it only moves the failure to an unexplained crash at serve time.
 
 | File              | Purpose                                              |
 | ----------------- | ---------------------------------------------------- |
@@ -72,11 +75,19 @@ Expected:
 ## Tests / lint / typecheck
 
 ```bash
-bun test                     # bun:test suite across libs + apps + tools
-bun run lint                 # ESLint flat config across the whole workspace
-bun run typecheck            # tsc --noEmit per project
-bun run format               # prettier --write
+bunx nx run-many -t test lint typecheck build   # the gate — what CI runs
+bunx nx format:check --all                      # also what CI runs
+bun run format                                  # prettier --write
 ```
+
+Use the Nx gate, not root `bun test`. Root `bun test` runs **0** of `fe-01`'s
+test files — they are Vitest + jsdom and `bun:test` does not discover them, so
+it reports a clean run having never looked at the frontend. Measured: root
+`bun test` = 357 tests / 50 files with nothing from `apps/fe-01`;
+`bunx nx test fe-01` = 5 tests / 2 files.
+
+`build` needs `shellcheck` on PATH (`brew install shellcheck`) and is no longer
+allowed to skip itself when it is absent.
 
 Scoped variants:
 

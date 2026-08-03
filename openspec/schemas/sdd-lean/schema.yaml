@@ -5,7 +5,7 @@ description: >
   Collapses sdd-plus-superpowers' seven artifacts to four required plus one
   optional. `brainstorm` and `proposal` merge into `intent`; `plan` folds into
   `tasks`. The intent interview runs superpowers:brainstorming and
-  grill-with-docs together, so domain vocabulary lands in CONTEXT.md and
+  grilling + domain-modeling together, so domain vocabulary lands in CONTEXT.md and
   hard-to-reverse decisions land in docs/adr/ as they are made.
 
   The `intent` artifact writes `proposal.md`, not `intent.md`. That filename is
@@ -24,9 +24,19 @@ artifacts:
     description: Problem, outcome and non-goals, from one combined design interview
     template: proposal.md
     instruction: |
-      Run ONE design interview using both skills together:
+      Run ONE design interview using these skills together:
       - Skill tool → **superpowers:brainstorming** for approach exploration
-      - Skill tool → **grill-with-docs** for domain language and decisions
+      - Skill tool → **grilling** for adversarial stress-testing of the plan
+      - Skill tool → **domain-modeling** for CONTEXT.md terms and docs/adr/
+
+      Do NOT invoke `grill-with-docs`. It is a two-line router to the two
+      skills above and is marked `disable-model-invocation: true`, so an agent
+      cannot invoke it — only a human typing `/grill-with-docs` can. Calling
+      the two skills directly is the same work without the dead hop.
+
+      `domain-modeling` carries the canonical CONTEXT-FORMAT.md and
+      ADR-FORMAT.md in `.agents/skills/domain-modeling/`. Those are the format
+      of record. Do not invent a second one.
 
       IMPORTANT output redirection:
       - Do NOT write to `docs/superpowers/specs/`. The interview's conclusions
@@ -151,8 +161,9 @@ artifacts:
          result. A check with no proof is not done. Checks that cannot fail have
          shipped in this repo six times; this table is why the artifact exists.
       5. **Gate output** — the actual output of
-         `bunx nx run-many -t test lint typecheck`. There is no CI; this is the
-         only gate.
+         `bunx nx format:check --all` and
+         `bunx nx run-many -t test lint typecheck build`. CI runs the same
+         commands on every push and PR, so a red verify.md is a red CI.
       6. **Implementation signal** — no unstaged files; cite the commit range.
 
       Re-run as often as needed; each run overwrites verify.md.

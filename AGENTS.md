@@ -89,9 +89,14 @@ Checks that cannot fail have shipped here six times. This is the rule that stops
   that restore an already-precise spec.
 - Intent first: problem, desired outcome, non-goals, constraints. Max 400 words.
   Alternatives belong in an ADR, not in the intent.
-- One design interview, both skills together: `superpowers:brainstorming` for
-  approach exploration and `grill-with-docs` for domain language. Resolved terms go
-  into `CONTEXT.md` as they resolve, not batched at the end.
+- One design interview, three skills together: `superpowers:brainstorming` for
+  approach exploration, `grilling` to stress-test it, `domain-modeling` for the
+  vocabulary. Resolved terms go into `CONTEXT.md` as they resolve, not batched at
+  the end. Not `grill-with-docs` — it is a router marked
+  `disable-model-invocation`, so only a human typing `/grill-with-docs` reaches it.
+- `CONTEXT.md` and ADR format come from `.agents/skills/domain-modeling/`
+  (`CONTEXT-FORMAT.md`, `ADR-FORMAT.md`). That is the format of record; neither
+  file is stubbed in advance, so the first real term creates it in that shape.
 - Delta specs carry testable behavior. `design.md` only when the technical shape is
   non-trivial.
 - `tasks.md` holds ordered TDD slices. There is no separate plan artifact.
