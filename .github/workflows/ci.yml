@@ -66,8 +66,20 @@ jobs:
       - name: Format
         run: bunx nx format:check --all
 
+      # --parallel=2 is pinned, not tuned. `gw-01:test` runs `bun test --coverage`
+      # and began dying part-way through writing its coverage table on the branch
+      # that added a 20th project — every test in it passing, no assertion
+      # failing, just a non-zero exit. It reproduced in roughly two runs out of
+      # three there and never once in twelve local runs, while main stayed green
+      # across four. That profile is resource contention on the runner, not a
+      # defect in gw-01.
+      #
+      # The reason to pin rather than retry: a gate whose verdict depends on how
+      # many unrelated tasks happen to be co-running is not reporting on the code.
+      # Left alone it would have become the gate people re-run until it is green,
+      # which is a check that cannot fail wearing a different hat.
       - name: Gate — test, lint, typecheck, build
-        run: bunx nx run-many -t test lint typecheck build
+        run: bunx nx run-many -t test lint typecheck build --parallel=2
 
       # The two lefthook hooks, re-run here over every tracked file rather than
       # only the staged ones. A `--no-verify` commit reaches this.
