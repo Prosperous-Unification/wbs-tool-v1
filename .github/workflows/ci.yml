@@ -44,9 +44,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Pinned, not `latest`. The coverage-report flake fixed in #6 was a timing
+      # race inside bun's own output write, so the runtime version is part of
+      # what this gate is testing. On `latest` a bun release can change the
+      # verdict with no commit to attribute it to, and the next person debugging
+      # a red main has no version to bisect against. Bump deliberately.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       # `nx run-many -t build` shellchecks the deploy scripts and is no longer
       # allowed to skip itself when shellcheck is absent. ubuntu-latest ships
@@ -66,18 +71,30 @@ jobs:
       - name: Format
         run: bunx nx format:check --all
 
-      # --parallel=2 is pinned, not tuned. `gw-01:test` runs `bun test --coverage`
-      # and began dying part-way through writing its coverage table on the branch
-      # that added a 20th project — every test in it passing, no assertion
-      # failing, just a non-zero exit. It reproduced in roughly two runs out of
-      # three there and never once in twelve local runs, while main stayed green
-      # across four. That profile is resource contention on the runner, not a
-      # defect in gw-01.
+      # --parallel=2 is pinned, not tuned, and it is NOT what fixed the coverage
+      # flake — an earlier version of this comment claimed it was.
       #
-      # The reason to pin rather than retry: a gate whose verdict depends on how
-      # many unrelated tasks happen to be co-running is not reporting on the code.
-      # Left alone it would have become the gate people re-run until it is green,
-      # which is a check that cannot fail wearing a different hat.
+      # The flake: `bun test --coverage` exiting 1 with every test passing,
+      # dying part-way through the `All files` row of its coverage table. It was
+      # blamed here on resource contention on the runner. It is not that. All of
+      # bun's test output goes to stderr, and A/B on h1claw — alternating within
+      # one loop, full gate each round — put it in the write itself:
+      #
+      #   stderr -> nx's pipe   4 failures / 8 gate runs
+      #   stderr -> a file      0 failures / 8 gate runs
+      #
+      # Cumulative 9 failures in 22 piped runs, 0 in 18 redirected. Exit code
+      # was 1 across 152 instrumented invocations — not 137 (OOM) or 139
+      # (SIGSEGV) — with 1.2-1.6 GB free at each failure, and 120 invocations
+      # under heavy tsc/eslint load never reproduced it. Under strace it
+      # vanishes, so it is a race, and the errno is uncaptured. #6 fixed it by
+      # writing lcov instead of streaming the table.
+      #
+      # --parallel=2 stays because a gate whose verdict depends on how many
+      # unrelated tasks happen to be co-running is not reporting on the code.
+      # The same reasoning rules out a retry: it would have become the gate
+      # people re-run until it is green, a check that cannot fail wearing a
+      # different hat.
       - name: Gate — test, lint, typecheck, build
         run: bunx nx run-many -t test lint typecheck build --parallel=2
 
