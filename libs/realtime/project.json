@@ -11,7 +11,10 @@
     },
     "test": {
       "executor": "nx:run-commands",
-      "options": { "command": "bun test --coverage", "cwd": "libs/realtime" },
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/realtime"
+      },
       "outputs": ["{projectRoot}/coverage"]
     },
     "typecheck": {

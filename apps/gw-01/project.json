@@ -24,7 +24,7 @@
     },
     "test": {
       "executor": "nx:run-commands",
-      "options": { "command": "bun test --coverage", "cwd": "apps/gw-01" },
+      "options": { "command": "bun test --coverage --coverage-reporter=lcov", "cwd": "apps/gw-01" },
       "outputs": ["{projectRoot}/coverage"]
     },
     "typecheck": {

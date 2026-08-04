@@ -30,7 +30,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun test --coverage",
+        "command": "bun test --coverage --coverage-reporter=lcov",
         "cwd": "apps/be-01"
       },
       "outputs": ["{projectRoot}/coverage"]

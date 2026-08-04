@@ -14,7 +14,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun test --coverage",
+        "command": "bun test --coverage --coverage-reporter=lcov",
         "cwd": "libs/domain"
       },
       "outputs": ["{projectRoot}/coverage"]
