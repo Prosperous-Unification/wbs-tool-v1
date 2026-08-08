@@ -7,13 +7,19 @@ import { POINTS } from './estimate-draft';
  * `table-layout: fixed` holds it to, in px.
  *
  * THE single source of truth for how wide anything in this table is: the
- * `<colgroup>` renders these numbers, {@link tableWidth} adds them up, and the
- * pinned offsets are prefix sums of the same numbers — so the geometry the
+ * `<colgroup>` renders these numbers, {@link tableMinWidth} adds them up, and
+ * the pinned offsets are prefix sums of the same numbers — so the geometry the
  * offsets assume is the geometry the browser lays out. The overlap this
  * replaces came from three width systems at once (declared px on the pinned
  * cells, auto table layout everywhere else, em-sized inputs inside the cells)
  * with no invariant tying any of them together, which is how a pinned Name
  * came to paint over "Depends on".
+ *
+ * These numbers are the compaction Dany asked for on 2026-08-08 ("compact
+ * every column as far as it will go"), and every one of them is a figure the
+ * browser gate measures rather than a preference: the table has to fit a
+ * 1280px laptop with two roles folded, and `752 + 2×96 + 200` is what makes
+ * that true. `name` is deliberately absent — see {@link FLEXIBLE_COLUMNS}.
  *
  * A `Map` rather than a plain object because the id being looked up is a
  * column id from the table model, not a key known here: a `Record<string,
@@ -21,29 +27,77 @@ import { POINTS } from './estimate-draft';
  * code, which is precisely the check that must not be dead.
  */
 const COLUMN_WIDTHS = new Map<string, number>([
-  ['drag', 28],
-  ['number', 168],
-  ['name', 360],
-  ['depends', 220],
-  ['team', 160],
-  ['final-total', 70],
-  ['not-before', 130],
-  ['start', 70],
-  ['finish', 70],
-  ['float', 90],
-  ['notes', 260],
-  ['actions', 110],
+  // The handle and nothing else. 28 was room for a handle and a hover target;
+  // the glyph is the hover target.
+  ['drag', 24],
+  // 168 fitted the deepest number beside the deepest indent. 100 fits it
+  // beside {@link indentFor}'s shorter step, and a number deeper than that
+  // clips rather than setting the width of every row above it.
+  ['number', 100],
+  // No `name`: it is the column that absorbs whatever the others leave.
+  ['depends', 110],
+  ['team', 120],
+  ['final-total', 52],
+  // The one column this repository does not get to choose. A native date
+  // input's own furniture — the separators, the spinner and the picker icon —
+  // sets a floor, and the browser gate measures it rather than arguing with
+  // it: an unconstrained `input[type=date]` in the table's font asks Chromium
+  // for **138px**, so the column is that plus {@link CELL}'s 8px of padding.
+  // The plan proposed 108; a browser said no, and the assertion is what the
+  // number moves with if a future one asks for more.
+  ['not-before', 146],
+  ['start', 52],
+  ['finish', 52],
+  ['float', 56],
+  // No `notes`: a work item's notes are typed under its name, in the Name
+  // cell, and the column they had of their own is gone. 260px of a table that
+  // has to lose about 500 to stop scrolling sideways at 1280.
+  // One ⋯ button, not a pair of labelled ones: 110 was the width Duplicate and
+  // Delete needed side by side, and the menu they moved into hangs off this
+  // cell rather than living in it.
+  ['actions', 40],
 ]);
+
+/**
+ * The columns with no declared width, which take what the fixed ones leave.
+ *
+ * A table that fits the window is a table with one column that is not a
+ * number: everything else is a figure, a date or a control of a known size,
+ * and the name is the sentence that should have the rest. So the `<colgroup>`
+ * emits no `<col width>` for these and `table-layout: fixed` divides the
+ * remainder among them.
+ *
+ * A set, not a sentinel width. {@link widthFor} keeps throwing on anything it
+ * has no number for, because a flexible column and an unsized one look
+ * identical to a caller that gets a plausible number back — and the caller
+ * that must not get one is the pinned-offset arithmetic. Membership here is
+ * the question to ask instead.
+ */
+export const FLEXIBLE_COLUMNS: ReadonlySet<string> = new Set(['name']);
+
+/**
+ * The narrowest a flexible column is allowed to become, in px.
+ *
+ * It is what {@link tableMinWidth} budgets for the Name column, and it is on
+ * the cell as well: below this the table stops shrinking and the frame scrolls
+ * instead, with the pinned columns holding the left edge. 200px is about
+ * twenty-five characters of the page's font — a phrase rather than a word.
+ */
+export const FLEXIBLE_FLOOR = 200;
 
 /**
  * The widths of a role's columns, which have no fixed ids: a role is created at
  * runtime and its columns are named `<roleId>-final`, `<roleId>-<point>` and
  * `<roleId>-assignee`. Sized by suffix, because the role half of the id is
  * whatever the project called it.
+ *
+ * The folded column is the one that grew: it shows the figure *and* who is
+ * doing the work (`4.8 · Kat`) since the assignee stopped folding away with
+ * the trio. The three point boxes hold a number of days and are sized for one.
  */
-const ROLE_FINAL_WIDTH = 110;
-const ROLE_POINT_WIDTH = 76;
-const ROLE_ASSIGNEE_WIDTH = 160;
+const ROLE_FINAL_WIDTH = 96;
+const ROLE_POINT_WIDTH = 52;
+const ROLE_ASSIGNEE_WIDTH = 120;
 
 /** An id the width table has never heard of — a typo, or a new column nobody sized. */
 export class UnknownColumnError extends Error {
@@ -59,6 +113,11 @@ export class UnknownColumnError extends Error {
 
 /**
  * How wide the column with this id is laid out, in px.
+ *
+ * Never ask it about a {@link FLEXIBLE_COLUMNS} member: those have no declared
+ * width by design and this throws for them exactly as it does for a typo. That
+ * is the point — a sentinel would let the pinned-offset arithmetic add a
+ * number the browser never uses.
  *
  * @throws {UnknownColumnError} when nothing declares a width for that id.
  * Unknown is not OK here: a column that fell through to a default would be laid
@@ -78,18 +137,36 @@ export function widthFor(columnId: string): number {
 }
 
 /**
- * How wide the whole table is: the sum of the columns it is currently showing.
+ * The narrowest the whole table may be laid out, in px: every fixed column at
+ * its declared width plus {@link FLEXIBLE_FLOOR} for each flexible one.
  *
- * Set on the `<table>` so `table-layout: fixed` has a total to divide among the
- * declared columns rather than a percentage of a frame narrower than the plan.
+ * Set as `min-width` on a `<table>` that is otherwise `width: 100%`, which is
+ * the whole of how this table fits a window. Above this number there is no
+ * horizontal scroll at all and the pinning is invisible; below it the frame
+ * scrolls and the pinned columns hold the left edge, which is the backstop
+ * `sticky-table-frame` built and Dany kept.
+ *
+ * It is a per-state number rather than a constant, and that is what makes it
+ * honest: two roles folded is `752 + 192 + 200 = 1144`, one of them unfolded is
+ * `752 + 372 + 96 + 200 = 1420`. The first fits a 1280 laptop and the second
+ * does not — which is why unfolding is an accordion, and why the number is
+ * computed from the columns actually on screen rather than asserted once.
+ *
+ * @throws {UnknownColumnError} through {@link widthFor}, for a column nobody
+ * sized. A minimum that quietly omitted a column would be a table declared
+ * narrower than it lays out.
  */
-export function tableWidth(columnIds: readonly string[]): number {
-  return columnIds.reduce((total, id) => total + widthFor(id), 0);
+export function tableMinWidth(columnIds: readonly string[]): number {
+  return columnIds.reduce(
+    (total, id) => total + (FLEXIBLE_COLUMNS.has(id) ? FLEXIBLE_FLOOR : widthFor(id)),
+    0,
+  );
 }
 
 /**
  * The columns held at the left edge while the table is scrolled sideways, in
- * order from that edge, each with the width it is held to.
+ * order from that edge, each with the width it is held to — or `undefined`
+ * where the layout decides it.
  *
  * Contiguity from the edge is not a preference: `position: sticky; left` pins a
  * cell at a fixed offset, so a pinned column with an unpinned one in front of it
@@ -102,16 +179,22 @@ export function tableWidth(columnIds: readonly string[]): number {
  * each offset is the sum of the widths in front of it, so Name lands beside
  * Number only while the number this offsets by is the number the browser lays
  * Number out at. Two lists of widths is one list too many.
+ *
+ * Name being flexible does not disturb any of that, and the reason is worth
+ * stating: it is the *last* pinned column, so no offset is ever a sum that
+ * includes it. {@link PINNED_GEOMETRY} throws rather than assumes that.
  */
-export const PINNED_COLUMNS = (['drag', 'number', 'name'] as const).map((id) => ({
+export const PINNED_COLUMNS: readonly { id: string; width: number | undefined }[] = (
+  ['drag', 'number', 'name'] as const
+).map((id) => ({
   id,
-  width: widthFor(id),
+  width: FLEXIBLE_COLUMNS.has(id) ? undefined : widthFor(id),
 }));
 
 /** How many levels the Number column indents a row before it stops. */
 export const DEEPEST_INDENT = 4;
 
-const INDENT_STEP = 16;
+const INDENT_STEP = 12;
 
 /**
  * The Number cell's indent for a row `depth` levels down, in px.
@@ -122,21 +205,44 @@ const INDENT_STEP = 16;
  * would paint straight over it once the table is scrolled sideways. Past
  * {@link DEEPEST_INDENT} levels a row stops moving right; the number printed in
  * the cell still says how deep it is.
+ *
+ * The step is 12px rather than 16 because the column is 100px rather than 168:
+ * four levels take 48 of it and the number itself keeps the larger half.
  */
 export const indentFor = (depth: number): number => Math.min(depth, DEEPEST_INDENT) * INDENT_STEP;
 
-const PINNED_GEOMETRY = new Map<string, { left: number; width: number }>(
+const PINNED_GEOMETRY = new Map<string, { left: number; width: number | undefined }>(
   PINNED_COLUMNS.map((column, at) => [
     column.id,
     {
-      left: PINNED_COLUMNS.slice(0, at).reduce((total, before) => total + before.width, 0),
+      left: PINNED_COLUMNS.slice(0, at).reduce((total, before) => {
+        if (before.width === undefined) {
+          // Unknown is not OK, and this is the shape of the unknown: a
+          // flexible column's width is whatever the frame leaves over, so
+          // every column pinned after one would be pinned at an offset that is
+          // right at exactly one window size. Name is last today; this is what
+          // stops a fourth pinned column being added behind it in silence.
+          throw new Error(
+            `${before.id} has no declared width, so ${column.id} cannot be pinned after it — ` +
+              `a sticky offset is a sum of the widths in front of it and a flexible column has none.`,
+          );
+        }
+        return total + before.width;
+      }, 0),
       width: column.width,
     },
   ]),
 );
 
-/** Where a pinned column sits, or nothing when that column is not pinned. */
-export function pinnedGeometry(columnId: string): { left: number; width: number } | undefined {
+/**
+ * Where a pinned column sits, or nothing when that column is not pinned.
+ *
+ * `width` is `undefined` for a flexible column: the `<colgroup>` owns that
+ * number and there isn't one to declare here.
+ */
+export function pinnedGeometry(
+  columnId: string,
+): { left: number; width: number | undefined } | undefined {
   return PINNED_GEOMETRY.get(columnId);
 }
 
@@ -149,12 +255,27 @@ const ROW_BACKGROUND = '#fff';
  * body; a pinned body cell only crosses the cells scrolling behind it.
  *
  * The pickers inside the cells sit at `z-index: 10` and above, deliberately
- * higher than all three: an open list has to be readable over a pinned column,
- * and it closes the moment the person is done with it.
+ * higher than all of these: an open list has to be readable over a pinned
+ * column, and it closes the moment the person is done with it.
+ *
+ * {@link POPOVER_ROW_LAYER} is the fourth, and it exists because a browser
+ * found the reason. A pinned cell is `position: sticky` **with a z-index**,
+ * which makes it a stacking context — so a popover inside one is trapped in
+ * it, however high its own z-index, and the *next* row's pinned cell paints
+ * straight over it. The Name column is the only cell in this table that is
+ * both pinned and holds a popover, and the notes preview hanging off it was
+ * invisible under the row below until this layer existed. Observed on h2puni,
+ * 2026-08-08: `4px below the name cell is <textarea> in the name column, not
+ * the preview`.
+ *
+ * It sits above the other body cells and below both header layers, which is
+ * the whole of what it has to do: the preview opens downwards, over the rows,
+ * and the heading stays a heading.
  */
 const PINNED_BODY_LAYER = 1;
-const HEADER_LAYER = 2;
-const PINNED_HEADER_LAYER = 3;
+export const POPOVER_ROW_LAYER = 2;
+const HEADER_LAYER = 3;
+const PINNED_HEADER_LAYER = 4;
 
 /**
  * What every `<td>` and `<th>` carries, spread before anything a particular cell
@@ -224,11 +345,28 @@ export function pinnedCellStyle(
   return {
     position: 'sticky',
     left: pinned.left,
-    width: pinned.width,
+    // Only where there is one to declare. A flexible column's width is the
+    // `<colgroup>`'s to decide and a fixed `width` here would be a second
+    // opinion about it — the two-width-systems bug, one column along.
+    ...(pinned.width === undefined ? {} : { width: pinned.width }),
     boxSizing: 'border-box',
     background: part === 'header' ? HEADER_BACKGROUND : ROW_BACKGROUND,
     zIndex: part === 'header' ? PINNED_HEADER_LAYER : PINNED_BODY_LAYER,
   };
+}
+
+/**
+ * What one cell carries because its column is flexible, or nothing when it is
+ * not.
+ *
+ * The floor, on the cell as well as in {@link tableMinWidth}. The table's own
+ * `min-width` is what really holds it — under `table-layout: fixed` a cell does
+ * not get a vote on its column's width — and this is the belt that says so
+ * where a reader of the markup is looking, and that keeps the cell honest if
+ * the table is ever laid out any other way.
+ */
+export function flexibleCellStyle(columnId: string): CSSProperties | undefined {
+  return FLEXIBLE_COLUMNS.has(columnId) ? { minWidth: FLEXIBLE_FLOOR } : undefined;
 }
 
 /**

@@ -36,11 +36,17 @@ const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 let dir: string;
 let app: ReturnType<typeof buildApp>;
+/**
+ * The same journal the app writes through, kept so a test can read the stack
+ * it left behind rather than infer it from what undo happens to answer.
+ */
+let journal: CommandJournalRepository;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wbs-undo-http-'));
   const db = openDrizzle(join(dir, 'test.db'));
   runMigrations(join(dir, 'test.db'), FOLDER);
+  journal = new CommandJournalRepository(db);
 
   const projects = new ProjectRepository(db);
   const workItems = new WorkItemRepository(db);
@@ -59,7 +65,7 @@ beforeEach(() => {
       dependencies,
       directory,
       subtrees: new SubtreeRepository(db),
-      journal: new CommandJournalRepository(db),
+      journal,
       broadcast: recordingBroadcaster(),
     }),
     replay: testReplay().replay,
@@ -73,7 +79,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function register(username: string): Promise<string> {
+async function registerAccount(username: string): Promise<{ token: string; userId: string }> {
   const res = await app.handle(
     new Request('http://localhost/api/auth/register', {
       method: 'POST',
@@ -81,7 +87,12 @@ async function register(username: string): Promise<string> {
       body: JSON.stringify({ username, password: 'correct-horse' }),
     }),
   );
-  return ((await res.json()) as { token: string }).token;
+  const account = (await res.json()) as { token: string; user: { id: string } };
+  return { token: account.token, userId: account.user.id };
+}
+
+async function register(username: string): Promise<string> {
+  return (await registerAccount(username)).token;
 }
 
 function send(
@@ -258,5 +269,66 @@ describe('what the tree read says about the stack', () => {
     const tree = await send(`/api/projects/${projectId}/work-items`, token);
 
     expect(await tree.json()).toMatchObject({ undoable: false, redoable: true });
+  });
+});
+
+/**
+ * What the front end's Name cell sends, arriving here as one request.
+ *
+ * The fe-01 test that proves the cell sends one `patch` proves one HTTP call
+ * and stops there — codex round 1, finding 3. Whether one call is one entry on
+ * the undo stack, and whether one press of Cmd+Z brings both fields back
+ * together, is decided by this service, this journal and this route, so it is
+ * asked of them.
+ */
+describe('PATCH /api/work-items/:id with a name and its notes at once', () => {
+  it('writes one journal entry, and one undo puts both fields back', async () => {
+    const { token, userId } = await registerAccount('owner');
+    const projectId = await newProject(token);
+    const strip = await addRoot(token, projectId, 'Strip');
+    await send(`/api/work-items/${strip}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes: 'measure twice' }),
+    });
+    // The stack as the composite edit finds it: the row's creation and the
+    // note written under it, both this account's.
+    expect((await journal.entriesFor(projectId, userId)).map((each) => each.kind)).toEqual([
+      'create',
+      'patch',
+    ]);
+
+    // Both fields, one gesture, one request — what `commitNameCell` sends when
+    // somebody rewrites a line and the note under it before leaving the cell.
+    const patched = await send(`/api/work-items/${strip}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'Strip the wiring', notes: 'measure twice, cut once' }),
+    });
+    expect(patched.status).toBe(200);
+
+    // Proof: the same edit sent as two requests instead — `{ name }`, then
+    // `{ notes }` — this failed here on a fourth entry (`Expected - 0 /
+    // Received + 1`, the extra `"patch"`), and with this assertion taken out
+    // it failed further down on `Expected: "Strip" / Received: "Strip the
+    // wiring"`: one undo, one field, one Cmd+Z short. Watched, 2026-08-08.
+    expect((await journal.entriesFor(projectId, userId)).map((each) => each.kind)).toEqual([
+      'create',
+      'patch',
+      'patch',
+    ]);
+
+    const undone = await send(`/api/projects/${projectId}/undo`, token, { method: 'POST' });
+    expect(undone.status).toBe(200);
+
+    // Proof: `revertTo`'s `if (patch.notes !== undefined) out.notes =
+    // before.notes` deleted in `work-item.service.ts`, this failed on
+    // `Expected: "measure twice" / Received: "measure twice, cut once"` — an
+    // undo that put the name back and left the note where nobody asked for it.
+    // Watched, 2026-08-08.
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const rows = ((await tree.json()) as { workItems: { name: string; notes: string }[] })
+      .workItems;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe('Strip');
+    expect(rows[0]?.notes).toBe('measure twice');
   });
 });

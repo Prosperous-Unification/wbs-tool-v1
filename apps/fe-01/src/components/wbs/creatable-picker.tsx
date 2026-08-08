@@ -1,10 +1,100 @@
-import { type KeyboardEvent, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useState } from 'react';
+
+import { commandChordIn } from './keyboard-bindings';
 
 export interface PickableEntry {
   id: string;
   name: string;
   /** Shown after the name, greyed — a person's teams, say. */
   detail?: string;
+}
+
+/** One line of an open picker list: what it says, and what taking it does. */
+export interface PickerOption {
+  /** Stable within one list — the React key. */
+  key: string;
+  label: ReactNode;
+  /** Whether this is the entry currently in force, for `aria-selected`. */
+  selected: boolean;
+  take: () => void;
+}
+
+/** An entry as a list line reads it: the name, and its detail in grey. */
+export function pickableLabel(entry: PickableEntry): ReactNode {
+  return (
+    <>
+      {entry.name}
+      {entry.detail !== undefined && <span style={{ color: '#666' }}> — {entry.detail}</span>}
+    </>
+  );
+}
+
+/**
+ * The list an open picker drops under its box.
+ *
+ * Shared rather than repeated, because there are two boxes that open one now:
+ * this file's own combobox, and the folded estimate cell where an `@` starts a
+ * mention (`wbs-table.tsx`). Both need the same three things to be true, and
+ * each of them is a bug the moment two copies disagree about it — the
+ * `mousedown` that must not blur the box behind it, the `z-index` that puts
+ * the list above every sticky layer in `table-frame.ts`, and the `top: 100%`
+ * that is measured from a `position: relative` wrapper the caller supplies.
+ *
+ * The caller owns the wrapper and the keyboard. This owns the box and the
+ * lines in it.
+ */
+export function PickerList({
+  id,
+  label,
+  options,
+}: {
+  id: string;
+  label: string;
+  options: readonly PickerOption[];
+}) {
+  return (
+    <ul
+      role="listbox"
+      id={id}
+      aria-label={label}
+      // One preventDefault for the whole list, options included, by
+      // bubbling: a mousedown here must not blur the input, or the list
+      // would close before the click could land.
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+      style={{
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        margin: 0,
+        padding: 0,
+        listStyle: 'none',
+        background: '#fff',
+        border: '1px solid #ccc',
+        maxHeight: 200,
+        overflowY: 'auto',
+        zIndex: 15,
+        minWidth: '100%',
+      }}
+    >
+      {options.map((option) => (
+        // The ARIA combobox pattern is the boundary that makes this safe:
+        // options are not focusable and the keyboard drives them from the
+        // box above.
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+        <li
+          key={option.key}
+          role="option"
+          aria-selected={option.selected}
+          style={{ padding: '2px 6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          onClick={option.take}
+        >
+          {option.label}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export interface CreatablePickerProps {
@@ -32,6 +122,17 @@ export interface CreatablePickerProps {
   gridCell?: {
     dataCell: string;
     onTabKey: (event: KeyboardEvent<HTMLInputElement>) => void;
+    /**
+     * The table's command chords, offered **only while this list is closed**.
+     *
+     * The condition is this component's to apply rather than the table's,
+     * because whether a list is open is this component's own state and nothing
+     * outside it can read it. An open list owns the keyboard — that is the
+     * routing matrix's rule, and Escape is how it is given back — so a chord
+     * that fired through one would create a work item under a half-typed
+     * search nobody had finished.
+     */
+    onCommandKey: (event: KeyboardEvent<HTMLInputElement>) => void;
   };
 }
 
@@ -125,6 +226,35 @@ export function CreatablePicker({
             setTyped(null);
             return;
           }
+          if (open) {
+            // **Inert means consumed**, not merely "not the table's". The
+            // bare-Enter branch below reads no modifiers, so a Cmd/Ctrl+Enter
+            // that only skipped `onCommandKey` went on to choose the first
+            // entry or create one out of a half-typed search — codex round 2,
+            // finding 2. Taken from the browser as well, for the reason every
+            // chord this table claims is: Ctrl+D unhandled is a bookmark.
+            //
+            // Only where the box is a cell of a grid. A picker with no
+            // `gridCell` is not in a table, none of these keystrokes is a
+            // chord there, and this component promises to leave it alone.
+            //
+            // Proof: this guard removed, `Cmd+Enter in an open team picker
+            // takes no entry and creates none` failed on `expected 'team1' to
+            // be null` and `Cmd+Enter in an open assignee picker assigns
+            // nobody and adds nobody` on `expected [ 'assign w2 role-dev
+            // person1' ] to deeply equal []`. Watched, 2026-08-08.
+            if (gridCell !== undefined && commandChordIn(e) !== null) {
+              e.preventDefault();
+              return;
+            }
+          } else {
+            // Proof: the `!open` guard dropped so the chords fired through an
+            // open list, `every chord is inert while a team picker’s list is
+            // open` failed on `expected '020' to be null` — a row armed for
+            // deletion by a Ctrl+D aimed at a list of teams. Watched,
+            // 2026-08-08.
+            gridCell?.onCommandKey(e);
+          }
           if (e.key !== 'Enter') return;
           e.preventDefault();
           if (typed === null) return;
@@ -152,67 +282,34 @@ export function CreatablePicker({
         </button>
       )}
       {open && (
-        <ul
-          role="listbox"
+        <PickerList
           id={listId}
-          aria-label={label}
-          // One preventDefault for the whole list, options included, by
-          // bubbling: a mousedown here must not blur the input, or the list
-          // would close before the click could land.
-          onMouseDown={(e) => {
-            e.preventDefault();
-          }}
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            margin: 0,
-            padding: 0,
-            listStyle: 'none',
-            background: '#fff',
-            border: '1px solid #ccc',
-            maxHeight: 200,
-            overflowY: 'auto',
-            zIndex: 15,
-            minWidth: '100%',
-          }}
-        >
-          {offered.map((entry) => (
-            // The ARIA combobox pattern is the boundary that makes this safe:
-            // options are not focusable and the keyboard drives them from the
-            // input above.
-            // eslint-disable-next-line jsx-a11y/click-events-have-key-events
-            <li
-              key={entry.id}
-              role="option"
-              aria-selected={entry.id === value}
-              style={{ padding: '2px 6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              onClick={() => {
+          label={label}
+          options={[
+            ...offered.map((entry) => ({
+              key: entry.id,
+              label: pickableLabel(entry),
+              selected: entry.id === value,
+              take: () => {
                 onChoose(entry.id);
                 setTyped(null);
-              }}
-            >
-              {entry.name}
-              {entry.detail !== undefined && (
-                <span style={{ color: '#666' }}> — {entry.detail}</span>
-              )}
-            </li>
-          ))}
-          {canCreate && (
-            // eslint-disable-next-line jsx-a11y/click-events-have-key-events
-            <li
-              role="option"
-              aria-selected={false}
-              style={{ padding: '2px 6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              onClick={() => {
-                onCreate(typed.trim());
-                setTyped(null);
-              }}
-            >
-              Add “{typed.trim()}”
-            </li>
-          )}
-        </ul>
+              },
+            })),
+            ...(canCreate
+              ? [
+                  {
+                    key: '(add)',
+                    label: `Add “${typed.trim()}”`,
+                    selected: false,
+                    take: () => {
+                      onCreate(typed.trim());
+                      setTyped(null);
+                    },
+                  },
+                ]
+              : []),
+          ]}
+        />
       )}
     </span>
   );

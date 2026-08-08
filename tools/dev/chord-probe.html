@@ -1,0 +1,176 @@
+<!doctype html>
+<!--
+  The chord acceptance probe.
+
+  WHAT THIS IS FOR. wbs-tool-v1 binds a family of Ctrl chords in the WBS
+  table — Ctrl+H/J/K/L, Ctrl+N, Ctrl+D, Cmd/Ctrl+Enter, and Alt+N. Whether a
+  chord reaches page JavaScript at all is the browser's and the operating
+  system's decision, not this application's, and **no test in this repository
+  can answer it**: jsdom delivers whatever a test constructs, and Playwright's
+  synthetic events are dispatched into the page rather than through the OS.
+  This page is the only thing here that asks a real browser.
+
+  WHAT IT PROVES, AND WHAT IT DOES NOT. It reports two facts per chord: that a
+  `keydown` arrived, and that `preventDefault()` stopped the browser doing its
+  own thing with it. A row that never lights up means the chord was taken
+  before the page saw it. It proves nothing about the WBS table itself — the
+  behaviour is unit- and browser-tested there. This is one question only, and
+  it is the question that decides whether that behaviour is reachable.
+
+  HOW TO RUN IT. Open this file in the browser the chords have to work in —
+  double-click it, or `open tools/dev/chord-probe.html`. No server, no build,
+  no dependencies. Click into the box, press each chord in the list once, and
+  read the table. Ten minutes.
+
+  WHAT TO DO WITH THE RESULT. `arrived: no` on Ctrl+N is expected on Windows
+  and Linux Chrome — that is the whole reason Alt+N is bound to the same
+  action, and Alt+N is the row to check there. `arrived: no` on anything else,
+  or `default suppressed: no` on a chord that did arrive, is a chord the
+  application cannot have on that platform; say which, and on which browser and
+  OS version.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WBS chord probe</title>
+    <style>
+      body {
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        margin: 2rem;
+        max-width: 46rem;
+      }
+      textarea {
+        width: 100%;
+        height: 6rem;
+        font: inherit;
+        box-sizing: border-box;
+      }
+      table {
+        border-collapse: collapse;
+        margin-top: 1rem;
+        width: 100%;
+      }
+      th,
+      td {
+        border: 1px solid #ccc;
+        padding: 4px 8px;
+        text-align: left;
+      }
+      .yes {
+        background: #e6f4ea;
+      }
+      .no {
+        background: #fde8e8;
+      }
+      .waiting {
+        color: #888;
+      }
+      code {
+        background: #f4f4f4;
+        padding: 0 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WBS chord probe</h1>
+    <p>
+      Click into the box and press each chord below once. A row goes green when the keystroke
+      reached this page and <code>preventDefault()</code> stopped the browser acting on it itself.
+      Nothing is saved and nothing is sent anywhere.
+    </p>
+    <textarea id="box" aria-label="Press the chords in here">Press the chords in here.</textarea>
+    <p id="agent" class="waiting"></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Chord</th>
+          <th>Arrived</th>
+          <th>Default suppressed</th>
+          <th>What the event said</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p>
+      <button type="button" id="reset">Start again</button>
+    </p>
+
+    <script>
+      // The chords the table binds, each with the rule that recognises it —
+      // deliberately a copy of `commandChord` in
+      // `apps/fe-01/src/components/wbs/keyboard-bindings.ts` rather than an
+      // import, because this page has to run from the filesystem with no
+      // build step. If the two ever disagree, this one is wrong.
+      const CHORDS = [
+        { id: 'ctrl-h', label: 'Ctrl + H', is: (e) => e.ctrlKey && !e.metaKey && e.key === 'h' },
+        { id: 'ctrl-j', label: 'Ctrl + J', is: (e) => e.ctrlKey && !e.metaKey && e.key === 'j' },
+        { id: 'ctrl-k', label: 'Ctrl + K', is: (e) => e.ctrlKey && !e.metaKey && e.key === 'k' },
+        { id: 'ctrl-l', label: 'Ctrl + L', is: (e) => e.ctrlKey && !e.metaKey && e.key === 'l' },
+        { id: 'ctrl-n', label: 'Ctrl + N', is: (e) => e.ctrlKey && !e.metaKey && e.key === 'n' },
+        { id: 'ctrl-d', label: 'Ctrl + D', is: (e) => e.ctrlKey && !e.metaKey && e.key === 'd' },
+        {
+          id: 'alt-n',
+          label: 'Alt + N (⌥N)',
+          // The physical key, because macOS turns Alt+N into a dead key and
+          // sends no letter at all.
+          is: (e) => e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN',
+        },
+        {
+          id: 'cmd-enter',
+          label: 'Cmd + Enter / Ctrl + Enter',
+          is: (e) => (e.metaKey || e.ctrlKey) && !e.altKey && e.key === 'Enter',
+        },
+      ];
+
+      const box = document.getElementById('box');
+      const rows = document.getElementById('rows');
+      /** What each chord did, by id, filled in as they are pressed. */
+      const seen = new Map();
+
+      function draw() {
+        rows.innerHTML = '';
+        for (const chord of CHORDS) {
+          const hit = seen.get(chord.id);
+          const tr = document.createElement('tr');
+          const cells = hit
+            ? [chord.label, 'yes', hit.suppressed ? 'yes' : 'no', hit.detail]
+            : [chord.label, '—', '—', 'not pressed yet'];
+          cells.forEach((text, at) => {
+            const td = document.createElement('td');
+            td.textContent = text;
+            if (hit && at === 1) td.className = 'yes';
+            if (hit && at === 2) td.className = hit.suppressed ? 'yes' : 'no';
+            if (!hit) td.className = 'waiting';
+            tr.append(td);
+          });
+          rows.append(tr);
+        }
+      }
+
+      box.addEventListener('keydown', (event) => {
+        const chord = CHORDS.find((each) => each.is(event));
+        if (chord === undefined) return;
+        event.preventDefault();
+        seen.set(chord.id, {
+          // `defaultPrevented` read back off the event rather than assumed: a
+          // browser is allowed to refuse, and this page exists to find out.
+          suppressed: event.defaultPrevented,
+          detail: `key=${JSON.stringify(event.key)} code=${event.code} repeat=${String(event.repeat)}`,
+        });
+        draw();
+      });
+
+      document.getElementById('reset').addEventListener('click', () => {
+        seen.clear();
+        draw();
+        box.focus();
+      });
+
+      document.getElementById('agent').textContent =
+        `${navigator.userAgent} — platform: ${navigator.platform || '(not reported)'}`;
+      draw();
+    </script>
+  </body>
+</html>

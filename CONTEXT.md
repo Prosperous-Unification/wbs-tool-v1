@@ -120,6 +120,37 @@ The modal list of every key binding, opened by `?` from outside a text box. It r
 keyboard out; it does not change it.
 _Avoid_: help, shortcuts dialog, legend
 
+**Name cell**:
+The one box a work item's name and its notes are written in: the first line is the name,
+everything under it is the notes. They stay two fields in storage — the cell is where they
+are composed for reading and split again on the way out.
+_Avoid_: title field, notes column, description
+
+**Actions menu**:
+The list of things one work item can be asked to do — duplicate it, delete it, unfreeze
+its number — behind a single button on its row. One is open at a time, and it owns the
+keyboard while it is.
+_Avoid_: context menu, row menu, kebab, overflow menu
+
+**Flexible column**:
+The one column of the table with no declared width — the name — which takes whatever the
+declared ones leave, down to a floor it does not shrink past. Not an unsized column: asking
+for its width is an error, because the pinned offsets are sums of declared widths.
+_Avoid_: auto column, fill column, stretch
+
+**Table minimum width**:
+The narrowest the table may be laid out for the columns it is currently showing: every
+declared width plus each flexible column's floor. Above it nothing scrolls sideways; below
+it the frame scrolls and the pinned columns hold the left edge.
+_Avoid_: total width, table width, min size
+
+**Mention**:
+A person looked up from inside another box, written as `@` and part of their name — in the
+folded role cell, where `2/3/8@kat` is one gesture. Held apart from whatever the box is
+otherwise for: the estimate never sees the mention and the mention never becomes an
+estimate.
+_Avoid_: at-mention, tag, autocomplete
+
 **Toast**:
 One message about something that just happened, shown in a corner of the screen. A failure
 waits there until it is dismissed; a note takes itself off. Reports events only — a

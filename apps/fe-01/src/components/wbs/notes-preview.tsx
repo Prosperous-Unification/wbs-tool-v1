@@ -7,7 +7,11 @@ export interface NotesPreviewProps {
 }
 
 /**
- * The rendered note, shown on hover over a notes cell.
+ * The rendered note, shown on hover over the Name cell it is written in.
+ *
+ * The cell shows a note as the plain lines under the name, capped at four so a
+ * plan still fits on a screen. This is where the rest of a long one is read,
+ * and the only place its markdown is rendered.
  *
  * `react-markdown` renders to React elements and does **not** pass raw HTML
  * through — no `rehype-raw` here, deliberately. Notes are written by one

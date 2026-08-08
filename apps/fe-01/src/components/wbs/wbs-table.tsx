@@ -18,9 +18,10 @@ import {
   type RoleView,
 } from '@/lib/wbs-api';
 
-import { type CellElement, CellInput } from './cell-input';
-import { type Caret, type CellRef, nextCell } from './cell-navigation';
-import { CreatablePicker } from './creatable-picker';
+import { ActionsMenu } from './actions-menu';
+import { type CellElement, CellInput, type CommitOutcome, flushCell, unsent } from './cell-input';
+import { type Caret, type CellRef, commandMove, type Direction, nextCell } from './cell-navigation';
+import { CreatablePicker, pickableLabel, PickerList, type PickerOption } from './creatable-picker';
 import { pickerEntries, type PickerEntry } from './dep-picker';
 import { parseDependencies, unknownMessage } from './depends-input';
 import { type DropRefusal, type DropZone, planMove, zoneFor } from './drag-drop';
@@ -33,18 +34,23 @@ import {
   trioProblem,
   type TypedTrio,
 } from './estimate-draft';
-import { undoChord } from './keyboard-bindings';
+import { type Command, commandChordIn, undoChord } from './keyboard-bindings';
 import { KeyboardCheatSheet, opensCheatSheet } from './keyboard-cheat-sheet';
+import { splitMention } from './mention';
+import { composeNameCell, normalizeNewlines, splitNameCell } from './name-notes';
 import { NotesPreview } from './notes-preview';
 import { describeGaps, findEstimateGaps } from './plan-completeness';
 import { type PlanExport, planFileName, planToCsv, planToMarkdown } from './plan-export';
 import {
   CELL,
+  FLEXIBLE_COLUMNS,
+  flexibleCellStyle,
   indentFor,
   pinnedCellStyle,
+  POPOVER_ROW_LAYER,
   STICKY_HEADER_CELL,
   TABLE_FRAME,
-  tableWidth,
+  tableMinWidth,
   widthFor,
 } from './table-frame';
 import { ToastStack, useToasts } from './toasts';
@@ -150,7 +156,7 @@ const BOM = '\uFEFF';
  * The columns by fixed id whose `<td>` must not clip, because something in them
  * opens over the rows below. {@link opensAPopover} is what asks.
  */
-const POPOVER_COLUMNS: ReadonlySet<string> = new Set(['depends', 'notes', 'team']);
+const POPOVER_COLUMNS: ReadonlySet<string> = new Set(['depends', 'name', 'team', 'actions']);
 
 /**
  * Whether this column holds something that opens over the rows below, and so
@@ -165,11 +171,18 @@ const POPOVER_COLUMNS: ReadonlySet<string> = new Set(['depends', 'notes', 'team'
  * `<td>`'s own clip cuts it to the cell rectangle however the wrapper is styled.
  * Lifting the clip on the `<td>` is the only thing that lets one open.
  *
- * Four kinds of column, not two: the dependency listbox (`depends`), the notes
- * preview (`notes`), and a `CreatablePicker`'s list — which is the service/team
- * cell and each role's assignee cell. The assignee columns are named
- * `<roleId>-assignee` at runtime, so they are matched by suffix, the same way
- * `widthFor` sizes them.
+ * Six kinds of column, not two: the dependency listbox (`depends`), the
+ * rendered notes preview (`name` — the notes live in that box since the Notes
+ * column was folded into it), a `CreatablePicker`'s list — which is the
+ * service/team cell and each role's assignee cell — the row's own actions
+ * menu (`actions`), which hangs a 140px box off a 40px cell one line high, and
+ * a folded role's own cell (`<roleId>-final`), where an `@` opens the people
+ * picker over a 96px column. That last one is the narrowest clip of the lot.
+ * Both kinds of role column are named for a role that only exists at runtime,
+ * so they are matched by suffix, the same way `widthFor` sizes them.
+ *
+ * `name` is also a pinned column, and the two rules do not fight: the pin
+ * places the cell, the clip decides what may leave it, and the preview has to.
  *
  * What still keeps these cells from painting into their neighbours, now that the
  * structural backstop is off for them: every control inside them is
@@ -179,11 +192,22 @@ const POPOVER_COLUMNS: ReadonlySet<string> = new Set(['depends', 'notes', 'team'
  * in `e2e/layout.spec.ts`.
  */
 const opensAPopover = (columnId: string): boolean =>
-  POPOVER_COLUMNS.has(columnId) || columnId.endsWith('-assignee');
+  POPOVER_COLUMNS.has(columnId) || columnId.endsWith('-assignee') || columnId.endsWith('-final');
+
+/**
+ * How wide the Depends on list opens, in px, whatever its column is.
+ *
+ * The column is 110px — enough for the chips, which wrap — and an entry in
+ * this list is a number and a work item's name. A list held to its own column
+ * would be a list nobody can read; it hangs over the columns beside it, which
+ * is what `opensAPopover` exempts the cell for. The browser gate measures it.
+ */
+const DEP_LIST_WIDTH = 260;
 
 /** What the folded cell says about itself when there is nothing to complain about. */
 const SHORTHAND_HELP =
-  'Days as optimistic/realistic/pessimistic — 2/3/8. One number means all three. Empty clears it.';
+  'Days as optimistic/realistic/pessimistic — 2/3/8. One number means all three. Empty clears it. ' +
+  '@ looks somebody up to do it.';
 
 /**
  * The drafts record without the named keys.
@@ -337,6 +361,34 @@ function sameRoles(a: readonly RoleView[], b: readonly RoleView[]): boolean {
   );
 }
 
+/**
+ * The keys that are held rather than pressed, which a pending Ctrl+D survives.
+ *
+ * agy #9: reaching the second Ctrl+D means holding Control down, and on many
+ * keyboards letting it go and taking it again. Every one of those is a
+ * `keydown` of its own, and disarming on them would make the chord unusable by
+ * anybody who does not press both keys in one motion.
+ *
+ * Proof: the exemption removed so every keydown disarms, `any other keystroke
+ * disarms it, and a modifier on its own does not` failed on `expected null to
+ * be '020'`. Watched, 2026-08-08.
+ */
+const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'CapsLock']);
+
+/**
+ * How long an armed Ctrl+D waits for its second press.
+ *
+ * Long enough to read the toast that says what it will do, short enough that a
+ * row cannot still be armed when the reader has moved on and forgotten. The
+ * timer is the *only* thing that expires an arm — there is no second elapsed
+ * check at the confirm, because a check the timer has already made unreachable
+ * is a check that cannot fail.
+ */
+const ARM_WINDOW_MS = 3000;
+
+/** The armed row's tint: a warning, and the only thing on screen that says so. */
+const ARMED_TINT = '#fde8e8';
+
 /** Whether an event target is one of the two elements a cell can be. */
 function isCellElement(node: unknown): node is CellElement {
   return node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement;
@@ -367,6 +419,26 @@ function altMoveFor(key: string): AltMove | null {
   }
 }
 
+/**
+ * The structural move a keystroke asks for, or null when it asks for none.
+ *
+ * The modifier rules live here rather than in {@link onAltMove} because two
+ * places need the same answer: the handler that performs the move, and the
+ * open `@` list that has to swallow the keystroke before the handler ever sees
+ * it. Two copies of "is this an Alt+arrow" is how one of them comes to accept
+ * a composing arrow the other refuses.
+ *
+ * A second modifier is somebody else's shortcut, and an IME composition is
+ * using the arrows to pick a candidate — the same rule `nextCell` applies.
+ * Proof: narrowed to `!event.altKey` alone, `leaves a composing alt arrow, and
+ * one with a second modifier, alone` failed on `expected false to be true`.
+ * Watched here 2026-08-08, and where this line lived before, 2026-08-06.
+ */
+function altMoveIn(event: React.KeyboardEvent): AltMove | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return null;
+  return altMoveFor(event.key);
+}
+
 /** The `data-cell` value for one editable cell, and the selector that finds it. */
 const cellKey = (rowId: string, columnId: string): string => `${rowId}::${columnId}`;
 
@@ -378,12 +450,27 @@ const cellKey = (rowId: string, columnId: string): string => `${rowId}::${column
  * than guessing a jump nobody asked for.
  */
 function caretOf(input: CellElement): Caret {
+  // The one place the two element types are told apart for the keyboard: a
+  // `<textarea>` is the Name cell, which holds the notes under the name, and
+  // {@link nextCell} gives Up and Down to the text there.
+  //
+  // Proof, both directions, watched 2026-08-08. Hard-coded `true`: `still
+  // walks a column of one-line boxes from any caret position` failed on
+  // `expected true to be false` — an estimate column that could no longer be
+  // filled downwards from mid-number. Hard-coded `false`: `keeps ↑ and ↓ in
+  // the name until the caret has run out of text` failed on the reverse.
+  const multiline = input instanceof HTMLTextAreaElement;
   const start = input.selectionStart;
   const end = input.selectionEnd;
   if (start === null || end === null) {
-    return { atStart: false, atEnd: false, hasSelection: false };
+    return { atStart: false, atEnd: false, hasSelection: false, multiline };
   }
-  return { atStart: start === 0, atEnd: end === input.value.length, hasSelection: start !== end };
+  return {
+    atStart: start === 0,
+    atEnd: end === input.value.length,
+    hasSelection: start !== end,
+    multiline,
+  };
 }
 
 /**
@@ -568,7 +655,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * moment it is sent.
    */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  /** The row whose notes the pointer is over, so its rendered markdown can show. */
+  /**
+   * The row whose Name cell the pointer is over, so its rendered notes can
+   * show. The notes are written in that box, which is why the hover is on it.
+   */
   const [hoveredNotes, setHoveredNotes] = useState<string | null>(null);
   /** Whether the key bindings are on screen. See {@link KeyboardCheatSheet}. */
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
@@ -583,21 +673,34 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    */
   const [stack, setStack] = useState({ undoable: false, redoable: false });
   /**
-   * Roles whose columns are unfolded — the trio and the assignee, next to the
-   * final figure that is always on screen.
+   * Roles whose columns are unfolded — the three points, next to the final
+   * figure and its assignee, which are always on screen.
    *
-   * Folded by default, which is the point: two roles cost ten columns and the
-   * dates fell off the screen. The final figure is what a plan is read by; the
-   * three numbers it came from and who does the work are needed while the
-   * plan is being written, which is when they are a click away. Local state, not
-   * shared: my unfolding must not reshuffle anyone else's table.
+   * **At most one, which is what makes the table fit.** A folded role costs
+   * 96px and an unfolded one 372, and the width equation in `table-frame.ts`
+   * says the difference plainly: two folded roles need 1144px and fit a 1280
+   * laptop, while one of them unfolded needs 1420 and does not. So this is an
+   * accordion — unfolding a role folds whichever was open — rather than a set
+   * that can grow until the dates fall off the screen again. Dany's call,
+   * 2026-08-08.
+   *
+   * A list rather than a `string | null` because it is what the column builder
+   * asks (`unfoldedRoles.includes(role.id)`) and what the `columns` memo may
+   * depend on; the invariant is on the writer below, which is the only one.
+   * Local state, not shared: my unfolding must not reshuffle anyone else's
+   * table.
    */
   const [unfoldedRoles, setUnfoldedRoles] = useState<readonly string[]>([]);
 
+  /**
+   * Unfolds a role, folding whatever was unfolded — or folds it again.
+   *
+   * Proof: written as `[...current, roleId]`, `unfolds one role at a time, so
+   * the table still fits the window` failed on `expected <input …(5)></input>
+   * to be null`. Watched, 2026-08-08.
+   */
   const toggleRole = useCallback((roleId: string) => {
-    setUnfoldedRoles((current) =>
-      current.includes(roleId) ? current.filter((id) => id !== roleId) : [...current, roleId],
-    );
+    setUnfoldedRoles((current) => (current.includes(roleId) ? [] : [roleId]));
   }, []);
   /** The project's start date, or null while the plan is not on a calendar. */
   const [startDate, setStartDate] = useState<string | null>(null);
@@ -628,6 +731,76 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     typed: string;
     highlightId: string | null;
   } | null>(null);
+  /**
+   * The `@` mention open in a folded role's cell: whose cell, and what has been
+   * typed after the `@`.
+   *
+   * One at a time, for `depPicker`'s reason: one box is being typed into. Read
+   * through {@link live}, because `columns` may depend on `roles` and
+   * `unfoldedRoles` and nothing else.
+   *
+   * `typed: ''` is a bare `@` — everybody offered — and is not the same as no
+   * mention at all. {@link splitMention} is what tells the two apart.
+   */
+  const [mention, setMention] = useState<{ rowId: string; roleId: string; typed: string } | null>(
+    null,
+  );
+  /**
+   * The folded estimate box that has the focus, and what it was showing when
+   * the focus arrived.
+   *
+   * Both are the `@` gesture's, and both are refs rather than state because
+   * neither is rendered: the node is what the mention is stripped out of, and
+   * the focus-time value is what goes back in when the estimate half turns out
+   * to be empty. That case is not somebody clearing an estimate — it is the
+   * select-on-focus this cell has always done, with `@` typed over the whole
+   * selection. Clearing an estimate is emptying the cell with no `@` in it.
+   */
+  const foldedBox = useRef<CellElement | null>(null);
+  const foldedAtFocus = useRef('');
+  /**
+   * The row whose actions menu is open, or null while none is.
+   *
+   * One row id rather than a set, and that is the rule rather than a
+   * simplification: two open menus are two `menuitem`s called `Duplicate`, and
+   * an accessible name that matches several elements is ambiguous to a screen
+   * reader and to a test alike. Read through {@link live} for the reason
+   * `depPicker` is — `columns` must not depend on anything that changes on a
+   * click, or every cell in the table remounts under the menu that was opened.
+   */
+  const [openMenuRowId, setOpenMenuRowId] = useState<string | null>(null);
+  /**
+   * The row one Ctrl+D has pointed at, waiting for the second one that deletes
+   * it — or null, which is almost always.
+   *
+   * The **number** is held beside the id because the toast promised it: "Ctrl+D
+   * again deletes 020". A refresh that renumbered the row, or moved it, or took
+   * it away has made that sentence untrue, and an arm whose sentence is untrue
+   * is disarmed rather than re-aimed. A fresh object per arm, because it is
+   * what the three-second timer fires on: re-arming the same row restarts it.
+   *
+   * State rather than a ref: the armed row is tinted, so this is rendered.
+   * Read through {@link live} for the reason `openMenuRowId` is.
+   */
+  const [armedDelete, setArmedDelete] = useState<{ rowId: string; number: string } | null>(null);
+  /**
+   * Whether D has been let go since the arm, which the confirm waits for.
+   *
+   * A ref, because nothing renders it, and it is the guard that makes a *held*
+   * Ctrl+D harmless: a key that is still down has produced no `keyup`, so the
+   * second press it appears to make can never be one. `event.repeat` is the
+   * other half — see {@link onCommandKey}.
+   */
+  const dReleased = useRef(false);
+  /**
+   * Whether a command chord's request is still out.
+   *
+   * A ref rather than `busy`, and the difference is the whole of what it buys:
+   * `busy` is state, so two chords in one tick both read the value from before
+   * either of them ran. Two Cmd+Enters on the last row are one gesture arriving
+   * twice; without this they are two work items.
+   */
+  const commandInFlight = useRef(false);
   /**
    * The cell a structural edit asked the focus to land in once the refetched
    * tree is on screen — a row **and a column**, because a row moved from an
@@ -877,18 +1050,26 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    *
    * A refused action skips the reread deliberately: be-01 changed nothing, so
    * there is nothing new to read.
+   *
+   * The verdict is returned as well as toasted, because a toast is a sentence
+   * and some callers need the fact. `CellInput` is the one: a refused edit
+   * exists only in the box it was typed into, and the box has to be told so it
+   * can hold it against the next refetch (rule 4 there). A reread that failed
+   * is still `landed` — the write happened, and the banner is what says the
+   * screen may be behind.
    */
   const run = useCallback(
-    async (action: () => Promise<void>) => {
+    async (action: () => Promise<void>): Promise<CommitOutcome> => {
       setBusy(true);
       try {
         try {
           await action();
         } catch (thrown: unknown) {
           pushToast({ kind: 'error', text: failureText(thrown, 'request_failed') });
-          return;
+          return 'refused';
         }
         await refreshOrMarkStale();
+        return 'landed';
       } finally {
         setBusy(false);
       }
@@ -974,6 +1155,65 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     };
   }, [stepStack]);
 
+  /**
+   * Everything that takes a pending Ctrl+D off, other than another keystroke.
+   *
+   * The arm is a promise about one row, made in a toast, and it is kept only
+   * while the reader is still looking at the row it was made about. Leaving the
+   * cell — by Tab, by a chord, or by clicking somewhere else entirely — ends
+   * it; so does the window losing the focus, the tab being hidden, and the
+   * three seconds running out. Nothing here is a nicety: a row that stays armed
+   * across a coffee break is a Ctrl+D that deletes something the person has
+   * stopped thinking about.
+   *
+   * `focusout` rather than a blur handler on the cell: the focus can leave by
+   * the pointer, and the cell that was armed may not be the one that had it.
+   *
+   * Proof: this effect's listeners removed, `leaving the cell disarms it,
+   * however the focus went` failed with the row still tinted. Watched,
+   * 2026-08-08.
+   */
+  useEffect(() => {
+    if (armedDelete === null) return undefined;
+    const disarm = () => {
+      setArmedDelete(null);
+    };
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') disarm();
+    };
+    // A fresh timer per arm, because `armedDelete` is a fresh object per arm:
+    // re-arming the same row starts the three seconds again.
+    const expiry = setTimeout(disarm, ARM_WINDOW_MS);
+    window.addEventListener('focusout', disarm);
+    window.addEventListener('blur', disarm);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      clearTimeout(expiry);
+      window.removeEventListener('focusout', disarm);
+      window.removeEventListener('blur', disarm);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+  }, [armedDelete]);
+
+  /**
+   * A `keyup` of D, which is what the confirming press waits for.
+   *
+   * On the window rather than on the cell: the chord is pressed in a cell, and
+   * the key can be let go after the focus has moved or with the pointer
+   * somewhere else entirely. Missing the release would leave a row that can
+   * never be confirmed, which is the failure mode that reads as "the shortcut
+   * is broken".
+   */
+  useEffect(() => {
+    const released = (event: KeyboardEvent) => {
+      if (event.key === 'd' || event.key === 'D') dReleased.current = true;
+    };
+    window.addEventListener('keyup', released);
+    return () => {
+      window.removeEventListener('keyup', released);
+    };
+  }, []);
+
   /** Every row in the order the table renders them, ignoring collapse. */
   const flat = useMemo(() => {
     const out: TreeRow[] = [];
@@ -986,6 +1226,28 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     walk(workItems);
     return out;
   }, [workItems]);
+
+  /**
+   * A pending Ctrl+D whose row the tree no longer holds — or no longer holds
+   * under the number the toast promised — is disarmed.
+   *
+   * "Ctrl+D again deletes 020" stops being true the moment somebody else
+   * deletes that row, or moves it, or creates one above it and renumbers it.
+   * The arm holds the id *and* the number for exactly this: matching on the id
+   * alone would leave the second press aimed at a row that is now 030 while
+   * the sentence on screen still says 020.
+   *
+   * Proof: this effect removed, `a peer deleting the armed row disarms it`
+   * failed on `expected '020' to be null` — an arm still tinted and still
+   * live on a row that had gone. Watched, 2026-08-08.
+   */
+  useEffect(() => {
+    setArmedDelete((armed) => {
+      if (armed === null) return null;
+      const still = flat.find((row) => row.id === armed.rowId);
+      return still?.number === armed.number ? armed : null;
+    });
+  }, [flat]);
 
   /**
    * What the Find box is asking for: which rows stay, which of them are hits,
@@ -1370,6 +1632,107 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     [api, run],
   );
 
+  /**
+   * Deletes a work item and lands the focus where its place went.
+   *
+   * The children come up rather than going with it (`strategy: 'promote'`),
+   * which is what the Delete button did and what the actions menu keeps.
+   *
+   * Where the caret lands: the Name of the next sibling in this row's own
+   * group, else the row above it in the flattened tree, else nowhere — a plan
+   * with one row leaves the focus on the ⋯ button the menu gave it back to.
+   * The target is read from the tree **on screen before the request**, because
+   * afterwards the row it was computed from is gone; for a parent, promoting
+   * lifts the children into the gap, so the next sibling is below them rather
+   * than immediately below it. That is the sibling group's own answer to "what
+   * took its place", and it is written down because the other reading — the
+   * first promoted child — is defensible too.
+   *
+   * Assigned only once be-01 has taken the delete, for the reason
+   * {@link duplicateRow} gives: a refusal must leave the focus where the person
+   * left it rather than move it into a row nobody deleted.
+   *
+   * Proof, three faults, all watched on 2026-08-08. The `focusNext` write
+   * removed: `lands the caret in the next sibling’s name after a delete` and
+   * `lands the caret in the row above when the last row is deleted` both failed
+   * on `expected <body>…</body> to be <textarea …>` — the deleted row takes its
+   * own ⋯ button with it, so nothing is left holding the focus. `?? above`
+   * dropped: the second of those failed alone. The assignment moved in front of
+   * the `await`: `says why a delete was refused, moves the focus nowhere and
+   * deletes nothing` failed on `expected <textarea …> to be <button …>`.
+   */
+  const deleteRow = useCallback(
+    (row: TreeRow) =>
+      run(async () => {
+        const siblings = siblingsOf(row.parentId);
+        const at = siblings.findIndex((sibling) => sibling.id === row.id);
+        const nextSibling = at === -1 ? undefined : siblings[at + 1];
+        const flatAt = flat.findIndex((each) => each.id === row.id);
+        // A ternary rather than `flat.at(flatAt - 1)`: deleting the first row
+        // has no row above, and `.at(-1)` would send the focus to the last one.
+        const above = flatAt > 0 ? flat[flatAt - 1] : undefined;
+        const landsOn = nextSibling ?? above;
+        await api.remove(row.id, {
+          strategy: row.subRows.length > 0 ? 'promote' : undefined,
+        });
+        focusNext.current = landsOn === undefined ? null : { rowId: landsOn.id, columnId: 'name' };
+      }),
+    [api, flat, run, siblingsOf],
+  );
+
+  /**
+   * Commits the Name cell: a work item's name and its notes, typed as one text.
+   *
+   * **The diff is three-way, against the baseline rather than against the row
+   * on screen**, and that is the whole reason this function exists. Every edit
+   * refetches the tree, so a peer's change to the notes can arrive while this
+   * cell is being typed in — `CellInput` holds it back (rule 2) and hands the
+   * held value over as `baseline` on the way out. Comparing the typed fields
+   * against `row.notes` instead would read that peer's note as one this user
+   * had just deleted and send `notes: ''` over the top of it. Both reviewers
+   * found that from opposite ends before a line of it was written.
+   *
+   * **One request for the changed subset**, so an edit that touches both fields
+   * is one refusal, one journal entry and one Cmd+Z rather than two of each.
+   * Nothing is sent when neither field moved, which is reachable without
+   * anybody typing: a `<textarea>` normalises the newlines of whatever is
+   * assigned to it, so a note be-01 holds with `\r\n` — from an API client or
+   * another front end — differs from the box showing it as text while meaning
+   * the same thing. Every focus-and-leave of that row would otherwise rewrite
+   * it. That is where {@link normalizeNewlines} earns its place; the keyboard
+   * cannot put a `\r` in here.
+   *
+   * Proof, five faults, all watched on 2026-08-08. `was` re-pointed at the
+   * current row props off `flat`: `keeps a peer’s note when the name is what
+   * was being typed` failed on `expected 'measure twice' to be 'their note'`
+   * and `keeps a peer’s name when the notes are what was being typed` on
+   * `expected 'Strip' to be 'Rewire the shed'` — each field replaced by the
+   * stale one this client still had on screen. The `now.name === was.name`
+   * guard dropped so the name is always sent: `sends only the field that
+   * changed` failed on a patch carrying a name nobody retyped; the notes guard
+   * dropped, the same test failed on the other half. `normalizeNewlines`
+   * dropped from both sides: `does not rewrite a note that was stored with
+   * Windows line endings` failed on `expected [['w1', …]] to deeply equal []`.
+   * The `Object.keys(...).length === 0` return deleted: the same test failed
+   * on `[['w1', {}]]`, an empty patch.
+   */
+  const commitNameCell = useCallback(
+    (rowId: string, typed: string, baseline: string): Promise<CommitOutcome> => {
+      const now = splitNameCell(normalizeNewlines(typed));
+      const was = splitNameCell(normalizeNewlines(baseline));
+      const patch = {
+        ...(now.name === was.name ? {} : { name: now.name }),
+        ...(now.notes === was.notes ? {} : { notes: now.notes }),
+      };
+      // Not `landed`: nothing was written. The two texts differ as text and
+      // mean the same thing, so there is nothing unsaved for the cell to hold
+      // and nothing for be-01 to have refused.
+      if (Object.keys(patch).length === 0) return unsent();
+      return run(() => api.patch(rowId, patch));
+    },
+    [api, run],
+  );
+
   /** Removes a wholly empty row, landing the focus on the row above it. */
   const removeEmptyRow = useCallback(
     (row: TreeRow) =>
@@ -1384,13 +1747,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     [api, flat, run],
   );
 
+  /**
+   * The Name cell's own keys: Tab and Backspace, and nothing else.
+   *
+   * Enter is deliberately absent. It made a work item until `command-keys`,
+   * and it is now the browser's own newline — which is what lets a note be
+   * typed under the name in the box that holds both. A new work item is Ctrl+N
+   * (Alt+N on the keyboards Chrome keeps Ctrl+N for) or Cmd/Ctrl+Enter at the
+   * end of the plan; see {@link onCommandKey}.
+   *
+   * Proof: the `preventDefault + addSibling` branch put back, `Enter in a name
+   * is a newline, and makes nothing` failed on `expected true to be false` —
+   * the key taken, and no note typeable under any name. Watched, 2026-08-08.
+   */
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent, row: TreeRow) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        void addSibling(row);
-        return;
-      }
       if (event.key === 'Tab') {
         const input = event.currentTarget;
         // Either element: the Name cell is a textarea so a long name wraps,
@@ -1436,7 +1807,23 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         // than the committed value — deleting every character and pressing
         // Backspace once more is one gesture, and blur has not happened yet.
         // Anything the item still holds vetoes the removal: content is only
-        // ever deleted by the Delete button, never by a keystroke reflex.
+        // ever deleted by the actions menu, never by a keystroke reflex.
+        //
+        // `input.value` is now both fields in one read: this box holds the
+        // notes under the name, so a row with a note is not empty and cannot
+        // be emptied by deleting the name off the top of it. `row.notes` is
+        // the committed half of the same question, and it is not redundant:
+        // emptying the box is not the same as having emptied the work item,
+        // because the blur that would send the emptying has not happened and
+        // everyone else still has the note.
+        //
+        // Proof, both conjuncts, watched 2026-08-08. `row.notes` dropped: `a
+        // note that has not been deleted yet still vetoes the removal` failed
+        // on `expected [['w1']] to deeply equal []` — a row deleted out from
+        // under a note nobody had committed a deletion of. `input.value`
+        // dropped: `anything the item holds vetoes the backspace removal`
+        // failed on `expected [['w3']] to deeply equal []`, the row whose note
+        // was typed and committed in this same box.
         const empty =
           input.value === '' &&
           row.notes === '' &&
@@ -1452,7 +1839,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         void removeEmptyRow(row);
       }
     },
-    [addSibling, drafts, indent, outdent, removeEmptyRow],
+    [drafts, indent, outdent, removeEmptyRow],
   );
 
   /**
@@ -1466,10 +1853,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * The grid is the table, not one row: at the end of a row Tab walks into the
    * first field of the next. Only at the grid's own edge — past the last
    * editable cell of the last row — does `focusAdjacentCell` return false and
-   * the key go to the browser, which lands on that row's Duplicate and Delete.
-   * That is the point rather than a leak: the actions are reachable at the end
-   * of the table and never from the middle of a row, and no focus trap is added
-   * to stop a reader Tabbing out of the table altogether.
+   * the key go to the browser, which lands on that row's ⋯ button. That is the
+   * point rather than a leak: the actions are reachable at the end of the table
+   * and never from the middle of a row, and no focus trap is added to stop a
+   * reader Tabbing out of the table altogether. One stop per row since the
+   * actions became a menu; it was two while they were buttons.
    *
    * Proof: dropped from the handler chain, `walks every field of a row in turn,
    * and on into the next row` failed at the first cell that no longer moved.
@@ -1552,13 +1940,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    */
   const onAltMove = useCallback(
     (event: React.KeyboardEvent, row: TreeRow, columnId: string) => {
-      // A second modifier is somebody else's shortcut, and an IME composition
-      // is using the arrows to pick a candidate — the same rule `nextCell`
-      // applies, for the same reason.
-      // Proof: narrowed to `!event.altKey` alone, `leaves a composing alt arrow,
-      // and one with a second modifier, alone` failed. Watched, 2026-08-06.
-      if (!event.altKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
-      const move = altMoveFor(event.key);
+      // Which arrows this owns, and under which modifiers, is {@link altMoveIn}
+      // — shared with the open `@` list, which has to recognize exactly the
+      // same keystrokes in order to swallow them.
+      const move = altMoveIn(event);
       if (move === null) return;
       // Proof: removed, nine of this block's tests failed on a key the browser
       // would still have acted on. Watched, 2026-08-06.
@@ -1585,6 +1970,200 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       void (move === 'indent' ? indent(row, columnId) : outdent(row, columnId));
     },
     [busy, indent, moveAmongSiblings, outdent, pushToast],
+  );
+
+  /** Takes the tint and the pending delete off, whatever the reason. */
+  const disarmDelete = useCallback(() => {
+    setArmedDelete(null);
+  }, []);
+
+  /**
+   * Moves the focus to a cell by the chord's own grid walk, and says whether
+   * there was one to move to.
+   *
+   * The DOM's grid, read at the moment the key arrives, for the reason
+   * {@link onArrowKey} gives: a ref written during render can be ahead of what
+   * React has committed.
+   */
+  const moveByCommand = useCallback(
+    (input: CellElement, from: CellRef, direction: Direction): boolean => {
+      const table = input.closest('table');
+      if (table === null) return false;
+      const grid = editableGrid(table);
+      const move = commandMove(
+        grid.map((g) => g.cell),
+        from,
+        direction,
+      );
+      if (move === null) return false;
+      const next = grid.find(
+        (g) => g.cell.rowId === move.to.rowId && g.cell.columnId === move.to.columnId,
+      )?.input;
+      if (next === undefined) return false;
+      focusCellAt(next, move.caretAt === 'start' ? 0 : next.value.length);
+      return true;
+    },
+    [],
+  );
+
+  /**
+   * The Name cell of the row after this one, or undefined on the last row.
+   *
+   * Read out of the committed grid rather than out of `flat`, so "the next row"
+   * means the next row **on screen**: a collapsed branch's children are not
+   * cells, and Cmd+Enter must not land in one of them.
+   */
+  const nextRowName = useCallback((input: CellElement, rowId: string): CellElement | undefined => {
+    const table = input.closest('table');
+    if (table === null) return undefined;
+    const grid = editableGrid(table);
+    const rowIds = [...new Set(grid.map((g) => g.cell.rowId))];
+    const at = rowIds.indexOf(rowId);
+    // `< 0` before the lookup, for `focusAdjacentCell`'s reason: `.at(-1)`
+    // would read the last row of the table as the one after this one.
+    if (at === -1) return undefined;
+    const next = rowIds.at(at + 1);
+    return next === undefined
+      ? undefined
+      : grid.find((g) => g.cell.rowId === next && g.cell.columnId === 'name')?.input;
+  }, []);
+
+  /**
+   * Ctrl+D: arm this row, or delete the one already armed.
+   *
+   * **Nothing here destroys anything on one gesture, and that is the price of
+   * putting a delete on a chord at all.** The first press tints the row and
+   * says what the second one will do; the second press has to satisfy all of
+   * it — the same row, a `keyup` of D since the arm, and a press rather than a
+   * key repeat.
+   *
+   * Proof, four faults, all watched 2026-08-08. The `repeat` conjunct removed:
+   * `a repeat after the confirming press does not arm the row that took its
+   * place` failed on `expected '020' to be null` — the key still down as the
+   * row went, arming whatever slid up into it. The `dReleased` conjunct
+   * removed: `two presses with no release between them only re-arm` failed on
+   * `expected null to be '020'` — one gesture destroying a row, so there was
+   * no arm left to find. The same-row conjunct removed: `arming 020 and
+   * pressing Ctrl+D on 030 arms 030 and deletes neither` failed on `expected
+   * null to be '030'`, the second press deleting a row the arm never pointed
+   * at. The frozen refusal removed: `a frozen row refuses to arm and says how
+   * to unfreeze it` failed on `expected [ Array(1) ] to include '020 is frozen
+   * — unfreeze it first'`.
+   *
+   * @param row The row the chord was pressed in.
+   * @param repeat Whether the browser says this is a held key repeating.
+   */
+  const armOrDeleteRow = useCallback(
+    (row: TreeRow, repeat: boolean) => {
+      // A key repeat is neither an arm nor a confirm. Before the frozen
+      // refusal too, so a held chord on a frozen row is one sentence.
+      if (repeat) return;
+      if (row.frozenNumber !== null) {
+        pushToast({ kind: 'error', text: `${row.number} is frozen — unfreeze it first` });
+        disarmDelete();
+        return;
+      }
+      if (armedDelete !== null && armedDelete.rowId === row.id && dReleased.current) {
+        disarmDelete();
+        void deleteRow(row).then((outcome) => {
+          if (outcome !== 'landed') return;
+          // The way back, in the sentence that says it happened: this is the
+          // one chord in the table that takes work away.
+          pushToast({ kind: 'info', text: `Deleted ${row.number} — Cmd+Z restores` });
+        });
+        return;
+      }
+      dReleased.current = false;
+      setArmedDelete({ rowId: row.id, number: row.number });
+      pushToast({
+        kind: 'info',
+        text: `Ctrl+D again deletes ${row.number} — its children move up`,
+      });
+    },
+    [armedDelete, deleteRow, disarmDelete, pushToast],
+  );
+
+  /**
+   * The command chords, from whichever cell they were pressed in.
+   *
+   * One handler for every cell class rather than one listener on the window,
+   * which is what keeps `isTypingInto` and the undo/redo page-level guard out
+   * of this entirely: these chords are only ever meant *inside* the grid, and a
+   * global listener would have to reconstruct which cell it was standing in.
+   * Each cell class calls this from its own `onKeyDown`, and the cells whose
+   * picker list is open do not call it at all — the open list owns the
+   * keyboard, and Escape is how it is given back.
+   *
+   * `preventDefault` for every chord this claims, including the ones that turn
+   * out to have nowhere to go. Ctrl+H at the left edge of the table is still
+   * Ctrl+H, and Chrome's answer to it is the history.
+   *
+   * The three chords that write flush the cell first and **await** it: the same
+   * commit a blur runs, through {@link flushCell}, so what was typed is be-01's
+   * before a row is created or the focus moves — and so a refusal leaves the
+   * caret where it was with nothing created. Rule 5 in `cell-input.tsx` is what
+   * keeps the blur that follows from sending it again.
+   *
+   * Proof, three faults, all watched 2026-08-08. The `await` dropped, the
+   * outcome hard-coded to `landed` and the flush fired and forgotten: `waits
+   * for the save to land before it creates anything` failed on `expected
+   * [ 'patch', 'create' ] to deeply equal [ 'patch' ]` — a row created against
+   * an answer nobody had. The `refused` return removed: `a refused save leaves
+   * the caret where it was and makes no row` failed on `expected [ '010',
+   * '020', '030', '040' ] to deeply equal [ '010', '020', '030' ]`. The
+   * `preventDefault` removed: `a chord at the grid’s edge is consumed rather
+   * than leaking to the browser` failed on `expected false to be true`.
+   */
+  const onCommandKey = useCallback(
+    (event: React.KeyboardEvent, row: TreeRow, columnId: string) => {
+      const command: Command | null = commandChordIn(event);
+      if (command === null) {
+        // Every other keystroke is what disarms a pending Ctrl+D — except the
+        // modifiers, which are how the second Ctrl+D is reached at all. agy #9.
+        if (!MODIFIER_KEYS.has(event.key)) disarmDelete();
+        return;
+      }
+      event.preventDefault();
+      if (command === 'delete') {
+        armOrDeleteRow(row, event.nativeEvent.repeat);
+        return;
+      }
+      // Any command that is not the confirm is a keystroke like any other.
+      disarmDelete();
+      const input = event.currentTarget;
+      if (!isCellElement(input)) return;
+      if (command !== 'new-item' && command !== 'next-or-create') {
+        moveByCommand(input, { rowId: row.id, columnId }, command);
+        return;
+      }
+      // Read now, not in the continuation: `currentTarget` is nulled the
+      // moment this handler returns, and the tree the next row is found in is
+      // the one that was on screen when the chord was pressed.
+      const landsOn = nextRowName(input, row.id);
+      if (commandInFlight.current) return;
+      commandInFlight.current = true;
+      void (async () => {
+        try {
+          const outcome = await flushCell(input);
+          // A refused save is the only copy of what was typed. The caret stays
+          // in it, and nothing is created above or below it.
+          if (outcome === 'refused') return;
+          // The next row, where there is one — and a new sibling where there
+          // is not, which is what makes this the chord that walks a plan being
+          // written. Ctrl+N is the one that creates mid-table.
+          if (command === 'next-or-create' && landsOn !== undefined) {
+            // Selected on arrival, the way every other keyboard move into a
+            // cell in this table leaves it.
+            focusCellAt(landsOn, 'all');
+            return;
+          }
+          await addSibling(row);
+        } finally {
+          commandInFlight.current = false;
+        }
+      })();
+    },
+    [addSibling, armOrDeleteRow, disarmDelete, moveByCommand, nextRowName],
   );
 
   /**
@@ -1824,7 +2403,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * three boxes are emptied` in `wbs-table.test.tsx`; watched, 2026-08-06.
    */
   const commitEstimate = useCallback(
-    (row: TreeRow, roleId: string, point: Point, typed: string) => {
+    (row: TreeRow, roleId: string, point: Point, typed: string): Promise<CommitOutcome> => {
       const next = { ...typedTrio(row, roleId), [point]: typed };
       setDrafts((current) => ({
         // A box edited last drops the folded cell's pending shorthand for this
@@ -1841,14 +2420,16 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         // be-01 holds a trio for this row and role at all, and a stored
         // `0 / 0 / 0` is one.
         if (isTrioEmpty(next) && Object.hasOwn(row.estimates, roleId)) {
-          void run(async () => {
+          return run(async () => {
             await api.clearEstimate(row.id, roleId);
             forgetEstimateDrafts(row.id, roleId);
           });
         }
-        return;
+        // A half-filled trio is a complaint, not a request: what was typed
+        // stays in `drafts`, which is where this cell's unsent text lives.
+        return unsent();
       }
-      void run(async () => {
+      return run(async () => {
         await api.setEstimate(row.id, roleId, days);
         forgetEstimateDrafts(row.id, roleId);
       });
@@ -1921,8 +2502,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * in `wbs-table.test.tsx` fails; watched, 2026-08-06.
    */
   const commitCombinedEstimate = useCallback(
-    (row: TreeRow, roleId: string, typed: string) => {
-      const entry = parseTrioShorthand(typed);
+    (row: TreeRow, roleId: string, typed: string, baseline: string): Promise<CommitOutcome> => {
+      // The estimate half, always — {@link parseTrioShorthand} never sees a
+      // mention. Two things follow, and both are refusals to send rather than
+      // repairs: a cell left with `@ka` still in it whose estimate half is
+      // what the cell was already showing has nothing to commit (`4.8@ka` is a
+      // figure this tool computed and a search nobody finished, not somebody
+      // asking for 4.8/4.8/4.8), and an *empty* estimate half beside a mention
+      // is the select-on-focus rather than somebody clearing an estimate.
+      // Emptying a cell with no `@` in it still clears it.
+      const { estimate, mention: fragment } = splitMention(typed);
+      if (fragment !== null && (estimate.trim() === '' || estimate === baseline)) return unsent();
+      const entry = parseTrioShorthand(estimate);
       setDrafts((current) => ({
         // Last edit wins: this entry replaces whatever the three boxes were
         // holding unsent for the same trio. Translating it into three box
@@ -1931,23 +2522,24 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         // boxes were holding` fails — the box still held a `7` nobody could
         // see. Watched, 2026-08-06.
         ...dropDrafts(current, new Set(POINTS.map((point) => draftKey(row.id, roleId, point)))),
-        [combinedDraftKey(row.id, roleId)]: typed,
+        // The estimate half, so a draft rendered back into the box can never
+        // carry a mention somebody abandoned.
+        [combinedDraftKey(row.id, roleId)]: estimate,
       }));
-      if (entry.kind === 'problem') return;
+      if (entry.kind === 'problem') return unsent();
       if (entry.kind === 'empty') {
         // `hasOwn`, as above: a stored `0 / 0 / 0` is an estimate to clear.
         // Proof: inverted, `clears the stored trio when the cell is emptied`
         // and `asks for nothing when a cell with no estimate is emptied` both
         // fail — one clear lost, one deletion posted per cell tabbed through.
         // Watched, 2026-08-06.
-        if (!Object.hasOwn(row.estimates, roleId)) return;
-        void run(async () => {
+        if (!Object.hasOwn(row.estimates, roleId)) return unsent();
+        return run(async () => {
           await api.clearEstimate(row.id, roleId);
           forgetEstimateDrafts(row.id, roleId);
         });
-        return;
       }
-      void run(async () => {
+      return run(async () => {
         await api.setEstimate(row.id, roleId, entry.days);
         forgetEstimateDrafts(row.id, roleId);
       });
@@ -2028,6 +2620,154 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     [api, projectId, run],
   );
 
+  /**
+   * Takes the focus into a folded role's cell, remembering what it holds.
+   *
+   * Called from the box's own `onFocus`, before the select that cell has
+   * always done — the value has to be read while it is still there.
+   */
+  const enterFoldedCell = useCallback((box: CellElement) => {
+    foldedBox.current = box;
+    foldedAtFocus.current = box.value;
+  }, []);
+
+  /**
+   * Reads a folded role's box on every keystroke and opens or closes its `@`
+   * picker.
+   *
+   * The estimate half is not touched here and no draft is written: what has
+   * been typed lives in the box until the cell is left, exactly as it did
+   * before mentions existed. All this does is decide whether a list is open
+   * and what it is filtered by.
+   */
+  const readFoldedCell = useCallback((rowId: string, roleId: string, box: CellElement) => {
+    const { mention: fragment } = splitMention(box.value);
+    setMention(fragment === null ? null : { rowId, roleId, typed: fragment });
+  }, []);
+
+  /**
+   * Takes the `@fragment` back out of the focused folded box, leaving the
+   * estimate half exactly as it was.
+   *
+   * The empty case is the one worth reading: a cell is selected on focus, so
+   * `@` typed straight into one replaces the figure it was showing, and an
+   * empty estimate half committed on the blur that follows would clear an
+   * estimate the person never touched. So an empty half is put back to what
+   * the cell held when the focus arrived. Emptying a cell deliberately — with
+   * no `@` in it — still clears the estimate, which is the gesture the cheat
+   * sheet documents.
+   */
+  const takeMentionOut = useCallback(() => {
+    const box = foldedBox.current;
+    if (box !== null) {
+      const { estimate } = splitMention(box.value);
+      box.value = estimate.trim() === '' ? foldedAtFocus.current : estimate;
+    }
+    setMention(null);
+  }, []);
+
+  /**
+   * Closes the `@` list and leaves the box exactly as it is — Escape's answer,
+   * and the same one every picker in this table gives it.
+   */
+  const closeMention = useCallback(() => {
+    setMention(null);
+  }, []);
+
+  /** Leaves a folded cell: the mention goes with the focus, the estimate stays. */
+  const leaveFoldedCell = useCallback(() => {
+    takeMentionOut();
+    foldedBox.current = null;
+  }, [takeMentionOut]);
+
+  /**
+   * What the `@` picker in one folded cell is offering.
+   *
+   * The same three kinds of entry the unfolded assignee column has, in the
+   * order they are read in: the people whose names contain what was typed,
+   * `Add "…"` when nothing matches it exactly, and `Remove …` when somebody is
+   * already assigned. Enter takes the first of them, which is
+   * {@link CreatablePicker}'s rule — so `Remove` is first on a bare `@` and
+   * nowhere else, and `@ka⏎` can never be the gesture that unassigns anybody.
+   */
+  const mentionOptions = useCallback(
+    (row: TreeRow, roleId: string): PickerOption[] => {
+      const open = mention;
+      if (open?.rowId !== row.id || open.roleId !== roleId) return [];
+      const wanted = open.typed.trim().toLowerCase();
+      const assigned = row.assignees[roleId];
+      const assignedPerson = people.find((each) => each.id === assigned);
+      const matching = people.filter(
+        (each) => wanted === '' || each.name.toLowerCase().includes(wanted),
+      );
+      const exact = people.some((each) => each.name.toLowerCase() === wanted);
+      return [
+        ...(wanted === '' && assignedPerson !== undefined
+          ? [
+              {
+                key: '(remove)',
+                label: `Remove ${assignedPerson.name}`,
+                selected: false,
+                take: () => {
+                  assignTo(row.id, roleId, null);
+                  takeMentionOut();
+                },
+              },
+            ]
+          : []),
+        ...matching.map((each) => ({
+          key: each.id,
+          label: pickableLabel({
+            id: each.id,
+            name: each.name,
+            detail:
+              each.teamIds.length === 0
+                ? 'free agent'
+                : each.teamIds
+                    .map((id) => teams.find((team) => team.id === id)?.name ?? '?')
+                    .join(', '),
+          }),
+          selected: each.id === assigned,
+          take: () => {
+            assignTo(row.id, roleId, each.id);
+            takeMentionOut();
+          },
+        })),
+        ...(wanted !== '' && !exact
+          ? [
+              {
+                key: '(add)',
+                label: `Add “${open.typed.trim()}”`,
+                selected: false,
+                take: () => {
+                  createPersonFor(row, roleId, open.typed.trim());
+                  takeMentionOut();
+                },
+              },
+            ]
+          : []),
+      ];
+    },
+    [assignTo, createPersonFor, mention, people, takeMentionOut, teams],
+  );
+
+  /**
+   * What a schedule column's heading says about itself, in a `title`.
+   *
+   * The headings are one word each — the columns are 52px — so the fact that
+   * decides how to read the figures under them cannot be in the heading text:
+   * without a project start date these are day numbers counted from day zero,
+   * and with one they are calendar dates. A bare `2.5` under "Start" reads as
+   * a date that failed to load, and this sentence is where that is answered.
+   */
+  const startDateHint = useCallback(
+    (what: string): string =>
+      startDate === null
+        ? `This work item's ${what}, in days from the start of the plan. Set a project start date to see real dates.`
+        : `This work item's ${what}.`,
+    [startDate],
+  );
+
   const hasSchedule = useCallback(() => scheduleError === null, [scheduleError]);
   const showSchedule = useCallback(
     (days: number) => (scheduleError === null ? showDay(days) : '—'),
@@ -2038,19 +2778,27 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     api,
     projectId,
     run,
+    busy,
     duplicateRow,
+    deleteRow,
+    commitNameCell,
     onKeyDown,
     onTabKey,
     onArrowKey,
     onAltMove,
+    onCommandKey,
+    armedDelete,
     setDragging,
     setDropHint,
     numbersOf,
     dependOn,
     hasSchedule,
     showSchedule,
+    startDateHint,
     depPicker,
     setDepPicker,
+    openMenuRowId,
+    setOpenMenuRowId,
     depEntriesFor,
     pickDependency,
     moveDepHighlight,
@@ -2060,6 +2808,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     combinedValue,
     combinedProblem,
     commitCombinedEstimate,
+    mention,
+    enterFoldedCell,
+    readFoldedCell,
+    closeMention,
+    leaveFoldedCell,
+    mentionOptions,
     hoveredNotes,
     setHoveredNotes,
     setNotBefore,
@@ -2078,19 +2832,27 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     api,
     projectId,
     run,
+    busy,
     duplicateRow,
+    deleteRow,
+    commitNameCell,
     onKeyDown,
     onTabKey,
     onArrowKey,
     onAltMove,
+    onCommandKey,
+    armedDelete,
     setDragging,
     setDropHint,
     numbersOf,
     dependOn,
     hasSchedule,
     showSchedule,
+    startDateHint,
     depPicker,
     setDepPicker,
+    openMenuRowId,
+    setOpenMenuRowId,
     depEntriesFor,
     pickDependency,
     moveDepHighlight,
@@ -2100,6 +2862,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     combinedValue,
     combinedProblem,
     commitCombinedEstimate,
+    mention,
+    enterFoldedCell,
+    readFoldedCell,
+    closeMention,
+    leaveFoldedCell,
+    mentionOptions,
     hoveredNotes,
     setHoveredNotes,
     setNotBefore,
@@ -2193,57 +2961,100 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // says the parent is the hit and the subtree is not. Watched,
           // 2026-08-06.
           const matched = live.current.matchIds.has(row.original.id);
+          const hovered = live.current.hoveredNotes === row.original.id;
           return (
-            <CellInput
-              aria-label={`Name of ${row.original.number}`}
-              data-name-input={row.original.id}
-              data-match={matched ? 'true' : undefined}
-              data-cell={cellKey(row.original.id, 'name')}
-              // A work item's name is a sentence, not a word, and an input
-              // scrolls it out of sight one character at a time. A textarea
-              // wraps, and `autoSize` is what stops it wrapping into a line
-              // nobody can see: the box is as tall as its name, focused or not.
-              // Enter is still "new work item" — the table preventDefaults it.
-              multiline
-              autoSize
-              rows={1}
-              maxRestRows={4}
-              style={{
-                // The cell's width, not a width of its own: `22em` was one of
-                // the three opinions that produced the overlap, and it is the
-                // colgroup's job now.
-                width: '100%',
-                boxSizing: 'border-box',
-                resize: 'vertical',
-                font: 'inherit',
-                ...(matched ? { background: MATCH_TINT } : {}),
+            <span
+              // `block`, not `inline-block`: a shrink-to-fit wrapper and a
+              // `width: 100%` textarea inside it define each other in a circle.
+              // It is also the positioned ancestor the preview below is placed
+              // against — which decides where the preview opens, not whether it
+              // is clipped. The clipper is the `<td>`, and it is what
+              // {@link POPOVER_COLUMNS} exempts.
+              style={{ position: 'relative', display: 'block', maxWidth: '100%' }}
+              onMouseEnter={() => {
+                live.current.setHoveredNotes(row.original.id);
               }}
-              // A callback ref rather than an effect: it fires exactly when this
-              // node is attached, so the focus cannot be lost to a later render
-              // arriving before the row does. That race is what
-              // Enter-Enter-Enter depends on not losing. It fires on every render
-              // rather than only the first, which the id check already tolerated.
-              onAttach={(element) => {
-                const wanted = focusNext.current;
-                // The Name column only: any other column is a cell this one has
-                // no business focusing, and it is landed on from the committed
-                // DOM by the effect that reads `focusNext` after a refresh.
-                if (wanted?.rowId !== row.original.id || wanted.columnId !== 'name') return;
-                focusNext.current = null;
-                element.focus();
-              }}
-              value={row.original.name}
-              commit={(typed) => {
-                void live.current.run(() =>
-                  live.current.api.patch(row.original.id, { name: typed }),
+              onMouseLeave={() => {
+                live.current.setHoveredNotes((current) =>
+                  current === row.original.id ? null : current,
                 );
               }}
-              onKeyDown={(e) => {
-                live.current.onAltMove(e, row.original, 'name');
-                live.current.onKeyDown(e, row.original);
-                live.current.onArrowKey(e, row.original.id, 'name');
-              }}
-            />
+            >
+              <CellInput
+                aria-label={`Name of ${row.original.number}`}
+                data-name-input={row.original.id}
+                data-match={matched ? 'true' : undefined}
+                data-cell={cellKey(row.original.id, 'name')}
+                // A work item's name is a sentence, not a word, and an input
+                // scrolls it out of sight one character at a time. A textarea
+                // wraps, and `autoSize` is what stops it wrapping into a line
+                // nobody can see: the box is as tall as its name, focused or
+                // not. It holds the notes under the name as well, which is what
+                // `maxRestRows` caps — past four lines the box scrolls and the
+                // hover preview is where a long note is read.
+                // Enter is still "new work item" — the table preventDefaults it.
+                multiline
+                autoSize
+                rows={1}
+                maxRestRows={4}
+                style={{
+                  // The cell's width, not a width of its own: `22em` was one of
+                  // the three opinions that produced the overlap, and it is the
+                  // colgroup's job now.
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  resize: 'vertical',
+                  font: 'inherit',
+                  ...(matched ? { background: MATCH_TINT } : {}),
+                }}
+                // A callback ref rather than an effect: it fires exactly when
+                // this node is attached, so the focus cannot be lost to a later
+                // render arriving before the row does. That race is what
+                // Enter-Enter-Enter depends on not losing. It fires on every
+                // render rather than only the first, which the id check already
+                // tolerated.
+                onAttach={(element) => {
+                  const wanted = focusNext.current;
+                  // The Name column only: any other column is a cell this one
+                  // has no business focusing, and it is landed on from the
+                  // committed DOM by the effect that reads `focusNext` after a
+                  // refresh.
+                  if (wanted?.rowId !== row.original.id || wanted.columnId !== 'name') return;
+                  focusNext.current = null;
+                  element.focus();
+                }}
+                // Both fields, as one text: the name, and the notes under it.
+                // The reverse trip and the rule that a peer's edit is diffed
+                // against the baseline rather than against this value are in
+                // {@link commitNameCell}.
+                value={composeNameCell(row.original.name, row.original.notes)}
+                // Returned rather than dropped: what be-01 did with the edit is
+                // what tells the box whether the text in it has been saved.
+                commit={(typed, baseline) =>
+                  live.current.commitNameCell(row.original.id, typed, baseline)
+                }
+                onKeyDown={(e) => {
+                  live.current.onAltMove(e, row.original, 'name');
+                  // Before the Name cell's own keys, and before the arrows:
+                  // Ctrl+Enter is a command here and a plain Enter is a
+                  // newline the browser writes, and only one handler may
+                  // answer for the pair.
+                  live.current.onCommandKey(e, row.original, 'name');
+                  live.current.onKeyDown(e, row.original);
+                  live.current.onArrowKey(e, row.original.id, 'name');
+                }}
+              />
+              {/*
+                The rendered note, on hover, and only when there is one. A
+                popover over an empty note is a box of nothing that hides the
+                row beneath it. It hangs off the Name cell because that is where
+                the note is now written; the Notes column it used to hang off
+                does not exist.
+              */}
+              {hovered && row.original.notes.trim() !== '' && (
+                <NotesPreview notes={row.original.notes} number={row.original.number} />
+              )}
+            </span>
           );
         },
       }),
@@ -2365,6 +3176,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     live.current.onTabKey(e, row.original.id, 'depends');
                     return;
                   }
+                  if (open && commandChordIn(e) !== null) {
+                    // Inert means consumed. Skipping `onCommandKey` was not
+                    // enough on its own: Cmd/⌘+Enter fell through to the Enter
+                    // branch below, which reads no modifiers, and added the
+                    // highlighted dependency — codex round 2, finding 2.
+                    // Proof: this guard removed, `Cmd+Enter in the open
+                    // depends list adds no dependency` failed on `expected
+                    // <button type="button" …(2)></button> to be null` — the
+                    // chip for an edge nobody confirmed. Watched, 2026-08-08.
+                    e.preventDefault();
+                    return;
+                  }
                   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                     e.preventDefault();
                     live.current.moveDepHighlight(
@@ -2381,6 +3204,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   if (e.key === 'Escape') {
                     live.current.setDepPicker(null);
                     return;
+                  }
+                  if (!open) {
+                    // Closed, this is a cell like any other and the chords
+                    // reach it. Open, the list owns the keyboard — the routing
+                    // matrix's inert row, and the reason this is a condition
+                    // rather than an unconditional call.
+                    // Proof: the condition forced true, `every chord is inert
+                    // while the depends list is open` failed on `expected
+                    // <input …(11)></input> to be <input …(10)></input>` — the
+                    // focus taken out of a list somebody was reading. Watched,
+                    // 2026-08-08.
+                    live.current.onCommandKey(e, row.original, 'depends');
                   }
                   if (e.key !== 'Enter') return;
                   e.preventDefault();
@@ -2424,7 +3259,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     maxHeight: 200,
                     overflowY: 'auto',
                     zIndex: 10,
-                    minWidth: '100%',
+                    // Wider than its own column on purpose, since that column
+                    // is 110px: an entry is a work item's number and its name,
+                    // and a list as narrow as the box it drops from would show
+                    // the number and about four letters. It escapes the cell
+                    // either way — see `opensAPopover`.
+                    minWidth: DEP_LIST_WIDTH,
                   }}
                 >
                   {entries.map((entry) => (
@@ -2501,6 +3341,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
               onTabKey: (e) => {
                 live.current.onTabKey(e, row.original.id, 'team');
               },
+              onCommandKey: (e) => {
+                live.current.onCommandKey(e, row.original, 'team');
+              },
             }}
           />
         ),
@@ -2521,10 +3364,16 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                 // much of it as the column has room for and no more. A role
                 // called "Infrastructure and platform" used to set the width of
                 // everything under it instead.
+                // The assignee no longer folds away — it is beside the figure
+                // in this very cell, and `@` assigns from there — so the
+                // button is about the three points and nothing else. It says
+                // the accordion out loud too, because unfolding this role
+                // folds whichever one was open and a table that reshuffles
+                // without saying why reads as a bug.
                 title={`${role.name} — ${
                   unfolded
-                    ? 'hide the three-point estimate and assignee'
-                    : 'show the three-point estimate and assignee'
+                    ? 'fold the three points back into the figure'
+                    : 'show the three points behind the figure; any other role folds'
                 }`}
                 onClick={() => {
                   live.current.toggleRole(role.id);
@@ -2551,6 +3400,22 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
               // screen to disagree with it, and a leaf, because a parent's
               // figure is a sum of what is below it and nothing to type into.
               const shorthand = !unfolded && !row.original.rolledUp;
+              const assigned = row.original.assignees[role.id];
+              // Nobody on this role and exactly one person on another: they are
+              // assumed to be doing this phase too. The same rule the unfolded
+              // column has, in the cell that is always on screen — which is the
+              // whole reason the assignee stopped folding away.
+              const assumed = assigned === undefined ? row.original.doesEveryPhase : null;
+              const shows = assigned ?? assumed;
+              const shownName =
+                shows === null
+                  ? null
+                  : (live.current.people.find((each) => each.id === shows)?.name ?? '(unknown)');
+              // Only while this role is folded: unfolded, the assignee has a
+              // column of its own with a picker in it, and two ways to assign
+              // one person side by side is two things to keep in step.
+              const options = unfolded ? [] : live.current.mentionOptions(row.original, role.id);
+              const listId = `mention-${row.original.id}-${role.id}`;
               return (
                 <span
                   data-final={role.id}
@@ -2558,7 +3423,26 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   // its own hover target, and it is the half a reader of a
                   // folded plan sees first.
                   title={problem ?? undefined}
-                  style={{ fontWeight: 600, color: problem === null ? undefined : '#c00' }}
+                  // A flex row, because this cell holds two things now: the
+                  // figure (or the box it is typed into) and who is doing it.
+                  // `relative` makes it the positioned ancestor the `@` list
+                  // opens against — the clip that would cut the list to 96px is
+                  // the `<td>`'s, which {@link opensAPopover} lifts.
+                  // The blur is the mention's: it bubbles from the box inside,
+                  // and leaving the cell has to take a half-typed `@ka` with
+                  // it. Nothing else in here can hold the focus.
+                  onBlur={() => {
+                    live.current.leaveFoldedCell();
+                  }}
+                  style={{
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    maxWidth: '100%',
+                    minWidth: 0,
+                    fontWeight: 600,
+                    color: problem === null ? undefined : '#c00',
+                  }}
                 >
                   {shorthand ? (
                     <CellInput
@@ -2568,10 +3452,63 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       // `is a cell of the keyboard grid, so a column can be
                       // typed down` fails. Watched, 2026-08-06.
                       data-cell={cellKey(row.original.id, `${role.id}-final`)}
+                      role="combobox"
+                      aria-expanded={options.length > 0}
+                      aria-controls={options.length > 0 ? listId : undefined}
+                      aria-autocomplete="list"
                       placeholder="o/r/p"
                       aria-invalid={problem !== null}
                       title={problem ?? SHORTHAND_HELP}
+                      // Every keystroke, so an `@` opens the people picker as
+                      // it is typed. The estimate half is not read here and no
+                      // draft is written — that is still the blur's job.
+                      onTyped={(box) => {
+                        live.current.readFoldedCell(row.original.id, role.id, box);
+                      }}
                       onKeyDown={(e) => {
+                        if (options.length > 0) {
+                          // Inert means consumed, and this is the one open list
+                          // that had two ways out of it. Cmd/⌘+Enter fell
+                          // through to the bare Enter below and assigned the
+                          // first person offered; every Alt+arrow went on to
+                          // `onAltMove` underneath and moved the row while its
+                          // list was open — codex round 2, finding 2.
+                          //
+                          // Proof, two faults, both watched 2026-08-08. This
+                          // guard removed: `Cmd+Enter in the folded cell’s open
+                          // @ list assigns nobody` failed on `expected
+                          // [ 'assign w2 role-dev person1' ] to deeply equal []`,
+                          // and `Alt+arrows in the folded cell’s open @ list
+                          // move no row` on `expected [ 'Strip', 'Paint',
+                          // 'Sand' ] to deeply equal [ 'Strip', 'Sand',
+                          // 'Paint' ]`.
+                          if (commandChordIn(e) !== null || altMoveIn(e) !== null) {
+                            e.preventDefault();
+                            return;
+                          }
+                          if (e.key === 'Escape') {
+                            // Closes the list and strips nothing: what was
+                            // typed is still on screen to be corrected, and the
+                            // blur that follows is what takes it back out.
+                            e.preventDefault();
+                            live.current.closeMention();
+                            return;
+                          }
+                          if (e.key === 'Enter') {
+                            // The first entry, which is `CreatablePicker`'s
+                            // rule: what is offered first is what is taken.
+                            e.preventDefault();
+                            options[0]?.take();
+                            return;
+                          }
+                        } else {
+                          // The routing matrix's inert row is this `else` and
+                          // nothing more: while the `@` list is open it owns
+                          // the keyboard, and Escape above is how it is given
+                          // back. A chord that fired through an open list
+                          // would create a row under a half-typed name search.
+                          live.current.onCommandKey(e, row.original, `${role.id}-final`);
+                        }
                         live.current.onAltMove(e, row.original, `${role.id}-final`);
                         live.current.onTabKey(e, row.original.id, `${role.id}-final`);
                         live.current.onArrowKey(e, row.original.id, `${role.id}-final`);
@@ -2579,8 +3516,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       // Selected on arrival, because the value at rest is a
                       // computed figure and the syntax is a trio: there is no
                       // sensible edit to make *inside* `4`, and a caret dropped
-                      // into it turns `2/3/8` into `2/3/84`.
+                      // into it turns `2/3/8` into `2/3/84`. What the selection
+                      // replaces is remembered first — see `enterFoldedCell`.
                       onFocus={(e) => {
+                        live.current.enterFoldedCell(e.currentTarget);
                         e.currentTarget.select();
                       }}
                       style={{
@@ -2588,17 +3527,55 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                         boxSizing: 'border-box',
                         font: 'inherit',
                         fontWeight: 600,
+                        flex: 1,
+                        minWidth: 0,
                         ...(problem === null ? {} : { background: '#fde8e8', borderColor: '#c00' }),
                       }}
                       value={live.current.combinedValue(row.original, role.id)}
-                      commit={(typed) => {
-                        live.current.commitCombinedEstimate(row.original, role.id, typed);
-                      }}
+                      commit={(typed, baseline) =>
+                        live.current.commitCombinedEstimate(row.original, role.id, typed, baseline)
+                      }
                     />
                   ) : (
                     showFinal(row.original.finalDays[role.id])
                   )}
                   {problem !== null && ' !'}
+                  {shownName !== null && (
+                    // `4.8 · Kat`, truncated, with the whole name in the
+                    // tooltip: 96px holds a figure and about four characters of
+                    // a person. Grey and in brackets where nobody is assigned
+                    // and somebody is assumed, exactly as the unfolded column
+                    // reads it.
+                    <span
+                      data-folded-assignee={role.id}
+                      {...(assigned === undefined ? { 'data-assumed': role.id } : {})}
+                      title={
+                        assigned === undefined
+                          ? `${shownName} — only one person is assigned, so they are assumed to do this phase too`
+                          : shownName
+                      }
+                      style={{
+                        marginLeft: 4,
+                        flex: 'none',
+                        minWidth: 0,
+                        maxWidth: '60%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 'normal',
+                        color: assigned === undefined ? '#666' : undefined,
+                      }}
+                    >
+                      · {assigned === undefined ? `(${shownName})` : shownName}
+                    </span>
+                  )}
+                  {options.length > 0 && (
+                    <PickerList
+                      id={listId}
+                      label={`${role.name} assignee for ${row.original.number}`}
+                      options={options}
+                    />
+                  )}
                 </span>
               );
             },
@@ -2626,6 +3603,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                           title={problem?.message}
                           onKeyDown={(e) => {
                             live.current.onAltMove(e, row.original, `${role.id}-${point}`);
+                            live.current.onCommandKey(e, row.original, `${role.id}-${point}`);
                             live.current.onTabKey(e, row.original.id, `${role.id}-${point}`);
                             live.current.onArrowKey(e, row.original.id, `${role.id}-${point}`);
                           }}
@@ -2643,10 +3621,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                                 : {}),
                           }}
                           value={live.current.estimateValue(row.original, role.id, point)}
-                          commit={(typed) => {
-                            if (row.original.rolledUp) return;
-                            live.current.commitEstimate(row.original, role.id, point, typed);
-                          }}
+                          commit={(typed) =>
+                            // A rolled-up figure is a sum of the rows below it:
+                            // the box is read-only and there is nothing to send.
+                            row.original.rolledUp
+                              ? unsent()
+                              : live.current.commitEstimate(row.original, role.id, point, typed)
+                          }
                         />
                       );
                     },
@@ -2708,6 +3689,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                             onTabKey: (e) => {
                               live.current.onTabKey(e, row.original.id, `${role.id}-assignee`);
                             },
+                            onCommandKey: (e) => {
+                              live.current.onCommandKey(e, row.original, `${role.id}-assignee`);
+                            },
                           }}
                         />
                         {assumed !== null && (
@@ -2735,7 +3719,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       }),
       column.display({
         id: 'final-total',
-        header: 'Total days',
+        // One word, because the column is 52px wide: it holds a number of days
+        // and the roles beside it hold days too. The sentence it used to be
+        // moved into the `title`, where a reader who wants it can still get it.
+        header: () => (
+          <span title="Every role's final figure for this work item, added up">Days</span>
+        ),
         cell: ({ row }) => (
           <span data-final-total style={{ fontWeight: 600 }}>
             {showDay(row.original.finalTotal)}
@@ -2765,6 +3754,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // Tab from stopping on a field that will not take the focus.
             data-cell={cellKey(row.original.id, 'not-before')}
             onKeyDown={(e) => {
+              // The chords, and nothing else this cell does not already own: a
+              // native date input keeps its own arrows for the segment under
+              // the caret, which is why {@link onArrowKey} is absent here.
+              live.current.onCommandKey(e, row.original, 'not-before');
               live.current.onTabKey(e, row.original.id, 'not-before');
             }}
             // A date input carries an intrinsic width — the spinner and the
@@ -2783,9 +3776,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       }),
       column.display({
         id: 'start',
-        // A bare `2.5` under "Starts" reads as a date that failed to load. The
-        // header says which of the two it is.
-        header: () => (live.current.startDate === null ? 'Starts (day)' : 'Starts'),
+        // A bare `2.5` under "Start" reads as a date that failed to load, and
+        // the header used to say which of the two it was — in 52px it cannot,
+        // so the distinction moved into the `title`. The column is a figure
+        // either way and the cell shows which kind it is.
+        header: () => <span title={live.current.startDateHint('earliest start')}>Start</span>,
         cell: ({ row }) => (
           <span data-start>
             {row.original.dates?.startsOn ??
@@ -2795,7 +3790,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       }),
       column.display({
         id: 'finish',
-        header: () => (live.current.startDate === null ? 'Ends (day)' : 'Ends'),
+        header: () => <span title={live.current.startDateHint('earliest finish')}>End</span>,
         cell: ({ row }) => (
           <span data-finish title={row.original.schedule.estimated ? undefined : 'No estimate yet'}>
             {row.original.dates?.endsOn ??
@@ -2806,7 +3801,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       }),
       column.display({
         id: 'float',
-        header: 'Slack (days)',
+        header: () => (
+          <span title="Days this work item can slip before the plan's end moves">Slack</span>
+        ),
         cell: ({ row }) => (
           <span data-float>
             {!live.current.hasSchedule()
@@ -2818,112 +3815,56 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         ),
       }),
       column.display({
-        id: 'notes',
-        header: 'Notes',
-        cell: ({ row }) => {
-          const hovered = live.current.hoveredNotes === row.original.id;
-          return (
-            <span
-              // `block`, not `inline-block`: a shrink-to-fit wrapper and a
-              // `width: 100%` textarea inside it define each other in a
-              // circle. It is also the positioned ancestor the preview below
-              // is placed against — which decides where the preview opens, not
-              // whether it is clipped. The clipper is the `<td>`, and it is
-              // what {@link POPOVER_COLUMNS} exempts.
-              style={{ position: 'relative', display: 'block', maxWidth: '100%' }}
-              onMouseEnter={() => {
-                live.current.setHoveredNotes(row.original.id);
-              }}
-              onMouseLeave={() => {
-                live.current.setHoveredNotes((current) =>
-                  current === row.original.id ? null : current,
-                );
-              }}
-            >
-              <CellInput
-                aria-label={`Notes for ${row.original.number}`}
-                data-cell={cellKey(row.original.id, 'notes')}
-                // Markdown is written in paragraphs, so this is the cell that
-                // most needs the room — one line at rest, several while it is
-                // being written in.
-                multiline
-                rows={1}
-                expandedRows={8}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  resize: 'vertical',
-                  font: 'inherit',
-                }}
-                onKeyDown={(e) => {
-                  live.current.onAltMove(e, row.original, 'notes');
-                  live.current.onTabKey(e, row.original.id, 'notes');
-                  live.current.onArrowKey(e, row.original.id, 'notes');
-                }}
-                value={row.original.notes}
-                commit={(typed) => {
-                  void live.current.run(() =>
-                    live.current.api.patch(row.original.id, { notes: typed }),
-                  );
-                }}
-              />
-              {/*
-                The rendered note, on hover, and only when there is one. A
-                popover over an empty note is a box of nothing that hides the
-                row beneath it.
-              */}
-              {hovered && row.original.notes.trim() !== '' && (
-                <NotesPreview notes={row.original.notes} number={row.original.number} />
-              )}
-            </span>
-          );
-        },
-      }),
-      column.display({
         id: 'actions',
         header: () => <span aria-label="Row actions" />,
         cell: ({ row }) => (
-          <>
-            {/*
-              Offered on a frozen row as well, unlike Delete and unlike moving
-              one: a freeze pins the number a row left the tool under, and the
-              copy is given none. Copying is not moving.
-
-              Labelled with the row's number because every row has one of
-              these, and `Duplicate` alone would name as many buttons as there
-              are rows — to a screen reader and to a test alike.
-            */}
-            <button
-              type="button"
-              aria-label={`Duplicate ${row.original.number}`}
-              onClick={() => void live.current.duplicateRow(row.original.id)}
-            >
-              Duplicate
-            </button>
-            {row.original.frozenNumber !== null ? (
-              <button
-                type="button"
-                onClick={() =>
-                  void live.current.run(() => live.current.api.unfreeze(row.original.id))
-                }
-              >
-                Unfreeze
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() =>
-                  void live.current.run(() =>
-                    live.current.api.remove(row.original.id, {
-                      strategy: row.original.subRows.length > 0 ? 'promote' : undefined,
-                    }),
-                  )
-                }
-              >
-                Delete
-              </button>
-            )}
-          </>
+          <ActionsMenu
+            number={row.original.number}
+            // Read through `live`, both of them, for the reason every other
+            // cell here reads its state that way: `columns` may depend on
+            // `roles` and `unfoldedRoles` and nothing else, or a click on one
+            // menu remounts every cell in the table.
+            open={live.current.openMenuRowId === row.original.id}
+            busy={live.current.busy}
+            onOpen={() => {
+              live.current.setOpenMenuRowId(row.original.id);
+            }}
+            onClose={() => {
+              // Only this row's own menu, so a menu that has already been
+              // replaced by another row's cannot close the new one on its way
+              // out.
+              live.current.setOpenMenuRowId((current) =>
+                current === row.original.id ? null : current,
+              );
+            }}
+            actions={[
+              {
+                id: 'duplicate',
+                // Offered on a frozen row as well, unlike Delete and unlike
+                // moving one: a freeze pins the number a row left the tool
+                // under, and the copy is given none. Copying is not moving.
+                label: 'Duplicate',
+                run: () => {
+                  void live.current.duplicateRow(row.original.id);
+                },
+              },
+              row.original.frozenNumber !== null
+                ? {
+                    id: 'unfreeze',
+                    label: 'Unfreeze',
+                    run: () => {
+                      void live.current.run(() => live.current.api.unfreeze(row.original.id));
+                    },
+                  }
+                : {
+                    id: 'delete',
+                    label: 'Delete',
+                    run: () => {
+                      void live.current.deleteRow(row.original);
+                    },
+                  },
+            ]}
+          />
         ),
       }),
     ],
@@ -2983,7 +3924,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
 
   return (
     <section>
-      <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+      {/*
+        Wrapping, because this row of controls is the only thing on the page
+        that can make it scroll sideways: it is about 1245px of buttons at its
+        narrowest, and a window below that — a narrow one, or a wide one at
+        125% zoom — carried the whole page with it while the table itself was
+        behaving perfectly. Observed on h2puni, 2026-08-08.
+      */}
+      <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button type="button" onClick={() => void run(() => api.freeze(projectId))} disabled={busy}>
           Freeze numbering
         </button>
@@ -3276,23 +4224,38 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           style={{
             borderCollapse: 'separate',
             borderSpacing: 0,
-            // `fixed` and a declared total, so the browser lays every column
-            // out at the width `table-frame.ts` says it has. Under the default
-            // `auto` the widths were a suggestion the content could outvote,
-            // and a column that came out wider than the offsets assumed is a
-            // pinned Name painted over "Depends on".
+            // `fixed`, so the browser lays every column out at the width
+            // `table-frame.ts` says it has. Under the default `auto` the
+            // widths were a suggestion the content could outvote, and a column
+            // that came out wider than the offsets assumed is a pinned Name
+            // painted over "Depends on".
             tableLayout: 'fixed',
-            width: tableWidth(leafColumnIds),
+            // The frame's width, never a declared total: every fixed column
+            // takes its declared px and Name absorbs whatever is left, so the
+            // table fits the window instead of the window having to fit the
+            // table. The minimum is the floor under that — the fixed columns
+            // plus Name's own floor — and below it the frame scrolls sideways
+            // with the pinned columns holding the left edge, which is the one
+            // case `width: 100%` cannot cover.
+            width: '100%',
+            minWidth: tableMinWidth(leafColumnIds),
           }}
         >
           {/*
             The one place the declared widths reach the browser. `col` sizes a
             column and nothing else about it, which is why the cells below
             carry no width of their own.
+
+            A flexible column gets a `<col>` with no width at all — not a
+            width of `auto`, which is the same thing said less clearly — and
+            `table-layout: fixed` hands it whatever the declared ones leave.
           */}
           <colgroup>
             {leafColumnIds.map((id) => (
-              <col key={id} style={{ width: widthFor(id) }} />
+              <col
+                key={id}
+                style={FLEXIBLE_COLUMNS.has(id) ? undefined : { width: widthFor(id) }}
+              />
             ))}
           </colgroup>
           <thead>
@@ -3311,6 +4274,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     style={{
                       ...CELL,
                       ...STICKY_HEADER_CELL,
+                      ...flexibleCellStyle(header.column.id),
                       ...pinnedCellStyle(header.column.id, 'header'),
                     }}
                   >
@@ -3325,6 +4289,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
               <tr
                 key={row.id}
                 data-frozen={row.original.frozenNumber !== null ? 'true' : 'false'}
+                // The armed row, said on the row rather than only in the
+                // toast: a sentence in the corner of the screen is not where
+                // somebody looks to find out which row a second Ctrl+D will
+                // take. The tint itself is on the cells below, because a
+                // pinned cell carries its own opaque background and would
+                // paint straight over a colour set here.
+                data-armed={armedDelete?.rowId === row.original.id ? 'true' : undefined}
                 data-drop={dropHint?.rowId === row.original.id ? dropHint.zone : undefined}
                 // The handlers sit on the row rather than in a column definition:
                 // `flexRender` renders each `cell` as a component *type*, so a
@@ -3370,7 +4341,26 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       // the wrapper span *inside* this `<td>`, so this `<td>`
                       // clips it unless it is told not to.
                       ...(opensAPopover(cell.column.id) ? { overflow: 'visible' as const } : {}),
+                      ...flexibleCellStyle(cell.column.id),
                       ...pinnedCellStyle(cell.column.id, 'body'),
+                      // Last, so it wins over the pinned layer it is raising.
+                      // A pinned cell is sticky *with a z-index*, which makes
+                      // it a stacking context — so the preview hanging off
+                      // this one is trapped inside it and the next row's
+                      // pinned Name cell paints over it, whatever the
+                      // preview's own z-index says. The Name column is the
+                      // only cell in the table that is both pinned and holds a
+                      // popover, and this is the row it is open on.
+                      // Proof: found in a browser rather than reasoned about —
+                      // `4px below the name cell is <textarea> in the name
+                      // column, not the preview`, on h2puni 2026-08-08, with
+                      // `opensAPopover` and every other rule already correct.
+                      ...(cell.column.id === 'name' && hoveredNotes === row.original.id
+                        ? { zIndex: POPOVER_ROW_LAYER }
+                        : {}),
+                      // After the pinned background, so the warning is visible
+                      // on the three columns that hold the left edge too.
+                      ...(armedDelete?.rowId === row.original.id ? { background: ARMED_TINT } : {}),
                     }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

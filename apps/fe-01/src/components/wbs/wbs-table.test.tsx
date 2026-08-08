@@ -18,6 +18,7 @@ import type {
   WorkItemView,
 } from '@/lib/wbs-api';
 
+import { POPOVER_ROW_LAYER, tableMinWidth } from './table-frame';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 /** The two elements a table cell can be, since a wrapping cell is a textarea. */
@@ -399,19 +400,48 @@ const click = (name: string) => {
   fireEvent.click(screen.getByRole('button', { name }));
 };
 
+/** Opens one row's ⋯ menu, the way a pointer does. */
+const openRowMenu = (number: string) => {
+  click(`Actions for ${number}`);
+};
+
+/**
+ * Opens a row's ⋯ menu and takes one of its items.
+ *
+ * The items are named plainly — `Duplicate`, not `Duplicate 010` — which is
+ * only unambiguous because one menu is open at a time. That rule is the subject
+ * of `opening one row’s menu closes the one already open`; if it broke, every
+ * use of this helper would fail on two elements with the same name.
+ */
+const takeRowAction = (number: string, label: string) => {
+  openRowMenu(number);
+  fireEvent.click(screen.getByRole('menuitem', { name: label }));
+};
+
 const typeName = (number: string, value: string) => {
   fireEvent.change(screen.getByLabelText(`Name of ${number}`), { target: { value } });
 };
 
 /**
- * Keys are fired at a named row rather than at `document.activeElement`.
+ * Ctrl+N in a named row's Name cell: a new work item below it.
  *
+ * Keys are fired at a named row rather than at `document.activeElement`.
  * Focus is a real behaviour and gets its own assertion, but using it to steer
  * these tests would make every one of them fail for the same reason if focus
  * broke — and none of them would say which behaviour was actually wrong.
+ *
+ * This was `pressEnter` until `command-keys`. Enter in a name is now the
+ * browser's own newline — a work item's notes are written under its name in
+ * that box — and the tests that only ever used Enter as scaffolding to *get* a
+ * second row moved to the chord that makes one. What Enter does instead has
+ * its own tests in `the command chords`.
  */
-const pressEnter = (number: string) => {
-  fireEvent.keyDown(screen.getByLabelText(`Name of ${number}`), { key: 'Enter' });
+const pressNewItem = (number: string) => {
+  fireEvent.keyDown(screen.getByLabelText(`Name of ${number}`), {
+    key: 'n',
+    code: 'KeyN',
+    ctrlKey: true,
+  });
 };
 
 /**
@@ -442,8 +472,8 @@ describe('the WBS table', () => {
     await screen.findByLabelText('Name of 010');
     typeName('010', 'Strip');
 
-    // Enter makes a sibling; Tab makes that sibling a child of the row above.
-    pressEnter('010');
+    // Ctrl+N makes a sibling; Tab makes that sibling a child of the row above.
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -454,7 +484,7 @@ describe('the WBS table', () => {
     });
 
     typeName('010.1', 'Sockets');
-    pressEnter('010.1');
+    pressNewItem('010.1');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '010.1', '010.2']);
     });
@@ -471,7 +501,7 @@ describe('the WBS table', () => {
 
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -492,7 +522,7 @@ describe('the WBS table', () => {
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -515,7 +545,7 @@ describe('the WBS table', () => {
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -546,7 +576,7 @@ describe('the WBS table', () => {
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -566,7 +596,7 @@ describe('the WBS table', () => {
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -594,7 +624,7 @@ describe('the WBS table', () => {
     click('Add work item');
     await screen.findByLabelText('Name of 010');
     // 010 gets its child first, so the numbering of everything after is settled.
-    pressEnter('010');
+    pressNewItem('010');
     await screen.findByLabelText('Name of 020');
     pressTab('020');
     await screen.findByLabelText('Name of 010.1');
@@ -605,8 +635,11 @@ describe('the WBS table', () => {
     }
 
     // 030 gets notes, 040 an estimate, 050 a dependency — committed by blur.
-    const notes = screen.getByLabelText<HTMLInputElement>('Notes for 030');
-    fireEvent.change(notes, { target: { value: 'measure twice' } });
+    // The notes are typed under an empty first line, so 030 has notes and no
+    // name: this test is about a work item whose *only* content is a note, and
+    // a name typed above it would veto the removal for the wrong reason.
+    const notes = screen.getByLabelText<HTMLInputElement>('Name of 030');
+    fireEvent.change(notes, { target: { value: '\nmeasure twice' } });
     fireEvent.blur(notes);
     unfoldRole('Dev');
     // A whole trio on 040 — one point alone is a draft, not an estimate, since
@@ -621,8 +654,9 @@ describe('the WBS table', () => {
     fireEvent.keyDown(depends, { key: 'Enter' });
     fireEvent.blur(depends);
     await waitFor(() => {
-      expect(screen.getByLabelText('Notes for 030')).toHaveValue('measure twice');
+      expect(api.rows.find((row) => row.number === '030')?.notes).toBe('measure twice');
     });
+    expect(screen.getByLabelText('Name of 030')).toHaveValue('\nmeasure twice');
 
     const removed: unknown[] = [];
     api.remove = (...args: unknown[]) => {
@@ -646,12 +680,46 @@ describe('the WBS table', () => {
     expect(numbersOnScreen()).toEqual(['010', '010.1', '020', '030', '040', '050']);
   });
 
+  itDom('a note that has not been deleted yet still vetoes the removal', async () => {
+    // The committed half of "is this work item empty", and the reason the
+    // `row.notes` conjunct stays beside `input.value === ''` now that one box
+    // holds both fields: emptying the box is not the same as having emptied
+    // the work item. Nothing has been sent — the blur that would send it has
+    // not happened — so the note is still there for everyone else, and a
+    // keystroke reflex must not take the row it belongs to with it.
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    const name = await screen.findByLabelText<HTMLInputElement>('Name of 010');
+    fireEvent.change(name, { target: { value: '\nmeasure twice' } });
+    fireEvent.blur(name);
+    await waitFor(() => {
+      expect(api.rows[0]?.notes).toBe('measure twice');
+    });
+
+    const removed: unknown[] = [];
+    api.remove = (...args: unknown[]) => {
+      removed.push(args);
+      return Promise.resolve();
+    };
+
+    // Select it all and delete it, then Backspace once more — one gesture, and
+    // the blur that would commit the emptying has not happened.
+    const again = screen.getByLabelText<HTMLInputElement>('Name of 010');
+    fireEvent.change(again, { target: { value: '' } });
+    again.setSelectionRange(0, 0);
+    fireEvent.keyDown(again, { key: 'Backspace' });
+
+    expect(removed).toEqual([]);
+    expect(numbersOnScreen()).toEqual(['010']);
+  });
+
   itDom('tab inside the text walks to the next cell instead of indenting', async () => {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -684,7 +752,7 @@ describe('the WBS table', () => {
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -705,8 +773,10 @@ describe('the WBS table', () => {
     name.setSelectionRange(2, 2);
     fireEvent.keyDown(name, { key: 'Tab', shiftKey: true });
 
-    // The row above's last editable cell — 010 is a leaf, so its notes.
-    expect(document.activeElement).toBe(screen.getByLabelText('Notes for 010'));
+    // The row above's last editable cell — 010 is a leaf and the plan has no
+    // start date, so its folded QA estimate. The Notes cell that used to be
+    // last is gone: those live under the name now.
+    expect(document.activeElement).toBe(screen.getByLabelText('QA estimate for 010'));
     expect(moved).toEqual([]);
   });
 
@@ -715,7 +785,7 @@ describe('the WBS table', () => {
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -768,7 +838,7 @@ describe('the WBS table', () => {
 
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -794,7 +864,8 @@ describe('the WBS table', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Number is frozen')).toBeDefined();
     });
-    expect(screen.getByRole('button', { name: 'Unfreeze' })).toBeDefined();
+    openRowMenu('010');
+    expect(screen.getByRole('menuitem', { name: 'Unfreeze' })).toBeDefined();
   });
 });
 
@@ -813,7 +884,7 @@ describe('duplicating a branch', () => {
     render(<WbsTable projectId="p1" api={api} />);
     await screen.findByLabelText('Name of 010');
 
-    click('Duplicate 010');
+    takeRowAction('010', 'Duplicate');
 
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '010.1', '020', '020.1']);
@@ -821,7 +892,9 @@ describe('duplicating a branch', () => {
     expect(screen.getByLabelText('Name of 020')).toHaveProperty('value', 'Strip (copy)');
     expect(screen.getByLabelText('Name of 020.1')).toHaveProperty('value', 'Sockets');
     // Proof: with the `focusNext` write removed from `duplicateRow`, this
-    // failed with the focus left on the Duplicate button. Watched 2026-08-07.
+    // failed with the focus left on the Duplicate button. Watched 2026-08-07,
+    // and again on 2026-08-08 once the button became the ⋯ the menu returns
+    // the focus to.
     await waitFor(() => {
       expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
     });
@@ -835,10 +908,10 @@ describe('duplicating a branch', () => {
 
     click('Freeze numbering');
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Unfreeze' })).toBeDefined();
+      expect(screen.getByLabelText('Number is frozen')).toBeDefined();
     });
 
-    click('Duplicate 010');
+    takeRowAction('010', 'Duplicate');
 
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
@@ -852,12 +925,193 @@ describe('duplicating a branch', () => {
       duplicate: () => Promise.reject(new Error('too_large')),
     });
 
-    click('Duplicate 010');
+    takeRowAction('010', 'Duplicate');
 
     await waitFor(() => {
       expect(toastTexts()).toContain('too_large');
     });
     expect(numbersOnScreen()).toEqual(['010']);
+  });
+});
+
+describe('the row actions menu', () => {
+  /** Three root rows, named, already on screen. */
+  async function threeRows(api: ProjectApi): Promise<void> {
+    for (const name of ['Strip', 'Sand', 'Paint']) {
+      await api.create('p1', { parentId: null, afterId: null, name });
+    }
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 030');
+  }
+
+  itDom('offers Duplicate and Delete on an ordinary row', async () => {
+    const api = fakeApi();
+    await threeRows(api);
+
+    openRowMenu('020');
+
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Duplicate',
+      'Delete',
+    ]);
+    expect(screen.getByRole('button', { name: 'Actions for 020' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  itDom('opening one row’s menu closes the one already open', async () => {
+    // One menu at a time, and it is not decoration: two open menus are two
+    // `Duplicate` items with the same accessible name, which is ambiguous to a
+    // screen reader and to `getByRole` alike.
+    // Proof: the cell's `open` widened to `openMenuRowId !== null`, so every
+    // row's menu opened at once: **11 tests failed**, this one on `Found
+    // multiple elements with the role "menuitem" and name "Duplicate"`.
+    // Watched, 2026-08-08.
+    const api = fakeApi();
+    await threeRows(api);
+
+    openRowMenu('010');
+    openRowMenu('020');
+
+    expect(screen.getByRole('button', { name: 'Actions for 010' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
+  });
+
+  itDom('promotes the children of a parent it deletes', async () => {
+    const api = fakeApi();
+    await api.create('p1', { parentId: null, afterId: null, name: 'Strip' });
+    await api.create('p1', { parentId: api.rows[0]?.id ?? null, afterId: null, name: 'Sockets' });
+    await api.create('p1', { parentId: null, afterId: api.rows[0]?.id ?? null, name: 'Sand' });
+    const removed: [string, unknown][] = [];
+    const real = api.remove.bind(api);
+    api.remove = (id, options) => {
+      removed.push([id, options]);
+      return real(id, options);
+    };
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010.1');
+
+    takeRowAction('010', 'Delete');
+
+    await waitFor(() => {
+      expect(removed).toHaveLength(1);
+    });
+    // The rule the two buttons had and this menu keeps: a branch's children
+    // move up rather than being deleted with the row above them.
+    expect(removed[0]?.[1]).toEqual({ strategy: 'promote' });
+  });
+
+  itDom('sends no strategy for a leaf, which has nothing to promote', async () => {
+    const api = fakeApi();
+    const removed: unknown[] = [];
+    const real = api.remove.bind(api);
+    api.remove = (id, options) => {
+      removed.push(options);
+      return real(id, options);
+    };
+    await threeRows(api);
+
+    takeRowAction('020', 'Delete');
+
+    await waitFor(() => {
+      expect(removed).toHaveLength(1);
+    });
+    expect(removed[0]).toEqual({ strategy: undefined });
+  });
+
+  itDom('lands the caret in the next sibling’s name after a delete', async () => {
+    const api = fakeApi();
+    await threeRows(api);
+
+    takeRowAction('020', 'Delete');
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020']);
+    });
+    // 030 was renumbered 020 by the delete: the row that took its place, which
+    // is where typing carries on.
+    // Proof: the `focusNext` write removed from `deleteRow`, this and the
+    // last-row test below both failed on `expected <body>…</body> to be
+    // <textarea …>` — the deleted row took the ⋯ button the focus had been
+    // given back to with it, so there was nothing left holding it. Watched,
+    // 2026-08-08.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
+    });
+    expect(screen.getByLabelText('Name of 020')).toHaveProperty('value', 'Paint');
+  });
+
+  itDom('lands the caret in the row above when the last row is deleted', async () => {
+    const api = fakeApi();
+    await threeRows(api);
+
+    takeRowAction('030', 'Delete');
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020']);
+    });
+    // Proof: `?? above` dropped, leaving only the next sibling, this failed
+    // alone on `expected <body>…</body> to be <textarea …>` — the last row has
+    // no sibling below it. Watched, 2026-08-08.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
+    });
+    expect(screen.getByLabelText('Name of 020')).toHaveProperty('value', 'Sand');
+  });
+
+  itDom('says why a delete was refused, moves the focus nowhere and deletes nothing', async () => {
+    const api = fakeApi();
+    await threeRows({ ...api, remove: () => Promise.reject(new Error('forbidden')) });
+
+    takeRowAction('020', 'Delete');
+
+    await waitFor(() => {
+      expect(toastTexts()).toContain('forbidden');
+    });
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    // Proof: `focusNext` assigned before the `await` rather than after it, this
+    // failed on `expected <textarea …> to be <button …>` — the caret in the
+    // name of a row nobody deleted. Watched, 2026-08-08.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for 020' }));
+  });
+
+  itDom('gives the focus back to the ⋯ button after unfreezing', async () => {
+    const api = fakeApi();
+    await threeRows(api);
+    click('Freeze numbering');
+    await waitFor(() => {
+      expect(screen.getAllByLabelText('Number is frozen')).toHaveLength(3);
+    });
+
+    takeRowAction('020', 'Unfreeze');
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText('Number is frozen')).toHaveLength(2);
+    });
+    // Nothing was created or removed, so nothing claims the caret: the menu's
+    // own rule — closes, and gives the focus back where it came from — is the
+    // whole answer here.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for 020' }));
+  });
+
+  itDom('offers no Delete on a frozen row', async () => {
+    const api = fakeApi();
+    await threeRows(api);
+    click('Freeze numbering');
+    await waitFor(() => {
+      expect(screen.getAllByLabelText('Number is frozen')).toHaveLength(3);
+    });
+
+    openRowMenu('020');
+
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Unfreeze' })).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
   });
 });
 
@@ -868,7 +1122,7 @@ describe('live edits from other people', () => {
 
     click('Add work item');
     const first = await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
 
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
@@ -958,7 +1212,7 @@ describe('collapsing a branch', () => {
 
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -1002,9 +1256,11 @@ describe('teams and assignees', () => {
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
     await screen.findByLabelText('Name of 010');
-    // Both phases, since assigning and the every-phase assumption span them.
+    // Dev only: unfolding is an accordion since 2026-08-08, so a second
+    // unfold would fold this one. QA stays folded, which is where the
+    // every-phase assumption is now read — in the folded cell, beside the
+    // figure.
     unfoldRole('Dev');
-    unfoldRole('QA');
     return api;
   }
 
@@ -1157,12 +1413,12 @@ describe('the plan on a calendar', () => {
     expect(cell.disabled).toBe(true);
     expect(cell.title).toContain('project start date');
     // And the columns say which of the two they are showing.
-    expect(screen.getAllByRole('columnheader').map((th) => th.textContent.trim())).toContain(
-      'Starts (day)',
-    );
+    // And the column says which of the two it is showing — in its `title`,
+    // because the heading itself is one word wide now.
+    expect(headerTitled('Start')).toContain('days from the start of the plan');
   });
 
-  itDom('takes one once the plan is on a calendar, and drops the "(day)" label', async () => {
+  itDom('takes one once the plan is on a calendar, and drops the "(day)" wording', async () => {
     await oneRow();
 
     fireEvent.change(screen.getByLabelText('Project start date'), {
@@ -1176,8 +1432,8 @@ describe('the plan on a calendar', () => {
     });
     // Scoped to the column headers: the toolbar has a "Starts" label of its own.
     const headers = screen.getAllByRole('columnheader').map((th) => th.textContent.trim());
-    expect(headers).toContain('Starts');
-    expect(headers).not.toContain('Starts (day)');
+    expect(headers).toContain('Start');
+    expect(headerTitled('Start')).not.toContain('days from the start of the plan');
   });
 
   itDom('sends a work item’s earliest start, and clears it again', async () => {
@@ -1215,24 +1471,33 @@ describe('the plan on a calendar', () => {
 });
 
 describe('names wrap and notes carry markdown', () => {
-  /** The wrapper the hover lives on — the cell's own parent. */
-  const notesCellOf = (number: string): HTMLElement => {
-    const found = screen.getByLabelText(`Notes for ${number}`).parentElement;
-    if (found === null) throw new Error(`notes cell for ${number} has no wrapper`);
+  /** The wrapper the hover lives on — the Name cell's own parent. */
+  const nameCellOf = (number: string): HTMLElement => {
+    const found = screen.getByLabelText(`Name of ${number}`).parentElement;
+    if (found === null) throw new Error(`name cell for ${number} has no wrapper`);
     return found;
   };
 
+  /**
+   * One row whose Name cell holds a name and, under it, these notes.
+   *
+   * Typed as one text through the one box, because that is the only way to
+   * write a note now: the Notes column is gone and its content lives under the
+   * first line of the name.
+   */
   async function oneRowWithNotes(notes: string) {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
-    await screen.findByLabelText('Name of 010');
-    const cell = screen.getByLabelText('Notes for 010');
-    fireEvent.change(cell, { target: { value: notes } });
+    const cell = await screen.findByLabelText('Name of 010');
+    fireEvent.change(cell, { target: { value: `Strip\n${notes}` } });
     fireEvent.blur(cell);
     await waitFor(() => {
       expect(api.rows[0]?.notes).toBe(notes);
     });
+    // Both fields, from one box and one request: the name is what was on the
+    // first line and nothing else.
+    expect(api.rows[0]?.name).toBe('Strip');
     return api;
   }
 
@@ -1296,21 +1561,35 @@ describe('names wrap and notes carry markdown', () => {
     expect(name.tagName).toBe('TEXTAREA');
   });
 
-  itDom('grows the notes box while it is being written in, and shrinks after', async () => {
-    await oneRowWithNotes('one');
-    const cell = screen.getByLabelText<HTMLTextAreaElement>('Notes for 010');
+  itDom('makes room for a note written under the name, focus or no focus', async () => {
+    // What the deleted Notes column's own `grows while it is being written in,
+    // and shrinks after` used to say, asked of the box the note is written in
+    // now. That cell expanded its `rows` on focus because it was cropped on
+    // purpose; this one auto-sizes, so the note has room at rest as well —
+    // which is the behaviour a plan is read with rather than written with.
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    const name = await screen.findByLabelText<HTMLTextAreaElement>('Name of 010');
 
-    expect(cell.rows).toBe(1);
-    fireEvent.focus(cell);
-    expect(cell.rows).toBeGreaterThan(1);
-    fireEvent.blur(cell);
-    expect(cell.rows).toBe(1);
+    withScrollHeight(name, 20);
+    fireEvent.change(name, { target: { value: 'Strip' } });
+    expect(name.style.height).toBe('20px');
+
+    withScrollHeight(name, 80);
+    fireEvent.change(name, { target: { value: 'Strip\n\n## Risks\n\n- the fuse box is old' } });
+    // `name.blur()`, not `fireEvent.blur`: the latter leaves
+    // `document.activeElement` where it was, so the component would still read
+    // the cell as focused.
+    name.blur();
+
+    expect(name.style.height).toBe('80px');
   });
 
   itDom('renders the markdown on hover, and nothing when there is no note', async () => {
     await oneRowWithNotes('## Risks\n\n- the fuse box is *old*');
 
-    fireEvent.mouseEnter(notesCellOf('010'));
+    fireEvent.mouseEnter(nameCellOf('010'));
 
     const preview = await screen.findByRole('tooltip');
     // Rendered, not printed: a heading is an element and the emphasis is one
@@ -1319,13 +1598,42 @@ describe('names wrap and notes carry markdown', () => {
     expect(preview.querySelector('li em')?.textContent).toBe('old');
   });
 
+  itDom('lifts the hovered row above the pinned cells the preview opens over', async () => {
+    // The one thing about this preview that no amount of correct CSS on the
+    // preview itself could fix, and that only a browser found: the Name cell
+    // is pinned, a pinned cell is `position: sticky` **with a z-index**, and
+    // that makes it a stacking context — so the preview inside it is trapped
+    // there and the next row's pinned Name cell paints straight over it.
+    // Proof: observed on h2puni before this existed, with `opensAPopover` and
+    // every other rule already right — `opens the notes preview out past the
+    // bottom of the name cell` failed on `4px below the name cell is
+    // <textarea> in the name column, not the preview`. 2026-08-08.
+    await oneRowWithNotes('## Risks');
+
+    const cell = (): HTMLElement => {
+      const found = nameCellOf('010').closest('td');
+      if (found === null) throw new Error('the name cell is not in a cell');
+      return found;
+    };
+    // At rest it is an ordinary pinned cell, or the lift below would be a
+    // rule that was always on and could not be seen to do anything.
+    expect(cell().style.zIndex).toBe('1');
+
+    fireEvent.mouseEnter(nameCellOf('010'));
+    await screen.findByRole('tooltip');
+
+    expect(Number(cell().style.zIndex)).toBe(POPOVER_ROW_LAYER);
+    fireEvent.mouseLeave(nameCellOf('010'));
+    expect(cell().style.zIndex).toBe('1');
+  });
+
   itDom('renders a script in a note as the text somebody typed', async () => {
     // Notes are written by one person and read by everyone else on the
     // project. react-markdown is used without rehype-raw precisely so this
     // cannot become markup — watched here rather than asserted in a comment.
     await oneRowWithNotes('<img src=x onerror="alert(1)"> and <script>alert(2)</script>');
 
-    fireEvent.mouseEnter(notesCellOf('010'));
+    fireEvent.mouseEnter(nameCellOf('010'));
 
     const preview = await screen.findByRole('tooltip');
     expect(preview.querySelector('img')).toBeNull();
@@ -1337,11 +1645,33 @@ describe('names wrap and notes carry markdown', () => {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);
     click('Add work item');
-    await screen.findByLabelText('Name of 010');
+    const name = await screen.findByLabelText('Name of 010');
+    // A named row with no note: the hover has a cell and a name to find, and
+    // still nothing to render. Hovering an empty row would pass this test
+    // against a preview that simply never opened.
+    fireEvent.change(name, { target: { value: 'Strip' } });
+    fireEvent.blur(name);
+    await waitFor(() => {
+      expect(api.rows[0]?.name).toBe('Strip');
+    });
 
-    fireEvent.mouseEnter(notesCellOf('010'));
+    fireEvent.mouseEnter(nameCellOf('010'));
 
     expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  itDom('reads the whole note in the preview while the box shows the first lines', async () => {
+    // The cap and the preview are one answer between them: the cell stops at
+    // four lines so forty rows still fit on a screen, and the hover is where
+    // the rest of a long note is read. Without the preview the cap would be a
+    // crop.
+    await oneRowWithNotes('## Risks\n\n- one\n- two\n- three\n- four\n- five\n- six');
+
+    fireEvent.mouseEnter(nameCellOf('010'));
+
+    const preview = await screen.findByRole('tooltip');
+    expect(preview.querySelectorAll('li')).toHaveLength(6);
+    expect(preview.getAttribute('aria-label')).toBe('Notes for 010, rendered');
   });
 });
 
@@ -1382,6 +1712,54 @@ describe('role columns fold away', () => {
     expect(screen.queryByLabelText('Dev optimistic for 010')).toBeNull();
   });
 
+  itDom('unfolds one role at a time, so the table still fits the window', async () => {
+    // The accordion, and it is arithmetic rather than taste: a folded role
+    // costs 96px and an unfolded one 372, so two roles folded need 1144px and
+    // fit a 1280 laptop while one of them open needs 1420 and does not.
+    // `table-frame.test.ts` pins those three numbers; this is the behaviour
+    // that keeps the table on the second of them.
+    // Proof: `toggleRole` put back to `[...current, roleId]`, this failed on
+    // `expected <input …(5)></input> to be null` — QA's three boxes on screen
+    // beside Dev's. Watched, 2026-08-08.
+    await oneRow();
+
+    unfoldRole('Dev');
+    unfoldRole('QA');
+
+    expect(screen.getByLabelText('QA optimistic for 010')).toBeDefined();
+    expect(screen.queryByLabelText('Dev optimistic for 010')).toBeNull();
+    // And the width the table declares follows, which is the whole reason.
+    expect(screen.getByRole('table').style.minWidth).toBe('1420px');
+
+    // Folding the open one leaves nothing open, rather than putting the other
+    // one back.
+    fireEvent.click(screen.getByRole('button', { name: 'Fold QA estimates' }));
+    expect(screen.queryByLabelText('QA optimistic for 010')).toBeNull();
+    expect(screen.queryByLabelText('Dev optimistic for 010')).toBeNull();
+    expect(screen.getByRole('table').style.minWidth).toBe('1144px');
+  });
+
+  itDom('says what the fold button does, which is no longer hiding the assignee', async () => {
+    // The copy is the change: who is doing the work is in the folded cell now,
+    // so a button claiming to hide it would be describing the table of a week
+    // ago. And it says the accordion out loud, because a table that reshuffles
+    // without warning reads as a bug.
+    // Proof: the old copy restored, this failed on `expected 'Dev — show the
+    // three-point estimate a…' to contain 'show the three points behind the
+    // figu…'`. Watched, 2026-08-08.
+    await oneRow();
+
+    const folded = screen.getByRole('button', { name: 'Unfold Dev estimates' });
+    expect(folded.title).toContain('show the three points behind the figure');
+    expect(folded.title).toContain('any other role folds');
+    expect(folded.title).not.toContain('assignee');
+
+    unfoldRole('Dev');
+    const open = screen.getByRole('button', { name: 'Fold Dev estimates' });
+    expect(open.title).toContain('fold the three points back into the figure');
+    expect(open.title).not.toContain('assignee');
+  });
+
   itDom('keeps a typed estimate draft across a fold and back', async () => {
     // Drafts live in the table's state, not in the inputs, precisely so a
     // fold cannot swallow one.
@@ -1417,6 +1795,201 @@ describe('role columns fold away', () => {
     const final = rowFor('010').querySelector('[data-final="role-dev"]');
     expect(final?.textContent).toContain('!');
     expect(final?.getAttribute('title')).toContain('not saved');
+  });
+});
+
+describe('assigning from a folded role’s cell with @', () => {
+  /** One row and two roles, both folded — where a person starts. */
+  async function oneRow() {
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  const foldedCell = (role = 'Dev') =>
+    screen.getByLabelText<HTMLInputElement>(`${role} estimate for 010`);
+
+  /** Focuses the folded box and puts `text` in it, keystroke by keystroke’s event. */
+  const typeInto = (cell: HTMLInputElement, text: string): HTMLInputElement => {
+    fireEvent.focus(cell);
+    fireEvent.change(cell, { target: { value: text } });
+    return cell;
+  };
+
+  /** Records every estimate written, and still performs it. */
+  const watchEstimates = (api: ProjectApi): unknown[][] => {
+    const written: unknown[][] = [];
+    const perform = api.setEstimate.bind(api);
+    api.setEstimate = (id: string, roleId: string, days: Days) => {
+      written.push([id, roleId, days]);
+      return perform(id, roleId, days);
+    };
+    return written;
+  };
+
+  /** What a folded role's cell says about who is doing the work, or null. */
+  const assigneeShown = (role = 'role-dev'): string | null =>
+    rowFor('010').querySelector(`[data-folded-assignee="${role}"]`)?.textContent ?? null;
+
+  /** The `@` picker's entries, in the order they are offered. */
+  const offered = (role = 'Dev'): (string | null)[] => {
+    const list = screen
+      .queryAllByRole('listbox')
+      .find((box) => box.getAttribute('aria-label') === `${role} assignee for 010`);
+    return list === undefined
+      ? []
+      : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+  };
+
+  /** Puts a person on the directory the way a person does: `@name` in a cell. */
+  const addPersonThrough = async (role: string, name: string): Promise<void> => {
+    fireEvent.keyDown(typeInto(foldedCell(role), `@${name}`), { key: 'Enter' });
+    await waitFor(() => {
+      expect(assigneeShown(role === 'Dev' ? 'role-dev' : 'role-qa')).toContain(name);
+    });
+    fireEvent.blur(foldedCell(role));
+  };
+
+  itDom('opens the people picker on an @ and filters it by what follows', async () => {
+    await oneRow();
+    await addPersonThrough('Dev', 'Kateryna');
+    await addPersonThrough('QA', 'Ada');
+
+    const cell = foldedCell();
+    expect(offered()).toEqual([]);
+
+    // An estimate is not a mention: nothing opens until the `@` is typed.
+    typeInto(cell, '2/3/8');
+    expect(offered()).toEqual([]);
+
+    fireEvent.change(cell, { target: { value: '2/3/8@' } });
+    expect(offered()).toEqual(['Remove Kateryna', 'Kateryna — free agent', 'Ada — free agent']);
+
+    fireEvent.change(cell, { target: { value: '2/3/8@ad' } });
+    expect(offered()).toEqual(['Ada — free agent', 'Add “ad”']);
+  });
+
+  itDom('assigns on Enter and takes the @ back out, leaving the trio alone', async () => {
+    // Dany's one gesture: `2/3/8@ka⏎` — trio typed, Kateryna assigned. The box
+    // is left holding the trio and nothing else, and the blur that follows
+    // sends exactly that.
+    const api = await oneRow();
+    await addPersonThrough('QA', 'Kateryna');
+
+    const cell = typeInto(foldedCell(), '2/3/8@ka');
+    fireEvent.keyDown(cell, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(assigneeShown('role-dev')).toBe('· Kateryna');
+    });
+    // The mention is gone and the estimate half is untouched.
+    expect(cell.value).toBe('2/3/8');
+    expect(offered()).toEqual([]);
+
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(api.rows[0]?.estimates['role-dev']).toEqual({
+        optimistic: 2,
+        realistic: 3,
+        pessimistic: 8,
+      });
+    });
+  });
+
+  itDom('never lets the @ half read as an estimate, half-typed or abandoned', async () => {
+    // The rule that holds the two apart. `@ka` alone is somebody looking a
+    // person up in a cell that was selected on focus — not somebody clearing
+    // the estimate that selection replaced — and `4@ka` left behind is the
+    // figure this tool computed, not a request for 4/4/4.
+    // Proof: the `splitMention` call in `commitCombinedEstimate` replaced by
+    // `const estimate = typed`, this failed on `expected '@ka' to be '4'` —
+    // the mention committed as a shorthand estimate. Watched, 2026-08-08.
+    const api = await oneRow();
+    await addPersonThrough('QA', 'Kateryna');
+    const written = watchEstimates(api);
+
+    // An estimate to lose.
+    const first = foldedCell();
+    fireEvent.focus(first);
+    fireEvent.change(first, { target: { value: '4' } });
+    fireEvent.blur(first);
+    await waitFor(() => {
+      expect(foldedCell().value).toBe('4');
+    });
+    expect(written).toHaveLength(1);
+
+    // A mention typed over the whole selection: no complaint while it is
+    // half-typed, and the figure back in the box when the cell is left.
+    const cell = typeInto(foldedCell(), '@ka');
+    expect(cell.getAttribute('aria-invalid')).toBe('false');
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(foldedCell().value).toBe('4');
+    });
+    expect(written).toHaveLength(1);
+
+    // And a mention abandoned beside the figure the cell was already showing
+    // asks be-01 for nothing at all.
+    const again = typeInto(foldedCell(), '4@ka');
+    fireEvent.keyDown(again, { key: 'Escape' });
+    expect(offered()).toEqual([]);
+    fireEvent.blur(again);
+    await waitFor(() => {
+      expect(foldedCell().value).toBe('4');
+    });
+    expect(written).toHaveLength(1);
+  });
+
+  itDom('adds a contributor nobody had, and offers to remove the one assigned', async () => {
+    const api = await oneRow();
+
+    const cell = typeInto(foldedCell(), '@Grace');
+    expect(offered()).toEqual(['Add “Grace”']);
+    fireEvent.keyDown(cell, { key: 'Enter' });
+
+    // The figure and who is doing it, in the one cell that never folds away.
+    await waitFor(() => {
+      expect(assigneeShown('role-dev')).toBe('· Grace');
+    });
+    expect(await api.listPeople()).toEqual([{ id: 'person1', name: 'Grace', teamIds: [] }]);
+
+    // A bare `@` offers to take them off again — first, so Enter on it is the
+    // gesture that unassigns, and `@gr⏎` never can be.
+    const again = typeInto(foldedCell(), '@');
+    expect(offered()).toEqual(['Remove Grace', 'Grace — free agent']);
+    fireEvent.keyDown(again, { key: 'Enter' });
+    await waitFor(() => {
+      expect(assigneeShown('role-dev')).toBeNull();
+    });
+  });
+
+  itDom('shows the assumed name in grey beside the figure of the other phase', async () => {
+    // One person on one phase is read as doing the others too, and the folded
+    // cell is where that is now visible — it used to need the role unfolded.
+    await oneRow();
+
+    fireEvent.keyDown(typeInto(foldedCell(), '@Ada'), { key: 'Enter' });
+    await waitFor(() => {
+      expect(assigneeShown('role-dev')).toBe('· Ada');
+    });
+
+    const dev = rowFor('010').querySelector('[data-folded-assignee="role-dev"]');
+    const qa = rowFor('010').querySelector('[data-folded-assignee="role-qa"]');
+    expect(dev?.textContent).toBe('· Ada');
+    expect(dev?.getAttribute('data-assumed')).toBeNull();
+    // Bracketed and grey: a reading of one assignment, not a second one
+    // written down.
+    expect(qa?.textContent).toBe('· (Ada)');
+    expect(qa?.getAttribute('data-assumed')).toBe('role-qa');
+    expect((qa as HTMLElement | null)?.style.color).toBe('rgb(102, 102, 102)');
+  });
+
+  itDom('says nothing where nobody is assigned and nobody is assumed', async () => {
+    await oneRow();
+
+    expect(rowFor('010').querySelector('[data-folded-assignee="role-dev"]')).toBeNull();
   });
 });
 
@@ -1620,7 +2193,7 @@ describe('one cell for the whole trio', () => {
 
   itDom('leaves a parent’s rolled-up figure to be read, not typed into', async () => {
     const api = await oneRow();
-    pressEnter('010');
+    pressNewItem('010');
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020']);
     });
@@ -1973,6 +2546,23 @@ describe('estimates are never edited for you', () => {
     });
   });
 });
+
+/**
+ * What the column heading reading `text` says about itself in its `title`.
+ *
+ * The schedule columns are one word wide, so the sentence that says whether
+ * their figures are dates or day numbers lives in the tooltip rather than in
+ * the heading. Read from the heading's own descendant, which is where the
+ * `title` is: the `<th>` carries the sticky chrome and the span carries the
+ * words.
+ */
+const headerTitled = (text: string): string => {
+  const header = screen.getAllByRole('columnheader').find((th) => th.textContent.trim() === text);
+  if (header === undefined) throw new Error(`no column heading reads ${text}`);
+  const titled = header.querySelector('[title]');
+  if (titled === null) throw new Error(`the ${text} heading says nothing about itself`);
+  return titled.getAttribute('title') ?? '';
+};
 
 /** The `<tr>` whose number cell reads `number`. */
 const rowFor = (number: string): HTMLElement => {
@@ -2330,6 +2920,401 @@ describe('someone else editing while you are typing', () => {
     expect(patched).toEqual([]);
     expect(input).toHaveProperty('value', 'Rewire the shed');
   });
+
+  /**
+   * One row with a name and a note, a live subscription, and the two handles a
+   * peer-collision test needs: what be-01 was asked for, and the peer's own
+   * arrival.
+   *
+   * The whole point is that this goes through the real render path — the peer's
+   * edit reaches the cell as new props from a refetch, exactly as it does in
+   * the app, and `CellInput`'s rule 2 holds it back because this client is
+   * mid-word. A test that reached into the component would prove nothing about
+   * the arrival that causes the bug.
+   */
+  async function peerAndMe(name: string, notes: string) {
+    const api = fakeApi();
+    let notify: () => void = () => {
+      throw new Error('the table never subscribed');
+    };
+    const subscribe = (_projectId: string, handlers: SubscriptionHandlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    };
+    render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
+
+    click('Add work item');
+    const cell = await screen.findByLabelText<HTMLTextAreaElement>('Name of 010');
+    fireEvent.change(cell, { target: { value: `${name}\n${notes}` } });
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(api.rows[0]?.notes).toBe(notes);
+    });
+
+    const patched: [string, Record<string, string>][] = [];
+    const real = api.patch.bind(api);
+    api.patch = (id: string, patch: Record<string, string>) => {
+      patched.push([id, patch]);
+      return real(id, patch);
+    };
+    /** Their edit, landing while this client is mid-word. */
+    const theirEdit = async (change: (row: WorkItemView) => void) => {
+      change(api.rows[0]);
+      await act(async () => {
+        notify();
+        await Promise.resolve();
+      });
+    };
+    return { api, patched, cell, theirEdit };
+  }
+
+  itDom('keeps a peer’s note when the name is what was being typed', async () => {
+    // codex #3 and agy #3, from opposite ends of the same hole. The commit is
+    // diffed against what this box was showing when the typing began, never
+    // against the row it renders from: their note arrived mid-word and was
+    // held back, so this client's blur has no idea it exists — and must not
+    // therefore send `notes: ''` over the top of it.
+    //
+    // Proof: `was` in `commitNameCell` re-pointed at the current row props,
+    // `splitNameCell(composeNameCell(here.name, here.notes))` off `flat`. This
+    // failed on `expected 'measure twice' to be 'their note'` — their note
+    // replaced with the stale one this client had on screen, by somebody who
+    // never saw theirs. Watched, 2026-08-08.
+    const { api, patched, cell, theirEdit } = await peerAndMe('Strip', 'measure twice');
+
+    cell.focus();
+    fireEvent.change(cell, { target: { value: 'Strip the old wir\nmeasure twice' } });
+    await theirEdit((row) => {
+      row.notes = 'their note';
+    });
+    // Held back rather than shown: this client is mid-word in the box their
+    // edit landed in, which is the collision that makes the diff hard.
+    expect(cell.value).toBe('Strip the old wir\nmeasure twice');
+
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(patched).toHaveLength(1);
+    });
+
+    // Their note first, because it is the harm: the request shape below is how
+    // it is avoided, and a test that only asserted the shape would report a
+    // clobber as a disagreement about JSON.
+    expect(api.rows[0]?.notes).toBe('their note');
+    expect(patched).toEqual([['w1', { name: 'Strip the old wir' }]]);
+    expect(api.rows[0]?.name).toBe('Strip the old wir');
+  });
+
+  itDom('keeps a peer’s name when the notes are what was being typed', async () => {
+    // The mirror of it, and a separate test for the reason the pair above is:
+    // a diff that got one direction right by accident would pass the other.
+    //
+    // Proof: the same fault. This failed on `expected 'Strip' to be 'Rewire
+    // the shed'` — their rename written over by somebody who was typing a
+    // note. Watched, 2026-08-08.
+    const { api, patched, cell, theirEdit } = await peerAndMe('Strip', 'measure twice');
+
+    cell.focus();
+    fireEvent.change(cell, { target: { value: 'Strip\nmeasure twice, cut once' } });
+    await theirEdit((row) => {
+      row.name = 'Rewire the shed';
+    });
+    expect(cell.value).toBe('Strip\nmeasure twice, cut once');
+
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(patched).toHaveLength(1);
+    });
+
+    expect(api.rows[0]?.name).toBe('Rewire the shed');
+    expect(patched).toEqual([['w1', { notes: 'measure twice, cut once' }]]);
+    expect(api.rows[0]?.notes).toBe('measure twice, cut once');
+  });
+
+  itDom('keeps a refused draft on screen when the next refetch arrives', async () => {
+    // codex round 1, finding 1. A refusal leaves the typed text in the box and
+    // nowhere else: be-01 has not got it, and the row this cell renders from
+    // still says what it always said. The next refetch — anybody's edit, this
+    // client's own next request, a reconnect — carries a value that differs
+    // from what the box was last showing, and rule 1 would write it in over
+    // two fields the person typed and was never told were lost.
+    //
+    // Proof: the `refused.current` gate deleted from `sync`, this failed on
+    // `expected 'Rewire the shed\nmeasure twice' to be 'Strip the wiring\n
+    // measure twice, cut …'` — both typed fields replaced by the server's,
+    // silently. Watched, 2026-08-08.
+    const { api, cell, theirEdit } = await peerAndMe('Strip', 'measure twice');
+    // Refused for a reason retyping cannot fix, so what is in the box is all
+    // there is of this edit anywhere.
+    api.patch = () => Promise.reject(new Error('forbidden'));
+
+    cell.focus();
+    fireEvent.change(cell, { target: { value: 'Strip the wiring\nmeasure twice, cut once' } });
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(toastTexts()).toContain('forbidden');
+    });
+
+    await theirEdit((row) => {
+      row.name = 'Rewire the shed';
+    });
+
+    expect(cell.value).toBe('Strip the wiring\nmeasure twice, cut once');
+  });
+});
+
+describe('a name and its notes in one box', () => {
+  /**
+   * One row, named and noted, with every `patch` recorded.
+   *
+   * The row is set up through the box itself rather than by writing to the
+   * fake, so what these tests start from is a state this component can
+   * actually produce.
+   */
+  async function noted(name: string, notes: string) {
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    const cell = await screen.findByLabelText<HTMLTextAreaElement>('Name of 010');
+    fireEvent.change(cell, { target: { value: notes === '' ? name : `${name}\n${notes}` } });
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(api.rows[0]?.name).toBe(name);
+    });
+    expect(api.rows[0]?.notes).toBe(notes);
+
+    const patched: [string, Record<string, string>][] = [];
+    const real = api.patch.bind(api);
+    api.patch = (id: string, patch: Record<string, string>) => {
+      patched.push([id, patch]);
+      return real(id, patch);
+    };
+    return { api, patched, cell };
+  }
+
+  /** Types a whole value into the Name cell and leaves it, the way a person does. */
+  const retype = (value: string) => {
+    const cell = screen.getByLabelText<HTMLTextAreaElement>('Name of 010');
+    cell.focus();
+    fireEvent.change(cell, { target: { value } });
+    fireEvent.blur(cell);
+  };
+
+  itDom('writes the first line as the name and the rest as the notes', async () => {
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    const cell = await screen.findByLabelText('Name of 010');
+
+    fireEvent.change(cell, { target: { value: 'Strip\n## Risks\n\n- the fuse box is old' } });
+    fireEvent.blur(cell);
+
+    await waitFor(() => {
+      expect(api.rows[0]?.name).toBe('Strip');
+    });
+    expect(api.rows[0]?.notes).toBe('## Risks\n\n- the fuse box is old');
+  });
+
+  itDom('sends one request for a name and a note typed together', async () => {
+    // One request, so one refusal, one journal entry and one Cmd+Z. Two
+    // patches would undo as two, which is a name and a note that came from one
+    // gesture coming back in two.
+    const { patched } = await noted('Strip', 'measure twice');
+
+    retype('Strip the wiring\nmeasure twice, cut once');
+
+    await waitFor(() => {
+      expect(patched).toEqual([
+        ['w1', { name: 'Strip the wiring', notes: 'measure twice, cut once' }],
+      ]);
+    });
+  });
+
+  itDom('sends only the field that changed', async () => {
+    // The subset, not the pair: a patch of both fields is a write to be-01 of
+    // a field nobody touched, and the last-writer-wins collision this whole
+    // design is trying not to have.
+    const { patched } = await noted('Strip', 'measure twice');
+
+    retype('Strip the wiring\nmeasure twice');
+    await waitFor(() => {
+      expect(patched).toEqual([['w1', { name: 'Strip the wiring' }]]);
+    });
+
+    retype('Strip the wiring\nmeasure twice, cut once');
+    await waitFor(() => {
+      expect(patched).toHaveLength(2);
+    });
+    expect(patched[1]).toEqual(['w1', { notes: 'measure twice, cut once' }]);
+  });
+
+  itDom('does not rewrite a note that was stored with Windows line endings', async () => {
+    // Where a `\r` actually reaches this code, which is not the keyboard: a
+    // `<textarea>` normalises whatever is assigned to it, so the box can never
+    // hold one — but the string this cell renders from is be-01's, and be-01
+    // takes what an API client or another front end sent it. The box's value
+    // and the server's then differ as text while meaning the same thing, and
+    // every focus-and-leave of that row would be a patch nobody typed.
+    const api = fakeApi();
+    let notify: () => void = () => {
+      throw new Error('the table never subscribed');
+    };
+    const subscribe = (_projectId: string, handlers: SubscriptionHandlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    };
+    render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
+    click('Add work item');
+    const cell = await screen.findByLabelText<HTMLTextAreaElement>('Name of 010');
+    fireEvent.change(cell, { target: { value: 'Strip' } });
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(api.rows[0]?.name).toBe('Strip');
+    });
+
+    const patched: [string, Record<string, string>][] = [];
+    api.patch = (id: string, patch: Record<string, string>) => {
+      patched.push([id, patch]);
+      return Promise.resolve();
+    };
+    api.rows[0].notes = 'measure twice\r\ncut once';
+    await act(async () => {
+      notify();
+      await Promise.resolve();
+    });
+
+    // The box holds the browser's newlines; the server holds Windows's.
+    expect(cell.value).toBe('Strip\nmeasure twice\ncut once');
+
+    // Clicked into and out of, nothing typed.
+    cell.focus();
+    fireEvent.blur(cell);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(patched).toEqual([]);
+    expect(api.rows[0]?.notes).toBe('measure twice\r\ncut once');
+  });
+
+  itDom('renames the work item when the first line is deleted', async () => {
+    // The edit this design has to be honest about, watched end to end: one
+    // merged field means what it says. Cmd+Z is the way back, and the plan's
+    // reviewers chose this over a guard that would make one field behave like
+    // two.
+    const { api, patched } = await noted('Strip', 'measure twice\nand again');
+
+    retype('measure twice\nand again');
+
+    await waitFor(() => {
+      expect(patched).toEqual([['w1', { name: 'measure twice', notes: 'and again' }]]);
+    });
+    expect(api.rows[0]?.name).toBe('measure twice');
+  });
+
+  itDom('commits an unnamed work item when the first line is emptied', async () => {
+    // Same rule, no special case: the completeness checker is what reports a
+    // work item with no name, and it does.
+    const { api, patched } = await noted('Strip', 'measure twice');
+
+    retype('\nmeasure twice');
+
+    await waitFor(() => {
+      expect(patched).toEqual([['w1', { name: '' }]]);
+    });
+    expect(api.rows[0]?.name).toBe('');
+    expect(api.rows[0]?.notes).toBe('measure twice');
+    expect(screen.getByLabelText('Name of 010')).toHaveValue('\nmeasure twice');
+  });
+
+  itDom('sends one request however often the cell is left before it lands', async () => {
+    // codex round 1, finding 2. `shown` deliberately stays on the old value
+    // until the refetch this commit triggers comes back, so between the blur
+    // and that refetch the box and the baseline still disagree — and a second
+    // focus-and-leave in that window would send the identical patch again.
+    // Two requests are two journal entries and two Cmd+Zs for one gesture,
+    // which is the thing one atomic patch was for.
+    //
+    // Proof: the `sent.current` comparison deleted from `onLeave`, this
+    // failed on `expected [ [ 'w1', { …(2) } ], …(1) ] to have a length of 1
+    // but got 2` — the same name and note written twice. Watched, 2026-08-08.
+    const { api, patched, cell } = await noted('Strip', 'measure twice');
+    let land: () => void = () => {
+      throw new Error('nothing is in flight');
+    };
+    api.patch = (id: string, patch: Record<string, string>) => {
+      patched.push([id, patch]);
+      return new Promise<void>((resolve) => {
+        land = resolve;
+      });
+    };
+
+    cell.focus();
+    fireEvent.change(cell, { target: { value: 'Strip the wiring\nmeasure twice, cut once' } });
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(patched).toHaveLength(1);
+    });
+
+    // Clicked back into and out of while the first request is still out.
+    cell.focus();
+    fireEvent.blur(cell);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(patched).toHaveLength(1);
+
+    await act(async () => {
+      land();
+      await Promise.resolve();
+    });
+    expect(patched).toHaveLength(1);
+  });
+
+  itDom('sends a refused edit again when the cell is left a second time', async () => {
+    // The other half of the rule above: an unchanged resubmission is dropped
+    // because be-01 already has it, so a resubmission of something be-01
+    // refused must not be. Leaving the cell is how a person retries.
+    //
+    // Proof: the `sent.current = null` on a refusal removed, this failed on
+    // `expected [] to deeply equal [ [ 'w1', { …(2) } ] ]` — the retry
+    // silently dropped as a duplicate of a request that never landed.
+    // Watched, 2026-08-08.
+    const { api, patched, cell } = await noted('Strip', 'measure twice');
+    api.patch = () => Promise.reject(new Error('forbidden'));
+
+    retype('Strip the wiring\nmeasure twice, cut once');
+    await waitFor(() => {
+      expect(toastTexts()).toContain('forbidden');
+    });
+
+    api.patch = (id: string, patch: Record<string, string>) => {
+      patched.push([id, patch]);
+      return Promise.resolve();
+    };
+    cell.focus();
+    fireEvent.blur(cell);
+
+    await waitFor(() => {
+      expect(patched).toEqual([
+        ['w1', { name: 'Strip the wiring', notes: 'measure twice, cut once' }],
+      ]);
+    });
+  });
+
+  itDom('a refused edit changes neither field and says so', async () => {
+    // Atomicity is the whole reason the two fields travel in one request: a
+    // refusal has to leave the row as it was, not half written.
+    const { api } = await noted('Strip', 'measure twice');
+    api.patch = () => Promise.reject(new Error('forbidden'));
+
+    retype('Strip the wiring\nmeasure twice, cut once');
+
+    await waitFor(() => {
+      expect(toastTexts()).toContain('forbidden');
+    });
+    expect(api.rows[0]?.name).toBe('Strip');
+    expect(api.rows[0]?.notes).toBe('measure twice');
+  });
 });
 
 describe('a drag interrupted by someone else', () => {
@@ -2463,6 +3448,52 @@ describe('moving between cells with the arrow keys', () => {
     press(name, 'ArrowLeft');
 
     expect(document.activeElement).toBe(name);
+  });
+
+  itDom('keeps ↑ and ↓ in the name until the caret has run out of text', async () => {
+    // The Name cell holds the notes under the name, so Up and Down are how
+    // that text is walked. They leave the cell from the extremes only —
+    // position 0 and the end of the value — which is wrap-proof: a name wraps,
+    // so counting logical lines would let go of the key while the caret still
+    // had visual lines to climb. `e2e/layout.spec.ts` measures the wrapped case
+    // in a browser; jsdom cannot wrap anything.
+    await threeRoots();
+    const name = screen.getByLabelText<HTMLTextAreaElement>('Name of 020');
+    fireEvent.change(name, { target: { value: 'Sand the frames\nmeasure twice' } });
+    name.focus();
+
+    // Mid-text: the browser keeps both keys and the focus does not move.
+    name.setSelectionRange(6, 6);
+    expect(fireEvent.keyDown(name, { key: 'ArrowUp' })).toBe(true);
+    expect(document.activeElement).toBe(name);
+    expect(fireEvent.keyDown(name, { key: 'ArrowDown' })).toBe(true);
+    expect(document.activeElement).toBe(name);
+
+    // At the very start, Up leaves — the second press of a real keyboard,
+    // where the first walked the caret up to 0.
+    name.setSelectionRange(0, 0);
+    expect(fireEvent.keyDown(name, { key: 'ArrowUp' })).toBe(false);
+    expect(document.activeElement).toBe(screen.getByLabelText('Name of 010'));
+
+    // And at the very end, Down does.
+    name.focus();
+    name.setSelectionRange(name.value.length, name.value.length);
+    expect(fireEvent.keyDown(name, { key: 'ArrowDown' })).toBe(false);
+    expect(document.activeElement).toBe(screen.getByLabelText('Name of 030'));
+  });
+
+  itDom('still walks a column of one-line boxes from any caret position', async () => {
+    // The other half of the same rule, and the reason it is a separate test: a
+    // gate applied to every cell would break filling an estimate column down
+    // forty rows, where Up and Down do nothing to the text at all.
+    await threeRoots();
+    const box = screen.getByLabelText<HTMLInputElement>('Dev optimistic for 010');
+    fireEvent.change(box, { target: { value: '345' } });
+    box.focus();
+    box.setSelectionRange(1, 1);
+
+    expect(fireEvent.keyDown(box, { key: 'ArrowDown' })).toBe(false);
+    expect(document.activeElement).toBe(screen.getByLabelText('Dev optimistic for 020'));
   });
 
   itDom('skips the children of a collapsed branch', async () => {
@@ -2600,18 +3631,22 @@ describe('arrow keys — cross-review findings', () => {
 
   itDom('navigates from every editable cell, not just the ones the first tests used', async () => {
     // codex, medium. The original tests moved from the name and from Dev
-    // optimistic only, so removing the handler from notes — or from realistic
-    // and pessimistic — left them green.
+    // optimistic only, so removing the handler from the last cell of the row —
+    // or from realistic and pessimistic — left them green.
     await threeRoots();
     const columns = [
       'Name of 010',
       'Dev optimistic for 010',
       'Dev realistic for 010',
       'Dev pessimistic for 010',
-      'Notes for 010',
+      'QA estimate for 010',
     ];
 
     for (const label of columns) {
+      // `end` is load-bearing for the Name cell and inert for the rest: the
+      // box that holds the notes keeps Down until the caret has run out of
+      // text, and an estimate box is one line where it never has any to run
+      // out of.
       focus(label, 'end');
       expect(arrow('ArrowDown')).toBe(screen.getByLabelText(label.replace('010', '020')));
     }
@@ -2747,7 +3782,6 @@ describe('Tab moves between the fields, from every cell', () => {
       'Dev pessimistic for 010',
       'Dev assignee for 010',
       'QA estimate for 010',
-      'Notes for 010',
       'Name of 020',
     ])) {
       focusCaret(from, 'end');
@@ -2763,9 +3797,11 @@ describe('Tab moves between the fields, from every cell', () => {
     await threeRoots();
     expect(screen.getByLabelText<HTMLInputElement>('Earliest start for 010').disabled).toBe(true);
 
+    // Straight into the next row: the date is stepped over and it was the last
+    // cell of this one, now that the notes are written under the name.
     focusCaret('QA estimate for 010', 'end');
     tab();
-    expect(document.activeElement).toBe(screen.getByLabelText('Notes for 010'));
+    expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
 
     fireEvent.change(screen.getByLabelText('Project start date'), {
       target: { value: '2026-08-06' },
@@ -2785,12 +3821,12 @@ describe('Tab moves between the fields, from every cell', () => {
     expect(fireEvent.keyDown(screen.getByLabelText('Earliest start for 010'), { key: 'Tab' })).toBe(
       false,
     );
-    expect(document.activeElement).toBe(screen.getByLabelText('Notes for 010'));
+    expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
   });
 
   itDom('the arrows land in a date cell without asking it for a caret it has none of', async () => {
     // `setSelectionRange` throws `InvalidStateError` on a date input, and the
-    // arrows now have one to land on: the notes cell sits next to it.
+    // arrows have one to land on: the folded QA estimate sits next to it.
     await threeRoots();
     fireEvent.change(screen.getByLabelText('Project start date'), {
       target: { value: '2026-08-06' },
@@ -2809,8 +3845,8 @@ describe('Tab moves between the fields, from every cell', () => {
       thrown.push(event.error);
     };
     window.addEventListener('error', collect);
-    focusCaret('Notes for 010', 'start');
-    fireEvent.keyDown(screen.getByLabelText('Notes for 010'), { key: 'ArrowLeft' });
+    focusCaret('QA estimate for 010', 'end');
+    fireEvent.keyDown(screen.getByLabelText('QA estimate for 010'), { key: 'ArrowRight' });
     window.removeEventListener('error', collect);
 
     expect(thrown).toEqual([]);
@@ -2847,12 +3883,13 @@ describe('Tab moves between the fields, from every cell', () => {
     // No focus trap. The grid's edges are the first and last editable cells of
     // the whole table, not of a row: Tab at the end of a row walks into the
     // next one, and only past the last cell of the last row is the key left to
-    // the browser — which finds that row's own Duplicate and Delete. The
-    // actions are reachable at the end of the table and never from the middle
-    // of a row, which is what this makes consistent.
+    // the browser — which finds that row's own ⋯ button. The actions are
+    // reachable at the end of the table and never from the middle of a row,
+    // which is what this makes consistent. One stop per row since 2026-08-08,
+    // where it used to be two.
     await threeRoots();
 
-    const last = focusCaret('Notes for 030', 'end');
+    const last = focusCaret('QA estimate for 030', 'end');
     expect(tab()).toBe(true);
     expect(document.activeElement).toBe(last);
 
@@ -3710,16 +4747,12 @@ describe('the order of the columns', () => {
     // The schedule stays on the right, where it reads as an outcome of
     // everything to its left. "Not before" is the one input among them, and it
     // sits immediately before the dates it constrains.
-    // `(day)` while the plan has no start date: a bare `2.5` under "Starts"
-    // reads as a date that failed to load.
-    expect(headers.slice(-6)).toEqual([
-      'Not before',
-      'Starts (day)',
-      'Ends (day)',
-      'Slack (days)',
-      'Notes',
-      '',
-    ]);
+    // One word each: at 52px a heading has room for a word and the sentence
+    // it used to be lives in the `title`.
+    // No Notes column: a work item's notes are typed under its name, in the
+    // Name cell, and the column they had is gone.
+    expect(headers.slice(-5)).toEqual(['Not before', 'Start', 'End', 'Slack', '']);
+    expect(headers).not.toContain('Notes');
   });
 });
 
@@ -3763,12 +4796,21 @@ describe('the frame the table scrolls inside', () => {
 
     const cells = [...rowFor('020').querySelectorAll('td')];
 
-    // Each offset is the sum of the widths in front of it — 28, then 28+168.
+    // Each offset is the sum of the widths in front of it — 24, then 24+100.
     expect(cells.slice(0, 3).map((td) => [td.style.position, td.style.left])).toEqual([
       ['sticky', '0px'],
-      ['sticky', '28px'],
-      ['sticky', '196px'],
+      ['sticky', '24px'],
+      ['sticky', '124px'],
     ]);
+    // Pinned and still flexible: the pin places the Name cell and the colgroup
+    // sizes it, and a `width` here would be the second opinion that put a
+    // pinned Name over "Depends on" in the first place.
+    // Proof: `pinnedCellStyle` made to declare `width: pinned.width ?? 360`
+    // again, this failed on `expected '360px' to be ''`. Watched, 2026-08-08.
+    expect(cells[2]?.style.width).toBe('');
+    expect(cells[1]?.style.width).toBe('100px');
+    // And the floor that keeps it readable while the frame is scrolling.
+    expect(cells[2]?.style.minWidth).toBe('200px');
     // Opaque, or the row scrolling behind a pinned cell shows through it.
     for (const pinned of cells.slice(0, 3)) expect(pinned.style.background).not.toBe('');
     // "Depends on" is the fourth column now, and it scrolls away like the rest.
@@ -3782,7 +4824,7 @@ describe('the frame the table scrolls inside', () => {
 
     // Sticky on both axes at once: scrolled right *and* down, the Number
     // heading is the one cell that has to stay in its corner.
-    expect(headers[1]?.style.left).toBe('28px');
+    expect(headers[1]?.style.left).toBe('24px');
     expect(headers[1]?.style.top).toBe('0px');
     // And it crosses both of the others, so it paints over both.
     const [pinnedBodyCell] = [...rowFor('020').querySelectorAll('td')].slice(1);
@@ -3813,8 +4855,17 @@ describe('the widths the table is laid out by', () => {
     // Proof: the colgroup rendered from a reversed id list, this failed on
     // `['110px','260px','90px']` against `['28px','168px','360px']`. Watched,
     // 2026-08-07.
-    expect(cols.slice(0, 3).map((col) => col.style.width)).toEqual(['28px', '168px', '360px']);
-    for (const col of cols) expect(col.style.width).not.toBe('');
+    //
+    // Name is the third and it declares nothing at all: it is the one column
+    // that takes what the others leave, which is what makes the table fit the
+    // window instead of the other way round.
+    // Proof: the colgroup made to declare `360` for a flexible column, this
+    // failed on `expected ['24px','100px','360px'] to deeply equal
+    // ['24px','100px','']`. Watched, 2026-08-08.
+    expect(cols.slice(0, 3).map((col) => col.style.width)).toEqual(['24px', '100px', '']);
+    for (const [at, col] of cols.entries()) {
+      expect(col.style.width === '').toBe(at === 2);
+    }
   });
 
   itDom('names every cell with the column it belongs to, in both halves of the table', async () => {
@@ -3836,20 +4887,33 @@ describe('the widths the table is laid out by', () => {
     for (const name of named(screen.getAllByRole('columnheader'))) expect(name).not.toBe(null);
   });
 
-  itDom('is as wide as its columns add up to, and divides that width by them', async () => {
+  itDom('is as wide as the frame, and never narrower than its own equation', async () => {
     await threeRoots();
 
     const table = screen.getByRole('table');
-    const declared = [...document.querySelectorAll<HTMLElement>('colgroup col')].reduce(
-      (total, col) => total + Number.parseFloat(col.style.width),
-      0,
-    );
+    const columnIds = screen
+      .getAllByRole('columnheader')
+      .map((th) => th.getAttribute('data-column') ?? '');
 
     // `fixed`, or the browser sizes the columns from their content and the
     // declared widths become decoration — which is the auto layout half of the
     // overlap.
     expect(table.style.tableLayout).toBe('fixed');
-    expect(table.style.width).toBe(`${String(declared)}px`);
+    // The frame's width, and the equation as the floor under it. A declared
+    // total is what this replaces: it made the window fit the table.
+    // Proof: the `<table>` put back to a declared total —
+    // `width: tableMinWidth(leafColumnIds)` with no `minWidth` — this failed
+    // on `expected '1420px' to be '100%'`. Watched, 2026-08-08.
+    expect(table.style.width).toBe('100%');
+    expect(table.style.minWidth).toBe(`${String(tableMinWidth(columnIds))}px`);
+    // Not a constant, which is the point of computing it per render: this
+    // plan has Dev unfolded and QA folded, so the floor is the 752px of fixed
+    // columns plus 372 for the open role, 96 for the closed one and Name's
+    // 200. Folded it would be 1144 — the difference is why unfolding is an
+    // accordion.
+    expect(table.style.minWidth).toBe('1420px');
+    fireEvent.click(screen.getByRole('button', { name: 'Fold Dev estimates' }));
+    expect(screen.getByRole('table').style.minWidth).toBe('1144px');
   });
 
   itDom('gives every cell the chrome its declared width is measured with', async () => {
@@ -3871,7 +4935,11 @@ describe('the widths the table is laid out by', () => {
       const column = cell.dataset['column'] ?? '';
       const exempt =
         cell.tagName === 'TD' &&
-        (['depends', 'notes', 'team'].includes(column) || column.endsWith('-assignee'));
+        (['depends', 'name', 'team', 'actions'].includes(column) ||
+          column.endsWith('-assignee') ||
+          // A folded role's cell opens the `@` people picker over a 96px
+          // column, which is the narrowest clip in the table.
+          column.endsWith('-final'));
       expect(cell.style.overflow).toBe(exempt ? 'visible' : 'hidden');
     }
   });
@@ -3925,18 +4993,31 @@ describe('the widths the table is laid out by', () => {
       return cell;
     };
 
+    openRowMenu('020');
     const openList = screen.getByRole('listbox');
-    const notesBox = screen.getByLabelText('Notes for 020');
+    const openMenu = screen.getByRole('menu');
+    const nameBox = screen.getByLabelText('Name of 020');
     const teamBox = screen.getByLabelText('Service or team for 020');
     // The cells the popovers are really in. Without this the overflow
     // assertions below would go on passing about columns the popovers had
     // moved out of.
     expect(openList.closest('td')).toBe(cellOf('depends'));
-    expect(notesBox.closest('td')).toBe(cellOf('notes'));
+    expect(nameBox.closest('td')).toBe(cellOf('name'));
     expect(teamBox.closest('td')).toBe(cellOf('team'));
+    expect(openMenu.closest('td')).toBe(cellOf('actions'));
 
     expect(cellOf('depends').style.overflow).toBe('visible');
-    expect(cellOf('notes').style.overflow).toBe('visible');
+    // The Name cell, which holds the notes and the rendered preview that hangs
+    // off them — the cell that used to clip is the one the popover moved into.
+    // Proof: `'name'` removed from `POPOVER_COLUMNS`, this failed on
+    // `expected 'hidden' to be 'visible'`. Watched, 2026-08-08.
+    expect(cellOf('name').style.overflow).toBe('visible');
+    // The row's actions menu is the same absolutely positioned box in the same
+    // kind of wrapper, in a cell 40px wide and one line high — the narrowest
+    // clip in the table.
+    // Proof: `'actions'` removed from `POPOVER_COLUMNS`, this failed on
+    // `expected 'hidden' to be 'visible'`. Watched, 2026-08-08.
+    expect(cellOf('actions').style.overflow).toBe('visible');
     // The service/team box and every assignee box are `CreatablePicker`s, and
     // a picker's list is the same absolutely positioned popover in the same
     // kind of wrapper. Their columns are named `<roleId>-assignee` at runtime,
@@ -3951,14 +5032,24 @@ describe('the widths the table is laid out by', () => {
     expect(assigneeCells.length).toBeGreaterThan(0);
     for (const cell of assigneeCells) expect(cell.style.overflow).toBe('visible');
 
+    // A folded role's cell: `@` opens the people picker there, over a column
+    // 96px wide. `final-total` is not one of these — it ends in `total`, and
+    // it still clips, which is what says the suffix match is a match and not a
+    // blanket.
+    // Proof: the `-final` suffix dropped from `opensAPopover`, this and
+    // `gives every cell the chrome its declared width is measured with` both
+    // failed on `expected 'hidden' to be 'visible'`. Watched, 2026-08-08.
+    expect(cellOf('role-qa-final').style.overflow).toBe('visible');
+    expect(cellOf('final-total').style.overflow).toBe('hidden');
+
     // Still an exception. If the backstop had simply been dropped everywhere,
     // every assertion above would pass and this one would not.
-    expect(cellOf('name').style.overflow).toBe('hidden');
+    expect(cellOf('float').style.overflow).toBe('hidden');
 
     // And the wrappers are still the positioned ancestors — which is what
     // decides *where* each popover opens. `top: 100%` against a static wrapper
     // would be measured from whatever ancestor is positioned instead.
-    for (const wrapper of [openList.parentElement, notesBox.parentElement]) {
+    for (const wrapper of [openList.parentElement, nameBox.parentElement]) {
       expect(wrapper?.tagName).toBe('SPAN');
       expect(wrapper?.style.position).toBe('relative');
     }
@@ -4996,5 +6087,964 @@ describe('undo and redo', () => {
     await waitFor(() => {
       expect(api.stackCalls).toEqual(['undo']);
     });
+  });
+});
+
+/**
+ * The command chords: one gesture family for structure, one for motion.
+ *
+ * Every row of the routing matrix in `openspec/changes/command-keys/design.md`
+ * is a test in here — chord × cell class, and the cells whose picker is open,
+ * where a chord must be inert because the list owns the keyboard.
+ */
+describe('the command chords', () => {
+  /** A chord as a browser delivers it, aimed at a named box. */
+  const chord = (
+    box: Element,
+    key: string,
+    modifiers: { code?: string; ctrl?: boolean; meta?: boolean; alt?: boolean; repeat?: boolean },
+  ) =>
+    fireEvent.keyDown(box, {
+      key,
+      code: modifiers.code ?? `Key${key.toUpperCase()}`,
+      ctrlKey: modifiers.ctrl ?? false,
+      metaKey: modifiers.meta ?? false,
+      altKey: modifiers.alt ?? false,
+      repeat: modifiers.repeat ?? false,
+    });
+
+  const nameOf = (number: string) =>
+    screen.getByLabelText<HTMLTextAreaElement>(`Name of ${number}`);
+  /** Whatever holds the focus, as a box the helpers above can be aimed at. */
+  const focused = (): Element => {
+    const active = document.activeElement;
+    // Thrown rather than defaulted: a chord test whose focus went nowhere must
+    // say so, not fire its next key at the document body and pass.
+    if (active === null) throw new Error('nothing has the focus');
+    return active;
+  };
+  /** Ctrl+N, the new-work-item chord, in the box named. */
+  const newItem = (box: Element) => chord(box, 'n', { code: 'KeyN', ctrl: true });
+  /** Cmd+Enter, the next-or-create chord. */
+  const nextOrCreate = (box: Element) => chord(box, 'Enter', { code: 'Enter', meta: true });
+  /** Ctrl+D, once. A confirming second press needs {@link releaseD} in between. */
+  const armDelete = (box: Element, repeat = false) =>
+    chord(box, 'd', { code: 'KeyD', ctrl: true, repeat });
+  /** The keyup of D the confirm waits for: a held key can never reach it. */
+  const releaseD = (box: Element) => fireEvent.keyUp(box, { key: 'd', code: 'KeyD' });
+
+  /** Which row is tinted as armed for deletion, by number. */
+  const armedRow = (): string | null => {
+    const row = document.querySelector('tr[data-armed="true"]');
+    return row === null ? null : (row.querySelector('[data-number]')?.textContent ?? '');
+  };
+
+  itDom('Enter in a name is a newline, and makes nothing', async () => {
+    // The whole of R1's second half: a note is typed under the name, which
+    // needs Enter to mean what it means in every other text box in the world.
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    const cell = await screen.findByLabelText('Name of 010');
+
+    const event = createEvent.keyDown(cell, { key: 'Enter', code: 'Enter' });
+    fireEvent(cell, event);
+
+    // Not taken: the browser writes the newline. jsdom performs no default
+    // action for a synthetic key, so this is the assertion it can make — the
+    // real newline is the browser spec's.
+    expect(event.defaultPrevented).toBe(false);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010']);
+    });
+    expect(api.rows).toHaveLength(1);
+  });
+
+  itDom('Ctrl+N makes a sibling below this row, mid-table, and lands in its name', async () => {
+    await threeRoots();
+
+    newItem(nameOf('020'));
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+    // Below 020, not at the end: that is what Ctrl+N has over Cmd+Enter.
+    expect(namesOnScreen()).toEqual(['Strip', 'Sand', '', 'Paint']);
+    expect(document.activeElement).toBe(nameOf('030'));
+  });
+
+  itDom('Alt+N is the same chord for the keyboards Ctrl+N never reaches', async () => {
+    // macOS turns Alt+N into a dead key, so the letter never arrives — the
+    // physical key does, and that is what this is matched on.
+    await threeRoots();
+
+    chord(nameOf('020'), 'Dead', { code: 'KeyN', alt: true });
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+    expect(document.activeElement).toBe(nameOf('030'));
+  });
+
+  itDom('Ctrl+N works from an estimate cell, and sends what was in it first', async () => {
+    const api = await threeRoots();
+    const box = screen.getByLabelText('Dev optimistic for 020');
+    box.focus();
+    fireEvent.change(box, { target: { value: '3' } });
+
+    newItem(box);
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+    // One box of a trio is a draft, not a request — the flush is still the
+    // cell's own commit path, and the row below it exists either way.
+    expect(document.activeElement).toBe(nameOf('030'));
+    expect(api.rows.find((row) => row.number === '020')?.estimates).toEqual({});
+  });
+
+  itDom('Cmd+Enter moves to the next row’s name', async () => {
+    await threeRoots();
+    const cell = nameOf('010');
+    cell.focus();
+
+    nextOrCreate(cell);
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(nameOf('020'));
+    });
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+  });
+
+  itDom('Cmd+Enter on the last row makes one and lands in it', async () => {
+    await threeRoots();
+    const cell = nameOf('030');
+    cell.focus();
+
+    nextOrCreate(cell);
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+    expect(document.activeElement).toBe(nameOf('040'));
+  });
+
+  itDom('two Cmd+Enters on the last row make exactly one row', async () => {
+    // The chord runs a request and then another; two presses inside that
+    // window are one gesture arriving twice, not two work items.
+    // Proof: the in-flight gate removed, this failed on `expected [ '010',
+    // '020', '030', '040', '050' ] to deeply equal [ '010', '020', '030',
+    // '040' ]`. Watched, 2026-08-08.
+    const api = await threeRoots();
+    const cell = nameOf('030');
+    cell.focus();
+
+    nextOrCreate(cell);
+    nextOrCreate(cell);
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+    expect(api.rows).toHaveLength(4);
+  });
+
+  itDom('waits for the save to land before it creates anything', async () => {
+    // codex #5, and the assertion has to be about *settling* rather than about
+    // the order the two calls go out in. Both leave synchronously either way —
+    // what an unawaited flush loses is the answer, and with it the right to
+    // decide whether to create at all. So the patch is held open and the
+    // create must not have happened while it hangs.
+    //
+    // Proof: the `await` dropped — `const outcome = 'landed'` with the flush
+    // fired and forgotten — this failed on `expected [ 'patch', 'create' ] to
+    // deeply equal [ 'patch' ]`, a row created against an answer nobody had.
+    // Watched, 2026-08-08.
+    const api = await threeRoots();
+    const asked: string[] = [];
+    let letThePatchLand: () => void = () => {
+      throw new Error('the patch was never sent');
+    };
+    const held = new Promise<void>((resolve) => {
+      letThePatchLand = resolve;
+    });
+    const realPatch = api.patch.bind(api);
+    api.patch = async (id: string, patch: Record<string, unknown>) => {
+      asked.push('patch');
+      await held;
+      return realPatch(id, patch);
+    };
+    const realCreate = api.create.bind(api);
+    api.create = (
+      projectId: string,
+      input: { parentId: string | null; afterId: string | null },
+    ) => {
+      asked.push('create');
+      return realCreate(projectId, input);
+    };
+
+    const cell = nameOf('030');
+    cell.focus();
+    fireEvent.change(cell, { target: { value: 'Paint the trim' } });
+    nextOrCreate(cell);
+
+    await waitFor(() => {
+      expect(asked).toEqual(['patch']);
+    });
+    // Still nothing created: the chord is waiting to hear what be-01 did.
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+
+    await act(async () => {
+      letThePatchLand();
+      await held;
+    });
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+    expect(asked).toEqual(['patch', 'create']);
+    expect(api.rows.find((row) => row.id === 'w3')?.name).toBe('Paint the trim');
+  });
+
+  itDom('a refused save leaves the caret where it was and makes no row', async () => {
+    const api = await threeRoots();
+    api.patch = () => Promise.reject(new Error('forbidden'));
+
+    const cell = nameOf('030');
+    cell.focus();
+    fireEvent.change(cell, { target: { value: 'Paint the trim' } });
+    nextOrCreate(cell);
+
+    await waitFor(() => {
+      expect(toastTexts()).toContain('forbidden');
+    });
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(document.activeElement).toBe(cell);
+  });
+
+  /**
+   * A blur's PATCH held open, the cell refocused unchanged, and the chord
+   * pressed while that first request is still out.
+   *
+   * Rule 5 in `cell-input.tsx` recognizes the second leave as a resubmission
+   * of the request already in flight. What it must **not** do is answer the
+   * chord with `unsent`: the chord reads that as "nothing to wait for" and
+   * moves or creates against an answer nobody has yet.
+   *
+   * @param at The row whose Name cell is typed in and then chorded from.
+   * @returns The fake, the cell, the request log and the two ways to settle
+   * the held PATCH.
+   */
+  async function patchHeldOpen(at: string) {
+    const api = await threeRoots();
+    const asked: string[] = [];
+    let landThePatch: () => void = () => {
+      throw new Error('the patch was never sent');
+    };
+    let refuseThePatch: () => void = () => {
+      throw new Error('the patch was never sent');
+    };
+    const realPatch = api.patch.bind(api);
+    api.patch = (id: string, patch: Record<string, unknown>) => {
+      asked.push('patch');
+      return new Promise<void>((resolve, reject) => {
+        landThePatch = () => {
+          void realPatch(id, patch).then(resolve);
+        };
+        refuseThePatch = () => {
+          reject(new Error('forbidden'));
+        };
+      });
+    };
+    const realCreate = api.create.bind(api);
+    api.create = (
+      projectId: string,
+      input: { parentId: string | null; afterId: string | null },
+    ) => {
+      asked.push('create');
+      return realCreate(projectId, input);
+    };
+
+    const cell = nameOf(at);
+    cell.focus();
+    fireEvent.change(cell, { target: { value: `${cell.value} the trim` } });
+    // The blur is what starts the request the chord will have to wait for.
+    fireEvent.blur(cell);
+    await waitFor(() => {
+      expect(asked).toEqual(['patch']);
+    });
+    // Back in the cell, having typed nothing: the sequence the finding names.
+    cell.focus();
+    return {
+      api,
+      asked,
+      cell,
+      landThePatch: () => {
+        landThePatch();
+      },
+      refuseThePatch: () => {
+        refuseThePatch();
+      },
+    };
+  }
+
+  /** Turns of the microtask queue, enough for anything that never waited. */
+  const letTheLoopRun = () =>
+    act(async () => {
+      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+    });
+
+  itDom(
+    'a chord waits for the blur’s patch that is still out, and a refusal makes nothing',
+    async () => {
+      // codex round 2, finding 1. The dedup in rule 5 answered `unsent`
+      // immediately, which is the one answer that is not true here: the request
+      // *is* out, and the chord's whole contract is that a refused save leaves
+      // the caret where it was with nothing created.
+      //
+      // Proof: `return sent.current.landing` put back as `return unsent()`, this
+      // failed on `expected [ 'patch', 'create' ] to deeply equal [ 'patch' ]` —
+      // a row created against a request nobody had heard back from. Watched,
+      // 2026-08-08.
+      const { asked, cell, refuseThePatch } = await patchHeldOpen('030');
+
+      nextOrCreate(cell);
+      await letTheLoopRun();
+
+      // Nothing while it hangs: no create, and the caret has not moved.
+      expect(asked).toEqual(['patch']);
+      expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+      expect(document.activeElement).toBe(cell);
+
+      refuseThePatch();
+      await waitFor(() => {
+        expect(toastTexts()).toContain('forbidden');
+      });
+      await letTheLoopRun();
+
+      // The refusal is the chord's answer as much as the blur's: nothing made,
+      // nowhere moved, and the only copy of what was typed still in the box for
+      // rule 4 to hold.
+      expect(asked).toEqual(['patch']);
+      expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+      expect(document.activeElement).toBe(cell);
+      expect(cell.value).toBe('Paint the trim');
+    },
+  );
+
+  itDom('…and moves on once that patch lands', async () => {
+    // The other half: waiting is not refusing. When the request the chord
+    // joined comes back landed, the move it was holding happens.
+    //
+    // Proof: the same line put back as `return unsent()`, this failed on
+    // `expected <textarea …></textarea> to be <textarea …></textarea>` — the
+    // focus already in 020 while the save was still out. Watched, 2026-08-08.
+    const { cell, landThePatch } = await patchHeldOpen('010');
+
+    nextOrCreate(cell);
+    await letTheLoopRun();
+
+    expect(document.activeElement).toBe(cell);
+
+    landThePatch();
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(nameOf('020'));
+    });
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(nameOf('010').value).toBe('Strip the trim');
+  });
+
+  itDom('Ctrl+H, J, K and L move between cells from a caret no arrow could leave', async () => {
+    await threeRoots();
+    const cell = nameOf('020');
+    cell.focus();
+    // Mid-text in a box that holds the notes as well: every arrow belongs to
+    // the text here, which is exactly what these four are for.
+    cell.setSelectionRange(2, 2);
+
+    chord(cell, 'j', { ctrl: true });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(nameOf('030'));
+    });
+
+    chord(focused(), 'k', { ctrl: true });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(nameOf('020'));
+    });
+
+    // Sideways, in the trio — where every box is a cell of the grid and none
+    // of them opens a list. The picker cells are the matrix's own rows below.
+    const optimistic = screen.getByLabelText<HTMLInputElement>('Dev optimistic for 020');
+    optimistic.focus();
+    fireEvent.change(optimistic, { target: { value: '3' } });
+    optimistic.setSelectionRange(1, 1);
+
+    chord(optimistic, 'l', { ctrl: true });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText('Dev realistic for 020'));
+    });
+
+    chord(focused(), 'h', { ctrl: true });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(optimistic);
+    });
+  });
+
+  itDom('a chord at the grid’s edge is consumed rather than leaking to the browser', async () => {
+    // Ctrl+H in Chrome is the history. A chord this table advertises must never
+    // reach it, edge or no edge — so the key is taken whether or not it moved.
+    await threeRoots();
+    const cell = nameOf('010');
+    cell.focus();
+
+    const event = createEvent.keyDown(cell, { key: 'h', code: 'KeyH', ctrlKey: true });
+    fireEvent(cell, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(cell);
+  });
+
+  itDom('Ctrl+D twice deletes the row, and says Cmd+Z puts it back', async () => {
+    const api = await threeRoots();
+    const cell = nameOf('020');
+    cell.focus();
+
+    armDelete(cell);
+    await waitFor(() => {
+      expect(toastTexts()).toContain('Ctrl+D again deletes 020 — its children move up');
+    });
+    expect(armedRow()).toBe('020');
+
+    releaseD(cell);
+    armDelete(cell);
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020']);
+    });
+    expect(api.rows.map((row) => row.name)).toEqual(['Strip', 'Paint']);
+    expect(toastTexts()).toContain('Deleted 020 — Cmd+Z restores');
+    // The row that took its place, as the actions menu's delete does it.
+    expect(document.activeElement).toBe(nameOf('020'));
+    expect(armedRow()).toBeNull();
+  });
+
+  itDom('a held Ctrl+D never deletes, however long it is held', async () => {
+    // The repeat guard. A held key arms once and can never confirm: there is
+    // no keyup between the presses, and a repeat is not a press.
+    const api = await threeRoots();
+    const cell = nameOf('020');
+    cell.focus();
+
+    armDelete(cell);
+    for (let press = 0; press < 5; press += 1) armDelete(cell, true);
+
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+    expect(api.rows).toHaveLength(3);
+  });
+
+  itDom(
+    'a repeat after the confirming press does not arm the row that took its place',
+    async () => {
+      // What `event.repeat` uniquely buys: the key is still down when the row
+      // goes, and the repeats that follow must not arm whatever slid up into it.
+      // Proof: the `repeat` guard removed, this failed on `expected '020' to be
+      // null` — the row that slid up into the gap armed by a key nobody pressed
+      // again. Watched, 2026-08-08.
+      const api = await threeRoots();
+      const cell = nameOf('020');
+      cell.focus();
+      armDelete(cell);
+      releaseD(cell);
+      armDelete(cell);
+      await waitFor(() => {
+        expect(api.rows).toHaveLength(2);
+      });
+
+      armDelete(focused(), true);
+      armDelete(focused(), true);
+
+      expect(armedRow()).toBeNull();
+    },
+  );
+
+  itDom('two presses with no release between them only re-arm', async () => {
+    // The keyup guard, on its own. Two keydowns and no keyup is what a held
+    // key looks like on a browser that does not set `repeat` — and what two
+    // keyboards produce. Dany's rule is that D must be *released* between the
+    // presses, so this can never be a delete.
+    // Proof: the `dReleased` conjunct dropped from the confirm, this failed on
+    // `expected null to be '020'` — one gesture destroying a row, so there was
+    // no arm left to find. Watched, 2026-08-08.
+    const api = await threeRoots();
+    const cell = nameOf('020');
+    cell.focus();
+
+    armDelete(cell);
+    armDelete(cell);
+
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(api.rows).toHaveLength(3);
+  });
+
+  itDom('arming 020 and pressing Ctrl+D on 030 arms 030 and deletes neither', async () => {
+    // Proof: the same-row check dropped, this failed on `expected null to be
+    // '030'` — the second press deleting the row the first one had armed
+    // rather than arming the one it was actually pressed in. Watched,
+    // 2026-08-08.
+    const api = await threeRoots();
+    armDelete(nameOf('020'));
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+    releaseD(nameOf('020'));
+
+    armDelete(nameOf('030'));
+
+    await waitFor(() => {
+      expect(armedRow()).toBe('030');
+    });
+    expect(api.rows).toHaveLength(3);
+  });
+
+  itDom('any other keystroke disarms it, and a modifier on its own does not', async () => {
+    // agy #9: holding Control down to press the second D is a `Control`
+    // keydown of its own, and disarming on it would make the chord unusable.
+    const api = await threeRoots();
+    const cell = nameOf('020');
+    cell.focus();
+    armDelete(cell);
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+    releaseD(cell);
+
+    for (const key of ['Control', 'Shift', 'Alt', 'Meta']) {
+      fireEvent.keyDown(cell, { key, code: key });
+    }
+    expect(armedRow()).toBe('020');
+
+    fireEvent.keyDown(cell, { key: 'x', code: 'KeyX' });
+
+    await waitFor(() => {
+      expect(armedRow()).toBeNull();
+    });
+    armDelete(cell);
+    // Re-armed rather than confirmed: the arm it would have confirmed is gone.
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+    expect(api.rows).toHaveLength(3);
+  });
+
+  itDom('Escape disarms it', async () => {
+    await threeRoots();
+    const cell = nameOf('020');
+    cell.focus();
+    armDelete(cell);
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+
+    fireEvent.keyDown(cell, { key: 'Escape', code: 'Escape' });
+
+    await waitFor(() => {
+      expect(armedRow()).toBeNull();
+    });
+  });
+
+  itDom('leaving the cell disarms it, however the focus went', async () => {
+    await threeRoots();
+    const cell = nameOf('020');
+    cell.focus();
+    armDelete(cell);
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+
+    // A pointer-driven focus move, which is the one a keydown listener cannot
+    // see. `focusout` is what the DOM says about it either way.
+    fireEvent.focusOut(cell);
+
+    await waitFor(() => {
+      expect(armedRow()).toBeNull();
+    });
+  });
+
+  itDom('a peer renumbering the armed row disarms it', async () => {
+    // The arm holds the row's *id* and the number it promised to delete, and
+    // both halves are read back on every refresh: "Ctrl+D again deletes 020"
+    // stops being true the moment somebody else makes this row 030. The other
+    // branch of the same expression is the row that has gone altogether — a
+    // peer's delete — which cannot be asserted through the DOM, because a row
+    // that is not rendered carries no tint to look for.
+    //
+    // Proof: the comparison replaced by `return armed`, this failed on
+    // `expected '030' to be null` — a row still tinted, and a second Ctrl+D
+    // still live, under a sentence that named a different work item. Watched,
+    // 2026-08-08.
+    const api = fakeApi();
+    let notify: () => void = () => {
+      throw new Error('the table never subscribed');
+    };
+    render(
+      <WbsTable
+        projectId="p1"
+        api={api}
+        subscribe={(_projectId, handlers) => {
+          notify = handlers.onChange;
+          return { seen: () => undefined, unsubscribe: () => undefined };
+        }}
+      />,
+    );
+    for (const number of ['010', '020']) {
+      click('Add work item');
+      await screen.findByLabelText(`Name of ${number}`);
+    }
+
+    const cell = nameOf('020');
+    cell.focus();
+    armDelete(cell);
+    await waitFor(() => {
+      expect(armedRow()).toBe('020');
+    });
+
+    // Their new row, moved above the armed one, which renumbers it to 030.
+    const theirs = await api.create('p1', { parentId: null, afterId: null, name: 'Theirs' });
+    await api.move(theirs.id, null, null);
+    await act(async () => {
+      notify();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    });
+    expect(armedRow()).toBeNull();
+  });
+
+  itDom('a frozen row refuses to arm and says how to unfreeze it', async () => {
+    const api = await threeRoots();
+    click('Freeze numbering');
+    await waitFor(() => {
+      expect(api.rows[1]?.frozenNumber).toBe('020');
+    });
+
+    armDelete(nameOf('020'));
+
+    await waitFor(() => {
+      expect(toastTexts()).toContain('020 is frozen — unfreeze it first');
+    });
+    expect(armedRow()).toBeNull();
+  });
+
+  itDom('every chord is inert while the depends list is open', async () => {
+    // The routing matrix's fourth row: an open list owns the keyboard, and
+    // Escape is how it is given back.
+    const api = await threeRoots();
+    const box = screen.getByLabelText('Add a dependency to 020');
+    box.focus();
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: '010' } });
+    await screen.findByRole('listbox', { name: 'Work items 020 can depend on' });
+
+    newItem(box);
+    nextOrCreate(box);
+    armDelete(box);
+    chord(box, 'j', { ctrl: true });
+
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(armedRow()).toBeNull();
+    expect(document.activeElement).toBe(box);
+    expect(api.rows).toHaveLength(3);
+  });
+
+  itDom('the same chords work in that box once the list is closed', async () => {
+    // The other half of the matrix row, and what makes the first half a rule
+    // rather than a dead cell: closed, this box is a cell like any other.
+    await threeRoots();
+    const box = screen.getByLabelText('Add a dependency to 020');
+    box.focus();
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: '010' } });
+    await screen.findByRole('listbox', { name: 'Work items 020 can depend on' });
+    fireEvent.keyDown(box, { key: 'Escape' });
+
+    newItem(box);
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+  });
+
+  itDom('every chord is inert while a team picker’s list is open', async () => {
+    const api = await threeRoots();
+    const box = screen.getByLabelText('Service or team for 020');
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'Plat' } });
+    await screen.findByRole('listbox', { name: 'Service or team for 020' });
+
+    newItem(box);
+    armDelete(box);
+
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(armedRow()).toBeNull();
+    expect(api.rows).toHaveLength(3);
+  });
+
+  itDom('the same chords work in a picker whose list is closed', async () => {
+    await threeRoots();
+    const box = screen.getByLabelText('Service or team for 020');
+    box.focus();
+
+    newItem(box);
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+  });
+
+  itDom('every chord is inert while the folded cell’s @ list is open', async () => {
+    const api = await threeRoots();
+    // Folded, which is where the `@` picker lives.
+    fireEvent.click(screen.getByRole('button', { name: 'Fold Dev estimates' }));
+    const box = await screen.findByLabelText('Dev estimate for 020');
+    box.focus();
+    // A name nobody has: the list offers to add them, which is a list.
+    fireEvent.change(box, { target: { value: '@Ada' } });
+    await screen.findByRole('listbox', { name: 'Dev assignee for 020' });
+
+    newItem(box);
+    armDelete(box);
+
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(armedRow()).toBeNull();
+    expect(api.rows).toHaveLength(3);
+  });
+
+  /**
+   * The chord as an open list receives it, so what it did there can be read.
+   *
+   * `createEvent` rather than `fireEvent.keyDown`, because half of "inert"
+   * is that the key was **taken**: an open list that ignores Cmd+Enter and
+   * lets it through to the browser has not consumed it.
+   */
+  const chordInto = (box: Element, key: string, modifiers: { meta?: boolean; alt?: boolean }) => {
+    const event = createEvent.keyDown(box, {
+      key,
+      code: key === 'Enter' ? 'Enter' : key,
+      metaKey: modifiers.meta ?? false,
+      altKey: modifiers.alt ?? false,
+    });
+    fireEvent(box, event);
+    return event;
+  };
+
+  /** Every `assign` and `addPerson` the table asked for, in order. */
+  const watchPeopleWrites = (api: ProjectApi): string[] => {
+    const written: string[] = [];
+    const realAssign = api.assign.bind(api);
+    api.assign = (id: string, roleId: string, personId: string | null) => {
+      written.push(`assign ${id} ${roleId} ${String(personId)}`);
+      return realAssign(id, roleId, personId);
+    };
+    const realAdd = api.addPerson.bind(api);
+    api.addPerson = (name: string, teamIds: readonly string[]) => {
+      written.push(`addPerson ${name}`);
+      return realAdd(name, teamIds);
+    };
+    return written;
+  };
+
+  itDom('Cmd+Enter in an open team picker takes no entry and creates none', async () => {
+    // codex round 2, finding 2. The `!open` guard kept the chord away from the
+    // table's handler and stopped there: the bare `e.key === 'Enter'` branch
+    // underneath reads no modifiers, so the chord went on to choose the first
+    // entry — or to create one out of a half-typed search.
+    //
+    // Proof: the `commandChord` consume guard removed from
+    // `creatable-picker.tsx`, this failed on `expected 'team1' to be null` —
+    // 020 labelled with a team by a keystroke aimed at the plan. Watched,
+    // 2026-08-08.
+    const api = await threeRoots();
+    // A team on offer, made the way a person makes one: bare Enter still does.
+    const first = screen.getByLabelText('Service or team for 010');
+    fireEvent.focus(first);
+    fireEvent.change(first, { target: { value: 'Platform' } });
+    fireEvent.keyDown(first, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => {
+      expect(api.rows[0]?.serviceTeamId).toBe('team1');
+    });
+
+    const box = screen.getByLabelText('Service or team for 020');
+    fireEvent.focus(box);
+    // Matches `Platform` without being it, so the list holds both an entry to
+    // choose and an `Add “Plat”` to create.
+    fireEvent.change(box, { target: { value: 'Plat' } });
+    await screen.findByRole('listbox', { name: 'Service or team for 020' });
+
+    const event = chordInto(box, 'Enter', { meta: true });
+    await letTheLoopRun();
+
+    expect(event.defaultPrevented).toBe(true);
+    // No assignment, no entry created, and no work item either.
+    expect(api.rows[1]?.serviceTeamId).toBeNull();
+    expect(await api.listTeams()).toHaveLength(1);
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    // The search is still there to go on typing: consumed is not cleared.
+    expect(box).toHaveValue('Plat');
+  });
+
+  itDom('Cmd+Enter in an open assignee picker assigns nobody and adds nobody', async () => {
+    // The same component, the other column it is rendered in — and the writes
+    // it would have made are recorded rather than inferred.
+    //
+    // Proof: the same guard removed, this failed on `expected [ 'assign w2
+    // role-dev person1' ] to deeply equal []`. Watched, 2026-08-08.
+    const api = await threeRoots();
+    const first = screen.getByLabelText('Dev assignee for 010');
+    fireEvent.focus(first);
+    fireEvent.change(first, { target: { value: 'Kateryna' } });
+    fireEvent.keyDown(first, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Dev assignee for 010')).toHaveValue('Kateryna');
+    });
+    const written = watchPeopleWrites(api);
+
+    const box = screen.getByLabelText('Dev assignee for 020');
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'Kat' } });
+    await screen.findByRole('listbox', { name: 'Dev assignee for 020' });
+
+    const event = chordInto(box, 'Enter', { meta: true });
+    await letTheLoopRun();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(written).toEqual([]);
+    expect(await api.listPeople()).toHaveLength(1);
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+  });
+
+  itDom('Cmd+Enter in the open depends list adds no dependency', async () => {
+    // Both of the box's Enter flows are in range here: an entry is highlighted
+    // *and* the typed text is a number a person could have meant.
+    //
+    // Proof: the consume guard removed from the depends `onKeyDown`, this
+    // failed on `expected null not to be null` — 020 waiting for 010 on a
+    // chord nobody aimed at the list. Watched, 2026-08-08.
+    await threeRoots();
+    const box = screen.getByLabelText('Add a dependency to 020');
+    box.focus();
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: '010' } });
+    await screen.findByRole('listbox', { name: 'Work items 020 can depend on' });
+    const highlighted = box.getAttribute('aria-activedescendant');
+    expect(highlighted).toBe('dep-option-w1');
+
+    const event = chordInto(box, 'Enter', { meta: true });
+    await letTheLoopRun();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(screen.queryByLabelText('Stop 020 waiting for 010')).toBeNull();
+    // Nothing about the list moved either: same search, same highlight.
+    expect(box).toHaveValue('010');
+    expect(box.getAttribute('aria-activedescendant')).toBe(highlighted);
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+  });
+
+  itDom('Cmd+Enter in the folded cell’s open @ list assigns nobody', async () => {
+    // Proof: the consume guard removed from the folded cell's `onKeyDown`,
+    // this failed on `expected [ 'assign w2 role-dev person1' ] to deeply
+    // equal []`. Watched, 2026-08-08.
+    const api = await threeRoots();
+    fireEvent.click(screen.getByRole('button', { name: 'Fold Dev estimates' }));
+    const first = await screen.findByLabelText('Dev estimate for 010');
+    fireEvent.focus(first);
+    fireEvent.change(first, { target: { value: '@Kateryna' } });
+    fireEvent.keyDown(first, { key: 'Enter' });
+    await waitFor(() => {
+      expect(rowFor('010').querySelector('[data-folded-assignee="role-dev"]')).not.toBeNull();
+    });
+    fireEvent.blur(first);
+    const written = watchPeopleWrites(api);
+
+    const box = screen.getByLabelText<HTMLInputElement>('Dev estimate for 020');
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: '@Kat' } });
+    await screen.findByRole('listbox', { name: 'Dev assignee for 020' });
+
+    const event = chordInto(box, 'Enter', { meta: true });
+    await letTheLoopRun();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(written).toEqual([]);
+    expect(await api.listPeople()).toHaveLength(1);
+    expect(rowFor('020').querySelector('[data-folded-assignee="role-dev"]')).toBeNull();
+    // The mention was not taken out of the box, because nothing was taken.
+    expect(box.value).toBe('@Kat');
+  });
+
+  itDom('Alt+arrows in the folded cell’s open @ list move no row', async () => {
+    // The one open list wired to `onAltMove`, and the finding's second half: a
+    // structural move is not something an open people picker may perform.
+    //
+    // Proof: the consume guard removed, this failed on `expected [ 'Strip',
+    // 'Paint', 'Sand' ] to deeply equal [ 'Strip', 'Sand', 'Paint' ]` — the
+    // row reordered under a half-typed name search. Watched, 2026-08-08.
+    await threeRoots();
+    fireEvent.click(screen.getByRole('button', { name: 'Fold Dev estimates' }));
+    const box = await screen.findByLabelText<HTMLInputElement>('Dev estimate for 020');
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: '@Ada' } });
+    await screen.findByRole('listbox', { name: 'Dev assignee for 020' });
+
+    const down = chordInto(box, 'ArrowDown', { alt: true });
+    await letTheLoopRun();
+    const right = chordInto(box, 'ArrowRight', { alt: true });
+    await letTheLoopRun();
+
+    expect(down.defaultPrevented).toBe(true);
+    expect(right.defaultPrevented).toBe(true);
+    // Neither moved among its siblings nor indented under one.
+    expect(namesOnScreen()).toEqual(['Strip', 'Sand', 'Paint']);
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(box.value).toBe('@Ada');
+  });
+
+  itDom('every chord is inert while a row’s ⋯ menu is open', async () => {
+    const api = await threeRoots();
+    openRowMenu('020');
+    const item = screen.getByRole('menuitem', { name: 'Duplicate' });
+
+    newItem(item);
+    nextOrCreate(item);
+    armDelete(item);
+
+    expect(numbersOnScreen()).toEqual(['010', '020', '030']);
+    expect(armedRow()).toBeNull();
+    expect(api.rows).toHaveLength(3);
+  });
+
+  itDom('the date cell answers the chords, and keeps its own arrows', async () => {
+    const api = await threeRoots();
+    fireEvent.change(screen.getByLabelText('Project start date'), {
+      target: { value: '2026-08-10' },
+    });
+    const box = await screen.findByLabelText('Earliest start for 020');
+    await waitFor(() => {
+      expect(box).toHaveProperty('disabled', false);
+    });
+    box.focus();
+
+    newItem(box);
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040']);
+    });
+    expect(api.rows).toHaveLength(4);
   });
 });

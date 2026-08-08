@@ -105,11 +105,11 @@ export default defineConfig({
         // win over the file's, and `Desktop Chrome` carries a 1280x720
         // viewport of its own that would silently replace this one.
         //
-        // Wide enough that the plan's columns are worth looking at, narrow
-        // enough that the frame still scrolls sideways — which is the state
-        // the pinned columns exist for and the only one the occlusion
-        // assertions can be made in. The table declares ~1950px with both
-        // roles folded.
+        // The default for tests that do not care, and the screenshot the
+        // widths are judged by. Since 2026-08-08 the table is `width: 100%`
+        // with a minimum of about 1106px for a two-role plan, so nothing
+        // scrolls sideways here at all — the tests that need a scrolling frame
+        // set their own narrow viewport, and the matrix sets 1280 and 1512.
         viewport: { width: 1400, height: 900 },
       },
     },
