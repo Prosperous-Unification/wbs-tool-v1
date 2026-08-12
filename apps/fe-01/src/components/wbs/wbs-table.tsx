@@ -5329,21 +5329,6 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           />
         ),
       }),
-      // SPIKE (C0, capacity): the In-parallel column, header and cell only, so
-      // a browser can answer whether it fits before the engine work starts.
-      // The cell prints the widest number the 1000 ceiling admits on every
-      // row, which is the envelope the 48px is meant to hold — a blank column
-      // could not push anything wider and would measure nothing. Thrown away
-      // with this branch.
-      column.display({
-        id: 'max-parallel',
-        header: () => (
-          <span title="How many people may work on this at once. Blank means one.">Par.</span>
-        ),
-        cell: () => (
-          <span style={{ display: 'block', textAlign: 'right', font: 'inherit' }}>1000</span>
-        ),
-      }),
       ...roles.flatMap((role) => {
         const unfolded = unfoldedRoles.includes(role.id);
         return [

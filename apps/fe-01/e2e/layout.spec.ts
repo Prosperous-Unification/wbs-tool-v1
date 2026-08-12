@@ -1442,102 +1442,75 @@ test.describe('the table, measured by a browser', () => {
   });
 
   // ---------------------------------------------------------------------
-  // SPIKE (C0, capacity). Thrown away with this branch. Everything below
-  // prints its numbers so the CI log is the record; the assertions are here
-  // so a spike that measured nothing cannot report a fit.
+  // SPIKE (C0, capacity), round 2. Round 1 measured a standalone In-parallel
+  // column at 48px and got headroom=-19 at 1280x800 with the roles folded, so
+  // the column does not fit. This round measures the baseline it is -19
+  // against, and the alternative that needs no column at all: the number said
+  // inside the Team cell, `Platform x3`.
   // ---------------------------------------------------------------------
 
-  test('SPIKE C0: the In-parallel column, folded, at both laptop widths', async ({ page }) => {
+  test('SPIKE C0-2: the baseline equation with no new column', async ({ page }) => {
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       const measured = await measure(page);
-      const parallel = measured.columns.find((column) => column.id === 'max-parallel');
       const needed = equationFor(measured);
-      const headRow = await page.evaluate(() => {
-        const row = document.querySelector('thead tr');
-        if (row === null) throw new Error('no heading row');
-        const cell = document.querySelector('thead th[data-column="max-parallel"]');
-        if (cell === null) throw new Error('no In-parallel heading');
-        return { rowHeight: row.getBoundingClientRect().height, scrollWidth: cell.scrollWidth };
-      });
       console.log(
-        `SPIKE-C0 folded ${viewport.name}: columns=${String(measured.columns.length)} ` +
+        `SPIKE-C0-2 baseline ${viewport.name}: columns=${String(measured.columns.length)} ` +
           `equation=${String(needed)} frame=${String(measured.frame.clientWidth)} ` +
-          `headroom=${String(measured.frame.clientWidth - needed)} ` +
-          `parallelWidth=${String(parallel?.width)} parallelScrollWidth=${String(headRow.scrollWidth)} ` +
-          `headerRowHeight=${String(headRow.rowHeight)}`,
-      );
-      // Or the column is not on screen and this measured the table without it.
-      expect(parallel, viewport.name).toBeDefined();
-      expect(needed, `${viewport.name}: folded equation vs frame`).toBeLessThanOrEqual(
-        measured.frame.clientWidth,
-      );
-      expectItFits(measured, `SPIKE ${viewport.name}, folded`);
-      // The header's own content must not overflow the 48px it was given —
-      // `Par.` rather than `In parallel` is exactly the `Prio` bargain, and an
-      // overflowing heading is what makes the row two lines tall.
-      expect(headRow.scrollWidth, `${viewport.name}: In-parallel heading overflows`).toBeLessThanOrEqual(
-        Math.ceil(parallel?.width ?? 0),
-      );
-    }
-  });
-
-  test('SPIKE C0: the In-parallel column with a role unfolded', async ({ page }) => {
-    await page.getByRole('button', { name: 'Unfold Dev estimates' }).click();
-    await expect(page.getByLabel('Dev optimistic for 010')).toBeVisible();
-    for (const viewport of VIEWPORTS) {
-      await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      const measured = await measure(page);
-      const needed = equationFor(measured);
-      console.log(
-        `SPIKE-C0 unfolded ${viewport.name}: equation=${String(needed)} ` +
-          `frame=${String(measured.frame.clientWidth)} ` +
           `headroom=${String(measured.frame.clientWidth - needed)}`,
       );
-      // The page never scrolls sideways either way; below the minimum the
-      // frame does, which is the backstop rather than a failure.
-      expect(
-        measured.document.scrollWidth,
-        `SPIKE ${viewport.name}, Dev unfolded: the page scrolls sideways`,
-      ).toBeLessThanOrEqual(measured.document.clientWidth);
-      if (needed > measured.frame.clientWidth) {
-        expect(measured.frame.scrollWidth).toBeGreaterThan(measured.frame.clientWidth);
-      }
+      expect(needed).toBeLessThanOrEqual(measured.frame.clientWidth);
     }
   });
 
-  test('SPIKE C0: the In-parallel column with Name dragged wide', async ({ page }) => {
+  test('SPIKE C0-2: what the Team cell can hold at its declared 120px', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await dragColumnEdge(page, 'name', 200);
-    const measured = await measure(page);
-    const needed = equationFor(measured);
-    const name = measured.columns.find((column) => column.id === 'name');
+    const team = page.getByLabel('Service or team for 010');
+    await expect(team).toBeVisible();
+    const measured = await page.evaluate(() => {
+      const cell = document.querySelector('tbody tr:first-child td[data-column="team"]');
+      if (cell === null) throw new Error('the first row has no team cell');
+      const box = cell.getBoundingClientRect();
+      const style = getComputedStyle(cell);
+      // The strings measured in the cell's own font, off screen and
+      // unconstrained -- the platform's number, not one this repository picks.
+      const probe = document.createElement('span');
+      probe.style.font = style.font;
+      probe.style.position = 'fixed';
+      probe.style.left = '-9999px';
+      probe.style.whiteSpace = 'nowrap';
+      document.body.append(probe);
+      const widthOf = (text: string): number => {
+        probe.textContent = text;
+        return probe.getBoundingClientRect().width;
+      };
+      const strings: Record<string, number> = {};
+      for (const text of [
+        'Platform',
+        'Platform x3',
+        'Platform x1000',
+        'Infrastructure and platform',
+        'Infrastructure and platform x1000',
+      ]) {
+        strings[text] = widthOf(text);
+      }
+      probe.remove();
+      return {
+        cellWidth: box.width,
+        paddingLeft: Number.parseFloat(style.paddingLeft),
+        paddingRight: Number.parseFloat(style.paddingRight),
+        strings,
+      };
+    });
     console.log(
-      `SPIKE-C0 dragged-name 1280×800: name=${String(name?.width)} equation=${String(needed)} ` +
-        `frame=${String(measured.frame.clientWidth)} ` +
-        `frameScroll=${String(measured.frame.scrollWidth)} ` +
-        `pageScroll=${String(measured.document.scrollWidth)}/${String(measured.document.clientWidth)}`,
+      `SPIKE-C0-2 team-cell 1280x800: cell=${String(measured.cellWidth)} ` +
+        `padding=${String(measured.paddingLeft)}+${String(measured.paddingRight)} ` +
+        Object.entries(measured.strings)
+          .map(([text, width]) => `"${text}"=${String(width)}`)
+          .join(' '),
     );
-    expect(
-      measured.document.scrollWidth,
-      'SPIKE dragged Name: the page scrolls sideways',
-    ).toBeLessThanOrEqual(measured.document.clientWidth);
-  });
-
-  test('SPIKE C0: the cards breakpoint below 768', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    // The cards renderer, not the table — the column does not exist down here.
-    await expect(page.locator('[data-table-frame]')).toHaveCount(0);
-    const measured = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
-    console.log(
-      `SPIKE-C0 cards 390×844: page=${String(measured.scrollWidth)}/${String(measured.clientWidth)}`,
-    );
-    expect(measured.scrollWidth, 'SPIKE cards: the page scrolls sideways').toBeLessThanOrEqual(
-      measured.clientWidth,
-    );
+    // Or the probe measured nothing and every number above is zero.
+    expect(measured.strings['Platform']).toBeGreaterThan(0);
   });
 
   test('fits every laptop width with the roles folded', async ({ page }) => {
