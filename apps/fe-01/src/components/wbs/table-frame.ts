@@ -186,6 +186,12 @@ const COLUMN_WIDTHS = new Map<string, number>([
   // whole header row two lines tall.
   ['priority', 48],
   ['team', 120],
+  // SPIKE (C0, capacity): the In-parallel column at its candidate width, so a
+  // browser can say whether the table still fits 1280 with it. 48px is the
+  // Prio column's number for the same envelope — four digits (the 1000
+  // ceiling) plus the 8px of padding the declared width includes. Thrown away
+  // with this branch; C3 is what ships a column.
+  ['max-parallel', 48],
   ['final-total', 52],
   // Both date columns at one width; see {@link DAY_ENVELOPE} for what that
   // width holds and which browser picked it.
