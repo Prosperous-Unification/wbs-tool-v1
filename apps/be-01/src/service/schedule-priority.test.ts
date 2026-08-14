@@ -346,6 +346,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'person',
         resourcePredecessorId: 'c-p1/role-dev',
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
       'c-a/role-qa': {
         workItemId: 'c-a',
@@ -364,6 +365,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'person',
         resourcePredecessorId: 'c-c/role-dev',
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
       'c-b/role-dev': {
         workItemId: 'c-b',
@@ -382,6 +384,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'person',
         resourcePredecessorId: 'c-a/role-dev',
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
       'c-c/role-dev': {
         workItemId: 'c-c',
@@ -400,6 +403,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'predecessor',
         resourcePredecessorId: null,
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
       'c-d/role-dev': {
         workItemId: 'c-d',
@@ -418,6 +422,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'predecessor',
         resourcePredecessorId: null,
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
       'c-p1/role-dev': {
         workItemId: 'c-p1',
@@ -436,6 +441,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'projectStart',
         resourcePredecessorId: null,
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
       'c-p1/role-qa': {
         workItemId: 'c-p1',
@@ -454,6 +460,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'roleOrder',
         resourcePredecessorId: null,
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
       'c-p2/role-dev': {
         workItemId: 'c-p2',
@@ -472,6 +479,7 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
         boundBy: 'projectStart',
         resourcePredecessorId: null,
         capacityPredecessorIds: [],
+        capacityTeamId: null,
       },
     });
 

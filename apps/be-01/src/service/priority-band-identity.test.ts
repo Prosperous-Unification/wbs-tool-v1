@@ -337,12 +337,23 @@ describe('a priority ladder moves no date', () => {
    * `capacity-migration-identity.test.ts`, which is where `team-sets` makes the
    * claim first; it is repeated here because this file compares the same oracle
    * and a lift with nothing behind it is a hole.
+   *
+   * `multi-team-engine` (R2-2) adds the second lifted field for the same
+   * reason: `capacityTeamId` names which pool ran out, the oracle predates it,
+   * and it is asserted here — non-null on exactly the slices a pool held up —
+   * rather than dropped. The stronger claim, that the team named is the row's
+   * own effective one, is made where the row's ancestry is in hand:
+   * `capacity-migration-identity.test.ts`.
    */
   function lifted(
     tree: NonNullable<Awaited<ReturnType<WorkItemService['tree']>>>,
   ): Record<string, unknown> {
     return {
       ...tree,
+      slices: tree.slices.map(({ capacityTeamId, ...slice }) => {
+        expect(capacityTeamId === null).toBe(slice.boundBy !== 'capacity');
+        return slice;
+      }),
       workItems: tree.workItems.map(({ teamIds, ...row }) => {
         expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
         return row;
