@@ -174,5 +174,9 @@ payload field that moved is additive.
 
 ## CI
 
-- **Pending at the time this file was written.** Filled in below once the run
-  finishes; a run id written before the run exists is not evidence.
+- Run **31833154423** at `054a63e` — `gate` **success** and `pixels`
+  **success**, 172 e2e, first attempt at that head. Two runs before it on
+  earlier commits of this branch: 31832903326 cancelled by the push that
+  superseded it, 31832916149 likewise.
+- The PR reads **MERGEABLE / CLEAN** against `main@30e8c4c`. No rebase needed —
+  nothing has landed on main since the branch was cut.
