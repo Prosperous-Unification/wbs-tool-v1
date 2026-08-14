@@ -184,5 +184,5 @@ payload field that moved is additive.
   failed on markdown-only diffs five times on this repo's record.
 - The PR reads **MERGEABLE / CLEAN** against `main@30e8c4c`. No rebase needed —
   nothing has landed on main since the branch was cut.
-- The commit that added *this* line is the record's own tail and is the one head
+- The commit that added _this_ line is the record's own tail and is the one head
   whose run this file cannot name.
