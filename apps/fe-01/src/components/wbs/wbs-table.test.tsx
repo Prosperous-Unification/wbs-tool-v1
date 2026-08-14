@@ -9658,11 +9658,107 @@ describe('sharing the plan', () => {
     return api;
   };
 
-  itDom('offers both ways of taking the plan out of the tool', async () => {
+  itDom('offers all three ways of taking the plan out of the tool', async () => {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
     expect(await screen.findByRole('button', { name: 'Copy as Markdown' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download CSV' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy as Mermaid' })).toBeInTheDocument();
+  });
+
+  itDom('copies the chart as a fenced Mermaid gantt, and says it did', async () => {
+    const copied: string[] = [];
+    stubClipboard((text) => {
+      copied.push(text);
+      return Promise.resolve();
+    });
+    await onePlannedRow();
+
+    click('Copy as Mermaid');
+
+    await waitFor(() => {
+      expect(toastTexts()).toEqual(['Copied as Mermaid.']);
+    });
+    const [diagram] = copied;
+    expect(diagram).toContain('```mermaid');
+    expect(diagram).toContain('gantt');
+    expect(diagram).toContain('    section 010 Strip, sand & paint');
+    // The half a reader of the rendered picture sees, which is the half a `%%`
+    // comment cannot reach.
+    expect(diagram).toContain('**What this diagram does not draw**');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  itDom('copies a collapsed branch’s children, which the chart on screen is not drawing', async () => {
+    const copied: string[] = [];
+    stubClipboard((text) => {
+      copied.push(text);
+      return Promise.resolve();
+    });
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+    pressNewItem('010');
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020']);
+    });
+    pressTab('020');
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '010.1']);
+    });
+    click('Collapse 010');
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010']);
+    });
+
+    click('Copy as Mermaid');
+
+    await waitFor(() => {
+      expect(toastTexts()).toEqual(['Copied as Mermaid.']);
+    });
+    // The row the chart on screen has dropped. An export built from the drawing
+    // would hand somebody a plan with this row missing and nothing saying so —
+    // `planForExport`'s rule, and the same answer.
+    expect(copied[0]).toContain('    section 010.1 ');
+  });
+
+  itDom('says so when the page has no clipboard at all, on the Mermaid button too', async () => {
+    await onePlannedRow();
+
+    click('Copy as Mermaid');
+
+    await waitFor(() => {
+      expect(toastTexts()).toEqual([expect.stringContaining('no clipboard')]);
+    });
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  itDom('reports a chart that cannot be laid out rather than doing nothing at all', async () => {
+    stubClipboard(() => Promise.resolve());
+    const api = fakeApi();
+    // The skew `layOutGantt` refuses: a slice under a role this read does not
+    // list, which is what a peer's phase edit landing between two reads looks
+    // like. The panel lets that reach its error boundary; a click handler has
+    // no boundary over it, so this button has to catch it or do nothing.
+    const skewed: ProjectApi = {
+      ...api,
+      tree: () =>
+        api.tree().then((tree) => ({
+          ...tree,
+          slices: tree.slices.map((slice) => ({ ...slice, roleId: 'a-role-nobody-listed' })),
+        })),
+    };
+    render(<WbsTable projectId="p1" api={skewed} projectName="Rewire the shed" />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+
+    click('Copy as Mermaid');
+
+    await waitFor(() => {
+      expect(toastTexts()).toEqual([expect.stringContaining('The chart cannot be drawn:')]);
+    });
+    expect(toastTexts()[0]).toContain('a-role-nobody-listed');
   });
 
   itDom('copies the whole plan, header first, and says it did', async () => {

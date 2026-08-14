@@ -63,7 +63,7 @@ import {
 } from './estimate-draft';
 import { FoldedRoleCard } from './folded-role-card';
 import { GanttFaultBoundary } from './gantt-fault';
-import type { GanttPlan, ServiceTeamLabel } from './gantt-geometry';
+import { GanttDataError, type GanttPlan, type GanttRow, type ServiceTeamLabel } from './gantt-geometry';
 import { clampedGanttHeight, GANTT_CEILING_PX, GANTT_MIN_PX, GanttPanel } from './gantt-panel';
 import { HoverPreview } from './hover-preview';
 import { initialsOf } from './initials';
@@ -88,6 +88,7 @@ import { PhasesDialog } from './phases-dialog';
 import { type CardAssignee, PlanCards } from './plan-cards';
 import { describeGaps, findEstimateGaps } from './plan-completeness';
 import { type PlanExport, planFileName, planToCsv, planToMarkdown } from './plan-export';
+import { planToMermaid } from './plan-mermaid';
 import { useRendererForViewport } from './plan-renderer';
 import { linkPlanScroll } from './plan-scroll-link';
 import { printedDay, shortIsoDate } from './short-date';
@@ -6649,44 +6650,62 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * depends on `roles` alone, and anything added to it remounts every cell in
    * the table and eats the focus (LLM_README landmine #1).
    */
+  /**
+   * One work item as a chart reads it: every fact a bar states about the row it
+   * sits on.
+   *
+   * Named rather than inlined because **two** drawings are built from it — the
+   * panel's, over the rows on screen, and the Mermaid export's, over every row
+   * of the plan (see {@link exportGanttPlan}). Two copies of this map would be
+   * two answers to "what does a bar say about this row", and the export's would
+   * be the one nobody looks at.
+   *
+   * `depth` and `leaf` are arguments because the two callers know them
+   * differently: the panel reads them off the table model, and the export walks
+   * the tree the model was built from.
+   */
+  const ganttRowOf = (row: TreeRow, depth: number, leaf: boolean): GanttRow => ({
+    id: row.id,
+    // The Number column's own number, not a second derivation of it: the
+    // chart's labels read `010 - Strip` because that is how the plan is
+    // spoken about.
+    number: row.number,
+    name: row.name,
+    depth,
+    leaf,
+    schedule: {
+      earliestStart: row.schedule.earliestStart,
+      earliestFinish: row.schedule.earliestFinish,
+    },
+    notBeforeOffset: notBeforeOffsetOf(startDate, row.startNoEarlierThan),
+    // Straight off the tree read, like the trio beside it: what a bar says is
+    // a fact about the plan the chart was drawn from, not about a draft
+    // somebody is half-way through typing into the column.
+    priority: row.priority,
+    maxParallel: row.maxParallel,
+    // The **effective** team, which is the pool be-01 scheduled this row's
+    // slices against — not the label the row carries, which may be none at
+    // all. A chart drawn from the stored label alone cannot say whose people
+    // a bar is waiting for.
+    team: effectiveTeamLabelOf(row),
+    // The trio the plan holds for each role on this row, straight off the
+    // tree read — the drafts a reader is half-way through typing are not
+    // facts about the schedule the chart was drawn from.
+    trioByRole: new Map(Object.entries(row.estimates)),
+    waitsFor: row.dependsOn.map(
+      // A predecessor the tree does not hold at all is the same modeled
+      // absence `personFloorWords` already has words for, and it is said the
+      // same way rather than left as a bare id.
+      (predecessorId) => namedInTheTree.get(predecessorId) ?? 'work that is not shown',
+    ),
+  });
+
   const ganttPlan: GanttPlan = {
-    rows: shownRows.map((row) => ({
-      id: row.id,
-      // The Number column's own number, not a second derivation of it: the
-      // chart's labels read `010 - Strip` because that is how the plan is
-      // spoken about.
-      number: row.original.number,
-      name: row.original.name,
-      depth: row.depth,
+    rows: shownRows.map((row) =>
       // A leaf of the plan as drawn, which is a row with nothing under it —
       // the same question `getSubRows` answers for the table model.
-      leaf: row.subRows.length === 0,
-      schedule: {
-        earliestStart: row.original.schedule.earliestStart,
-        earliestFinish: row.original.schedule.earliestFinish,
-      },
-      notBeforeOffset: notBeforeOffsetOf(startDate, row.original.startNoEarlierThan),
-      // Straight off the tree read, like the trio beside it: what a bar says is
-      // a fact about the plan the chart was drawn from, not about a draft
-      // somebody is half-way through typing into the column.
-      priority: row.original.priority,
-      maxParallel: row.original.maxParallel,
-      // The **effective** team, which is the pool be-01 scheduled this row's
-      // slices against — not the label the row carries, which may be none at
-      // all. A chart drawn from the stored label alone cannot say whose people
-      // a bar is waiting for.
-      team: effectiveTeamLabelOf(row.original),
-      // The trio the plan holds for each role on this row, straight off the
-      // tree read — the drafts a reader is half-way through typing are not
-      // facts about the schedule the chart was drawn from.
-      trioByRole: new Map(Object.entries(row.original.estimates)),
-      waitsFor: row.original.dependsOn.map(
-        // A predecessor the tree does not hold at all is the same modeled
-        // absence `personFloorWords` already has words for, and it is said the
-        // same way rather than left as a bare id.
-        (predecessorId) => namedInTheTree.get(predecessorId) ?? 'work that is not shown',
-      ),
-    })),
+      ganttRowOf(row.original, row.depth, row.subRows.length === 0),
+    ),
     slices: chartRead.slices,
     // The full tree, ids and parents alone — `flat` and not `shownRows`, for
     // `namedInTheTree`'s reason: a dependency arrow's anchor is selected from
@@ -6705,6 +6724,89 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // moment is the skew `layOutGantt` throws on.
     roles: chartRead.roles,
     personNames: new Map(chartRead.people.map((person) => [person.id, person.name])),
+  };
+
+  /**
+   * The same chart over the **whole** plan, which is what leaves the tool.
+   *
+   * {@link ganttPlan} is what is on screen — a collapsed branch and a running
+   * search are both missing from it, deliberately, because that is the drawing
+   * a reader asked for. An export is the other thing: it is handed to somebody
+   * who cannot see this screen, and one that carried a collapse would give them
+   * a plan with rows missing and nothing saying so. Word for word
+   * {@link planForExport}'s reason, and the same answer.
+   *
+   * Built on demand rather than every render: the walk is over every row of the
+   * tree and nothing draws it.
+   */
+  const exportGanttPlan = (): GanttPlan => {
+    const rows: GanttRow[] = [];
+    const walk = (items: readonly TreeRow[], depth: number): void => {
+      for (const item of items) {
+        rows.push(ganttRowOf(item, depth, item.subRows.length === 0));
+        walk(item.subRows, depth + 1);
+      }
+    };
+    walk(workItems, 0);
+    return {
+      ...ganttPlan,
+      rows,
+      // Every stored edge, not the ones between two shown rows: with every row
+      // in `rows` there is no edge left for `layOutGantt` to drop, and an
+      // export short one dependency is short exactly the fact the legend under
+      // the diagram exists to carry.
+      dependencies: flat.flatMap((row) =>
+        row.dependsOn.map((predecessorId) => ({ predecessorId, successorId: row.id })),
+      ),
+    };
+  };
+
+  /**
+   * Puts the chart on the clipboard as a Mermaid `gantt` in a Markdown fence.
+   *
+   * The third of the three things that can happen is this one's own: the chart
+   * may refuse to be laid out at all. `layOutGantt` throws on a payload whose
+   * slices name a role, a person or a slice it has not got — a peer's edit
+   * landing between two of this client's reads — and the panel lets that reach
+   * {@link GanttFaultBoundary}. A click handler has no boundary over it: React does not
+   * catch what an event handler throws, so an uncaught one here is a button
+   * that does nothing at all, which is the silence every toast in this file
+   * exists to break. It is a modeled condition and it is reported as one, in
+   * the fault panel's own words.
+   */
+  const copyAsMermaid = (): void => {
+    let diagram: string;
+    try {
+      diagram = planToMermaid(exportGanttPlan(), {
+        projectName: projectName ?? UNNAMED_PROJECT,
+        generatedAt: new Date().toISOString(),
+        startDate,
+        scheduleError,
+      });
+    } catch (thrown) {
+      // Only the modeled one is caught. Anything else is a fault this component
+      // has no reading of, and swallowing it into a toast would file a bug
+      // under "could not copy".
+      if (!(thrown instanceof GanttDataError)) throw thrown;
+      pushToast({ kind: 'error', text: `The chart cannot be drawn: ${thrown.message}` });
+      return;
+    }
+    // The same absent-then-refused pair {@link copyAsMarkdown} reports, and the
+    // same annotation for the same reason: the DOM lib claims
+    // `navigator.clipboard` is always there and a browser on http disagrees.
+    const clipboard = navigator.clipboard as Clipboard | undefined;
+    if (clipboard === undefined) {
+      pushToast({ kind: 'error', text: NO_CLIPBOARD });
+      return;
+    }
+    void clipboard.writeText(diagram).then(
+      () => {
+        pushToast({ kind: 'info', text: 'Copied as Mermaid.' });
+      },
+      () => {
+        pushToast({ kind: 'error', text: CLIPBOARD_REFUSED });
+      },
+    );
   };
 
   /**
@@ -7090,6 +7192,22 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         onClick={downloadCsv}
       >
         Download CSV
+      </Button>
+      {/*
+        The chart, as the one diagram syntax a Markdown document renders on its
+        own. Beside the other two and not inside them: this one carries the
+        *shape* and loses fields, and Copy as Markdown carries every field and
+        loses the shape — the legend under the diagram names that trade and
+        names this button's neighbour as the way to the rest.
+      */}
+      <Button
+        variant="outline"
+        size="sm"
+        type="button"
+        title="Copy the chart as a Mermaid gantt, with a legend saying what a gantt cannot draw"
+        onClick={copyAsMermaid}
+      >
+        Copy as Mermaid
       </Button>
       <label className="ml-auto flex items-center gap-1 text-sm">
         Starts

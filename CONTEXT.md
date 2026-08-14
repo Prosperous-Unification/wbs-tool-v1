@@ -469,6 +469,13 @@ dates are dates or day offsets, and when the figures were taken. Always the whol
 never the view of it.
 _Avoid_: report, download, dump, extract
 
+**Mermaid export**:
+One project's chart written out as a Mermaid `gantt` inside a Markdown fence, with a legend
+naming every fact a gantt has no way to draw — the dependency arrows, the capacity and
+hand-off waits, the start-no-earlier-than dates. The shape of the plan, where the
+Plan export is the fields of it.
+_Avoid_: diagram export, chart image, gantt dump
+
 **Revision**:
 A count of how many times one work item or one project has been written to, starting at
 zero and never going down. Moves on the entity's own stored fields and on its satellites,
