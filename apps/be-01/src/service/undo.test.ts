@@ -16,9 +16,9 @@ import { commandJournal } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
-import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { personAdded } from '../testing/directory-fixture';
+import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { ProjectService } from './project.service';
 import { type UndoOutcome, WorkItemService } from './work-item.service';
 

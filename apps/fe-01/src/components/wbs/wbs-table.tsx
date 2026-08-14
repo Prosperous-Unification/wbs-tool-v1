@@ -95,9 +95,9 @@ import { type CardAssignee, PlanCards } from './plan-cards';
 import { describeGaps, findEstimateGaps } from './plan-completeness';
 import { type PlanExport, planFileName, planToCsv, planToMarkdown } from './plan-export';
 import { useRendererForViewport } from './plan-renderer';
+import { linkPlanScroll } from './plan-scroll-link';
 import { PrioritiesDialog } from './priorities-dialog';
 import { PriorityCell, priorityTyped } from './priority-cell';
-import { linkPlanScroll } from './plan-scroll-link';
 import { printedDay, shortIsoDate } from './short-date';
 import {
   CARET_GUTTER_PX,

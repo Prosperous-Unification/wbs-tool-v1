@@ -1,5 +1,5 @@
-import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import { KeyboardCheatSheet } from '@/components/wbs/keyboard-cheat-sheet';

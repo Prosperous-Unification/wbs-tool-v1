@@ -23,10 +23,7 @@ import { ProjectService } from '../service/project.service';
 import { RoleService } from '../service/role.service';
 import { WorkItemService } from '../service/work-item.service';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
-import {
-  inMemoryPriorityBands,
-  testPriorityBandService,
-} from '../testing/priority-band-fixture';
+import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
 
 const TEST_JWT_KEY = 'k'.repeat(32);

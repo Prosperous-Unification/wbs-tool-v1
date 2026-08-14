@@ -286,6 +286,50 @@ describe('the columns', () => {
     );
   });
 
+  it('names the band beside the number, from the plan’s own ladder', () => {
+    // The name **beside** the number and not instead of it: the number is what the
+    // plan sorts by, the name is what a reader of the export talks about, and
+    // neither substitutes for the other — two rows at 10 and 18 are both
+    // `Critical` and are not the same priority.
+    //
+    // A spreadsheet outlives the plan it came from, which is why the ladder
+    // travels with the export rather than being inferred: a CSV saying `Critical`
+    // for 10 is still readable the day somebody re-cuts the ladder.
+    //
+    // Proof: `plan.priorityBands` replaced by `DEFAULT_PRIORITY_BANDS` in the
+    // cell, and this failed on `expected 'Critical' to be 'Blocker'` — an export
+    // naming a band the plan it came from does not have. Watched 2026-08-14.
+    const rows = [
+      row({ id: 'a', number: '010', priority: 10 }),
+      row({ id: 'b', number: '020', priority: 90 }),
+      row({ id: 'c', number: '030' }),
+    ];
+    const csv = planToCsv(plan({ rows }));
+    const at = csvColumns(csv).indexOf('Priority band');
+
+    expect(csvDataRow(csv)[at]).toBe('Critical');
+    expect(csvDataRow(csv, 1)[at]).toBe('Lowest');
+    // Blank where the number is, for the reason the Priority column is: unranked
+    // is a state of its own and a spreadsheet reader sorting on it wants an empty
+    // cell.
+    expect(csvDataRow(csv, 2)[at]).toBe('');
+
+    const recut = planToCsv(
+      plan({
+        rows,
+        priorityBands: [
+          { startsAt: 1, label: 'Blocker', defaultValue: 5 },
+          { startsAt: 16, label: 'Urgent', defaultValue: 20 },
+          { startsAt: 31, label: 'Normal', defaultValue: 40 },
+          { startsAt: 71, label: 'Someday', defaultValue: 75 },
+          { startsAt: 200, label: 'Never', defaultValue: 900 },
+        ],
+      }),
+    );
+    expect(csvDataRow(recut)[at]).toBe('Blocker');
+    expect(csvDataRow(recut, 1)[at]).toBe('Someday');
+  });
+
   it('writes a priority as the number somebody typed, and an unranked row blank', () => {
     // The header alone was pinned until 2026-08-11, and a column whose cell is
     // never read is a column that can quietly export the wrong thing. `2`, not

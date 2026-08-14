@@ -7,8 +7,8 @@ import { type CellElement, cellKey } from './editable-grid';
 import type { ServiceTeamLabel } from './gantt-geometry';
 import type { CommitOutcome } from './live-editing';
 import { composeNameCell } from './name-notes';
-import type { PrintedDay } from './short-date';
 import { priorityBandStyleOf } from './priority-band-style';
+import type { PrintedDay } from './short-date';
 import { cardIndentFor } from './table-frame';
 import type { TreeRow } from './wbs-rows';
 

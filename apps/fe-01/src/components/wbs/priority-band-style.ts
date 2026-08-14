@@ -80,8 +80,12 @@ export function priorityBandStyleOf(
 ): PriorityBandStyle | null {
   if (priority === null) return null;
   const rank = priorityBandRankOf(bands, priority);
-  const band = bands[rank];
-  const paint = BAND_INKS[rank];
+  // `.at`, not an index: fe-01's tsconfig does not set
+  // `noUncheckedIndexedAccess`, so `bands[rank]` reads as a band the compiler
+  // will not let anything test for — and `bands` is straight off the wire, empty
+  // for as long as it takes the first tree read to land.
+  const band = bands.at(rank);
+  const paint = BAND_INKS.at(rank);
   if (band === undefined || paint === undefined) return null;
   return {
     label: band.label,

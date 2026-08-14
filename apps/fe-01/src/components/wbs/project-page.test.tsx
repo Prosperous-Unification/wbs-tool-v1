@@ -1,5 +1,5 @@
-import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { CreatedProject, ProjectApi, ProjectListEntry } from '@/lib/wbs-api';

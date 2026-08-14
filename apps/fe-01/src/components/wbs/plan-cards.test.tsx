@@ -1,5 +1,5 @@
-import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Days, PersonView, ProjectApi, RoleView, TeamView, WorkItemView } from '@/lib/wbs-api';
@@ -937,6 +937,51 @@ describe('what a card says about capacity', () => {
     });
 
     expect(teamOnCard()).toBeNull();
+  });
+
+  itDom('names the band on a card, in its own colour', async () => {
+    // The cards are the only face some readers have — a phone shows no table and
+    // no chart — so this is where Dany's "ui must display differently for
+    // different priorities" either lands or does not. The number is on the chip as
+    // well as the name, because the table and the export both show it and a phone
+    // reader comparing two screens must not have to work out which `High` is 30.
+    //
+    // Proof: the chip deleted from the card header, and this failed on `expected
+    // null to be truthy` — a phone with no priority anywhere on it. Watched
+    // 2026-08-14.
+    await aPlan((rows) => {
+      rows[0].priority = 5;
+    });
+
+    const chip = document.querySelector<HTMLElement>('[data-card-priority]');
+    expect(chip?.textContent).toBe('Critical 5');
+    expect(chip?.getAttribute('data-priority-rank')).toBe('0');
+    expect(chip?.getAttribute('title')).toBe('Critical — priority 5');
+    // A colour, and the plan's own — the same `priorityBandStyleOf` the table's
+    // cell and the chart's cap read.
+    expect(chip?.style.color).not.toBe('');
+  });
+
+  itDom('draws different bands differently, which is the whole of the ask', async () => {
+    await aPlan((rows) => {
+      const [first, second] = rows;
+      first.priority = 5;
+      second.priority = 90;
+    }, 2);
+
+    const chips = [...document.querySelectorAll<HTMLElement>('[data-card-priority]')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Critical 5', 'Lowest 90']);
+    expect(chips[0]?.style.color).not.toBe(chips[1]?.style.color);
+  });
+
+  itDom('draws no chip at all on a row nobody has prioritised', async () => {
+    // The bargain every face makes with an unranked row: nothing rather than a
+    // grey chip reading `—`. On a 390px screen that furniture costs the most.
+    await aPlan(() => {
+      // Nothing arranged: the plan every project starts as.
+    });
+
+    expect(document.querySelector('[data-card-priority]')).toBeNull();
   });
 
   itDom('says how many people a row runs at, and nothing at one', async () => {

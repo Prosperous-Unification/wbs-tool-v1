@@ -1,5 +1,5 @@
-import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import type { IsoDate } from '@wbs/domain/workday';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -883,6 +883,76 @@ describe('the chart is drawn in calendar days', () => {
     // Not "Priority —" and not a blank line: having no priority is a state of its own,
     // and a bar with nothing to say about it says nothing.
     expect(linesOf(surfaceOn('sand-dev')).filter((line) => line.includes('Priority'))).toEqual([]);
+  });
+
+  itDom('caps a bar in its band’s colour, and leaves an unranked bar uncapped', () => {
+    // The **third** channel on a bar, and the only one this mark had spare: `fill`
+    // is already the assignee and `stroke` is the critical path, so overloading
+    // either would have made two facts one colour and told the reader neither.
+    //
+    // A separate element rather than a property of the rect, because an absent cap
+    // is an absent node and not a transparent one — which is what makes the second
+    // assertion here a real absence.
+    //
+    // Proof: the cap block deleted, and this failed on `expected null to be
+    // truthy` — a chart on which no priority is visible at all. Watched
+    // 2026-08-14.
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [
+            rowAt('strip', 0, 3, { priority: 2 }),
+            rowAt('sand', 1, 2, { priority: 90 }),
+            rowAt('paint', 2, 2),
+          ],
+          slices: [
+            sliceAt('strip-dev', 'strip', 0, 3),
+            sliceAt('sand-dev', 'sand', 0, 2),
+            sliceAt('paint-dev', 'paint', 0, 2),
+          ],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+      />,
+    );
+
+    const capOn = (sliceId: string): SVGElement | null =>
+      document.querySelector<SVGElement>(`[data-priority-cap="${sliceId}"]`);
+
+    expect(capOn('strip-dev')?.getAttribute('data-priority-rank')).toBe('0');
+    expect(capOn('sand-dev')?.getAttribute('data-priority-rank')).toBe('4');
+    // Different bands, different paint — the whole of "displays differently".
+    expect(capOn('strip-dev')?.getAttribute('fill')).not.toBe(
+      capOn('sand-dev')?.getAttribute('fill'),
+    );
+    // And nothing at all for a bar whose row nobody has prioritised.
+    expect(capOn('paint-dev')).toBeNull();
+  });
+
+  itDom('leaves the bar the hover, the focus and the name, and gives the cap none of them', () => {
+    // The cap is paint. A second target in front of the control the bar is would
+    // put a reader one pixel away from a surface that does not open.
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 3, { priority: 2 })],
+          slices: [sliceAt('strip-dev', 'strip', 0, 3)],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+      />,
+    );
+
+    const cap = document.querySelector<SVGElement>('[data-priority-cap="strip-dev"]');
+    expect(cap?.getAttribute('pointer-events')).toBe('none');
+    expect(cap?.getAttribute('role')).toBeNull();
+    expect(cap?.getAttribute('aria-label')).toBeNull();
   });
 
   itDom('says everything it knows in a surface, in the order the spec sets', () => {

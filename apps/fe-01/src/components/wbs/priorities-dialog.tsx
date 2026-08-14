@@ -11,7 +11,7 @@ import {
   ModalTitle,
   ModalTrigger,
 } from '@/components/ui/modal';
-import { type PriorityBandView, priorityBandRefusalSentence } from '@/lib/wbs-api';
+import { priorityBandRefusalSentence, type PriorityBandView } from '@/lib/wbs-api';
 
 import { priorityBandStyleOf } from './priority-band-style';
 
@@ -69,11 +69,16 @@ export function ladderOfDrafts(drafts: readonly BandDraft[]): PriorityBandView[]
  * reader thinks in ranges.
  */
 export function bandRangeWords(drafts: readonly BandDraft[], at: number): string {
-  const own = drafts[at];
+  const own = drafts.at(at);
   if (own === undefined) return '';
-  const above = drafts[at + 1];
+  const above = at + 1 < drafts.length ? drafts.at(at + 1) : undefined;
   if (above === undefined) return `${own.startsAt} and above`;
-  const ends = Number(above.startsAt) - 1;
+  // An emptied box above is *unknown*, not zero. `Number('')` is `0`, so a bare
+  // parse would draw `1 to -1` in the row below the one somebody is part-way
+  // through retyping — a range that reads as a defect in their ladder rather than
+  // as a box they have not finished. Watched 2026-08-14, on
+  // `says the start alone while the box above it is half-typed`.
+  const ends = above.startsAt.trim() === '' ? Number.NaN : Number(above.startsAt) - 1;
   if (!Number.isSafeInteger(ends)) return `${own.startsAt} and above`;
   return `${own.startsAt} to ${String(ends)}`;
 }
@@ -199,7 +204,7 @@ export function PrioritiesDialog({ bands, setBands, onChanged }: PrioritiesDialo
             // a colour of the rank and not of anything being typed: the rank
             // cannot change here, so the dot beside a row somebody is renaming
             // stays the colour that row will still be.
-            const paint = priorityBandStyleOf(bands, bands[at]?.startsAt ?? 1);
+            const paint = priorityBandStyleOf(bands, bands.at(at)?.startsAt ?? 1);
             return (
               <li key={`band-${String(at)}`} className="flex items-center gap-2">
                 <span

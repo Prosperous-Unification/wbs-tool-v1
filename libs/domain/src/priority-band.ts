@@ -92,7 +92,11 @@ export const LONGEST_BAND_LABEL = 40;
 export function priorityBandRankOf(bands: readonly PriorityBand[], priority: number): number {
   let rank = 0;
   for (let at = 0; at < bands.length; at += 1) {
-    const band = bands[at];
+    // `.at`, not `bands[at]`: this package's tsconfig does not set
+    // `noUncheckedIndexedAccess`, so an index reads as a `PriorityBand` the
+    // compiler will not let anything test for absence — and this function is
+    // handed lists straight off the wire. `.at` types the absence back in.
+    const band = bands.at(at);
     if (band === undefined || band.startsAt > priority) break;
     rank = at;
   }
@@ -110,7 +114,7 @@ export function priorityBandOf(
   bands: readonly PriorityBand[],
   priority: number,
 ): PriorityBand | null {
-  return bands[priorityBandRankOf(bands, priority)] ?? null;
+  return bands.at(priorityBandRankOf(bands, priority)) ?? null;
 }
 
 /**
@@ -147,10 +151,13 @@ export function priorityLadderProblem(bands: readonly PriorityBand[]): string | 
   }
   const seen = new Set<string>();
   for (let at = 0; at < bands.length; at += 1) {
-    const band = bands[at];
-    // `bands.length` was just checked, so this is unreachable; it is here
-    // because `noUncheckedIndexedAccess` is on and a `!` would be the assertion
-    // AGENTS.md bans outside tests.
+    // `.at` throughout, for {@link priorityBandRankOf}'s reason: this is handed
+    // a list parsed out of a request body, and an index would type its elements
+    // as present whatever arrived.
+    const band = bands.at(at);
+    // `bands.length` was just checked, so this is unreachable from a list of
+    // five; it is here because a `!` would be the assertion AGENTS.md bans
+    // outside tests.
     if (band === undefined) return 'bands_must_be_objects';
     const label = band.label.trim();
     if (label === '' || label.length > LONGEST_BAND_LABEL) {
@@ -165,13 +172,13 @@ export function priorityLadderProblem(bands: readonly PriorityBand[]): string | 
     if (!Number.isSafeInteger(band.defaultValue) || band.defaultValue < 1) {
       return 'band_default_must_be_a_whole_number_from_1';
     }
-    const below = bands[at - 1];
+    const below = at === 0 ? undefined : bands.at(at - 1);
     if (at === 0) {
       if (band.startsAt !== 1) return 'first_band_must_start_at_1';
     } else if (below !== undefined && band.startsAt <= below.startsAt) {
       return 'bands_must_start_in_increasing_order';
     }
-    const above = bands[at + 1];
+    const above = at + 1 < bands.length ? bands.at(at + 1) : undefined;
     // The top band ends nowhere, so only its floor is checked. Every other
     // band is closed by the one above it, exclusive of that band's own start.
     if (band.defaultValue < band.startsAt) return 'band_default_must_be_inside_its_own_band';

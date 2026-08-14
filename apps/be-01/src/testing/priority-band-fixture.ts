@@ -1,6 +1,6 @@
 import { DEFAULT_PRIORITY_BANDS, type PriorityBand } from '@wbs/domain';
 
-import type { PriorityBandsWritten, PriorityBandStore, ProjectStore } from '../repository';
+import type { PriorityBandStore, PriorityBandsWritten, ProjectStore } from '../repository';
 import type { Broadcaster } from '../service/broadcast';
 import { PriorityBandService } from '../service/priority-band.service';
 import { recordingBroadcaster } from './broadcast-fixture';
@@ -39,9 +39,7 @@ export function inMemoryPriorityBands(
       // A copy either way: a caller that mutated what it was handed would be
       // editing the store from the read side, and mutating the exported default
       // would edit every project at once.
-      return Promise.resolve(
-        (own ?? DEFAULT_PRIORITY_BANDS).map((band) => ({ ...band })),
-      );
+      return Promise.resolve((own ?? DEFAULT_PRIORITY_BANDS).map((band) => ({ ...band })));
     },
     replace(projectId, bands) {
       held.set(

@@ -984,8 +984,7 @@ export function barFacts(
     // furniture, not a fact, and that bargain predates this change.
     bar.priority === null
       ? null
-      : (priorityBandStyleOf(bands, bar.priority)?.words ??
-        `Priority ${String(bar.priority)}`),
+      : (priorityBandStyleOf(bands, bar.priority)?.words ?? `Priority ${String(bar.priority)}`),
     bar.floorWords,
     bar.waitsFor.length === 0 ? null : `after ${bar.waitsFor.join(', ')}`,
   ].filter((line): line is string => line !== null);

@@ -1,7 +1,7 @@
 import {
   LONGEST_BAND_LABEL,
-  type PriorityBand,
   PRIORITY_BAND_COUNT,
+  type PriorityBand,
   priorityLadderProblem,
 } from '@wbs/domain';
 import { Elysia } from 'elysia';

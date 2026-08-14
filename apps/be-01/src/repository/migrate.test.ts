@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain';
 import { describe, expect, it } from 'bun:test';
 
 import { openDatabase } from './db';
@@ -655,6 +656,187 @@ describe('the per-project capacity migration', () => {
         }).toThrow();
       } finally {
         sqlite.close();
+      }
+    } finally {
+      db.cleanup();
+    }
+  });
+});
+
+describe('the priority band migration', () => {
+  it('seeds every project that existed with the five default bands', () => {
+    // **Claim A.** Reached the way the priority backfill case is: roll back to
+    // the migration before this one, write projects the way the outgoing release
+    // wrote them, and migrate forward again.
+    //
+    // What it asserts is the *rows*, and deliberately not any behaviour, because
+    // the seeding **has no observable behaviour** — `PriorityBandRepository.listFor`
+    // answers `DEFAULT_PRIORITY_BANDS` for a project holding none, so a seeded
+    // project and an unseeded one read exactly the same ladder. The seeding is a
+    // materialisation: it makes the deployment's real projects hold their
+    // vocabulary as data somebody can read out of the database, diff and edit one
+    // rung of. design.md D2, and it is the reason this file is where the claim
+    // lives rather than a service test.
+    //
+    // Proof: the whole `INSERT … SELECT` deleted from `migration.sql`, and this
+    // failed on `expected [] to have a length of 15` — three projects times five
+    // rungs, none of them written. Every *behaviour* test in the suite stayed
+    // green with it deleted, which is exactly the paragraph above and exactly why
+    // the assertion is on the table. Watched 2026-08-14.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+      const before = openDatabase(db.path);
+      try {
+        before.run(
+          "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+        );
+        for (const id of ['p1', 'p2', 'p3']) {
+          before.run(
+            'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+              ` VALUES ('${id}', 'Plan ${id}', 'u', 0, 'pert', NULL, 0, 1)`,
+          );
+        }
+      } finally {
+        before.close();
+      }
+
+      runMigrations(db.path, FOLDER);
+
+      const after = openDatabase(db.path);
+      try {
+        const rows = after
+          .query<
+            {
+              project_id: string;
+              rank: number;
+              starts_at: number;
+              label: string;
+              default_value: number;
+            },
+            []
+          >(
+            'SELECT project_id, rank, starts_at, label, default_value FROM project_priority_band ORDER BY project_id, rank',
+          )
+          .all();
+        expect(rows).toHaveLength(15);
+        // Dany's five, on every project, in rank order — asserted whole rather
+        // than by counting, because a seeding that wrote five rows of the wrong
+        // numbers would pass a count.
+        for (const id of ['p1', 'p2', 'p3']) {
+          expect(
+            rows
+              .filter((row) => row.project_id === id)
+              .map((row) => ({
+                startsAt: row.starts_at,
+                label: row.label,
+                defaultValue: row.default_value,
+              })),
+          ).toEqual([...DEFAULT_PRIORITY_BANDS]);
+        }
+      } finally {
+        after.close();
+      }
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('lets the outgoing release keep writing projects against the migrated schema', () => {
+    // The blue/green half. Green migrates while blue is still serving, and blue
+    // knows nothing about this table — so its plain `INSERT INTO project` must
+    // still work, and so must its plain `DELETE FROM project`, which is the one
+    // that reaches the new foreign key.
+    //
+    // Proof: `ON DELETE CASCADE` removed from the migration, and this failed on
+    // the delete with `FOREIGN KEY constraint failed` — the outgoing release
+    // answering 500 for the length of the swap on a statement it has always been
+    // able to run. Watched 2026-08-14.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      const sqlite = openDatabase(db.path);
+      try {
+        sqlite.run('PRAGMA foreign_keys = ON');
+        sqlite.run(
+          "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+        );
+        sqlite.run(
+          'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+            " VALUES ('p', 'Rewire the shed', 'u', 0, 'pert', NULL, 0, 1)",
+        );
+        // Seeded nowhere: this project was created *after* the migration, which
+        // is the state the read's default arm answers for.
+        expect(
+          sqlite
+            .query<
+              { n: number },
+              []
+            >("SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'p'")
+            .get()?.n,
+        ).toBe(0);
+        sqlite.run("DELETE FROM project WHERE id = 'p'");
+        expect(sqlite.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM project').get()?.n).toBe(
+          0,
+        );
+      } finally {
+        sqlite.close();
+      }
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('takes the bands away on the way back, and leaves every priority where it was', () => {
+    // The rollback, asserted by reading the result. What is lost is the naming;
+    // what survives is every number — which is the one thing this rollback is
+    // free of and every other scheduling rollback in this repo is not, because
+    // the ladder was never read by the leveller. `down.sql` says so too.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      const before = openDatabase(db.path);
+      try {
+        before.run(
+          "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+        );
+        before.run(
+          'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+            " VALUES ('p', 'Rewire the shed', 'u', 0, 'pert', NULL, 0, 1)",
+        );
+        before.run(
+          'INSERT INTO work_item (id, project_id, parent_id, position, name, notes, priority, max_parallel, revision)' +
+            " VALUES ('w1', 'p', NULL, 10, 'Strip', '', 25, 1, 0)",
+        );
+      } finally {
+        before.close();
+      }
+
+      expect(rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY)).toEqual([PRIORITY_BANDS]);
+
+      const after = openDatabase(db.path);
+      try {
+        expect(
+          after
+            .query<
+              { n: number },
+              []
+            >("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='project_priority_band'")
+            .get()?.n,
+        ).toBe(0);
+        // The priority is untouched, which is the whole of what a plan loses:
+        // its numbers stay and their names go.
+        expect(
+          after
+            .query<
+              { priority: number | null },
+              []
+            >("SELECT priority FROM work_item WHERE id = 'w1'")
+            .get()?.priority,
+        ).toBe(25);
+      } finally {
+        after.close();
       }
     } finally {
       db.cleanup();

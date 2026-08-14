@@ -1,4 +1,3 @@
-import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import {
   act,
   cleanup,
@@ -8,6 +7,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type {
@@ -2044,6 +2044,137 @@ describe('the priority cell', () => {
 
     // Emptying the box is how a draft is abandoned rather than retried, and it
     // is what keeps this test's refusal out of the next one's map.
+    typeIntoPriority('010', '');
+    await waitFor(() => {
+      expect(refusedDraftFor(priorityCellKey('010'))).toBeUndefined();
+    });
+  });
+
+  itDom('draws the number in its band’s colour and names the band in the title', async () => {
+    // Dany, 2026-08-13: "ui must display differently for different priorities".
+    // The cell's **ink**, not a background: the column is 48px of right-aligned
+    // digits between two bordered cells, and a filled swatch there reads as a
+    // selection. The colour is `priorityBandStyleOf`'s, which is the same one the
+    // chart's cap, the cards' chip and the export's column resolve through.
+    //
+    // Proof: the `color: paint?.ink` line deleted from `PriorityCell`, and this
+    // failed on `expected '' not to be ''` — a Critical row and a Lowest row
+    // drawn in one ink. Watched 2026-08-14.
+    const api = await twoRows();
+    typeIntoPriority('010', '5');
+    await waitFor(() => {
+      expect(priorityCell('010').value).toBe('5');
+    });
+    typeIntoPriority('020', '90');
+    await waitFor(() => {
+      expect(priorityCell('020').value).toBe('90');
+    });
+    void api;
+
+    const critical = priorityCell('010').style.color;
+    const lowest = priorityCell('020').style.color;
+    expect(critical).not.toBe('');
+    expect(lowest).not.toBe('');
+    expect(critical).not.toBe(lowest);
+    // And the name is in the hover text, because a colour alone is a fact only a
+    // reader who already knows the ladder can read.
+    expect(priorityCell('010').title).toContain('Critical — priority 5');
+    expect(priorityCell('020').title).toContain('Lowest — priority 90');
+  });
+
+  itDom('leaves an unprioritised cell the table’s own ink and offers no band', async () => {
+    // The bargain every face makes with an unranked row: nothing at all rather
+    // than a grey chip reading `—`.
+    await twoRows();
+
+    expect(priorityCell('010').style.color).toBe('');
+    expect(priorityCell('010').title).toContain('Blank means nobody has said');
+  });
+
+  itDom('opens the five bands on a click, and taking one writes the number it says', async () => {
+    // Dany's "select priority by labels", as the picker. The line carries the
+    // number as well as the name because taking it **stores** that number, and a
+    // picker that hid what it was about to write would leave the reader unable to
+    // predict the digits that appear in the box.
+    const api = await twoRows();
+    const patched = watchPatches(api);
+
+    fireEvent.click(priorityCell('010'));
+    const list = screen.getByRole('listbox', { name: 'Priority bands for 010' });
+    expect([...list.querySelectorAll('[role="option"]')].map((each) => each.textContent)).toEqual([
+      'Critical — 10',
+      'High — 30',
+      'Medium — 50',
+      'Low — 70',
+      'Lowest — 90',
+    ]);
+
+    fireEvent.click(screen.getByText('High'));
+    await waitFor(() => {
+      expect(priorityCell('010').value).toBe('30');
+    });
+    // One request and one journal entry, through the same `setPriority` a typed
+    // number reaches — which is what makes the two languages round-trip into each
+    // other rather than into two histories.
+    expect(patched).toEqual([{ priority: 30 }]);
+  });
+
+  itDom('does not open the band list merely because the caret landed here', async () => {
+    // The one place this departs from `CreatablePicker`, and it is a departure
+    // with a mechanical reason as well as a taste one: opening on focus is a
+    // `setState` during the focus that lands in this box, so `CellInput`'s inline
+    // `ref` runs again, `LiveField.takeNode` re-attaches, and a refusal held for
+    // this cell is written back over the draft somebody is part-way through.
+    //
+    // Proof: the `onClick` moved onto the wrapper's `onFocus`, and three cases in
+    // this describe went red — `sends what was typed on Enter` with no request at
+    // all, and `sends one request for a priority entered with Enter and then
+    // left` holding a previous case's refused `1e999`. Watched 2026-08-14.
+    await twoRows();
+
+    fireEvent.focus(priorityCell('010'));
+
+    expect(screen.queryByRole('listbox', { name: 'Priority bands for 010' })).toBeNull();
+  });
+
+  itDom('takes a band’s name typed into the box, and stores the number it writes', async () => {
+    // The keyboard's way to the same five lines, and the reason the grid needs no
+    // chord for the picker: `high` in this box is 30. Case-insensitive and
+    // trimmed, because a name typed by hand is not a name copied out of a list.
+    const api = await twoRows();
+    const patched = watchPatches(api);
+
+    typeIntoPriority('010', '  MEDIUM ');
+    await waitFor(() => {
+      expect(priorityCell('010').value).toBe('50');
+    });
+
+    expect(patched).toEqual([{ priority: 50 }]);
+    // And it round-trips: the number that was stored resolves back to the band
+    // whose name was typed.
+    expect(priorityCell('010').title).toContain('Medium — priority 50');
+  });
+
+  itDom('still refuses a word that is no band’s name, rather than clearing the row', async () => {
+    // `Number('urgent')` is `NaN` and `NaN` on the wire is `null`, which is the
+    // clear — so a typo would silently unprioritise the row. `priorityTyped`
+    // deliberately hands anything it does not recognise straight back to
+    // `setPriority`, which has refused it out loud since `priority-column`.
+    const api = await twoRows();
+    typeIntoPriority('010', '7');
+    await waitFor(() => {
+      expect(priorityCell('010').value).toBe('7');
+    });
+    const patched = watchPatches(api);
+
+    typeIntoPriority('010', 'urgent');
+    await waitFor(() => {
+      expect(screen.getByText(/A priority is a whole number from 1 upward\./)).toBeDefined();
+    });
+    expect(patched).toEqual([]);
+
+    // As above: the draft is abandoned so this test's refusal does not reach the
+    // next one's map.
     typeIntoPriority('010', '');
     await waitFor(() => {
       expect(refusedDraftFor(priorityCellKey('010'))).toBeUndefined();

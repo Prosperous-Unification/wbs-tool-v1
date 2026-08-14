@@ -438,7 +438,9 @@ function columnsOf(plan: PlanExport, markSums: boolean): ExportColumn[] {
     {
       header: 'Priority band',
       cell: (row) =>
-        row.priority === null ? '' : (priorityBandOf(plan.priorityBands, row.priority)?.label ?? ''),
+        row.priority === null
+          ? ''
+          : (priorityBandOf(plan.priorityBands, row.priority)?.label ?? ''),
     },
     { header: 'Not before', cell: (row) => row.startNoEarlierThan ?? '' },
     { header: 'Starts', cell: (row) => startsCell(plan, row) },

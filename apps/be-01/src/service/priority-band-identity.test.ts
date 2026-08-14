@@ -1,0 +1,370 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { DEFAULT_PRIORITY_BANDS, type PriorityBand } from '@wbs/domain';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
+import type { Project, Role, StoredDependency, WorkItem } from '../repository';
+import { ROLE_POSITION_STEP } from '../repository';
+import { openDatabase, openDrizzle } from '../repository/db';
+import { runMigrations } from '../repository/migrate';
+import { rollbackTo } from '../repository/migrate-down';
+import { PriorityBandRepository } from '../repository/priority-band';
+import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { inMemoryCapacity } from '../testing/capacity-fixture';
+import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
+import { inMemoryDependencies } from '../testing/dependency-fixture';
+import { inMemoryDirectory } from '../testing/directory-fixture';
+import { inMemoryEstimates } from '../testing/estimate-fixture';
+import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
+import { inMemoryProjects } from '../testing/project-fixture';
+import { inMemorySubtrees } from '../testing/subtree-fixture';
+import { inMemoryWorkItems } from '../testing/work-item-fixture';
+import captured from './fixtures/capacity-oracle-2026-08-13.json';
+import { WorkItemService } from './work-item.service';
+
+const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
+/** The tip before this change: the schema every existing plan is on when the migration runs. */
+const PRE_BANDS = '20260813120000_add_project_team_capacity';
+
+interface CapturedRow {
+  id: string;
+  parentId: string | null;
+  position: number;
+  name: string;
+  priority: number | null;
+  maxParallel: number;
+  startNoEarlierThan: string | null;
+  serviceTeamId: string | null;
+  estimates: Record<string, { optimistic: number; realistic: number; pessimistic: number }>;
+  assignees: Record<string, string>;
+  dependsOn: string[];
+}
+
+interface CapturedPlan {
+  projectId: string;
+  roleIds: string[];
+  estimateMethod: 'pert' | 'optimistic' | 'realistic' | 'pessimistic';
+  startDate: string | null;
+  rows: CapturedRow[];
+}
+
+interface Oracle {
+  capturedAt: string;
+  capturedFrom: string;
+  teams: { id: string; name: string; size: number | null }[];
+  people: { id: string; name: string }[];
+  plans: CapturedPlan[];
+  answers: Record<string, unknown>[];
+}
+
+const oracle = captured as unknown as Oracle;
+
+/**
+ * The capacities every plan in the corpus is bounded by, as `(team → slots)`.
+ *
+ * The oracle was captured from a be-01 in which a team's size was **global**, so
+ * every plan saw every sized team's number — and `capacity-per-project`'s
+ * migration seeded exactly that, one row per (project, sized team). Replaying
+ * with no capacities at all would therefore not be replaying the captured plans:
+ * every capacity floor would be gone, and the first prioritised plan's
+ * `earliestStart` moves 7.5 → 3 with `boundBy` falling back to `'roleOrder'`.
+ * Observed, 2026-08-14, which is why this constant exists rather than an empty
+ * map.
+ *
+ * Taken from the oracle's own `teams` rather than from a migrated database:
+ * whether the migration writes these numbers is `capacity-per-project`'s claim
+ * and is asserted in its own two files. What this file needs is only that both
+ * of its replays are bounded identically, so the *ladder* is the one thing that
+ * differs between them.
+ */
+const CAPACITIES: Readonly<Record<string, number>> = Object.fromEntries(
+  oracle.teams
+    .filter((team): team is { id: string; name: string; size: number } => team.size !== null)
+    .map((team) => [team.id, team.size]),
+);
+
+/**
+ * A ladder that disagrees with the default one about **every** priority in the
+ * corpus, so "the dates did not move" cannot pass by the two ladders agreeing.
+ *
+ * Checked rather than asserted by eye: `the two ladders disagree about every
+ * priority in the corpus` below is what makes the re-cut replay a real second
+ * measurement instead of the first one run twice.
+ */
+const RECUT: readonly PriorityBand[] = [
+  { startsAt: 1, label: 'Blocker', defaultValue: 1 },
+  { startsAt: 2, label: 'Urgent', defaultValue: 2 },
+  { startsAt: 3, label: 'Normal', defaultValue: 3 },
+  { startsAt: 4, label: 'Later', defaultValue: 4 },
+  { startsAt: 5, label: 'Never', defaultValue: 900 },
+];
+
+/**
+ * **A priority band moves no date**, against the same sixteen plans
+ * `capacity-per-project` measured itself against.
+ *
+ * This is the claim the whole change rests on, and it is the one Dany's brief
+ * said to stop and report on if it turned out false: priority already drives the
+ * leveller's queue, so a ladder that could reach a date would be a scheduling
+ * change wearing a presentation change's clothes. It cannot — `goesFirst` in
+ * `schedule.ts` orders on `work_item.priority` and that integer alone, and
+ * nothing in `tree()` hands the ladder to `slicesOf` or to `schedule` — and this
+ * file is that argument as a measurement.
+ *
+ * It is **two** replays of the corpus and neither is the claim on its own:
+ *
+ * - **with the ladder the migration seeds**, which says the new read added to
+ *   `tree()` perturbs nothing;
+ * - **with a ladder re-cut so that every priority in the corpus changes its
+ *   name**, which says the configuration itself is inert. The first alone would
+ *   pass a build in which the ladder reached the scheduler and simply happened to
+ *   agree with the defaults.
+ *
+ * The oracle is `capacity-per-project`'s, unchanged and deliberately reused: it
+ * was captured at `050fd45` by a script committed before that branch had a line
+ * of implementation in it, so it predates **both** changes. Re-capturing it for
+ * this change would replace a pin taken from a be-01 that no longer exists with
+ * one taken from the code under test. `capacity-per-project`'s design.md D7 has
+ * the full argument for why the oracle is data rather than a copied function.
+ */
+describe('a priority ladder moves no date', () => {
+  it('has a corpus worth measuring, and one that is mostly prioritised', () => {
+    // The non-vacuity rule. `capacity-per-project`'s own version of this asserts
+    // the capacity coverage; what *this* differential needs is priorities, and a
+    // corpus of unprioritised rows would make both replays below identical for a
+    // reason that has nothing to do with the claim.
+    expect(oracle.capturedFrom).toBe('050fd45');
+    expect(oracle.plans).toHaveLength(16);
+
+    const rows = oracle.plans.flatMap((plan) => plan.rows);
+    expect(rows).toHaveLength(151);
+    const prioritised = rows.filter((row) => row.priority !== null);
+    expect(prioritised.length).toBeGreaterThan(20);
+    // And unprioritised rows too, because "no priority" is the state that is
+    // placed after every priority rather than among them, and a corpus without it
+    // would leave the differential blind to the arm most likely to be broken by a
+    // ladder that resolved `null` to something.
+    expect(rows.filter((row) => row.priority === null).length).toBeGreaterThan(20);
+  });
+
+  it('measures against a ladder that renames every priority in the corpus', () => {
+    // What makes the second replay a second measurement. Every priority in the
+    // corpus falls in `Lowest` under `RECUT` (its top band starts at 5) and in
+    // something else under the defaults — so if a band could reach a date, the two
+    // replays could not both equal the oracle.
+    const prioritised = oracle.plans
+      .flatMap((plan) => plan.rows)
+      .map((row) => row.priority)
+      .filter((priority): priority is number => priority !== null);
+    expect(prioritised.length).toBeGreaterThan(20);
+    for (const priority of prioritised) {
+      expect(labelIn(RECUT, priority)).not.toBe(labelIn(DEFAULT_PRIORITY_BANDS, priority));
+    }
+  });
+
+  it('answers exactly what be-01 answered, with the ladder the migration seeds', async () => {
+    // Proof that this is not vacuous: `priorityBands` passed into `slicesOf` as a
+    // sixth argument and `goesFirst` made to order on the band's *rank* rather
+    // than on the priority — the change this file exists to refuse — and this
+    // failed on the first prioritised plan with `earliestStart` 3 → 0 and
+    // `boundBy: 'roleOrder'` where `'priority'` was owed. Reverted; watched
+    // 2026-08-14.
+    const seeded = await ladderAfterTheMigration();
+    expect(seeded).toEqual([...DEFAULT_PRIORITY_BANDS]);
+
+    for (const [at, plan] of oracle.plans.entries()) {
+      const answer = oracle.answers.at(at);
+      if (answer === undefined) throw new Error(`no captured answer for ${plan.projectId}`);
+      expect({ project: plan.projectId, ...(await replay(plan, seeded)) }).toEqual(
+        expected(plan, answer, seeded),
+      );
+    }
+  });
+
+  it('answers exactly what be-01 answered again, with every band renamed and re-cut', async () => {
+    // **The claim in its strong form.** Same sixteen plans, same oracle, a ladder
+    // that calls every priority in the corpus something different — and every
+    // field of every work item and every slice is what be-01 answered before
+    // either change existed. Re-cutting a ladder renames a plan's numbers and
+    // moves not one of its dates.
+    for (const [at, plan] of oracle.plans.entries()) {
+      const answer = oracle.answers.at(at);
+      if (answer === undefined) throw new Error(`no captured answer for ${plan.projectId}`);
+      expect({ project: plan.projectId, ...(await replay(plan, RECUT)) }).toEqual(
+        expected(plan, answer, RECUT),
+      );
+    }
+  });
+
+  /** What the payload is owed: the capture, plus the two keys it predates. */
+  function expected(
+    plan: CapturedPlan,
+    answer: Record<string, unknown>,
+    bands: readonly PriorityBand[],
+  ): Record<string, unknown> {
+    return {
+      project: plan.projectId,
+      ...answer,
+      // `capacity-per-project`'s addition, carrying {@link CAPACITIES} in the
+      // order `listFor` gives. Identical across both replays.
+      teamCapacities: Object.entries(CAPACITIES)
+        .map(([serviceTeamId, size]) => ({ serviceTeamId, size }))
+        .sort((a, b) => a.serviceTeamId.localeCompare(b.serviceTeamId)),
+      // This change's addition, and the **only** difference between the two
+      // replays above. Everything else in this object is byte-identical across
+      // them, which is the whole measurement.
+      priorityBands: [...bands],
+    };
+  }
+
+  let dir: string | null = null;
+
+  afterEach(() => {
+    if (dir !== null) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  beforeEach(() => {
+    dir = null;
+  });
+
+  /**
+   * The oracle's projects written the way the release being replaced wrote them,
+   * then migrated forward — and the ladder `listFor` reads back.
+   *
+   * The `INSERT`s are written out rather than built through drizzle, exactly as
+   * `migrate.test.ts` writes them and for the same reason: drizzle is the new
+   * release, and the point is the state the old one left behind.
+   */
+  async function ladderAfterTheMigration(): Promise<PriorityBand[]> {
+    dir = mkdtempSync(join(tmpdir(), 'wbs-band-identity-'));
+    const path = join(dir, 'test.db');
+    runMigrations(path, FOLDER);
+    rollbackTo(path, FOLDER, PRE_BANDS);
+    const before = openDatabase(path);
+    try {
+      before.run(
+        "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+      );
+      for (const plan of oracle.plans) {
+        before.run(
+          'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+            ` VALUES (?, ?, 'u', 0, ?, ?, 0, 1)`,
+          [plan.projectId, `Plan ${plan.projectId}`, plan.estimateMethod, plan.startDate],
+        );
+      }
+    } finally {
+      before.close();
+    }
+
+    runMigrations(path, FOLDER);
+
+    const store = new PriorityBandRepository(openDrizzle(path));
+    const first = oracle.plans.at(0);
+    if (first === undefined) throw new Error('the oracle holds no plans');
+    const seeded = await store.listFor(first.projectId);
+    // Every project, not only the first: the seeding is a cartesian one row per
+    // project per rung, and a `SELECT` that reached one project would pass an
+    // assertion made about one.
+    for (const plan of oracle.plans) {
+      expect(await store.listFor(plan.projectId)).toEqual(seeded);
+    }
+    return seeded;
+  }
+
+  /** One captured plan, rebuilt behind this branch's service and read back through it. */
+  async function replay(
+    plan: CapturedPlan,
+    bands: readonly PriorityBand[],
+  ): Promise<NonNullable<Awaited<ReturnType<WorkItemService['tree']>>>> {
+    const projects = inMemoryProjects();
+    const directory = inMemoryDirectory();
+    const workItems = inMemoryWorkItems(directory);
+    const estimates = inMemoryEstimates(workItems);
+    const dependencies = inMemoryDependencies();
+    const service = new WorkItemService({
+      workItems,
+      projects,
+      estimates,
+      dependencies,
+      directory,
+      // The pools the capture was taken under — see {@link CAPACITIES}. Identical
+      // across both replays, so the ladder is the only thing that differs.
+      capacity: inMemoryCapacity({ [plan.projectId]: CAPACITIES }),
+      priorityBands: inMemoryPriorityBands({ [plan.projectId]: bands }),
+      subtrees: inMemorySubtrees({ workItems, estimates, dependencies, directory }),
+      journal: inMemoryCommandJournal(),
+      broadcast: recordingBroadcaster(),
+    });
+
+    for (const team of oracle.teams) await directory.addTeam({ id: team.id, name: team.name });
+    for (const who of oracle.people) await directory.addPerson({ ...who }, []);
+
+    const project: Project = {
+      id: plan.projectId,
+      name: `Plan ${plan.projectId}`,
+      ownerId: 'owner',
+      restricted: false,
+      estimateMethod: plan.estimateMethod,
+      startDate: plan.startDate,
+      revision: 0,
+      createdAt: 1,
+    };
+    const roles: Role[] = plan.roleIds.map((id, place) => ({
+      id,
+      projectId: plan.projectId,
+      name: `Role ${String(place)}`,
+      position: (place + 1) * ROLE_POSITION_STEP,
+    }));
+    await projects.create(project, roles);
+    for (const row of plan.rows) {
+      const stored: WorkItem = {
+        id: row.id,
+        projectId: plan.projectId,
+        parentId: row.parentId,
+        position: row.position,
+        name: row.name,
+        notes: '',
+        frozenNumber: null,
+        priority: row.priority,
+        maxParallel: row.maxParallel,
+        startNoEarlierThan: row.startNoEarlierThan,
+        serviceTeamId: row.serviceTeamId,
+        revision: 0,
+      };
+      await workItems.insert(stored, []);
+    }
+    // After the rows, so an estimate is never written against a work item that is
+    // not there yet — the fixture mirrors the foreign key.
+    for (const row of plan.rows) {
+      for (const [roleId, days] of Object.entries(row.estimates)) {
+        await estimates.set({ workItemId: row.id, roleId, ...days });
+      }
+      for (const [roleId, personId] of Object.entries(row.assignees)) {
+        await directory.assign(row.id, roleId, personId);
+      }
+      for (const predecessorId of row.dependsOn) {
+        const edge: StoredDependency = {
+          id: `${predecessorId}->${row.id}`,
+          projectId: plan.projectId,
+          predecessorId,
+          successorId: row.id,
+        };
+        await dependencies.add(edge);
+      }
+    }
+
+    const tree = await service.tree(plan.projectId);
+    if (tree === null) throw new Error(`${plan.projectId} vanished on replay`);
+    return tree;
+  }
+});
+
+/** Which band holds a priority, by name — the assertion's own reading, kept tiny on purpose. */
+function labelIn(bands: readonly PriorityBand[], priority: number): string {
+  let held = bands.at(0);
+  for (const band of bands) if (band.startsAt <= priority) held = band;
+  return held === undefined ? '' : held.label;
+}

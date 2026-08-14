@@ -2,7 +2,7 @@ import { DEFAULT_PRIORITY_BANDS, type PriorityBand } from '@wbs/domain';
 import { asc, eq } from 'drizzle-orm';
 import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
-import type { PriorityBandsWritten, PriorityBandStore } from './index';
+import type { PriorityBandStore, PriorityBandsWritten } from './index';
 import { project, projectPriorityBand } from './schema';
 
 /**
