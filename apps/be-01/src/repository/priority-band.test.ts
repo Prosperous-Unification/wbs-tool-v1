@@ -86,8 +86,9 @@ describe('a project’s priority ladder', () => {
     // not the fallback `capacity-per-project` D1 refuses. design.md D2.
     //
     // Proof: the `rows.length === 0` arm deleted so the query's answer is
-    // returned bare, and this failed on `expected [] to have a length of 5` — a
-    // plan whose every priority resolves to no label at all.
+    // returned bare, and this failed on a `toEqual` diff of all five bands
+    // (`Expected - 27 / Received + 1`) — a plan whose every priority resolves to
+    // no label at all. 5 pass, 2 fail; watched 2026-08-14.
     expect(await bands.listFor('p1')).toEqual([...DEFAULT_PRIORITY_BANDS]);
     // No rows were written to get that answer: the read is a fallback, not a
     // lazy seeding, so two clients reading the same unconfigured project do not
@@ -99,9 +100,11 @@ describe('a project’s priority ladder', () => {
 
   it('answers a project’s own ladder rather than the default one', async () => {
     // Proof: the `length === 0` arm replaced by an unconditional
-    // `DEFAULT_PRIORITY_BANDS`, and this failed on
-    // `Expected: "Blocker" / Received: "Critical"` — a project that had re-cut
-    // its ladder handed back the five it replaced. Watched 2026-08-14.
+    // `DEFAULT_PRIORITY_BANDS`, and three cases here went red — this one and
+    // `answers in rank order` on `toEqual` diffs, and `trims a name on the way in`
+    // on `Expected: "Blocker" / Received: "Critical"`. A project that had re-cut
+    // its ladder handed back the five it replaced. 4 pass, 3 fail; watched
+    // 2026-08-14.
     expect(await bands.replace('p1', RECUT)).toEqual({ ok: true });
 
     expect(await bands.listFor('p1')).toEqual([...RECUT]);

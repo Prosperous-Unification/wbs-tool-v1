@@ -35,14 +35,17 @@ export class PriorityBandRepository implements PriorityBandStore {
    *
    * Proof that the fallback is a fallback and not the only answer: the `length
    * === 0` arm replaced by an unconditional `DEFAULT_PRIORITY_BANDS`, and
-   * `answers a project's own ladder rather than the default one` failed on
+   * three cases went red, `trims a name on the way in` on
    * `Expected: "Blocker" / Received: "Critical"` — a project that had re-cut its
-   * ladder handed the five it had replaced. Watched 2026-08-14.
+   * ladder handed the five it had replaced. 4 pass, 3 fail; watched 2026-08-14.
    *
    * Proof that it is reached at all: the arm deleted so a project with no rows
-   * answers `[]`, and `answers the default ladder for a project holding no rows
-   * of its own` failed on `expected [] to have a length of 5` — the state every
-   * project created after this migration is in until somebody edits a rung.
+   * answers `[]`, and **two** cases went red — `answers the default ladder for a
+   * project holding no rows of its own` on a `toEqual` diff of all five bands
+   * (`Expected - 27 / Received + 1`), and `answers a project's own ladder rather
+   * than the default one`, whose second plan is the same state. 5 pass, 2 fail;
+   * watched 2026-08-14. That is the state every project created after this
+   * migration is in until somebody edits a rung.
    */
   async listFor(projectId: string): Promise<PriorityBand[]> {
     const rows = await this.db

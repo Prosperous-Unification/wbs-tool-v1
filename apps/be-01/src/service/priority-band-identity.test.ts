@@ -165,12 +165,14 @@ describe('a priority ladder moves no date', () => {
   });
 
   it('answers exactly what be-01 answered, with the ladder the migration seeds', async () => {
-    // Proof that this is not vacuous: `priorityBands` passed into `slicesOf` as a
-    // sixth argument and `goesFirst` made to order on the band's *rank* rather
-    // than on the priority — the change this file exists to refuse — and this
-    // failed on the first prioritised plan with `earliestStart` 3 → 0 and
-    // `boundBy: 'roleOrder'` where `'priority'` was owed. Reverted; watched
-    // 2026-08-14.
+    // **This replay cannot see a ladder that reaches the leveller, and the case
+    // three tests down is why.** Every priority in the corpus is 1, 2, 3 or 4, so
+    // all 26 of them fall in the default ladder's first band — a build that
+    // ordered on the *band* instead of the number would collapse them all to one
+    // rank and still come back byte-identical here. Measured, not supposed: the
+    // ladder wired into `slicesOf` and `schedule` gives 4 pass / 0 fail against
+    // the corpus alone. What this replay does say is the thing it is for — the
+    // read added to `tree()` perturbs nothing.
     const seeded = await ladderAfterTheMigration();
     expect(seeded).toEqual([...DEFAULT_PRIORITY_BANDS]);
 

@@ -35,13 +35,19 @@ class BadLadder extends Error {
  * be a copy free to drift from the resolution it guards.
  *
  * `Number.isSafeInteger` is not asked here — the ladder check asks it, once, for
- * both numbers — but `typeof` is, because `true` and `'21'` are not numbers and
- * JSON lets them through to a comparison that would quietly succeed.
+ * both numbers.
  *
- * Proof, watched 2026-08-14: the `typeof band.startsAt !== 'number'` arm struck,
- * and `refuses a band whose start is not a number` failed on `[200, "21"]` where
- * `[400, "21"]` was owed — a string start stored, and `'21' <= 1` is false so the
- * ladder check let it by.
+ * **The `typeof` arms are how the three fields are narrowed, and they are not the
+ * refusal.** That is worth stating because the first version of this comment
+ * claimed the opposite and offered a proof for it: with the `startsAt` arm struck
+ * (and a cast put in its place so the file still compiled), the whole route suite
+ * was **9 pass, 0 fail** — `Number.isSafeInteger('21')` and
+ * `Number.isSafeInteger(true)` are both false, so {@link priorityLadderProblem}
+ * refuses a string and a boolean start on its own. Watched 2026-08-14. What these
+ * arms buy is a `PriorityBand` built without an unchecked cast, which is what
+ * `AGENTS.md` bans; the refusal they produce is the same one the ladder check
+ * would have produced a line later. R5 #7 is the proof that the ladder check
+ * itself can fail.
  */
 function ladderOf(body: unknown): PriorityBand[] {
   if (typeof body !== 'object' || body === null) throw new BadLadder('expected_object');

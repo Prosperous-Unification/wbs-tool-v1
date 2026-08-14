@@ -200,11 +200,13 @@ describe('PUT /api/projects/:id/priority-bands', () => {
   });
 
   it('refuses a band whose start is not a number, rather than storing a string', async () => {
-    // Proof: the `typeof band['startsAt'] !== 'number'` arm struck, and this
-    // failed on `[200, "21"]` where `[400, "21"]` was owed — a string start
-    // stored, and `'21' <= 1` is false so the ladder check let it by. JSON lets
-    // `true` and `'21'` through to a comparison that quietly succeeds, which is
-    // why `typeof` is asked before anything numeric is. Watched 2026-08-14.
+    // A behaviour pin rather than a proof of the `typeof` arms: striking the
+    // `startsAt` one leaves this **green**, because `Number.isSafeInteger('21')`
+    // is false and `priorityLadderProblem` refuses the string on its own — 9 pass,
+    // 0 fail, watched 2026-08-14. The arms are how the three fields are narrowed
+    // without a cast; the refusal is the ladder check's, and R5 #7 is where that
+    // check is watched failing. This case exists because a route that stored a
+    // string start would be a defect however the refusal is arrived at.
     for (const bad of ['21', true, null]) {
       const answered = await put('shed', { bands: ladderWith(1, { startsAt: bad as never }) });
       expect([answered.status, JSON.stringify(bad)]).toEqual([400, JSON.stringify(bad)]);
