@@ -25,7 +25,7 @@ loop: starts = poolIds.map(p => windowFor(p, width, duration, candidate))
 ```
 
 **Termination.** Reservations are immutable, so a pool's answer is a function of
-the candidate alone. A round that does not finish moves the candidate *strictly*
+the candidate alone. A round that does not finish moves the candidate _strictly_
 forward onto an instant some pool's event list holds; the union of those lists
 is finite; past the last of them every pool is empty, where `width <= size`
 always fits — which is what the up-front width refusal guarantees. A round that
@@ -36,7 +36,7 @@ re-stated and re-watched in `schedule-joint-capacity.test.ts`'s last case, which
 is what the brief asks for: `schedule-capacity.test.ts`'s `eventsVisited` claim
 is a claim about the work a placement does, and it could not simply be deleted.
 
-*Rejected:* a single joint scan over a merged event list of all the pools. It
+_Rejected:_ a single joint scan over a merged event list of all the pools. It
 would be one pass instead of several, but it is a rewrite of `windowFor` — a new
 interior walk, a new aggregation, a new termination argument, and five proofs to
 re-derive — inside the change that is already moving the arity. The fixpoint
@@ -72,11 +72,11 @@ float. That test drives the loop, not the short-circuit, on 1,000 plans, and its
 ## D3 — the blocking set accumulates across rounds. The brief says both things.
 
 Brief §4 says the answer carries the "union of every scan's blocking set"; brief
-§4's *Float edges* paragraph says it is "the union of the blocking sets over the
+§4's _Float edges_ paragraph says it is "the union of the blocking sets over the
 binding pools' final scans". Those are different sets, and the second one is
 **empty**.
 
-At the fixpoint every pool answers the candidate *because it fits there*, so
+At the fixpoint every pool answers the candidate _because it fits there_, so
 every scan of the final round records nothing at all. What each earlier round
 records is why the block could not start where it was asked to — which is
 exactly "every reservation that had to end for this block to fit", the sentence
@@ -106,7 +106,7 @@ A and B where B pushes the block from 0 to 5 and A then pushes it from 5 to 7,
 the slice names **A** alone. B had room at 7. The sentence is about the date the
 reader is looking at, not about the history of the search.
 
-*Rejected:* carrying every pool that ever pushed. It reads as "waiting for A and
+_Rejected:_ carrying every pool that ever pushed. It reads as "waiting for A and
 B" on a plan where B is free, which is the same wrong-name fault the whole field
 exists to prevent, one step out.
 
@@ -148,7 +148,7 @@ by pool id. That is `resourcePredecessorId`'s own rule (`schedule.ts:1104`), one
 level up, and picking it means the team the sentence names and the slice the
 arrow points at are answers to the same question.
 
-*Rejected:* the pool id alone. Deterministic, but it names a team whose blocker
+_Rejected:_ the pool id alone. Deterministic, but it names a team whose blocker
 the chart does not draw, on a plan where the other team's blocker is the one the
 reader is looking at.
 
@@ -157,7 +157,7 @@ the only one that does not depend on set order or placement order.
 
 `boundBy` gains no seventh member and the whole set of binding pools is not
 carried: the chart's "and N other teams" is R2-3's, and what the reader is owed
-here is the blocking *slices*, which `capacityPredecessorIds` already holds.
+here is the blocking _slices_, which `capacityPredecessorIds` already holds.
 
 ---
 
@@ -197,7 +197,7 @@ says R2-3 must not merge after R2-4.
 
 ---
 
-## D9 — what this change does *not* do to the engine
+## D9 — what this change does _not_ do to the engine
 
 `goesFirst` and the whole priority order (capacity-engine D7 — capacity never
 reorders). The aggregation-by-timestamp profile (D9). The anchor arithmetic, the
@@ -214,7 +214,7 @@ separator to typo (capacity-per-project D3's surviving half).
 
 **A named person on multi-team work spends a slot in every one of those pools.**
 capacity-engine D2 dismissed "which of kat's teams does her hour come out of" as
-aimed at the wrong key, *because the item names exactly one*. After this change
+aimed at the wrong key, _because the item names exactly one_. After this change
 an item may name three, and one named human then spends three slots while being
 one person. That is decision 3 applied literally, and it is what this change
 implements; the brief flags it (§7) as an argument that needs rewriting rather
