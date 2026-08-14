@@ -57,15 +57,26 @@ export interface Slice {
    */
   width: number;
   /**
-   * The pool this block draws its slots from, or null for work no sized team
-   * labels — from `effectiveTeamOf`, and **resolved by the caller** for
-   * `width`'s reason.
+   * The pools this block draws its slots from — one per **sized** team the row
+   * is effectively labelled with, from `effectiveTeamsOf`, and **resolved by
+   * the caller** for `width`'s reason.
    *
-   * Null is the state of every plan that names no team and of every plan whose
-   * teams are unsized. A null-pooled slice reserves nothing and waits for
-   * nothing.
+   * **Every member spends the block's whole width for the block's whole
+   * duration** (Dany, 2026-08-13): three teams on a five-day slice block five
+   * days in each of the three pools, not five days split between them. So the
+   * block starts at the earliest instant *all* of them have room, and takes a
+   * slot from each.
+   *
+   * Empty is the state of every plan that names no team and of every plan whose
+   * teams are unsized: an empty set reserves nothing and waits for nothing,
+   * which is the `null` this replaced, verbatim.
+   *
+   * Deliberately not `string | null` widened to an array of at most one: the
+   * shape changed so that every reader of the old field is a compile error
+   * rather than a silent first-member read (`team-sets` design.md D3/D4, one
+   * layer down).
    */
-  poolId: string | null;
+  poolIds: readonly string[];
 }
 
 /**
@@ -76,8 +87,8 @@ export interface Slice {
  * carried per slice, two slices could disagree about the size of the pool they
  * share and the profile would have no answer to give.
  *
- * A `poolId` this map has no entry for is a caller fault and the pass throws:
- * the caller only ever sets `poolId` for a team that **has** a size, so an
+ * A pool id this map has no entry for is a caller fault and the pass throws:
+ * the caller only ever puts a team in `poolIds` when it **has** a size, so an
  * absent entry means the two readings came apart. R5 — a default of `Infinity`
  * here would be a pool constraint silently not applied.
  */
@@ -186,6 +197,26 @@ export interface ScheduledSlice extends Scheduled {
    * not.
    */
   capacityPredecessorIds: string[];
+  /**
+   * Which pool ran out — the team whose slots this slice waited for, or null.
+   *
+   * Set exactly when `boundBy` is `capacity`, and null on every other slice:
+   * the same invariant shape as {@link capacityPredecessorIds}, and the render
+   * path relies on both together.
+   *
+   * **Named here rather than read off the row's labels**, because a row may
+   * carry several teams and the binding one is not the first of them by any
+   * ordering the chart knows. A sentence naming the wrong team is worse than no
+   * sentence — it explains a date with a name that had room.
+   *
+   * Where two pools both pin the final start, this is the one whose blocking
+   * set holds the latest finisher, ties by pool id — the display referent's own
+   * rule, one level up, so the team named and the slice pointed at are answers
+   * to the same question. The rest of the tie is the chart's to say ("and N
+   * other teams"), and the whole set is not carried: the reader is owed the
+   * blocking *slices*, which {@link capacityPredecessorIds} already holds.
+   */
+  capacityTeamId: string | null;
   /**
    * How many slots this slice held while it ran — the caller's
    * {@link Slice.width}, carried out so a reader can see why the duration is
@@ -546,6 +577,8 @@ interface Placed {
    * {@link ScheduledSlice.capacityPredecessorIds}.
    */
   capacityPredecessors: number[];
+  /** Which pool ran out — see {@link ScheduledSlice.capacityTeamId}. */
+  capacityTeamId: string | null;
 }
 
 /**
@@ -680,7 +713,11 @@ function capacityProfile(sizes: PoolSizes) {
     return fresh;
   };
 
-  return {
+  // Named rather than returned anonymously so `jointWindowFor` can call
+  // `windowFor` by name: the joint search is defined as a fixpoint over the
+  // single-pool one, and `this` inside an object literal is a weaker way to say
+  // that than the binding itself.
+  const searches = {
     /**
      * The earliest instant at or after `floor` where `width` slots are free for
      * the **whole** of `duration`, and every reservation that had to end for
@@ -810,27 +847,135 @@ function capacityProfile(sizes: PoolSizes) {
       return { start, blocking: [...blocking] };
     },
 
-    /** Writes a placed block's two events onto its pool, tagged with the node holding them. */
+    /**
+     * The earliest instant at or after `floor` where **every** pool in the set
+     * has `width` slots free for the whole of `duration` — the joint search.
+     *
+     * A fixpoint over {@link windowFor}, which is left byte-for-byte as it is:
+     * every proof it carries — the interior walk, the aggregation, the two
+     * refusals, the termination argument — is a statement about one pool, and
+     * rewriting the tightest loop in the engine to say them about several is
+     * the last thing this change should contain.
+     *
+     * ```
+     * candidate = floor
+     * loop: ask every pool for its window at candidate
+     *       best = the latest of their answers
+     *       if best === candidate: that is the answer
+     *       candidate = best
+     * ```
+     *
+     * **It terminates**, for `windowFor`'s reason plus one. Reservations are
+     * immutable, so each pool's answer is a function of the candidate alone;
+     * every round that does not finish moves the candidate **strictly** forward
+     * onto an instant some pool's event list holds; the union of those lists is
+     * finite; and past the last of them every pool is empty, where `width <=
+     * size` always fits. A round that moves nothing is the answer by
+     * definition.
+     *
+     * **The blocking set is accumulated across rounds, not taken from the last
+     * one**, and that is not an optimisation — it is the whole set. At the
+     * fixpoint every pool answers `candidate` *because it fits there*, so every
+     * scan of the final round records nothing. What each round records is why
+     * the block could not start where it was asked to, which is exactly the set
+     * of reservations that had to end.
+     *
+     * `binding` is the pools whose own earliest fit is the final start — the
+     * ones that ran out — carried with the blocking set of the round they
+     * pushed in, so a caller can say which team the reader is waiting for. A
+     * pool that pushed the candidate earlier and had room at the answer is not
+     * binding: it is no longer the reason.
+     *
+     * **A set of one is `windowFor` itself**, and the short-circuit below says
+     * so rather than leaving it to be inferred: a second round would ask a pool
+     * for its window at its own answer, where the block provably fits for the
+     * whole duration, and get the same instant back with an empty blocking set.
+     * The saving is not the point — `eventsVisited` is a measured claim about
+     * the work a placement does, and doubling it for every plan on the
+     * deployment to re-derive an answer already in hand would be a real cost
+     * paid for a uniformity nothing reads.
+     */
+    jointWindowFor(
+      poolIds: readonly string[],
+      width: number,
+      duration: number,
+      floor: number,
+    ): {
+      start: number;
+      blocking: number[];
+      binding: { poolId: string; blocking: number[] }[];
+    } {
+      // Spends nothing and waits for nothing — the `poolId === null` line,
+      // under a set, and **only** that line: a zero duration and a zero width
+      // are left to `windowFor`'s own short-circuit below rather than repeated
+      // here, so that check keeps firing and the proof it carries keeps being
+      // about a path something takes.
+      if (poolIds.length === 0) return { start: floor, blocking: [], binding: [] };
+      if (poolIds.length === 1) {
+        const only = poolIds[0];
+        const window = searches.windowFor(only, width, duration, floor);
+        return {
+          start: window.start,
+          blocking: window.blocking,
+          // The pool bound the slice exactly where it moved it off the floor.
+          // At the floor it is the placement's tie rule that decides, and
+          // `capacity` loses a tie — see {@link ScheduleFloor} — so a binding
+          // entry there would be a team named on a slice nothing held up.
+          binding: window.start > floor ? [{ poolId: only, blocking: window.blocking }] : [],
+        };
+      }
+
+      const blocking = new Set<number>();
+      let candidate = floor;
+      let binding: { poolId: string; blocking: number[] }[] = [];
+      for (;;) {
+        let best = candidate;
+        let reached: { poolId: string; blocking: number[] }[] = [];
+        for (const poolId of poolIds) {
+          const window = searches.windowFor(poolId, width, duration, candidate);
+          for (const node of window.blocking) blocking.add(node);
+          if (window.start > best) {
+            best = window.start;
+            reached = [{ poolId, blocking: window.blocking }];
+          } else if (window.start === best && window.start > candidate) {
+            reached.push({ poolId, blocking: window.blocking });
+          }
+        }
+        if (best === candidate) return { start: candidate, blocking: [...blocking], binding };
+        binding = reached;
+        candidate = best;
+      }
+    },
+
+    /** Writes a placed block's two events onto every pool it spends, tagged with the node holding them. */
     reserve(
-      poolId: string | null,
+      poolIds: readonly string[],
       node: number,
       width: number,
       start: number,
       finish: number,
     ): void {
-      if (poolId === null || width === 0 || finish === start) return;
-      const pool = poolFor(poolId);
-      const opens = eventAt(pool, start);
-      opens.delta += width;
-      opens.acquires.push(node);
-      const closes = eventAt(pool, finish);
-      closes.delta -= width;
-      closes.releases.push(node);
+      if (width === 0 || finish === start) return;
+      // One reservation per pool, of the block's **whole** width: every named
+      // team spends its own days (Dany, 2026-08-13, decision 3). Splitting the
+      // width between them would be the other reading of "three teams on a
+      // five-day slice", and it is the one he ruled out.
+      for (const poolId of poolIds) {
+        const pool = poolFor(poolId);
+        const opens = eventAt(pool, start);
+        opens.delta += width;
+        opens.acquires.push(node);
+        const closes = eventAt(pool, finish);
+        closes.delta -= width;
+        closes.releases.push(node);
+      }
     },
 
     /** How many aggregated events every search of this run has visited together. */
     eventsVisited: (): number => visited,
   };
+
+  return searches;
 }
 
 /**
@@ -1013,7 +1158,7 @@ function placeSlices(
     // spends nobody's slots, and neither does one no sized team labels. The run
     // with the resources taken out is the critical path, and it has no pools in
     // it at all.
-    const poolId = withResources ? node.slice.poolId : null;
+    const poolIds = withResources ? node.slice.poolIds : [];
     const { width } = node.slice;
     // Where the plan alone would put it: the floors that do not depend on a
     // resource, plus the person's queue. The pool is asked **from** here, which
@@ -1024,7 +1169,7 @@ function placeSlices(
       node.notBefore,
       busy === undefined ? 0 : busy.finish,
     );
-    const window = profile.windowFor(poolId, width, duration, planFloor);
+    const window = profile.jointWindowFor(poolIds, width, duration, planFloor);
     // Latest wins, and a tie keeps the reason listed first — which is why the
     // person is second to last and capacity is last; see {@link ScheduleFloor}.
     // A slice can carry both, because a team's slot is spent whether or not
@@ -1130,6 +1275,42 @@ function placeSlices(
     if (boundBy === 'capacity' && referent === NOBODY) {
       throw new Error(`${node.key} waited for capacity with nothing holding the pool`);
     }
+    /**
+     * Which pool ran out, of the ones that pinned the start.
+     *
+     * The tightest team, and where two are equally tight the one whose blocking
+     * set holds the **latest finisher** — the display referent's own rule, so
+     * the team the sentence names and the slice the arrow points at are answers
+     * to one question rather than two. Ties past that by pool id, which is a
+     * total order the pass does not have to invent.
+     *
+     * A slice a pool did not hold up carries null, exactly as it carries an
+     * empty blocking set: a team named on a slice nothing held up is a wait
+     * that is not there, in the same way a resource arrow would be.
+     */
+    let capacityTeamId: string | null = null;
+    if (boundBy === 'capacity') {
+      let bestFinish = -Infinity;
+      for (const pool of window.binding) {
+        let finish = -Infinity;
+        for (const blocker of pool.blocking) finish = Math.max(finish, placed[blocker].finish);
+        if (
+          finish > bestFinish ||
+          (finish === bestFinish && capacityTeamId !== null && pool.poolId < capacityTeamId)
+        ) {
+          bestFinish = finish;
+          capacityTeamId = pool.poolId;
+        }
+      }
+      // A capacity-floored slice whose search named no binding pool is
+      // impossible — the floor is the joint search's own answer, and it only
+      // moves off the plan floor when some pool ran out — so it is a throw
+      // rather than a null the render path would have to invent words for.
+      // `capacityPredecessorIds`' invariant, one field along.
+      if (capacityTeamId === null) {
+        throw new Error(`${node.key} waited for capacity with no pool binding it`);
+      }
+    }
     placed[taken] = {
       start,
       finish,
@@ -1141,6 +1322,7 @@ function placeSlices(
             ? referent
             : NOBODY,
       capacityPredecessors,
+      capacityTeamId,
     };
     placedAt[taken] = order.length;
     order.push(taken);
@@ -1148,7 +1330,7 @@ function placeSlices(
     // The reservation, written once and never moved — which is what makes the
     // scan above read a profile that cannot change under it, and therefore what
     // makes the placement terminate.
-    profile.reserve(poolId, taken, width, start, finish);
+    profile.reserve(poolIds, taken, width, start, finish);
     // The edges the pool chose: every reservation that had to end for this
     // block to fit, each pointing at the block. The **whole** set, because a
     // single edge reports float that is not there — see
@@ -1491,7 +1673,7 @@ export function schedule(
    *
    * Empty by default, which is every plan whose teams nobody has sized and
    * therefore every plan that exists today: with no entry here no slice can
-   * carry a `poolId`, so nothing reserves anything and the placement is the one
+   * carry a pool, so nothing reserves anything and the placement is the one
    * this engine performed before capacity existed.
    */
   poolSizes: PoolSizes = new Map(),
@@ -1801,6 +1983,7 @@ export function schedule(
       resourcePredecessorId:
         placed.resourcePredecessor === NOBODY ? null : nodes[placed.resourcePredecessor].key,
       capacityPredecessorIds: placed.capacityPredecessors.map((blocker) => nodes[blocker].key),
+      capacityTeamId: placed.capacityTeamId,
     });
   });
 

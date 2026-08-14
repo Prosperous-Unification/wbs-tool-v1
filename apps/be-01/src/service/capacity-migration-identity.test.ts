@@ -231,8 +231,44 @@ describe('every plan schedules identically across the migration', () => {
       //
       // Both halves are load-bearing and each is green under the other's fault.
       // `team-sets` design.md D5.
+      const parentOf = new Map(plan.rows.map((row) => [row.id, row.parentId]));
+      const ownTeam = new Map(plan.rows.map((row) => [row.id, row.serviceTeamId]));
+      const sized = new Set(
+        oracle.teams.filter((team) => team.size !== null).map((team) => team.id),
+      );
+      /** The label in force on a row: its own, else the nearest ancestor's. */
+      const effectiveTeamOf = (rowId: string): string | null => {
+        for (let at: string | null | undefined = rowId; at !== null && at !== undefined; ) {
+          const own = ownTeam.get(at);
+          if (own !== undefined && own !== null) return own;
+          at = parentOf.get(at);
+        }
+        return null;
+      };
       const lifted = {
         ...tree,
+        // `capacityTeamId` is lifted off every slice for `teamIds`' reason and
+        // asserted on its own here: the oracle predates the field, and a
+        // payload that gained one is not a payload that moved a date. The
+        // assertion is the arity claim on the engine's side — over a set of at
+        // most one, the pool that ran out can only be the row's own effective
+        // team, and it is named on exactly the slices a pool held up.
+        //
+        // Proof: `capacityTeamId` set to `placed.capacityTeamId` on every slice
+        // regardless of `boundBy` — the shape of naming a team on work nothing
+        // held up — and this failed on `expected null to be "team-platform"`;
+        // watched 2026-08-14.
+        slices: tree.slices.map(({ capacityTeamId, ...slice }) => {
+          if (slice.boundBy === 'capacity') {
+            const owed = effectiveTeamOf(slice.workItemId);
+            expect(owed).not.toBeNull();
+            expect(sized.has(owed ?? '')).toBe(true);
+            expect(capacityTeamId).toBe(owed);
+          } else {
+            expect(capacityTeamId).toBeNull();
+          }
+          return slice;
+        }),
         workItems: tree.workItems.map(({ teamIds, ...row }) => {
           // The arity claim, and the only place it is made: the set the join
           // answered is exactly the singleton of the label the oracle recorded.
