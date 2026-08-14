@@ -921,6 +921,12 @@ function capacityProfile(sizes: PoolSizes) {
           // At the floor it is the placement's tie rule that decides, and
           // `capacity` loses a tie — see {@link ScheduleFloor} — so a binding
           // entry there would be a team named on a slice nothing held up.
+          //
+          // Proof: the condition dropped, so every pooled slice names its pool,
+          // and `schedule-capacity.test.ts` came back **8 pass / 17 fail** on
+          // `a role-dev names team-platform with no pool binding it` — the
+          // placement's invariant, on the very first plan whose team had room;
+          // watched 2026-08-14.
           binding: window.start > floor ? [{ poolId: only, blocking: window.blocking }] : [],
         };
       }

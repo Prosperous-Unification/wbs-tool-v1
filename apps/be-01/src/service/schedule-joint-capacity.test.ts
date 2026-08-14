@@ -88,10 +88,12 @@ describe('a block labelled with two teams waits for both of them', () => {
     // not start at 2 — Alpha has nothing to give it there — so it starts at 5,
     // and the sentence names Alpha.
     //
-    // Proof: `best` in `jointWindowFor` taken as `Math.min` of the pools'
-    // answers rather than the max — "either pool will do", which is the other
-    // reading of a set — and this failed with `earliestStart` 2 where 5 was
-    // owed, a block running on a pool that was full; watched 2026-08-14.
+    // Proof: the fixpoint's `window.start > best` written as `<`, so the
+    // candidate follows the *earliest* pool — "either pool will do", which is
+    // the other reading of a set — and this failed with `earliestStart` 0 and
+    // `boundBy: 'projectStart'` where 5 and `capacity` were owed: a block
+    // running while both its pools were full. 3 pass / 5 fail; watched
+    // 2026-08-14.
     const rows = [
       item('holds-alpha', { priority: 1 }),
       item('holds-beta', { priority: 1 }),
@@ -120,10 +122,11 @@ describe('a block labelled with two teams waits for both of them', () => {
     // The same plan with the two holds swapped. Nothing about the block or the
     // order of its `poolIds` changes; the team the sentence names does.
     //
-    // Proof: `capacityTeamId` read as `poolIds[0]` — the narrowing this field
-    // exists to prevent, and the one the chart would otherwise make from the
-    // row's labels — and this failed with `"team-alpha"` where `"team-beta"`
-    // was owed: a date explained by a team that had room; watched 2026-08-14.
+    // Proof: `capacityTeamId` read as `poolIds[0]` whenever the search bound
+    // anything — the narrowing this field exists to prevent, and the one the
+    // chart would otherwise make from the row's own labels — and this failed
+    // with `"team-alpha"` where `"team-beta"` was owed: a date explained by a
+    // team that had room. 6 pass / 2 fail; watched 2026-08-14.
     const rows = [
       item('holds-alpha', { priority: 1 }),
       item('holds-beta', { priority: 1 }),
@@ -150,10 +153,11 @@ describe('a block labelled with two teams waits for both of them', () => {
     // the other side — one block on both pools, then a single-pool block behind
     // each of them, and neither may start until the joint block has finished.
     //
-    // Proof: `reserve` narrowed to `poolIds[0]` — the shape of spending one
-    // team's days and none of the other's — and this failed on `after-beta`
-    // coming back at 0 where 3 was owed, `boundBy: 'projectStart'`; watched
-    // 2026-08-14.
+    // Proof: `reserve` narrowed to `poolIds.slice(0, 1)` — the shape of
+    // spending one team's days and none of the other's — and this failed on
+    // `after-beta` coming back at `earliestStart` 0 where 3 was owed,
+    // `boundBy: 'projectStart'` and nothing waiting for Beta at all. 7 pass /
+    // 1 fail; watched 2026-08-14.
     const rows = [
       item('both', { priority: 1 }),
       item('after-alpha', { priority: 2 }),
@@ -189,11 +193,12 @@ describe('a block labelled with two teams waits for both of them', () => {
     // argues: `holds-beta` could in truth slip to 5 without moving anything,
     // and is reported tighter than that. Never looser.
     //
-    // Proof: the blocking union taken from the final round's scans alone —
-    // reading `binding`'s own sets instead of accumulating — and this failed on
-    // `expect(blockersOf(both)).toEqual([...])` with `[]` received: a slice
-    // claiming a capacity wait with nothing holding the pool, which the
-    // placement's own invariant then throws on; watched 2026-08-14.
+    // Proof: the blocking union taken from `binding`'s own sets instead of
+    // accumulated across the rounds, which is the final round's scans and
+    // therefore empty — and this failed on `expect(blockersOf(both))` with
+    // `[]` received where both holds were owed: a slice claiming a capacity
+    // wait and edging nothing, so every blocker reads as free to slip.
+    // 7 pass / 1 fail; watched 2026-08-14.
     const rows = [
       item('holds-alpha', { priority: 1 }),
       item('holds-beta', { priority: 1 }),
@@ -239,10 +244,11 @@ describe('a block labelled with two teams waits for both of them', () => {
     // `team-alpha` sorts first, so a tie broken on the id alone would answer
     // Alpha here. That is the point of the fixture.
     //
-    // Proof: the tie taken on the pool id alone — `binding[0]` after a sort —
-    // and this failed with `"team-alpha"` where `"team-beta"` was owed, naming
-    // a team whose blocker the chart's arrow does not point at; watched
-    // 2026-08-14.
+    // Proof: the tie taken on the pool id alone — the latest-finisher clause
+    // dropped, leaving `capacityTeamId === null || pool.poolId <
+    // capacityTeamId` — and this failed with `"team-alpha"` where
+    // `"team-beta"` was owed, naming a team whose blocker the chart's arrow
+    // does not point at. 7 pass / 1 fail; watched 2026-08-14.
     const rows = [
       item('alpha-hold', { priority: 1 }),
       item('beta-long', { priority: 1 }),
@@ -275,11 +281,12 @@ describe('a block labelled with two teams waits for both of them', () => {
     // Asserted where a pool exists and simply has room, which is the case a
     // "set it whenever there are pools" reading would get wrong.
     //
-    // Proof: `binding` handed back from `jointWindowFor` without its `start >
-    // floor` condition — a pool that had room called the reason anyway — and
-    // this failed inside the placement on `first role-dev names team-alpha
-    // with no pool binding it`, which is the invariant that replaced the gate;
-    // watched 2026-08-14.
+    // Proof: `binding = reached` moved above the fixpoint's `return`, so the
+    // final round's set — every pool, each of them fitting — survives instead
+    // of being discarded, and this failed inside the placement on `first
+    // role-dev names team-alpha with no pool binding it`: the invariant that
+    // replaced the gate, catching a team named on a block nothing held up.
+    // 3 pass / 5 fail; watched 2026-08-14.
     const rows = [item('first', { priority: 1 }), item('second', { priority: 2 })];
     const slices = [
       slice('first', 2, { poolIds: [ALPHA, BETA] }),
