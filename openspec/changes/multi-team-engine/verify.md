@@ -37,7 +37,7 @@ and unmoved.
 Also green on h2puni:
 
 - `nx format:check --all` — clean (two record files failed it first; `format:write`
-  is what prettier wanted, and `_emphasis_` for `*emphasis*` is the whole diff).
+  is what prettier wanted, and `_emphasis_` for `_emphasis_` is the whole diff).
 - secrets scan over every tracked file — clean.
 - doc caps — clean.
 - migration lint over every tracked `.sql` — clean. **This change adds no
@@ -59,7 +59,7 @@ printed. Injections were applied to a clean tree, run, and reverted by
 
 | # | check | fault injected | observed |
 |---|---|---|---|
-| 1 | `starts when the later pool frees a slot, not when the earlier one does` | the fixpoint's `window.start > best` written as `<` — the candidate follows the *earliest* pool | 3 pass / 5 fail. `earliestStart` 0 and `boundBy: 'projectStart'` where 5 and `capacity` were owed: a block running while both its pools were full |
+| 1 | `starts when the later pool frees a slot, not when the earlier one does` | the fixpoint's `window.start > best` written as `<` — the candidate follows the _earliest_ pool | 3 pass / 5 fail. `earliestStart` 0 and `boundBy: 'projectStart'` where 5 and `capacity` were owed: a block running while both its pools were full |
 | 2 | `names whichever team ran out, not the first of the set` | `capacityTeamId` read as `poolIds[0]` whenever the search bound anything | 6 pass / 2 fail. `"team-alpha"` where `"team-beta"` was owed — a date explained by a team that had room |
 | 3 | `takes a slot from every pool it names, so both are busy behind it` | `reserve` narrowed to `poolIds.slice(0, 1)` | 7 pass / 1 fail. `after-beta` at `earliestStart` 0 where 3 was owed, `boundBy: 'projectStart'` |
 | 4 | `edges every reservation either pool stepped over, and reports no float it has not got` | the blocking union taken from `binding`'s own sets — the final round's scans, which are empty | 7 pass / 1 fail. `blockersOf(both)` came back `[]` where both holds were owed: a slice claiming a capacity wait and edging nothing |
@@ -87,7 +87,7 @@ happened to be answerable in one round: in the corpus the two pools are
 identical, so the first round's max is already the fixpoint.
 
 The plan a single round gets wrong needs a pool that is free at the floor and
-busy at the instant *another* pool pushes the block to. `re-asks every pool from
+busy at the instant _another_ pool pushes the block to. `re-asks every pool from
 the instant another pool pushed it to` is that plan — Alpha busy 0→3, Beta free
 until a manual date floors its hold at 3 and busy 3→6, so the answer is 6 and a
 one-round search says 3. With the test in place the same fault gives 489 / 1.
@@ -128,7 +128,7 @@ with a `contended` counter (>100 seeds) refusing a run in which no pool ever sai
 no.
 
 **One thing that comparison had to stop doing.** It first used
-`expectSameSchedule`, which puts the *oracle* side's float through
+`expectSameSchedule`, which puts the _oracle_ side's float through
 `snappedSlack` — a helper that exists to absorb drift between this engine and
 the one it replaced. Both sides here are this engine, so the answer owed is the
 identical double. It failed at seed 3 on `r0c0g0.critical` while the two runs
