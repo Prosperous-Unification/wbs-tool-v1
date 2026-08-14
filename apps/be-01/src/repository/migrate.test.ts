@@ -788,9 +788,10 @@ describe('the priority band migration', () => {
         // vacuous version of this test.
         expect(
           sqlite
-            .query<{ n: number }, []>(
-              "SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'seeded'",
-            )
+            .query<
+              { n: number },
+              []
+            >("SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'seeded'")
             .get()?.n,
         ).toBe(5);
 
@@ -804,17 +805,17 @@ describe('the priority band migration', () => {
         // is the state the read's default arm answers for.
         expect(
           sqlite
-            .query<{ n: number }, []>(
-              "SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'fresh'",
-            )
+            .query<
+              { n: number },
+              []
+            >("SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'fresh'")
             .get()?.n,
         ).toBe(0);
 
         sqlite.run("DELETE FROM project WHERE id = 'seeded'");
         expect(
-          sqlite
-            .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM project_priority_band')
-            .get()?.n,
+          sqlite.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM project_priority_band').get()
+            ?.n,
         ).toBe(0);
       } finally {
         sqlite.close();

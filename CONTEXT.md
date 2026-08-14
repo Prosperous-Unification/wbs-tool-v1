@@ -180,8 +180,27 @@ _Avoid_: smoothing, balancing, allocation, capacity planning
 How important one work item's work is, as an integer from 1 upward, smaller being more
 important — or absent, which is a state of its own and not a large number. Decides which
 of two slices competing for one person is placed first; never overrides a dependency, a
-floor or a calendar.
+floor or a calendar. What the number is **called** is the project's own — see Priority
+band — and the name decides nothing the number does not.
 _Avoid_: priority, importance, urgency, severity, weight
+
+**Priority band**:
+One rung of what a project calls its priority numbers: a start value, a label, and the
+number choosing that label writes. The band above ends the one below, and the highest ends
+nowhere, so every priority resolves to exactly one band. Five per project, renamable and
+re-cuttable; the count is not.
+_Avoid_: priority level, priority range, severity level, tier
+
+**Priority ladder**:
+A project's five bands, in rank order. It is a vocabulary and never a constraint: re-cutting
+it renames what a plan's numbers are called and moves no date. A project that has stored
+none reads the default five.
+_Avoid_: priority scheme, priority config, priority scale
+
+**Rank**:
+A band's position in its ladder, 0 (most important) to 4. What every face keys a band's
+colour off, because a label can be renamed out from under one and a position cannot.
+_Avoid_: band index, level, tier number
 
 **Eligible slice**:
 One whose predecessors have all been placed — its dependencies and its work item's

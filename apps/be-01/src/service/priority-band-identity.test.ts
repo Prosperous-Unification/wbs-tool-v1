@@ -297,7 +297,13 @@ describe('a priority ladder moves no date', () => {
         },
         [],
       );
-      await estimates.set({ workItemId: id, roleId: 'dev', optimistic: 3, realistic: 3, pessimistic: 3 });
+      await estimates.set({
+        workItemId: id,
+        roleId: 'dev',
+        optimistic: 3,
+        realistic: 3,
+        pessimistic: 3,
+      });
       // One person on both, which is what makes the two compete: a person's next
       // slice is only ever placed after their previous one is final.
       await directory.assign(id, 'dev', 'ada');

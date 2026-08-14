@@ -101,7 +101,7 @@ ask for a sixth rung. Refusing the count buys:
   (D4) and the primary key is `(project, rank)`; a variable count adds a
   reordering problem and a "what happens to rank 5's rows" question.
 - **no empty ladder to render.** Every face's absence-arm is `null` for an
-  unprioritised *work item*, and never for a project with no rungs.
+  unprioritised _work item_, and never for a project with no rungs.
 
 **What it costs, stated rather than discovered:** a project that wants four
 meaningful bands has to spend the fifth on something. It can — `Never` starting
@@ -205,12 +205,12 @@ past a popover to type a number.
 opinion anywhere. It answers a label, a rank, an ink, a tint and a sentence, or
 `null` for an unprioritised work item. Four faces read it:
 
-| face | what it draws | why that channel |
-| --- | --- | --- |
-| the table's Prio cell | the digits in the band's ink, semibold | the column is 48px of right-aligned digits between two bordered cells; a filled swatch there reads as a selection |
-| the chart's bars | a 3px cap at the bar's left edge, in the band's ink | `fill` is already the assignee and `stroke` is the critical path — the band gets a **third** mark rather than a repaint of either, so no two facts share a colour |
-| the plan cards | a chip in the header: the name, the number, the ink on the tint | a phone shows no table and no chart, so this is the only face some readers have |
-| the export | a `Priority band` column beside `Priority` | a CSV has no colour, so it takes the label alone — beside the number and not instead of it, because two rows at 10 and 18 are both `Critical` and are not the same priority |
+| face                  | what it draws                                                   | why that channel                                                                                                                                                            |
+| --------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the table's Prio cell | the digits in the band's ink, semibold                          | the column is 48px of right-aligned digits between two bordered cells; a filled swatch there reads as a selection                                                           |
+| the chart's bars      | a 3px cap at the bar's left edge, in the band's ink             | `fill` is already the assignee and `stroke` is the critical path — the band gets a **third** mark rather than a repaint of either, so no two facts share a colour           |
+| the plan cards        | a chip in the header: the name, the number, the ink on the tint | a phone shows no table and no chart, so this is the only face some readers have                                                                                             |
+| the export            | a `Priority band` column beside `Priority`                      | a CSV has no colour, so it takes the label alone — beside the number and not instead of it, because two rows at 10 and 18 are both `Critical` and are not the same priority |
 
 **Keyed on the rank and never on the label**, because a project may rename
 `Critical` to `Blocker` and a colour that followed the word would follow it out
@@ -241,7 +241,7 @@ changes its name — and both come back byte-identical to what be-01 answered at
 
 **And neither replay can see the fault they are for.** Every priority in that
 corpus is 1, 2, 3 or 4, so all 26 of them sit in the default ladder's first band:
-a build that ordered on the *band* instead of the number collapses them to one
+a build that ordered on the _band_ instead of the number collapses them to one
 rank and still answers identically. Measured rather than supposed — the ladder
 wired into `slicesOf` and `schedule` gives **4 pass / 0 fail** against the corpus
 alone. Watched 2026-08-14.
@@ -262,10 +262,10 @@ was owed. R5 #10.
 
 ## Plan versus reality
 
-| the ask said | what is true | what shipped |
-| --- | --- | --- |
-| `1-20 are critical, 21-40 are high…` — ranges | a stored range can gap and can overlap, and a priority that resolves to no label or to two is undrawable | bands are **starts**; the one above ends the one below, and the ranges are computed for the reader in the dialog. D1 |
-| "all this needs to be configurable by project" | the labels, the cuts and the defaults are three things; the count is a fourth nobody asked for | labels, cuts and defaults are the project's; five rungs is refused with `bands_must_number_5`, and what that buys is written down. D3 |
-| C5's shape, so C5's per-fact write | contiguity is a fact about five rows together, and every re-cut types through invalid states | one `PUT` of the whole ladder, and a dialog that holds its drafts until Save. D4 |
-| C5's shape, so C5's no-fallback read | C5 refused a fallback to a **number somebody typed elsewhere**; this one is a constant in the source | a project holding no rows reads as `DEFAULT_PRIORITY_BANDS`, and the seeding is a materialisation with no observable effect. D2 |
-| an identity differential against C5's sixteen plans | every priority in that corpus is 1–4, so all of them are one band and the differential is blind to the fault it is for | the corpus replayed twice **plus** a contended plan whose order priority alone decides, with a control on the dates. D8 |
+| the ask said                                        | what is true                                                                                                           | what shipped                                                                                                                          |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `1-20 are critical, 21-40 are high…` — ranges       | a stored range can gap and can overlap, and a priority that resolves to no label or to two is undrawable               | bands are **starts**; the one above ends the one below, and the ranges are computed for the reader in the dialog. D1                  |
+| "all this needs to be configurable by project"      | the labels, the cuts and the defaults are three things; the count is a fourth nobody asked for                         | labels, cuts and defaults are the project's; five rungs is refused with `bands_must_number_5`, and what that buys is written down. D3 |
+| C5's shape, so C5's per-fact write                  | contiguity is a fact about five rows together, and every re-cut types through invalid states                           | one `PUT` of the whole ladder, and a dialog that holds its drafts until Save. D4                                                      |
+| C5's shape, so C5's no-fallback read                | C5 refused a fallback to a **number somebody typed elsewhere**; this one is a constant in the source                   | a project holding no rows reads as `DEFAULT_PRIORITY_BANDS`, and the seeding is a materialisation with no observable effect. D2       |
+| an identity differential against C5's sixteen plans | every priority in that corpus is 1–4, so all of them are one band and the differential is blind to the fault it is for | the corpus replayed twice **plus** a contended plan whose order priority alone decides, with a control on the dates. D8               |
