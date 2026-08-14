@@ -1305,9 +1305,17 @@ function placeSlices(
     for (const pool of window.binding) {
       let finish = -Infinity;
       for (const blocker of pool.blocking) finish = Math.max(finish, placed[blocker].finish);
+      // A binding pool is named whether or not its blocking set is empty, and
+      // that is not defensiveness: it is what makes `binding`'s own condition —
+      // "the round that moved" — load-bearing rather than a restatement the
+      // sentinel below would cover for. An empty set is in fact unreachable
+      // (a pool that pushed the candidate had a reservation in the way, or the
+      // width refusal would have fired instead), and the invariant under this
+      // loop is where that is stated.
       if (
+        capacityTeamId === null ||
         finish > bestFinish ||
-        (finish === bestFinish && capacityTeamId !== null && pool.poolId < capacityTeamId)
+        (finish === bestFinish && pool.poolId < capacityTeamId)
       ) {
         bestFinish = finish;
         capacityTeamId = pool.poolId;
