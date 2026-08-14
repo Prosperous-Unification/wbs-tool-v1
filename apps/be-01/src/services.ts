@@ -7,6 +7,7 @@ import { DependencyRepository } from './repository/dependency';
 import { DirectoryRepository } from './repository/directory';
 import { EstimateRepository } from './repository/estimate';
 import { DrizzleEventLogRepo } from './repository/event-log';
+import { PriorityBandRepository } from './repository/priority-band';
 import { ProjectRepository } from './repository/project';
 import { RoleRepository } from './repository/role';
 import { UserRepository } from './repository/user';
@@ -16,6 +17,7 @@ import { CapacityService } from './service/capacity.service';
 import { DirectoryService } from './service/directory.service';
 import { EventSequencer } from './service/event-sequencer';
 import { GatewayBroadcaster } from './service/gateway-broadcaster';
+import { PriorityBandService } from './service/priority-band.service';
 import { ProjectService } from './service/project.service';
 import { PushClient } from './service/push-client';
 import { ReplayBuffer } from './service/replay-buffer';
@@ -48,6 +50,7 @@ export interface BeServices {
   auth: AuthService;
   projects: ProjectService;
   capacity: CapacityService;
+  priorityBands: PriorityBandService;
   roles: RoleService;
   directory: DirectoryService;
   workItems: WorkItemService;
@@ -70,6 +73,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
   const projectStore = new ProjectRepository(opts.db);
   const directoryStore = new DirectoryRepository(opts.db);
   const capacityStore = new CapacityRepository(opts.db);
+  const priorityBandStore = new PriorityBandRepository(opts.db);
   const eventLog = new DrizzleEventLogRepo(opts.db);
 
   // One buffer, shared by the two halves of resume: the broadcaster fills it as
@@ -111,6 +115,14 @@ export function buildServices(opts: ServicesOptions): BeServices {
       capacity: capacityStore,
       broadcast,
     }),
+    // The same broadcaster again, for the capacity service's reason: a ladder
+    // event takes its place in the project's one sequence, so a client resuming
+    // from a work item's sequence is not replayed a rename of a rung it has seen.
+    priorityBands: new PriorityBandService({
+      projects: projectStore,
+      bands: priorityBandStore,
+      broadcast,
+    }),
     roles: new RoleService({
       projects: projectStore,
       roles: new RoleRepository(opts.db),
@@ -128,6 +140,10 @@ export function buildServices(opts: ServicesOptions): BeServices {
       dependencies: new DependencyRepository(opts.db),
       directory: directoryStore,
       capacity: capacityStore,
+      // Read by `tree()` alone: the ladder is what every face draws priorities
+      // through, and it rides the payload the dates ride so a client cannot hold
+      // labels from one moment over numbers from another.
+      priorityBands: priorityBandStore,
       // The one store that writes across all four of the tables above, because
       // a duplicated subtree is one act — see {@link SubtreeRepository}.
       subtrees: new SubtreeRepository(opts.db),

@@ -194,6 +194,12 @@ export const workItem = sqliteTable(
      * missing 1: a plan where nobody has set a priority is scheduled exactly as
      * it was before this column existed, and a work item with no priority is placed
      * after every work item that has one rather than among them.
+     *
+     * What the number is **called** is the project's own — see
+     * {@link projectPriorityBand}. The ladder is read on every face and by no
+     * scheduling code: picking `Critical` writes this column's `10` and nothing
+     * else happens, and re-cutting the ladder changes what this number is called
+     * without touching it.
      */
     priority: integer('priority'),
     /**
@@ -444,6 +450,54 @@ export const projectTeamCapacity = sqliteTable(
 );
 
 export type ProjectTeamCapacityRow = typeof projectTeamCapacity.$inferSelect;
+
+/**
+ * What one project calls its priority numbers — five rungs, keyed on the rung.
+ *
+ * A band is a **start value**; the band above it is what ends it, and the top
+ * band ends nowhere. That is what makes the ladder contiguous and exhaustive by
+ * construction, so every {@link workItem.priority} resolves to exactly one label
+ * and no stored range can gap or overlap. The rule and its alternative are
+ * `openspec/changes/priority-bands/design.md` D1.
+ *
+ * **Read by no scheduling code.** The leveller reads `work_item.priority` and
+ * that column alone; this table is the vocabulary the number is read and written
+ * in. Re-cutting a ladder renames what a plan's numbers are called and moves not
+ * one date — asserted, not asserted-about, in
+ * `service/priority-band-identity.test.ts`.
+ *
+ * A project holding **no** rows here reads as {@link DEFAULT_PRIORITY_BANDS},
+ * which is a code constant and not a global anybody can type into. That is the
+ * difference from {@link projectTeamCapacity}, whose D1 refused exactly this
+ * shape: a capacity fallback meant one plan silently bounded by a number
+ * somebody set for another, and there is no such number here. design.md D2.
+ */
+export const projectPriorityBand = sqliteTable(
+  'project_priority_band',
+  {
+    projectId: text('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    /**
+     * The rung, 0 (most important) to 4.
+     *
+     * The key rather than {@link projectPriorityBand.startsAt}, so a project
+     * moving a cut is an update to a row rather than a delete and an insert of a
+     * new key. It is also what every face keys a colour off: a label is
+     * renameable, and a colour following the word `Critical` would follow it out
+     * of the ladder the moment somebody typed `Blocker`.
+     */
+    rank: integer('rank').notNull(),
+    /** The smallest priority this band holds — 1 for rank 0, always. */
+    startsAt: integer('starts_at').notNull(),
+    label: text('label').notNull(),
+    /** What choosing this band by name writes into a work item's priority. */
+    defaultValue: integer('default_value').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.rank] })],
+);
+
+export type ProjectPriorityBandRow = typeof projectPriorityBand.$inferSelect;
 
 /**
  * Somebody who does work. Global, like the teams, and for the same reason.

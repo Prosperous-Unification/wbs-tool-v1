@@ -60,7 +60,25 @@ export type ProjectEvent =
    * a reader of this union is told the truth. See
    * `openspec/changes/capacity-per-project/design.md` D6.
    */
-  | { type: 'capacity_changed' };
+  | { type: 'capacity_changed' }
+  /**
+   * What this project calls its priority numbers has changed — a rung renamed,
+   * a cut moved, or a default re-pointed.
+   *
+   * **No date moved**, and that is the one thing this event is unlike every
+   * other in the union about. The ladder is read by no scheduling code; a client
+   * rereads because the labels and the colours on its table, its chart, its
+   * cards and its export are all drawn from it, and a plan open on a second
+   * screen would otherwise go on painting `High` over a rung that now says
+   * `Blocker`.
+   *
+   * Its own type rather than `capacity_changed` or `directory_changed`, for the
+   * reason C5's D6 gives: fe-01 reads every project event as "read again" and
+   * never inspects the type, so the name costs nothing either way and is
+   * therefore decided purely on whether a reader of this union is told the
+   * truth.
+   */
+  | { type: 'priority_bands_changed' };
 
 /**
  * The subscription name carrying a project's edits.

@@ -6,6 +6,7 @@ import { authController } from './controller/auth.controller';
 import { capacityController } from './controller/capacity.controller';
 import { directoryController } from './controller/directory.controller';
 import { internalController } from './controller/internal.controller';
+import { priorityBandController } from './controller/priority-band.controller';
 import { projectController } from './controller/project.controller';
 import { roleController } from './controller/role.controller';
 import { smokeController } from './controller/smoke.controller';
@@ -14,6 +15,7 @@ import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
 import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
+import type { PriorityBandService } from './service/priority-band.service';
 import type { ProjectService } from './service/project.service';
 import type { ReplayOrchestrator } from './service/replay-orchestrator';
 import type { RoleService } from './service/role.service';
@@ -48,6 +50,12 @@ export interface AppOptions {
    * nothing reads as a plan whose numbers do not matter.
    */
   capacity: CapacityService;
+  /**
+   * Required for the same reason as `capacity`: a process built without it would
+   * answer 404 on the ladder route, and a Priorities dialog whose Save silently
+   * did nothing reads as a plan whose configuration does not matter.
+   */
+  priorityBands: PriorityBandService;
   /**
    * Shared secret gw-01 presents on /internal/*. Required — a default here
    * would silently diverge from the value gw-01 loads from the environment,
@@ -92,6 +100,11 @@ export function buildApp(opts: AppOptions) {
       // anything that route declares, but keeping the two adjacent is what makes
       // that checkable at a glance.
       .use(capacityController(opts.auth, opts.capacity))
+      // Beside `capacityController` for its reason: it shares
+      // `projectController`'s prefix, `/:id/priority-bands` cannot be shadowed by
+      // anything that route declares, and adjacency is what makes that checkable
+      // at a glance.
+      .use(priorityBandController(opts.auth, opts.priorityBands))
       .use(
         internalController({
           secret: opts.internalAuthSecret,

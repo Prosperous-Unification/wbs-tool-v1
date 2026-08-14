@@ -1,0 +1,18 @@
+-- Reverses 20260814100000_add_priority_band.
+--
+-- Dropping this loses every band a project renamed, re-cut or re-defaulted, and
+-- it cannot be recomputed: the release that comes back reads priorities as bare
+-- numbers, so `Blocker` at 1-15 goes back to being nothing but the numbers 1 to
+-- 15 with no name anywhere.
+--
+-- **No date moves either way.** The ladder was never read by the leveller —
+-- `goesFirst` reads `work_item.priority` and that column alone — so a plan
+-- scheduled against a re-cut ladder and the same plan after this rollback come
+-- out identical. That is the one thing this rollback is free of, and it is worth
+-- saying here because every other `down.sql` in this repo that drops a scheduling
+-- input has had to say the opposite.
+--
+-- Nothing else goes: the work items, their priorities, their estimates and their
+-- dates all survive, which is why this runs only when the release that added the
+-- table is being taken away.
+DROP TABLE IF EXISTS `project_priority_band`;

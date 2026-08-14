@@ -6,6 +6,7 @@ import {
   firstWorkdayOf,
   type IsoDate,
   lastWorkdayOf,
+  type PriorityBand,
   workdaysBetween,
 } from '@wbs/domain';
 
@@ -17,6 +18,7 @@ import type {
   EstimateStore,
   JournalEntry,
   Person,
+  PriorityBandStore,
   Project,
   ProjectStore,
   Reparented,
@@ -467,6 +469,15 @@ export interface WorkItemServiceOptions {
    * through. `capacity-per-project`'s design.md D3.
    */
   capacity: CapacityStore;
+  /**
+   * What this project calls its priority numbers, read on the plan's own payload.
+   *
+   * A read and never a write from here, and read by nothing that computes a date:
+   * the leveller orders on `work_item.priority` alone. It is on this service
+   * because a ladder has to arrive in the same payload as the numbers it names —
+   * see {@link WorkItemService.tree}'s `priorityBands`.
+   */
+  priorityBands: PriorityBandStore;
   dependencies: DependencyStore;
   subtrees: SubtreeStore;
   /**
@@ -780,6 +791,24 @@ export class WorkItemService {
      * plan bounds.
      */
     teamCapacities: TeamCapacity[];
+    /**
+     * What this project calls its priority numbers — five bands in rank order.
+     *
+     * Carried on the read that produced the rows rather than left to a route of
+     * its own, which is the argument {@link roles} and {@link teamCapacities}
+     * make. The reason is weaker here in one way and stronger in another: no date
+     * in this payload was computed from the ladder, so a stale one cannot
+     * contradict a bar the way a stale capacity can — but *every* face draws
+     * every priority through it, so a client holding a ladder from one moment
+     * over numbers from another paints the wrong label on every row of the plan
+     * rather than on one.
+     *
+     * Never absent and never empty: a project holding no rows reads as
+     * {@link DEFAULT_PRIORITY_BANDS}, so a client can resolve every priority
+     * without a fallback of its own.
+     * `openspec/changes/priority-bands/design.md` D2.
+     */
+    priorityBands: PriorityBand[];
     estimateMethod: EstimateMethod;
     startDate: IsoDate | null;
     /**
@@ -839,6 +868,10 @@ export class WorkItemService {
     // for the whole call and every engine test would have to spell it. The pair
     // is the key in the **store**. design.md D3.
     const slotsOf = await this.opts.capacity.slotsFor(projectId);
+    // The ladder, read here and handed straight to the payload. It is passed to
+    // nothing — not `slicesOf`, not `schedule` — and that is the change's whole
+    // claim about itself: `git diff` on this file shows one read and one field.
+    const priorityBands = await this.opts.priorityBands.listFor(projectId);
     // One reading of the label, shared with the table, the cards, the Gantt and
     // the export — a leaf's own team, or the nearest ancestor's. No write ever
     // copies a label down; see {@link effectiveTeamOf}.
@@ -968,6 +1001,7 @@ export class WorkItemService {
       teamCapacities: [...slotsOf]
         .map(([serviceTeamId, size]) => ({ serviceTeamId, size }))
         .sort((a, b) => a.serviceTeamId.localeCompare(b.serviceTeamId)),
+      priorityBands,
       estimateMethod: project.estimateMethod,
       startDate: project.startDate,
       projectRevision: project.revision,
