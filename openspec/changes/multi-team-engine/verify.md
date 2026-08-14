@@ -192,9 +192,16 @@ it is this file.
   in this change that `format:check --all` caught a hand-edited record file.
 - Run **31835500559** at `dbdfc35` — prettier's own output for that paragraph,
   nothing else. `gate` **success**, `pixels` **success**.
+- Run **31836315688** at `8819d75` — the commit that added the four lines above,
+  again a `verify.md`-only diff. `gate` **success**; `pixels` **FAILED 171
+  passed / 1 failed** on `header.spec.ts:440` _a short entry is shown whole_.
+  **`gh run rerun --failed` passed.** This one _is_ the flake class — a
+  markdown-only diff reddening a browser spec — and it is the **sixth** on this
+  repo's record (#44 `f8b7d62`, #57 31682877355, #61 31786930904 twice, #62's
+  `main@203a85b` 31798654373). Recorded rather than quietly re-run.
 
 The PR reads **MERGEABLE / CLEAN** against `main@30e8c4c`. No rebase needed —
 nothing has landed on main since the branch was cut.
 
-The commit that adds this section is the record's own tail, and is the one head
+The commit that adds this line is the record's own tail, and is the one head
 whose run this file cannot name.
