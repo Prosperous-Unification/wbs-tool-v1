@@ -511,6 +511,86 @@ describe('the slice engine against the one it replaced', () => {
     }
   });
 
+  it('answers what one pool answered when a second pool mirrors it exactly', () => {
+    // **The joint search against the single search, over the corpus.** Two
+    // pools of the same size, spent by the same blocks, are one pool wearing
+    // two names: every reservation written to the first is written to the
+    // second, so at every instant the two hold the same usage and answer every
+    // window the same way. The joint fixpoint over them must therefore land on
+    // the single search's answer — every date, every blocking set, every float.
+    //
+    // This is the multi-pool half of the identity claim, and it is the half a
+    // fixture cannot make: the brief asks for the differential over the
+    // thousand-plan corpus for C1's own D11 reason — a three-block fixture
+    // stayed green under a deliberately widened rule and only the corpus caught
+    // it, at seed 13. The single-pool half is `capacity-migration-identity`'s
+    // sixteen real plans and the test above.
+    //
+    // The pools are **contended** rather than sized past anything the plan can
+    // ask (`2`, against a corpus that queues), so the search really searches;
+    // the count below refuses a green run that never made a pool say no.
+    //
+    // `capacityTeamId` is compared like every other field rather than excused:
+    // the two pools hold identical blocking sets, so the tie falls to the pool
+    // id, and `team-one` sorts before `team-two`. A tie rule that read the set
+    // order or the placement instead would come out `team-two` here.
+    //
+    // Proof: the fixpoint's loop cut to a single round — `return` after the
+    // first pass over the pools, which is the shape of asking each pool once
+    // and taking the latest answer — and this failed at seed 1 with
+    // `r0c0g0 role-0.earliestStart` 6 where 8 was owed: a block placed where
+    // the *first* round said there was room, on a pool whose usage at that
+    // instant it had never re-read; watched 2026-08-14.
+    const ONE = 'team-one';
+    const TWO = 'team-two';
+    let contended = 0;
+    for (let seed = 1; seed <= 1000; seed += 1) {
+      const plan = generatePlan(seed, RELEASED_ROLES);
+      const single = schedule(
+        plan.rows,
+        [],
+        slicesFrom(plan).map((each) => ({ ...each, poolIds: [ONE] })),
+        plan.notBefore,
+        new Map([[ONE, 2]]),
+      );
+      const mirrored = schedule(
+        plan.rows,
+        [],
+        slicesFrom(plan).map((each) => ({ ...each, poolIds: [ONE, TWO] })),
+        plan.notBefore,
+        new Map([
+          [ONE, 2],
+          [TWO, 2],
+        ]),
+      );
+
+      expectSameSchedule(seed, single.workItems, mirrored.workItems);
+      expect(mirrored.waitingForPerson).toBe(single.waitingForPerson);
+      expect(mirrored.waitingForCapacity).toBe(single.waitingForCapacity);
+      if (single.waitingForCapacity > 0) contended += 1;
+      expect(mirrored.slices.size).toBe(single.slices.size);
+      for (const [key, was] of single.slices) {
+        const now = mirrored.slices.get(key);
+        if (now === undefined) throw new Error(`seed ${String(seed)}: ${key} lost its slice`);
+        for (const field of Object.keys(was) as (keyof typeof was)[]) {
+          if (field === 'capacityPredecessorIds') {
+            expect(now.capacityPredecessorIds, `seed ${String(seed)}, ${key}`).toEqual(
+              was.capacityPredecessorIds,
+            );
+            continue;
+          }
+          if (now[field] === was[field]) continue;
+          throw new Error(
+            `seed ${String(seed)}, ${key}.${field}: ` +
+              `${String(was[field])} became ${String(now[field])}`,
+          );
+        }
+      }
+    }
+    // A pool that never says no makes this the unpooled comparison in disguise.
+    expect(contended).toBeGreaterThan(100);
+  });
+
   it('holds plans the snap actually moves, so the comparison is not the old one in disguise', () => {
     // `expectSameSchedule` puts the oracle's slack through `snappedSlack`
     // before comparing it. If no plan in the corpus carried drifted slack that
