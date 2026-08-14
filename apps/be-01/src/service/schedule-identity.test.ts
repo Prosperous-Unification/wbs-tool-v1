@@ -564,7 +564,27 @@ describe('the slice engine against the one it replaced', () => {
         ]),
       );
 
-      expectSameSchedule(seed, single.workItems, mirrored.workItems);
+      // Field for field and `toBe`-equal, **not** through
+      // `expectSameSchedule`: that helper puts the first argument's float
+      // through `snappedSlack`, which exists to absorb the drift between this
+      // engine and the one it replaced. Both sides here are this engine, so
+      // the answer owed is the identical double and the snap would let a real
+      // difference of 1.8e-15 through. Watched on the way in — the first
+      // version of this test used the helper and failed at seed 3 on
+      // `r0c0g0.critical`, where the two runs are byte-identical and the snap
+      // had rewritten the oracle out from under itself.
+      expect(mirrored.workItems.size).toBe(single.workItems.size);
+      for (const [id, was] of single.workItems) {
+        const now = mirrored.workItems.get(id);
+        if (now === undefined) throw new Error(`seed ${String(seed)}: ${id} lost its schedule`);
+        for (const field of Object.keys(was) as (keyof typeof was)[]) {
+          if (now[field] === was[field]) continue;
+          throw new Error(
+            `seed ${String(seed)}, ${id}.${field}: ` +
+              `${String(was[field])} became ${String(now[field])}`,
+          );
+        }
+      }
       expect(mirrored.waitingForPerson).toBe(single.waitingForPerson);
       expect(mirrored.waitingForCapacity).toBe(single.waitingForCapacity);
       if (single.waitingForCapacity > 0) contended += 1;
