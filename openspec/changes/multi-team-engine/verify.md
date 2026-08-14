@@ -14,13 +14,13 @@ Nothing ran on h1claw. Every number below is h2puni, in
 `bunx nx run-many -t test lint typecheck` — **Successfully ran targets test,
 lint, typecheck for 21 projects.**
 
-| project | result | bun |
-|---|---|---|
-| be-01 | **750 pass / 0 fail / 62 files**, 38,601 `expect()` | 1.2.20 |
-| be-01 | **750 pass / 0 fail / 62 files**, 38,603 `expect()` | 1.3.14 |
-| fe-01 | **1,342 pass / 0 fail / 52 files** | 1.2.20 |
-| gw-01 | 45 pass / 0 fail / 8 files | 1.2.20 |
-| `libs/domain` | 65 pass / 0 fail / 4 files | 1.2.20 |
+| project       | result                                              | bun    |
+| ------------- | --------------------------------------------------- | ------ |
+| be-01         | **750 pass / 0 fail / 62 files**, 38,601 `expect()` | 1.2.20 |
+| be-01         | **750 pass / 0 fail / 62 files**, 38,603 `expect()` | 1.3.14 |
+| fe-01         | **1,342 pass / 0 fail / 52 files**                  | 1.2.20 |
+| gw-01         | 45 pass / 0 fail / 8 files                          | 1.2.20 |
+| `libs/domain` | 65 pass / 0 fail / 4 files                          | 1.2.20 |
 
 **Quote the bun version beside the number or don't quote it** — the same tree
 prints 38,601 and 38,603 under the two bins on that box (`/usr/local/bin/bun`
@@ -57,19 +57,19 @@ Every check this change adds, the fault injected to redden it, and what the run
 printed. Injections were applied to a clean tree, run, and reverted by
 `~/mte-fault.sh`, which reports the dirty-file count afterwards (0 every time).
 
-| # | check | fault injected | observed |
-|---|---|---|---|
-| 1 | `starts when the later pool frees a slot, not when the earlier one does` | the fixpoint's `window.start > best` written as `<` — the candidate follows the _earliest_ pool | 3 pass / 5 fail. `earliestStart` 0 and `boundBy: 'projectStart'` where 5 and `capacity` were owed: a block running while both its pools were full |
-| 2 | `names whichever team ran out, not the first of the set` | `capacityTeamId` read as `poolIds[0]` whenever the search bound anything | 6 pass / 2 fail. `"team-alpha"` where `"team-beta"` was owed — a date explained by a team that had room |
-| 3 | `takes a slot from every pool it names, so both are busy behind it` | `reserve` narrowed to `poolIds.slice(0, 1)` | 7 pass / 1 fail. `after-beta` at `earliestStart` 0 where 3 was owed, `boundBy: 'projectStart'` |
-| 4 | `edges every reservation either pool stepped over, and reports no float it has not got` | the blocking union taken from `binding`'s own sets — the final round's scans, which are empty | 7 pass / 1 fail. `blockersOf(both)` came back `[]` where both holds were owed: a slice claiming a capacity wait and edging nothing |
-| 5 | `breaks a tie between two pools on the blocker the reader is looking at` | the latest-finisher clause dropped, leaving the pool-id tie alone | 7 pass / 1 fail. `"team-alpha"` where `"team-beta"` was owed |
-| 6 | `names no team on a slice no pool held up` (multi-pool arm of the invariant) | `binding = reached` moved above the fixpoint's `return`, so the final round's set survives | 3 pass / 5 fail. `first role-dev names team-alpha with no pool binding it` — the placement's own invariant |
-| 6b | the same invariant, single-pool arm | the single-pool branch's `binding: window.start > floor ? … : []` condition dropped | `schedule-capacity.test.ts` **8 pass / 17 fail**. `a role-dev names team-platform with no pool binding it` |
-| 7 | `re-asks every pool from the instant another pool pushed it to` | `jointWindowFor`'s loop replaced by one pass over the pools from the floor, binding condition kept so the invariant stays quiet | 489 pass / 1 fail. `earliestStart` 3 where 6 was owed, `capacityTeamId: "team-alpha"` where Beta was owed |
-| 8 | `takes the narrowest stated size, whichever team states it` + `spends in every sized team the row names` | `poolsFor`'s `Math.min` written as `Math.max` | 487 pass / 2 fail. `slots` came back **4** where 1 was owed |
-| 9 | the oracle's `capacityTeamId` **name** assertion | the binding pool reported as `wrong-${poolId}` | `capacity-migration-identity.test.ts` 2 pass / 1 fail (`Expected: "team-platform"` / `Received: "wrong-team-platform"`); 483 / 7 across `src/service` |
-| 10 | the oracle's **dates** — the identity claim itself | the single-pool arm of `jointWindowFor` made to answer the floor without consulting its pool | `capacity-migration-identity.test.ts` 2 pass / 1 fail. `p1`'s capacity-floored slices moved `earliestStart` 3 → 0 and 3.5 → 1; 475 / 15 across `src/service` |
+| #   | check                                                                                                    | fault injected                                                                                                                  | observed                                                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `starts when the later pool frees a slot, not when the earlier one does`                                 | the fixpoint's `window.start > best` written as `<` — the candidate follows the _earliest_ pool                                 | 3 pass / 5 fail. `earliestStart` 0 and `boundBy: 'projectStart'` where 5 and `capacity` were owed: a block running while both its pools were full            |
+| 2   | `names whichever team ran out, not the first of the set`                                                 | `capacityTeamId` read as `poolIds[0]` whenever the search bound anything                                                        | 6 pass / 2 fail. `"team-alpha"` where `"team-beta"` was owed — a date explained by a team that had room                                                      |
+| 3   | `takes a slot from every pool it names, so both are busy behind it`                                      | `reserve` narrowed to `poolIds.slice(0, 1)`                                                                                     | 7 pass / 1 fail. `after-beta` at `earliestStart` 0 where 3 was owed, `boundBy: 'projectStart'`                                                               |
+| 4   | `edges every reservation either pool stepped over, and reports no float it has not got`                  | the blocking union taken from `binding`'s own sets — the final round's scans, which are empty                                   | 7 pass / 1 fail. `blockersOf(both)` came back `[]` where both holds were owed: a slice claiming a capacity wait and edging nothing                           |
+| 5   | `breaks a tie between two pools on the blocker the reader is looking at`                                 | the latest-finisher clause dropped, leaving the pool-id tie alone                                                               | 7 pass / 1 fail. `"team-alpha"` where `"team-beta"` was owed                                                                                                 |
+| 6   | `names no team on a slice no pool held up` (multi-pool arm of the invariant)                             | `binding = reached` moved above the fixpoint's `return`, so the final round's set survives                                      | 3 pass / 5 fail. `first role-dev names team-alpha with no pool binding it` — the placement's own invariant                                                   |
+| 6b  | the same invariant, single-pool arm                                                                      | the single-pool branch's `binding: window.start > floor ? … : []` condition dropped                                             | `schedule-capacity.test.ts` **8 pass / 17 fail**. `a role-dev names team-platform with no pool binding it`                                                   |
+| 7   | `re-asks every pool from the instant another pool pushed it to`                                          | `jointWindowFor`'s loop replaced by one pass over the pools from the floor, binding condition kept so the invariant stays quiet | 489 pass / 1 fail. `earliestStart` 3 where 6 was owed, `capacityTeamId: "team-alpha"` where Beta was owed                                                    |
+| 8   | `takes the narrowest stated size, whichever team states it` + `spends in every sized team the row names` | `poolsFor`'s `Math.min` written as `Math.max`                                                                                   | 487 pass / 2 fail. `slots` came back **4** where 1 was owed                                                                                                  |
+| 9   | the oracle's `capacityTeamId` **name** assertion                                                         | the binding pool reported as `wrong-${poolId}`                                                                                  | `capacity-migration-identity.test.ts` 2 pass / 1 fail (`Expected: "team-platform"` / `Received: "wrong-team-platform"`); 483 / 7 across `src/service`        |
+| 10  | the oracle's **dates** — the identity claim itself                                                       | the single-pool arm of `jointWindowFor` made to answer the floor without consulting its pool                                    | `capacity-migration-identity.test.ts` 2 pass / 1 fail. `p1`'s capacity-floored slices moved `earliestStart` 3 → 0 and 3.5 → 1; 475 / 15 across `src/service` |
 
 Faults 9 and 10 are the two halves of the same lift and **each is green under
 the other's fault**, which is why both are listed: a wrong team name moves no
