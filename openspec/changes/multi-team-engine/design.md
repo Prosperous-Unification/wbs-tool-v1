@@ -144,7 +144,7 @@ both injections passed 25/25 and 8/8.
 ## D6 — the tie between two equally tight pools
 
 Named the pool whose blocking set holds the latest-finishing reservation, ties
-by pool id. That is `resourcePredecessorId`'s own rule (`schedule.ts:1104`), one
+by pool id. That is `resourcePredecessorId`'s own rule (`schedule.ts:1267`), one
 level up, and picking it means the team the sentence names and the slice the
 arrow points at are answers to the same question.
 
