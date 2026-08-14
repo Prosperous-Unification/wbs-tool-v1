@@ -174,15 +174,27 @@ payload field that moved is additive.
 
 ## CI
 
-- Run **31833154423** at `054a63e` — `gate` **success** and `pixels`
-  **success**, 172 e2e, first attempt at that head. Two runs before it on
-  earlier commits of this branch: 31832903326 cancelled by the push that
-  superseded it, 31832916149 likewise.
-- Run **31833969879** at `b4e0dfe` — the commit that added the line above, a
-  `verify.md`-only diff. `gate` and `pixels` both green, first attempt. No
-  flake on this branch at all, which is worth recording given that `pixels` has
-  failed on markdown-only diffs five times on this repo's record.
-- The PR reads **MERGEABLE / CLEAN** against `main@30e8c4c`. No rebase needed —
-  nothing has landed on main since the branch was cut.
-- The commit that added _this_ line is the record's own tail and is the one head
-  whose run this file cannot name.
+The gate head is `054a63e` — the last commit that touches code. Everything after
+it is this file.
+
+- Run **31833154423** at `054a63e` — `gate` **success**, `pixels` **success**,
+  172 e2e, first attempt at that head. Two runs before it on earlier commits of
+  this branch were cancelled by the pushes that superseded them (31832903326,
+  31832916149).
+- Run **31833969879** at `b4e0dfe` — a `verify.md`-only diff. Both jobs green,
+  first attempt.
+- Run **31834710899** at `1589cee` — **`gate` FAILED, and it was mine, not a
+  flake.** `nx format:check --all` exited 1 on `verify.md`: the paragraph I had
+  just written was not what prettier wanted. `pixels` passed in the same run.
+  Worth the line because this repo's record holds five `pixels` flakes on
+  markdown-only diffs and it would be easy to file this as a sixth. It is not —
+  it is the same class as #58's two trailing spaces, and it is the second time
+  in this change that `format:check --all` caught a hand-edited record file.
+- Run **31835500559** at `dbdfc35` — prettier's own output for that paragraph,
+  nothing else. `gate` **success**, `pixels` **success**.
+
+The PR reads **MERGEABLE / CLEAN** against `main@30e8c4c`. No rebase needed —
+nothing has landed on main since the branch was cut.
+
+The commit that adds this section is the record's own tail, and is the one head
+whose run this file cannot name.
