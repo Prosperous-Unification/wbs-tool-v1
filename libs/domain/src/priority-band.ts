@@ -133,6 +133,8 @@ export function priorityBandOf(
  *
  * - **Five bands.** {@link PRIORITY_BAND_COUNT} — the refusal that makes the
  *   count not configurable.
+ * - **Distinct, non-empty labels.** Two `High`s in a picker is a list where one
+ *   of the lines does nothing a reader can predict.
  * - **A first band starting at 1.** Otherwise the priorities below it have no
  *   label, and `priorityBandRankOf` would answer `Critical` for a number
  *   `Critical` does not hold.
@@ -142,18 +144,27 @@ export function priorityBandOf(
  * - **A default inside its own band.** The picker writes the default and the
  *   cell reads the band back; a default outside makes those two disagree in the
  *   same keystroke.
- * - **Distinct, non-empty labels.** Two `High`s in a picker is a list where one
- *   of the lines does nothing a reader can predict.
+ *
+ * **The order of the passes is load-bearing, and it was wrong once.** Written as
+ * one loop that checked each band's start and then its default before moving on,
+ * `bands_must_start_in_increasing_order` was a code **nothing could produce**: a
+ * band whose start is at or below the one beneath it leaves the band beneath it
+ * with no width, so that band's own default is already outside itself and the
+ * default check — reached first, on the earlier band — answered instead. Two
+ * cases in this module's suite caught it, and a check that cannot fail is what
+ * `AGENTS.md` R5 exists to stop. So the whole ladder's **starts** are settled
+ * before any default is looked at, and every branch below is reachable.
  */
 export function priorityLadderProblem(bands: readonly PriorityBand[]): string | null {
   if (bands.length !== PRIORITY_BAND_COUNT) {
     return `bands_must_number_${String(PRIORITY_BAND_COUNT)}`;
   }
   const seen = new Set<string>();
+  // First pass: what each band says about itself, and what the starts say
+  // together. `.at` throughout, for {@link priorityBandRankOf}'s reason: this is
+  // handed a list parsed out of a request body, and an index would type its
+  // elements as present whatever arrived.
   for (let at = 0; at < bands.length; at += 1) {
-    // `.at` throughout, for {@link priorityBandRankOf}'s reason: this is handed
-    // a list parsed out of a request body, and an index would type its elements
-    // as present whatever arrived.
     const band = bands.at(at);
     // `bands.length` was just checked, so this is unreachable from a list of
     // five; it is here because a `!` would be the assertion AGENTS.md bans
@@ -169,19 +180,25 @@ export function priorityLadderProblem(bands: readonly PriorityBand[]): string | 
     if (!Number.isSafeInteger(band.startsAt) || band.startsAt < 1) {
       return 'band_start_must_be_a_whole_number_from_1';
     }
+    const below = at === 0 ? undefined : bands.at(at - 1);
+    if (below === undefined) {
+      if (band.startsAt !== 1) return 'first_band_must_start_at_1';
+    } else if (band.startsAt <= below.startsAt) {
+      return 'bands_must_start_in_increasing_order';
+    }
+  }
+  // Second pass, and only now: every band has a width, so "inside its own band"
+  // is a question with an answer.
+  for (let at = 0; at < bands.length; at += 1) {
+    const band = bands.at(at);
+    if (band === undefined) return 'bands_must_be_objects';
     if (!Number.isSafeInteger(band.defaultValue) || band.defaultValue < 1) {
       return 'band_default_must_be_a_whole_number_from_1';
     }
-    const below = at === 0 ? undefined : bands.at(at - 1);
-    if (at === 0) {
-      if (band.startsAt !== 1) return 'first_band_must_start_at_1';
-    } else if (below !== undefined && band.startsAt <= below.startsAt) {
-      return 'bands_must_start_in_increasing_order';
-    }
-    const above = at + 1 < bands.length ? bands.at(at + 1) : undefined;
-    // The top band ends nowhere, so only its floor is checked. Every other
-    // band is closed by the one above it, exclusive of that band's own start.
     if (band.defaultValue < band.startsAt) return 'band_default_must_be_inside_its_own_band';
+    // The top band ends nowhere, so only its floor is checked. Every other band
+    // is closed by the one above it, exclusive of that band's own start.
+    const above = at + 1 < bands.length ? bands.at(at + 1) : undefined;
     if (above !== undefined && band.defaultValue >= above.startsAt) {
       return 'band_default_must_be_inside_its_own_band';
     }

@@ -17,6 +17,7 @@ box denies both (`bin/block-local-builds.sh`).
 | target                                                  | result                                                                                                                                               |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bunx nx format:check --all`                            | clean, exit 0                                                                                                                                        |
+| `bunx nx run domain:test` (bun **1.3.14**)              | **63 pass, 0 fail** — the suite this change adds `priority-band.test.ts` to, and the one CI caught being skipped. See below.                         |
 | be-01 unit (bun **1.3.14**, in `apps/be-01`)            | **720 pass, 0 fail**, 24,591 `expect()` calls, 13.62s across 60 files                                                                                |
 | fe-01 unit (`node vitest run`, node 22)                 | **1,335 pass across 52 files, 0 fail**, 61.91s                                                                                                       |
 | `bunx nx run-many -t lint typecheck --skip-nx-cache`    | pass, 21 projects                                                                                                                                    |
@@ -36,6 +37,13 @@ cases, 6 Prio-cell cases, 3 card cases, 1 export case, 2 chart cases). The
 existing suites' numbers are unchanged except where a face's own assertion moved
 — the chart's priority line now reads `Critical — priority 2`, the export's
 column list is one longer, and the Prio column joins the popover exemptions.
+
+**`libs/domain` has a suite of its own, and running `apps/be-01` and `apps/fe-01`
+by hand does not reach it.** That is how two branches of `priorityLadderProblem`
+shipped unreachable and were found by CI rather than here: `bun test` in
+`apps/be-01` collects nothing under `libs/`, and this document's first version
+had no line for that target at all. It has one now, and it is the third suite
+this gate runs.
 
 **`lint typecheck` is run with `--parallel=1`.** Under parallel scheduling on a
 loaded h2puni (load average 11 while several agents were live) `be-01:lint` and
@@ -113,6 +121,34 @@ them rather than quietly dropped.
 **Sixteen of the seventeen went red. #8 is recorded as reasoned rather than
 watched**, in this table and in the two places the claim was written, because a
 proof this document cannot reproduce is worse than no proof.
+
+**Two checks that could not fail, found by CI and fixed.** Neither was an
+injection — they were `libs/domain`'s own suite failing the first time anything
+ran it (run 31779765416, 2 fail):
+
+- `bands_must_start_in_increasing_order` was **unreachable**. Written as one loop
+  that settled each band's start and then its default before moving on, an equal
+  or decreasing start leaves the band beneath it with no width — so that band's
+  default is already outside itself and the _default_ code answered first.
+  `Expected: "bands_must_start_in_increasing_order" / Received: "band_default_must_be_inside_its_own_band"`.
+  The validator settles the whole ladder's starts before it looks at any default
+  now, and every branch is reachable.
+- The same ordering made `band_start_must_be_a_whole_number_from_1` unreachable
+  for a start of `0` on any rung but the first, for the same reason and with the
+  same fix.
+
+A check that cannot fail is what R5 exists to stop, and these two are the
+seventeenth and eighteenth in this repository's tally.
+
+**One regression of this change's own, also from that run.**
+`PrioritiesDialog` reseeded its boxes from an effect keyed on `[bands, open]`,
+and `bands` is a fresh array from every payload — so every tree read anywhere in
+the app queued a `setDrafts` from a component that is not on screen. Harmless in
+a browser, and 77 `An update to PrioritiesDialog inside a test was not wrapped in
+act(...)` in one CI log. It seeds on the open/close transition instead. The
+`WbsTable` warnings in the same log are **pre-existing** and measured as such:
+one spec's count is 17 on `wt-capacity-c5` and 18 here, the one being this
+change's three new card cases.
 
 ## The corpus, and why it was reused rather than recaptured
 

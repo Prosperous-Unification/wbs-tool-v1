@@ -126,6 +126,16 @@ describe('what a ladder may be', () => {
     // rank order that disagrees with the numeric one, so `rank` stops meaning
     // "more important". Both are the same refusal because both are the same
     // broken invariant.
+    //
+    // **This case is why the validator has two passes.** Written as one — each
+    // band's start and then its default, band by band — this code was
+    // unreachable: an equal or decreasing start leaves the band beneath it with
+    // no width, so *that* band's default is already outside itself and the
+    // default check answered first. `Expected:
+    // "bands_must_start_in_increasing_order" / Received:
+    // "band_default_must_be_inside_its_own_band"`, watched 2026-08-14 on CI's
+    // `domain:test`. The starts are settled for the whole ladder before any
+    // default is looked at now.
     expect(priorityLadderProblem(ladderWith(2, { startsAt: 21, defaultValue: 30 }))).toBe(
       'bands_must_start_in_increasing_order',
     );
@@ -151,6 +161,9 @@ describe('what a ladder may be', () => {
   });
 
   it('takes whole numbers of 1 or more, and nothing else that JSON can carry', () => {
+    // The starts pass caught the same ordering defect: a start of `0` on the
+    // second rung made the first rung's default outside *its* band, so the
+    // default code answered where a start code was owed. Same fix, same run.
     for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(priorityLadderProblem(ladderWith(1, { startsAt: bad }))).toBe(
         'band_start_must_be_a_whole_number_from_1',

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -121,17 +121,6 @@ export function PrioritiesDialog({ bands, setBands, onChanged }: PrioritiesDialo
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // The boxes follow be-01 **while the surface is shut**, and stop the moment it
-  // opens. A peer re-cutting the ladder must reach a reader who has this closed;
-  // a reader who has it open and has typed into it must not have their drafts
-  // replaced under their hands. `TeamsDialog` gets this for free by keying its
-  // drafts on "only what somebody touched"; a five-row ladder has no such key,
-  // because a Save sends the untouched rows too.
-  useEffect(() => {
-    if (open) return;
-    setDrafts(draftsOf(bands));
-  }, [bands, open]);
-
   function edit(at: number, field: keyof BandDraft, value: string): void {
     setDrafts((current) =>
       current.map((draft, index) => (index === at ? { ...draft, [field]: value } : draft)),
@@ -162,10 +151,26 @@ export function PrioritiesDialog({ bands, setBands, onChanged }: PrioritiesDialo
     }
   }
 
-  /** Opens and closes, and leaves nothing half-typed behind on the way out. */
+  /**
+   * Opens and closes, and takes the ladder from be-01 on the way through in both
+   * directions.
+   *
+   * **On the transition and not in an effect**, which is the correction rather
+   * than the first shape. Written as `useEffect(..., [bands, open])` that reseeds
+   * whenever the surface is shut, it fired on every tree read — `bands` is a
+   * fresh array from every payload — so every refetch anywhere in the app queued
+   * a `setDrafts` from a component that is not on screen. Harmless in a browser
+   * and very loud in a test: 77 `An update to PrioritiesDialog inside a test was
+   * not wrapped in act(...)` in one CI run, watched 2026-08-14.
+   *
+   * Seeding on open is the same guarantee with none of that. A reader who has
+   * this shut sees a peer's re-cut the next time they open it; a reader who has
+   * it open and has typed into it keeps what they typed, which is what
+   * {@link PrioritiesDialog} promises and what an effect reseeding under their
+   * hands would break.
+   */
   function onOpenChange(next: boolean): void {
     setOpen(next);
-    if (next) return;
     setProblem(null);
     setDrafts(draftsOf(bands));
   }
