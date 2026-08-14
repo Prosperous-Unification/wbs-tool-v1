@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 export PATH=/home/puni1/tools/node-v22.14.0-linux-x64/bin:/home/puni1/wbs-e2e-work/.bun-1314/bin:$PATH
 
 be() { (cd apps/be-01 && bun test "$@" 2>&1 | tr -cd '\11\12\15\40-\176'); }
-fe() { timeout 1800 node node_modules/vitest/vitest.mjs run --root apps/fe-01 --config apps/fe-01/vitest.config.ts "$@" --reporter=basic 2>&1 | tr -cd '\11\12\15\40-\176'; }
+fe() { (cd apps/fe-01 && timeout 1800 node ../../node_modules/vitest/vitest.mjs run "$@" --reporter=basic 2>&1 | tr -cd '\11\12\15\40-\176'); }
 
 run() {
   local n="$1"; shift
@@ -116,10 +116,14 @@ s=s.replace("""    const teamOf = effectiveTeamOf(rows);""","""    const teamOf 
           ? null
           : (priorityBands.findLast((band) => band.startsAt <= (row.priority ?? 1))?.startsAt ?? 1),
     }));""")
-s=s.replace("""    const slices = slicesOf(
-      rows,""","""    const slices = slicesOf(
-      banded,""")
-s=s.replace("""      const planned = schedule(rows, edges, slices, notBefore, slotsOf);""","""      const planned = schedule(banded, edges, slices, notBefore, slotsOf);""")
+assert "const banded" in s, "the banded rows were not inserted"
+before = s
+s=s.replace("""    const slices = slicesOf(\n      rows,""","""    const slices = slicesOf(\n      banded,""")
+s=s.replace("      rows,\n      stored,\n      hasChildren,","      banded,\n      stored,\n      hasChildren,")
+assert s != before, "slicesOf was not repointed"
+before = s
+s=s.replace("schedule(rows, edges, slices, notBefore, slotsOf)","schedule(banded, edges, slices, notBefore, slotsOf)")
+assert s != before, "schedule was not repointed"
 open(p,'w').write(s)
 PY
   be src/service/priority-band-identity.test.ts | grep -E "^\(fail\)|^[-+] |[0-9]+ (pass|fail)" | head -25

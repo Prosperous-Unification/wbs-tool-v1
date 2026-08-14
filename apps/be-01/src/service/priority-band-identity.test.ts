@@ -198,6 +198,111 @@ describe('a priority ladder moves no date', () => {
     }
   });
 
+  it('leaves a plan whose order priority decides exactly where it was, under any ladder', async () => {
+    // **The corpus above cannot see this, and that is why this test exists.**
+    // Inverting every priority in the sixteen captured plans — inside the
+    // scheduler, with the payload's own numbers left alone — moves not one date:
+    // `4 pass, 0 fail`, watched 2026-08-14. Those plans' contention is decided by
+    // dependencies, pools and people, and their 26 priorities never break a tie.
+    // So a build in which the ladder reached the leveller would pass both replays
+    // above, and the differential would be green for a reason that has nothing to
+    // do with the claim.
+    //
+    // This is a plan where priority is the **only** thing deciding the order: one
+    // person, two independent leaves, no dependencies and no pool. It is measured
+    // three ways — the default ladder, a re-cut ladder, and the same plan with the
+    // two numbers swapped — and the third is the control that proves the first two
+    // are measuring something.
+    const underDefault = await contended(1, 2, DEFAULT_PRIORITY_BANDS);
+    const underRecut = await contended(1, 2, RECUT);
+    const swapped = await contended(2, 1, DEFAULT_PRIORITY_BANDS);
+
+    // Non-vacuity first: the two numbers decide the order, so swapping them has
+    // to move the plan. Without this the two assertions below could both hold on
+    // a plan where nothing was contended at all.
+    expect(swapped).not.toEqual(underDefault);
+    // And under the two ladders the plan is byte-identical — every field of every
+    // work item and every slice. `Blocker` and `Urgent` name what `Critical` named
+    // a moment ago and the dates do not know about it.
+    expect(underRecut).toEqual(underDefault);
+  });
+
+  /**
+   * Two independent leaves, one person on both, and nothing else to decide which
+   * goes first — so the two priorities are the whole of the order.
+   *
+   * Returns the payload with the ladder itself removed, because the ladder is the
+   * one thing the two calls are meant to differ in.
+   */
+  async function contended(
+    first: number,
+    second: number,
+    bands: readonly PriorityBand[],
+  ): Promise<Record<string, unknown>> {
+    const projects = inMemoryProjects();
+    const directory = inMemoryDirectory();
+    const workItems = inMemoryWorkItems(directory);
+    const estimates = inMemoryEstimates(workItems);
+    const dependencies = inMemoryDependencies();
+    const service = new WorkItemService({
+      workItems,
+      projects,
+      estimates,
+      dependencies,
+      directory,
+      capacity: inMemoryCapacity(),
+      priorityBands: inMemoryPriorityBands({ contended: bands }),
+      subtrees: inMemorySubtrees({ workItems, estimates, dependencies, directory }),
+      journal: inMemoryCommandJournal(),
+      broadcast: recordingBroadcaster(),
+    });
+    await directory.addPerson({ id: 'ada', name: 'Ada' }, []);
+    await projects.create(
+      {
+        id: 'contended',
+        name: 'Two things, one person',
+        ownerId: 'owner',
+        restricted: false,
+        estimateMethod: 'realistic',
+        startDate: null,
+        revision: 0,
+        createdAt: 1,
+      },
+      [{ id: 'dev', projectId: 'contended', name: 'Dev', position: ROLE_POSITION_STEP }],
+    );
+    for (const [id, position, priority] of [
+      ['a', 10, first],
+      ['b', 20, second],
+    ] as const) {
+      await workItems.insert(
+        {
+          id,
+          projectId: 'contended',
+          parentId: null,
+          position,
+          name: id,
+          notes: '',
+          frozenNumber: null,
+          priority,
+          maxParallel: 1,
+          startNoEarlierThan: null,
+          serviceTeamId: null,
+          revision: 0,
+        },
+        [],
+      );
+      await estimates.set({ workItemId: id, roleId: 'dev', optimistic: 3, realistic: 3, pessimistic: 3 });
+      // One person on both, which is what makes the two compete: a person's next
+      // slice is only ever placed after their previous one is final.
+      await directory.assign(id, 'dev', 'ada');
+    }
+    const tree = await service.tree('contended');
+    if (tree === null) throw new Error('the contended plan vanished on replay');
+    const { priorityBands, ...rest } = tree;
+    void priorityBands;
+    return rest;
+  }
+
   /** What the payload is owed: the capture, plus the two keys it predates. */
   function expected(
     plan: CapturedPlan,
