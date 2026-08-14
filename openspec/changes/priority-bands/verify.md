@@ -194,17 +194,26 @@ one thing this document cannot claim.
 
 ## CI
 
-**PR #60.**
+**PR #60, head `ff3bff1`, run 31781023217 — `gate` and `pixels` both green.**
 
-**Run 31779078849 at `7e4d531` failed**, and it is named first because of what
-failed: `pixels` passed, and `gate` died on `bunx nx format:check --all` over
-**this file** — a markdown table edited by hand does not survive prettier's
-column alignment, and the gate checks it before it runs anything. That is
-`capacity-per-project`'s own R5 lesson (its run 31736929230 at `5c3ac76`, same
-cause, same file) arriving a second time in the change that quoted it. The
-commit after it is that padding and nothing else.
+Two runs before it are on the record, and both are worth naming because of what
+they caught rather than as bookkeeping.
 
-The head a green run names and the head that merges differ by **this file and
+**Run 31779078849 at `7e4d531` failed**: `pixels` green, `gate` dead in the
+Format step over **this file**. A markdown table edited by hand does not survive
+prettier's column alignment, and the gate checks it before it runs anything.
+That is `capacity-per-project`'s own R5 lesson — its run 31736929230 at
+`5c3ac76`, same cause, same file — arriving a second time in the change that
+quotes it. The commit after it is that padding and the paragraph naming it.
+
+**Run 31779765416 at `54c119f` failed**, and this one was a real defect: `gate`
+died on `libs/domain`'s suite, two cases of `priority-band` red. Both were
+branches of `priorityLadderProblem` that could not fail, and both are written up
+under "Failure proofs" above. `pixels` was green in that run too. It is the run
+that says out loud what running two apps' suites by hand and calling that the
+gate costs.
+
+The head this paragraph names and the head that merges differ by **this file and
 nothing else** — the last commit on a branch cannot cite the run of its own sha.
 C5 recorded a run against the wrong head by not saying so; this is that lesson
 applied.
