@@ -231,8 +231,12 @@ describe('a priority ladder moves no date', () => {
    * Two independent leaves, one person on both, and nothing else to decide which
    * goes first — so the two priorities are the whole of the order.
    *
-   * Returns the payload with the ladder itself removed, because the ladder is the
-   * one thing the two calls are meant to differ in.
+   * Returns **only what the schedule decided** — each row's placement and dates,
+   * and every slice. Not the whole payload, and that is not tidiness: the payload
+   * carries each row's stored `priority`, so a comparison over all of it is
+   * satisfied by the numbers being different and says nothing about whether a
+   * date moved. The control below would have passed on that alone, and did until
+   * this was narrowed. Watched 2026-08-14.
    */
   async function contended(
     first: number,
@@ -298,9 +302,14 @@ describe('a priority ladder moves no date', () => {
     }
     const tree = await service.tree('contended');
     if (tree === null) throw new Error('the contended plan vanished on replay');
-    const { priorityBands, ...rest } = tree;
-    void priorityBands;
-    return rest;
+    return {
+      slices: tree.slices,
+      placed: tree.workItems.map((row) => ({
+        id: row.id,
+        schedule: row.schedule,
+        dates: row.dates,
+      })),
+    };
   }
 
   /** What the payload is owed: the capture, plus the two keys it predates. */
