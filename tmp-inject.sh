@@ -26,7 +26,9 @@ case "${1:-all}" in
   python3 - <<'PY'
 p='apps/be-01/drizzle/20260814100000_add_priority_band/migration.sql'
 s=open(p).read()
-s=s[:s.index("INSERT INTO `project_priority_band`")]
+# From the statement breakpoint, so the CREATE TABLE above stays a whole,
+# parseable statement and the only thing gone is the seeding.
+s=s[:s.index("--> statement-breakpoint")]
 open(p,'w').write(s)
 PY
   be src/repository/migrate.test.ts | grep -E "^\(fail\)|toHaveLength|Expected|Received|received|[0-9]+ (pass|fail)" | head -20

@@ -749,37 +749,73 @@ describe('the priority band migration', () => {
     // still work, and so must its plain `DELETE FROM project`, which is the one
     // that reaches the new foreign key.
     //
-    // Proof: `ON DELETE CASCADE` removed from the migration, and this failed on
+    // The project it deletes is one the **migration seeded**, which is what makes
+    // this a test of the cascade at all: a project created after the migration
+    // holds no bands, so deleting it touches no child row and the same delete
+    // passes with the cascade removed. That is exactly what happened when this
+    // case was first written against a post-migration project — `16 pass, 0 fail`
+    // with `ON DELETE CASCADE` struck. Watched 2026-08-14, and the reason this
+    // fixture rolls back first.
+    //
+    // Proof: `ON DELETE CASCADE` removed from the migration, and this fails on
     // the delete with `FOREIGN KEY constraint failed` — the outgoing release
     // answering 500 for the length of the swap on a statement it has always been
-    // able to run. Watched 2026-08-14.
+    // able to run.
     const db = tempDb();
     try {
       runMigrations(db.path, FOLDER);
+      rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+      const before = openDatabase(db.path);
+      try {
+        before.run(
+          "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+        );
+        before.run(
+          'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+            " VALUES ('seeded', 'Rewire the shed', 'u', 0, 'pert', NULL, 0, 1)",
+        );
+      } finally {
+        before.close();
+      }
+
+      runMigrations(db.path, FOLDER);
+
       const sqlite = openDatabase(db.path);
       try {
         sqlite.run('PRAGMA foreign_keys = ON');
-        sqlite.run(
-          "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
-        );
+        // Five rows to cascade, which is what the delete below has to take with
+        // it. Asserted first, because a delete against no child rows is the
+        // vacuous version of this test.
+        expect(
+          sqlite
+            .query<{ n: number }, []>(
+              "SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'seeded'",
+            )
+            .get()?.n,
+        ).toBe(5);
+
+        // The outgoing release's own two statements, written out because drizzle
+        // is the new release and the point is what the old one sends.
         sqlite.run(
           'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
-            " VALUES ('p', 'Rewire the shed', 'u', 0, 'pert', NULL, 0, 1)",
+            " VALUES ('fresh', 'Reroof the barn', 'u', 0, 'pert', NULL, 0, 1)",
         );
         // Seeded nowhere: this project was created *after* the migration, which
         // is the state the read's default arm answers for.
         expect(
           sqlite
-            .query<
-              { n: number },
-              []
-            >("SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'p'")
+            .query<{ n: number }, []>(
+              "SELECT COUNT(*) AS n FROM project_priority_band WHERE project_id = 'fresh'",
+            )
             .get()?.n,
         ).toBe(0);
-        sqlite.run("DELETE FROM project WHERE id = 'p'");
-        expect(sqlite.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM project').get()?.n).toBe(
-          0,
-        );
+
+        sqlite.run("DELETE FROM project WHERE id = 'seeded'");
+        expect(
+          sqlite
+            .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM project_priority_band')
+            .get()?.n,
+        ).toBe(0);
       } finally {
         sqlite.close();
       }
