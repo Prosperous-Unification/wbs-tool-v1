@@ -274,6 +274,54 @@ describe('a block labelled with two teams waits for both of them', () => {
     expect(blockersOf(both)).toEqual(['alpha-hold', 'beta-long', 'beta-short']);
   });
 
+  it('re-asks every pool from the instant another pool pushed it to', () => {
+    // **The fixpoint's own reason to exist, and it took an injection to find
+    // that nothing else in the suite needed it.** A single round — ask each
+    // pool once from the plan floor, take the latest answer — is right only
+    // when moving to that answer cannot make another pool say no. Here it does.
+    //
+    // Alpha is busy 0→3. Beta is free at 0 and busy 3→6, because `b-late` is
+    // floored to day 3 by a manual date. Round one: Alpha answers 3, Beta
+    // answers 0, so the candidate moves to 3 — and at 3 Beta is now full.
+    // Round two: Beta answers 6. Round three: both fit, and 6 is the answer.
+    // A one-round search returns **3**, placing the block on top of `b-late`.
+    //
+    // Proof: `jointWindowFor`'s loop replaced by one pass over the pools from
+    // the floor, keeping the binding condition so the placement's invariant
+    // stays quiet, and this failed with `earliestStart` 3 where 6 was owed and
+    // `capacityTeamId: "team-alpha"` where Beta was owed — a block running
+    // beside a reservation that already held its only slot. The whole of
+    // `src/service` was **489 pass / 0 fail** under the same fault before this
+    // test existed; watched 2026-08-14.
+    const rows = [
+      item('a-early', { priority: 1 }),
+      item('b-late', { priority: 1 }),
+      item('both', { priority: 2 }),
+    ];
+    const slices = [
+      slice('a-early', 3, { poolIds: [ALPHA] }),
+      slice('b-late', 3, { poolIds: [BETA] }),
+      slice('both', 1, { poolIds: [ALPHA, BETA] }),
+    ];
+
+    const found = schedule(rows, [], slices, new Map([['b-late', 3]]), pools(1, 1));
+
+    // The premise: Beta really is free at day 0 and busy from 3.
+    expect(planned(found, 'b-late')).toMatchObject({ earliestStart: 3, earliestFinish: 6 });
+    const both = planned(found, 'both');
+    expect(both).toMatchObject({
+      earliestStart: 6,
+      boundBy: 'capacity',
+      capacityTeamId: BETA,
+    });
+    // The one-round answer, named so a regression reads as what it is.
+    expect(both.earliestStart).not.toBe(3);
+    // Both rounds' scans are in the set: Alpha's hold pushed the candidate to
+    // 3, Beta's hold pushed it from 3 to 6, and each is a reservation that had
+    // to end.
+    expect(blockersOf(both)).toEqual(['a-early', 'b-late']);
+  });
+
   it('names no team on a slice no pool held up', () => {
     // The invariant `capacityTeamId` shares with `capacityPredecessorIds`: a
     // team named on a block nothing held up is a wait that is not there, in the
