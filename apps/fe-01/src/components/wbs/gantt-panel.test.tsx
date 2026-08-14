@@ -1,3 +1,4 @@
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { IsoDate } from '@wbs/domain/workday';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -107,6 +108,7 @@ const planOf = (parts: Partial<GanttPlan>): GanttPlan => ({
   tree: treeFrom(parts.rows ?? []),
   roles: [{ id: 'dev', name: 'Dev' }],
   personNames: new Map(),
+  priorityBands: DEFAULT_PRIORITY_BANDS,
   ...parts,
 });
 
@@ -872,7 +874,12 @@ describe('the chart is drawn in calendar days', () => {
       />,
     );
 
-    expect(linesOf(surfaceOn('strip-dev'))).toContain('Priority 2');
+    // The **band's** words, since `priority-bands`: a bare `Priority 2` on a
+    // chart is a number nobody reading it can name, and the ladder that names it
+    // rides in the same payload as the slice. The line is
+    // `priorityBandStyleOf(...).words`, which is the one resolution the table's
+    // cell, the cards and the export also read.
+    expect(linesOf(surfaceOn('strip-dev'))).toContain('Critical — priority 2');
     // Not "Priority —" and not a blank line: having no priority is a state of its own,
     // and a bar with nothing to say about it says nothing.
     expect(linesOf(surfaceOn('sand-dev')).filter((line) => line.includes('Priority'))).toEqual([]);
@@ -2599,6 +2606,7 @@ function fakeApi(startDate: string | null, skew: ReadSkew = {}): ProjectApi {
         // left it out would let `teamsOnThePlan` be handed `undefined` here and
         // never in production. A plan whose teams are unlimited is what `[]` says.
         teamCapacities: [],
+        priorityBands: DEFAULT_PRIORITY_BANDS,
         estimateMethod: 'pert' as const,
         startDate,
         projectRevision: 0,

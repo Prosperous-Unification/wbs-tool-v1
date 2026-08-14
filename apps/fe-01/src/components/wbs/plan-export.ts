@@ -1,6 +1,7 @@
 import { type EffectiveTeam, effectiveTeamOf } from '@wbs/domain/effective-team';
+import { priorityBandOf } from '@wbs/domain/priority-band';
 
-import type { EstimateMethod } from '@/lib/wbs-api';
+import type { EstimateMethod, PriorityBandView } from '@/lib/wbs-api';
 
 /** One estimate's three points, as a row carries them into an export. */
 export interface ExportTrio {
@@ -108,6 +109,15 @@ export interface PlanExport {
   scheduleError: 'cycle' | null;
   roles: readonly NamedEntry[];
   teams: readonly NamedEntry[];
+  /**
+   * What this plan calls its priority numbers, for the Priority band column.
+   *
+   * The **plan's own** ladder travels with the export rather than being inferred
+   * from the numbers, because a spreadsheet outlives the plan it came from: a CSV
+   * saying `Critical` for 10 is still readable the day somebody re-cuts the
+   * ladder, and one saying only `10` is a number nobody can name again.
+   */
+  priorityBands: readonly PriorityBandView[];
   people: readonly NamedEntry[];
   /** Every work item, in tree order. Collapsed branches and searches are the screen's business. */
   rows: readonly ExportRow[];
@@ -414,6 +424,22 @@ function columnsOf(plan: PlanExport, markSums: boolean): ExportColumn[] {
     // Blank for a work item nobody has given a priority, exactly as the column is: a
     // spreadsheet reader sorting on this wants an empty cell, not a 0.
     { header: 'Priority', cell: (row) => (row.priority === null ? '' : String(row.priority)) },
+    // The name beside the number rather than instead of it. The number is what
+    // the plan sorts by and the name is what a reader of the export talks about,
+    // and neither substitutes for the other: two rows at 10 and 18 are both
+    // `Critical` and are not the same priority. Blank where the number is, for
+    // the reason above it.
+    //
+    // `priorityBandOf` and not a lookup of this file's own, which is the whole of
+    // "the band-to-anything mapping is one function": the table's cell, the
+    // chart's bars, the cards and this column resolve a number to a band in
+    // `libs/domain` and colour it in `priority-band-style.ts`, and no face holds
+    // a fifth opinion. A CSV has no colour, so this reads the label alone.
+    {
+      header: 'Priority band',
+      cell: (row) =>
+        row.priority === null ? '' : (priorityBandOf(plan.priorityBands, row.priority)?.label ?? ''),
+    },
     { header: 'Not before', cell: (row) => row.startNoEarlierThan ?? '' },
     { header: 'Starts', cell: (row) => startsCell(plan, row) },
     { header: 'Ends', cell: (row) => endsCell(plan, row) },

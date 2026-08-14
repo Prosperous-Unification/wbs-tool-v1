@@ -1,3 +1,4 @@
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -111,6 +112,7 @@ const plan = (over: Partial<PlanExport> = {}): PlanExport => ({
   scheduleError: null,
   roles: [DEV, QA],
   teams: [{ id: 'team-billing', name: 'Billing, Ltd' }],
+  priorityBands: DEFAULT_PRIORITY_BANDS,
   people: [
     { id: 'person-ada', name: 'ada' },
     { id: 'person-bo', name: 'Bo "Boss"' },
@@ -272,6 +274,7 @@ describe('the columns', () => {
       'Total days (PERT)',
       'Depends on',
       'Priority',
+      'Priority band',
       'Not before',
       'Starts',
       'Ends',

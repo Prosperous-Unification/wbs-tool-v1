@@ -42,6 +42,11 @@ const MAX_PARALLEL = '20260812100001_add_max_parallel';
 // were seeded from `service_team.size`, so it has to reverse before the migration
 // that adds that column.
 const PER_PROJECT_CAPACITY = '20260813120000_add_project_team_capacity';
+// A table of its own and the newest, so it reverses first. It references
+// `project` alone and is seeded from a constant rather than from any column, so
+// unlike the capacity table above it has no ordering constraint of its own — its
+// place at the head of the reversal is only that it was applied last.
+const PRIORITY_BANDS = '20260814100000_add_priority_band';
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-migrate-down-'));
@@ -127,6 +132,7 @@ describe('readMigrationFolders', () => {
       TEAM_SLOTS,
       MAX_PARALLEL,
       PER_PROJECT_CAPACITY,
+      PRIORITY_BANDS,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -166,11 +172,13 @@ describe('rollbackTo, against a real database', () => {
         TEAM_SLOTS,
         MAX_PARALLEL,
         PER_PROJECT_CAPACITY,
+        PRIORITY_BANDS,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        PRIORITY_BANDS,
         PER_PROJECT_CAPACITY,
         MAX_PARALLEL,
         TEAM_SLOTS,
@@ -223,6 +231,7 @@ describe('rollbackTo, against a real database', () => {
         TEAM_SLOTS,
         MAX_PARALLEL,
         PER_PROJECT_CAPACITY,
+        PRIORITY_BANDS,
       ]);
     } finally {
       db.cleanup();
@@ -236,6 +245,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        PRIORITY_BANDS,
         PER_PROJECT_CAPACITY,
         MAX_PARALLEL,
         TEAM_SLOTS,
@@ -274,7 +284,7 @@ describe('rollbackTo, against a real database', () => {
     const db = tempDb();
     try {
       runMigrations(db.path, FOLDER);
-      expect(rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY)).toEqual([]);
+      expect(rollbackTo(db.path, FOLDER, PRIORITY_BANDS)).toEqual([]);
       expect(tables(db.path)).toContain('users');
     } finally {
       db.cleanup();

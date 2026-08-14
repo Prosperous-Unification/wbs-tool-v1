@@ -6,6 +6,7 @@ import { WorkItemService } from '../service/work-item.service';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixture';
+import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
 import { inMemoryDependencies } from '../testing/dependency-fixture';
 import { inMemoryDirectory, testDirectoryService } from '../testing/directory-fixture';
@@ -29,6 +30,7 @@ function buildHarness() {
     // harness did until the write began reading the person it writes.
     directory: testDirectoryService(directoryStore),
     capacity: testCapacityService(),
+    priorityBands: testPriorityBandService(),
     auth: testAuthService(inMemoryUsers()),
     projects: new ProjectService({ projects: projectStore }),
     roles: testRoleService(projectStore),
@@ -39,6 +41,7 @@ function buildHarness() {
       dependencies: dependencyStore,
       directory: directoryStore,
       capacity: inMemoryCapacity(),
+      priorityBands: inMemoryPriorityBands(),
       subtrees: inMemorySubtrees({
         workItems: workItemStore,
         estimates: estimateStore,

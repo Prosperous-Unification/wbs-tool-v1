@@ -5,15 +5,21 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
-  // The same three the app is built with. `@wbs/domain/workday` and
-  // `@wbs/domain/effective-team` are the two pure modules and *not* the lib's
-  // index barrel, which re-exports arktype-touching validators this bundle
-  // excludes — see `vite.config.ts`.
+  // The same four the app is built with. `@wbs/domain/workday`,
+  // `@wbs/domain/effective-team` and `@wbs/domain/priority-band` are the pure
+  // modules and *not* the lib's index barrel, which re-exports arktype-touching
+  // validators this bundle excludes — see `vite.config.ts`.
+  //
+  // Every one of them has to be listed in **both** configs, and the day one is
+  // not the suite fails to collect rather than failing an assertion: adding
+  // `priority-band` here after `vite.config.ts` alone gave `Failed to resolve
+  // import "@wbs/domain/priority-band"` on eight files at once.
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
       '@wbs/domain/effective-team': resolve(__dirname, '../../libs/domain/src/effective-team.ts'),
+      '@wbs/domain/priority-band': resolve(__dirname, '../../libs/domain/src/priority-band.ts'),
     },
   },
   test: {

@@ -1,4 +1,4 @@
-import type { RoleView } from '@/lib/wbs-api';
+import type { PriorityBandView, RoleView } from '@/lib/wbs-api';
 
 import { CellInput } from './cell-input';
 import type { CellRef } from './cell-navigation';
@@ -8,6 +8,7 @@ import type { ServiceTeamLabel } from './gantt-geometry';
 import type { CommitOutcome } from './live-editing';
 import { composeNameCell } from './name-notes';
 import type { PrintedDay } from './short-date';
+import { priorityBandStyleOf } from './priority-band-style';
 import { cardIndentFor } from './table-frame';
 import type { TreeRow } from './wbs-rows';
 
@@ -40,6 +41,16 @@ export interface PlanCardsProps {
   /** The rows on screen, in the order and the expansion the table model gives them. */
   rows: readonly CardRow[];
   roles: readonly RoleView[];
+  /**
+   * This plan's priority ladder, for the chip on each card's header.
+   *
+   * The cards are the only face some readers have — a phone shows no table and
+   * no chart — so a priority that were a bare number here would be the one face
+   * where Dany's _"ui must display differently for different priorities"_ did
+   * not land. The colour and the label come from `priorityBandStyleOf`, the same
+   * one resolution the table's cell, the chart's bars and the export read.
+   */
+  priorityBands: readonly PriorityBandView[];
   /**
    * Takes the list element, which is this renderer's `[data-grid]`.
    *
@@ -165,6 +176,7 @@ const TAP = 'min-h-11';
 export function PlanCards({
   rows,
   roles,
+  priorityBands,
   gridRef,
   commitName,
   claimFocus,
@@ -231,6 +243,29 @@ export function PlanCards({
               <span data-number className="font-semibold">
                 {row.number}
               </span>
+              {/*
+                The band, where somebody has prioritised this row, as a chip in
+                its own colour — and **nothing at all** where nobody has, which is
+                the bargain every other face makes with an unprioritised row. It
+                carries the number as well as the name because the number is what
+                the table and the export show, and a phone reader comparing two
+                screens must not have to work out which `High` is 30.
+              */}
+              {(() => {
+                const paint = priorityBandStyleOf(priorityBands, row.priority);
+                if (paint === null) return null;
+                return (
+                  <span
+                    data-card-priority={row.id}
+                    data-priority-rank={paint.rank}
+                    title={paint.words}
+                    className="shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
+                    style={{ color: paint.ink, background: paint.tint }}
+                  >
+                    {paint.label} {row.priority}
+                  </span>
+                );
+              })()}
               <span data-final-total className="text-muted-foreground ml-auto text-sm">
                 {showDay(row.finalTotal)} d
               </span>

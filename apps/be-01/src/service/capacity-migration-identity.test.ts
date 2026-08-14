@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { Project, Role, StoredDependency, WorkItem } from '../repository';
@@ -16,6 +17,7 @@ import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
 import { inMemoryDependencies } from '../testing/dependency-fixture';
 import { inMemoryDirectory } from '../testing/directory-fixture';
 import { inMemoryEstimates } from '../testing/estimate-fixture';
+import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { inMemoryProjects } from '../testing/project-fixture';
 import { inMemorySubtrees } from '../testing/subtree-fixture';
 import { inMemoryWorkItems } from '../testing/work-item-fixture';
@@ -226,6 +228,15 @@ describe('every plan schedules identically across the migration', () => {
         teamCapacities: [...(seeded.get(plan.projectId) ?? new Map<string, number>())]
           .map(([serviceTeamId, size]) => ({ serviceTeamId, size }))
           .sort((a, b) => a.serviceTeamId.localeCompare(b.serviceTeamId)),
+        // The second key the capture predates, added by `priority-bands`. Its
+        // presence here is the whole of that change's effect on this
+        // differential: the ladder is read into the payload and passed to
+        // nothing, so every date, every slice and every other field is
+        // byte-identical to the answer captured at `050fd45`. The claim in the
+        // other direction — that a project which has **re-cut** its ladder
+        // schedules identically too — is `priority-band-identity.test.ts`, and
+        // it is that change's to make rather than this file's.
+        priorityBands: DEFAULT_PRIORITY_BANDS,
       });
     }
   });
@@ -322,6 +333,7 @@ describe('every plan schedules identically across the migration', () => {
       capacity: inMemoryCapacity({
         [plan.projectId]: Object.fromEntries(seeded.get(plan.projectId) ?? []),
       }),
+      priorityBands: inMemoryPriorityBands(),
       subtrees: inMemorySubtrees({ workItems, estimates, dependencies, directory }),
       journal: inMemoryCommandJournal(),
       broadcast: recordingBroadcaster(),

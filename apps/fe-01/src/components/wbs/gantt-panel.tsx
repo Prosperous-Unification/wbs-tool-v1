@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { cn } from '@/lib/utils';
+import type { PriorityBandView } from '@/lib/wbs-api';
 
 import {
   ASSUMED_UNESTIMATED_WORKDAYS,
@@ -30,6 +31,7 @@ import {
   type ServiceTeamLabel,
 } from './gantt-geometry';
 import { type AnchorRect, HoverCard } from './hover-card';
+import { priorityBandStyleOf } from './priority-band-style';
 import { shortIsoDate } from './short-date';
 import { hierarchyIndentFor } from './table-frame';
 
@@ -157,6 +159,27 @@ const NOT_BEFORE_CLEARANCE = 0.03;
  * decision made in pixels in the first place and has no other honest unit.
  */
 const BAR_RADIUS_PX = 3;
+
+/**
+ * How wide the priority cap at a bar's left edge is drawn, in px.
+ *
+ * The bar's own two visual channels are already spoken for — `fill` is the
+ * assignee and `stroke` is the critical path — so the band gets a **third**
+ * mark rather than a repaint of either. Dany's ask was "ui must display
+ * differently for different priorities"; overloading the assignee colour would
+ * have made two facts one colour and told the reader neither.
+ *
+ * Three pixels: the same figure as {@link BAR_RADIUS_PX}, because that is the
+ * corner the cap sits inside and a cap narrower than the rounding would be a
+ * sliver behind a curve. Pixels rather than workdays, for `BAR_RADIUS_PX`'s
+ * reason — a mark's size is not a duration — divided by {@link DAY_PX} at the
+ * point of use, since the viewBox is measured in workdays.
+ *
+ * A cap is never drawn wider than the bar it caps: a one-day bar at a wide zoom
+ * is still wider than 3px, but a slice estimated at zero days draws no rect at
+ * all and takes its cap with it (both come off {@link drawnBars}).
+ */
+const PRIORITY_CAP_PX = 3;
 
 /**
  * A dependency arrow's approach and its head, in CSS pixels — turned into the
@@ -904,7 +927,17 @@ function trioWords(trio: EstimateTrio | null): string {
  * @param today the reader's own today, which is the year {@link shortIsoDate}
  * measures its omission against.
  */
-export function barFacts(bar: GanttBar, startDate: IsoDate | null, today: Date): string[] {
+export function barFacts(
+  bar: GanttBar,
+  startDate: IsoDate | null,
+  today: Date,
+  /**
+   * This plan's ladder, so the line reads `Critical — priority 10` rather than a
+   * bare number nobody on this chart can name. Empty before the first read
+   * lands, which resolves to no band and leaves the line as the number alone.
+   */
+  bands: readonly PriorityBandView[] = [],
+): string[] {
   return [
     // The row's own label, word for word — {@link rowWords} and not a second
     // spelling of it, so the surface opens on the same line the chart's label
@@ -940,7 +973,19 @@ export function barFacts(bar: GanttBar, startDate: IsoDate | null, today: Date):
     // Proof: the null check dropped, so the line is always built, and `says
     // nothing about priority for a work item nobody has given a priority` failed on the
     // card containing `Priority null`; watched 2026-08-11.
-    bar.priority === null ? null : `Priority ${String(bar.priority)}`,
+    // The band's own words where the ladder can name the number, and the bare
+    // number where it cannot — which is only the moment before the first read
+    // lands. `priorityBandStyleOf` is the same resolution the table's cell, the
+    // cards and the export use; this face takes the sentence out of it and the
+    // colour is on the cap drawn at the bar's left edge.
+    //
+    // Still nothing at all for a work item nobody has prioritised: a line reading
+    // `Priority —` on every bar of every plan that priorities nothing is
+    // furniture, not a fact, and that bargain predates this change.
+    bar.priority === null
+      ? null
+      : (priorityBandStyleOf(bands, bar.priority)?.words ??
+        `Priority ${String(bar.priority)}`),
     bar.floorWords,
     bar.waitsFor.length === 0 ? null : `after ${bar.waitsFor.join(', ')}`,
   ].filter((line): line is string => line !== null);
@@ -1961,7 +2006,7 @@ function GanttChart({
                   // bars: two tooltips on one mark is a bug, and the browser's
                   // is the one nothing can place or style. The same facts the
                   // surface shows, from the same derivation.
-                  aria-label={barFacts(bar, startDate, today).join('. ')}
+                  aria-label={barFacts(bar, startDate, today, plan.priorityBands).join('. ')}
                   onClick={() => {
                     const rowId = rowIdAt(bar.rowIndex);
                     // A bar with no row is not a state this can be in — the bar
@@ -2003,6 +2048,42 @@ function GanttChart({
                   onBlur={dismiss}
                 />
               ))}
+
+              {/*
+              The band, as a cap at the bar's left edge — the third channel, and
+              the only one this mark had spare. Its colour is
+              `priorityBandStyleOf`'s and nothing here decides it: the same
+              function paints the Prio cell's digits, the cards' chip and names
+              the export's column, which is what keeps "different priorities look
+              different" one rule rather than four that agree today.
+
+              Nothing at all for a work item nobody has prioritised, which is the
+              bargain every face makes with an unranked row — and the reason this
+              is a separate element rather than a property of the rect: an absent
+              cap is an absent node, not a transparent one.
+
+              After the bars in document order so it paints over the rounded
+              corner, and `pointer-events: none` so it is not a second target in
+              front of the control the bar is. The bar keeps the hover, the focus
+              and the accessible name; this is paint.
+            */}
+              {drawnBars.flatMap(({ bar, x, width }) => {
+                const paint = priorityBandStyleOf(plan.priorityBands, bar.priority);
+                if (paint === null) return [];
+                return [
+                  <rect
+                    key={`${bar.sliceId}-band`}
+                    data-priority-cap={bar.sliceId}
+                    data-priority-rank={paint.rank}
+                    x={x}
+                    y={bar.rowIndex + BAR_INSET}
+                    width={Math.min(PRIORITY_CAP_PX / DAY_PX, width)}
+                    height={BAR_HEIGHT}
+                    fill={paint.ink}
+                    pointerEvents="none"
+                  />,
+                ];
+              })}
 
               {/*
               A slice **estimated** at no days is a real answer — somebody
@@ -2113,7 +2194,7 @@ function GanttChart({
       */}
       {openBar !== null && open !== null && (
         <HoverCard label={`Facts for ${openBar.workItemNumber}`} anchor={open.anchor}>
-          {barFacts(openBar, startDate, today).map((line) => (
+          {barFacts(openBar, startDate, today, plan.priorityBands).map((line) => (
             <p key={line} className="text-xs">
               {line}
             </p>

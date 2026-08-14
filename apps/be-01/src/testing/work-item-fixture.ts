@@ -8,6 +8,7 @@ import type {
 import { WorkItemService } from '../service/work-item.service';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryDirectory } from '../testing/directory-fixture';
+import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { recordingBroadcaster } from './broadcast-fixture';
 import { inMemoryCommandJournal } from './command-journal-fixture';
 import { inMemoryDependencies } from './dependency-fixture';
@@ -130,6 +131,7 @@ export function testWorkItemService(): WorkItemService {
     dependencies,
     directory,
     capacity: inMemoryCapacity(),
+    priorityBands: inMemoryPriorityBands(),
     subtrees: inMemorySubtrees({ workItems, estimates, dependencies, directory }),
     journal: inMemoryCommandJournal(),
     broadcast: recordingBroadcaster(),

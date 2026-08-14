@@ -1,3 +1,13 @@
+// The one exception to this file's "declare, do not import" rule, and it earns
+// it: a band's three fields are not the interesting part — `priorityBandRankOf`
+// and `priorityLadderProblem` are, they live beside the type in `libs/domain`,
+// and a wire type declared here would be a second shape those two functions did
+// not accept. It is a deep subpath import of a module holding four small pure
+// functions and no runtime dependency at all, which is the same bargain
+// `plan-export.ts` and `gantt-geometry.ts` already make with `effective-team`
+// and `workday`.
+import type { PriorityBand } from '@wbs/domain/priority-band';
+
 /**
  * How a project turns its three-point estimates into the one number it plans
  * with. Mirrors `EstimateMethod` in `libs/domain`.
@@ -305,6 +315,18 @@ export interface TeamCapacityView {
   size: number;
 }
 
+/**
+ * One rung of what this project calls its priority numbers.
+ *
+ * Structurally {@link PriorityBand} from `libs/domain`, and named apart for the
+ * reason every other `…View` in this file is: this is the shape on the wire, and
+ * the day be-01 sends a field the domain type does not carry, the two must be
+ * free to differ. The resolution rules — `priorityBandRankOf`,
+ * `priorityLadderProblem` — are the domain's and are imported rather than
+ * re-typed, because a second copy of "which band holds 25" is a second answer.
+ */
+export type PriorityBandView = PriorityBand;
+
 /** Somebody who does work, and the teams they belong to. Empty means a free agent. */
 export interface PersonView {
   id: string;
@@ -601,6 +623,21 @@ export interface ProjectApi {
      * `effectiveTeamOf`.
      */
     teamCapacities: TeamCapacityView[];
+    /**
+     * What this project calls its priority numbers — five rungs, most important
+     * first.
+     *
+     * Always five and never empty: a project that has never been configured reads
+     * as be-01's `DEFAULT_PRIORITY_BANDS`, so every priority on this plan resolves
+     * to exactly one label without this client holding a fallback of its own.
+     *
+     * **No date in this payload was computed from it.** The ladder names the
+     * numbers; the leveller orders on the numbers. What it does drive is every
+     * face — the Prio cell, the chart's bars, the cards and the export all read
+     * their label and their colour through the one resolution in
+     * `priority-band-style.ts`.
+     */
+    priorityBands: PriorityBandView[];
     estimateMethod: EstimateMethod;
     startDate: string | null;
     /**
@@ -650,6 +687,20 @@ export interface ProjectApi {
    * both are argued in `teams-dialog.tsx` and were C3's D6 before that.
    */
   setTeamCapacity(projectId: string, teamId: string, size: number | null): Promise<void>;
+  /**
+   * Replaces what this project calls its priority numbers — the whole ladder, in
+   * one request.
+   *
+   * **All five rungs, never one.** Contiguity is a fact about the five together,
+   * so a per-rung write would have to pass through states in which the ladder is
+   * not one. be-01's shape, and the argument is on its route.
+   *
+   * The ladder is **not** validated here. `priorityLadderProblem` in
+   * `libs/domain` is the one guard and be-01's controller is its one caller, so a
+   * default outside its own band or a cut below the one beneath it is sent and
+   * answered on — the bargain `setTeamCapacity` makes one fact along.
+   */
+  setPriorityBands(projectId: string, bands: readonly PriorityBandView[]): Promise<void>;
   roles(projectId: string): Promise<RoleView[]>;
   /** Adds a phase to the project. Throws `taken` when the name is already one. */
   addRole(projectId: string, name: string): Promise<RoleView>;
@@ -1024,6 +1075,19 @@ export function directoryRefusedWith(thrown: unknown): DirectoryRefusal {
 const SIZE_CEILING_CODE = 'size_must_be_at_most_';
 
 /**
+ * The leaders of be-01's two built refusal codes for a ladder, whose tails carry
+ * the numbers themselves — `bands_must_number_5` and
+ * `band_label_must_be_1_to_40_characters` today.
+ *
+ * Prefixes rather than literal cases for {@link SIZE_CEILING_CODE}'s reason:
+ * be-01 builds both out of constants in `libs/domain`, and a `5` or a `40`
+ * written out here would be a second copy free to drift from the rule that
+ * refused the request.
+ */
+const BAND_COUNT_CODE = 'bands_must_number_';
+const BAND_LABEL_CODE = 'band_label_must_be_';
+
+/**
  * What any 5xx says, in this dialog's own words.
  *
  * `wbs-table.tsx`'s refusal helper has carried this arm since 2026-08-09, when
@@ -1078,6 +1142,56 @@ export function capacityRefusalSentence(code: string): string {
       return 'The server replied with something this page could not read.';
     default:
       return `That capacity could not be changed (${code}).`;
+  }
+}
+
+/**
+ * What a refused ladder change says out loud.
+ *
+ * {@link capacityRefusalSentence}'s sibling one dialog along, and here for its
+ * reason: every one of these is aimed at somebody typing into a box on the
+ * Priorities surface, and `band_default_must_be_inside_its_own_band` in the
+ * corner of that surface is a wire code where a sentence about their ladder
+ * belongs.
+ *
+ * The 5xx arm is taken **first**, which is C3's P2-2 and C5's R5 #18 and is
+ * written here rather than rediscovered: a proxy error is not a word of be-01's,
+ * and `(http_502)` beside a box somebody is typing in is the same defect a third
+ * time.
+ *
+ * The count arm reads its number out of the code rather than printing a literal
+ * `5`, because be-01 builds the code from `PRIORITY_BAND_COUNT` — a literal here
+ * would be a second copy of that number, free to drift.
+ */
+export function priorityBandRefusalSentence(code: string): string {
+  if (/^http_5\d\d$/.test(code)) return SERVER_REFUSAL;
+  if (code.startsWith(BAND_COUNT_CODE)) {
+    return `A priority ladder has exactly ${code.slice(BAND_COUNT_CODE.length)} bands — one cannot be added or taken away.`;
+  }
+  if (code.startsWith(BAND_LABEL_CODE)) {
+    return `A band's name is ${code.slice(BAND_LABEL_CODE.length).replace(/_/g, ' ')}.`;
+  }
+  switch (code) {
+    case 'first_band_must_start_at_1':
+      return 'The most important band has to start at 1, or the priorities below it would have no name.';
+    case 'bands_must_start_in_increasing_order':
+      return 'Each band has to start above the one before it, so every number belongs to exactly one of them.';
+    case 'band_start_must_be_a_whole_number_from_1':
+      return 'A band starts at a whole number of 1 or more.';
+    case 'band_default_must_be_a_whole_number_from_1':
+      return 'The number a band writes is a whole number of 1 or more.';
+    case 'band_default_must_be_inside_its_own_band':
+      return 'The number a band writes has to fall inside that band, or picking its name would land on a different one.';
+    case 'band_labels_must_differ':
+      return 'Two bands cannot share a name — one of the two would do nothing anybody could predict.';
+    case 'not_found':
+      return 'This plan is no longer there — somebody else removed it.';
+    case 'forbidden':
+      return 'This plan is restricted, so its priority bands cannot be changed from this account.';
+    case 'unexpected_response':
+      return 'The server replied with something this page could not read.';
+    default:
+      return `Those priority bands could not be saved (${code}).`;
   }
 }
 
@@ -1211,6 +1325,7 @@ export function httpProjectApi(token: string): ProjectApi {
         roles: RoleView[];
         assignedPeople: AssignedPersonView[];
         teamCapacities: TeamCapacityView[];
+        priorityBands: PriorityBandView[];
         estimateMethod: EstimateMethod;
         startDate: string | null;
         projectRevision: number;
@@ -1255,6 +1370,18 @@ export function httpProjectApi(token: string): ProjectApi {
       await send(`/api/projects/${projectId}/teams/${teamId}/capacity`, token, {
         method: 'PUT',
         body: JSON.stringify({ size }),
+      });
+    },
+    // `PUT` and the whole ladder, which is be-01's shape and the reason is on its
+    // route: five rungs are one fact, and half a ladder is not a ladder.
+    //
+    // Sent as typed, exactly as `setTeamCapacity` is: the rule about what a ladder
+    // may be lives at be-01's boundary, so a `Critical` that writes 30 goes and is
+    // refused with a code the dialog turns into a sentence.
+    async setPriorityBands(projectId, bands) {
+      await send(`/api/projects/${projectId}/priority-bands`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ bands }),
       });
     },
     async setEstimateMethod(projectId, method) {

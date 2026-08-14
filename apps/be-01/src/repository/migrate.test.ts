@@ -34,6 +34,8 @@ const MAX_PARALLEL = '20260812100001_add_max_parallel';
 // A table of its own, referencing `project` and `service_team`, so it reverses
 // before the domain and appears in the ordering case as well as in its own.
 const PER_PROJECT_CAPACITY = '20260813120000_add_project_team_capacity';
+/** A table of its own and the newest, so it is the first thing any rollback reverses. */
+const PRIORITY_BANDS = '20260814100000_add_priority_band';
 
 const WBS_TABLES = ['project', 'work_item', 'role', 'estimate'] as const;
 // Its own migration, reversed with the domain because it references `work_item`.
@@ -100,6 +102,7 @@ describe('the WBS domain migration', () => {
       // ahead of the column it was seeded from, which is the only order in
       // which its foreign keys still have something to point at.
       expect(reversed).toEqual([
+        PRIORITY_BANDS,
         PER_PROJECT_CAPACITY,
         MAX_PARALLEL,
         TEAM_SLOTS,
@@ -402,7 +405,7 @@ describe('the capacity migrations', () => {
 
       const reversed = rollbackTo(db.path, FOLDER, PRIORITY);
 
-      expect(reversed).toEqual([PER_PROJECT_CAPACITY, MAX_PARALLEL, TEAM_SLOTS]);
+      expect(reversed).toEqual([PRIORITY_BANDS, PER_PROJECT_CAPACITY, MAX_PARALLEL, TEAM_SLOTS]);
       const back = openDatabase(db.path);
       try {
         back.run(

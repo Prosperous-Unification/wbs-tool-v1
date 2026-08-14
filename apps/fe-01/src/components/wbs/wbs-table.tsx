@@ -23,7 +23,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalContent, ModalHeader, ModalTitle, ModalTrigger } from '@/components/ui/modal';
 import type { ProjectStream } from '@/lib/project-stream';
-import type { AssignedPersonView, PersonView, TeamCapacityView, TeamView } from '@/lib/wbs-api';
+import type {
+  AssignedPersonView,
+  PersonView,
+  PriorityBandView,
+  TeamCapacityView,
+  TeamView,
+} from '@/lib/wbs-api';
 import {
   type Days,
   type EstimateMethod,
@@ -89,6 +95,8 @@ import { type CardAssignee, PlanCards } from './plan-cards';
 import { describeGaps, findEstimateGaps } from './plan-completeness';
 import { type PlanExport, planFileName, planToCsv, planToMarkdown } from './plan-export';
 import { useRendererForViewport } from './plan-renderer';
+import { PrioritiesDialog } from './priorities-dialog';
+import { PriorityCell, priorityTyped } from './priority-cell';
 import { linkPlanScroll } from './plan-scroll-link';
 import { printedDay, shortIsoDate } from './short-date';
 import {
@@ -337,6 +345,11 @@ const POPOVER_COLUMNS: ReadonlySet<string> = new Set([
   'team',
   'actions',
   'not-before',
+  // The Prio cell's band list, since `priority-bands`. The column is 48px and a
+  // line reads `Critical — 10`, so the list is wider than its cell by more than
+  // any other in this set except the date editor. Without the exemption it is cut
+  // at the cell edge and the reader sees the first three characters of a name.
+  'priority',
 ]);
 
 /**
@@ -1633,6 +1646,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * number beside bars it does not explain. `wbs-api.ts` has the argument.
    */
   const [teamCapacities, setTeamCapacities] = useState<TeamCapacityView[]>([]);
+  /**
+   * What this plan calls its priority numbers — five rungs, most important first.
+   *
+   * Off the tree read for {@link teamCapacities}' reason and one of its own: no
+   * date here was computed from the ladder, but every face draws every priority
+   * through it, so a ladder fetched at a second moment would paint the wrong
+   * label on every row rather than on one. `DEFAULT_PRIORITY_BANDS` is be-01's
+   * answer for a plan nobody has configured, so this is empty only before the
+   * first read has landed — which is the same moment the rows are empty.
+   */
+  const [priorityBands, setPriorityBands] = useState<PriorityBandView[]>([]);
   const [people, setPeople] = useState<PersonView[]>([]);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{ rowId: string; zone: DropZone } | null>(null);
@@ -2008,6 +2032,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     });
     setStack({ undoable: tree.undoable, redoable: tree.redoable });
     setTeamCapacities(tree.teamCapacities);
+    setPriorityBands(tree.priorityBands);
     setScheduleError(tree.scheduleError);
     setEstimateMethod(tree.estimateMethod);
     setStartDate(tree.startDate);
@@ -2624,6 +2649,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       roles,
       teams,
       people,
+      priorityBands,
       rows: flat,
       // The slices the chart on screen was drawn from, so the export's Ran at
       // column is the same placement the bars are and not a second reading of
@@ -2640,6 +2666,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       roles,
       teams,
       people,
+      priorityBands,
       flat,
       chartRead.slices,
     ],
@@ -3927,7 +3954,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    */
   const setPriority = useCallback(
     (id: string, typed: string): Promise<CommitOutcome> => {
-      const trimmed = typed.trim();
+      // A band's own name resolves to the number it writes, **before** anything
+      // is parsed as a number. That is the manual-or-label half of Dany's ask
+      // arriving through one commit path rather than two: a picked line and a
+      // typed name and a typed number all become one `patch`, one journal entry
+      // and one undo. `priorityTyped` owns the rule and the order in it.
+      const trimmed = priorityTyped(priorityBands, typed).trim();
       if (trimmed === '') return run(() => api.patch(id, { priority: null }));
       // `Number` rather than `parseInt`: `parseInt('1.5')` is 1 and
       // `parseInt('2x')` is 2, so both would go out as priorities nobody typed.
@@ -3956,7 +3988,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       }
       return run(() => api.patch(id, { priority: asNumber }));
     },
-    [api, pushToast, run],
+    [api, priorityBands, pushToast, run],
   );
 
   /**
@@ -4402,6 +4434,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setFocusedCell,
     setNotBefore,
     setPriority,
+    priorityBands,
     setParallelism,
     effectiveTeamLabelOf,
     editingNotBefore,
@@ -4469,6 +4502,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setFocusedCell,
     setNotBefore,
     setPriority,
+    priorityBands,
     setParallelism,
     effectiveTeamLabelOf,
     editingNotBefore,
@@ -5498,80 +5532,43 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             Prio
           </span>
         ),
-        cell: ({ row }) => {
-          const own = row.original.priority;
-          return (
-            <CellInput
-              aria-label={`Priority for ${row.original.number}`}
-              cellKey={cellKey(row.original.id, 'priority')}
-              data-priority={row.original.id}
-              // Numeric, so a phone offers digits — and `inputMode` rather than
-              // `type="number"`: a number input brings spinners this column has
-              // no room for, and swallows the arrow keys the grid navigates
-              // with.
-              inputMode="numeric"
-              title={
-                own === null
-                  ? 'How important this work is: 1 upward, smaller first. Blank means nobody has said.'
-                  : `Priority ${String(own)}. Smaller is more important; it decides who gets a shared person first.`
-              }
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                font: 'inherit',
-                background: 'transparent',
-                border: 'none',
-                textAlign: 'right',
-              }}
-              onKeyDown={(e) => {
-                // Enter saves the number, and that is this column's alone to
-                // say: the Name cell holds real newlines and Enter is the
-                // browser's own there (`command-keys`), so the rule cannot
-                // live in `CellInput`. Without it a typed priority sat in the
-                // box sending nothing until the reader happened to click
-                // somewhere else — the dates under the plan unmoved for as
-                // long as they looked at it. Observed live on dev, 2026-08-11.
-                //
-                // The modifiers are asked about first and the chord is left to
-                // `onCommandKey` underneath: Ctrl/⌘ + Enter saves *and* moves
-                // to the next row, and a bare Enter that also moved would be
-                // that chord wearing this key.
-                //
-                // `flushCell` rather than a commit of this cell's own, because
-                // it is the same "leave this cell now" the chords use and it is
-                // what rule 5 of `LiveField` answers from: the blur that
-                // follows finds the submission already recorded and sends
-                // nothing, so one Enter is one request and one undo.
-                //
-                // Proof, two faults, both watched 2026-08-11. This branch
-                // absent: `sends what was typed on Enter, without waiting for
-                // the cell to be left` failed on `expected [ { priority: 1 } ]
-                // to deeply equal []`. Written as a direct
-                // `setPriority(row.original.id, e.currentTarget.value)`, which
-                // sends the same patch without recording a submission: `sends
-                // one request for a priority entered with Enter and then left`
-                // failed on `expected [ { priority: 4 }, { priority: 4 } ] to
-                // deeply equal [ { priority: 4 } ]` — one typed number, two
-                // journal entries and two Ctrl/⌘ + Zs.
-                if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-                  e.preventDefault();
-                  void flushCell(e.currentTarget);
-                  return;
-                }
-                live.current.onAltMove(e, row.original, 'priority');
-                live.current.onCommandKey(e, row.original, 'priority');
-                live.current.onTabKey(e, row.original.id, 'priority');
-                live.current.onArrowKey(e, row.original.id, 'priority');
-              }}
-              // Blank at rest for a work item nobody has given a priority — no
-              // placeholder, and no em-dash. A priority is a scale, and a column of
-              // grey hints down every row of a plan nobody has given priorities is a wall of
-              // furniture saying nothing. Dany's compaction, 2026-08-08.
-              value={own === null ? '' : String(own)}
-              commit={(typed) => live.current.setPriority(row.original.id, typed)}
-            />
-          );
-        },
+        cell: ({ row }) => (
+          /*
+            The box, the band list under it, and the colour the number is drawn
+            in — all three in `priority-cell.tsx`, so the one place a band becomes
+            a colour is `priority-band-style.ts` and this column has no opinion of
+            its own about it.
+
+            The ladder is read off `live.current` rather than closed over, which
+            is this file's oldest landmine: `columns` depends on `roles` alone,
+            and a second dependency remounts every cell in the table and eats the
+            focus somebody is typing in. A re-cut ladder redraws because the rows
+            redraw.
+          */
+          <PriorityCell
+            cellKey={cellKey(row.original.id, 'priority')}
+            rowNumber={row.original.number}
+            rowId={row.original.id}
+            bands={live.current.priorityBands}
+            priority={row.original.priority}
+            commit={(typed) => live.current.setPriority(row.original.id, typed)}
+            // A picked line is the same write a typed number is — one `patch`,
+            // one journal entry, one undo — which is what makes the two languages
+            // round-trip into each other rather than into two histories.
+            choose={(value) => {
+              void live.current.setPriority(row.original.id, String(value));
+            }}
+            onEnter={(box) => {
+              void flushCell(box);
+            }}
+            onGridKey={(e) => {
+              live.current.onAltMove(e, row.original, 'priority');
+              live.current.onCommandKey(e, row.original, 'priority');
+              live.current.onTabKey(e, row.original.id, 'priority');
+              live.current.onArrowKey(e, row.original.id, 'priority');
+            }}
+          />
+        ),
       }),
       column.display({
         id: 'team',
@@ -6705,6 +6702,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // moment is the skew `layOutGantt` throws on.
     roles: chartRead.roles,
     personNames: new Map(chartRead.people.map((person) => [person.id, person.name])),
+    // The ladder the chart names its priorities with. Off the same state the
+    // table's cells read, so a bar's cap and its row's digits are one colour.
+    priorityBands,
   };
 
   /**
@@ -6926,6 +6926,16 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           flat.map((row) => effectiveTeams.get(row.id)?.teamId ?? null),
         )}
         setCapacity={(teamId, size) => api.setTeamCapacity(projectId, teamId, size)}
+        onChanged={refreshOrMarkStale}
+      />
+      {/*
+        What this plan calls its priority numbers, beside the Teams box because it
+        is the same class of fact: a project's own configuration, read by every
+        face, edited from the plan's own toolbar. `priority-bands`' design.md D5.
+      */}
+      <PrioritiesDialog
+        bands={priorityBands}
+        setBands={(bands) => api.setPriorityBands(projectId, bands)}
         onChanged={refreshOrMarkStale}
       />
       <PhasesDialog
@@ -7362,6 +7372,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             toggleBranch: row.getToggleExpandedHandler(),
           }))}
           roles={roles}
+          priorityBands={priorityBands}
           gridRef={(node) => {
             gridElement.current = node;
           }}

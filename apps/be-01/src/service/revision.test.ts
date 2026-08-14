@@ -15,6 +15,7 @@ import { RoleRepository } from '../repository/role';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
 import { personAdded } from '../testing/directory-fixture';
@@ -92,6 +93,7 @@ beforeEach(async () => {
     estimates: estimateStore,
     directory,
     capacity: inMemoryCapacity(),
+    priorityBands: inMemoryPriorityBands(),
     dependencies,
     subtrees: new SubtreeRepository(db),
     journal: inMemoryCommandJournal(),

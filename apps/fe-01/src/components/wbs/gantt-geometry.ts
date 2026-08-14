@@ -6,6 +6,8 @@ import {
   snapWorkdays,
 } from '@wbs/domain/workday';
 
+import type { PriorityBandView } from '@/lib/wbs-api';
+
 /**
  * The payload promised something the drawing needs and did not keep it.
  *
@@ -358,6 +360,20 @@ export interface GanttPlan {
   tree: readonly GanttTreeRow[];
   roles: readonly GanttRole[];
   personNames: ReadonlyMap<string, string>;
+  /**
+   * What this plan calls its priority numbers — five rungs, most important first.
+   *
+   * On the chart read rather than on the panel's props for the reason `roles` and
+   * `personNames` are: it arrives in the same payload as the slices, so the label
+   * a bar is drawn with and the number it was drawn from cannot be answers to two
+   * different moments.
+   *
+   * `layOutGantt` does not read it, and that is deliberate: **no geometry depends
+   * on a priority.** The band decides a colour and a sentence, both resolved at
+   * paint time through `priorityBandStyleOf`, which is the one place a band
+   * becomes a style anywhere in this app.
+   */
+  priorityBands: readonly PriorityBandView[];
 }
 
 /** A row's label: what the sticky-left column prints, and which row of the chart it belongs to. */

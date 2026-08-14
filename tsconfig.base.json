@@ -30,6 +30,7 @@
       "@wbs/domain": ["libs/domain/src/index.ts"],
       "@wbs/domain/workday": ["libs/domain/src/workday.ts"],
       "@wbs/domain/effective-team": ["libs/domain/src/effective-team.ts"],
+      "@wbs/domain/priority-band": ["libs/domain/src/priority-band.ts"],
       "@wbs/gw-01": ["apps/gw-01/src/index.ts"],
       "@wbs/observability": ["libs/observability/src/index.ts"],
       "@wbs/observability/server": ["libs/observability/src/server/index.ts"],

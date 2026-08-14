@@ -23,6 +23,10 @@ import { ProjectService } from '../service/project.service';
 import { RoleService } from '../service/role.service';
 import { WorkItemService } from '../service/work-item.service';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import {
+  inMemoryPriorityBands,
+  testPriorityBandService,
+} from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
 
 const TEST_JWT_KEY = 'k'.repeat(32);
@@ -71,6 +75,7 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
         capacity: capacityStore,
         broadcast,
       }),
+      priorityBands: testPriorityBandService(),
       roles: new RoleService({
         projects: projectStore,
         roles: new RoleRepository(db),
@@ -83,6 +88,7 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
         dependencies: new DependencyRepository(db),
         directory: directoryStore,
         capacity: capacityStore,
+        priorityBands: inMemoryPriorityBands(),
         subtrees: new SubtreeRepository(db),
         journal: new CommandJournalRepository(db),
         broadcast,

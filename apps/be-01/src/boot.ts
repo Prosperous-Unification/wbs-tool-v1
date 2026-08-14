@@ -66,6 +66,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     workItems: services.workItems,
     directory: services.directory,
     capacity: services.capacity,
+    priorityBands: services.priorityBands,
     replay: services.replay,
     probeDatabase: () => probeSchema(db),
     internalAuthSecret: opts.internalAuthSecret,

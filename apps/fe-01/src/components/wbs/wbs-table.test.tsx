@@ -1,3 +1,4 @@
+import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import {
   act,
   cleanup,
@@ -264,6 +265,7 @@ function fakeApi(): ProjectApi & {
         // left it out would let `teamsOnThePlan` be handed `undefined` here and
         // never in production. A plan whose teams are unlimited is what `[]` says.
         teamCapacities: [],
+        priorityBands: DEFAULT_PRIORITY_BANDS,
         estimateMethod,
         startDate,
         // Never moved by anything the table does: the fake's mutations are all
@@ -7000,6 +7002,7 @@ describe('dependencies in the table — cross-review findings', () => {
         // left it out would let `teamsOnThePlan` be handed `undefined` here and
         // never in production. A plan whose teams are unlimited is what `[]` says.
         teamCapacities: [],
+        priorityBands: DEFAULT_PRIORITY_BANDS,
         estimateMethod: 'pert' as const,
         workItems: [
           {
@@ -7449,6 +7452,7 @@ describe('the chart under a plan being edited', () => {
           // left it out would let `teamsOnThePlan` be handed `undefined` here and
           // never in production. A plan whose teams are unlimited is what `[]` says.
           teamCapacities: [],
+          priorityBands: DEFAULT_PRIORITY_BANDS,
           estimateMethod: 'pert' as const,
           workItems: [
             {
@@ -7911,7 +7915,9 @@ describe('the widths the table is laid out by', () => {
         cell.tagName === 'TD' &&
         // `not-before` since `T2 compact-columns`: its date editor is wider
         // than the column and leaves the cell rather than sizing it.
-        (['depends', 'name', 'team', 'actions', 'not-before'].includes(column) ||
+        // `priority` since `priority-bands`: the Prio cell opens the five band
+        // lines over a 48px column, which is now the narrowest clip in the table.
+        (['depends', 'name', 'team', 'actions', 'not-before', 'priority'].includes(column) ||
           column.endsWith('-assignee') ||
           // A folded role's cell opens the `@` people picker over a 96px
           // column, which is the narrowest clip in the table.
