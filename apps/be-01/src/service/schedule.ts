@@ -1289,27 +1289,36 @@ function placeSlices(
      * that is not there, in the same way a resource arrow would be.
      */
     let capacityTeamId: string | null = null;
-    if (boundBy === 'capacity') {
-      let bestFinish = -Infinity;
-      for (const pool of window.binding) {
-        let finish = -Infinity;
-        for (const blocker of pool.blocking) finish = Math.max(finish, placed[blocker].finish);
-        if (
-          finish > bestFinish ||
-          (finish === bestFinish && capacityTeamId !== null && pool.poolId < capacityTeamId)
-        ) {
-          bestFinish = finish;
-          capacityTeamId = pool.poolId;
-        }
+    let bestFinish = -Infinity;
+    for (const pool of window.binding) {
+      let finish = -Infinity;
+      for (const blocker of pool.blocking) finish = Math.max(finish, placed[blocker].finish);
+      if (
+        finish > bestFinish ||
+        (finish === bestFinish && capacityTeamId !== null && pool.poolId < capacityTeamId)
+      ) {
+        bestFinish = finish;
+        capacityTeamId = pool.poolId;
       }
-      // A capacity-floored slice whose search named no binding pool is
-      // impossible — the floor is the joint search's own answer, and it only
-      // moves off the plan floor when some pool ran out — so it is a throw
-      // rather than a null the render path would have to invent words for.
-      // `capacityPredecessorIds`' invariant, one field along.
-      if (capacityTeamId === null) {
-        throw new Error(`${node.key} waited for capacity with no pool binding it`);
-      }
+    }
+    // **Read off the search rather than gated on `boundBy`, and then checked
+    // against it.** The two are the same fact — a pool binds exactly where it
+    // pushed the block off the plan floor, and a floor strictly past the plan's
+    // own is what `capacity` means — so a gate here would be a restatement
+    // that cannot fail, which is the one thing this repo has been bitten by
+    // repeatedly. Written as the invariant instead, where an injected fault on
+    // either side of it reddens.
+    //
+    // Proof: `binding` handed back without its `start > floor` condition — the
+    // shape of a pool that had room being called the reason — and `names no
+    // team on a slice no pool held up` failed here on `first role-dev names
+    // team-alpha with no pool binding it`; watched 2026-08-14.
+    if ((boundBy === 'capacity') !== (capacityTeamId !== null)) {
+      throw new Error(
+        capacityTeamId === null
+          ? `${node.key} waited for capacity with no pool binding it`
+          : `${node.key} names ${capacityTeamId} with no pool binding it`,
+      );
     }
     placed[taken] = {
       start,
