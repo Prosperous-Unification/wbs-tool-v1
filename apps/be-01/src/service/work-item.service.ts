@@ -145,10 +145,12 @@ export function poolsFor(
     const size = teamSizes.get(teamId);
     if (size === undefined) continue;
     poolIds.push(teamId);
-    // Proof: written as `Math.max` and `clamps a work item’s parallelism down
-    // to the narrowest of its teams` failed with `width: 3` where 1 was owed —
-    // a block claiming three of a team that holds one, which the engine then
-    // refuses outright with `CapacityTooNarrowError`; watched 2026-08-14.
+    // Proof: written as `Math.max` and both `takes the narrowest stated size,
+    // whichever team states it` and `spends in every sized team the row names`
+    // failed on `slots` coming back **4** where 1 was owed — the width a plan
+    // would then claim of a team that holds one, which the engine refuses
+    // outright with `CapacityTooNarrowError`. 487 pass / 2 fail across
+    // `src/service`; watched 2026-08-14.
     slots = slots === undefined ? size : Math.min(slots, size);
   }
   return { poolIds, slots };

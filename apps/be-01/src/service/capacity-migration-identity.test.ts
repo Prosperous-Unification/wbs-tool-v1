@@ -254,9 +254,20 @@ describe('every plan schedules identically across the migration', () => {
         // most one, the pool that ran out can only be the row's own effective
         // team, and it is named on exactly the slices a pool held up.
         //
-        // Proof: `capacityTeamId` set to `placed.capacityTeamId` on every slice
-        // regardless of `boundBy` — the shape of naming a team on work nothing
-        // held up — and this failed on `expected null to be "team-platform"`;
+        // Proof, two of them, because the two halves of the claim fail
+        // differently and each is green under the other's fault.
+        //
+        // The **name**: the binding pool reported as `wrong-${poolId}` — the
+        // shape of naming a team that is not the one that ran out — and this
+        // failed on `Expected: "team-platform" / Received:
+        // "wrong-team-platform"`, 2 pass / 1 fail here and 483 / 7 across
+        // `src/service`.
+        //
+        // The **dates**, which is the identity claim itself: the single-pool
+        // arm of `jointWindowFor` made to answer the floor without consulting
+        // its pool — a set of one that spends nothing — and this failed on
+        // `p1`'s first capacity-floored slice, `earliestStart` 3 → 0 and 3.5 →
+        // 1, 2 pass / 1 fail here and 475 / 15 across `src/service`. Both
         // watched 2026-08-14.
         slices: tree.slices.map(({ capacityTeamId, ...slice }) => {
           if (slice.boundBy === 'capacity') {
