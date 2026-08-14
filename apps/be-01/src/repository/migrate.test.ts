@@ -34,6 +34,9 @@ const MAX_PARALLEL = '20260812100001_add_max_parallel';
 // A table of its own, referencing `project` and `service_team`, so it reverses
 // before the domain and appears in the ordering case as well as in its own.
 const PER_PROJECT_CAPACITY = '20260813120000_add_project_team_capacity';
+// Its own migration, reversed with the domain: the join tables reference
+// `work_item`, and `service` is referenced by one of them.
+const RESOURCE_SETS = '20260814090000_add_resource_sets';
 
 const WBS_TABLES = ['project', 'work_item', 'role', 'estimate'] as const;
 // Its own migration, reversed with the domain because it references `work_item`.
@@ -45,6 +48,10 @@ const DIRECTORY_TABLES = ['service_team', 'person', 'person_team', 'assignment']
 // Its own migration, reversed with the domain: it references both `project` and
 // `service_team`, so it cannot outlive either.
 const CAPACITY_TABLES = ['project_team_capacity'] as const;
+// `resource-model`'s three: two join tables referencing `work_item`, and the
+// global service directory one of them points at. Reversed with the domain for
+// the same reason every table above is.
+const RESOURCE_TABLES = ['work_item_team', 'service', 'work_item_service'] as const;
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-migrate-'));
@@ -93,13 +100,15 @@ describe('the WBS domain migration', () => {
 
       const reversed = rollbackTo(db.path, FOLDER, USERS);
 
-      // Newest first. The three capacity migrations reverse in the opposite
+      // Newest first. `resource-model`'s tables reverse ahead of everything
+      // they reference, and the three capacity migrations reverse in the opposite
       // order to the one they were applied in, which is the whole of the
       // rollback ordering claim: `project_team_capacity` down, then
       // `max_parallel` down, then `size` down. The per-project table reverses
       // ahead of the column it was seeded from, which is the only order in
       // which its foreign keys still have something to point at.
       expect(reversed).toEqual([
+        RESOURCE_SETS,
         PER_PROJECT_CAPACITY,
         MAX_PARALLEL,
         TEAM_SLOTS,
@@ -120,6 +129,7 @@ describe('the WBS domain migration', () => {
         ...ACCESS_TABLES,
         ...DIRECTORY_TABLES,
         ...CAPACITY_TABLES,
+        ...RESOURCE_TABLES,
       ])
         expect(tables(db.path)).not.toContain(t);
       // Reversing the domain must not take the accounts with it: the two
@@ -393,16 +403,16 @@ describe('the capacity migrations', () => {
   it('walks back to the prior applied set and lets the outgoing release read the result', () => {
     // The rollback, asserted by **reading the result** rather than by trusting
     // an exit code: `AGENTS.md` — "an exit code is evidence only if the tool's
-    // contract guarantees the effect". Two migrations, reversed newest first,
-    // and then the release that comes back must be able to write and read a
-    // work item and a team without either column.
+    // contract guarantees the effect". Four migrations now, reversed newest
+    // first, and then the release that comes back must be able to write and read
+    // a work item and a team without either column.
     const db = tempDb();
     try {
       runMigrations(db.path, FOLDER);
 
       const reversed = rollbackTo(db.path, FOLDER, PRIORITY);
 
-      expect(reversed).toEqual([PER_PROJECT_CAPACITY, MAX_PARALLEL, TEAM_SLOTS]);
+      expect(reversed).toEqual([RESOURCE_SETS, PER_PROJECT_CAPACITY, MAX_PARALLEL, TEAM_SLOTS]);
       const back = openDatabase(db.path);
       try {
         back.run(
@@ -653,6 +663,236 @@ describe('the per-project capacity migration', () => {
       } finally {
         sqlite.close();
       }
+    } finally {
+      db.cleanup();
+    }
+  });
+});
+
+/**
+ * `resource-model`'s Claim A: the migration writes the right rows, and nothing
+ * else.
+ *
+ * Claim B — that those rows produce the schedule be-01 gave before them — is
+ * `service/capacity-migration-identity.test.ts`, replayed against the committed
+ * oracle. Neither claim is the promise on its own: this file can only say what
+ * is in the tables, and that file holds `resourceSetsOf`'s *output* fixed by
+ * construction, so a seeding that wrote the wrong rows would pass it.
+ */
+describe('the resource sets migration', () => {
+  /** The state the outgoing release leaves behind: teams, projects, and labelled work. */
+  function beforeTheSets(dbPath: string): void {
+    const before = openDatabase(dbPath);
+    try {
+      before.run(
+        "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+      );
+      before.run(
+        'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+          " VALUES ('p1', 'Rewire the shed', 'u', 0, 'pert', '2026-09-01', 0, 1)",
+      );
+      before.run("INSERT INTO service_team (id, name, size) VALUES ('t-platform', 'Platform', 4)");
+      before.run("INSERT INTO service_team (id, name, size) VALUES ('t-backend', 'Backend', 1)");
+      before.run("INSERT INTO person (id, name) VALUES ('kat', 'Kat')");
+      before.run(
+        "INSERT INTO person_team (person_id, service_team_id) VALUES ('kat', 't-platform')",
+      );
+      before.run("INSERT INTO project_team_capacity VALUES ('p1', 't-platform', 4)");
+      for (const [id, name, team] of [
+        ['w1', 'Strip', "'t-platform'"],
+        ['w2', 'Rewire', "'t-backend'"],
+        ['w3', 'Make good', "'t-platform'"],
+        // The unlabelled row, which must be seeded nowhere: absence is the one
+        // spelling of unstated, and a row here with an empty set would be a
+        // second.
+        ['w4', 'Snagging', 'NULL'],
+      ] as const) {
+        before.run(
+          'INSERT INTO work_item (id, project_id, parent_id, position, name, notes, service_team_id, revision)' +
+            ` VALUES ('${id}', 'p1', NULL, 10, '${name}', '', ${team}, 0)`,
+        );
+      }
+    } finally {
+      before.close();
+    }
+  }
+
+  function rowsOf<Row>(dbPath: string, sql: string): Row[] {
+    const after = openDatabase(dbPath);
+    try {
+      return after.query<Row, []>(sql).all();
+    } finally {
+      after.close();
+    }
+  }
+
+  it('seeds one team row per work item that carried a label, and none for one that did not', () => {
+    // Claim A. Every read path in this release takes a row's teams from
+    // `work_item_team`, so this statement is the whole of "no plan moves": get
+    // it wrong and sixteen captured plans come back with their pools unspent.
+    //
+    // Proof: the seeding `INSERT` struck from the migration, and this failed on
+    // `expected [] to have a length of 3 but got 0` — with
+    // `capacity-migration-identity.test.ts` failing beside it on `p1`'s first
+    // capacity-floored slice, `boundBy` back to `roleOrder` and its
+    // `earliestStart` moved. Watched 2026-08-14.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+      beforeTheSets(db.path);
+
+      runMigrations(db.path, FOLDER);
+
+      expect(
+        rowsOf<{ work_item_id: string; team_id: string }>(
+          db.path,
+          'SELECT work_item_id, team_id FROM work_item_team ORDER BY work_item_id',
+        ),
+      ).toEqual([
+        { work_item_id: 'w1', team_id: 't-platform' },
+        { work_item_id: 'w2', team_id: 't-backend' },
+        { work_item_id: 'w3', team_id: 't-platform' },
+      ]);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('leaves the column it mirrors exactly where it was', () => {
+    // The dual write's other half, at rest: the outgoing release selects
+    // `service_team_id` on every tree read, so a migration that moved the label
+    // instead of copying it would blank every row on the colour still serving.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+      beforeTheSets(db.path);
+
+      runMigrations(db.path, FOLDER);
+
+      expect(
+        rowsOf<{ id: string; service_team_id: string | null }>(
+          db.path,
+          'SELECT id, service_team_id FROM work_item ORDER BY id',
+        ),
+      ).toEqual([
+        { id: 'w1', service_team_id: 't-platform' },
+        { id: 'w2', service_team_id: 't-backend' },
+        { id: 'w3', service_team_id: 't-platform' },
+        { id: 'w4', service_team_id: null },
+      ]);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('seeds no service at all, and touches neither capacity nor membership', () => {
+    // Three one-line assertions, and they are the cheapest possible proof that
+    // Q3's answer was actually implemented: a service has no size, so no
+    // capacity row moves; a service is not a thing to be a member of, so no
+    // `person_team` row moves; and nothing in the data can say which of today's
+    // teams somebody meant as a product area, so nothing is guessed into
+    // `service`.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+      beforeTheSets(db.path);
+
+      runMigrations(db.path, FOLDER);
+
+      expect(rowsOf(db.path, 'SELECT * FROM service')).toEqual([]);
+      expect(rowsOf(db.path, 'SELECT * FROM work_item_service')).toEqual([]);
+      expect(
+        rowsOf<{ project_id: string; service_team_id: string; size: number }>(
+          db.path,
+          'SELECT project_id, service_team_id, size FROM project_team_capacity ORDER BY service_team_id',
+        ),
+      ).toEqual([{ project_id: 'p1', service_team_id: 't-platform', size: 4 }]);
+      expect(
+        rowsOf<{ person_id: string; service_team_id: string }>(
+          db.path,
+          'SELECT person_id, service_team_id FROM person_team ORDER BY person_id',
+        ),
+      ).toEqual([{ person_id: 'kat', service_team_id: 't-platform' }]);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('lets the outgoing release keep deleting teams and work items against the migrated schema', () => {
+    // The blue/green half. Nothing the outgoing release sends names these
+    // tables, so the statements at risk are its `DELETE`s: without the cascades
+    // both hit a constraint they cannot see and answer 500 for the length of
+    // the swap.
+    //
+    // Proof: both `ON DELETE CASCADE` clauses removed from `work_item_team` and
+    // this failed on the first delete with `SQLiteError: FOREIGN KEY constraint
+    // failed`; watched 2026-08-14.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+      beforeTheSets(db.path);
+      runMigrations(db.path, FOLDER);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        // Nulling the column first is what the outgoing release does, and it is
+        // not politeness: `work_item.service_team_id` carries a plain
+        // `REFERENCES service_team(id)` with no `ON DELETE`, so the delete is
+        // refused outright while any row still points at it. Measured, not read
+        // off `schema.ts`, which does not declare that key — see the column's
+        // own JSDoc.
+        sqlite.run(
+          "UPDATE work_item SET service_team_id = NULL WHERE service_team_id = 't-platform'",
+        );
+        sqlite.run("DELETE FROM service_team WHERE id = 't-platform'");
+        expect(
+          sqlite.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM work_item_team').get()?.n,
+        ).toBe(1);
+        sqlite.run("DELETE FROM work_item WHERE id = 'w2'");
+        expect(
+          sqlite.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM work_item_team').get()?.n,
+        ).toBe(0);
+      } finally {
+        sqlite.close();
+      }
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('reverses to the schema before it, leaving every label in the column', () => {
+    // What a rollback costs, asserted rather than argued: nothing, while the
+    // write paths are capped at one member. The release that comes back reads
+    // the column, the column was kept in step by the mirror, and the tables
+    // that go were holding a copy of what it holds.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+      beforeTheSets(db.path);
+      runMigrations(db.path, FOLDER);
+
+      const reversed = rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY);
+
+      expect(reversed).toContain('20260814090000_add_resource_sets');
+      expect(tables(db.path)).not.toContain('work_item_team');
+      expect(tables(db.path)).not.toContain('service');
+      expect(tables(db.path)).not.toContain('work_item_service');
+      expect(
+        rowsOf<{ id: string; service_team_id: string | null }>(
+          db.path,
+          'SELECT id, service_team_id FROM work_item ORDER BY id',
+        ),
+      ).toEqual([
+        { id: 'w1', service_team_id: 't-platform' },
+        { id: 'w2', service_team_id: 't-backend' },
+        { id: 'w3', service_team_id: 't-platform' },
+        { id: 'w4', service_team_id: null },
+      ]);
     } finally {
       db.cleanup();
     }

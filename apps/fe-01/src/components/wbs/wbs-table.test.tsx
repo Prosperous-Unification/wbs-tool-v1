@@ -379,6 +379,8 @@ function fakeApi(): ProjectApi & {
         maxParallel: 1,
         startNoEarlierThan: null,
         serviceTeamId: null,
+        teamIds: [],
+        serviceIds: [],
         assignees: {},
         doesEveryPhase: null,
         rolledUp: false,
@@ -410,6 +412,13 @@ function fakeApi(): ProjectApi & {
       const written =
         'maxParallel' in patch && patch.maxParallel === null ? { ...patch, maxParallel: 1 } : patch;
       if (row !== undefined) Object.assign(row, written);
+      // be-01's mirror, in miniature: a write that names the label writes both
+      // spellings in one transaction, and the set is what every reader reads.
+      // A fake that moved only the column would let the table pass against a
+      // row shape be-01 never sends.
+      if (row !== undefined && patch.serviceTeamId !== undefined) {
+        row.teamIds = patch.serviceTeamId === null ? [] : [patch.serviceTeamId];
+      }
       return Promise.resolve();
     },
     move(id, parentId, afterId) {
@@ -7018,6 +7027,8 @@ describe('dependencies in the table — cross-review findings', () => {
             finalTotal: 0,
             startNoEarlierThan: null,
             serviceTeamId: null,
+            teamIds: [],
+            serviceIds: [],
             assignees: {},
             doesEveryPhase: null,
             dates: null,
@@ -7467,6 +7478,8 @@ describe('the chart under a plan being edited', () => {
               finalTotal: 0,
               startNoEarlierThan: floored ? '2026-08-10' : null,
               serviceTeamId: null,
+              teamIds: [],
+              serviceIds: [],
               assignees: {},
               doesEveryPhase: null,
               dates: null,

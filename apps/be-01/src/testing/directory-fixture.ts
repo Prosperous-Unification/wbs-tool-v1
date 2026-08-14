@@ -20,6 +20,7 @@ const NOTHING_POINTS_AT_IT: DirectoryUsageRows = {
   people: [],
   members: [],
   capacityOf: new Map(),
+  teamIdsOf: new Map(),
 };
 
 /**

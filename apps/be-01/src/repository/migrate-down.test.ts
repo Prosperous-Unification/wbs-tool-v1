@@ -42,6 +42,7 @@ const MAX_PARALLEL = '20260812100001_add_max_parallel';
 // were seeded from `service_team.size`, so it has to reverse before the migration
 // that adds that column.
 const PER_PROJECT_CAPACITY = '20260813120000_add_project_team_capacity';
+const RESOURCE_SETS = '20260814090000_add_resource_sets';
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-migrate-down-'));
@@ -127,6 +128,7 @@ describe('readMigrationFolders', () => {
       TEAM_SLOTS,
       MAX_PARALLEL,
       PER_PROJECT_CAPACITY,
+      RESOURCE_SETS,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -166,11 +168,13 @@ describe('rollbackTo, against a real database', () => {
         TEAM_SLOTS,
         MAX_PARALLEL,
         PER_PROJECT_CAPACITY,
+        RESOURCE_SETS,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        RESOURCE_SETS,
         PER_PROJECT_CAPACITY,
         MAX_PARALLEL,
         TEAM_SLOTS,
@@ -223,6 +227,7 @@ describe('rollbackTo, against a real database', () => {
         TEAM_SLOTS,
         MAX_PARALLEL,
         PER_PROJECT_CAPACITY,
+        RESOURCE_SETS,
       ]);
     } finally {
       db.cleanup();
@@ -236,6 +241,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        RESOURCE_SETS,
         PER_PROJECT_CAPACITY,
         MAX_PARALLEL,
         TEAM_SLOTS,
@@ -274,7 +280,7 @@ describe('rollbackTo, against a real database', () => {
     const db = tempDb();
     try {
       runMigrations(db.path, FOLDER);
-      expect(rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY)).toEqual([]);
+      expect(rollbackTo(db.path, FOLDER, RESOURCE_SETS)).toEqual([]);
       expect(tables(db.path)).toContain('users');
     } finally {
       db.cleanup();

@@ -7,7 +7,7 @@
     "paths": {
       "@/*": ["src/*"],
       "@wbs/domain/workday": ["../../libs/domain/src/workday.ts"],
-      "@wbs/domain/effective-team": ["../../libs/domain/src/effective-team.ts"]
+      "@wbs/domain/effective-set": ["../../libs/domain/src/effective-set.ts"]
     }
   },
   "include": [

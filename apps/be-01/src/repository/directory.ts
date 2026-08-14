@@ -24,6 +24,7 @@ import {
   role,
   serviceTeam,
   workItem,
+  workItemTeam,
 } from './schema';
 
 /**
@@ -54,6 +55,7 @@ const NOTHING_POINTS_AT_IT: DirectoryUsageRows = {
   people: [],
   members: [],
   capacityOf: new Map(),
+  teamIdsOf: new Map(),
 };
 
 /** A reader that is either the connection or an open transaction — see {@link usageRowsIn}. */
@@ -125,6 +127,20 @@ function usageRowsIn(
             ),
           )
           .all();
+  // The label sets of every row above, read in this same transaction for
+  // `stated`'s reason and read from the **join** for `ResourceSets`': the
+  // confirmation names the rows that draw from the pool going away, and it must
+  // name them out of the table the scheduler's own reading walks.
+  const labelSets = reader
+    .select({ workItemId: workItemTeam.workItemId, teamId: workItemTeam.teamId })
+    .from(workItemTeam)
+    .innerJoin(workItem, eq(workItem.id, workItemTeam.workItemId))
+    .where(inArray(workItem.projectId, ids))
+    .orderBy(workItemTeam.workItemId, workItemTeam.teamId)
+    .all();
+  const teamIdsOf = new Map<string, string[]>();
+  for (const row of labelSets)
+    teamIdsOf.set(row.workItemId, [...(teamIdsOf.get(row.workItemId) ?? []), row.teamId]);
   return {
     workItems,
     projects,
@@ -133,6 +149,7 @@ function usageRowsIn(
     people,
     members,
     capacityOf: new Map(stated.map((row) => [row.projectId, row.size])),
+    teamIdsOf,
   };
 }
 
@@ -449,10 +466,15 @@ export class DirectoryRepository implements DirectoryStore {
   async removeTeam(teamId: string, cascade: boolean): Promise<DirectoryRemoved> {
     await Promise.resolve();
     return this.db.transaction((tx) => {
+      // From the join, because that is what a reader reads. The `UPDATE` below
+      // still clears the column — the outgoing release selects it — and the
+      // join rows go by `ON DELETE CASCADE` when the team row does, which is
+      // why this read has to happen **before** the delete rather than after it.
       const labelled = tx
         .select({ id: workItem.id, projectId: workItem.projectId })
-        .from(workItem)
-        .where(eq(workItem.serviceTeamId, teamId))
+        .from(workItemTeam)
+        .innerJoin(workItem, eq(workItem.id, workItemTeam.workItemId))
+        .where(eq(workItemTeam.teamId, teamId))
         .all();
       const members = this.membersOf(tx, teamId);
       if (!cascade && (labelled.length > 0 || members.length > 0)) {
@@ -504,9 +526,13 @@ export class DirectoryRepository implements DirectoryStore {
    *
    * The "any row" is the load-bearing word, and it is what makes inheritance
    * need no widening anywhere: a leaf draws its pool from the nearest labelled
-   * ancestor, `effectiveTeamOf` walks `parentId` and never leaves a project, so
+   * ancestor, `effectiveSetOf` walks `parentId` and never leaves a project, so
    * a project with an inheriting leaf always holds the labelled ancestor and is
    * already in this list.
+   *
+   * Read from `work_item_team` since `resource-model`, not from the column
+   * beside it: the two are kept in step by one mirror, and the reader that
+   * survives R2-6 is this one.
    *
    * Proof: narrowed to rows nothing calls a parent, and
    * `tells a project the team reaches only through inheritance` failed with
@@ -517,8 +543,9 @@ export class DirectoryRepository implements DirectoryStore {
     return projectsOf(
       reader
         .select({ projectId: workItem.projectId })
-        .from(workItem)
-        .where(eq(workItem.serviceTeamId, teamId))
+        .from(workItemTeam)
+        .innerJoin(workItem, eq(workItem.id, workItemTeam.workItemId))
+        .where(eq(workItemTeam.teamId, teamId))
         .all(),
     );
   }

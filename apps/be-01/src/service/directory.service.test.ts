@@ -11,6 +11,7 @@ import { DirectoryRepository } from '../repository/directory';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { RoleRepository } from '../repository/role';
+import { workItem as workItemTable } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
@@ -552,6 +553,33 @@ describe('the directory usage a removal is refused with', () => {
         ],
       },
     ]);
+  });
+
+  it('finds the rows a team labels through the join, not through the column', async () => {
+    // The read switch `resource-model` made, and the only way to see it: the
+    // mirror keeps `work_item_team` and `work_item.service_team_id` in step, so
+    // a reader on either answers the same on every ordinary row. This writes the
+    // row where they disagree — the set kept, the column cleared behind it,
+    // which is the shape R2-4 writes for real — and asks the removal what it
+    // finds.
+    //
+    // Proof: `projectsLabelled` and `removeTeam`'s own `labelled` read pointed
+    // back at `work_item.service_team_id`, and this failed on `error: expected
+    // the removal to be refused`, alone at 32 pass / 1 fail — the removal was
+    // allowed outright, taking a label off a plan without a confirmation and
+    // telling that project nothing. Watched 2026-08-14.
+    const team = await directory.addTeam('Platform');
+    if (team === null) throw new Error('the fixture team was refused');
+    await workItems.patch('design', { serviceTeamId: team.id });
+    await db.update(workItemTable).set({ serviceTeamId: null });
+
+    const outcome = await directory.removeTeam(team.id, false);
+
+    if (outcome.ok) throw new Error('expected the removal to be refused');
+    if (outcome.reason !== 'in_use') throw new Error(`refused for ${outcome.reason}`);
+    expect(outcome.usage.projects.flatMap((each) => each.workItems).map((each) => each.id)).toEqual(
+      ['design'],
+    );
   });
 
   it('names each project’s own capacity, and says nothing where a project stated none', async () => {

@@ -213,20 +213,55 @@ describe('every plan schedules identically across the migration', () => {
       const answer = oracle.answers.at(at);
       if (answer === undefined) throw new Error(`no captured answer for ${plan.projectId}`);
       const tree = await replay(plan, seeded);
-      // Compared whole rather than field by field: a projection is a minimum over
-      // slices and can hide a slice that moved under one that did not, and naming
-      // the fields here would be a list to forget to extend.
-      expect({ project: plan.projectId, ...tree }).toEqual({
-        project: plan.projectId,
-        ...answer,
-        // The one key the capture could not carry, because it did not exist:
-        // `teamCapacities` is this change's own addition to the payload. Its
-        // *values* are the seeded numbers, which is the thing under test, so it is
-        // asserted here rather than deleted from the comparison.
-        teamCapacities: [...(seeded.get(plan.projectId) ?? new Map<string, number>())]
+      // **Field by field over the keys the oracle carries**, rather than one
+      // `toEqual` over the whole document — and the difference is a decision
+      // rather than a style.
+      //
+      // C5 could compare whole: its payload gained exactly one key and that key
+      // was the thing under test. `resource-model` adds two keys to **every work
+      // item** (`teamIds`, `serviceIds`), so a blanket `toEqual(answer)` fails
+      // for the right reason on all 151 rows and would then get "fixed" by
+      // relaxing it into something that proves less — `toMatchObject`, or a
+      // comparison over a hand-listed subset that quietly stops covering the
+      // field somebody adds next. The brief (§3, Claim B) calls that out by
+      // name.
+      //
+      // So: every key the capture holds is compared, the keys are read **off the
+      // captured document** rather than listed here — a capture that gains a key
+      // is compared on it without this file being edited — and the new keys are
+      // asserted separately, against the singleton the old column derives.
+      const answered: Record<string, unknown> = { ...tree };
+      for (const key of Object.keys(answer)) {
+        if (key === 'workItems') continue;
+        expect({ [key]: answered[key] }).toEqual({ [key]: answer[key] });
+      }
+      const capturedRows = answer['workItems'] as Record<string, unknown>[];
+      expect(tree.workItems).toHaveLength(capturedRows.length);
+      for (const [index, was] of capturedRows.entries()) {
+        const now = tree.workItems[index] as unknown as Record<string, unknown>;
+        for (const key of Object.keys(was)) {
+          expect({ row: was['number'], [key]: now[key] }).toEqual({
+            row: was['number'],
+            [key]: was[key],
+          });
+        }
+        // The added keys, and the claim the whole change rests on: the set is
+        // the column, and nothing else. A migration that seeded a second team
+        // anywhere, or dropped one, fails here as well as in every date above.
+        expect(now['teamIds']).toEqual(was['serviceTeamId'] === null ? [] : [was['serviceTeamId']]);
+        // Services are seeded with nothing and no route creates one, so every
+        // row's second dimension is empty — the cheapest possible statement of
+        // "this half of R2 has not started moving anything".
+        expect(now['serviceIds']).toEqual([]);
+      }
+      // The one key the capture could not carry, because it did not exist:
+      // `teamCapacities` is C5's own addition to the payload, and its *values*
+      // are the seeded numbers this differential is about.
+      expect(tree.teamCapacities).toEqual(
+        [...(seeded.get(plan.projectId) ?? new Map<string, number>())]
           .map(([serviceTeamId, size]) => ({ serviceTeamId, size }))
           .sort((a, b) => a.serviceTeamId.localeCompare(b.serviceTeamId)),
-      });
+      );
     }
   });
 

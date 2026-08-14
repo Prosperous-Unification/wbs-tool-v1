@@ -287,20 +287,67 @@ export interface FrozenNumber {
   frozenNumber: string | null;
 }
 
+/**
+ * Which teams and which product areas each work item of one project names —
+ * **as stored**, before any inheritance is resolved.
+ *
+ * Two maps rather than a field on {@link WorkItem}, and the reason is which
+ * question each type answers. `WorkItem` is the row a write path hands to the
+ * database, and a work item's resources are not columns of that row: they are
+ * rows of `work_item_team` and `work_item_service`, written in the same
+ * transaction and read back by their own statement. Putting them on the row
+ * type would make every construction of a work item — every write path, every
+ * fixture — state a set it has nothing to say about. R2-4, the release where a
+ * client writes several, is where the sets join the write shape.
+ *
+ * A work item naming nothing in a dimension is **absent** from that dimension's
+ * map, never present with `[]`: absence is the one spelling of _unstated_ that
+ * `effectiveSetOf` resolves, and two spellings would have every reader handling
+ * both.
+ *
+ * Ordered by id within each row's list, so two reads of an unchanged plan
+ * cannot answer in two orders.
+ */
+export interface ResourceSets {
+  /** Each work item's own team ids, keyed by work item id. */
+  teamIdsOf: ReadonlyMap<string, readonly string[]>;
+  /** Each work item's own service ids, keyed by work item id. Empty in this release. */
+  serviceIdsOf: ReadonlyMap<string, readonly string[]>;
+}
+
 export interface WorkItemStore {
   listByProject(projectId: string): Promise<WorkItem[]>;
+  /**
+   * One project's stored resource sets, from the join tables and **not** from
+   * `work_item.service_team_id`.
+   *
+   * The column is still written beside them and is still what the outgoing
+   * release reads, so the two agree — which is exactly why this has to read the
+   * join: a reader that took the column would pass every test the mirror keeps
+   * in step and would still be reading the thing R2-4 stops maintaining.
+   */
+  resourceSetsOf(projectId: string): Promise<ResourceSets>;
   findById(id: string): Promise<WorkItem | null>;
   /**
    * Inserts, and respaces the sibling group in the same transaction when the
    * insertion had no gap to take. Two calls would leave a window in which two
    * siblings share a position, and the number derived in that window would be
    * wrong for whoever read it.
+   *
+   * A non-null `serviceTeamId` on the row is **mirrored into
+   * `work_item_team`** in that same transaction — see {@link ResourceSets} for
+   * which of the two a reader reads.
    */
   insert(workItem: WorkItem, respaced: readonly Repositioned[]): Promise<void>;
   /**
    * Applies the patch and validates any `serviceTeamId` it names **in one
    * transaction** — see {@link WorkItemPatched}. A patch naming no field writes
    * nothing and answers the row it found.
+   *
+   * A patch that names `serviceTeamId` also rewrites that work item's rows in
+   * `work_item_team`, in the same transaction: one row for an id, none for
+   * `null`. The set the reader reads and the column the outgoing release reads
+   * are never apart, not even for the length of a statement.
    */
   patch(id: string, patch: WorkItemPatch): Promise<WorkItemPatched>;
   move(
@@ -506,6 +553,20 @@ export interface DirectoryUsageRows {
    * apply to half the rows it is printed on.
    */
   capacityOf: ReadonlyMap<string, number>;
+  /**
+   * Each of `workItems`' own team ids, keyed by work item id — the stored sets,
+   * before inheritance.
+   *
+   * Carried for `capacityOf`'s reason one table along: the confirmation names
+   * the rows that draw from the pool going away, and that reading is
+   * `effectiveSetOf`'s, which needs each row's own set rather than the column
+   * beside it. Read in the same transaction as `workItems`, so the confirmation
+   * describes one moment.
+   *
+   * A work item naming no team is absent, never present with `[]` — see
+   * {@link ResourceSets}.
+   */
+  teamIdsOf: ReadonlyMap<string, readonly string[]>;
 }
 
 /** What one confirmed directory removal took with it. */

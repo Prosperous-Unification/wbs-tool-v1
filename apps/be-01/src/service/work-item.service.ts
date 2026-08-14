@@ -1,11 +1,13 @@
 import {
   addWorkdays,
-  effectiveTeamOf,
+  type EffectiveSet,
+  effectiveSetOf,
   type EstimateMethod,
   finalDays,
   firstWorkdayOf,
   type IsoDate,
   lastWorkdayOf,
+  soleMemberOf,
   workdaysBetween,
 } from '@wbs/domain';
 
@@ -117,14 +119,20 @@ function slicesOf(
    */
   assigneesOf: ReadonlyMap<string, Record<string, string>>,
   /**
-   * Each row's effective team — its own label or the nearest ancestor's, from
-   * {@link effectiveTeamOf}.
+   * Each row's effective **team set** — its own, or the nearest ancestor's,
+   * from {@link effectiveSetOf}.
    *
    * Passed in rather than resolved here, because the reading is shared: the
    * table cell, the cards, the Gantt and the export all show the same inherited
    * label, and a second walk here would be the copy that drifts.
+   *
+   * The **service** set is deliberately not a parameter. Services label work
+   * and spend nothing, so a slice has no field for one and this function has no
+   * reason to see one — which is the structural half of "no service id ever
+   * reaches `schedule()`". The differential half is
+   * `service-labels-move-nothing.test.ts`.
    */
-  teamOf: ReadonlyMap<string, { teamId: string }>,
+  teamsOf: ReadonlyMap<string, EffectiveSet>,
   /**
    * How many people each **sized** team may have at work at once. A team nobody
    * has sized is simply absent, and its work draws from no pool.
@@ -161,7 +169,14 @@ function slicesOf(
     // The pool this row's work draws from: its effective team, but only where
     // somebody has said how big that team is. An unsized team labels the work
     // and constrains nothing, which is the state every plan is in today.
-    const teamId = teamOf.get(row.id)?.teamId ?? null;
+    //
+    // One team, out of a set that this release caps at one — `soleMemberOf`,
+    // and the throw rather than a `[0]` is the whole reason the cap is a cap
+    // rather than a hope. `multi-team-engine` (R2-2) is the change that makes
+    // `Slice.poolId` a set of pools and deletes this narrowing; until it lands
+    // a second team cannot be written, and one that arrived anyway would be a
+    // plan silently bounded by whichever pool sorted first.
+    const teamId = soleMemberOf(teamsOf.get(row.id)?.memberIds ?? [], `work item ${row.id}`);
     const slots = teamId === null ? undefined : teamSizes.get(teamId);
     const poolId = slots === undefined ? null : teamId;
     /**
@@ -324,6 +339,35 @@ export interface NumberedWorkItem extends WorkItem {
   estimates: Record<string, Days>;
   /** True when the estimates above are sums and therefore not editable here. */
   rolledUp: boolean;
+  /**
+   * The teams this row is labelled with — **its own**, never the ones it
+   * inherits, and empty for a row that names none.
+   *
+   * The stored fact, exactly as `serviceTeamId` beside it is, because
+   * inheritance is a reading and every consumer computes it with the same
+   * function (`effectiveSetOf`, `libs/domain`). Sending the resolved set
+   * instead would be a second copy of the rule on the wire, and would leave the
+   * cell with no way to say "Platform — inherited from 010 Backend".
+   *
+   * At most one member in this release. The cap is `resource-model`'s, and it
+   * is what keeps this a change nobody can see: a set of one schedules exactly
+   * as the column did.
+   */
+  teamIds: readonly string[];
+  /**
+   * The product areas this row is labelled with — its own, empty for none.
+   *
+   * **Always empty in this release**: the table exists, the read model carries
+   * it, and there is no route that creates a service or attaches one. R2-5 is
+   * where a client can put something here. It is on the wire now so that the
+   * change which fills it is a write path and a picker, rather than a write
+   * path, a picker and a payload every deployed client has to learn.
+   *
+   * Moves no date, by construction: no service id is passed to `slicesOf`, and
+   * `service-labels-move-nothing.test.ts` is the differential that fails if one
+   * ever is.
+   */
+  serviceIds: readonly string[];
   /** The work items this one waits for, as written — either end may be a parent. */
   dependsOn: string[];
   /**
@@ -839,10 +883,20 @@ export class WorkItemService {
     // for the whole call and every engine test would have to spell it. The pair
     // is the key in the **store**. design.md D3.
     const slotsOf = await this.opts.capacity.slotsFor(projectId);
-    // One reading of the label, shared with the table, the cards, the Gantt and
-    // the export — a leaf's own team, or the nearest ancestor's. No write ever
-    // copies a label down; see {@link effectiveTeamOf}.
-    const teamOf = effectiveTeamOf(rows);
+    // Each row's stored sets, read from the join tables — `work_item.service_team_id`
+    // is still written beside them and is read by nothing here. See
+    // {@link ResourceSets}.
+    const ownSets = await this.opts.workItems.resourceSetsOf(projectId);
+    // One reading of each label dimension, shared with the table, the cards,
+    // the Gantt and the export — a leaf's own set, or the nearest ancestor's.
+    // No write ever copies a set down; see {@link effectiveSetOf}.
+    //
+    // The **team** dimension only, and the absence of the second walk is the
+    // point: a service labels work and spends nothing, so be-01 has no reading
+    // to do about one. It sends each row's own service set and every consumer
+    // that draws it resolves inheritance the same way it resolves the teams' —
+    // `effectiveSetOf` again, per dimension, independently (Q4, 2026-08-13).
+    const teamsOf = effectiveSetOf(rows, (row) => ownSets.teamIdsOf.get(row.id) ?? []);
     const slices = slicesOf(
       rows,
       stored,
@@ -850,7 +904,7 @@ export class WorkItemService {
       roles.map((each) => each.id),
       project.estimateMethod,
       assigneesOf,
-      teamOf,
+      teamsOf,
       slotsOf,
     );
     // A manual date becomes an offset before the pass, and offsets become dates
@@ -935,6 +989,13 @@ export class WorkItemService {
         // keeps one path rather than two that happen to match today.
         ...finalsOf(totals.get(row.id) ?? new Map(), project.estimateMethod),
         rolledUp: hasChildren.has(row.id),
+        // The row's **own** sets, not its effective ones, exactly as
+        // `serviceTeamId` beside them has always been the stored label. The
+        // inheritance is a reading and every reader computes it from these —
+        // sending the resolved set would put a second, stale copy of the rule
+        // on the wire and leave the cell unable to say "inherited from 010".
+        teamIds: ownSets.teamIdsOf.get(row.id) ?? [],
+        serviceIds: ownSets.serviceIdsOf.get(row.id) ?? [],
         // Only predecessors that are in this project. A stored edge naming a
         // work item from elsewhere — which the schema does not prevent — would
         // otherwise be reported as a dependency on a number nobody can see.

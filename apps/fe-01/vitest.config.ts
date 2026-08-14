@@ -6,14 +6,14 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [react()],
   // The same three the app is built with. `@wbs/domain/workday` and
-  // `@wbs/domain/effective-team` are the two pure modules and *not* the lib's
+  // `@wbs/domain/effective-set` are the two pure modules and *not* the lib's
   // index barrel, which re-exports arktype-touching validators this bundle
   // excludes — see `vite.config.ts`.
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
-      '@wbs/domain/effective-team': resolve(__dirname, '../../libs/domain/src/effective-team.ts'),
+      '@wbs/domain/effective-set': resolve(__dirname, '../../libs/domain/src/effective-set.ts'),
     },
   },
   test: {

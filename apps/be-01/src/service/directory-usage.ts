@@ -1,4 +1,4 @@
-import { type EffectiveTeam, effectiveTeamOf } from '@wbs/domain';
+import { type EffectiveSet, effectiveSetOf } from '@wbs/domain';
 
 import type { Assignment, DirectoryUsageRows, WorkItem } from '../repository';
 import { assumedAssignee } from './assumed-assignee';
@@ -193,16 +193,16 @@ export function directoryUsageOfPerson(rows: DirectoryUsageRows, personId: strin
  * the team away lets that work run as wide as it likes and moves dates through
  * the whole labelled subtree. The rows that inherit the label carry no label to
  * null and would otherwise not appear in the confirmation at all, which is why
- * `effectiveTeamOf` is read here rather than `serviceTeamId` alone.
+ * `effectiveSetOf` is read here rather than each row's own set alone.
  *
- * The reading is {@link effectiveTeamOf}'s and nobody's second copy — the same
+ * The reading is {@link effectiveSetOf}'s and nobody's second copy — the same
  * function the scheduler's adapter resolves `poolId` through — so a row named
  * here is a row the scheduler agrees draws from that pool, rather than one a
  * second, laxer definition of "in the team" turned up.
  *
  * What this is **not** is the set of rows whose dates move, and it drifts from
  * that set both ways. A parent labelled with the sized team whose children each
- * carry their own is named — `effectiveTeamOf` answers for parents too — and
+ * carry their own is named — `effectiveSetOf` answers for parents too — and
  * moves nothing, because `slicesOf` skips a row with children, so no slot of
  * that pool was ever spent on it. And releasing a pool moves the dependency
  * successors of the released rows and the rolled-up brackets of every ancestor
@@ -210,7 +210,7 @@ export function directoryUsageOfPerson(rows: DirectoryUsageRows, personId: strin
  * entry says "this row drew from a pool that is going", which is the fact
  * somebody agreeing to the removal needs and the fact the read can carry.
  *
- * Proof: the effective-team read replaced by `row.serviceTeamId === teamId`, so
+ * Proof: the effective-set read replaced by "the row's own set holds it", so
  * only rows carrying the label themselves are named, and `names the capacity a
  * sized team takes with it, inherited rows included` failed — the inheriting
  * leaf `API` vanished from the confirmation entirely, leaving somebody
@@ -247,16 +247,22 @@ export function directoryUsageOfTeam(rows: DirectoryUsageRows, teamId: string): 
   // the work items, which cannot tell the two apart.
   //
   // Computed once for every project rather than per project, because
-  // `effectiveTeamOf` walks `parentId` and a parent never leaves its project —
+  // `effectiveSetOf` walks `parentId` and a parent never leaves its project —
   // so one pass over all the rows answers for each of them.
-  const inForce: ReadonlyMap<string, EffectiveTeam> =
-    rows.capacityOf.size === 0 ? new Map() : effectiveTeamOf(rows.workItems);
+  const inForce: ReadonlyMap<string, EffectiveSet> =
+    rows.capacityOf.size === 0
+      ? new Map()
+      : effectiveSetOf(rows.workItems, (row) => rows.teamIdsOf.get(row.id) ?? []);
   return usageFrom(rows, (row) => {
-    const effects: DirectoryEffect[] =
-      row.serviceTeamId === teamId ? [{ kind: 'label_nulled' }] : [];
+    // The row's **own** set, not its effective one: `label_nulled` is about a
+    // label this row carries and would lose, and an inheriting row loses
+    // nothing of its own. The effective reading below is the other question.
+    const effects: DirectoryEffect[] = (rows.teamIdsOf.get(row.id) ?? []).includes(teamId)
+      ? [{ kind: 'label_nulled' }]
+      : [];
     const size = rows.capacityOf.get(row.projectId);
     const effective = inForce.get(row.id);
-    if (size !== undefined && effective?.teamId === teamId) {
+    if (size !== undefined && effective?.memberIds.includes(teamId) === true) {
       effects.push({ kind: 'capacity_released', size, fromId: effective.fromId });
     }
     return effects;

@@ -2407,6 +2407,8 @@ function rowOf(parts: {
     dates: { startsOn: parts.startsOn, endsOn: parts.endsOn },
     startNoEarlierThan: parts.notBefore ?? null,
     serviceTeamId: null,
+    teamIds: [],
+    serviceIds: [],
     assignees: {},
     doesEveryPhase: null,
     schedule: {
@@ -2582,12 +2584,17 @@ function fakeApi(startDate: string | null, skew: ReadSkew = {}): ProjectApi {
   return {
     tree: () =>
       Promise.resolve({
-        workItems: PLAN.map((row) => ({
-          ...row,
-          dates: startDate === null ? null : row.dates,
-          dependsOn: skew.waits?.[row.id] ?? row.dependsOn,
-          serviceTeamId: skew.labels?.[row.id] ?? row.serviceTeamId,
-        })),
+        workItems: PLAN.map((row) => {
+          // The set, because the chart reads the set. The column beside it is
+          // left as the fixture has it: nothing on this screen reads it.
+          const labelled = skew.labels?.[row.id];
+          return {
+            ...row,
+            dates: startDate === null ? null : row.dates,
+            dependsOn: skew.waits?.[row.id] ?? row.dependsOn,
+            teamIds: labelled === undefined ? row.teamIds : [labelled],
+          };
+        }),
         seq: 0,
         scheduleError: null,
         slices: skew.slices ?? SLICES,

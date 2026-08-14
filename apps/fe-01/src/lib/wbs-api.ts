@@ -196,8 +196,39 @@ export interface WorkItemView {
    * a parent holds no slices of its own to run in parallel.
    */
   maxParallel: number;
-  /** The team this work is labelled with, or null. Never constrains who is assigned it. */
+  /**
+   * The team this work is labelled with, or null. Never constrains who is
+   * assigned it.
+   *
+   * **Written, not read.** Every reading of a row's label goes through
+   * {@link WorkItemView.teamIds} since `resource-model`; this field is what a
+   * `PATCH` still names, and what a release older than this one reads. R2-4 is
+   * where the write becomes set-valued too, and R2-6 is where this goes.
+   */
   serviceTeamId: string | null;
+  /**
+   * The teams this row is labelled with — **its own**, never the ones it
+   * inherits, and empty for a row that names none.
+   *
+   * The stored fact, because inheritance is a reading: `effectiveSetOf` in
+   * `libs/domain` resolves it here, in the same walk be-01's scheduler resolves
+   * its pools through, and a resolved set on the wire would be a second copy of
+   * that rule with no way to say which row the label was written on.
+   *
+   * At most one member while the write paths are capped at one. A second would
+   * mean a be-01 from a later release than this client, and every reader here
+   * refuses it out loud rather than drawing one of two names.
+   */
+  teamIds: readonly string[];
+  /**
+   * The product areas this row is labelled with — its own, empty for none.
+   *
+   * **Always empty in this release**: nothing creates a service and nothing
+   * attaches one. It is on the wire so that R2-5 is a picker and a route rather
+   * than a picker, a route and a payload every deployed client must learn.
+   * Moves no date, ever — a service is a label (Dany, 2026-08-13).
+   */
+  serviceIds: readonly string[];
   /**
    * Who does this work, by role id.
    *
@@ -598,7 +629,7 @@ export interface ProjectApi {
      *
      * A team with no entry is _unstated_ and bounds nothing. Which teams the plan
      * is labelled with is a different question, answered by the rows — see
-     * `effectiveTeamOf`.
+     * `effectiveSetOf`.
      */
     teamCapacities: TeamCapacityView[];
     estimateMethod: EstimateMethod;

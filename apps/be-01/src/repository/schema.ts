@@ -197,14 +197,27 @@ export const workItem = sqliteTable(
      */
     priority: integer('priority'),
     /**
-     * The service or team this work belongs to, or null. A label on the work,
-     * not a constraint on who may be assigned it.
+     * The team this work is labelled with, or null. A label on the work, not a
+     * constraint on who may be assigned it.
      *
-     * It is also what {@link serviceTeam.size} is spent through: a label on a
-     * parent reaches every leaf beneath it that carries none — most-specific
-     * wins, `effectiveTeamOf` in `libs/domain/src/effective-team.ts` — and each of
-     * those leaves' slices draws a slot from that team's pool. Labelling is
-     * still not assigning: who does the work is a second and independent fact.
+     * **Written, and no longer read** — `resource-model`, 2026-08-14. The label
+     * is a set now, held in {@link workItemTeam}, and every read path in this
+     * release takes it from there. This column is still written beside that
+     * table on every path that changes a label, because blue and green share
+     * one SQLite file and the outgoing release selects this column on every
+     * tree read. The drop, and the end of the mirror, is R2-6.
+     *
+     * **The deployed column does carry a foreign key**, and this drizzle
+     * definition does not say so — `20260806190000_add_teams_and_assignees`
+     * writes `REFERENCES service_team(id)` with no `ON DELETE`, so a team that
+     * still labels work cannot be deleted at all. `DirectoryRepository.removeTeam`
+     * nulls this column inside the transaction that deletes the team, which is
+     * why that path works and why nothing noticed the drift. Measured
+     * 2026-08-14 against a migrated database, not read off this file; the
+     * comment on `WorkItemRepository.patch` that calls the column
+     * foreign-key-free is wrong about the same thing, and correcting the
+     * definition would be a migration rather than an edit here. `resource-model`
+     * records it (verify.md) and does not touch it.
      */
     serviceTeamId: text('service_team_id'),
     /**
@@ -387,6 +400,133 @@ export const serviceTeam = sqliteTable(
 );
 
 export type ServiceTeamRow = typeof serviceTeam.$inferSelect;
+
+/**
+ * Which teams one work item's work belongs to — 0..n of them, one row each.
+ *
+ * Dany, 2026-08-13: _"can be several teams and several services per work
+ * item"_. This is the team half; {@link workItemService} is the other, and the
+ * two are separate tables because {@link service} is separate from
+ * {@link serviceTeam} — a team carries capacity and a service is a label
+ * (Q1/Q3, 2026-08-13, `notes/wbs-brief-2026-08-13-r2-team-service.md` §10).
+ *
+ * **This table is what a reader reads.** `work_item.service_team_id` is still
+ * written — `resource-model` mirrors every write into both — and is still what
+ * the outgoing release selects, but no read path in this release consults it
+ * for the label any more. The migration seeded one row here per work item that
+ * carried a non-null column, so the two say the same thing on the day this
+ * lands; they stay in step because the mirror is inside
+ * `WorkItemRepository`'s own transactions.
+ *
+ * **Writes are capped at one row per work item in this release**, and the cap
+ * is the whole reason nothing observable moved when the table arrived: a set of
+ * one is the column, so every plan schedules identically. `multi-team-engine`
+ * (R2-2) is what makes several spend several pools; until then a second row
+ * would reach `soleMemberOf` and throw rather than be quietly half-read.
+ *
+ * Primary key is the pair, because the pair is the fact: naming the same team
+ * twice is one statement, not two. Both columns cascade for
+ * {@link projectTeamCapacity}'s reason — blue and green share one SQLite file,
+ * and the outgoing release's plain `DELETE FROM service_team` must not hit a
+ * constraint it cannot see.
+ *
+ * The index on `team_id` serves the direction the primary key cannot: the
+ * directory's removal asks "which work items name this team", which is a scan
+ * of the whole table without it.
+ */
+export const workItemTeam = sqliteTable(
+  'work_item_team',
+  {
+    workItemId: text('work_item_id')
+      .notNull()
+      .references(() => workItem.id, { onDelete: 'cascade' }),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => serviceTeam.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workItemId, t.teamId] }),
+    index('work_item_team_by_team').on(t.teamId),
+  ],
+);
+
+export type WorkItemTeamRow = typeof workItemTeam.$inferSelect;
+
+/**
+ * A product area a work item's work belongs to — Payments, Auth, Reporting.
+ *
+ * **A label, and never a pool.** Dany, 2026-08-13 23:41, answering what a
+ * service is against a team: _"A label."_ It has no size, no capacity row, no
+ * members and **no effect on any date**. That is not a property of today's code
+ * that a later change may quietly take away: no service id reaches
+ * `schedule()`, the pool ids are built from the team set alone, and
+ * `schedules the same plan identically with every row labelled with services`
+ * in `service-labels-move-nothing.test.ts` is the differential that fails if
+ * one ever does.
+ *
+ * **Global and user-extensible** (Q7, 2026-08-13 23:59): one list across every
+ * project, the same shape as {@link serviceTeam} with the capacity cut out.
+ * Deliberately no `project_id` — Payments means Payments in every plan, which
+ * is what makes an export column, and R3's name-matched import, well defined.
+ * A work item points at a row here and never carries free text, or `Payments`
+ * and `payments ` would be two product areas with nothing to rename.
+ *
+ * Unique name at the database rather than only in the service, for
+ * {@link serviceTeam}'s reason: two people creating `Payments` at the same
+ * moment both pass a check-then-insert and only a constraint stops the second.
+ *
+ * **Two confusable nouns, said out loud**: `service_team` holds *teams* despite
+ * its name and `service` holds *labels*; a reader grepping `service` gets both.
+ * The rename of `service_team` to `team` is R2-6, once no running release reads
+ * the old noun.
+ *
+ * Seeded with **nothing**, and there is no route that creates one in this
+ * release: `resource-model` ships the schema and the read model, and
+ * `service-label` (R2-5) ships the directory CRUD, the picker and the export
+ * column. Today's `service_team` rows are pools, and nothing in the data
+ * distinguishes a row somebody typed meaning "Payments" from one meaning
+ * "Platform" — guessing would take a pool away from the rows that named it,
+ * which is a date change nobody typed.
+ */
+export const service = sqliteTable(
+  'service',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+  },
+  (t) => [uniqueIndex('service_name').on(t.name)],
+);
+
+export type ServiceRow = typeof service.$inferSelect;
+
+/**
+ * Which product areas one work item's work belongs to — 0..n of them.
+ *
+ * {@link workItemTeam}'s shape exactly, one dimension along, and the sameness
+ * is deliberate: the two resolve through the same inheritance walk
+ * (`effectiveSetOf`, `libs/domain`), each independently, because blank means
+ * _unstated_ per dimension (Q4, 2026-08-13).
+ *
+ * What is **not** the same is what it costs: a row here spends no slot, clamps
+ * no width and moves no date. See {@link service}.
+ */
+export const workItemService = sqliteTable(
+  'work_item_service',
+  {
+    workItemId: text('work_item_id')
+      .notNull()
+      .references(() => workItem.id, { onDelete: 'cascade' }),
+    serviceId: text('service_id')
+      .notNull()
+      .references(() => service.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workItemId, t.serviceId] }),
+    index('work_item_service_by_service').on(t.serviceId),
+  ],
+);
+
+export type WorkItemServiceRow = typeof workItemService.$inferSelect;
 
 /**
  * How many of one team may be at work at once **on one project's plan**.

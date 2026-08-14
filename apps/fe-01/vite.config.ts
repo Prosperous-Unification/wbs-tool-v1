@@ -111,12 +111,12 @@ export default defineConfig(({ command, mode }) => ({
       //   gate vacuous, which is the property that matters (AGENTS.md R5, and
       //   the one vacuous check ever found in the gate itself).
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
-      // The same module-not-barrel import, one file along: `effective-team.ts`
-      // is pure and dependency-free, and the rule it holds — a leaf's team is
-      // its own label or the nearest ancestor's — is the one be-01 pools on.
+      // The same module-not-barrel import, one file along: `effective-set.ts`
+      // is pure and dependency-free, and the rule it holds — a leaf's resources
+      // are its own set or the nearest ancestor's — is the one be-01 pools on.
       // A second copy of it here is a table that disagrees with the dates it
       // is printing.
-      '@wbs/domain/effective-team': resolve(__dirname, '../../libs/domain/src/effective-team.ts'),
+      '@wbs/domain/effective-set': resolve(__dirname, '../../libs/domain/src/effective-set.ts'),
     },
   },
   server: {

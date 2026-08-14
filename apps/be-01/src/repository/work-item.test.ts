@@ -12,6 +12,7 @@ import { EstimateRepository } from './estimate';
 import type { SubtreeCopy, WorkItem } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
+import { workItemTeam } from './schema';
 import { UserRepository } from './user';
 import { SubtreeRepository, WorkItemRepository } from './work-item';
 
@@ -276,5 +277,119 @@ describe('WorkItemRepository', () => {
     const remaining = await repo.listByProject(projectId);
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.parentId).toBeNull();
+  });
+  describe('resource sets', () => {
+    /**
+     * The set a row is read with, for the one project under test.
+     *
+     * Absent rather than empty for a row that names nothing — {@link ResourceSets}
+     * has one spelling of unstated — so the assertions below say `undefined`
+     * where they mean it.
+     */
+    async function teamsOf(id: string): Promise<readonly string[] | undefined> {
+      return (await repo.resourceSetsOf(projectId)).teamIdsOf.get(id);
+    }
+
+    it('reads a work item’s teams from the join table rather than from the column', async () => {
+      // The whole point of the change, and the one substitution that leaves
+      // every schedule identical while reading the wrong table: the mirror keeps
+      // the two in step, so only a row where they *disagree* can tell them
+      // apart. This writes that row by hand — a label in the join and no column
+      // beside it, which is what R2-4 will write for real.
+      //
+      // Proof: `resourceSetsOf`'s team statement pointed back at
+      // `work_item.service_team_id` and this failed on `expected undefined to
+      // deeply equal [ 'the-team' ]`; watched 2026-08-14.
+      const platform = await directory.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+      const strip = row(null, 10, 'Strip');
+      await repo.insert(strip, []);
+      const db = openDrizzle(join(dir, 'test.db'));
+      await db.insert(workItemTeam).values({ workItemId: strip.id, teamId: platform.id });
+
+      expect(await teamsOf(strip.id)).toEqual([platform.id]);
+      expect((await repo.findById(strip.id))?.serviceTeamId).toBeNull();
+    });
+
+    it('mirrors an inserted row’s label into the set', async () => {
+      const platform = await directory.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+      const strip = { ...row(null, 10, 'Strip'), serviceTeamId: platform.id };
+
+      await repo.insert(strip, []);
+
+      expect(await teamsOf(strip.id)).toEqual([platform.id]);
+    });
+
+    it('mirrors a patched label, and takes the row away again when it is cleared', async () => {
+      // Both directions in one case, because the clear is the half a
+      // delete-then-insert gets wrong by doing nothing: a row that kept its old
+      // set after the label was taken off would go on spending that pool with
+      // nothing on screen naming it.
+      //
+      // Proof: the `mirrorTeam` call removed from `patch` and this failed at
+      // the first assertion on `expect(received).toEqual(expected)` — `undefined`
+      // where the team id was owed — alone at 13 pass / 1 fail. Watched
+      // 2026-08-14.
+      const platform = await directory.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+      const strip = row(null, 10, 'Strip');
+      await repo.insert(strip, []);
+
+      await repo.patch(strip.id, { serviceTeamId: platform.id });
+      expect(await teamsOf(strip.id)).toEqual([platform.id]);
+
+      await repo.patch(strip.id, { serviceTeamId: null });
+      expect(await teamsOf(strip.id)).toBeUndefined();
+    });
+
+    it('leaves the set alone for a patch that says nothing about the label', async () => {
+      // A behaviour pin, **not** a negative: `mirrorTeam` derives the set from
+      // the column, so a rename that rewrote it would write back what was
+      // already there and this would stay green. The condition in `patch` was
+      // removed and this was watched **passing** — recorded in verify.md as a
+      // passing injection, with the reason the line is kept anyway on the line
+      // itself.
+      const platform = await directory.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+      const strip = { ...row(null, 10, 'Strip'), serviceTeamId: platform.id };
+      await repo.insert(strip, []);
+
+      await repo.patch(strip.id, { name: 'Strip it back' });
+
+      expect(await teamsOf(strip.id)).toEqual([platform.id]);
+    });
+
+    it('duplicates a labelled branch onto the same team', async () => {
+      // The subtree write is its own transaction across four tables, and the
+      // set is the fifth. A copy that lost it would come back on no pool at
+      // all — a duplicate of a labelled branch scheduling differently from the
+      // branch it was copied from.
+      const platform = await directory.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+      const copied: WorkItem = { ...row(null, 20, 'Strip (copy)'), serviceTeamId: platform.id };
+      const copy: SubtreeCopy = {
+        rows: [copied],
+        respaced: [],
+        reparented: [],
+        estimates: [],
+        assignments: [],
+        dependencies: [],
+        removedEstimates: [],
+      };
+
+      await subtrees.insertSubtree(copy);
+
+      expect(await teamsOf(copied.id)).toEqual([platform.id]);
+    });
+
+    it('says nothing about a work item in another project', async () => {
+      // The read is joined back through `work_item`, so a plan of 500 rows does
+      // not read every membership row on the deployment — and a second project's
+      // labels never leak into this one's inheritance walk.
+      const platform = await directory.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+      const strip = { ...row(null, 10, 'Strip'), serviceTeamId: platform.id };
+      await repo.insert(strip, []);
+
+      const sets = await repo.resourceSetsOf(crypto.randomUUID());
+
+      expect(sets.teamIdsOf.size).toBe(0);
+      expect(sets.serviceIdsOf.size).toBe(0);
+    });
   });
 });

@@ -36,6 +36,26 @@ export function inMemoryWorkItems(
   teams?: Pick<DirectoryStore, 'listTeams'>,
 ): WorkItemStore {
   const byId = new Map<string, WorkItem>();
+  /**
+   * The mirror, held as its own map rather than derived from `serviceTeamId` on
+   * read.
+   *
+   * A fixture that answered `resourceSetsOf` out of the column would be a
+   * fixture that cannot tell a broken mirror from a working one: every test
+   * over it would pass against a repository that had stopped writing the join
+   * table at all. So this is written where production writes it — inside
+   * `insert` and inside the `serviceTeamId` arm of `patch` — and read where
+   * production reads it.
+   *
+   * Services have no writer anywhere in this release, so their map is empty and
+   * is deliberately not faked into existence here.
+   */
+  const teamIdsOf = new Map<string, string[]>();
+
+  function mirrorTeam(row: WorkItem): void {
+    if (row.serviceTeamId === null) teamIdsOf.delete(row.id);
+    else teamIdsOf.set(row.id, [row.serviceTeamId]);
+  }
 
   function reposition(updates: readonly Repositioned[]): void {
     for (const update of updates) {
@@ -55,7 +75,17 @@ export function inMemoryWorkItems(
     insert(workItem, respaced) {
       reposition(respaced);
       byId.set(workItem.id, workItem);
+      mirrorTeam(workItem);
       return Promise.resolve();
+    },
+    resourceSetsOf(projectId) {
+      const inProject = new Set(
+        [...byId.values()].filter((each) => each.projectId === projectId).map((each) => each.id),
+      );
+      return Promise.resolve({
+        teamIdsOf: new Map([...teamIdsOf].filter(([id]) => inProject.has(id))),
+        serviceIdsOf: new Map<string, readonly string[]>(),
+      });
     },
     async patch(id, patch) {
       const existing = byId.get(id);
@@ -84,6 +114,7 @@ export function inMemoryWorkItems(
           patch.maxParallel === undefined ? existing.maxParallel : (patch.maxParallel ?? 1),
       };
       byId.set(id, updated);
+      if (patch.serviceTeamId !== undefined) mirrorTeam(updated);
       return { ok: true, workItem: updated };
     },
     move(id, parentId, position, respaced) {
@@ -111,7 +142,13 @@ export function inMemoryWorkItems(
         if (existing === undefined) throw new Error(`cannot promote unknown ${child.id}`);
         byId.set(child.id, { ...existing, parentId: child.parentId, position: child.position });
       }
-      for (const id of [...ids].reverse()) byId.delete(id);
+      // `ON DELETE CASCADE` in the schema, and by hand here: a work item that
+      // has gone must take its label rows with it, or a later read answers for
+      // a row nobody can see.
+      for (const id of [...ids].reverse()) {
+        byId.delete(id);
+        teamIdsOf.delete(id);
+      }
       return Promise.resolve();
     },
   };

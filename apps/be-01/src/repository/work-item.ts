@@ -5,6 +5,7 @@ import type {
   FrozenNumber,
   Reparented,
   Repositioned,
+  ResourceSets,
   SubtreeCopy,
   SubtreeStore,
   WorkItem,
@@ -13,7 +14,57 @@ import type {
   WorkItemStore,
 } from './index';
 import { bumpedWorkItem, bumpedWorkItemOnReparent, bumpWorkItems } from './revision';
-import { assignment, dependency, estimate, serviceTeam, workItem } from './schema';
+import {
+  assignment,
+  dependency,
+  estimate,
+  serviceTeam,
+  workItem,
+  workItemService,
+  workItemTeam,
+} from './schema';
+
+/**
+ * Pairs into one list per key, keeping the order they arrive in — which the
+ * statements above decide, in SQL.
+ *
+ * A key with no pairs is simply not in the map, which is {@link ResourceSets}'s
+ * one spelling of _unstated_.
+ */
+function groupIds(pairs: readonly (readonly [string, string])[]): ReadonlyMap<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const [key, id] of pairs) grouped.set(key, [...(grouped.get(key) ?? []), id]);
+  return grouped;
+}
+
+/** Whatever can write the mirror — the process connection or a transaction on it. */
+type SetWriter = Pick<SQLiteBunDatabase, 'insert' | 'delete'>;
+
+/**
+ * Puts one work item's team set where the readers read it, from the column the
+ * writers still write.
+ *
+ * **The whole of the dual write, in one function**, and that is the point of it
+ * being one: `resource-model` keeps `work_item.service_team_id` written because
+ * the outgoing release selects it, and keeps `work_item_team` written because
+ * this release reads it. Two spellings of one fact drift the moment they are
+ * maintained in two places, and the drift would show as a plan whose labels
+ * depend on which release last touched the row.
+ *
+ * Delete-then-insert rather than a diff: the set is capped at one member in
+ * this release, so the diff would be arithmetic over a set of one. R2-4 rewrites
+ * this function around the set the client sends, and this is the seam it
+ * replaces.
+ *
+ * Called inside the caller's transaction, never beside it — a row written with
+ * no set, or a set written for a row that is not there, is a foreign key
+ * violation at best and a work item whose label vanished at worst.
+ */
+function mirrorTeam(tx: SetWriter, row: Pick<WorkItem, 'id' | 'serviceTeamId'>): void {
+  tx.delete(workItemTeam).where(eq(workItemTeam.workItemId, row.id)).run();
+  if (row.serviceTeamId === null) return;
+  tx.insert(workItemTeam).values({ workItemId: row.id, teamId: row.serviceTeamId }).run();
+}
 
 /**
  * Every method that writes more than one row does so in one transaction.
@@ -36,6 +87,41 @@ export class WorkItemRepository implements WorkItemStore {
     return this.db.select().from(workItem).where(eq(workItem.projectId, projectId));
   }
 
+  /**
+   * Two statements, joined back to the project through `work_item` rather than
+   * filtered in memory: a plan of 500 rows would otherwise read every
+   * membership row on the deployment to answer about one project's.
+   *
+   * Sorted in SQL, because the order reaches the wire: an unsorted read gives
+   * SQLite's own row order, and two reads of an unchanged plan that came back
+   * in two orders would look like an edit to every client diffing them.
+   *
+   * Proof: the team read pointed back at `work_item.service_team_id` — the
+   * mirror the join is kept in step with, and the one substitution that leaves
+   * every schedule identical — and `reads a work item's teams from the join
+   * table rather than from the column` failed on `expect(received).toEqual(expected)`,
+   * `undefined` where the team id was owed, alone at 13 pass / 1 fail; watched
+   * 2026-08-14.
+   */
+  async resourceSetsOf(projectId: string): Promise<ResourceSets> {
+    const teams = await this.db
+      .select({ workItemId: workItemTeam.workItemId, teamId: workItemTeam.teamId })
+      .from(workItemTeam)
+      .innerJoin(workItem, eq(workItem.id, workItemTeam.workItemId))
+      .where(eq(workItem.projectId, projectId))
+      .orderBy(workItemTeam.workItemId, workItemTeam.teamId);
+    const services = await this.db
+      .select({ workItemId: workItemService.workItemId, serviceId: workItemService.serviceId })
+      .from(workItemService)
+      .innerJoin(workItem, eq(workItem.id, workItemService.workItemId))
+      .where(eq(workItem.projectId, projectId))
+      .orderBy(workItemService.workItemId, workItemService.serviceId);
+    return {
+      teamIdsOf: groupIds(teams.map((row) => [row.workItemId, row.teamId])),
+      serviceIdsOf: groupIds(services.map((row) => [row.workItemId, row.serviceId])),
+    };
+  }
+
   async findById(id: string): Promise<WorkItem | null> {
     const rows = await this.db.select().from(workItem).where(eq(workItem.id, id)).limit(1);
     return rows[0] ?? null;
@@ -51,6 +137,7 @@ export class WorkItemRepository implements WorkItemStore {
           .run();
       }
       tx.insert(workItem).values(toInsert).run();
+      mirrorTeam(tx, toInsert);
     });
   }
 
@@ -59,9 +146,15 @@ export class WorkItemRepository implements WorkItemStore {
    * transaction as the `UPDATE`**.
    *
    * The check and the write cannot be pulled apart, and that is the whole point
-   * of it living here. `work_item.service_team_id` deliberately has no foreign
-   * key — a label is a label, not a constraint — so nothing below this stops a
-   * removed team's id being written. A service-level precheck followed by
+   * of it living here. This paragraph used to say the column has no foreign key
+   * — "a label is a label, not a constraint" — and **that is wrong about the
+   * deployed schema**: `20260806190000_add_teams_and_assignees` writes
+   * `REFERENCES service_team(id)` with no `ON DELETE`, which `schema.ts` does not
+   * declare. Measured 2026-08-14; see the column's own JSDoc and
+   * `resource-model`'s design.md D11. What the key does **not** do is make this
+   * read redundant: it refuses a dead id at the moment of the write, and the
+   * refusal it produces is an uncaught `SQLiteError`, where this answers the
+   * modeled `unknown_team`. A service-level precheck followed by
    * today's unchecked update is two statements with a delete-sized gap between
    * them: the check passes for a team removed inside it, and the row then
    * carries an id the directory does not hold, for ever, with nothing anywhere
@@ -116,6 +209,21 @@ export class WorkItemRepository implements WorkItemStore {
         .all();
       const updated = rows.at(0);
       if (updated === undefined) return { ok: false, reason: 'not_found' };
+      // Only when the patch names the label, and **removing this condition is
+      // invisible in this release** — said out loud because R5 is about exactly
+      // that. `mirrorTeam` derives the set from the column, a patch that does
+      // not name the label leaves the column alone, so the delete-then-insert it
+      // would run on every rename writes back what was already there. There is
+      // no test here that can see this line go, and none is claimed.
+      //
+      // It is kept for two reasons that are not safety: two statements per
+      // keystroke-committed patch is a cost nothing buys, and R2-4 rewrites
+      // `mirrorTeam` around the client's own set — at which point a rename that
+      // rewrote the set would flatten a plural one to whatever the column holds,
+      // and the line would become load-bearing with nobody having decided it
+      // should be. Watched **passing** with the condition removed on 2026-08-14;
+      // verify.md records it as a passing injection rather than a red.
+      if (patch.serviceTeamId !== undefined) mirrorTeam(tx, updated);
       return { ok: true, workItem: updated };
     });
   }
@@ -241,7 +349,18 @@ export class SubtreeRepository implements SubtreeStore {
       // One statement per row rather than one multi-row insert: a child
       // referencing a parent in the same `VALUES` list depends on the order
       // SQLite evaluates it in, which is not a contract worth resting a tree on.
-      for (const row of copy.rows) tx.insert(workItem).values(row).run();
+      // The set goes with the copy, in the same statement order and the same
+      // transaction: a duplicated branch whose rows carried labels and whose
+      // copies did not would come back from its own `Ctrl+D` on different
+      // pools, which is a date change nobody asked for.
+      //
+      // Proof: the mirror dropped from this loop and `duplicates a labelled
+      // branch onto the same team` failed on `expect(received).toEqual(expected)`,
+      // `undefined` where the copied row's team was owed; watched 2026-08-14.
+      for (const row of copy.rows) {
+        tx.insert(workItem).values(row).run();
+        mirrorTeam(tx, row);
+      }
       // After the rows, because these point at them. A restored parent's
       // children come home here, and a row that gained a parent gained a
       // stored field of its own — see {@link bumpedWorkItemOnReparent} for why

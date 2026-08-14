@@ -7,7 +7,7 @@ import {
   type RowData,
   useReactTable,
 } from '@tanstack/react-table';
-import { effectiveTeamOf } from '@wbs/domain/effective-team';
+import { effectiveSetOf, soleMemberOf } from '@wbs/domain/effective-set';
 import { workdaysBetween } from '@wbs/domain/workday';
 import {
   type CSSProperties,
@@ -2426,6 +2426,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   };
 
   /**
+   * The one team a row states, out of the set it states them in.
+   *
+   * `resource-model` caps every write path at one member per dimension, so this
+   * always answers; a second team could only arrive from a release that is
+   * ahead of this one, and `soleMemberOf` refuses it into the error boundary
+   * rather than drawing a cell that names one of two teams as if it were the
+   * answer. `team-faces` (R2-3) draws the set and deletes this.
+   */
+  const soleTeamOf = (row: { number: string; teamIds: readonly string[] }): string | null =>
+    soleMemberOf(row.teamIds, `row ${row.number}`);
+
+  /**
    * Which team's work each row is, the leaf's own label or the nearest
    * ancestor's — `libs/domain`'s reading, not a second copy of it.
    *
@@ -2440,7 +2452,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * Over `flat` and not `shownRows`: an ancestor a search or a collapse has
    * taken off screen still labels the work under it.
    */
-  const effectiveTeams = effectiveTeamOf(flat);
+  const effectiveTeams = effectiveSetOf(flat, (row) => row.teamIds);
 
   /**
    * A row's team as a cell or a bar can state it: its own label, or the one it
@@ -2452,10 +2464,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * number" has no answer anywhere in the tool.
    */
   const effectiveTeamLabelOf = (row: TreeRow): ServiceTeamLabel => {
-    if (row.serviceTeamId !== null) return teamLabelOf(row.serviceTeamId);
+    const own = soleTeamOf(row);
+    if (own !== null) return teamLabelOf(own);
     const inherited = effectiveTeams.get(row.id);
     if (inherited === undefined) return { state: 'none' };
-    const named = teams.find((team) => team.id === inherited.teamId);
+    const inheritedId = soleMemberOf(inherited.memberIds, `row ${row.number}`);
+    if (inheritedId === null) return { state: 'none' };
+    const named = teams.find((team) => team.id === inheritedId);
     if (named === undefined) return { state: 'unresolved' };
     return {
       state: 'inherited',
@@ -4102,10 +4117,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   const createPersonFor = useCallback(
     (row: TreeRow, roleId: string, name: string) => {
       void run(async () => {
-        const person = await api.addPerson(
-          name,
-          row.serviceTeamId === null ? [] : [row.serviceTeamId],
-        );
+        // The row's own teams, from the set — a person typed in against
+        // labelled work joins that work's team. Set-valued already, so R2-4
+        // widens this to `row.teamIds` verbatim.
+        const person = await api.addPerson(name, [...row.teamIds]);
         await api.assign(row.id, roleId, person.id);
       });
     },
@@ -5602,7 +5617,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   : undefined
               }
               entries={live.current.teams}
-              value={row.original.serviceTeamId}
+              value={soleTeamOf(row.original)}
               onChoose={(id) => {
                 live.current.setTeamOf(row.original.id, id);
               }}
@@ -6922,8 +6937,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // Every row's **effective** team, so a team only an ancestor carries is
           // offered a box: its pool is what the leaves below it spend. The same
           // reading the cell, the cards, the export and the bars use — one
-          // `effectiveTeamOf` per render and never a second copy.
-          flat.map((row) => effectiveTeams.get(row.id)?.teamId ?? null),
+          // `effectiveSetOf` per render and never a second copy.
+          flat.map((row) =>
+            soleMemberOf(effectiveTeams.get(row.id)?.memberIds ?? [], `row ${row.number}`),
+          ),
         )}
         setCapacity={(teamId, size) => api.setTeamCapacity(projectId, teamId, size)}
         onChanged={refreshOrMarkStale}

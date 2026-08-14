@@ -163,6 +163,8 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         dates: options.dated === true ? { ...DATED_PLAN } : null,
         startNoEarlierThan: null,
         serviceTeamId: null,
+        teamIds: [],
+        serviceIds: [],
         assignees: {},
         doesEveryPhase: null,
         schedule: {
@@ -898,7 +900,9 @@ describe('what a card says about capacity', () => {
   itDom('names the team a row carries', async () => {
     await aPlan((rows, teams) => {
       teams.push({ id: 't1', name: 'Billing' });
-      rows[0].serviceTeamId = 't1';
+      // The set, because the set is what the card reads. The column beside it
+      // is what a `PATCH` names and what an older release selects.
+      rows[0].teamIds = ['t1'];
     });
 
     expect(teamOnCard()?.textContent).toBe('Billing');
@@ -910,14 +914,14 @@ describe('what a card says about capacity', () => {
     // parent is on that parent's pool: its dates moved for a number written a
     // row above it. A card showing nothing there cannot explain them.
     //
-    // Proof: `teamLabel` pointed back at the stored label — the `teamName` this
-    // change replaced, `teamLabelOf(row.serviceTeamId)` — and this failed on
+    // Proof: `teamLabel` pointed back at the row's own set — the `teamName`
+    // that change replaced, `teamLabelOf(soleTeamOf(row))` — and this failed on
     // `expected undefined to be '↳ Billing'`: the inheriting card drew no team
     // line at all. Watched 2026-08-13.
     await aPlan((rows, teams) => {
       teams.push({ id: 't1', name: 'Billing' });
       const [parent, child] = rows;
-      parent.serviceTeamId = 't1';
+      parent.teamIds = ['t1'];
       child.parentId = parent.id;
       parent.rolledUp = true;
     }, 2);

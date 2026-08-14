@@ -1,3 +1,4 @@
+import { PluralMembershipError } from '@wbs/domain/effective-set';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -83,7 +84,7 @@ const row = (over: Partial<ExportRow> & Pick<ExportRow, 'id' | 'number'>): Expor
   name: '',
   notes: '',
   rolledUp: false,
-  serviceTeamId: null,
+  teamIds: [],
   estimates: {},
   finalDays: {},
   finalTotal: 0,
@@ -327,8 +328,8 @@ describe('the columns', () => {
 
   it('resolves the team to its name, and says so when the id names nobody', () => {
     const rows = [
-      row({ id: 'a', number: '010', serviceTeamId: 'team-billing' }),
-      row({ id: 'b', number: '020', serviceTeamId: 'team-gone' }),
+      row({ id: 'a', number: '010', teamIds: ['team-billing'] }),
+      row({ id: 'b', number: '020', teamIds: ['team-gone'] }),
       row({ id: 'c', number: '030' }),
     ];
     const csv = planToCsv(plan({ rows }));
@@ -336,6 +337,22 @@ describe('the columns', () => {
     expect(csvDataRow(csv)[team]).toBe('Billing, Ltd');
     expect(csvDataRow(csv, 1)[team]).toBe('(unknown)');
     expect(csvDataRow(csv, 2)[team]).toBe('');
+  });
+
+  it('refuses to print one of two teams as if it were the answer', () => {
+    // `resource-model` caps every write at one team, so a plural set here means
+    // a be-01 from a later release than this client. A document is the worst
+    // possible place to guess: it is read as the answer, filed, and mailed on.
+    // R2-3 is the change that prints the whole set and deletes this case.
+    //
+    // Proof: `soleMemberOf`'s length check removed, so it answers
+    // `memberIds[0]`, and this failed on `AssertionError: expected function to
+    // throw an error, but it didn't` — 1 failed | 38 passed — while the CSV came
+    // back naming `Billing, Ltd` alone for a row on two teams. Watched
+    // 2026-08-14.
+    const rows = [row({ id: 'a', number: '010', teamIds: ['team-billing', 'team-gone'] })];
+
+    expect(() => planToCsv(plan({ rows }))).toThrow(PluralMembershipError);
   });
 
   it('resolves dependencies to numbers, comma-joined, dropping ones that have gone', () => {
@@ -403,7 +420,7 @@ describe('the capacity columns', () => {
 
   it('names the team a row inherits, and the row the label was written on', () => {
     const rows = [
-      row({ id: 'a', number: '010', name: 'Backend', serviceTeamId: 'team-billing' }),
+      row({ id: 'a', number: '010', name: 'Backend', teamIds: ['team-billing'] }),
       row({ id: 'b', number: '010.1', name: 'Ship it', parentId: 'a' }),
     ];
     const csv = planToCsv(plan({ rows }));
@@ -429,14 +446,14 @@ describe('the capacity columns', () => {
     // has to go through them, which is what "every row" buys over "the labelled
     // rows".
     //
-    // Proof: `teamsInForce` pointed at `plan.rows.filter((r) => r.serviceTeamId
-    // !== null)` rather than at every row, so an unlabelled row is simply not
+    // Proof: `teamsInForce` pointed at `plan.rows.filter((r) => r.teamIds.length
+    // > 0)` rather than at every row, so an unlabelled row is simply not
     // in the map the chain is walked through. This failed on `expected '' to be
     // 'Billing, Ltd (inherited from 010 Root)'`, and took `names the team a row
     // inherits` with it — every inheriting row in the document reported
     // teamless while its dates came out of the pool. Watched 2026-08-13.
     const rows = [
-      row({ id: 'a', number: '010', name: 'Root', serviceTeamId: 'team-billing' }),
+      row({ id: 'a', number: '010', name: 'Root', teamIds: ['team-billing'] }),
       row({ id: 'b', number: '010.1', name: 'Nearer', parentId: 'a' }),
       row({ id: 'c', number: '010.1.1', name: 'Leaf', parentId: 'b' }),
     ];
@@ -603,7 +620,7 @@ describe('hostile text', () => {
       number: '010',
       name: 'a,b',
       notes: 'say "hi"',
-      serviceTeamId: 'team-billing',
+      teamIds: ['team-billing'],
     }),
     row({
       id: 'b',
