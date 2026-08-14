@@ -937,10 +937,22 @@ function capacityProfile(sizes: PoolSizes) {
           if (window.start > best) {
             best = window.start;
             reached = [{ poolId, blocking: window.blocking }];
-          } else if (window.start === best && window.start > candidate) {
+          } else if (window.start === best) {
             reached.push({ poolId, blocking: window.blocking });
           }
         }
+        // `binding` is taken from a round that **moved**, and only from one:
+        // membership therefore already means "this pool's own earliest fit is
+        // past where the block was asked to start", and a second condition
+        // saying so on the push above would be a check nothing could redden.
+        // The final round's `reached` — every pool, each of them fitting — is
+        // discarded here rather than kept, which is the whole distinction.
+        //
+        // Proof: `binding = reached` moved above this return, so the fixpoint
+        // round's own set survives, and `names no team on a slice no pool held
+        // up` failed on `first role-dev names team-alpha with no pool binding
+        // it` — the placement's invariant, catching a team named on a block
+        // nothing held up; watched 2026-08-14.
         if (best === candidate) return { start: candidate, blocking: [...blocking], binding };
         binding = reached;
         candidate = best;
