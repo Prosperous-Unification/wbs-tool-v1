@@ -52,9 +52,9 @@ SHALL NOT be restored on its own.
 
 ### Requirement: A saved view naming something since removed narrows to nothing, not to an error
 
-Where a saved view's stored criteria name a team, a person or a phase the
-project no longer holds, applying it SHALL NOT throw and SHALL NOT be
-silently dropped or repaired. The facet it named SHALL be offered as a ticked
+A client SHALL NOT throw when a saved view's stored criteria name a team, a
+person or a phase the project no longer holds, and SHALL NOT silently drop or
+repair that criterion. The facet it named SHALL be offered as a ticked
 box the reader can see and untick, and narrowing by it SHALL answer with no
 rows kept — the same behaviour any other facet gives when nothing on the plan
 carries the value asked for.
@@ -68,8 +68,8 @@ carries the value asked for.
 
 ### Requirement: A malformed saved view is dropped without losing the rest
 
-Where the stored value under a project's saved-views key is not a list at
-all, a client SHALL discard the whole key rather than guess at its shape.
+A client SHALL discard the whole saved-views key, rather than guess at its
+shape, where the stored value under it is not a list at all.
 Where the stored value is a list but one entry is not a usable saved view —
 missing a name, an empty name, or criteria missing a field a filter requires
 — that entry alone SHALL be dropped and the other saved views SHALL still be
