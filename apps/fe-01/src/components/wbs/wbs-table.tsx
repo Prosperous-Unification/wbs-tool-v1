@@ -127,6 +127,7 @@ import { type Toast, toastKey, ToastStack, useToasts } from './toasts';
 import {
   type FacetCriteria,
   type FilterCriteria,
+  type FilterLabels,
   filterWords,
   isFiltering,
   type NarrowableRow,
@@ -880,6 +881,104 @@ function forgetWidthOverrides(projectId: string): void {
 }
 
 /**
+ * A named filter this browser has saved, so it can be picked again later —
+ * R10 F4. Stores only {@link FilterCriteria}: not the expansion, not the
+ * column widths. A saved view is *how one reader is looking at a plan*, the
+ * exact phrase `planForExport` uses to justify not exporting a collapsed
+ * branch or a running search (`:2643` below) — so it lives here, per browser,
+ * beside every other display preference, and be-01 is never told about it.
+ */
+interface SavedView {
+  id: string;
+  name: string;
+  criteria: FilterCriteria;
+}
+
+/**
+ * Where this browser remembers one project's saved views.
+ *
+ * Per project and per browser, exactly as {@link widthOverridesKey} beside
+ * it: a view is one reader's own named answer to "what am I looking at",
+ * and it must not appear in front of a different reader who opens the same
+ * plan on their own machine.
+ */
+const savedViewsKey = (projectId: string): string => `wbs.views.${projectId}`;
+
+/** Whether a claimed value is a list of strings — a facet's chosen ids. */
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((each) => typeof each === 'string');
+}
+
+/** Whether a claimed value has every field {@link FilterCriteria} declares. */
+function isFilterCriteriaShape(value: unknown): value is FilterCriteria {
+  if (typeof value !== 'object' || value === null) return false;
+  const claimed = value as Record<string, unknown>;
+  return (
+    typeof claimed['query'] === 'string' &&
+    isStringArray(claimed['teamIds']) &&
+    isStringArray(claimed['assigneeIds']) &&
+    isStringArray(claimed['priorityBands']) &&
+    isStringArray(claimed['estimatedRoleIds']) &&
+    typeof claimed['unestimated'] === 'boolean' &&
+    typeof claimed['critical'] === 'boolean'
+  );
+}
+
+/** Whether a claimed value is one saved view this table can offer and apply. */
+function isSavedView(value: unknown): value is SavedView {
+  if (typeof value !== 'object' || value === null) return false;
+  const claimed = value as Record<string, unknown>;
+  const name = claimed['name'];
+  return (
+    typeof claimed['id'] === 'string' &&
+    typeof name === 'string' &&
+    name.trim() !== '' &&
+    isFilterCriteriaShape(claimed['criteria'])
+  );
+}
+
+/**
+ * The views this browser last saved for `projectId`, or none where it has
+ * never saved any.
+ *
+ * The stored value is a claim, not a fact — user-editable storage read at a
+ * boundary, the same posture {@link rememberedWidthOverrides} takes. Storage
+ * that is not an array at all takes the key with it; a single entry that is
+ * not a usable view is dropped **on its own**, and the views beside it still
+ * apply — one hand-edited view is no reason to forget the rest.
+ *
+ * A view naming a team, a person or a phase this project no longer holds
+ * survives this check and is simply never a live checkbox: applying it ticks
+ * a box the facet panel already knows how to draw for an absent value
+ * (`optionsFor`, "a team this plan has not loaded"), and narrowing by an id
+ * no row carries answers empty — the same "empty means empty" rule any other
+ * facet with nothing left to match gets. Nothing here repairs or deletes the
+ * view on the reader's behalf.
+ */
+function rememberedSavedViews(projectId: string): SavedView[] {
+  const stored = localStorage.getItem(savedViewsKey(projectId));
+  if (stored === null) return [];
+  const claimed = parsedOrNothing(stored);
+  if (!Array.isArray(claimed)) {
+    localStorage.removeItem(savedViewsKey(projectId));
+    return [];
+  }
+  return claimed.filter(isSavedView);
+}
+
+/**
+ * Writes the saved views in force for `projectId`.
+ *
+ * Called on Save and on Delete, and at no other time — same as {@link
+ * rememberWidthOverrides}, opening a project must not change what it
+ * remembers about it, and the sanitized set from {@link rememberedSavedViews}
+ * is never written back on a read.
+ */
+function rememberSavedViews(projectId: string, views: readonly SavedView[]): void {
+  localStorage.setItem(savedViewsKey(projectId), JSON.stringify(views));
+}
+
+/**
  * How wide a column is while its resize handle is `travel` px from where it was
  * grabbed.
  *
@@ -1569,6 +1668,122 @@ function FilterFacets({
 }
 
 /**
+ * Named filters this browser has saved for this project — R10 F4, beside
+ * {@link FilterFacets} because naming a filter and ticking one are the same
+ * act's two moments.
+ *
+ * **Narrow, not highlight**, same as the filter itself: picking a saved view
+ * writes the Find box and the ticks, exactly as if a reader had typed and
+ * ticked it themselves, and {@link narrowTree} is the one thing that reads
+ * what a view leaves behind. Nothing here holds a narrowed tree of its own.
+ *
+ * Save is offered only while something is actually being asked of the plan —
+ * the same bargain `Clear filters` makes: a view named for the whole,
+ * unfiltered plan has nothing to be picked back to, because opening a project
+ * already shows the whole plan.
+ */
+function SavedViews({
+  views,
+  current,
+  labels,
+  onSave,
+  onApply,
+  onDelete,
+}: {
+  views: readonly SavedView[];
+  current: FilterCriteria;
+  labels: FilterLabels;
+  onSave: (name: string) => void;
+  onApply: (view: SavedView) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const filtering = isFiltering(current);
+  const canSave = filtering && name.trim() !== '';
+  return (
+    <details data-saved-views className="relative">
+      <summary
+        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+        title="Name the current filter, or pick one already named"
+      >
+        Views{views.length > 0 ? ` (${String(views.length)})` : ''}
+      </summary>
+      <div
+        data-saved-views-panel
+        className="bg-popover absolute z-50 mt-1 max-h-80 w-64 overflow-y-auto rounded-md border p-3 text-sm shadow-md"
+      >
+        <div className="mb-2 flex gap-1.5">
+          <Input
+            className="h-8 flex-1 text-xs"
+            aria-label="Name this view"
+            placeholder="Name this view…"
+            value={name}
+            onChange={(e) => {
+              setName(e.currentTarget.value);
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            disabled={!canSave}
+            title={
+              filtering
+                ? 'Save the Find box and the ticked filters under this name'
+                : 'Nothing is filtered — there is no view to name'
+            }
+            onClick={() => {
+              onSave(name.trim());
+              setName('');
+            }}
+          >
+            Save
+          </Button>
+        </div>
+        {views.length === 0 ? (
+          <p className="text-muted-foreground text-xs">No saved views yet.</p>
+        ) : (
+          <ul>
+            {views.map((view) => {
+              // What the view asks of the plan, said the same way the
+              // filtered export's `Scope` line says it — one account of a
+              // filter, not two that could disagree.
+              const words = filterWords(view.criteria, labels);
+              return (
+                <li key={view.id} className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="min-h-7 flex-1 truncate text-left text-xs underline-offset-2 hover:underline"
+                    title={words.length > 0 ? words.join('; ') : view.name}
+                    onClick={() => {
+                      onApply(view);
+                    }}
+                  >
+                    {view.name}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="square"
+                    type="button"
+                    aria-label={`Delete view ${view.name}`}
+                    title="Forget this view. What it narrows to is untouched."
+                    onClick={() => {
+                      onDelete(view.id);
+                    }}
+                  >
+                    <span aria-hidden="true">✕</span>
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </details>
+  );
+}
+
+/**
  * The work breakdown: one grid that is a table and a nested list at once.
  *
  * TanStack Table owns exactly one thing here — which branches are open. Ordering
@@ -1705,6 +1920,31 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * link could carry to somebody else yet.
    */
   const [facets, setFacets] = useState<Omit<FilterCriteria, 'query'>>(NO_FACETS);
+  /**
+   * The filters this browser has named and saved for this project — F4, and
+   * the deliberate opposite of {@link facets} beside it: this **is**
+   * remembered across a reload, because naming one and picking it back up is
+   * a deliberate act and not a restored session nobody asked for.
+   *
+   * Read straight into the initial state for {@link rememberedExpansion}'s
+   * reason: an effect would open the panel with nothing in it for one frame.
+   */
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => rememberedSavedViews(projectId));
+  /** Which project the saved views above belong to, so a save cannot pair it with another. */
+  const savedViewsProject = useRef(projectId);
+  /**
+   * Swaps the saved views whole when the project does.
+   *
+   * Nothing is written here, for {@link widthProject}'s effect's reason: Save
+   * and Delete are the only writers, so there is no first-save-after-a-switch
+   * to guard against — only the read, which would otherwise offer one
+   * project's views on another's plan.
+   */
+  useEffect(() => {
+    if (savedViewsProject.current === projectId) return;
+    savedViewsProject.current = projectId;
+    setSavedViews(rememberedSavedViews(projectId));
+  }, [projectId]);
   /**
    * What happened, in the corner, one message per event.
    *
@@ -2837,6 +3077,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * is on do not have to hold a narrowed tree to ask.
    */
   const filtering = isFiltering(criteria);
+
+  /**
+   * The names the ids inside a {@link FilterCriteria} stand for, in this
+   * plan's own words — one object read by the filtered export's `Scope` line
+   * ({@link planOnScreen}) and by the saved-views panel's tooltip, so a
+   * filter is never described two different ways.
+   */
+  const filterLabels: FilterLabels = {
+    teamName: (teamId) =>
+      teams.find((team) => team.id === teamId)?.name ?? 'a team this plan has not loaded',
+    personName: (personId) =>
+      chartRead.people.find((person) => person.id === personId)?.name ??
+      'somebody this plan has not loaded',
+    phaseName: (roleId) => roles.find((role) => role.id === roleId)?.name ?? '(unknown)',
+  };
 
   const facetTeams = useMemo(
     () =>
@@ -7398,18 +7653,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     scope: {
       totalRows: flat.length,
       // The filter's own account of itself — `filterWords`, the same criteria
-      // object `narrowTree` was asked with, so the document cannot describe a
-      // narrowing other than the one that produced its rows. The names are
-      // resolved with the lists the facet control offers, down to the same
-      // words for a value whose row is loaded and whose name is not.
-      criteria: filterWords(criteria, {
-        teamName: (teamId) =>
-          teams.find((team) => team.id === teamId)?.name ?? 'a team this plan has not loaded',
-        personName: (personId) =>
-          chartRead.people.find((person) => person.id === personId)?.name ??
-          'somebody this plan has not loaded',
-        phaseName: (roleId) => roles.find((role) => role.id === roleId)?.name ?? '(unknown)',
-      }),
+      // object `narrowTree` was asked with and the same {@link filterLabels}
+      // the saved-views panel reads, so the document cannot describe a
+      // narrowing other than the one that produced its rows.
+      criteria: filterWords(criteria, filterLabels),
     },
   });
 
@@ -7718,6 +7965,32 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         people={facetPeople}
         bands={facetBands}
         phases={facetPhases}
+      />
+      {/*
+        Name the current filter, or pick one already named — R10 F4. Beside
+        `FilterFacets` because saving and ticking are the same act's two
+        moments, and applying a view writes {@link query} and {@link facets}
+        exactly as typing and ticking would.
+      */}
+      <SavedViews
+        views={savedViews}
+        current={criteria}
+        labels={filterLabels}
+        onSave={(name) => {
+          const next = [...savedViews, { id: crypto.randomUUID(), name, criteria }];
+          setSavedViews(next);
+          rememberSavedViews(projectId, next);
+        }}
+        onApply={(view) => {
+          const { query: savedQuery, ...savedFacets } = view.criteria;
+          setQuery(savedQuery);
+          setFacets(savedFacets);
+        }}
+        onDelete={(id) => {
+          const next = savedViews.filter((view) => view.id !== id);
+          setSavedViews(next);
+          rememberSavedViews(projectId, next);
+        }}
       />
       {filtering && (
         <span role="status" className="text-muted-foreground text-sm">

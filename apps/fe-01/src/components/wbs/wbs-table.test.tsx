@@ -12495,6 +12495,252 @@ describe('narrowing the plan by facet', () => {
   });
 });
 
+describe('saved views, per browser', () => {
+  /**
+   * Where this browser remembers `p1`'s saved views — the key F4 writes.
+   */
+  const KEY = 'wbs.views.p1';
+
+  /**
+   * ```
+   * 010  Strip the walls   Billing
+   * 020  Paint
+   * ```
+   *
+   * One team on one row, which is enough to ask what a saved view stores and
+   * what happens once the team it named is gone.
+   */
+  async function aPlanWithATeam(): Promise<ProjectApi & { rows: WorkItemView[] }> {
+    const api = fakeApi();
+    const strip = await api.create('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'Strip the walls',
+    });
+    await api.create('p1', { parentId: null, afterId: strip.id, name: 'Paint' });
+    const billing = await api.addTeam('Billing');
+    await api.patch(strip.id, { serviceTeamId: billing.id });
+
+    render(<WbsTable projectId="p1" api={api} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020']);
+    });
+    return api;
+  }
+
+  const openFilters = () => {
+    fireEvent.click(screen.getByText(/^Filters/));
+  };
+  const openViews = () => {
+    fireEvent.click(screen.getByText(/^Views/));
+  };
+  const tick = (label: string) => {
+    fireEvent.click(screen.getByLabelText(label));
+  };
+  const find = (typed: string) => {
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('Find'), {
+      target: { value: typed },
+    });
+  };
+  const nameTheView = (typed: string) => {
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('Name this view'), {
+      target: { value: typed },
+    });
+  };
+
+  itDom('offers no Save while nothing is filtered', async () => {
+    // A view of the whole plan has nothing to be picked back to, since
+    // opening the project already shows it — the same bargain `Clear
+    // filters` makes over in `FilterFacets`.
+    await aPlanWithATeam();
+    openViews();
+
+    nameTheView('Everything');
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  itDom('remembers a view once something is actually filtered', async () => {
+    await aPlanWithATeam();
+    openFilters();
+    tick('Team Billing');
+    openViews();
+    nameTheView('Billing only');
+    click('Save');
+
+    expect(screen.getByText('Views (1)')).toBeInTheDocument();
+    expect(screen.getByText('Billing only')).toBeInTheDocument();
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '[]') as {
+      name: string;
+      criteria: unknown;
+    }[];
+    expect(stored).toHaveLength(1);
+    expect(stored[0].name).toBe('Billing only');
+    expect(stored[0].criteria).toMatchObject({ query: '', teamIds: [expect.any(String)] });
+  });
+
+  itDom('applies a saved view: the Find box and the ticks together, in one gesture', async () => {
+    await aPlanWithATeam();
+    find('paint');
+    openFilters();
+    tick('Team Billing');
+    // `020` (Paint) answers the name but not the team, so nothing is on
+    // screen — proving the saved criteria really is both halves together.
+    expect(numbersOnScreen()).toEqual([]);
+    openViews();
+    nameTheView('Nothing');
+    click('Save');
+
+    // Leave the view for the whole plan, the same as a reader who moved on:
+    // clear the box and untick the box the save just read. Both panels are
+    // already open, so nothing here re-toggles either `<details>`.
+    find('');
+    tick('Team Billing');
+    expect(numbersOnScreen()).toEqual(['010', '020']);
+
+    fireEvent.click(screen.getByText('Nothing'));
+
+    expect(screen.getByLabelText<HTMLInputElement>('Find').value).toBe('paint');
+    expect(numbersOnScreen()).toEqual([]);
+    expect(screen.getByLabelText('Team Billing')).toBeChecked();
+  });
+
+  itDom('deletes a saved view, and forgets it in storage too', async () => {
+    await aPlanWithATeam();
+    find('strip');
+    openViews();
+    nameTheView('Strip');
+    click('Save');
+    expect(screen.getByText('Views (1)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete view Strip' }));
+
+    expect(screen.queryByText('Strip')).toBeNull();
+    expect(screen.getByText('Views')).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(KEY) ?? '[]')).toEqual([]);
+  });
+
+  itDom('never writes a view merely by typing or ticking — only Save does', async () => {
+    // The regression this change must not cause: an ad-hoc filter (R10 §9's
+    // Q6) is a different state to `savedViews`, and F4 must not blur them —
+    // ticking a box must not silently start a view nobody named.
+    await aPlanWithATeam();
+    find('strip');
+    openFilters();
+    tick('Team Billing');
+
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  itDom('is gone on the next load if never saved, but a saved view survives it', async () => {
+    const api = await aPlanWithATeam();
+    find('strip');
+    openViews();
+    nameTheView('Strip');
+    click('Save');
+    find('');
+
+    cleanup();
+    render(<WbsTable projectId="p1" api={api} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020']);
+    });
+
+    // The ad-hoc half is gone, exactly as Q6 requires.
+    expect(screen.getByLabelText<HTMLInputElement>('Find').value).toBe('');
+    // The named half is not — that is the whole point of F4.
+    openViews();
+    expect(screen.getByText('Strip')).toBeInTheDocument();
+  });
+
+  itDom('drops a hand-edited store that is not a list, and offers no views', async () => {
+    localStorage.setItem(KEY, '{"not": "a list"}');
+    await aPlanWithATeam();
+
+    openViews();
+    expect(screen.getByText('No saved views yet.')).toBeInTheDocument();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  itDom('drops one unusable saved view and keeps the rest', async () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify([
+        {
+          id: 'a',
+          name: 'Good',
+          criteria: {
+            query: 'x',
+            teamIds: [],
+            assigneeIds: [],
+            priorityBands: [],
+            estimatedRoleIds: [],
+            unestimated: false,
+            critical: false,
+          },
+        },
+        {
+          id: 'b',
+          name: '',
+          criteria: {
+            query: '',
+            teamIds: [],
+            assigneeIds: [],
+            priorityBands: [],
+            estimatedRoleIds: [],
+            unestimated: false,
+            critical: false,
+          },
+        },
+        { id: 'c', criteria: {} },
+      ]),
+    );
+    await aPlanWithATeam();
+
+    openViews();
+    expect(screen.getByText('Views (1)')).toBeInTheDocument();
+    expect(screen.getByText('Good')).toBeInTheDocument();
+  });
+
+  itDom('a view naming a team since deleted narrows to nothing, not to a crash', async () => {
+    // Stands in for the team the view named being removed from the directory
+    // outright, the same as the row it labelled having its team cleared
+    // underneath it: the id in the stored criteria answers to nothing on
+    // this plan from the first render on.
+    localStorage.setItem(
+      KEY,
+      JSON.stringify([
+        {
+          id: 'ghost',
+          name: 'Ghost team',
+          criteria: {
+            query: '',
+            teamIds: ['team-does-not-exist'],
+            assigneeIds: [],
+            priorityBands: [],
+            estimatedRoleIds: [],
+            unestimated: false,
+            critical: false,
+          },
+        },
+      ]),
+    );
+
+    await aPlanWithATeam();
+    openViews();
+    fireEvent.click(screen.getByText('Ghost team'));
+
+    // Empty means empty — the same answer any other facet gives when nothing
+    // on the plan carries the value asked for. No crash, no fallback to the
+    // whole table.
+    expect(numbersOnScreen()).toEqual([]);
+    expect(screen.getByText('No rows match these filters')).toBeInTheDocument();
+    openFilters();
+    expect(screen.getByLabelText('Team a team this plan has not loaded')).toBeChecked();
+  });
+});
+
 describe('what the filter says it dropped, and what it exports', () => {
   /**
    * Two roots with a dependency between them, both leaves so both are placed:
