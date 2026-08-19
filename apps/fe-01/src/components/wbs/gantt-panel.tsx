@@ -573,7 +573,7 @@ export function axisDayWords(day: {
 export function isoToday(today: Date): IsoDate {
   const month = String(today.getMonth() + 1).padStart(2, '0');
   const day = String(today.getDate()).padStart(2, '0');
-  return `${String(today.getFullYear())}-${month}-${day}` as IsoDate;
+  return `${String(today.getFullYear())}-${month}-${day}`;
 }
 
 /**
