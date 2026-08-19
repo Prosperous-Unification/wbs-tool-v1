@@ -1418,9 +1418,25 @@ function serializeStandaloneGanttSvg(svg: SVGSVGElement): string {
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(svg)}\n`;
 }
 
-/** One name per day, so two downloads on the same afternoon do not silently overwrite each other in a Downloads folder that dedupes on nothing but the name. */
-function ganttSvgFileName(now: Date): string {
-  return `gantt-chart-${now.toISOString().slice(0, 10)}.svg`;
+/**
+ * One name per day, so two downloads on the same afternoon do not silently
+ * overwrite each other in a Downloads folder that dedupes on nothing but the
+ * name.
+ *
+ * **Through {@link isoToday} and not `toISOString()`**, which is the same fault
+ * the marker's own date had and the same reason: `toISOString` converts to UTC
+ * first, so for the first three hours of every Kyiv day this named the file
+ * after yesterday. That breaks the one property the name is for — a download at
+ * 01:00 and another at 10:00 on the same day would land as two different names,
+ * and a download at 01:00 today would collide with one at 23:00 yesterday.
+ *
+ * Proof: written back as `now.toISOString().slice(0, 10)` and `names the file
+ * after the reader's own day, not UTC's` fails under `TZ=Europe/Kyiv` on
+ * `expected 'gantt-chart-2026-08-18.svg' to be 'gantt-chart-2026-08-19.svg'`.
+ * Watched 2026-08-19, see verify.md.
+ */
+export function ganttSvgFileName(now: Date): string {
+  return `gantt-chart-${isoToday(now)}.svg`;
 }
 
 /**

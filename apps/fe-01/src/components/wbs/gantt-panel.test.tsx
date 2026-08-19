@@ -25,6 +25,7 @@ import {
   GANTT_CEILING_PX,
   GANTT_MIN_PX,
   GanttPanel,
+  ganttSvgFileName,
   initialsOf,
   isoToday,
   monthWords,
@@ -4602,5 +4603,22 @@ describe('isoToday reads the reader’s own calendar, not UTC', () => {
     expect(isoToday(new Date(2026, 7, 19, 0, 30))).toBe('2026-08-19');
     // Both parts padded: a single-digit month and day are `01`, not `1`.
     expect(isoToday(new Date(2026, 0, 5, 12, 0))).toBe('2026-01-05');
+  });
+});
+
+describe('the exported chart is named after the reader’s own day', () => {
+  it('names the file after the reader’s own day, not UTC’s', () => {
+    // The same fault `isoToday` exists for, in the one other place a `Date`
+    // became a date in this file. It matters less than the marker — a filename
+    // is not a plan — but it breaks the only property the name has: one name
+    // per day. Through UTC, a download at 01:00 in Kyiv is named after
+    // yesterday, so it collides with yesterday's 23:00 download and differs
+    // from this morning's 10:00 one.
+    //
+    // Built from local parts, so the assertion holds in every zone; the fault
+    // it guards manifests east of UTC and was watched under `TZ=Europe/Kyiv`.
+    // See verify.md.
+    expect(ganttSvgFileName(new Date(2026, 7, 19, 0, 30))).toBe('gantt-chart-2026-08-19.svg');
+    expect(ganttSvgFileName(new Date(2026, 7, 19, 23, 30))).toBe('gantt-chart-2026-08-19.svg');
   });
 });
