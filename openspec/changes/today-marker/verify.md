@@ -9,11 +9,11 @@ fault table — three watched reds instead, below.
 Run on **h2puni**, worktree `~/wd/puni/wt-today-marker`, **bun 1.3.14**, base
 `origin/main@7bfab90` (#83 merged).
 
-| what | result |
-|---|---|
-| `nx test fe-01` | **1,504 pass / 0 fail**, 53 files |
-| `nx affected -t lint typecheck --base=origin/main` | green |
-| `nx format:check --all` | exit 0 |
+| what                                               | result                            |
+| -------------------------------------------------- | --------------------------------- |
+| `nx test fe-01`                                    | **1,504 pass / 0 fail**, 53 files |
+| `nx affected -t lint typecheck --base=origin/main` | green                             |
+| `nx format:check --all`                            | exit 0                            |
 
 1,497 before, so **seven new cases**: six on the marker, one on `isoToday`.
 
@@ -31,7 +31,7 @@ column for a date that is not on the axis, which is the obvious "keep it on
 screen" instinct.
 
 > **2 failed | 3 passed.** `draws no marker when today is before the plan
-> begins` and `draws no marker when today is past the last day drawn`, both on
+begins` and `draws no marker when today is past the last day drawn`, both on
 > `expected SVGElement{…} to be null`.
 
 A chart claiming a plan starts today when today is a week before it. This is
@@ -49,12 +49,12 @@ A marker standing at some workday number on an axis where nothing is a date.
 under `TZ=Europe/Kyiv`.
 
 > **1 failed | 120 skipped.** `reads a late evening as the day the reader is
-> having`, on `expected '2026-08-18' to be '2026-08-19'`.
+having`, on `expected '2026-08-18' to be '2026-08-19'`.
 
 The failure landed on the **00:30** assertion, not the 23:30 one, and that is
 worth recording because it is the opposite of the intuition: east of Greenwich
 it is the small hours that break — 00:30 in Kyiv is 21:30 UTC the day before —
-so the marker would stand a column *left* of today for the first three hours of
+so the marker would stand a column _left_ of today for the first three hours of
 every day. West of UTC the late evening breaks instead. Both ends of one day are
 asserted for that reason, and both are built from local parts so the test holds
 in every zone.

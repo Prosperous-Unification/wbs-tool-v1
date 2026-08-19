@@ -21,7 +21,7 @@ scale**: a parallel `calendarDaysBetween(origin, today)` would agree with the
 axis only until somebody touched one of them, which is the drift
 `calendarAxis`'s own docstring warns about.
 
-**A column and not a hairline.** What is known is which *day* it is; a 1px rule
+**A column and not a hairline.** What is known is which _day_ it is; a 1px rule
 at the day's left edge claims an instant. The column is tinted like a weekend —
 the same kind of fact, a property of the calendar rather than of any row — with
 a line down its leading edge so the boundary stays legible where a bar covers
