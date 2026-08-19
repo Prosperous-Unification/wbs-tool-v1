@@ -26,6 +26,7 @@ import {
   GANTT_MIN_PX,
   GanttPanel,
   initialsOf,
+  isoToday,
   monthWords,
   ROW_PX,
   rowWords,
@@ -4453,5 +4454,145 @@ describe('the waits the filter left undrawn', () => {
 
     expect(document.querySelectorAll('[data-gantt-arrow]').length).toBeGreaterThan(0);
     expect(droppedSentence()).toBeNull();
+  });
+});
+
+describe('today is marked on the chart', () => {
+  // Dany, 2026-08-19: "on Gantt chart view I want to see the current date
+  // marked". The plan runs eight workdays from Monday 2026-08-10, so its axis
+  // is cells 0..11: Mon–Fri, the weekend at 5 and 6, then Mon–Wed.
+  const eightWorkdays = (startDate: IsoDate | null) =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 8)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 8)],
+        })}
+        startDate={startDate}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+      />,
+    );
+
+  /** Draws the plan with the reader's clock standing at `at`, local time. */
+  const onTheDay = (at: Date, startDate: IsoDate | null = MONDAY_START) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(at);
+    try {
+      eightWorkdays(startDate);
+    } finally {
+      // Restored before the assertions: they touch nothing timed, and a suite
+      // that leaves fake timers running poisons every test after it.
+      vi.useRealTimers();
+    }
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  itDom('draws today as a column, with its leading edge and its axis cell', () => {
+    // Wednesday of the first week: the third cell, because the plan begins on a
+    // Monday and nothing has intervened.
+    onTheDay(new Date(2026, 7, 12, 9, 0));
+
+    // A column a whole day wide rather than a hairline: what is known is which
+    // *day* it is, and a 1px rule would claim an instant.
+    expect(markAttribute('[data-gantt-today="2"]', 'x')).toBe('2');
+    expect(markAttribute('[data-gantt-today="2"]', 'width')).toBe('1');
+    expect(markAttribute('[data-gantt-today="2"]', 'height')).toBe('1');
+    // The edge, over the gridlines, saying where the past stops.
+    expect(markAttribute('[data-gantt-today-edge="2"]', 'class')).toBe('stroke-sky-500');
+    // And the axis says it in text, not in colour alone.
+    expect(markAttribute('[data-axis-day="2"]', 'aria-current')).toBe('date');
+    expect(markAttribute('[data-axis-day="2"]', 'data-axis-date')).toBe('2026-08-12');
+    // One reader, one today: no other cell claims it.
+    expect(document.querySelectorAll('[aria-current="date"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-gantt-today]')).toHaveLength(1);
+  });
+
+  itDom('puts today in the weekend gap when the reader’s day is a Saturday', () => {
+    // The case that needs no arm of its own, asserted because a reader would
+    // reasonably expect one: cell 5 is the Saturday of the first week, it is a
+    // column of the chart like any other, and today lands in it between
+    // Friday's work and Monday's.
+    onTheDay(new Date(2026, 7, 15, 9, 0));
+
+    expect(markAttribute('[data-gantt-today="5"]', 'x')).toBe('5');
+    // The weekend band is still there under it — two facts about one day, and
+    // neither replaces the other.
+    expect(markAttribute('[data-gantt-weekend="5"]', 'width')).toBe('1');
+    expect(markAttribute('[data-axis-day="5"]', 'aria-current')).toBe('date');
+  });
+
+  itDom('draws no marker when today is before the plan begins', () => {
+    // Dany's call, 2026-08-19, asked and answered before this was built: no
+    // line rather than one pinned to the left edge, because a rule at the
+    // margin reads as "today is the start date" — a sentence the chart would be
+    // making up.
+    //
+    // Proof: the null arm replaced by `Math.max(0, …)` over a computed offset,
+    // which is the obvious clamp — this failed on `expected
+    // SVGRectElement{…} to be null`, a chart claiming the plan starts today
+    // when today is a week before it. Watched 2026-08-19, see verify.md.
+    onTheDay(new Date(2026, 7, 3, 9, 0));
+
+    expect(document.querySelector('[data-gantt-today]')).toBeNull();
+    expect(document.querySelector('[data-gantt-today-edge]')).toBeNull();
+    expect(document.querySelector('[aria-current="date"]')).toBeNull();
+    // The chart is still drawn: no marker is not no chart.
+    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(12);
+  });
+
+  itDom('draws no marker when today is past the last day drawn', () => {
+    // The same argument on the other side. A plan that finished in August is a
+    // plan today is not on, and a rule pinned to the right edge would say it
+    // finishes today.
+    onTheDay(new Date(2026, 11, 1, 9, 0));
+
+    expect(document.querySelector('[data-gantt-today]')).toBeNull();
+    expect(document.querySelector('[aria-current="date"]')).toBeNull();
+    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(12);
+  });
+
+  itDom('draws no marker at all on a plan with no start date', () => {
+    // Nothing on the workday axis is a date, so there is no honest place to put
+    // today on it — the same reason the hover text falls back to workday
+    // offsets there. The lookup finds nothing without needing to know why:
+    // every cell of `workdayAxis` carries `date: null`.
+    //
+    // Proof: `todayOffset` written to compare `day.offset` against a
+    // `workdaysBetween` reading instead of matching on the date — this failed
+    // on `expected SVGRectElement{…} to be null`, a marker on an axis with no
+    // calendar, standing at whichever workday number the arithmetic produced.
+    // Watched 2026-08-19, see verify.md.
+    onTheDay(new Date(2026, 7, 12, 9, 0), null);
+
+    expect(document.querySelector('[data-gantt-today]')).toBeNull();
+    expect(document.querySelector('[data-gantt-today-edge]')).toBeNull();
+    expect(document.querySelector('[aria-current="date"]')).toBeNull();
+    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(8);
+  });
+});
+
+describe('isoToday reads the reader’s own calendar, not UTC', () => {
+  it('reads a late evening as the day the reader is having', () => {
+    // The one place in this panel a `Date` becomes an `IsoDate`, and the
+    // obvious spelling — `toISOString().slice(0, 10)` — is wrong: it converts
+    // to UTC first, so late evening east of Greenwich answers tomorrow and the
+    // marker stands a column right of where the reader's calendar has it.
+    //
+    // Built from local parts, so this assertion holds in every zone. The fault
+    // it guards only *manifests* east of UTC, so it was injected and watched
+    // under `TZ=Europe/Kyiv` — Dany's own zone, and the one this tool is used
+    // in. See verify.md for the run.
+    expect(isoToday(new Date(2026, 7, 19, 23, 30))).toBe('2026-08-19');
+    // And the small hours the other way, which is where a `toUTCString` habit
+    // would answer yesterday.
+    expect(isoToday(new Date(2026, 7, 19, 0, 30))).toBe('2026-08-19');
+    // Both parts padded: a single-digit month and day are `01`, not `1`.
+    expect(isoToday(new Date(2026, 0, 5, 12, 0))).toBe('2026-01-05');
   });
 });

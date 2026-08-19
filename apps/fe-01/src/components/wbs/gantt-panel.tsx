@@ -549,6 +549,62 @@ export function axisDayWords(day: {
 }
 
 /**
+ * The reader's own today as a calendar date, in **their** zone.
+ *
+ * `toISOString().slice(0, 10)` is the obvious spelling and it is wrong here: it
+ * converts to UTC first, so at 01:00 in Kyiv it answers yesterday and the
+ * marker stands a day left of where the reader's calendar has it. Everything
+ * else in this panel takes an `IsoDate` that came from be-01 and was already a
+ * date; this is the one place a `Date` becomes one, so the conversion is
+ * written out and tested rather than inlined.
+ *
+ * Proof: written as `today.toISOString().slice(0, 10)` and `reads a late
+ * evening east of UTC as the day the reader is having` fails — a reader at
+ * 23:00 in Kyiv is handed tomorrow's date and the line stands a column right of
+ * today. Watched 2026-08-19, see verify.md.
+ */
+export function isoToday(today: Date): IsoDate {
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${String(today.getFullYear())}-${month}-${day}` as IsoDate;
+}
+
+/**
+ * Where today stands on the chart, or null when it does not stand on it at all.
+ *
+ * **Read off the axis rather than computed a second time**, and that is the
+ * whole of the design: the gridlines, the weekend bands and the day cells are
+ * all `axis[k].offset`, so a marker that looks its own offset up in the same
+ * array cannot drift from the lines it is drawn between. A parallel
+ * `calendarDaysBetween(origin, today)` would be a second scale agreeing with
+ * the first only for as long as nobody touched either — the failure
+ * `calendarAxis`' own docstring warns about, one layer up.
+ *
+ * **Null is a real answer in three different situations, and all three want the
+ * same thing — no line:**
+ *
+ * - **Today is before the plan begins.** Dany, 2026-08-19, asked what should
+ *   happen and the call is no line rather than one pinned to the left edge: a
+ *   rule at the margin reads as "today is the start date", which is a statement
+ *   the chart would be making up.
+ * - **Today is past the last day drawn.** The same argument on the other side.
+ *   A plan that finished last month is a plan today is not on.
+ * - **The chart has no calendar at all.** Every cell of {@link workdayAxis} has
+ *   `date: null`, so the lookup finds nothing and the marker is absent without
+ *   needing to know why. Nothing on that axis is a date, so there is no honest
+ *   place to put today on it — the same reason the hover text falls back to
+ *   workday offsets there.
+ *
+ * **A weekend is not one of them.** On the calendar axis a Saturday is a cell
+ * two wide with the rest of them, so today falling on one puts the line in the
+ * gap between Friday's work and Monday's, where it belongs. That the marker
+ * needs no weekend arm of its own is a property of the axis, not an oversight.
+ */
+export function todayOffset(axis: readonly AxisDay[], today: IsoDate): number | null {
+  return axis.find((day) => day.date === today)?.offset ?? null;
+}
+
+/**
  * Somebody's initials: the first letter of their first and last names.
  *
  * What a bar too narrow for a name gets. Two letters at most, because a third
@@ -1726,6 +1782,15 @@ function GanttChart({
       );
   const axis =
     startDate === null ? workdayAxis(placed.horizon) : calendarAxis(startDate, placed.horizon);
+  /**
+   * The column today stands in, or null when today is not on this chart.
+   *
+   * Dany, 2026-08-19: _"on Gantt chart view I want to see the current date
+   * marked"_. Off the axis, so it is on the same scale as the gridlines beside
+   * it — see {@link todayOffset} for why null is the answer three different
+   * ways.
+   */
+  const todayAt = todayOffset(axis, isoToday(today));
   // How many cells the axis holds — every whole day of the schedule. Read off
   // the axis rather than rounded again here, and deliberately **not** what the
   // canvas below is sized from: the two are computed apart so that a test can
@@ -2009,6 +2074,12 @@ function GanttChart({
                   {...(day.date === null ? {} : { 'data-axis-date': day.date })}
                   {...(day.workday === null ? {} : { 'data-axis-workday': day.workday })}
                   {...(day.weekend ? { 'data-axis-weekend': 'true' } : {})}
+                  // Today's cell says so, and says it in text rather than in
+                  // colour alone: the tint below is a hint and `aria-current`
+                  // is the fact, which is what a reader on a screen reader or a
+                  // monochrome display gets. `date` and not `true` because the
+                  // cell **is** the date — the value HTML defines for it.
+                  {...(day.offset === todayAt ? { 'aria-current': 'date' } : {})}
                   // No native `title`: one hint, and it is the card the pointer
                   // opens below — the browser's own tooltip would race it after
                   // a delay nobody chose (`instant-hovers`' rule, and Dany's
@@ -2032,6 +2103,11 @@ function GanttChart({
                     'shrink-0 text-center text-[10px] leading-7',
                     day.heavy ? 'text-foreground font-semibold' : 'text-muted-foreground',
                     day.weekend ? 'bg-muted-foreground/10' : '',
+                    // Today's number, in the same ink as the rule under it, and
+                    // bold whether or not it is a Monday — a reader scanning for
+                    // where they are should not have to find a week boundary
+                    // first.
+                    day.offset === todayAt ? 'text-sky-600 font-semibold' : '',
                   ]
                     .filter((part) => part !== '')
                     .join(' ')}
@@ -2103,6 +2179,37 @@ function GanttChart({
                     />
                   ))}
 
+                {/*
+                Today's column, tinted, under the gridlines and over the row
+                bands — the reading a weekend column gets, because it is the
+                same kind of fact: a property of the calendar rather than of any
+                row. A **column and not a hairline**: the axis cell is a whole
+                day wide, a 1px rule at its left edge would say "this instant"
+                when what is known is "this day", and at DAY_PX = 28 a tinted
+                column is easier to find while scrolling than a line the width
+                of a gridline. The line down its leading edge is what makes the
+                boundary between done and not-yet legible when a bar covers the
+                tint.
+
+                Absent entirely when today is not on the chart — see
+                {@link todayOffset}. There is deliberately no "today is off to
+                the right" affordance at the margin: it would be a second thing
+                to explain, and the caption above the labels already names the
+                month on screen.
+              */}
+                {todayAt !== null && (
+                  <rect
+                    data-gantt-today={todayAt}
+                    x={todayAt}
+                    y={0}
+                    width={1}
+                    height={rowCount}
+                    className="fill-sky-500/15"
+                  >
+                    <title>Today</title>
+                  </rect>
+                )}
+
                 {axis.map((day) => (
                   <line
                     key={day.offset}
@@ -2118,6 +2225,28 @@ function GanttChart({
                     vectorEffect="non-scaling-stroke"
                   />
                 ))}
+
+                {/*
+                The leading edge of today, over the gridlines and under every
+                mark: it says where the past stops, and a bar drawn across it is
+                work that started before today and is not finished — which is
+                the sentence a reader is looking for and the reason a bar must
+                stay on top of this rather than under it.
+
+                `non-scaling-stroke` for the gridlines' reason: the user space is
+                one unit per day and a stroke in it would be a day wide.
+              */}
+                {todayAt !== null && (
+                  <line
+                    x1={todayAt}
+                    y1={0}
+                    x2={todayAt}
+                    y2={rowCount}
+                    data-gantt-today-edge={todayAt}
+                    className="stroke-sky-500"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
 
                 {/*
                 A summary row's span, drawn as the **ghost of a bar**: the same
