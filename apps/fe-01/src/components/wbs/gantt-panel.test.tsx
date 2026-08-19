@@ -4586,10 +4586,16 @@ describe('isoToday reads the reader’s own calendar, not UTC', () => {
     // to UTC first, so late evening east of Greenwich answers tomorrow and the
     // marker stands a column right of where the reader's calendar has it.
     //
-    // Built from local parts, so this assertion holds in every zone. The fault
-    // it guards only *manifests* east of UTC, so it was injected and watched
-    // under `TZ=Europe/Kyiv` — Dany's own zone, and the one this tool is used
-    // in. See verify.md for the run.
+    // Built from local parts, so both assertions hold in every zone — and both
+    // ends of the day are asserted because which end breaks depends on the
+    // side of Greenwich: east of UTC the small hours read as yesterday, west of
+    // it the late evening reads as tomorrow.
+    //
+    // Proof: `isoToday` written as `toISOString().slice(0, 10)` and this failed
+    // under `TZ=Europe/Kyiv` on `expected '2026-08-18' to be '2026-08-19'` —
+    // the 00:30 line below, a reader in Dany's own zone shown yesterday's
+    // column as today for the first three hours of every day. Watched
+    // 2026-08-19, see verify.md.
     expect(isoToday(new Date(2026, 7, 19, 23, 30))).toBe('2026-08-19');
     // And the small hours the other way, which is where a `toUTCString` habit
     // would answer yesterday.

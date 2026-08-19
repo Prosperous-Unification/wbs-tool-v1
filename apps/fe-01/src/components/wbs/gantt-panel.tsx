@@ -558,10 +558,17 @@ export function axisDayWords(day: {
  * date; this is the one place a `Date` becomes one, so the conversion is
  * written out and tested rather than inlined.
  *
+ * Which half of the day breaks depends on which side of Greenwich the reader
+ * is: **east of UTC it is the small hours** — 00:30 in Kyiv is 21:30 UTC the
+ * day before, so the marker stands a column *left* of today — and west of it,
+ * the late evening, the other way. The test asserts both ends of one day for
+ * that reason.
+ *
  * Proof: written as `today.toISOString().slice(0, 10)` and `reads a late
- * evening east of UTC as the day the reader is having` fails — a reader at
- * 23:00 in Kyiv is handed tomorrow's date and the line stands a column right of
- * today. Watched 2026-08-19, see verify.md.
+ * evening as the day the reader is having` failed under `TZ=Europe/Kyiv` on
+ * `expected '2026-08-18' to be '2026-08-19'` — the 00:30 assertion, a reader
+ * in Dany's own zone shown yesterday's column as today for the first three
+ * hours of every day. Watched 2026-08-19, see verify.md.
  */
 export function isoToday(today: Date): IsoDate {
   const month = String(today.getMonth() + 1).padStart(2, '0');
