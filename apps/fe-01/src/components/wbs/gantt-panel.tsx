@@ -2114,7 +2114,7 @@ function GanttChart({
                     // bold whether or not it is a Monday — a reader scanning for
                     // where they are should not have to find a week boundary
                     // first.
-                    day.offset === todayAt ? 'text-sky-600 font-semibold' : '',
+                    day.offset === todayAt ? 'font-semibold text-sky-600' : '',
                   ]
                     .filter((part) => part !== '')
                     .join(' ')}
