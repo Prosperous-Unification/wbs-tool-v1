@@ -4460,7 +4460,9 @@ describe('the waits the filter left undrawn', () => {
 describe('today is marked on the chart', () => {
   // Dany, 2026-08-19: "on Gantt chart view I want to see the current date
   // marked". The plan runs eight workdays from Monday 2026-08-10, so its axis
-  // is cells 0..11: Mon–Fri, the weekend at 5 and 6, then Mon–Wed.
+  // is cells 0..9: Mon–Fri, the weekend at 5 and 6, then Mon–Wed the 19th. Ten
+  // calendar cells for eight workdays, which is the weekend being two columns
+  // wide rather than a seam.
   const eightWorkdays = (startDate: IsoDate | null) =>
     render(
       <GanttPanel
@@ -4543,7 +4545,7 @@ describe('today is marked on the chart', () => {
     expect(document.querySelector('[data-gantt-today-edge]')).toBeNull();
     expect(document.querySelector('[aria-current="date"]')).toBeNull();
     // The chart is still drawn: no marker is not no chart.
-    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(12);
+    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(10);
   });
 
   itDom('draws no marker when today is past the last day drawn', () => {
@@ -4554,7 +4556,7 @@ describe('today is marked on the chart', () => {
 
     expect(document.querySelector('[data-gantt-today]')).toBeNull();
     expect(document.querySelector('[aria-current="date"]')).toBeNull();
-    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(12);
+    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(10);
   });
 
   itDom('draws no marker at all on a plan with no start date', () => {
