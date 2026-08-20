@@ -87,4 +87,5 @@
 - [x] 5.3 `LLM_README.md` index line. `CONTEXT.md` only if a term resolved that
       is not already there — "tool" and "transport" are MCP's vocabulary, not
       this domain's, and do not belong in the glossary.
-- [ ] 5.4 PR, PoC mode: merge on green.
+- [x] 5.4 PR, PoC mode: merge on green. PR #89 — `gate` 4m10s and `pixels`
+      10m30s both green, run 32428229889.
