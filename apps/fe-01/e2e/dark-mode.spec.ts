@@ -64,11 +64,41 @@ const accountTrigger = (page: Page): Locator => page.locator('header button[aria
  *
  * `document.getAnimations()` and not one element's, because the flip moves every
  * surface at once and the reads below walk ancestors. Nothing in this app
- * animates without end (checked: no `animate-spin`, no `infinite`), so this
- * drains rather than waits out the timeout.
+ * animates without end (checked: no `animate-spin`, no `infinite`), so the
+ * moving ones drain rather than wait out the timeout.
+ *
+ * Counted by `playState` rather than by the length of that list, and the
+ * difference between the two is the whole of the standing `pixels` red on
+ * `main` (runs 32281560107, 32360096281 and 32409649802: this line, `Expected:
+ * 0 / Received: 12`, timing out at 10s). The twelve, dumped out of a real
+ * Chromium on h2puni: the six colour properties of the `Input` and the six of
+ * the `Save` button inside the saved-views `<details>` panel, every one of them
+ * `playState: 'finished'`, `progress: null`, `currentTime` 550ms against a
+ * 150ms `endTime` — over four times done. Chromium drops a finished
+ * `CSSTransition` from this list at the target's next style recalculation, and
+ * a closed `<details>` is a subtree it skips recalculating, so those twelve are
+ * never collected and the list never empties. Waiting for it to is waiting for
+ * something that will not happen.
+ *
+ * A finished transition fills nothing after its end time, so it paints nothing
+ * and no `getComputedStyle` read below can see it. What this function is for is
+ * that no colour is still being *interpolated* — which is what `running` and
+ * `paused` mean, and what `finished` and `idle` (cancelled) do not. Stated as
+ * the two that do not count rather than the two that do, so that a state this
+ * engine grows later reads as unsettled and fails loudly instead of passing
+ * quietly.
  */
 async function settled(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document
+            .getAnimations()
+            .filter((a) => a.playState !== 'finished' && a.playState !== 'idle').length,
+      ),
+    )
+    .toBe(0);
 }
 
 /** Opens the account menu, takes the answer asked for, and lets the paint land. */
