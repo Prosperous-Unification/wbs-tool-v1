@@ -1,17 +1,21 @@
 ## 1. The app skeleton, and a boot that refuses to guess
 
-- [ ] 1.1 `apps/mcp-01` with `project.json` (serve, build, lint, test,
+- [x] 1.1 `apps/mcp-01` with `project.json` (serve, build, lint, test,
       typecheck — `gw-01`'s targets, same executors), `tsconfig.json`,
       `tsconfig.lib.json`, `tsconfig.spec.json`, `README.md`. Tags
       `scope:app`, `type:app`, `runtime:bun`.
-- [ ] 1.2 `config.ts`: `WBS_API_URL` and `WBS_TOKEN` required, `WBS_BASIC_AUTH`
+- [x] 1.2 `config.ts`: `WBS_API_URL` and `WBS_TOKEN` required, `WBS_BASIC_AUTH`
       optional `user:pass`. Parsed once at the boundary, returns a precise type
       (R5). **Watched red** — `config.test.ts` asserts boot throws naming the
       missing variable; delete the check and the test must pass a config with no
       URL, which is the fault to inject. A default of `http://localhost:3100`
       would silently edit whichever deployment happened to answer.
-- [ ] 1.3 `@modelcontextprotocol/sdk` at the version D5 names, added at the root
+- [x] 1.3 `@modelcontextprotocol/sdk` at the version D5 names, added at the root
       with `bun add` and never npm. Record the resolved version in `verify.md`.
+      Pinned exact (`1.30.0`, not `^1.30.0`) unlike the repo's other
+      dependencies: D5 picks the low-level `Server` API over the high-level one
+      to keep zod out, and that is a choice about an API surface a minor bump
+      may reshape.
 
 ## 2. Tool generation from the committed document
 
@@ -53,7 +57,10 @@
 
 ## 4. The server, wired
 
-- [ ] 4.1 `main.ts`: low-level `Server` (D5) over `StdioServerTransport`,
+- [ ] 4.1 `main.ts`. **Until this lands, the `build` target is red for mcp-01**
+      — it points at a file this task creates, and CI runs `build` alongside
+      test/lint/typecheck, so the branch must not reach a PR before section 4.
+      Low-level `Server` (D5) over `StdioServerTransport`,
       `ListToolsRequestSchema` answering the generated list,
       `CallToolRequestSchema` dispatching by name. An unknown tool name is an
       error, not an empty result — asserted.
