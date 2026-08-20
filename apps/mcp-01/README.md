@@ -31,6 +31,11 @@ answering with an error that names the expiry; restart with a fresh token.
 
 ## Status
 
-Under construction — `openspec/changes/mcp-server/`. Built so far: the app
-skeleton and `config.ts`. The client stanza and the tool list land with the rest
-of the change.
+Under construction — `openspec/changes/mcp-server/`. The server runs: `bun
+apps/mcp-01/src/main.ts` derives **43 tools** from `apps/be-01/openapi.json` and
+answers `tools/list` and `tools/call` on stdio. Left: the gate record, the client
+config stanza here, and the PR (section 5 of the change's `tasks.md`).
+
+`nx build mcp-01` copies `apps/be-01/openapi.json` beside the bundle. That copy
+is not incidental — the document is read at runtime, so without it the built
+server refuses to boot and names both paths it looked at.

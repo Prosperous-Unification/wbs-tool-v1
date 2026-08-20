@@ -57,7 +57,7 @@
 
 ## 4. The server, wired
 
-- [ ] 4.1 `main.ts`. The bundle also needs `apps/be-01/openapi.json` beside it:
+- [x] 4.1 `main.ts`. The bundle also needs `apps/be-01/openapi.json` beside it:
       `openapi-tools.ts` reads the document at runtime rather than importing it
       (`@nx/enforce-module-boundaries` stops `scope:app` reaching into another
       app's tree), so `OPENAPI_DOCUMENT_FILE` resolves only from source until
@@ -69,10 +69,10 @@
       `ListToolsRequestSchema` answering the generated list,
       `CallToolRequestSchema` dispatching by name. An unknown tool name is an
       error, not an empty result — asserted.
-- [ ] 4.2 A round trip over an in-process stub of be-01: list tools, call a read
+- [x] 4.2 A round trip over an in-process stub of be-01: list tools, call a read
       tool, call a write tool, assert the stub saw `x-wbs-token` and the right
       method and path. This is the test that proves the three pieces compose.
-- [ ] 4.3 Write-tool descriptions carry D9's re-read warning, sourced from the
+- [x] 4.3 Write-tool descriptions carry D9's re-read warning, sourced from the
       operation's own `description` rather than appended by hand where the
       document already says it.
 

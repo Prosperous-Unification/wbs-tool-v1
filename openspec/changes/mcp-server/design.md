@@ -84,6 +84,19 @@ already produces. So the low-level API is the fit: no schema is authored twice,
 and zod arrives only as the SDK's own transitive dependency rather than as a
 third validator this repo maintains opinions about.
 
+**Amended 2026-08-20, when the code met the linter.** `Server` carries
+`@deprecated Use McpServer instead for the high-level API. Only use Server for
+advanced use cases` in 1.30.0, and this repo's `strictTypeChecked` config turns
+that into a lint error. The decision stands anyway, for the reason the
+deprecation itself gives: `McpServer.registerTool` types `inputSchema` as
+`ZodRawShapeCompat | AnySchema`, so the high-level API means authoring all 43
+schemas a second time in zod beside the ones `openapi.json` already produces.
+Two sources for one contract is the drift D4 exists to prevent. So the rule is
+disabled at exactly the two lines that name `Server`, each with the reason
+beside it, and the alternative is written here rather than left for a reviewer
+to reconstruct. If the SDK ever takes plain JSON Schema in `registerTool`, this
+becomes a small, obvious change.
+
 ## D6 — One token, one account, and the server says so
 
 `WBS_TOKEN` is required at boot. Every tool call sends it. A be-01 token lasts 12

@@ -17,7 +17,7 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun build apps/mcp-01/src/main.ts --target=bun --outdir=dist/apps/mcp-01"
+        "command": "bun build apps/mcp-01/src/main.ts --target=bun --outdir=dist/apps/mcp-01 && cp apps/be-01/openapi.json dist/apps/mcp-01/openapi.json"
       },
       "outputs": ["{workspaceRoot}/dist/apps/mcp-01"]
     },
