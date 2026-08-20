@@ -3,8 +3,8 @@
 Agent orientation. Read this, then only the one doc your task needs.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
-`gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`).
-Nx monorepo, Bun everywhere — never npm.
+`gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
+`mcp-01` (MCP server over be-01, stdio, spawned by its client). Nx monorepo, Bun — never npm.
 
 Three facts explain most decisions:
 
@@ -141,6 +141,7 @@ message _containing_ `"pong"`; drain reads a malformed metrics body as zero live
 | `docs/local-dev.md`                                                     | running locally                                                                       |
 | `docs/capacity.md`                                                      | why a plan's dates moved; where a team's number is typed                              |
 | `apps/be-01/openapi.json`                                               | the API's own document — `bun apps/be-01/src/openapi/emit-openapi-cli.ts` rewrites it |
+| `apps/mcp-01/README.md`                                                 | the MCP server: 43 tools derived from that document, stdio, client config stanza      |
 | `HUMAN_README.md`                                                       | operating prod; triage runbook; openclaw path                                         |
 | `openspec/changes/scaffold-tech-setup/`                                 | original scaffold — **stale**, spec above wins                                        |
 

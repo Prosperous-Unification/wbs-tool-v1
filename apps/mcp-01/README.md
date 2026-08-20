@@ -31,10 +31,84 @@ answering with an error that names the expiry; restart with a fresh token.
 
 ## Status
 
-Under construction — `openspec/changes/mcp-server/`. The server runs: `bun
-apps/mcp-01/src/main.ts` derives **43 tools** from `apps/be-01/openapi.json` and
-answers `tools/list` and `tools/call` on stdio. Left: the gate record, the client
-config stanza here, and the PR (section 5 of the change's `tasks.md`).
+Read + journalled writes over stdio, pointed at a deployment of your choosing —
+`openspec/changes/mcp-server/`. Not deployed anywhere: the client spawns it, so
+there is no service to run. Remote HTTP/SSE transport waits for a client that
+needs it.
+
+## Getting a token
+
+`WBS_TOKEN` is an ordinary be-01 account token — the same one the web app holds.
+Ask the deployment for one:
+
+```sh
+curl -sS -u "$WBS_BASIC_AUTH" \
+  -H 'content-type: application/json' \
+  -d '{"username":"you","password":"…"}' \
+  https://dev.wbs.bulletpoints.club/api/auth/login
+# → {"token":"…"}
+```
+
+Drop `-u` against a deployment that is not behind basic auth. The token is what
+goes in `WBS_TOKEN`; the `user:pass` you passed to `-u` is what goes in
+`WBS_BASIC_AUTH`.
+
+## Client configuration
+
+The client spawns this process and speaks MCP on its stdin/stdout, so a client
+entry is a command plus an environment. Two forms, depending on whether you want
+the source or the bundle.
+
+**From source** (dev loop — no build step, picks up edits on the next spawn):
+
+```json
+{
+  "mcpServers": {
+    "wbs": {
+      "command": "bun",
+      "args": ["/abs/path/to/wbs-tool-v1/apps/mcp-01/src/main.ts"],
+      "env": {
+        "WBS_API_URL": "https://dev.wbs.bulletpoints.club",
+        "WBS_TOKEN": "…",
+        "WBS_BASIC_AUTH": "dany:…"
+      }
+    }
+  }
+}
+```
+
+**From the bundle** (`bunx nx build mcp-01`, output in `dist/apps/mcp-01/`):
+
+```json
+{
+  "mcpServers": {
+    "wbs": {
+      "command": "bun",
+      "args": ["/abs/path/to/wbs-tool-v1/dist/apps/mcp-01/main.js"],
+      "env": { "WBS_API_URL": "…", "WBS_TOKEN": "…" }
+    }
+  }
+}
+```
+
+That is the shape Claude Desktop, OpenClaw and every other stdio client take;
+the file it lives in differs per client. Absolute paths — the client's working
+directory is not this repo.
+
+Same thing from a shell, which is also how you check a client problem is not a
+server problem:
+
+```sh
+printf '%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | WBS_API_URL=https://dev.wbs.bulletpoints.club WBS_TOKEN=… bun apps/mcp-01/src/main.ts
+```
+
+**stdout is the protocol.** Everything this process wants to say — the boot line,
+any refusal — goes to stderr, which the client shows as the server's log. A
+`console.log` added to this app writes a line into the JSON-RPC stream and the
+client drops the connection.
 
 `nx build mcp-01` copies `apps/be-01/openapi.json` beside the bundle. That copy
 is not incidental — the document is read at runtime, so without it the built

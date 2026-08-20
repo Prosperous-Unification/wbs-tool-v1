@@ -78,13 +78,13 @@
 
 ## 5. Gate, docs, PR
 
-- [ ] 5.1 `bunx nx run-many -t test lint typecheck` on h2puni, plus
+- [x] 5.1 `bunx nx run-many -t test lint typecheck` on h2puni, plus
       `format:check` and `openspec validate --strict`. Record actual output in
       `verify.md` with the failure-proof table (every watched red above: fault
       injected, test that observed it, result).
-- [ ] 5.2 `README.md` in `apps/mcp-01`: the three environment variables, the
+- [x] 5.2 `README.md` in `apps/mcp-01`: the three environment variables, the
       stdio client config stanza, and the one-account caveat from D6.
-- [ ] 5.3 `LLM_README.md` index line. `CONTEXT.md` only if a term resolved that
+- [x] 5.3 `LLM_README.md` index line. `CONTEXT.md` only if a term resolved that
       is not already there — "tool" and "transport" are MCP's vocabulary, not
       this domain's, and do not belong in the glossary.
 - [ ] 5.4 PR, PoC mode: merge on green.
