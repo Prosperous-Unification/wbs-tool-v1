@@ -19,22 +19,22 @@
 
 ## 2. Tool generation from the committed document
 
-- [ ] 2.1 `openapi-tools.ts`: read `apps/be-01/openapi.json`, walk `paths` ×
+- [x] 2.1 `openapi-tools.ts`: read `apps/be-01/openapi.json`, walk `paths` ×
       methods, and emit a name, a description, an input schema, a method and a
       path per operation. Name ← `operationId`. **Throws** on an operation with
       no `operationId` rather than synthesising one from the path (R5) —
       **watched red**, `openapi-tools.test.ts` strips one id from a fixture
       document and asserts the throw.
-- [ ] 2.2 Input schema assembly: path + query parameters as properties, body
+- [x] 2.2 Input schema assembly: path + query parameters as properties, body
       properties merged in for a body-carrying operation, required stays
       required. Test asserts the shape of two known operations — one with only
       path parameters, one with path parameters **and** a body — so a merge that
       drops either side is red.
-- [ ] 2.3 The exclusion list as a named set (`/api/auth/*`, `/internal/*`,
+- [x] 2.3 The exclusion list as a named set (`/api/auth/*`, `/internal/*`,
       `/health`, `/metrics`, `/api/smoke/echo`). **Watched red** — a name in the
       list that the document no longer contains fails the test; delete an entry
       from the fixture document and it must go red rather than silently narrow.
-- [ ] 2.4 **The drift test.** Generated tool names == operation ids in the
+- [x] 2.4 **The drift test.** Generated tool names == operation ids in the
       committed document minus the exclusions. Add a fake route to the fixture
       and the test must fail. This is the test that replaces a hand-maintained
       tool list.
@@ -57,7 +57,12 @@
 
 ## 4. The server, wired
 
-- [ ] 4.1 `main.ts`. **Until this lands, the `build` target is red for mcp-01**
+- [ ] 4.1 `main.ts`. The bundle also needs `apps/be-01/openapi.json` beside it:
+      `openapi-tools.ts` reads the document at runtime rather than importing it
+      (`@nx/enforce-module-boundaries` stops `scope:app` reaching into another
+      app's tree), so `OPENAPI_DOCUMENT_FILE` resolves only from source until
+      the `build` target copies the file. **Until this lands, the `build` target
+      is red for mcp-01**
       — it points at a file this task creates, and CI runs `build` alongside
       test/lint/typecheck, so the branch must not reach a PR before section 4.
       Low-level `Server` (D5) over `StdioServerTransport`,
