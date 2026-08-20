@@ -1,0 +1,45 @@
+{
+  "name": "mcp-01",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/mcp-01/src",
+  "projectType": "application",
+  "tags": ["scope:app", "type:app", "runtime:bun"],
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "command": "bun --watch src/main.ts",
+        "cwd": "apps/mcp-01"
+      },
+      "cache": false
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun build apps/mcp-01/src/main.ts --target=bun --outdir=dist/apps/mcp-01"
+      },
+      "outputs": ["{workspaceRoot}/dist/apps/mcp-01"]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint apps/mcp-01/src"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "apps/mcp-01"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force apps/mcp-01/tsconfig.lib.json"
+      }
+    }
+  }
+}
