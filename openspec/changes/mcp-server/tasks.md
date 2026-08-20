@@ -41,18 +41,18 @@
 
 ## 3. The HTTP call, and the refusal that survives it
 
-- [ ] 3.1 `wbs-client.ts`: substitute path parameters, put the rest in the query
+- [x] 3.1 `wbs-client.ts`: substitute path parameters, put the rest in the query
       string or the JSON body by the operation's own parameter locations, send
       `x-wbs-token` and the optional basic-auth header. A parameter the operation
       does not declare **throws** rather than being forwarded (R5) — watched red.
-- [ ] 3.2 Non-2xx → tool result with `isError: true` carrying the status and
+- [x] 3.2 Non-2xx → tool result with `isError: true` carrying the status and
       be-01's raw `error` code, unedited (D7). **Watched red** — a stub answering
       400 `{"error":"number_is_derived"}` must produce a result containing
       `number_is_derived` verbatim; replace the passthrough with a generic
       "request failed" and the test must fail.
-- [ ] 3.3 401 → a tool error naming an expired or invalid token and the restart
+- [x] 3.3 401 → a tool error naming an expired or invalid token and the restart
       it needs (D6). Asserted; a 401 must not read like a 400.
-- [ ] 3.4 A response body that is not JSON when a JSON body was expected throws
+- [x] 3.4 A response body that is not JSON when a JSON body was expected throws
       rather than being coerced to `{}`. Watched red.
 
 ## 4. The server, wired

@@ -111,6 +111,14 @@ So a non-2xx becomes an MCP tool result with `isError: true` whose text carries
 the status and the raw code. The negative test injects a 400 with a known code
 and asserts the code appears verbatim in the tool result.
 
+**Two 401s, and only one of them is D6's.** The dev deployment sits behind basic
+auth on every path but `/ws*`, so a wrong `WBS_BASIC_AUTH` produces a 401 that
+never reached be-01 — and reporting it as an expired account token sends the
+operator to replace a credential that was fine. `WWW-Authenticate` is the
+discriminator: a proxy sets it on its challenge, be-01 never does. fe-01 shipped
+this bug once already (`apps/fe-01/src/lib/api.ts`, `EDGE_UNAUTHORIZED`), which
+is why mcp-01 has the branch on day one rather than after the afternoon.
+
 ## D8 — Eight bodies are documented, not validated, and the tool schema says so
 
 Six work-item writes, the capacity PUT and the priority-band PUT parse their own
