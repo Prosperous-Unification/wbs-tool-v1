@@ -290,7 +290,7 @@ describe('DirectoryService.patchPerson', () => {
 
     expect(outcome).toEqual({
       ok: true,
-      result: { id: katId, name: 'Katrin', teamIds: [platformId] },
+      result: { id: katId, name: 'Katrin', kind: 'person', teamIds: [platformId] },
     });
     expect(await store.assignmentsOf(['design'])).toEqual([
       { workItemId: 'design', roleId: devId, personId: katId },
@@ -338,7 +338,7 @@ describe('DirectoryService.patchPerson', () => {
 
     expect(outcome).toEqual({
       ok: true,
-      result: { id: katId, name: 'Kat', teamIds: [payments.id] },
+      result: { id: katId, name: 'Kat', kind: 'person', teamIds: [payments.id] },
     });
   });
 
@@ -347,7 +347,7 @@ describe('DirectoryService.patchPerson', () => {
 
     expect(await directory.patchPerson(katId, { teamIds: [] })).toEqual({
       ok: true,
-      result: { id: katId, name: 'Kat', teamIds: [] },
+      result: { id: katId, name: 'Kat', kind: 'person', teamIds: [] },
     });
   });
 
@@ -364,7 +364,9 @@ describe('DirectoryService.patchPerson', () => {
     });
 
     expect(outcome).toEqual({ ok: false, reason: 'unknown_team' });
-    expect(await store.listPeople()).toEqual([{ id: katId, name: 'Kat', teamIds: [platformId] }]);
+    expect(await store.listPeople()).toEqual([
+      { id: katId, name: 'Kat', kind: 'person', teamIds: [platformId] },
+    ]);
   });
 
   it('refuses a patch naming neither a name nor memberships', async () => {
@@ -387,7 +389,9 @@ describe('DirectoryService.patchPerson', () => {
       ok: false,
       reason: 'not_found',
     });
-    expect(await store.listPeople()).toEqual([{ id: katId, name: 'Kat', teamIds: [platformId] }]);
+    expect(await store.listPeople()).toEqual([
+      { id: katId, name: 'Kat', kind: 'person', teamIds: [platformId] },
+    ]);
   });
 });
 

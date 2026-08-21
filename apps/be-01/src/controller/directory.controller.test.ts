@@ -452,7 +452,7 @@ describe('PATCH /api/people/:id', () => {
 
     expect(patched).toEqual({
       status: 200,
-      body: { person: { id: kat, name: 'Katrin', teamIds: [payments] } },
+      body: { person: { id: kat, name: 'Katrin', kind: 'person', teamIds: [payments] } },
     });
   });
 
@@ -466,7 +466,9 @@ describe('PATCH /api/people/:id', () => {
         teamIds: [crypto.randomUUID()],
       }),
     ).toEqual({ status: 404, body: { error: 'unknown_team' } });
-    expect(await store.listPeople()).toEqual([{ id: kat, name: 'Kat', teamIds: [platform] }]);
+    expect(await store.listPeople()).toEqual([
+      { id: kat, name: 'Kat', kind: 'person', teamIds: [platform] },
+    ]);
   });
 
   it('answers 422 to a patch that names nothing to change', async () => {
@@ -500,7 +502,9 @@ describe('PATCH /api/people/:id', () => {
     );
 
     expect(res.status).toBe(401);
-    expect(await store.listPeople()).toEqual([{ id: kat, name: 'Kat', teamIds: [platform] }]);
+    expect(await store.listPeople()).toEqual([
+      { id: kat, name: 'Kat', kind: 'person', teamIds: [platform] },
+    ]);
   });
 });
 

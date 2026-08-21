@@ -1,5 +1,7 @@
 import type { EstimateMethod, IsoDate, PriorityBand, RoleState } from '@wbs/domain';
 
+import type { PersonKind } from './schema';
+
 export interface Example {
   id: string;
   label: string;
@@ -810,10 +812,28 @@ export interface TeamPatch {
   serviceIds?: readonly string[];
 }
 
-/** Somebody who does work. Not an account on this tool. */
+/**
+ * Somebody who does work. Not an account on this tool.
+ *
+ * `kind` is **optional here and always present on a row read back**, and the
+ * asymmetry is deliberate rather than sloppy. A write may omit it — the column
+ * carries `NOT NULL DEFAULT 'person'`, which is what lets the outgoing release's
+ * two-column insert survive a blue/green swap — while every read carries it,
+ * because the migration wrote `person` onto every row that predates the column.
+ *
+ * It is declared at all because it *arrives* at all: `DirectoryRepository`
+ * spreads the Drizzle row, so `kind` reached the API response the moment the
+ * column existed, and a type that denied it would have been a lie TypeScript
+ * cannot catch — excess properties survive a spread. Narrowing this to required,
+ * with a separate input type for the insert, is section 3's job when the store
+ * gets its read and write paths; doing it here would have meant rewriting
+ * `addPerson`'s signature inside a chunk that was supposed to touch only the
+ * schema.
+ */
 export interface Person {
   id: string;
   name: string;
+  kind?: PersonKind;
 }
 
 /** A person and the teams they belong to — empty means a free agent. */
