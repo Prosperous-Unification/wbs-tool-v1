@@ -199,28 +199,42 @@
       (R2-5 §2). Row-for-row unchanged after the migration, one assertion.
 - [x] 8.4 `person_team` — shape untouched. The assignee signal **reads** it and
       writes nothing to it.
-- [ ] 8.5 **Chunk 22 finding — this task is written against a surface that does
-      not exist.** `ServiceLabel` is declared in `gantt-geometry.ts` and consumed
-      only by `wbs-table.tsx` and `plan-cards.tsx`; `GanttPlan`, `GanttRow` and
-      `GanttBar` carry `team` and `tags` and **no service field at all**, so
-      `layOutGantt` has no service input to vary and the tags precedent (the
-      untagged-vs-tagged identical-geometry case at `gantt-geometry.test.ts`
-      :1315) cannot be copied. The half about `barColorOf` holds vacuously and
-      the half about the hover text is unbuilt, not asserted. Decide before the
-      PR: either build the chart's service hover and then assert this, or restate
-      8.5 as the absence it currently is. Original text:
-      `gantt-geometry.ts` — the service reaches the hover text and nothing
-      that computes a position. `barColorOf` unchanged: a bar already carries a
-      person as a colour and a priority as a cap, and a third meaning on one
-      small rectangle stops it meaning anything.
+- [x] 8.5 **Restated as the absence it is — chunk 23's decision, taken against
+      the tree rather than against the original wording.** The original text
+      ("the service reaches the hover text and nothing that computes a
+      position") described a chart that does not carry a service. Verified at
+      `6b7895b`: `GanttRow`, `GanttPlan` and `GanttBar` declare no service
+      field, and this branch's whole diff over `gantt-geometry.ts` is **32
+      added lines, all of them the `ServiceLabel` type and its doc comment —
+      zero statements changed**, so `barColorOf` and every geometry function
+      are byte-identical to `main`. The chart's hover was never built, in any
+      chunk, and is not built here.
+      **No test is added, and that is the point.** `layOutGantt` has no service
+      input to vary, so the tags precedent (untagged-vs-tagged identical
+      geometry, `gantt-geometry.test.ts:1315`) cannot be copied: a case feeding
+      a service to a type that has no field for one does not compile, and a case
+      that omits it cannot fail. That is chunk 7's 5.2 lesson — a guard mistaken
+      for a proof — and this item refuses it. The type is the assertion; the
+      spec's `A service SHALL NOT colour a bar` is satisfied by a `barColorOf`
+      nothing touched. `ServiceLabel` lives in `gantt-geometry.ts` because that
+      file is where this repo declares row labels (`ServiceTeamLabel`,
+      `TagLabel` sit beside it); it is consumed by `wbs-table.tsx` and
+      `plan-cards.tsx` and by nothing that computes an x, a width or a colour.
+      **Owed, and named as owed rather than quietly dropped:** the service on
+      the chart's bar hover. The hover this change *did* ship is the table
+      cell's — the title naming the ancestor a row inherits from, and the
+      non-owner note — which is what the brief's "hover text" face is answered
+      by. A service on the bar is its own change, against `GanttBar` and the
+      hover component, and it is written down in `verify.md` under what this
+      change deliberately did not build.
 
 ## 9. The gate and the record
 
-- [ ] 9.1 Full gate on h2puni, with the bun version beside every count: be-01,
+- [x] 9.1 Full gate on h2puni, with the bun version beside every count: be-01,
       fe-01, gw-01, domain, lint + typecheck over every project,
       `format:check`, `openspec validate --strict`, secrets + doc-caps +
       migration-lint. Re-run at the head before the PR. **Never on h1claw.**
-- [ ] 9.2 `verify.md` with the R5 fault table — every watched red above, each
+- [x] 9.2 `verify.md` with the R5 fault table — every watched red above, each
       sourced from the `Proof:` comment beside the line it guards, plus what
       this change deliberately did not build.
 - [ ] 9.3 The migration proved **applied**, not assumed: `service`,
