@@ -291,6 +291,54 @@ red if it were wrong" — was true of every seam it had tried and false of the
 repository, and the difference cost one chunk. Where a rule lives in a `where`
 clause, the layer that writes the clause is where the rule can be watched.
 
+### F13a, F13c, F13b: the control, and what each of its three claims is worth
+
+`fe-01`, run **directly with `vitest` inside `apps/fe-01`** rather than through
+Nx — lane B spent a chunk on injections that reported the cached number of the
+correct code, so an injection that goes through a cache is worth nothing.
+Baseline for the file: **45 pass / 0 fail**.
+
+**F13a — `value={person.kind}` replaced by a hard-coded `value="person"`.**
+**2 fail**: the read case and the round-trip case. This is the injection the
+whole section turns on, because "existing people render as `person` without a
+request" and "a control that reads nothing" draw the **same screen** for every
+row this deployment holds today — nobody has been marked an agent yet. The
+fixture that tells them apart is `CLAUDE`, stored `agent`, and without it the
+section would have been green under a control wired to nothing.
+
+**F13c — `{ kind }` replaced by `{ kind, name: nameShown(person) }`.** **1
+fail**, the round-trip case, and it fails on the payload rather than on the
+screen: the kind still arrives, the row still redraws, and what has quietly gone
+with it is whatever half-typed name was standing in the box beside the control.
+A patch is the set of fields somebody meant to change, and this is the fault
+that sends one they did not.
+
+**F13b — `if (kind === person.kind) return` struck.** **1 fail** beyond F13c's,
+the no-op case. Worth recording for how that case had to be written: "no request
+was made" cannot be waited for, so an assertion the moment after the event holds
+whether the guard exists or not. The case fires the no-op, then a **real**
+rename behind it, and asserts `patched` is the rename alone — the second write
+is what gives the first somewhere to show up.
+
+All three reverted, and the revert proved by `sha1sum` on both boxes
+(`4657f3e…`) rather than by `git status`.
+
+### The four cases that went red before any of that, and the query they indict
+
+The `<select>` reddened **four existing membership cases** the moment it was
+drawn: `screen.getAllByRole('option')` read `['Person', 'Agent', 'Design']`
+where it meant `['Design']`. A `<select>`'s `<option>`s are in the accessibility
+tree whether or not it is open, so the page now publishes options from two
+places.
+
+Those queries were narrowed to `within(getByRole('listbox', { name: 'Add a team
+for Kat' }))`, which is what they had always meant — they were unambiguous only
+because nothing else on the page had options. Recorded rather than fixed
+quietly, because the other reading is available and wrong: that the control
+should have been two buttons, to keep an old query working. A case that
+constrains the page to publish exactly one kind of option has outgrown its own
+assertion.
+
 ## The gate
 
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
@@ -323,6 +371,10 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `eee3826` (the lint fix)                   | `nx run-many -t lint typecheck --all`    | exit 0, 22 projects                                     |
 | `eee3826`                                  | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,641 expect() calls, 75 files |
 | `eee3826`                                  | `nx format:check --all`                  | exit 0, first time                                      |
+| `e82b023` (7.1 + 7.2, the first fe-01 work) | `nx run fe-01:test`                     | **1588 pass / 0 fail**, 53 files                        |
+| `e82b023`                                  | `nx run-many -t lint typecheck -p fe-01` | exit 0                                                  |
+| `e82b023`                                  | `nx format:check --all`                  | exit 0, and 0 **first try** — the first head in this task that was |
+| `e82b023`                                  | the `--all` sweep                        | **killed for memory, not red** — see Owed               |
 
 `--all` on lint/typecheck rather than `-p be-01`, because 5.2 widens a type
 `broadcast.ts` builds and fe-01 reads through the wire. It found the one red of
@@ -358,6 +410,18 @@ sentence that checks it rather than the one that claims it.
 
 ## Owed
 
+- **The `--all` sweep at `e82b023` did not finish, and it is a memory kill
+  rather than a red.** `bunx eslint apps/be-01/src` printed `Killed` with four
+  other targets in flight; `free` on h2puni reports 7 GB total and 3 available.
+  What ran and passed at that exact head is in the table above — `fe-01`'s
+  suite, its lint and typecheck, and `format:check --all` — and this chunk
+  changed **no file outside `apps/fe-01`**, so nothing that was killed could
+  have been touched by it. Still owed at the next head, and owed with
+  `--parallel=1`: a green `--all` is the claim every chunk of this task has
+  made, and one chunk's narrow gate does not renew it.
+- **The `fe-01` baseline was not read.** 1588 is the count **after** four new
+  cases; 1584 before them is arithmetic rather than a reading, and this record
+  says so rather than printing a delta it never watched.
 - `bunx openspec validate --strict` has **not** been run. `openspec` is not a
   dependency of this repo (`node_modules/.bin/openspec` absent, `bunx openspec`
   on h2puni exits 1 with "could not determine executable to run"), so the CLI

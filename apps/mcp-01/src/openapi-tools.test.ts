@@ -228,9 +228,22 @@ describe('toolsFromDocument, on the committed document', () => {
    * are. An agent that can label a work item with a service has to be able to
    * see the vocabulary and add to it, and the removal keeps its 409-then-confirm
    * shape through the tool as it does through the route.
+   *
+   * **47 to 49 with `token-tracking`'s two measure routes**, and the decision is
+   * the one Dany asked for on 2026-08-21 19:06 — token figures must be reachable
+   * from MCP as well. `putApiWork-itemsByIdMeasuresByMetricByRoleId` and
+   * `deleteApiWork-itemsByIdMeasuresByMetricByRoleId` are the tools, derived
+   * from the committed document with nothing added here: neither path matches an
+   * exclusion class, so "free" turned out to be true — but this line is what
+   * checked it rather than assuming it.
+   *
+   * It arrived as a **red four chunks late**, because those chunks gated
+   * `-p be-01` and this drift test lives in `mcp-01`. A count that only one
+   * project's gate can see is a count that drifts silently; the routes landed at
+   * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
    */
-  it('is 47 tools, so a route that appears must be decided about', () => {
-    expect(tools).toHaveLength(47);
+  it('is 49 tools, so a route that appears must be decided about', () => {
+    expect(tools).toHaveLength(49);
     expect(EXCLUDED_PATHS).toHaveLength(5);
   });
 

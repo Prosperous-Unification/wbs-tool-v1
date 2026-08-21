@@ -238,12 +238,16 @@
 
 ## 7. The directory card
 
-- [ ] 7.1 A person/agent control in the directory card (fe-01), reading `kind`
+- [x] 7.1 A person/agent control in the directory card (fe-01), reading `kind`
       from the payload and writing it through 4.4. Existing people render as
-      `person` without a request.
-- [ ] 7.2 Component tests: the control shows the stored kind, a change round-trips,
+      `person` without a request. _(A `<select>` beside the name box, the
+      `Plan with` control's gesture for a closed set. `PersonView.kind` is
+      **required**: the column is `NOT NULL DEFAULT 'person'`, so "without a
+      request" is a fact about the read and not a client-side `?? 'person'`.)_
+- [x] 7.2 Component tests: the control shows the stored kind, a change round-trips,
       and a failed write leaves the displayed kind unchanged rather than
-      optimistically wrong.
+      optimistically wrong. _(Four cases. The third is non-vacuous only because
+      the page holds **no draft** for the kind — see verify.md F13a.)_
 
 ## 8. The record
 
