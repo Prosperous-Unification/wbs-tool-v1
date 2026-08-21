@@ -33,6 +33,7 @@ import {
   tag,
   teamService,
   workItem,
+  workItemService,
   workItemTag,
   workItemTeam,
 } from './schema';
@@ -121,6 +122,16 @@ function usageRowsIn(
     .where(inArray(workItem.projectId, ids))
     .orderBy(asc(workItemTag.tagId))
     .all();
+  // And the services, for the same reason one line down: `directoryUsageOfService`
+  // reads the set off the row it is handed, so a row arriving without one would
+  // report a removal that touches nothing.
+  const serviced = reader
+    .select({ workItemId: workItemService.workItemId, serviceId: workItemService.serviceId })
+    .from(workItemService)
+    .innerJoin(workItem, eq(workItemService.workItemId, workItem.id))
+    .where(inArray(workItem.projectId, ids))
+    .orderBy(asc(workItemService.serviceId))
+    .all();
   const teamsOf = new Map<string, string[]>();
   for (const each of joined) {
     teamsOf.set(each.workItemId, [...(teamsOf.get(each.workItemId) ?? []), each.teamId]);
@@ -133,10 +144,15 @@ function usageRowsIn(
   for (const each of tagged) {
     tagsOf.set(each.workItemId, [...(tagsOf.get(each.workItemId) ?? []), each.tagId]);
   }
+  const servicesOf = new Map<string, string[]>();
+  for (const each of serviced) {
+    servicesOf.set(each.workItemId, [...(servicesOf.get(each.workItemId) ?? []), each.serviceId]);
+  }
   const workItems = rows.map((row) => ({
     ...row,
     teamIds: teamsOf.get(row.id) ?? [],
     tagIds: tagsOf.get(row.id) ?? [],
+    serviceIds: servicesOf.get(row.id) ?? [],
   }));
   const projects = reader
     .select({ id: project.id, name: project.name })
@@ -706,10 +722,15 @@ export class DirectoryRepository implements DirectoryStore {
   async removeService(serviceId: string, cascade: boolean): Promise<DirectoryRemoved> {
     await Promise.resolve();
     return this.db.transaction((tx) => {
+      // Off the join since task 10.2, `removeTag`'s read exactly. The column is
+      // not consulted: a row this release labelled has no `service_id` to find,
+      // so the old read would have bumped no revision and confirmed no usage for
+      // exactly the rows the removal actually empties.
       const labelled = tx
         .select({ id: workItem.id, projectId: workItem.projectId })
-        .from(workItem)
-        .where(eq(workItem.serviceId, serviceId))
+        .from(workItemService)
+        .innerJoin(workItem, eq(workItemService.workItemId, workItem.id))
+        .where(eq(workItemService.serviceId, serviceId))
         .all();
       if (!cascade && labelled.length > 0) {
         return {
@@ -914,15 +935,19 @@ export class DirectoryRepository implements DirectoryStore {
    * {@link projectsTagged} for the third dimension: the projects holding a row
    * that names this service.
    *
-   * No join to read — the label is a column — so this is the only one of the
-   * three that asks `work_item` alone.
+   * `projectsTagged` line for line since task 10.2. The sentence that stood here
+   * — "no join to read, the label is a column, so this is the only one of the
+   * three that asks `work_item` alone" — was the singleton's, and reading the
+   * column now would name the projects the *outgoing* release labelled and miss
+   * every row this one has written.
    */
   private projectsServiced(reader: Reader, serviceId: string): string[] {
     return projectsOf(
       reader
         .select({ projectId: workItem.projectId })
-        .from(workItem)
-        .where(eq(workItem.serviceId, serviceId))
+        .from(workItemService)
+        .innerJoin(workItem, eq(workItemService.workItemId, workItem.id))
+        .where(eq(workItemService.serviceId, serviceId))
         .all(),
     );
   }

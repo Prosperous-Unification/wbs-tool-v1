@@ -69,7 +69,22 @@ function asIdOrNull(value: unknown, field: string): string | null {
 export const MOST_TAGS_ON_ONE_ITEM = 50;
 
 /**
- * The tag set a patch names, whole, or `undefined` where it names none.
+ * How many services one work item may deliver.
+ *
+ * {@link MOST_TAGS_ON_ONE_ITEM}'s argument at a tenth of the number, because the
+ * two dimensions are not the same size of thing: a tag taxonomy is open and a
+ * service directory is the handful of things an organisation ships. Ten is far
+ * past a row that honestly delivers several and still small enough that hitting
+ * it means a mistake.
+ *
+ * A separate constant and not a shared one — the caps move for different
+ * reasons, and one number would tie a service list's bound to a taxonomy's.
+ */
+export const MOST_SERVICES_ON_ONE_ITEM = 10;
+
+/**
+ * The label set a patch names, whole, or `undefined` where it names none —
+ * tags and, since task 10.2, services.
  *
  * **`[]` is a value and means "no tags"** — the one spelling of taking them all
  * off, and deliberately not `null`: there is no column to reset and no third
@@ -80,15 +95,24 @@ export const MOST_TAGS_ON_ONE_ITEM = 50;
  * accepting it would write a row per character.
  *
  * Duplicates are **not** refused. The store deduplicates on the way in and the
- * primary key would refuse the pair anyway, so a payload naming one tag twice
+ * primary key would refuse the pair anyway, so a payload naming one label twice
  * is a client being untidy rather than a request that means something else —
  * and a 400 for it would be this route inventing a rule the model does not have.
  */
-function asOptionalTagIds(value: unknown, field: string): readonly string[] | undefined {
+function asOptionalLabelIds(
+  value: unknown,
+  field: string,
+  /**
+   * The dimension's own cap, handed in rather than read off a constant here:
+   * this function serves two dimensions since task 10.2, and a shared bound
+   * would make one of them refuse at a number chosen for the other.
+   */
+  most: number,
+): readonly string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new BadRequest(`${field}_must_be_a_list_of_ids`);
-  if (value.length > MOST_TAGS_ON_ONE_ITEM) {
-    throw new BadRequest(`${field}_must_be_at_most_${String(MOST_TAGS_ON_ONE_ITEM)}`);
+  if (value.length > most) {
+    throw new BadRequest(`${field}_must_be_at_most_${String(most)}`);
   }
   for (const each of value) {
     if (typeof each !== 'string') throw new BadRequest(`${field}_must_be_a_list_of_ids`);
@@ -310,7 +334,7 @@ function parsePatch(body: unknown): {
   startNoEarlierThanReason?: string | null;
   priority?: number | null;
   serviceTeamId?: string | null;
-  serviceId?: string | null;
+  serviceIds?: readonly string[];
   maxParallel?: number | null;
   tagIds?: readonly string[];
 } {
@@ -327,12 +351,13 @@ function parsePatch(body: unknown): {
     priority: asOptionalPriority(raw['priority'], 'priority'),
     serviceTeamId:
       'serviceTeamId' in raw ? asIdOrNull(raw['serviceTeamId'], 'serviceTeamId') : undefined,
-    // `in` rather than a plain read for the reason the line above it uses one:
-    // `null` is a value here — it takes the service off — so absent and null
-    // have to be told apart, and `raw['serviceId']` gives `undefined` for both.
-    serviceId: 'serviceId' in raw ? asIdOrNull(raw['serviceId'], 'serviceId') : undefined,
+    // A plain read, and the `in` check the singleton needed is gone with it:
+    // `null` was a value while this was a column, so absent and null had to be
+    // told apart. The set has one spelling for taking the label off — `[]` — and
+    // `undefined` for leaving it alone, which is what a plain read already gives.
+    serviceIds: asOptionalLabelIds(raw['serviceIds'], 'serviceIds', MOST_SERVICES_ON_ONE_ITEM),
     maxParallel: asOptionalParallelism(raw['maxParallel'], 'maxParallel'),
-    tagIds: asOptionalTagIds(raw['tagIds'], 'tagIds'),
+    tagIds: asOptionalLabelIds(raw['tagIds'], 'tagIds', MOST_TAGS_ON_ONE_ITEM),
   };
 }
 
@@ -521,7 +546,7 @@ Body refusals, all 400: \`expected_object\`, \`number_is_derived\`,
 \`startNoEarlierThanReason_must_be_text\`,
 \`startNoEarlierThanReason_must_be_at_most_200_characters\`,
 \`priority_must_be_a_whole_number_from_1\`, \`serviceTeamId_must_be_id_or_null\`,
-\`serviceId_must_be_id_or_null\`,
+\`serviceIds_must_be_a_list_of_ids\`, \`serviceIds_must_be_at_most_10\`,
 \`maxParallel_must_be_a_whole_number_from_1\`,
 \`maxParallel_must_be_at_most_1000\`. A parallelism on a row that has children is
 \`has_children\`, also 400 — the cell is read-only on every parent. A patch that
@@ -559,11 +584,12 @@ neither the words nor itself**, so send both as \`null\` in the one request.`,
                 description:
                   'The team whose people do this work, by id from `GET /api/teams`. Null clears the label.',
               },
-              serviceId: {
-                type: 'string',
-                nullable: true,
+              serviceIds: {
+                type: 'array',
+                items: { type: 'string' },
+                maxItems: MOST_SERVICES_ON_ONE_ITEM,
                 description:
-                  'The service this work delivers, by id. One per item. Null clears the label, which puts the row back to inheriting its ancestors’ service. Independent of `serviceTeamId` beside it: a team is who does the work, a service is what the work is part of. An id the directory no longer holds is 404 `unknown_service`.',
+                  'The services this work delivers, by id, as the whole set — a patch replaces it rather than adding to it. `[]` clears the label, which puts the row back to inheriting its ancestors’ services; omit the field to leave the dimension alone. Independent of `serviceTeamId` beside it: a team is who does the work, a service is what the work is part of. An id the directory no longer holds refuses the whole patch with 404 `unknown_service`.',
               },
               maxParallel: {
                 type: 'integer',

@@ -509,7 +509,7 @@ export type WorkItemRefusal =
   | 'unknown_tag'
   /**
    * A service the directory no longer holds, decided inside the write's own
-   * transaction — see {@link WorkItemPatch.serviceId}. The third picker, and a
+   * transaction — see {@link WorkItemPatch.serviceIds}. The third picker, and a
    * third reason on purpose: told only that "a label is gone", a reader has
    * three pickers to reopen and no way to choose.
    */
@@ -726,7 +726,7 @@ function fieldsOf(patch: WorkItemPatch): (keyof WorkItemPatch)[] {
   // `refused: stale_undo — “Strip the roof” has changed since then`: the undo
   // reached past the unjournalled write to an entry that write had already made
   // stale. The tag line's own red, one dimension over. Watched 2026-08-21.
-  if (patch.serviceId !== undefined) named.push('serviceId');
+  if (patch.serviceIds !== undefined) named.push('serviceIds');
   // Proof: this line deleted, so a patch naming only a parallelism journals
   // nothing at all, and all three parallelism undo tests — `puts a replaced
   // parallelism back, and leaves one a rename did not name`, `takes a first
@@ -781,33 +781,24 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   }
   if (patch.priority !== undefined) out.priority = before.priority;
   if (patch.serviceTeamId !== undefined) out.serviceTeamId = before.serviceTeamId;
-  // **The prior scalar, and this is deliberately the inverse of the rule below
-  // it.** `service_id` is a column, so the row had exactly one service before
-  // the patch and the field that restores it holds exactly one id. Wrapping it
-  // in an array to match its set-valued neighbour would journal a shape the
-  // patch cannot take — it is written here so nobody "fixes" the two into
-  // agreement.
+  // **The whole prior set**, the rule below it and no longer its inverse. The
+  // comment that stood here argued the opposite at length — a column has exactly
+  // one prior value, so wrapping it in an array would journal a shape the patch
+  // cannot take — and task 10.2 ended that argument by making the join table the
+  // store. The patch takes a set now, so the undo restores a set.
   //
-  // `null` is a legal before-value and means the row had no service of its own:
-  // the inverse of labelling it is taking the label off, which is the null
-  // rather than an absent field. Absent would leave the label the undo exists
-  // to remove.
+  // `[]` is a legal before-value and means the row stated no service of its own:
+  // the inverse of labelling it is taking the label off, which is the empty set
+  // rather than an absent field. Absent would leave behind the label the undo
+  // exists to remove.
   //
-  // Proof: written as `out.serviceId = [before.serviceId]`, the array habit,
-  // and `typecheck` refuses it outright — `error TS2322: Type '(string |
-  // null)[]' is not assignable to type 'string'` at this line. That is the
-  // first guard and the one a reviewer meets, so the array cannot reach a
-  // reader by accident.
-  //
-  // Cast past it to see what the column does with one: **74 pass, 2 fail** in
-  // `undo.test.ts`, both throwing `SQLite query expected 2 values, received 1`.
-  // The array spreads into the `SET` as two bindings for one placeholder, so
-  // the undo **throws** rather than quietly unlabelling the row — a 500 on a
-  // key somebody pressed to be safe. Louder than the tags' own failure one
-  // field over, and for the reason the two rules differ: a set has a column-
-  // shaped spelling that silently loses data, and a scalar does not.
-  // Watched 2026-08-21, see verify.md.
-  if (patch.serviceId !== undefined) out.serviceId = before.serviceId;
+  // The scalar habit is what this loses data to, and it is the *tags* fault one
+  // dimension over rather than the throw the column used to give: journal one
+  // member of a two-service row and the undo reports success while restoring
+  // half the fact. Task 10.3 drives that red — this line is only the shape it
+  // needs, and it arrived here because 10.2's type change left no compiling way
+  // to keep the scalar.
+  if (patch.serviceIds !== undefined) out.serviceIds = before.serviceIds;
   // **The whole prior set, and this is the seam a scalar habit loses data at.**
   // A set-valued field's inverse cannot be a member of the set or a delta
   // against it: undoing "these three tags" has to restore the two that were
@@ -1297,6 +1288,11 @@ export class WorkItemService {
       // nothing and therefore inherits whatever its parent is delivering. The
       // alternative — copying the parent's service down on create — is the
       // stored-versus-effective bug this repo has shipped twice.
+      //
+      // The **column**, which since task 10.2 is read by the outgoing release
+      // alone; the set a reader of this release sees is the absence of any
+      // `work_item_service` row, and a create writes none. Both spell the same
+      // unlabelled row, which is the whole point of leaving the column standing.
       serviceId: null,
       // One at a time, which is what every work item has always done and what
       // the column's `DEFAULT 1` says for every row that predates it.

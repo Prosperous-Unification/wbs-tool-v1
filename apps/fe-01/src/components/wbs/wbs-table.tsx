@@ -3204,25 +3204,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    */
   const effectiveTags = useMemo(() => effectiveTagsOf(flat), [flat]);
   /**
-   * The third dimension's reading — one walk, memoised, over the same rows.
+   * The third dimension's reading — one walk, memoised, over the same rows, and
+   * handed the rows themselves since task 10.2.
    *
-   * A set out, like the two above, since the 2026-08-21 scope change. The
-   * store is still one nullable column until a later chunk of this change
-   * migrates it, so the fold to a singleton happens here, at the one edge that
-   * knows the column exists — `effectiveServicesOf` is asked a set-shaped
-   * question and cannot tell. When `WorkItemView` carries `serviceIds`, this
-   * `.map` is the line that goes.
+   * The `.map` that stood here folded the row's nullable column into a set of
+   * nought or one, and it was the line this task named as the one to delete:
+   * `WorkItemView` carries `serviceIds` now, so a row delivering two services
+   * arrives as two and the walk sees what the store holds. Nothing converts at
+   * this edge any more, which is why there is no third `useMemo` shape here —
+   * the three dimensions read identically.
    */
-  const effectiveServices = useMemo(
-    () =>
-      effectiveServicesOf(
-        flat.map((row) => ({
-          ...row,
-          serviceIds: row.serviceId === null ? [] : [row.serviceId],
-        })),
-      ),
-    [flat],
-  );
+  const effectiveServices = useMemo(() => effectiveServicesOf(flat), [flat]);
   /**
    * Which services each team is responsible for, from the directory's ownership
    * map — the shape `builtByNonOwner` asks for, built once instead of per row.
@@ -3235,7 +3227,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * never heard of services sends teams without the field, which is a real
    * state for the length of a blue/green deploy; folded to `[]` here so no
    * reader below has to hold the distinction, exactly as `toTree` folds
-   * `WorkItemView.serviceId`. Everything downstream reads a list.
+   * `WorkItemView.serviceIds`. Everything downstream reads a list.
    */
   const ownedServicesByTeam = useMemo(
     () => new Map(teams.map((team) => [team.id, team.serviceIds ?? []])),
@@ -3353,20 +3345,24 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * `effectiveServices` — `libs/domain`'s walk — rather than a second reading
    * of the tree.
    *
-   * **Still one name, while the store is still one column.** The walk hands
-   * back a set since the 2026-08-21 scope change, but the fold at
-   * `effectiveServices` puts in a set of nought or one, so what comes out has
-   * at most one member and this reads the whole answer rather than the first of
-   * several. The chunk that migrates the column to a join table widens this to
-   * the team cell's `names` shape; the `ServiceLabel` alias already carries the
-   * four states that needs.
+   * **Still one name, and now that is a narrowing rather than the shape.** The
+   * store became a set in task 10.2, so a row may state two services and this
+   * reads the first of them; the cell that shows all of them is task 10.4, which
+   * widens this to the team cell's `names` shape — the `ServiceLabel` alias
+   * already carries the four states that needs. Until then a two-service row
+   * reads as its first service here and as both everywhere the set is asked for
+   * directly: the filter facet, `builtByNonOwner`, and the export.
    */
   const effectiveServiceLabelOf = (row: TreeRow): ServiceLabel => {
     const nameOf = (id: string): { name: string } | undefined =>
       services.find((each) => each.id === id);
-    if (row.serviceId !== null) {
-      const own = nameOf(row.serviceId);
-      return own === undefined ? { state: 'unresolved' } : { state: 'named', name: own.name };
+    // Its own set, which is what makes the row's answer its own rather than an
+    // inherited one — the emptiness below is `effectiveServicesOf`'s question,
+    // not this one's. `[0]` guarded by the length check the `if` performs.
+    const own = row.serviceIds[0];
+    if (own !== undefined) {
+      const named = nameOf(own);
+      return named === undefined ? { state: 'unresolved' } : { state: 'named', name: named.name };
     }
     const inherited = effectiveServices.get(row.id);
     if (inherited === undefined) return { state: 'none' };
@@ -3466,7 +3462,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // "nobody above this row states one".
             //
             // **Task 6.2's watched red, and it is watched here now.** Written as
-            // `row.serviceId` — the row's own stored column — three cases go red
+            // `row.serviceId` — the row's own stored column, `row.serviceIds`
+            // since task 10.2 took the column out of the read path — three cases go red
             // (chunk 9, h2puni): `keeps the rows that inherit a ticked service`
             // drops from the whole branch to `['010']`, and both signal cases
             // follow it down, because a service nobody inherits is a service no
@@ -5321,16 +5318,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   /**
    * States which service a work item is delivered by, or takes the label off.
    *
-   * `setTeamOf`'s shape, and `null` for the same reason: this dimension's
-   * unstated state **is** null, so clearing the cell sends the field rather
-   * than omitting it — an omitted field is "no opinion" to the patch and would
-   * leave the old service standing. be-01 refuses an id the directory does not
-   * carry with `unknown_service` (section 3), which is why nothing here
-   * validates the id a second time.
+   * `setTagsOf`'s shape since task 10.2, not `setTeamOf`'s: the patch states the
+   * **whole** set, so clearing the cell sends `[]` rather than omitting the
+   * field — an omitted field is "no opinion" to the patch and would leave the
+   * old service standing. be-01 refuses an id the directory does not carry with
+   * `unknown_service` (section 3), which is why nothing here validates the id a
+   * second time.
+   *
+   * **Still one id in, and a two-service row loses the rest through this call.**
+   * The picker is single-select until task 10.4 widens it, so this signature is
+   * the cell's shape rather than the dimension's; naming it here because a
+   * caller reading only the type would not see what the `[serviceId]` costs.
    */
   const setServiceOf = useCallback(
     (id: string, serviceId: string | null) => {
-      void run(() => api.patch(id, { serviceId }));
+      void run(() => api.patch(id, { serviceIds: serviceId === null ? [] : [serviceId] }));
     },
     [api, run],
   );
@@ -6974,7 +6976,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     : undefined
                 }
                 entries={live.current.services}
-                value={row.original.serviceId}
+                // The first stated service, which is what a single-select control
+                // can hold — {@link effectiveServiceLabelOf}'s narrowing, and
+                // task 10.4's to remove. `?? null` because the picker's "nothing
+                // chosen" is a null and an empty set's `[0]` is `undefined`.
+                value={row.original.serviceIds[0] ?? null}
                 onChoose={(id) => {
                   live.current.setServiceOf(row.original.id, id);
                 }}
@@ -6988,7 +6994,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                 // first service is made, which is precisely why the Team cell,
                 // whose column is always on screen, may keep its `onCreate`.
                 onClear={
-                  row.original.serviceId === null
+                  row.original.serviceIds.length === 0
                     ? undefined
                     : () => {
                         live.current.setServiceOf(row.original.id, null);

@@ -299,10 +299,22 @@ export interface LabelledWorkItem extends WorkItem {
    * the fact.
    */
   tagIds: readonly string[];
-  // The third dimension, `serviceId`, is deliberately **not** here: it is a
-  // column, so it comes down from {@link WorkItem} with the rest of the row and
-  // a field on this interface would be a second declaration of the same fact.
-  // That is also why `listByProject` still runs three queries and not four.
+  /**
+   * What this row delivers, 0..n, off `work_item_service` and **never**
+   * `work_item.service_id`.
+   *
+   * Here from task 10.2, where the third dimension stopped being a column: the
+   * comment this replaces argued the field would be a second declaration of the
+   * fact the row already carried, and that argument died with the join table.
+   * {@link WorkItem.serviceId} is still declared and still written by the
+   * outgoing release, and is read by nothing in this one (design D2) — so this
+   * is now the only place a reader may learn what a row delivers.
+   *
+   * Ordered by service id, `teamIds`' rule and for its reason: two reads of an
+   * unchanged plan answer the same array. Empty means the row states nothing and
+   * inherits; see `effectiveServicesOf` in `libs/domain`.
+   */
+  serviceIds: readonly string[];
 }
 
 /**
@@ -397,27 +409,28 @@ export interface WorkItemPatch {
   /** `null` takes the label off. Never constrains who may be assigned the work. */
   serviceTeamId?: string | null;
   /**
-   * Which service delivers this work — an id, or `null` to take the label off
-   * and inherit again. Absent leaves it alone, like every other field here.
+   * Which services deliver this work, as the **whole** set. Absent leaves the
+   * dimension alone, like every other field here; `[]` is the one spelling of
+   * taking the label off, and puts the row back to inheriting its ancestors'.
    *
-   * `null` **clears** where {@link maxParallel} resets: the column is nullable
-   * and null is _unstated_, so taking the service off puts the row back to
-   * inheriting its ancestors' — there is no third "deliberately no service"
-   * state to spell.
+   * A **set, replaced whole**, which is {@link tagIds}'s rule and no longer the
+   * inverse of it — the scalar this replaces was the column's shape, and task
+   * 10.2 took the column out of the read path. There is no `null` arm any more:
+   * a set has an empty spelling, so the second spelling of "no service" that
+   * `null` used to be would now be two ways to say one thing.
    *
-   * A **scalar**, and its undo is the prior scalar rather than a set — the
-   * inverse of {@link tagIds}'s rule, stated here so the two are not made to
-   * match. A column has exactly one prior value, and wrapping it in an array
-   * to look like its neighbour would journal a shape the patch cannot take.
+   * Deduplicated by the store on the way in — the join's primary key would
+   * refuse a repeated pair, and a payload naming one service twice is a client
+   * being untidy rather than a request that means anything else.
    *
-   * An id the directory no longer holds is refused with `unknown_service`,
-   * decided **inside the transaction that performs the update** —
-   * {@link serviceTeamId}'s argument exactly. `work_item.service_id` carries a
-   * foreign key (`ON DELETE SET NULL`), so a service removed in the gap between
-   * a precheck and the write makes the `UPDATE` answer a raw constraint
-   * failure: a 500 for a request whose only fault is being out of date.
+   * An id the directory no longer holds refuses the **whole** patch with
+   * `unknown_service`, decided **inside the transaction that performs the
+   * update** — {@link serviceTeamId}'s argument, plus `work_item_tag`'s: the
+   * join cascades, so a service removed between a precheck and this write
+   * leaves nothing for a foreign key to catch and the insert would answer a 500
+   * where the honest answer names the service.
    */
-  serviceId?: string | null;
+  serviceIds?: readonly string[];
   /**
    * How many people may be on this work item at once — an integer of 1 to
    * 1000, or `null` to put it back to one at a time.

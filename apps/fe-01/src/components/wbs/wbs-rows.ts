@@ -13,12 +13,13 @@ export interface TreeRow extends WorkItemView {
   /**
    * Required here where {@link WorkItemView} has it optional, `tagIds`' rule.
    *
-   * The default is `null` and not an empty anything: `null` **is** this field's
-   * unstated state, so an outgoing be-01's silence and a row nobody has labelled
-   * arrive at every surface as the same answer, which is the answer both of them
-   * mean.
+   * The default is `[]`, which since task 10.2 **is** this field's unstated
+   * state: an outgoing be-01's silence and a row nobody has labelled arrive at
+   * every surface as the same answer, which is the answer both of them mean. It
+   * defaulted to `null` while the field was a column and the sentence was the
+   * same one.
    */
-  serviceId: string | null;
+  serviceIds: string[];
 }
 
 /**
@@ -46,7 +47,7 @@ export function toTree(flat: readonly WorkItemView[]): TreeRow[] {
   const rows = new Map<string, TreeRow>(
     flat.map((item) => [
       item.id,
-      { ...item, tagIds: item.tagIds ?? [], serviceId: item.serviceId ?? null, subRows: [] },
+      { ...item, tagIds: item.tagIds ?? [], serviceIds: item.serviceIds ?? [], subRows: [] },
     ]),
   );
   const roots: TreeRow[] = [];

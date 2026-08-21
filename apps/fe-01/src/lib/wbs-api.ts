@@ -272,14 +272,15 @@ export interface WorkItemView {
    */
   tagIds?: string[];
   /**
-   * What this work item delivers, by service id, or null where nobody has said.
+   * What this work item delivers, by service id — the whole set, empty where
+   * nobody has said.
    *
-   * **A single value where the two dimensions above are lists**, because it is a
-   * column on `work_item` and not a join table (design.md D2): a row is
-   * delivered by one service. `null` is _unstated_ and takes the ancestor's
-   * answer; `effectiveServicesOf` in `libs/domain` is the reading, and it is the
-   * same walk `teamIds` and `tagIds` use, with the column converted to a
-   * singleton set at each edge.
+   * **A list, as the two dimensions above are**, since task 10.2 replaced the
+   * column with `work_item_service` (design.md D2 as amended): a row delivers as
+   * many services as somebody states. Empty is _unstated_ and takes the
+   * ancestor's answer; `effectiveServicesOf` in `libs/domain` is the reading, and
+   * it is the same walk `teamIds` and `tagIds` use, now with no conversion at
+   * either edge — the two singleton folds this field used to force are deleted.
    *
    * **Independent of `teamIds` and `tagIds` in every respect** — a row states
    * any of the three, all of them or none, and inheriting one says nothing about
@@ -293,11 +294,13 @@ export interface WorkItemView {
    *
    * **Optional on the wire, and required on a `TreeRow`** — `tagIds`' swap
    * window, argued there. `undefined` here is "the be-01 that answered has never
-   * heard of services" and `null` is "it has, and this row states none"; `toTree`
-   * folds the first into the second, which is the one place it may, because
-   * every surface above reads `string | null` and is right to.
+   * heard of services"; `toTree` folds it to `[]`, which is the one place it may,
+   * because every surface above reads a `string[]` and is right to. The
+   * distinction the singleton drew between `undefined` and `null` is gone with
+   * the null: absent and empty were only ever different to a reader who could do
+   * nothing with the difference.
    */
-  serviceId?: string | null;
+  serviceIds?: string[];
   /**
    * Who does this work, by role id.
    *
@@ -403,7 +406,7 @@ export interface TeamView {
    * what.
    *
    * **Optional on the wire, for the blue/green window and nothing else** —
-   * `WorkItemView.serviceId`'s rule one level up. `undefined` is "the be-01 that
+   * `WorkItemView.serviceIds`' rule one level up. `undefined` is "the be-01 that
    * answered has never heard of services", which a browser holding the new
    * bundle against the old server sees for the length of a deploy; `[]` is "it
    * has, and this team owns none". They are the same thing to every reader here,
