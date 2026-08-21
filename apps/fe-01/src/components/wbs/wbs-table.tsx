@@ -3358,10 +3358,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       services.find((each) => each.id === id);
     // Its own set, which is what makes the row's answer its own rather than an
     // inherited one — the emptiness below is `effectiveServicesOf`'s question,
-    // not this one's. `[0]` guarded by the length check the `if` performs.
-    const own = row.serviceIds[0];
-    if (own !== undefined) {
-      const named = nameOf(own);
+    // not this one's. Length first and `[0]` after, which is the same order the
+    // inherited read below uses: the index type is not `| undefined` here, so a
+    // check against `undefined` is a condition lint proves can never fire.
+    if (row.serviceIds.length > 0) {
+      const named = nameOf(row.serviceIds[0]);
       return named === undefined ? { state: 'unresolved' } : { state: 'named', name: named.name };
     }
     const inherited = effectiveServices.get(row.id);

@@ -12765,7 +12765,13 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
    * what the deployment knows about.
    */
   async function aServicedPlan(): Promise<
-    ReturnType<typeof fakeApi> & { checkout: string; billing: string; wiring: string }
+    ReturnType<typeof fakeApi> & {
+      checkout: string;
+      ledger: string;
+      strip: string;
+      billing: string;
+      wiring: string;
+    }
   > {
     const api = fakeApi();
     const strip = await api.create('p1', {
