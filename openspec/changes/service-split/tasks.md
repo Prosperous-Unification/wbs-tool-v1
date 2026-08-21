@@ -237,9 +237,27 @@
 - [x] 9.2 `verify.md` with the R5 fault table — every watched red above, each
       sourced from the `Proof:` comment beside the line it guards, plus what
       this change deliberately did not build.
-- [ ] 9.3 The migration proved **applied**, not assumed: `service`,
-      `team_service` and `work_item.service_id` present in the dev database
-      after the restart, with `service_name` and `team_service_by_service`.
+- [x] 9.3 The migration proved **applied**, not assumed — and proved against
+      **dev's own data** rather than against dev itself. Dev serves `main`
+      (LLM_README, "Dev serves `main`"), so there is no restart on this branch to
+      check after, and pointing the dev container at an unreviewed prod-mode
+      branch is not a worker's call. What is checkable now, and is the stronger
+      half of the claim, is that the two migrations apply **to the real dev
+      database**: `VACUUM INTO` a snapshot of `/home/puni1/wbs-dev/data/wbs.db`
+      (a consistent copy over a live WAL, never a write to the file dev serves),
+      then `runMigrations` from this branch against the copy. Printed on h2puni
+      at `39f9671`:
+      before `["service_team"]`, 342 work items, 57 projects → after
+      `["service","service_team","team_service","work_item_service"]`, **342 work
+      items and 57 projects unchanged**; `work_item.service_id` present;
+      `service (id, name)`, `team_service (team_id, service_id)`,
+      `work_item_service (work_item_id, service_id)`; indexes `service_name` and
+      `team_service_by_service` both present, plus
+      `work_item_service_by_service`. **0 services and 0 `work_item_service`
+      rows** — decision 4's no-backfill, shown rather than asserted: no dev row
+      carries a service, so the `INSERT … SELECT` seed correctly moves nothing.
+      Owed once this merges: the same three objects read off dev's live database
+      after it restarts on `main`.
 - [ ] 9.4 PR opened, CI green (`gate` and `pixels`). **Prod mode: the worker
       does not merge.** Task goes to `state: review`; the main session reviews
       the four watched paths and merges.

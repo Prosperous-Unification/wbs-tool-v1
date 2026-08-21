@@ -84,6 +84,32 @@ same head is green. **A red that names a project but no test case is a resource
 verdict; look for `Killed` before you look at the diff.** Chunk 17 saw the same
 thing as a SIGTERM and read it correctly then too.
 
+## The migration, applied to dev's own data
+
+Dev serves `main`, so there is no restart on this branch to inspect — and
+pointing the dev container at an unreviewed prod-mode branch is not a worker's
+call. The checkable half, and the stronger one, is that both migrations apply to
+**the real dev database**: `VACUUM INTO` a snapshot of
+`/home/puni1/wbs-dev/data/wbs.db` (a consistent copy taken over a live WAL,
+never a write to the file dev is serving from), then `runMigrations` from this
+branch against the copy. Run on h2puni at `39f9671`:
+
+| read                                  | before               | after                                                                  |
+| ------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
+| tables matching `service`             | `["service_team"]`   | `["service", "service_team", "team_service", "work_item_service"]`       |
+| `work_item` rows                      | 342                  | **342**                                                                  |
+| `project` rows                        | 57                   | **57**                                                                   |
+| `work_item.service_id`                | absent               | present                                                                  |
+| `service_name` index                  | —                    | present                                                                  |
+| `team_service_by_service` index       | —                    | present                                                                  |
+| `service` rows / `work_item_service` rows | —                | **0 / 0**                                                                |
+
+The two zeroes are decision 4 shown rather than asserted: no existing dev row
+carries a service, so the `INSERT … SELECT` seed correctly moves nothing and
+nothing invents facts. 342 work items and 57 projects came through unchanged —
+which is what "the migration applies" has to mean on a database somebody is
+using.
+
 ## The failure-proof table
 
 R5: every check is watched failing with the thing it guards deliberately broken.
