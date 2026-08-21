@@ -13067,6 +13067,29 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     expect(mark?.getAttribute('title')).toContain('Ada is not in Billing');
   });
 
+  itDom('marks the phase nobody named, where the assumption puts them on it', async () => {
+    // **The branch every other assignee case here walks straight past**, and it
+    // is not a hypothetical: Ada is named on Dev alone, so `doesEveryPhase` puts
+    // her on QA as an assumption. An assumed assignee is not in the row's stated
+    // set and so not in `mismatchByRow` — right for the facet, which is asked
+    // what the row states, and wrong for the mark, which is about the person on
+    // screen. So `assigneeOn` asks the domain directly for that one case.
+    //
+    // Written because the injection round found the arm unproven: with
+    // `named === undefined` forced to `false`, all four of the other new cases
+    // stayed green (1564/0). This one is the only thing holding it.
+    const api = await aServicedPlan();
+    await shown(api);
+
+    const qa = rowFor('010').querySelector('[data-final="role-qa"]');
+    const mark = qa?.querySelector('[data-mismatch="assignee"]');
+    // The same sentence as the named phase beside it. A phase the plan says she
+    // is doing is work assigned to her, and a marker that went quiet exactly
+    // where nobody has looked at the assignment would be quiet where it is most
+    // needed.
+    expect(mark?.getAttribute('aria-label')).toContain('Ada is not in Billing');
+  });
+
   itDom('leaves a ticked signal live after somebody empties the map under it', async () => {
     // Ticked wins. Somebody in the directory clears the last owned service
     // while this reader is filtered by the signal: the map arrives empty on the
