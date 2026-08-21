@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { StoredActual, StoredEstimate, StoredProgress, WorkItem } from '../repository';
-import { rollUp, rollUpActuals, rollUpItemStates, rollUpProgress, workedRolesOf } from './roll-up';
+import type {
+  MeasureMetric,
+  StoredActual,
+  StoredEstimate,
+  StoredMeasure,
+  StoredProgress,
+  WorkItem,
+} from '../repository';
+import {
+  rollUp,
+  rollUpActuals,
+  rollUpItemStates,
+  rollUpMeasures,
+  rollUpProgress,
+  workedRolesOf,
+} from './roll-up';
 
 const item = (id: string, parentId: string | null): WorkItem => ({
   id,
@@ -178,6 +192,120 @@ describe('rollUpActuals', () => {
     const totals = rollUpActuals(rows, [recorded('parent', 'dev', 99), recorded('one', 'dev', 2)]);
 
     expect(totals.get('parent')?.get('dev')).toBe(2);
+  });
+});
+
+const measured = (
+  workItemId: string,
+  roleId: string,
+  metric: MeasureMetric,
+  value: number,
+): StoredMeasure => ({ workItemId, roleId, metric, value, recordedAt: 1 });
+
+describe('rollUpMeasures', () => {
+  it('gives a leaf its own figure in the metric asked for', () => {
+    const totals = rollUpMeasures(
+      [item('a', null)],
+      [measured('a', 'dev', 'token_actual', 512345)],
+      'token_actual',
+    );
+
+    expect(totals.get('a')?.get('dev')).toBe(512345);
+  });
+
+  it('sums two children into their parent, per role', () => {
+    const rows = [item('parent', null), item('one', 'parent'), item('two', 'parent')];
+
+    const totals = rollUpMeasures(
+      rows,
+      [
+        measured('one', 'dev', 'token_estimate', 1000),
+        measured('two', 'dev', 'token_estimate', 2500),
+        measured('two', 'qa', 'token_estimate', 400),
+      ],
+      'token_estimate',
+    );
+
+    expect(totals.get('parent')?.get('dev')).toBe(3500);
+    expect(totals.get('parent')?.get('qa')).toBe(400);
+  });
+
+  it('sums through more than one level', () => {
+    const rows = [item('root', null), item('mid', 'root'), item('leaf', 'mid')];
+
+    const totals = rollUpMeasures(
+      rows,
+      [measured('leaf', 'dev', 'hours_actual', 6)],
+      'hours_actual',
+    );
+
+    expect(totals.get('root')?.get('dev')).toBe(6);
+  });
+
+  it('folds one metric without seeing the others on the same pair', () => {
+    // The reason this function takes a metric at all. One pair, three units:
+    // adding across them would be adding tokens to hours, and the only thing
+    // stopping it is that each call sees one unit's rows.
+    const rows = [item('parent', null), item('one', 'parent')];
+    const stored = [
+      measured('one', 'dev', 'token_estimate', 1000),
+      measured('one', 'dev', 'token_actual', 1400),
+      measured('one', 'dev', 'hours_actual', 3),
+    ];
+
+    expect(rollUpMeasures(rows, stored, 'token_estimate').get('parent')?.get('dev')).toBe(1000);
+    expect(rollUpMeasures(rows, stored, 'token_actual').get('parent')?.get('dev')).toBe(1400);
+    expect(rollUpMeasures(rows, stored, 'hours_actual').get('parent')?.get('dev')).toBe(3);
+  });
+
+  it('leaves a role absent per metric rather than reporting it as zero', () => {
+    // Absence is the primary key's third column arriving at the read path: the
+    // same role, present in one unit and absent in another. `has` rather than
+    // the value, because `0` and `undefined` are both falsy and only one of
+    // them is what this asserts.
+    const rows = [item('parent', null), item('one', 'parent')];
+    const stored = [measured('one', 'dev', 'token_actual', 900)];
+
+    expect(rollUpMeasures(rows, stored, 'token_actual').get('parent')?.get('dev')).toBe(900);
+    expect(rollUpMeasures(rows, stored, 'hours_actual').get('parent')?.has('dev')).toBe(false);
+    expect(rollUpMeasures(rows, stored, 'token_actual').get('parent')?.has('qa')).toBe(false);
+  });
+
+  it('keeps a recorded zero, which is not the same as nobody having said', () => {
+    const rows = [item('parent', null), item('one', 'parent')];
+
+    const totals = rollUpMeasures(
+      rows,
+      [measured('one', 'dev', 'hours_actual', 0)],
+      'hours_actual',
+    );
+
+    expect(totals.get('parent')?.has('dev')).toBe(true);
+    expect(totals.get('parent')?.get('dev')).toBe(0);
+  });
+
+  it('gives a parent an empty map when nothing under it was recorded in that metric', () => {
+    const rows = [item('parent', null), item('one', 'parent')];
+
+    const totals = rollUpMeasures(rows, [], 'token_estimate');
+
+    expect(totals.get('parent')?.size).toBe(0);
+    expect(totals.get('one')?.size).toBe(0);
+  });
+
+  it('ignores a figure stored against a work item that has children, as the days do', () => {
+    const rows = [item('parent', null), item('one', 'parent')];
+
+    const totals = rollUpMeasures(
+      rows,
+      [
+        measured('parent', 'dev', 'token_actual', 99999),
+        measured('one', 'dev', 'token_actual', 20),
+      ],
+      'token_actual',
+    );
+
+    expect(totals.get('parent')?.get('dev')).toBe(20);
   });
 });
 

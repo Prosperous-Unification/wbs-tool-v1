@@ -1,6 +1,13 @@
 import { agree, type ItemState, NOT_STARTED, stateOf } from '@wbs/domain';
 
-import type { StoredActual, StoredEstimate, StoredProgress, WorkItem } from '../repository';
+import type {
+  MeasureMetric,
+  StoredActual,
+  StoredEstimate,
+  StoredMeasure,
+  StoredProgress,
+  WorkItem,
+} from '../repository';
 
 /** Three durations in days, summed or held directly. */
 export interface Days {
@@ -121,6 +128,44 @@ export function rollUpActuals(
   for (const held of actuals) {
     const byRole = ownOf.get(held.workItemId) ?? new Map<string, number>();
     byRole.set(held.roleId, held.days);
+    ownOf.set(held.workItemId, byRole);
+  }
+  return foldByRole(rows, ownOf, (a, b) => a + b);
+}
+
+/**
+ * Every work item's recorded figures **in one metric**, by role, folded exactly
+ * as the days are: its own if it is a leaf, the sum of its descendants'
+ * otherwise.
+ *
+ * **One metric per call, and that is the decision.** `measures` is the whole
+ * project's rows in all three units, and folding them together would mean
+ * either three parallel maps threaded through one recursion or a fold whose
+ * combine has to know which unit each pair of numbers is in. Both are ways of
+ * writing "add tokens to hours" and having it typecheck. Filtering to a metric
+ * first makes the figures inside the fold commensurable by construction — the
+ * only reason adding them is meaningful at all — and the caller pays three
+ * traversals of a tree it already has in memory.
+ *
+ * A role nobody has recorded this metric for is **absent**, never zero, and
+ * absence is per metric: a pair holding a `token_actual` and nothing else is
+ * absent from `hours_actual` while being present here. That is the primary key's
+ * shape arriving at the read path — see `StoredMeasure` and design.md D1.
+ *
+ * A **recorded** zero is kept and summed, exactly as {@link rollUpActuals} keeps
+ * one: "this cost nothing" is a statement somebody made, and it is not the same
+ * fact as nobody having said.
+ */
+export function rollUpMeasures(
+  rows: readonly WorkItem[],
+  measures: readonly StoredMeasure[],
+  metric: MeasureMetric,
+): Map<string, Map<string, number>> {
+  const ownOf = new Map<string, Map<string, number>>();
+  for (const held of measures) {
+    if (held.metric !== metric) continue;
+    const byRole = ownOf.get(held.workItemId) ?? new Map<string, number>();
+    byRole.set(held.roleId, held.value);
     ownOf.set(held.workItemId, byRole);
   }
   return foldByRole(rows, ownOf, (a, b) => a + b);
