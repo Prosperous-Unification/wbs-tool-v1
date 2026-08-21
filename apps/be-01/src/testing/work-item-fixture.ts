@@ -115,6 +115,16 @@ export function inMemoryWorkItems(
         priority: patch.priority === undefined ? existing.priority : patch.priority,
         serviceTeamId:
           patch.serviceTeamId === undefined ? existing.serviceTeamId : patch.serviceTeamId,
+        // `null` **clears** where the parallelism below resets: the real column
+        // is nullable and null is unstated, so taking the service off is a
+        // value and not an absence. `?? existing` would make the two the same
+        // and quietly leave the label on.
+        //
+        // Found by a controller test rather than by reading: without this line
+        // the fixture dropped every service a patch named, so a route test
+        // could watch a 200 come back and the column never move. The lax-mirror
+        // fault this file's other notes warn about, one dimension over.
+        serviceId: patch.serviceId === undefined ? existing.serviceId : patch.serviceId,
         // `null` is **back to one at a time**, not "no answer": the real column
         // is `NOT NULL` and would refuse a null outright, so a fixture that
         // stored one would be laxer than the schema it stands for and would let

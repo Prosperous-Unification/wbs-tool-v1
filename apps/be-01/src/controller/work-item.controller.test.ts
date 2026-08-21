@@ -460,18 +460,20 @@ describe('work item routes', () => {
     expect(workItems[0]?.priority).toBe(3);
   });
 
-  it('refuses a service that is not an id, and a service the directory has not got', async () => {
-    // The two refusals this field can make, and they are deliberately different
-    // answers. A non-string is **400** — the body is malformed and no plan
-    // anywhere would take it — while an id nothing holds is **404**, a thing
-    // that is not there, which is where `unknown_role`, `unknown_team` and
-    // `unknown_tag` already answer from.
+  it('refuses a service that is not an id, and writes the one that is', async () => {
+    // The parse guard, which is the half of the service's refusals this harness
+    // can answer. A non-string is **400** — the body is malformed and no plan
+    // anywhere would take it.
     //
-    // The 404 is the out-of-date picker: the service was on screen when the
-    // client read it and gone by the time it patched. Without the store's
-    // in-transaction read the same request reaches `work_item.service_id`'s
-    // foreign key and comes back **500**, which tells the reader nothing they
-    // can act on.
+    // The other half, an id the directory no longer holds, is **404**
+    // `unknown_service` and is **not asserted here**: `statusFor`'s mapping of
+    // it is real code with no test over this route, because the in-memory work
+    // item fixture cannot answer the refusal. It takes an optional team list to
+    // answer `unknown_team` with, and the directory has no services to hand it
+    // until section 4 builds them. The refusal itself is proved over real
+    // SQLite in `undo.test.ts` — `refuses a service the directory no longer
+    // holds, and writes nothing` — so what is owed here is the **status**, and
+    // section 4 owes it once a service can be created through the directory.
     const { token, send, projectId } = await setup();
     const created = await send(`/api/projects/${projectId}/work-items`, token, {
       method: 'POST',
@@ -492,17 +494,24 @@ describe('work item routes', () => {
       });
     }
 
-    const gone = await send(`/api/work-items/${id}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ serviceId: crypto.randomUUID() }),
-    });
-    expect(gone.status).toBe(404);
-    expect((await gone.json()) as { error: string }).toEqual({ error: 'unknown_service' });
+    // Nothing was written by any of them, and the field is on the wire at all —
+    // an assertion of `toBeNull` alone would pass just as well against a route
+    // that has never heard of it.
+    const still = await send(`/api/projects/${projectId}/work-items`, token);
+    const { workItems } = (await still.json()) as { workItems: { serviceId: string | null }[] };
+    expect(workItems[0]).toHaveProperty('serviceId', null);
 
-    // Nothing was written by any of them.
-    const tree = await send(`/api/projects/${projectId}/work-items`, token);
-    const { workItems } = (await tree.json()) as { workItems: { serviceId: string | null }[] };
-    expect(workItems[0]?.serviceId).toBeNull();
+    // And a well-formed id goes through the parse, the service and the store to
+    // the row: without it the four refusals above would pass over a route that
+    // drops the field entirely. It caught exactly that — the in-memory fixture
+    // merged every field but this one.
+    const payments = crypto.randomUUID();
+    const ok = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceId: payments }),
+    });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()) as { serviceId: string }).toMatchObject({ serviceId: payments });
   });
 
   // C2's landmine test — `puts a capacity floor on the wire, which nothing this
