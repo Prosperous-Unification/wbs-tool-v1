@@ -1392,8 +1392,8 @@ export interface SubtreeCopy {
    * **The one field here a duplication fills selectively, and the first place
    * the single discriminated table costs something.** Every other collection on
    * this interface is copied whole or not at all, because each names one kind of
-   * thing; this one names three, and the line the copy rule is drawn on runs
-   * *through* it. `token_estimate` is a description of work and copies for
+   * thing; this one names three, and the copy rule's line is drawn through the
+   * middle of it. `token_estimate` is a description of work and copies for
    * {@link SubtreeCopy.estimates}' reason exactly — a duplicate that carried the
    * days plan and not the token plan would be half-planned in a way the reader
    * can see. `token_actual` and `hours_actual` are records of what a particular
