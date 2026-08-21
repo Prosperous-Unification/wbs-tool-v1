@@ -1,8 +1,9 @@
 import type { ExpandedState } from '@tanstack/react-table';
 
 /**
- * The facts about one work item a filter is allowed to ask about — the seven
- * of R10 §9's Q8, and nothing else.
+ * The facts about one work item a filter is allowed to ask about — R10 §9's
+ * Q8 seven, the tag dimension, and the service dimension with its two signals.
+ * Ten, and nothing else.
  *
  * **Every one of them is already on the wire**, and that is why this interface
  * is a description rather than a fetch: the whole tree is client-side, so
@@ -40,6 +41,34 @@ export interface RowFacets {
    * one walk, in `libs/domain/src/effective-label.ts`.
    */
   tagIds: readonly string[];
+  /**
+   * What this row delivers — the **effective**, inherited reading
+   * (`effectiveServicesOf`), never `work_item.service_id` straight off the row.
+   *
+   * The same rule as `teamIds` and `tagIds` above, and single-valued where they
+   * are lists because the column is (design.md D2): a row is delivered by one
+   * service, and `null` is nobody having said. The predicate treats it as a set
+   * of nought or one, so widening the cardinality later is this field and that
+   * one line rather than a rewrite of the filter.
+   */
+  serviceId: string | null;
+  /**
+   * Whether the teams doing this row's work own the service it delivers —
+   * `builtByNonOwner` over the effective reading of both, against the
+   * directory's ownership map.
+   *
+   * Precomputed per row rather than derived inside `narrowTree` for
+   * {@link RowFacets}' whole reason: the walker's business is ancestors and
+   * termination, and the directory map is not a fact about a tree. False where
+   * either fact is unstated — absence is not a mismatch, and
+   * `libs/domain/src/label-mismatch.ts` owns the rule.
+   */
+  builtByNonOwner: boolean;
+  /**
+   * Whether anybody named on this row belongs to none of the teams doing its
+   * work — `assignedOutsideTeam`, the second signal and the same vocabulary.
+   */
+  assignedOutsideTeam: boolean;
   /** Everybody named on any of this row's phases, deduplicated. */
   assigneeIds: readonly string[];
   /** What this plan's ladder calls this row's priority, or null where nobody has said. */
@@ -61,7 +90,7 @@ export interface NarrowableRow {
 }
 
 /**
- * What is being asked of the plan: a typed name, and any of six facets.
+ * What is being asked of the plan: a typed name, and any of ten facets.
  *
  * **Within one facet the chosen values are OR** — two teams ticked is "either
  * of these teams", which is what a list of checkboxes means anywhere else.
@@ -79,6 +108,26 @@ export interface FilterCriteria {
   teamIds: readonly string[];
   /** Tag ids — the vocabulary is global, so an id means the same thing on every plan. */
   tagIds: readonly string[];
+  /**
+   * Service ids — a **list**, where the row's own service is a single value.
+   *
+   * Ticking two services is "either of these", which is what a list of
+   * checkboxes means in the five facets beside it; that a row can only answer
+   * with one of them is the row's business, not the control's.
+   */
+  serviceIds: readonly string[];
+  /**
+   * Only rows built by a team that does not own the service they deliver.
+   *
+   * A boolean like `unestimated` and `critical` and not a list, because there
+   * is one question to ask: `false` is not asking it. The **inverse is
+   * deliberately not offered** — "only work its owners built" is a claim about
+   * a map that ships empty, and on a plan where nobody has filled the ownership
+   * in it would answer with the whole table and look like it worked.
+   */
+  builtByNonOwner: boolean;
+  /** Only rows naming somebody outside the teams doing the work — the second signal. */
+  assignedOutsideTeam: boolean;
   assigneeIds: readonly string[];
   /** Band **labels**, not start values — what the ladder calls the rung, which is what the control offers. */
   priorityBands: readonly string[];
@@ -87,11 +136,11 @@ export interface FilterCriteria {
   critical: boolean;
 }
 
-/** The six criteria that are not the typed name, which have one control between them. */
+/** The ten criteria that are not the typed name, which have one control between them. */
 export type FacetCriteria = Omit<FilterCriteria, 'query'>;
 
 /**
- * No facet ticked — the six that are not the typed name.
+ * No facet ticked — the ten that are not the typed name.
  *
  * Its own constant because the Find box is its own state in `wbs-table.tsx`
  * (Escape empties it, and it is the one criterion with a control of its own),
@@ -101,6 +150,9 @@ export type FacetCriteria = Omit<FilterCriteria, 'query'>;
 export const NO_FACETS: FacetCriteria = {
   teamIds: [],
   tagIds: [],
+  serviceIds: [],
+  builtByNonOwner: false,
+  assignedOutsideTeam: false,
   assigneeIds: [],
   priorityBands: [],
   estimatedRoleIds: [],
@@ -137,6 +189,9 @@ function anyFacetChosen(criteria: FilterCriteria): boolean {
   return (
     criteria.teamIds.length > 0 ||
     criteria.tagIds.length > 0 ||
+    criteria.serviceIds.length > 0 ||
+    criteria.builtByNonOwner ||
+    criteria.assignedOutsideTeam ||
     criteria.assigneeIds.length > 0 ||
     criteria.priorityBands.length > 0 ||
     criteria.estimatedRoleIds.length > 0 ||
@@ -170,6 +225,7 @@ export function isFiltering(criteria: FilterCriteria): boolean {
 export interface FilterLabels {
   teamName: (teamId: string) => string;
   tagName: (tagId: string) => string;
+  serviceName: (serviceId: string) => string;
   personName: (personId: string) => string;
   phaseName: (roleId: string) => string;
 }
@@ -201,6 +257,11 @@ export function filterWords(criteria: FilterCriteria, labels: FilterLabels): str
   // the two dimensions are independent and a document folding them into one
   // would say something neither the control nor the predicate means.
   chosen('tag', criteria.tagIds, labels.tagName);
+  // The third dimension's own phrase, beside the other two and never folded in
+  // with them: team, tag and service are independent, and a document saying
+  // "team Platform or Payments" for a team and a service would be a sentence
+  // neither the control nor the predicate means.
+  chosen('service', criteria.serviceIds, labels.serviceName);
   chosen('assignee', criteria.assigneeIds, labels.personName);
   // The bands travel as their labels rather than as ids — what the ladder calls
   // the rung is what the control offers and what a reader recognises.
@@ -208,6 +269,11 @@ export function filterWords(criteria: FilterCriteria, labels: FilterLabels): str
   chosen('estimated for', criteria.estimatedRoleIds, labels.phaseName);
   if (criteria.unestimated) words.push('unestimated only');
   if (criteria.critical) words.push('on the critical path only');
+  // Last, and phrased as what the rows have in common rather than as a facet
+  // name: an export's reader has the sentence and not the panel, and "built by
+  // a non-owner" is the fact, where "built by non-owner: yes" is a checkbox.
+  if (criteria.builtByNonOwner) words.push('built by a non-owner only');
+  if (criteria.assignedOutsideTeam) words.push('assigned outside the team only');
   return words;
 }
 
@@ -293,6 +359,15 @@ export function narrowTree(
     // {@link RowFacets.tagIds}. Pointed at a row's own stored labels this finds
     // the parent and loses every child under it.
     carriesAnyChosen(criteria.tagIds, row.facets.tagIds) &&
+    // A set of nought or one, out of a single-valued field — the same
+    // conversion `effectiveServicesOf` makes at its own edge, and against
+    // `row.facets.serviceId`, which is the **effective** reading. Pointed at
+    // the row's own stored column this finds the parent that states a service
+    // and loses every child delivering it by inheritance (task 6.2).
+    carriesAnyChosen(
+      criteria.serviceIds,
+      row.facets.serviceId === null ? [] : [row.facets.serviceId],
+    ) &&
     carriesAnyChosen(criteria.assigneeIds, row.facets.assigneeIds) &&
     carriesAnyChosen(
       criteria.priorityBands,
@@ -300,7 +375,13 @@ export function narrowTree(
     ) &&
     carriesAnyChosen(criteria.estimatedRoleIds, row.facets.estimatedRoleIds) &&
     (!criteria.unestimated || row.facets.unestimated) &&
-    (!criteria.critical || row.facets.critical);
+    (!criteria.critical || row.facets.critical) &&
+    // The two signals read as `unestimated` and `critical` do — an unticked box
+    // asks nothing, and a ticked one keeps only the rows that answer yes. The
+    // booleans are computed on the row (see {@link RowFacets.builtByNonOwner});
+    // this module never sees the ownership map.
+    (!criteria.builtByNonOwner || row.facets.builtByNonOwner) &&
+    (!criteria.assignedOutsideTeam || row.facets.assignedOutsideTeam);
 
   const matchIds = new Set(rows.filter(matches).map((row) => row.id));
   const visibleIds = new Set<string>(matchIds);

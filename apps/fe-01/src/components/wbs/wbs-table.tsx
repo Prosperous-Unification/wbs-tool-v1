@@ -8,6 +8,8 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { effectiveTagsOf } from '@wbs/domain/effective-tag';
+import { effectiveServicesOf } from '@wbs/domain/effective-service';
+import { assignedOutsideTeam, builtByNonOwner } from '@wbs/domain/label-mismatch';
 import { effectiveTeamsOf } from '@wbs/domain/effective-team';
 import { priorityBandOf } from '@wbs/domain/priority-band';
 import { workdaysBetween } from '@wbs/domain/workday';
@@ -926,6 +928,18 @@ function isAbsentOrStringArray(value: unknown): boolean {
 }
 
 /**
+ * The same tolerance for a facet that is a **flag** rather than a list — the
+ * two mismatch signals, added 2026-08-21.
+ *
+ * Its own function rather than a widened {@link isAbsentOrStringArray}, because
+ * a view storing `builtByNonOwner: []` is malformed and a check that accepted
+ * either shape would apply it as `false` instead of dropping it.
+ */
+function isAbsentOrBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean';
+}
+
+/**
  * Whether a claimed value has every field {@link FilterCriteria} declares —
  * treating a facet **added after this view was saved** as absent rather than as
  * malformed.
@@ -949,6 +963,9 @@ function isFilterCriteriaShape(value: unknown): value is FilterCriteria {
     typeof claimed['query'] === 'string' &&
     isStringArray(claimed['teamIds']) &&
     isAbsentOrStringArray(claimed['tagIds']) &&
+    isAbsentOrStringArray(claimed['serviceIds']) &&
+    isAbsentOrBoolean(claimed['builtByNonOwner']) &&
+    isAbsentOrBoolean(claimed['assignedOutsideTeam']) &&
     isStringArray(claimed['assigneeIds']) &&
     isStringArray(claimed['priorityBands']) &&
     isStringArray(claimed['estimatedRoleIds']) &&
@@ -1530,6 +1547,10 @@ interface FacetOption {
 function facetsChosen(facets: FacetCriteria): number {
   return (
     facets.teamIds.length +
+    facets.tagIds.length +
+    facets.serviceIds.length +
+    (facets.builtByNonOwner ? 1 : 0) +
+    (facets.assignedOutsideTeam ? 1 : 0) +
     facets.assigneeIds.length +
     facets.priorityBands.length +
     facets.estimatedRoleIds.length +
@@ -3056,6 +3077,36 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * rows — one walk each, memoised, never a second copy per surface.
    */
   const effectiveTags = useMemo(() => effectiveTagsOf(flat), [flat]);
+  /**
+   * The third dimension's reading — one walk, memoised, over the same rows.
+   *
+   * Single-valued out where the two above hand back sets, which is the column
+   * showing through and not a difference in the rule (`effectiveServicesOf`).
+   */
+  const effectiveServices = useMemo(() => effectiveServicesOf(flat), [flat]);
+  /**
+   * Which services each team is responsible for, from the directory's ownership
+   * map — the shape `builtByNonOwner` asks for, built once instead of per row.
+   *
+   * A team absent from this map owns nothing, which is the map's own rule: the
+   * directory ships with no ownership filled in, and every team is absent until
+   * somebody says otherwise.
+   */
+  const ownedServicesByTeam = useMemo(
+    () => new Map(teams.map((team) => [team.id, team.serviceIds])),
+    [teams],
+  );
+  /**
+   * Which teams each person belongs to — the directory's existing `person_team`
+   * membership, read and never written.
+   *
+   * `chartRead.people` and not the whole directory, for the assignee facet's
+   * reason one screen down: this plan's people are who can be named on it.
+   */
+  const teamsByPerson = useMemo(
+    () => new Map(chartRead.people.map((person) => [person.id, person.teamIds])),
+    [chartRead.people],
+  );
 
   /**
    * A row's team as a cell or a bar can state it: its own label, or the one it
@@ -3169,22 +3220,53 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    */
   const narrowable = useMemo<NarrowableRow[]>(
     () =>
-      flat.map((row) => ({
+      flat.map((row) => {
+        // Named once and read four times below, because both mismatch signals
+        // ask about the same two sets the facets themselves carry. Recomputing
+        // them per signal is how a filter and the marker beside it start to
+        // answer two different questions about one row.
+        const teamIds = effectiveTeams.get(row.id)?.teamIds ?? [];
+        const serviceId = effectiveServices.get(row.id)?.serviceId ?? null;
+        // Deduplicated: one person on three phases is one person to filter
+        // by, and `includes` over a list with them in it three times is the
+        // same answer paid for three times on every keystroke.
+        const assigneeIds = [
+          ...new Set(Object.values(row.assignees).filter((id): id is string => id !== undefined)),
+        ];
+        return {
         id: row.id,
         name: row.name,
         parentId: row.parentId,
         facets: {
-          teamIds: effectiveTeams.get(row.id)?.teamIds ?? [],
+          teamIds,
           // The **effective** tags, for the effective team's reason one line
           // up: a leaf under a `regulatory` parent is regulatory, and a filter
           // reading stored labels would not find it.
           tagIds: effectiveTags.get(row.id)?.tagIds ?? [],
-          // Deduplicated: one person on three phases is one person to filter
-          // by, and `includes` over a list with them in it three times is the
-          // same answer paid for three times on every keystroke.
-          assigneeIds: [
-            ...new Set(Object.values(row.assignees).filter((id): id is string => id !== undefined)),
-          ],
+          // The **effective** service, for the same reason a third time, and
+          // `?? null` because absence from the map is how this walk spells
+          // "nobody above this row states one".
+          //
+          // **Task 6.2's fault has no test to fail here yet, and this comment
+          // is what stops a reader assuming otherwise.** Written as
+          // `row.serviceId` — the row's own stored column — nothing in the
+          // suite goes red, because no control can tick the service facet until
+          // task 6.3 adds one and no marker reads the signal until 7.1. The
+          // fault is injectable the moment either exists, and 6.2 is ticked
+          // there rather than here. Chunk 7 recorded the same shape for 5.2:
+          // the guard is written where the rule lives, and the proof waits for
+          // the surface that can exercise it.
+          serviceId,
+          // The two signals, computed here and at their **real site** — the
+          // one place in the app that answers them per row, which is what
+          // makes task 6.2's stored-instead-of-effective fault a production
+          // fault rather than a fault in a test's own composition (chunk 7's
+          // record of 5.2). `libs/domain/src/label-mismatch.ts` owns both
+          // rules; this hands them the effective reading and the directory's
+          // two maps, and holds no rule of its own.
+          builtByNonOwner: builtByNonOwner({ serviceId, teamIds, ownedServicesByTeam }),
+          assignedOutsideTeam: assignedOutsideTeam({ assigneeIds, teamIds, teamsByPerson }),
+          assigneeIds,
           // Null and not a band: a row nobody has prioritised carries no rung,
           // and `priorityBandOf` is asked about numbers only.
           priorityBand:
@@ -3203,8 +3285,24 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // Slack cell and the card both already print this field.
           critical: row.schedule.critical,
         },
-      })),
-    [flat, effectiveTeams, priorityBands, roles, unestimatedIds],
+        };
+      }),
+    [
+      flat,
+      effectiveTeams,
+      effectiveTags,
+      effectiveServices,
+      // The directory's two maps, and they are the reason this list grew: the
+      // three readings above are all derived from `flat`, but the ownership map
+      // and the memberships come from the directory read, which reloads on its
+      // own. Left out, a team given a service in the directory would leave every
+      // marker on screen answering the map as it was at the last tree fetch.
+      ownedServicesByTeam,
+      teamsByPerson,
+      priorityBands,
+      roles,
+      unestimatedIds,
+    ],
   );
 
   /**
@@ -3246,6 +3344,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     phaseName: (roleId) => roles.find((role) => role.id === roleId)?.name ?? '(unknown)',
     tagName: (tagId) =>
       tags.find((each) => each.id === tagId)?.name ?? 'a tag this plan has not loaded',
+    // **This cannot name a service yet, and says so rather than printing an
+    // id.** fe-01 has no services list until task 7.6 adds `listServices` and
+    // `ServiceView`; the sentence is the one every other lookup here falls back
+    // to. Nothing reaches it in the shipped UI meanwhile — the service facet has
+    // no control until 6.3, so only a hand-edited saved view can put an id in
+    // `criteria.serviceIds`, and that is exactly the case the fallback is for.
+    serviceName: () => 'a service this plan has not loaded',
   };
 
   const facetTeams = useMemo(

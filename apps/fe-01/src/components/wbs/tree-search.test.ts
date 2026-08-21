@@ -14,6 +14,9 @@ import {
 const NO_FACETS: RowFacets = {
   teamIds: [],
   tagIds: [],
+  serviceId: null,
+  builtByNonOwner: false,
+  assignedOutsideTeam: false,
   assigneeIds: [],
   priorityBand: null,
   estimatedRoleIds: [],
@@ -424,5 +427,171 @@ describe('the tag facet narrows like every other facet', () => {
         phaseName: (id) => id,
       }),
     ).toEqual(['team team-platform', 'tag tag-regulatory or tag-tech-debt']);
+  });
+});
+
+/**
+ * The third dimension, narrowing like the two beside it.
+ *
+ * Its own describe rather than cases folded into the facet block above, for the
+ * reason the tag block below has one: the field is **single-valued** where every
+ * other list facet is a set, so the conversion at the predicate's edge is a real
+ * seam and a reader looking for "how does a scalar facet behave" should find it
+ * in one place.
+ *
+ * Every row here states its **effective** service — the table computes the
+ * inheritance before it builds these facets (`wbs-table.tsx`'s `narrowable`),
+ * so a case about inheritance is a case about that build site and lives with
+ * the table. What is asserted here is the predicate over the reading it is
+ * handed.
+ */
+describe('the service facet narrows like every other facet', () => {
+  const PLAN_WITH_SERVICES: NarrowableRow[] = [
+    row('a', null, 'Strip the walls', { serviceId: 'payments' }),
+    row('a1', 'a', 'Sockets', { serviceId: 'payments' }),
+    row('a11', 'a1', 'Back boxes', { serviceId: 'ledger' }),
+    row('a2', 'a', 'Skirting'),
+    row('b', null, 'Paint', { serviceId: 'ledger' }),
+    row('b1', 'b', 'Undercoat'),
+  ];
+
+  it('keeps the rows delivering a chosen service, and the rows that place them', () => {
+    const narrowed = narrowTree(PLAN_WITH_SERVICES, asking({ serviceIds: ['ledger'] }));
+    expect([...narrowed.matchIds].sort()).toEqual(['a11', 'b']);
+    // `a` and `a1` are context: they place `a11` three levels down and are not
+    // themselves delivering `ledger`.
+    expect([...narrowed.visibleIds].sort()).toEqual(['a', 'a1', 'a11', 'b']);
+  });
+
+  it('takes two chosen services as either of them', () => {
+    const narrowed = narrowTree(
+      PLAN_WITH_SERVICES,
+      asking({ serviceIds: ['ledger', 'payments'] }),
+    );
+    expect([...narrowed.matchIds].sort()).toEqual(['a', 'a1', 'a11', 'b']);
+  });
+
+  it('leaves out a row stating no service, rather than treating null as a match', () => {
+    const narrowed = narrowTree(PLAN_WITH_SERVICES, asking({ serviceIds: ['payments'] }));
+    // `a2` and `b1` state nothing. A scalar folded into a set as `[null]` — or
+    // compared with `includes` against a chosen list — is how "unstated" starts
+    // matching whichever facet is asked about.
+    expect(narrowed.matchIds.has('a2')).toBe(false);
+    expect(narrowed.matchIds.has('b1')).toBe(false);
+  });
+
+  it('does not bring the subtree under a row that matched a service', () => {
+    // Rule 3, on the newest facet: `a` matches `payments` and `a2` under it does
+    // not, so a filter that seeded descendants would show a row delivering
+    // nothing under a filter for a service.
+    const narrowed = narrowTree(PLAN_WITH_SERVICES, asking({ serviceIds: ['payments'] }));
+    expect(narrowed.visibleIds.has('a2')).toBe(false);
+  });
+
+  it('is independent of the team and the tag beside it', () => {
+    // Three dimensions and one AND: a row answering the service and not the tag
+    // is not a match, which is the property that has to survive the third
+    // dimension being added.
+    const rows = [
+      row('x', null, 'Wiring', { serviceId: 'payments', tagIds: ['regulatory'] }),
+      row('y', null, 'Plaster', { serviceId: 'payments', tagIds: [] }),
+    ];
+    const narrowed = narrowTree(
+      rows,
+      asking({ serviceIds: ['payments'], tagIds: ['regulatory'] }),
+    );
+    expect([...narrowed.matchIds]).toEqual(['x']);
+  });
+});
+
+/**
+ * The two signals as facets: an unticked box asks nothing, a ticked one keeps
+ * only the rows that answer yes.
+ *
+ * The booleans arrive **precomputed** on the row — `label-mismatch.ts` holds
+ * the rules and `wbs-table.tsx` applies them — so what is asserted here is the
+ * predicate, and nothing here is a second copy of "what counts as a mismatch".
+ */
+describe('the two mismatch signals narrow as flags', () => {
+  const MIXED: NarrowableRow[] = [
+    row('a', null, 'Strip the walls'),
+    row('a1', 'a', 'Sockets', { builtByNonOwner: true }),
+    row('a2', 'a', 'Skirting', { assignedOutsideTeam: true }),
+    row('b', null, 'Paint', { builtByNonOwner: true, assignedOutsideTeam: true }),
+  ];
+
+  it('asks nothing while its box is unticked', () => {
+    // The whole plan, and no overlay: `false` is not a filter for the rows that
+    // answer false, which is the trap every boolean facet sets.
+    const narrowed = narrowTree(MIXED, NO_FILTER);
+    expect(narrowed.visibleIds.size).toBe(4);
+    expect(narrowed.expandedOverlay).toBeNull();
+  });
+
+  it('keeps only the rows built by a non-owner', () => {
+    const narrowed = narrowTree(MIXED, asking({ builtByNonOwner: true }));
+    expect([...narrowed.matchIds].sort()).toEqual(['a1', 'b']);
+  });
+
+  it('keeps only the rows assigned outside the team', () => {
+    const narrowed = narrowTree(MIXED, asking({ assignedOutsideTeam: true }));
+    expect([...narrowed.matchIds].sort()).toEqual(['a2', 'b']);
+  });
+
+  it('takes both ticked as both, not either', () => {
+    // AND across facets, which is what every other pair of ticks means here.
+    // Ticking two signals to get the union would make each tick widen the
+    // answer, and a filter that widens as you tick is unusable.
+    const narrowed = narrowTree(
+      MIXED,
+      asking({ builtByNonOwner: true, assignedOutsideTeam: true }),
+    );
+    expect([...narrowed.matchIds]).toEqual(['b']);
+  });
+
+  it('counts as a facet, so a name beside it stops bringing the subtree', () => {
+    // `isFiltering` and `anyFacetChosen` both have to know about a flag they
+    // did not have before: left out of the second, ticking a signal alone would
+    // seed every descendant of a match.
+    expect(isFiltering(asking({ builtByNonOwner: true }))).toBe(true);
+    const narrowed = narrowTree(MIXED, asking({ builtByNonOwner: true }));
+    expect(narrowed.visibleIds.has('a2')).toBe(false);
+  });
+});
+
+describe('what the filter says it is asking, for the third dimension', () => {
+  const LABELS = {
+    teamName: (id: string) => `team-${id}`,
+    tagName: (id: string) => `tag-${id}`,
+    serviceName: (id: string) => `service-${id}`,
+    personName: (id: string) => `person-${id}`,
+    phaseName: (id: string) => `phase-${id}`,
+  };
+
+  it('gives the service its own phrase beside the team and the tag', () => {
+    const words = filterWords(
+      asking({ teamIds: ['t1'], tagIds: ['g1'], serviceIds: ['s1', 's2'] }),
+      LABELS,
+    );
+    // Three phrases and not one folded sentence: the dimensions are
+    // independent, and a document merging them would say something neither the
+    // control nor the predicate means.
+    expect(words).toEqual([
+      'team team-t1',
+      'tag tag-g1',
+      'service service-s1 or service-s2',
+    ]);
+  });
+
+  it('says what each ticked signal means, rather than naming the checkbox', () => {
+    const words = filterWords(
+      asking({ builtByNonOwner: true, assignedOutsideTeam: true }),
+      LABELS,
+    );
+    expect(words).toEqual(['built by a non-owner only', 'assigned outside the team only']);
+  });
+
+  it('says nothing about a signal nobody ticked', () => {
+    expect(filterWords(NO_FILTER, LABELS)).toEqual([]);
   });
 });

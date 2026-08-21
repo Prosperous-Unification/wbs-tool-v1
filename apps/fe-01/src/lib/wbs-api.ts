@@ -272,6 +272,33 @@ export interface WorkItemView {
    */
   tagIds?: string[];
   /**
+   * What this work item delivers, by service id, or null where nobody has said.
+   *
+   * **A single value where the two dimensions above are lists**, because it is a
+   * column on `work_item` and not a join table (design.md D2): a row is
+   * delivered by one service. `null` is _unstated_ and takes the ancestor's
+   * answer; `effectiveServicesOf` in `libs/domain` is the reading, and it is the
+   * same walk `teamIds` and `tagIds` use, with the column converted to a
+   * singleton set at each edge.
+   *
+   * **Independent of `teamIds` and `tagIds` in every respect** — a row states
+   * any of the three, all of them or none, and inheriting one says nothing about
+   * the others. What relates a service to a team is the directory's ownership
+   * map ({@link TeamView.serviceIds}), which labels no work item at all.
+   *
+   * **Nothing that computes a date reads this**, `tagIds`' rule and for its
+   * reason: a team is a pool the scheduler spends, a service is what is being
+   * delivered, and be-01 asserts the empty diff on a plan where a sized team
+   * really does decide dates.
+   *
+   * **Optional on the wire, and required on a `TreeRow`** — `tagIds`' swap
+   * window, argued there. `undefined` here is "the be-01 that answered has never
+   * heard of services" and `null` is "it has, and this row states none"; `toTree`
+   * folds the first into the second, which is the one place it may, because
+   * every surface above reads `string | null` and is right to.
+   */
+  serviceId?: string | null;
+  /**
    * Who does this work, by role id.
    *
    * `string | undefined` rather than `string`: a role nobody is assigned to is
