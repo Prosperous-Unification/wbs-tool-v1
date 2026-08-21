@@ -157,17 +157,17 @@
       body two copies already agreed on is a thing somebody has to keep true,
       and 7.2 had already written down that dimensions inheriting by one rule
       must read as though they do.
-- [ ] 7.5 `directory-page.tsx`: a **Services** card beside Teams and Tags — no
+- [x] 7.5 `directory-page.tsx`: a **Services** card beside Teams and Tags — no
       capacity column, no membership chips — and a **services picker on the team
       row**, which is where the map is edited (Dany, 2026-08-20 23:18). The
       absence on the Services card is asserted the way the Tags card's is: its
       test reads for `member` and for a number box and finds neither.
-      **Split in two, and the card half is done** (chunk 20): the card, the
-      write half of `DirectoryApi` it needs, and the confirmation's dimension.
-      The **picker on the team row** is the other half and it is a different
-      piece of work — the card edits a vocabulary, the picker edits the
-      ownership map, and only the second one has `TeamView.serviceIds` and a
-      `patchTeam` that does not exist on this client yet.
+      **Built in two chunks and both are in.** Chunk 20: the card, the write
+      half of `DirectoryApi` it needs, and the confirmation's dimension — a
+      service removal had been confirming with a sentence about tags. Chunk 21:
+      the ownership map on the team row, where `renameTeam(id, name)` became
+      `patchTeam(id, patch)` so that one route has one spelling and a rename
+      leaves `serviceIds` alone.
 - [x] 7.6 `lib/wbs-api.ts`: `serviceId` on the work-item wire type,
       `ServiceView`, `serviceIds` on `TeamView`.
       **Still singular on `WorkItemView`**, deliberately — the wire follows the
