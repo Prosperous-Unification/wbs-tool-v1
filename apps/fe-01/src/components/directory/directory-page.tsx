@@ -794,27 +794,27 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
                   {teams.map((team) => (
                     <li key={team.id} className="flex flex-col gap-2">
                       <div className="flex items-center gap-2">
-                      <Input
-                        className={`${TAP} min-w-0 flex-1`}
-                        aria-label={`Name of ${team.name}`}
-                        value={nameShown(team)}
-                        disabled={busy}
-                        onChange={(event) => {
-                          const typed = event.currentTarget.value;
-                          setRenamed((current) => ({ ...current, [team.id]: typed }));
-                        }}
-                        onBlur={() => {
-                          commitRename('team', team);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
+                        <Input
+                          className={`${TAP} min-w-0 flex-1`}
+                          aria-label={`Name of ${team.name}`}
+                          value={nameShown(team)}
+                          disabled={busy}
+                          onChange={(event) => {
+                            const typed = event.currentTarget.value;
+                            setRenamed((current) => ({ ...current, [team.id]: typed }));
+                          }}
+                          onBlur={() => {
                             commitRename('team', team);
-                          }
-                          if (event.key === 'Escape') forgetNameDraft(team.id);
-                        }}
-                      />
-                      {/*
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              commitRename('team', team);
+                            }
+                            if (event.key === 'Escape') forgetNameDraft(team.id);
+                          }}
+                        />
+                        {/*
                         No size box. How many of a team are at work at once is a
                         fact about one **plan** since `capacity-per-project`
                         (Dany, 2026-08-13: "The global number should not matter,
@@ -827,21 +827,21 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
                         somewhere: a control that writes a value no schedule reads
                         is worse than no control at all. design.md D4 and D5.
                       */}
-                      <span className="text-muted-foreground shrink-0 text-sm">
-                        {count(membersOf(team), 'member')}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={TAP_SQUARE}
-                        aria-label={`Remove ${team.name}`}
-                        disabled={busy}
-                        onClick={() => {
-                          askToRemove('team', team);
-                        }}
-                      >
-                        <span aria-hidden="true">✕</span>
-                      </Button>
+                        <span className="text-muted-foreground shrink-0 text-sm">
+                          {count(membersOf(team), 'member')}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={TAP_SQUARE}
+                          aria-label={`Remove ${team.name}`}
+                          disabled={busy}
+                          onClick={() => {
+                            askToRemove('team', team);
+                          }}
+                        >
+                          <span aria-hidden="true">✕</span>
+                        </Button>
                       </div>
                       {/*
                         **The ownership map, and the team row is where it is

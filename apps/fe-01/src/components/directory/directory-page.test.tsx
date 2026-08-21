@@ -1170,10 +1170,7 @@ describe('the ownership map, edited on the team row', () => {
       .getAllByRole('button')
       .map((node) => node.getAttribute('aria-label'))
       .filter((label) => label?.includes('no longer owns') === true);
-    expect(chips).toEqual([
-      'Platform no longer owns Billing',
-      'Platform no longer owns Payments',
-    ]);
+    expect(chips).toEqual(['Platform no longer owns Billing', 'Platform no longer owns Payments']);
   });
 
   itDom('sends the whole set when a service is claimed, and again when one goes', async () => {
