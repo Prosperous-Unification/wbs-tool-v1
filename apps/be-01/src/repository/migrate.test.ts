@@ -2563,9 +2563,9 @@ describe('the service migration', () => {
       const sqlite = openDatabase(db.path);
       try {
         sqlite.run("INSERT INTO service (id, name) VALUES ('s1', 'Payments')");
-        expect(() => sqlite.run("INSERT INTO service (id, name) VALUES ('s2', 'Payments')")).toThrow(
-          /UNIQUE/i,
-        );
+        expect(() =>
+          sqlite.run("INSERT INTO service (id, name) VALUES ('s2', 'Payments')"),
+        ).toThrow(/UNIQUE/i);
       } finally {
         sqlite.close();
       }
@@ -2692,7 +2692,9 @@ describe('the service migration', () => {
 
       const after = openDatabase(db.path);
       try {
-        expect(after.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM service').get()?.n).toBe(0);
+        expect(after.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM service').get()?.n).toBe(
+          0,
+        );
         expect(
           after.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM team_service').get()?.n,
         ).toBe(0);
