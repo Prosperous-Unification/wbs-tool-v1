@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  type DirectoryEffect,
   directoryRefusalSentence,
   type DirectoryUsage,
   httpDirectoryApi,
@@ -231,6 +232,101 @@ describe('the directory client', () => {
   it('throws an in_use with no usage rather than confirming against nothing', async () => {
     stub(() => response(409, JSON.stringify({ error: 'in_use' })));
     await expect(httpDirectoryApi('t').removePerson('p1', false)).rejects.toThrow('in_use');
+  });
+
+  it('reads a tag usage, whose one effect is the arm only tags and services emit', async () => {
+    // The defect this case exists for, found on dev 2026-08-21: the parse below
+    // knew three of its own type's five arms, `label_removed` not among them,
+    // so a tag that labels any row was refused whole — the generic
+    // "could not be changed (in_use)" banner, no dialog, and therefore no way
+    // to reach the `?cascade=true` second ask. An unremovable entry, from a
+    // payload be-01 had assembled correctly.
+    const tagged: DirectoryUsage = {
+      projects: [
+        {
+          id: 'pr1',
+          name: 'Rollout',
+          workItems: [
+            { id: 'w7', number: '3.1', name: 'Design', effects: [{ kind: 'label_removed' }] },
+          ],
+        },
+      ],
+      members: [],
+    };
+    stub(() => response(409, JSON.stringify({ error: 'in_use', usage: tagged })));
+    await expect(httpDirectoryApi('t').removeTag('tag1', false)).resolves.toEqual({
+      ok: false,
+      reason: 'in_use',
+      usage: tagged,
+    });
+  });
+
+  it('reads a service usage, because one arm serves two dimensions', async () => {
+    // `removeService`'s own jsdoc: be-01 answers a service's usage with
+    // `label_removed` "like a tag's and not as the `label_nulled` a team's
+    // does". Proving the fix on the tag alone would prove it on half the
+    // removals that reach this arm.
+    const served: DirectoryUsage = {
+      projects: [
+        {
+          id: 'pr1',
+          name: 'Rollout',
+          workItems: [
+            { id: 'w7', number: '3.1', name: 'Design', effects: [{ kind: 'label_removed' }] },
+          ],
+        },
+      ],
+      members: [],
+    };
+    stub(() => response(409, JSON.stringify({ error: 'in_use', usage: served })));
+    await expect(httpDirectoryApi('t').removeService('svc1', false)).resolves.toEqual({
+      ok: false,
+      reason: 'in_use',
+      usage: served,
+    });
+  });
+
+  it('carries every arm of the effect type through the parse, one at a time', async () => {
+    // A `Record` keyed by the union's own `kind` rather than a hand-written
+    // list: a sixth arm added to `DirectoryEffect` fails the typecheck here
+    // until it is given a payload, which is the check that was missing when
+    // `label_removed` was added and the parse was not told. `capacity_released`
+    // is in it because it was the *second* arm the guard did not know — a team
+    // whose project carries a capacity would have been as unremovable as the
+    // tag, and no case had ever sent one over the wire.
+    //
+    // One effect per payload, not five in a list: `every` passes a list whose
+    // unknown arm sits beside a known one only if it knows them all, but a
+    // failure would not say which arm was refused.
+    const oneOfEach: Record<DirectoryEffect['kind'], DirectoryEffect> = {
+      assignment_dropped: { kind: 'assignment_dropped', role: { id: 'r1', name: 'Dev' } },
+      label_nulled: { kind: 'label_nulled' },
+      label_removed: { kind: 'label_removed' },
+      capacity_released: { kind: 'capacity_released', size: 4, fromId: 'w7' },
+      assumed_assignee_changed: {
+        kind: 'assumed_assignee_changed',
+        assumedNow: 'Kat',
+        assumedAfter: null,
+      },
+    };
+    for (const effect of Object.values(oneOfEach)) {
+      const usage: DirectoryUsage = {
+        projects: [
+          {
+            id: 'pr1',
+            name: 'Rollout',
+            workItems: [{ id: 'w7', number: '3.1', name: 'Design', effects: [effect] }],
+          },
+        ],
+        members: [],
+      };
+      stub(() => response(409, JSON.stringify({ error: 'in_use', usage })));
+      await expect(httpDirectoryApi('t').removeTeam('t1', false)).resolves.toEqual({
+        ok: false,
+        reason: 'in_use',
+        usage,
+      });
+    }
   });
 
   it('throws a usage missing its members rather than drawing an empty impact list', async () => {
