@@ -1,6 +1,6 @@
 ## 1. The tables, and the migration that adds them
 
-- [ ] 1.1 `service` and `teamService` in `schema.ts`. `service` global — **no
+- [x] 1.1 `service` and `teamService` in `schema.ts`. `service` global — **no
       project column**, mirroring `service_team` and `tag`, with `name`
       `NOT NULL` and a unique index so a rename can answer `taken`.
       `team_service` keyed on `(team_id, service_id)`, **both sides cascading**,
@@ -8,20 +8,20 @@
       JSDoc says what each table is **not**: not a pool, not a size, not
       anything a date reads — and names R2-6 as where `service_team` becomes
       `team`, because for one release the two names read backwards (design D9).
-- [ ] 1.2 `work_item.service_id TEXT REFERENCES service(id) ON DELETE SET NULL`
+- [x] 1.2 `work_item.service_id TEXT REFERENCES service(id) ON DELETE SET NULL`
       — a column, not a join table, because one service per item is the
       cardinality (design D2). `SET NULL` not `CASCADE`: deleting a service must
       not delete work items. **Watched red** — make it `CASCADE` and the
       "removing a service keeps the rows" test must fail.
-- [ ] 1.3 `drizzle/20260821000000_add_service/{migration,down}.sql`. **Check the
+- [x] 1.3 `drizzle/20260821000000_add_service/{migration,down}.sql`. **Check the
       stamp against every existing directory before writing it** — #60 and #61
       both stamped `20260814100000`, `migrationsToRollback` filters on a strict
       `created_at >`, and `rollbackTo` therefore reversed nothing, silently,
       with both tables still present. Newest existing is
       `20260819120000_add_tag`.
-- [ ] 1.4 The rollback test: down, then up, then a row survives the round trip.
+- [x] 1.4 The rollback test: down, then up, then a row survives the round trip.
       **Watched red** — revert a `DROP` in `down.sql` and it must fail.
-- [ ] 1.5 **No seed, asserted.** `service` and `team_service` are empty after
+- [x] 1.5 **No seed, asserted.** `service` and `team_service` are empty after
       the migration and every `work_item.service_id` is null. One test, three
       one-line assertions, and it is the cheapest proof that the no-backfill
       decision was implemented rather than intended.
