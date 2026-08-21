@@ -123,8 +123,30 @@
       and the two could disagree. `unknown_metric` joins the 404 list in the
       controller's `statusFor`. **Negative:** verify.md F8, F8b.
 - [ ] 4.4 `PATCH /people/:id` accepts `kind`, refusing anything outside the set
-      as `invalid_kind` (400). Journalled beside the rename the directory already
-      journals, so a mis-marking is undoable.
+      as `invalid_kind` (400).
+
+      > **Corrected 2026-08-21 (chunk 7), premise disproved rather than
+      > rewritten.** This item read: _"Journalled beside the rename the directory
+      > already journals, so a mis-marking is undoable."_ **The directory
+      > journals nothing.** `directory.service.ts` contains no call to `record`
+      > and no reference to the journal at all; `patchPerson` announces the
+      > rename to the broadcaster so open plans reread, which is a different
+      > mechanism with a similar shape.
+      >
+      > It is not an oversight to fix in this change, either. `plan_event`
+      > carries `project_id` **`NOT NULL`, `REFERENCES project(id) ON DELETE
+      > CASCADE`**, and `WorkItemService.record` takes a `projectId` as its first
+      > argument — the journal is a **plan's** history. The directory is global
+      > and belongs to no project (`directoryController`'s own comment says so),
+      > so journalling a kind change would mean either inventing a project to
+      > file it under or making a person's history disappear when some unrelated
+      > project is deleted.
+      >
+      > **So `kind` is undone the way a rename is: by patching it back.** That is
+      > the directory's existing contract for every field it holds, and a kind
+      > that alone had an undo would be the odd one out in the card it sits in.
+      > A journalled directory is a change of its own, with `plan_event`'s
+      > project scoping as its first question.
 
 ## 5. The roll-up and the payload
 
