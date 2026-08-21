@@ -3893,6 +3893,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       roles,
       teams,
       tags,
+      // The service vocabulary the export's `Services` column resolves ids
+      // against. Named here beside `tags` and not derived from the rows: the
+      // export is self-contained, so it carries the names as they read today.
+      services,
       people,
       priorityBands,
       // Every tree row as it came off the wire, not a literal built from one.
@@ -3919,6 +3923,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       roles,
       teams,
       tags,
+      services,
       people,
       priorityBands,
       flat,

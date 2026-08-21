@@ -1,3 +1,4 @@
+import { type EffectiveServices, effectiveServicesOf } from '@wbs/domain/effective-service';
 import { type EffectiveTags, effectiveTagsOf } from '@wbs/domain/effective-tag';
 import { type EffectiveTeams, effectiveTeamsOf } from '@wbs/domain/effective-team';
 import { priorityBandOf } from '@wbs/domain/priority-band';
@@ -44,6 +45,16 @@ export interface ExportRow {
   teamIds: readonly string[];
   /** The tags this row states, 0..n. Empty inherits; see `effectiveTagsOf`. */
   tagIds: readonly string[];
+  /**
+   * The services this row states, 0..n. Empty inherits; see `effectiveServicesOf`.
+   *
+   * Plural since the 2026-08-21 scope change, and the field the third dimension
+   * enters this document by. Required rather than optional for the reason the
+   * `priority` comment in the test fixture records at length: an optional field
+   * is a field every caller may forget, and a forgotten label column exports as
+   * blank rather than as a failure.
+   */
+  serviceIds: readonly string[];
   estimates: Record<string, ExportTrio | undefined>;
   finalDays: Record<string, number | undefined>;
   finalTotal: number;
@@ -194,6 +205,14 @@ export interface PlanExport {
   teams: readonly NamedEntry[];
   /** The tag vocabulary, for the Tags column — `teams`' shape, one dimension over. */
   tags: readonly NamedEntry[];
+  /**
+   * The service vocabulary, for the Services column — `tags`' shape again.
+   *
+   * A **plan-level list** and not the directory's: an export is self-contained
+   * (see this interface's own note), so a service renamed after the CSV was
+   * taken leaves the CSV saying what it said on the day.
+   */
+  services: readonly NamedEntry[];
   /**
    * What this plan calls its priority numbers, for the Priority band column.
    *
@@ -438,24 +457,43 @@ function tagsInForce(plan: PlanExport): ReadonlyMap<string, EffectiveTags> {
   return effectiveTagsOf(plan.rows);
 }
 
+/** {@link teamsInForce} for the third dimension, computed once per document. */
+function servicesInForce(plan: PlanExport): ReadonlyMap<string, EffectiveServices> {
+  return effectiveServicesOf(plan.rows);
+}
+
 /**
- * What a row's Team cell says: the team whose people did the work, and where
- * the label was written when it was not written here.
+ * One label dimension's cell: the names in force on this row, and where they
+ * were written when they were not written here.
  *
- * The **effective** team rather than the stored one, and the naming of the
+ * **One body for all three dimensions**, which is a change of shape the third
+ * one forced. Team and tag carried a copy each and the copies agreed; a third
+ * copy is the point at which "they agree" stops being a fact and becomes a
+ * thing somebody has to keep true — and {@link tagCell} had already written
+ * down that dimensions inheriting by one rule must *read* as though they do.
+ * The dimensions differ in exactly two places, the vocabulary the ids resolve
+ * against and the ids themselves, so those are the two parameters; everything a
+ * reader of a cell sees is decided here, once.
+ *
+ * The **effective** labels rather than the stored ones, and the naming of the
  * source is what makes that safe: a leaf with no label of its own is on a pool
  * anyway, and an export printing a blank there is an export that cannot explain
  * its own dates. `010 Backend` is the row named the way every other cross
  * reference in this document names one — the number, which is also the Depends
  * on column's currency.
+ *
+ * `; `-joined, which is the separator R2-3 settles on for the `Teams` column
+ * and therefore the one R3's import will match names by — one rule for all
+ * three dimensions rather than three.
  */
-function teamCell(plan: PlanExport, inForce: ReadonlyMap<string, EffectiveTeams>, row: ExportRow) {
-  const effective = inForce.get(row.id);
+function labelCell(
+  plan: PlanExport,
+  vocabulary: readonly NamedEntry[],
+  effective: { ids: readonly string[]; fromId: string } | undefined,
+  row: ExportRow,
+): string {
   if (effective === undefined) return '';
-  // `; `-joined, which is the separator R2-3 settles on for the `Teams` column
-  // this one becomes and therefore the one R3's import will match names by. One
-  // member today, so the join changes no cell in any plan that exists.
-  const name = effective.teamIds.map((teamId) => nameOf(plan.teams, teamId)).join('; ');
+  const name = effective.ids.map((id) => nameOf(vocabulary, id)).join('; ');
   if (effective.fromId === row.id) return name;
   const from = plan.rows.find((each) => each.id === effective.fromId);
   return from === undefined
@@ -464,32 +502,67 @@ function teamCell(plan: PlanExport, inForce: ReadonlyMap<string, EffectiveTeams>
 }
 
 /**
- * What a row's Tags cell says: what kind of thing the work is, and where the
- * label was written when it was not written here.
+ * What a row's Team cell says: the team whose people did the work.
  *
- * The **effective** tags rather than the stored ones, and the source named for
- * {@link teamCell}'s reason: a leaf under a `regulatory` parent *is*
- * regulatory, and a document printing a blank there is a document that
- * disagrees with the filter that produced it.
+ * {@link labelCell} for the reasons; this names which dimension is being read.
+ */
+function teamCell(plan: PlanExport, inForce: ReadonlyMap<string, EffectiveTeams>, row: ExportRow) {
+  const effective = inForce.get(row.id);
+  return labelCell(
+    plan,
+    plan.teams,
+    effective && { ids: effective.teamIds, fromId: effective.fromId },
+    row,
+  );
+}
+
+/**
+ * What a row's Tags cell says: what kind of thing the work is.
  *
- * `; `-joined, the separator the Team column settles on, so an importer
- * matching names has one rule for both label dimensions rather than two.
+ * The **effective** tags rather than the stored ones, for {@link labelCell}'s
+ * reason: a leaf under a `regulatory` parent *is* regulatory, and a document
+ * printing a blank there is a document that disagrees with the filter that
+ * produced it.
  *
- * The inheritance sentence is the same shape too, and deliberately: two
- * dimensions that inherit by one rule should read as though they do. What they
- * must **not** share is a cell — a row on `Platform` and `regulatory` answers
- * two different questions, and one column holding both would be a document
- * saying something the model does not.
+ * What the three dimensions must **not** share is a cell — a row on `Platform`,
+ * `regulatory` and `Payments` answers three different questions, and one column
+ * holding them would be a document saying something the model does not. Sharing
+ * the *rendering* is the opposite move and the safe one.
  */
 function tagCell(plan: PlanExport, inForce: ReadonlyMap<string, EffectiveTags>, row: ExportRow) {
   const effective = inForce.get(row.id);
-  if (effective === undefined) return '';
-  const name = effective.tagIds.map((tagId) => nameOf(plan.tags, tagId)).join('; ');
-  if (effective.fromId === row.id) return name;
-  const from = plan.rows.find((each) => each.id === effective.fromId);
-  return from === undefined
-    ? `${name} (inherited)`
-    : `${name} (inherited from ${from.number} ${from.name})`;
+  return labelCell(
+    plan,
+    plan.tags,
+    effective && { ids: effective.tagIds, fromId: effective.fromId },
+    row,
+  );
+}
+
+/**
+ * What a row's Services cell says: what is being delivered.
+ *
+ * **Plural, and every stated name joined** — a row delivering `Checkout` and
+ * `Payments` says both, since the 2026-08-21 scope change. Printing the first
+ * would be this document choosing which half of a row's own statement to
+ * publish, and a spreadsheet is exactly where somebody counts the other half.
+ *
+ * A service is *what is being delivered*, which is why it is neither the team
+ * column nor a tag: the team is who did the work, and a tag is a word about the
+ * work. Three columns, three questions, one inheritance sentence.
+ */
+function serviceCell(
+  plan: PlanExport,
+  inForce: ReadonlyMap<string, EffectiveServices>,
+  row: ExportRow,
+) {
+  const effective = inForce.get(row.id);
+  return labelCell(
+    plan,
+    plan.services,
+    effective && { ids: effective.serviceIds, fromId: effective.fromId },
+    row,
+  );
 }
 
 /**
@@ -532,6 +605,7 @@ function columnsOf(plan: PlanExport, markSums: boolean): ExportColumn[] {
   const method = METHOD_NAMES[plan.method];
   const inForce = teamsInForce(plan);
   const tagsHeld = tagsInForce(plan);
+  const servicesHeld = servicesInForce(plan);
   /** A computed figure, with Markdown's sum marker where one applies. */
   const figure = (row: ExportRow, days: number | undefined): string => {
     if (days === undefined) return '';
@@ -545,6 +619,14 @@ function columnsOf(plan: PlanExport, markSums: boolean): ExportColumn[] {
     // thing it is are two questions, and one column answering both would be a
     // document making a claim the model does not.
     { header: 'Tags', cell: (row) => tagCell(plan, tagsHeld, row) },
+    // Third of the three label columns and **after** Tags, which is
+    // `wbs-table.tsx`'s own column order (`Service/team`, `Tags`, `Services`)
+    // and `plan-cards.tsx`'s chip order. Deliberately not beside Team, where a
+    // reader who saw `Billing, Ltd | Payments` would take the second for a
+    // property of the first — the two are independent (Dany, 2026-08-20 23:16),
+    // and one order across all three faces is what stops a spreadsheet from
+    // re-arguing it.
+    { header: 'Services', cell: (row) => serviceCell(plan, servicesHeld, row) },
     // The two numbers the schedule's compression is made of, beside the team
     // whose people they are counted out of. Blank at 1, the Priority column's
     // bargain: a spreadsheet reader sorting on this wants an empty cell rather

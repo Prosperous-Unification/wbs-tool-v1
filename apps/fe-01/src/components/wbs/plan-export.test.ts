@@ -88,6 +88,14 @@ const row = (over: Partial<ExportRow> & Pick<ExportRow, 'id' | 'number'>): Expor
   notes: '',
   rolledUp: false,
   teamIds: [],
+  // Both spelled out for the same reason as everything above, and neither was
+  // until 2026-08-21: `Partial` satisfies a required field the base omits, so
+  // every row in this file carried `undefined` in both label dimensions. The
+  // walk tolerates it (`effectiveLabelsOf` guards on `!== undefined`), which is
+  // exactly why nothing failed and why the Tags column had no cell assertion at
+  // all — an empty column and an absent field export identically.
+  tagIds: [],
+  serviceIds: [],
   estimates: {},
   finalDays: {},
   finalTotal: 0,
@@ -118,6 +126,18 @@ const plan = (over: Partial<PlanExport> = {}): PlanExport => ({
   scheduleError: null,
   roles: [DEV, QA],
   teams: [{ id: 'team-billing', name: 'Billing, Ltd' }],
+  tags: [
+    { id: 'tag-regulatory', name: 'regulatory' },
+    { id: 'tag-platform', name: 'platform' },
+  ],
+  // A comma in the first name on purpose, as `Billing, Ltd` is: the label
+  // columns are the ones a service vocabulary lets a planner type prose into,
+  // and a `; `-joined pair of them is the cell most likely to break a naive
+  // writer's quoting.
+  services: [
+    { id: 'service-payments', name: 'Payments, retail' },
+    { id: 'service-checkout', name: 'Checkout' },
+  ],
   priorityBands: DEFAULT_PRIORITY_BANDS,
   people: [
     { id: 'person-ada', name: 'ada' },
@@ -266,6 +286,7 @@ describe('the columns', () => {
       'Name',
       'Team',
       'Tags',
+      'Services',
       'People at once',
       'Ran at',
       'Dev optimistic',
@@ -292,6 +313,91 @@ describe('the columns', () => {
     expect(csvColumns(planToCsv(plan({ method: 'optimistic' })))).toContain(
       'Dev final (optimistic)',
     );
+  });
+
+  it('answers three different questions in the three label columns', () => {
+    // The assertion the three columns existed without: one row stating all
+    // three dimensions, each cell read by name and checked for the other two's
+    // answers. A shared rendering (which is what `labelCell` is) makes "they
+    // print the same sentence" cheap and "they print the same *contents*" the
+    // fault worth watching.
+    const text = planToCsv(
+      plan({
+        rows: [
+          row({
+            id: 'a',
+            number: '010',
+            name: 'Strip the walls',
+            teamIds: ['team-billing'],
+            tagIds: ['tag-regulatory'],
+            serviceIds: ['service-checkout'],
+          }),
+        ],
+      }),
+    );
+    const cells = csvDataRow(text);
+    expect(cells[columnAt(text, 'Team')]).toBe('Billing, Ltd');
+    expect(cells[columnAt(text, 'Tags')]).toBe('regulatory');
+    expect(cells[columnAt(text, 'Services')]).toBe('Checkout');
+  });
+
+  it('names every service a row delivers, and quotes the join', () => {
+    // Plural since the 2026-08-21 scope change: printing `serviceIds[0]` is the
+    // fault this watches, and the comma inside the first name is what makes the
+    // round trip prove the quoting rather than just the text.
+    const text = planToCsv(
+      plan({
+        rows: [
+          row({
+            id: 'a',
+            number: '010',
+            serviceIds: ['service-payments', 'service-checkout'],
+          }),
+        ],
+      }),
+    );
+    expect(csvDataRow(text)[columnAt(text, 'Services')]).toBe('Payments, retail; Checkout');
+    // Read back by an RFC 4180 parser that knows nothing about the writer: a
+    // cell holding a comma that was written bare would arrive here as two.
+    expect(csvColumns(text).length).toBe(csvDataRow(text).length);
+  });
+
+  it('says which row a service was inherited from', () => {
+    const text = planToCsv(
+      plan({
+        rows: [
+          row({
+            id: 'a',
+            number: '010',
+            name: 'Strip the walls',
+            serviceIds: ['service-checkout'],
+          }),
+          row({ id: 'a1', number: '010.1', name: 'Sockets', parentId: 'a' }),
+        ],
+      }),
+    );
+    expect(csvDataRow(text, 1)[columnAt(text, 'Services')]).toBe(
+      'Checkout (inherited from 010 Strip the walls)',
+    );
+  });
+
+  it('leaves the Services cell empty where nothing above the row states one', () => {
+    // Absence, and not a placeholder: the third dimension spells unstated the
+    // way the other two do, and a plan nobody has put on a service exports a
+    // blank column rather than a column of dashes.
+    const text = planToCsv(plan({ rows: [row({ id: 'a', number: '010' })] }));
+    expect(csvDataRow(text)[columnAt(text, 'Services')]).toBe('');
+  });
+
+  it('carries the Services cell into the Markdown table as well', () => {
+    // Both writers or neither: `columnsOf` is shared, and this is the assertion
+    // that keeps a column from being added to one format's list by hand.
+    const text = planToMarkdown(
+      plan({
+        rows: [row({ id: 'a', number: '010', serviceIds: ['service-checkout'] })],
+      }),
+    );
+    expect(markdownRow(text, '010')).toContain('Checkout');
   });
 
   it('names the band beside the number, from the plan’s own ladder', () => {

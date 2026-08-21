@@ -149,9 +149,14 @@
       **No mismatch marker on it**: this face renders neither signal today —
       `CardAssignee.outside` reaches no phone — and one half of a paired signal
       on a face silent about the other reads as an all-clear.
-- [ ] 7.4 `plan-export.ts`: a **`Services`** column — plural since the scope
+- [x] 7.4 `plan-export.ts`: a **`Services`** column — plural since the scope
       change — joined and RFC4180-quoted exactly the way `Teams` and `Tags` are,
-      beside them.
+      beside them. **After `Tags`**, which is `wbs-table.tsx`'s column order and
+      `plan-cards.tsx`'s chip order, so no third face re-argues it. The three
+      label cells now share **one** renderer (`labelCell`): a third copy of a
+      body two copies already agreed on is a thing somebody has to keep true,
+      and 7.2 had already written down that dimensions inheriting by one rule
+      must read as though they do.
 - [ ] 7.5 `directory-page.tsx`: a **Services** card beside Teams and Tags — no
       capacity column, no membership chips — and a **services picker on the team
       row**, which is where the map is edited (Dany, 2026-08-20 23:18). The
