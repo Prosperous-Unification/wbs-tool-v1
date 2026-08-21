@@ -273,7 +273,7 @@ describe('the directory client', () => {
 
   it('throws a 2xx that carries no entry rather than putting nothing on the panel', async () => {
     stub(() => response(200, JSON.stringify({})));
-    await expect(httpDirectoryApi('t').renameTeam('t1', 'Platform')).rejects.toThrow(
+    await expect(httpDirectoryApi('t').patchTeam('t1', { name: 'Platform' })).rejects.toThrow(
       'unexpected_response',
     );
   });

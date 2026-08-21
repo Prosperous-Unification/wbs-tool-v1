@@ -611,6 +611,29 @@ export interface PersonPatch {
 }
 
 /**
+ * The parts of a team a patch may change.
+ *
+ * {@link PersonPatch}'s shape and its rule about absence, one entity over: an
+ * absent `serviceIds` leaves the **ownership map** alone and an empty one makes
+ * a team that owns nothing. be-01 tells those two apart inside its own write
+ * transaction, so this type must not collapse them into one array with a
+ * default.
+ *
+ * `serviceIds` is the whole set as it will stand, not a delta — it is the same
+ * full-replacement bargain `teamIds` makes, and for the same reason: a delta
+ * needs the client to know what it is diffing against, and this page redraws
+ * from a directory somebody else may have changed.
+ *
+ * This is directory data **about a team**, not a label on anybody's work: it
+ * says which services the team is responsible for, which is what makes a row
+ * built by a non-owner nameable at all (Dany, 2026-08-20 23:18).
+ */
+export interface TeamPatch {
+  name?: string;
+  serviceIds?: readonly string[];
+}
+
+/**
  * The deployment's directory, and everything the directory page does to it.
  *
  * Separate from {@link ProjectApi} because it belongs to no project: these four
@@ -655,7 +678,17 @@ export interface DirectoryApi {
   addTeam(name: string): Promise<TeamView>;
   /** Renames a person, or sets exactly the teams they belong to, or both. */
   patchPerson(id: string, patch: PersonPatch): Promise<DirectoryWrite<PersonView>>;
-  renameTeam(id: string, name: string): Promise<DirectoryWrite<TeamView>>;
+  /**
+   * Renames a team, or sets exactly the services it is responsible for, or
+   * both — `patchPerson`'s shape, and **one** spelling for the one route
+   * be-01 offers.
+   *
+   * It was `renameTeam(id, name)` until task 7.5's ownership picker needed the
+   * other field. A second method beside it would have been two ways to write
+   * `PATCH /api/teams/:id`, which is how a page and a picker come to disagree
+   * about what a team is — this client's own standing argument.
+   */
+  patchTeam(id: string, patch: TeamPatch): Promise<DirectoryWrite<TeamView>>;
   /**
    * Removes a person, or answers the **directory usage** that would go with
    * them.
@@ -1520,11 +1553,11 @@ export function httpDirectoryApi(token: string): DirectoryApi {
         'person',
       );
     },
-    renameTeam(id, name) {
+    patchTeam(id, patch) {
       return writeDirectoryAt<TeamView>(
         `/api/teams/${id}`,
         token,
-        { method: 'PATCH', body: JSON.stringify({ name }) },
+        { method: 'PATCH', body: JSON.stringify(patch) },
         'team',
       );
     },

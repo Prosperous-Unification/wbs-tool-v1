@@ -396,15 +396,16 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
       remove: (id: string, cascade: boolean) => Promise<DirectoryRemoval>;
     }
   > = {
-    // A person's rename is a **patch** and the others are renames, which is the
-    // one real difference among the four and the reason this map is a map
-    // rather than a naming convention.
+    // A person's rename is a **patch** and so is a team's since 7.5 — both
+    // entities have a second field on the same route — while a tag and a
+    // service have nothing but a name. That difference is the reason this is a
+    // map rather than a naming convention.
     person: {
       rename: (id, name) => directory.patchPerson(id, { name }),
       remove: (id, cascade) => directory.removePerson(id, cascade),
     },
     team: {
-      rename: (id, name) => directory.renameTeam(id, name),
+      rename: (id, name) => directory.patchTeam(id, { name }),
       remove: (id, cascade) => directory.removeTeam(id, cascade),
     },
     tag: {
@@ -595,6 +596,33 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
     });
   }
 
+  /**
+   * Sets exactly the services a team is responsible for — {@link setMemberships}
+   * one entity over, and a **full replacement** for its reason.
+   *
+   * This writes the ownership map and nothing else. It labels no work item, it
+   * moves no date and it is not the row's service: a team owning `Payments`
+   * says who is responsible for it, and a row delivering `Payments` says what
+   * that row is part of. The two meeting is exactly the *built by a non-owner*
+   * signal, which reads this map rather than being written into it.
+   */
+  function setOwnedServices(team: TeamView, serviceIds: readonly string[]): void {
+    void attempt(async () => {
+      const written = await directory.patchTeam(team.id, { serviceIds });
+      if (!written.ok) {
+        setProblem({ reason: 'taken', survivingName: written.survivingName });
+      }
+    });
+  }
+
+  /**
+   * The services a team owns, in the **directory's** order rather than the
+   * order somebody claimed them — {@link teamsOf}'s rule, so two teams owning
+   * the same pair list them the same way round.
+   */
+  const servicesOf = (team: TeamView): ServiceView[] =>
+    services.filter((service) => (team.serviceIds ?? []).includes(service.id));
+
   const membersOf = (team: TeamView): number =>
     people.filter((person) => person.teamIds.includes(team.id)).length;
 
@@ -764,7 +792,8 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
               ) : (
                 <ul className="flex flex-col gap-3">
                   {teams.map((team) => (
-                    <li key={team.id} className="flex items-center gap-2">
+                    <li key={team.id} className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
                       <Input
                         className={`${TAP} min-w-0 flex-1`}
                         aria-label={`Name of ${team.name}`}
@@ -813,6 +842,93 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
                       >
                         <span aria-hidden="true">✕</span>
                       </Button>
+                      </div>
+                      {/*
+                        **The ownership map, and the team row is where it is
+                        edited** — Dany, 2026-08-20 23:18: "one team can be
+                        responsible for several services - it must be
+                        configurable in the directory."
+
+                        On the team row rather than on the Services card,
+                        because a list of teams drawn under a service would read
+                        as a property of the service — and a service that
+                        "has" teams is one step from a service that schedules
+                        them, which decision 2 rules out.
+
+                        The person row's membership chips, reused as they stand:
+                        one picker adds one claim, the chips are the set, and
+                        the ✕ takes one off. What it deliberately does **not**
+                        carry is the person row's Delete/Backspace focus walk —
+                        see the code below.
+                      */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-muted-foreground shrink-0 text-sm">
+                          Responsible for
+                        </span>
+                        {servicesOf(team).map((service) => (
+                          <button
+                            key={service.id}
+                            type="button"
+                            aria-label={`${team.name} no longer owns ${service.name}`}
+                            className="border-input bg-background hover:bg-accent inline-flex min-h-11 min-w-11 shrink-0 items-center gap-1 rounded-full border px-3 text-sm"
+                            disabled={busy}
+                            onClick={() => {
+                              setOwnedServices(
+                                team,
+                                (team.serviceIds ?? []).filter((held) => held !== service.id),
+                              );
+                            }}
+                          >
+                            {service.name}
+                            <span aria-hidden="true">✕</span>
+                          </button>
+                        ))}
+                        {/*
+                          **No Delete/Backspace focus walk here**, stated rather
+                          than forgotten. Each chip is a button, so a keyboard
+                          removes one with Enter or Space; what is missing is
+                          the person row's move-to-the-neighbour afterwards,
+                          which needs `neighbourChip` and it is written against
+                          a person's own membership list. A second copy for a
+                          second dimension is the thing tasks 7.4 and 7.5 have
+                          twice folded rather than duplicated, and generalising
+                          it is its own change.
+                        */}
+                        <span className={`inline-flex min-w-40 flex-1 ${TAP_PICKER}`}>
+                          <CreatablePicker
+                            label={`Make ${team.name} responsible for a service`}
+                            // Only what it does **not** already own: offering a
+                            // service it holds is how a duplicate claim is sent.
+                            entries={services.filter(
+                              (service) => !(team.serviceIds ?? []).includes(service.id),
+                            )}
+                            value={null}
+                            placeholder="Add a service…"
+                            onChoose={(serviceId) => {
+                              setOwnedServices(team, [...(team.serviceIds ?? []), serviceId]);
+                            }}
+                            onCreate={(name) => {
+                              void attempt(async () => {
+                                const service = await directory.addService(name);
+                                const written = await directory.patchTeam(team.id, {
+                                  serviceIds: [...(team.serviceIds ?? []), service.id],
+                                });
+                                if (!written.ok) {
+                                  setProblem({
+                                    reason: 'taken',
+                                    survivingName: written.survivingName,
+                                  });
+                                }
+                              });
+                            }}
+                            onClear={() => {
+                              // Unreachable, `Add a team for …`'s reason: the ✕
+                              // is drawn for a chosen entry and this picker
+                              // holds none. The chips are what clears a claim.
+                            }}
+                          />
+                        </span>
+                      </div>
                     </li>
                   ))}
                 </ul>

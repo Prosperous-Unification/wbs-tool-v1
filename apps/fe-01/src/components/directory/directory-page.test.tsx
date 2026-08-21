@@ -52,6 +52,7 @@ function fakeDirectory(
 ): DirectoryApi & {
   reads: number;
   patched: { id: string; patch: { name?: string; teamIds?: readonly string[] } }[];
+  teamPatches: { id: string; patch: { name?: string; serviceIds?: readonly string[] } }[];
   removals: [string, boolean][];
   added: string[];
   refusePatchWith: (refusal: DirectoryWrite<PersonView> | Error | null) => void;
@@ -96,6 +97,8 @@ function fakeDirectory(
     },
     reads: 0,
     patched: [] as { id: string; patch: { name?: string; teamIds?: readonly string[] } }[],
+    /** Every team patch, in order — the ownership map's writes are read off this. */
+    teamPatches: [] as { id: string; patch: { name?: string; serviceIds?: readonly string[] } }[],
     removals: [] as [string, boolean][],
     added: [] as string[],
     refusePatchWith(refusal: DirectoryWrite<PersonView> | Error | null) {
@@ -204,8 +207,21 @@ function fakeDirectory(
       if (written === undefined) throw new Error('not_found');
       return { ok: true as const, entry: written };
     },
-    renameTeam(id: string, name: string) {
-      heldTeams = heldTeams.map((team) => (team.id === id ? { ...team, name } : team));
+    // `patchPerson`'s shape: an **absent** field leaves that half of the team
+    // alone and an empty `serviceIds` makes a team that owns nothing. A fake
+    // that defaulted the absent one would hide exactly the bug the page's
+    // rename must not have — a rename that silently clears the ownership map.
+    patchTeam(id: string, patch: { name?: string; serviceIds?: readonly string[] }) {
+      api.teamPatches.push({ id, patch });
+      heldTeams = heldTeams.map((team) =>
+        team.id === id
+          ? {
+              ...team,
+              ...(patch.name === undefined ? {} : { name: patch.name }),
+              ...(patch.serviceIds === undefined ? {} : { serviceIds: [...patch.serviceIds] }),
+            }
+          : team,
+      );
       const written = heldTeams.find((team) => team.id === id);
       if (written === undefined) return Promise.reject(new Error('not_found'));
       return Promise.resolve({ ok: true as const, entry: written });
@@ -1130,5 +1146,106 @@ describe('the Services section, and the removal that had to say which dimension 
         ['s1', true],
       ]);
     });
+  });
+});
+
+describe('the ownership map, edited on the team row', () => {
+  itDom('shows which services a team is responsible for, in the directory order', async () => {
+    const api = fakeDirectory([], [{ id: 't1', name: 'Platform', serviceIds: ['s2', 's1'] }]);
+    // Seeded the other way round from the claim, deliberately: the chips follow
+    // the **directory's** order, so two teams owning the same pair list it the
+    // same way. The order somebody claimed them in is not a fact about anything.
+    api.putServices([
+      { id: 's1', name: 'Billing' },
+      { id: 's2', name: 'Payments' },
+    ]);
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Platform no longer owns Billing')).toBeDefined();
+    });
+    const row = screen.getByLabelText('Name of Platform').closest('li');
+    if (row === null) throw new Error('the team is not in a row');
+    const chips = within(row)
+      .getAllByRole('button')
+      .map((node) => node.getAttribute('aria-label'))
+      .filter((label) => label !== null && label.includes('no longer owns'));
+    expect(chips).toEqual([
+      'Platform no longer owns Billing',
+      'Platform no longer owns Payments',
+    ]);
+  });
+
+  itDom('sends the whole set when a service is claimed, and again when one goes', async () => {
+    const api = fakeDirectory([], [{ id: 't1', name: 'Platform', serviceIds: ['s1'] }]);
+    api.putServices([
+      { id: 's1', name: 'Billing' },
+      { id: 's2', name: 'Payments' },
+    ]);
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Platform no longer owns Billing')).toBeDefined();
+    });
+
+    // The picker offers only what the team does not already own — claiming a
+    // service twice is what a full-replacement write cannot repair.
+    const picker = screen.getByLabelText('Make Platform responsible for a service');
+    fireEvent.change(picker, { target: { value: 'Payments' } });
+    fireEvent.click(await screen.findByText('Payments'));
+
+    await waitFor(() => {
+      expect(api.teamPatches).toEqual([{ id: 't1', patch: { serviceIds: ['s1', 's2'] } }]);
+    });
+
+    fireEvent.click(await screen.findByLabelText('Platform no longer owns Billing'));
+
+    // **The whole set both times.** A delta would need this page to know what
+    // it is diffing against, and it redraws from a directory somebody else may
+    // have changed between the two clicks.
+    await waitFor(() => {
+      expect(api.teamPatches[1]).toEqual({ id: 't1', patch: { serviceIds: ['s2'] } });
+    });
+  });
+
+  itDom('renames a team without touching what it is responsible for', async () => {
+    // **The absence that matters.** `patchTeam` takes both fields now, and a
+    // rename that sent `serviceIds` — even the set it believed be-01 held —
+    // would silently overwrite an ownership map somebody else had just edited.
+    // Absent means "leave it alone", and this is where that is pinned.
+    const api = fakeDirectory([], [{ id: 't1', name: 'Platfrom', serviceIds: ['s1'] }]);
+    api.putServices([{ id: 's1', name: 'Billing' }]);
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+
+    const box = await screen.findByLabelText('Name of Platfrom');
+    fireEvent.change(box, { target: { value: 'Platform' } });
+    fireEvent.blur(box);
+
+    await waitFor(() => {
+      expect(api.teamPatches).toEqual([{ id: 't1', patch: { name: 'Platform' } }]);
+    });
+    expect(api.teamPatches[0]?.patch.serviceIds).toBeUndefined();
+    expect(await screen.findByLabelText('Platform no longer owns Billing')).toBeTruthy();
+  });
+
+  itDom('makes a service and claims it in one gesture', async () => {
+    // The picker creates, because the team row is the surface where somebody
+    // realises the vocabulary is missing a word — and a create that did not
+    // also claim it would leave the reader to find the new service and pick it.
+    const api = fakeDirectory([], [{ id: 't1', name: 'Platform', serviceIds: [] }]);
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name of Platform')).toBeDefined();
+    });
+
+    const picker = screen.getByLabelText('Make Platform responsible for a service');
+    fireEvent.change(picker, { target: { value: 'Payments' } });
+    fireEvent.click(await screen.findByText(/Payments/));
+
+    await waitFor(() => {
+      expect(api.added).toContain('Payments');
+    });
+    expect(api.teamPatches).toEqual([{ id: 't1', patch: { serviceIds: ['s1'] } }]);
+    // And it is in the vocabulary the Services card lists, not only on the team.
+    expect(await screen.findByLabelText('Name of Payments')).toBeTruthy();
   });
 });
