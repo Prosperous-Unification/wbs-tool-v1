@@ -73,20 +73,37 @@
 
 ## 3. The store
 
-- [ ] 3.1 `RoleMeasureRepository`, the five methods `EstimateRepository` and
-      `ActualRepository` have, in the same order, each taking `metric` as a
-      parameter with **no default** (design D1's stated cost), each write bumping
-      the work item's revision in its own transaction.
-- [ ] 3.2 `moveAll` bumps **only when a row moved**, `changes()` inside the
+- [x] 3.1 `RoleMeasureRepository`, the **four** methods `EstimateRepository` and
+      `ActualRepository` have, in the same order, taking `metric` as a parameter
+      on the one method that names a single row and as a field of the record on
+      the one that writes it, with **no default** anywhere (design D1's stated
+      cost), each write bumping the work item's revision in its own transaction.
+
+      > **Corrected while doing it.** This read _"the five methods"_ and _"each
+      > taking `metric` as a parameter"_, and both halves were wrong. There are
+      > four — `listByProject`, `set`, `remove`, `moveAll` — in all three
+      > repositories; the "five" was copied from `ActualStore`'s own JSDoc, which
+      > had said it since the store was written and now says four. And the metric
+      > reaches two of them, not four: `remove` names one row so it takes one,
+      > `set` carries it in the record, while `listByProject` hands back every
+      > metric (5.2's payload folds all three from one read, and three queries
+      > could show three different instants of the same plan) and `moveAll` moves
+      > every metric (a leaf that gains a child stops holding figures in any
+      > unit). D1's _"every read path takes the metric as a parameter"_ is about
+      > the fold, `rollUpMeasures(metric)` in 5.1, not the list underneath it.
+
+- [x] 3.2 `moveAll` bumps **only when a row moved**, `changes()` inside the
       transaction — the conditional `actual-days` 2.2 established, for the same
       reason: it runs on every create that gives a leaf its first child and
       almost no plan holds measures. **Negative:** bumped unconditionally,
       watched — verify.md F6.
-- [ ] 3.3 `repository/role-measure.test.ts` against real SQLite: the
+- [x] 3.3 `repository/role-measure.test.ts` against real SQLite: the
       replace-and-restamp, all three parts of the delete's key, the idempotent
       remove, a stored zero, **two metrics on one pair independent of each
       other**, project isolation, the revision bumps, the conditional bump, the
-      work-item cascade and the role's refusal.
+      work-item cascade and the role's refusal. Eleven cases. The read-order case
+      defends its role half and **not** its metric half — verify.md F6c says why
+      and why no fault at this layer can make it.
 
 ## 4. The write path
 

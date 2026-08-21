@@ -88,7 +88,37 @@ the case that failed and the message it failed on.
 | F3     | `CONSTRAINT role_measure_metric CHECK (…)` struck from the table                 | `bdc1bc7` | `refuses a fourth metric, because Drizzle's enum is gone by the time a row is written`                                                           | the `'nonsense'` insert succeeds — 60 pass, 1 fail                               |
 | F4     | `CHECK (kind IN (…))` struck from the `ADD COLUMN`                               | `b43c188` | `refuses a third kind, because every reader dispatches on the set`                                                                               | the `'robot'` insert succeeds — 5 pass, 1 fail                                   |
 | F5     | the migration rewritten as the table rebuild `tasks.md` 2.2 originally specified | `b43c188` | `leaves every membership and every assignment where it found them` **and** `gives the column back on the way down and keeps the directory whole` | `{people: 2, memberships: 0, assignments: 0}` — 4 pass, **2** fail               |
-| F6–F11 | the store, the write path, the roll-up                                           | —         | —                                                                                                                                                | _not yet run_ (sections 3–5)                                                     |
+| F6     | `if (changed.n === 0) return;` struck from `RoleMeasureRepository.moveAll`       | `654033e` | `moves every metric to another work item, and moves neither revision when there was nothing to move`                                             | revision 4 where 3 is owed — 10 pass, 1 fail                                     |
+| F6b    | `eq(roleMeasure.metric, metric)` struck from `remove`'s `WHERE`                  | `654033e` | `removes one work item's role in one metric, touching neither the other metric, the other role, nor the same pair elsewhere`                     | the pair's hours go with its tokens — 10 pass, 1 fail                            |
+| F7–F11 | the write path, the roll-up, the structure                                       | —         | —                                                                                                                                                | _not yet run_ (sections 4–6)                                                     |
+
+### F6c: a fault that did **not** redden, and the assertion it leaves unwatched
+
+`roleMeasure.metric` struck from `listByProject`'s `orderBy` — leaving
+`(work_item_id, role.position, role_id)` — and the read-order case **still
+passed, 11 of 11**. Not a flaky watch: the order it asserts is not coming from
+the `ORDER BY` at all. `EXPLAIN QUERY PLAN` on the statement, run against bun's
+SQLite:
+
+```
+SEARCH rm USING INDEX sqlite_autoindex_rm_1 (work_item_id=?)
+SEARCH role USING INDEX sqlite_autoindex_role_1 (id=?)
+USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY
+```
+
+The scan walks the primary key's own index, which **is**
+`(work_item_id, role_id, metric)`, so rows arrive in metric order before any
+sort runs, and the temp b-tree that orders the last two terms is stable — so
+striking the tie-break changes nothing. No arrangement of rows can redden it
+while that plan holds, because the plan is what produces the order.
+
+**The term stays and the case is recorded as half-watched rather than deleted or
+claimed.** A query plan is not a contract: an index added for the roll-up, a
+`WHERE` rewritten in section 5, or a different SQLite build can each stop
+supplying that order, and then the `ORDER BY` is the only thing between a reader
+and two reads of an unchanged pair disagreeing on screen. What is asserted here
+is real; what is unproven is that the assertion would notice. The watch that
+would be worth having is at the payload layer, once 5.2 keys measures by metric.
 
 Each fault fails **exactly one** case and the rest pass — with **F5 the stated
 exception**, and the exception is the finding rather than a loose end. F5 is not
@@ -115,6 +145,12 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `3e8cb79`                                  | `nx format:check --all`                  | exit 0                                                 |
 | `bdc1bc7` (1.3, the six cases)             | `nx run be-01:test`                      | **981 pass / 0 fail**, 28,042 expect() calls, 73 files |
 | `bdc1bc7`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                 |
+| `c7c6fe9` (section 2, `person.kind`)       | `nx run be-01:test`                      | **987 pass / 0 fail**, 28,061 expect() calls, 73 files |
+| `c7c6fe9`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                 |
+| `c7c6fe9`                                  | `nx format:check --all`                  | exit 0                                                 |
+| `654033e` (section 3, the store)           | `nx run be-01:test`                      | **998 pass / 0 fail**, 28,083 expect() calls, 74 files |
+| `654033e`                                  | `nx run be-01:lint`, `be-01:typecheck`   | exit 0                                                 |
+| `654033e`                                  | `nx format:check --all`                  | exit 0                                                 |
 
 **Read the test count, not only the pass line.** Chunk 2 gated in `~/wbs-build`
 against a tracking ref stranded at PR #17 and got a green **57 tests across 14
@@ -127,7 +163,8 @@ files** — a suite a sixteenth the size of the real one, passing. `git fetch` +
 git diff --stat origin/main -- apps/be-01/src/service/schedule.ts libs/domain
 ```
 
-Empty at `3e8cb79`. D3 says the scheduler cannot read this table; this is the
+Empty at `3e8cb79`, `c7c6fe9` and `654033e` — re-run at each head rather than
+assumed to hold. D3 says the scheduler cannot read this table; this is the
 sentence that checks it rather than the one that claims it.
 
 ## Owed
