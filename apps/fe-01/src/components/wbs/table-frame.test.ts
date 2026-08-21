@@ -622,10 +622,14 @@ describe('how wide the phases make the table', () => {
     // `CONDITIONAL_COLUMNS`, so the floor of a table that is not showing it is
     // the floor it had before this change. 1067 is that number, pinned above
     // since 2026-08-09 and unmoved here.
+    // The floor first, and deliberately: it is the fact, and the three
+    // statements under it are only why it is true. Struck the other way round
+    // the membership assertion fires first and the number nobody sees is the
+    // one that mattered.
+    expect(foldedTableMinWidth([], DATED)).toBe(1067);
     expect(widthFor('service', DATED)).toBe(120);
     expect(CONDITIONAL_COLUMNS).toContain('service');
     expect(FIXED_COLUMNS).not.toContain('service');
-    expect(foldedTableMinWidth([], DATED)).toBe(1067);
     // Proof, watched 2026-08-21: `service` struck from `CONDITIONAL_COLUMNS`,
     // this failed on `expected 1187 to be 1067` — the 120px it would have cost
     // every deployment, including the ones that have never made a service.
