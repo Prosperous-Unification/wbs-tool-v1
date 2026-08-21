@@ -162,6 +162,12 @@
       row**, which is where the map is edited (Dany, 2026-08-20 23:18). The
       absence on the Services card is asserted the way the Tags card's is: its
       test reads for `member` and for a number box and finds neither.
+      **Split in two, and the card half is done** (chunk 20): the card, the
+      write half of `DirectoryApi` it needs, and the confirmation's dimension.
+      The **picker on the team row** is the other half and it is a different
+      piece of work — the card edits a vocabulary, the picker edits the
+      ownership map, and only the second one has `TeamView.serviceIds` and a
+      `patchTeam` that does not exist on this client yet.
 - [x] 7.6 `lib/wbs-api.ts`: `serviceId` on the work-item wire type,
       `ServiceView`, `serviceIds` on `TeamView`.
       **Still singular on `WorkItemView`**, deliberately — the wire follows the
