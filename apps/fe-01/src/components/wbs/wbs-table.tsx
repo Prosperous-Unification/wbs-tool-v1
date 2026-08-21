@@ -1690,8 +1690,8 @@ function FilterFacets({
    *
    * `title` rather than a paragraph under the label, because this panel is 56
    * units wide and two sentences of hint per box push the State group off the
-   * bottom of a phone's sheet. The hint is also the `aria-description`, so it
-   * is not a mouse-only explanation.
+   * bottom of a phone's sheet. The same sentence is also the box's accessible
+   * description, so it is not a mouse-only explanation.
    */
   const signal = (
     label: string,
@@ -1702,6 +1702,15 @@ function FilterFacets({
     take: (next: boolean) => FacetCriteria,
   ): ReactNode => {
     const off = !askable && !ticked;
+    // `aria-describedby` at a visually-hidden span rather than
+    // `aria-description`, which `jsx-a11y/role-supports-aria-props` refuses on
+    // a checkbox — the attribute is ARIA 1.3 and the implicit role's property
+    // list is 1.2. Observed, not assumed: the `aria-description` spelling was
+    // this file's only lint error at a8ad8bd. The described-by spelling has
+    // been supported everywhere since forever and reads the same to a screen
+    // reader. Id derived from the label the same way `waitsForId` is derived
+    // from the row id — the panel renders once, and the two labels differ.
+    const hint = `facet-why-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
     return (
       <label
         className={`flex min-h-6 items-center gap-1.5 ${off ? 'text-muted-foreground' : ''}`}
@@ -1710,7 +1719,7 @@ function FilterFacets({
         <input
           type="checkbox"
           aria-label={label}
-          aria-description={off ? why : what}
+          aria-describedby={hint}
           checked={ticked}
           disabled={off}
           onChange={() => {
@@ -1718,6 +1727,9 @@ function FilterFacets({
           }}
         />
         <span>{label.replace(' only', '')}</span>
+        <span id={hint} className="sr-only">
+          {off ? why : what}
+        </span>
       </label>
     );
   };

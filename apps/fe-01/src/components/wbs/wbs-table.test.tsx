@@ -12860,12 +12860,20 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     const outside = screen.getByLabelText('Assigned outside the team only');
     expect(owner).toBeDisabled();
     expect(outside).toBeDisabled();
-    // The attribute rather than `toHaveAccessibleDescription`: jest-dom
-    // computes that through `dom-accessibility-api`, whose support for
-    // `aria-description` is version-dependent, and a matcher that quietly
-    // answers `''` on both boxes would pass this test in either state.
-    expect(owner.getAttribute('aria-description')).toMatch(/No team owns a service yet/);
-    expect(outside.getAttribute('aria-description')).toMatch(/Nobody belongs to a team yet/);
+    // Followed by hand rather than through `toHaveAccessibleDescription`:
+    // jest-dom computes that through `dom-accessibility-api`, and a matcher
+    // that quietly answers `''` on both boxes would pass this test in either
+    // state. `describedBy` fails loudly instead — a missing attribute or a
+    // dangling id throws here rather than reading as an empty description.
+    const describedBy = (box: HTMLElement): string => {
+      const id = box.getAttribute('aria-describedby');
+      expect(id).toBeTruthy();
+      const said = document.getElementById(id as string);
+      expect(said).not.toBeNull();
+      return said?.textContent ?? '';
+    };
+    expect(describedBy(owner)).toMatch(/No team owns a service yet/);
+    expect(describedBy(outside)).toMatch(/Nobody belongs to a team yet/);
     // Mouse readers get the same sentence, and it is the only place a hint
     // fits at this panel width.
     expect(owner.closest('label')).toHaveAttribute('title', expect.stringMatching(/No team owns/));
