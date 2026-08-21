@@ -374,7 +374,41 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `e82b023` (7.1 + 7.2, the first fe-01 work) | `nx run fe-01:test`                      | **1588 pass / 0 fail**, 53 files                                   |
 | `e82b023`                                   | `nx run-many -t lint typecheck -p fe-01` | exit 0                                                             |
 | `e82b023`                                   | `nx format:check --all`                  | exit 0, and 0 **first try** — the first head in this task that was |
-| `e82b023`                                   | the `--all` sweep                        | **killed for memory, not red** — see Owed                          |
+| `e82b023`                                   | the `--all` sweep, parallel               | **killed for memory, not red** — see below                        |
+| `e82b023`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                |
+| `e82b023`                                   | `-t test --all --parallel=1`             | **exit 1** — `mcp-01`, and it is four chunks old                   |
+| `a5ff796` (the drift count + the format)    | `nx format:check --all`                  | exit 0                                                             |
+| `a5ff796`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                |
+| `a5ff796`                                   | `-t test --all --parallel=1`             | exit 0, **22 projects**                                            |
+| `a5ff796`                                   | be-01                                    | **1052 pass / 0 fail**, 75 files, 28,669 expect() — unmoved, and owed to be |
+| `a5ff796`                                   | fe-01                                    | **1588 pass / 0 fail**, 53 files                                   |
+| `a5ff796`                                   | mcp-01                                   | **64 pass / 0 fail**, 230 expect() calls                           |
+
+**The `--all` sweep has to be `--parallel=1` on this box.** Run wide it printed
+`Killed` on `bunx eslint apps/be-01/src` with four targets in flight; h2puni has
+7 GB with about 3 available. That is a memory kill and not a red, and the
+difference matters because the serialized re-run is what surfaced the one real
+red below.
+
+### The drift test that had been red for four chunks
+
+`mcp-01`'s `is 47 tools, so a route that appears must be decided about` failed
+**47 vs 49** at `e82b023` — and it had been failing since `2ad567c`, chunk 7,
+when 4.3 put the two measure routes into `openapi.json`. Nothing caught it
+because chunks 7 through 13 gated `-p be-01`, and chunk 11's widening was
+`lint typecheck --all` with the suites left narrow.
+
+The count is now 49 and names its two tools:
+`putApiWork-itemsByIdMeasuresByMetricByRoleId` and
+`deleteApiWork-itemsByIdMeasuresByMetricByRoleId`. **That is Dany's 2026-08-21
+19:06 addendum discharged** — token figures reachable from MCP — and it is
+discharged as a *check* rather than as the assumption it was filed as: neither
+path matches an exclusion class, so the tools were free, and this is the line
+that observed it.
+
+**The lesson is about the gate, not the count.** A drift test in one project
+cannot be watched by another project's gate, and a count that only goes red
+somewhere nobody is looking is a count that drifts in silence for four chunks.
 
 `--all` on lint/typecheck rather than `-p be-01`, because 5.2 widens a type
 `broadcast.ts` builds and fe-01 reads through the wire. It found the one red of
@@ -410,15 +444,13 @@ sentence that checks it rather than the one that claims it.
 
 ## Owed
 
-- **The `--all` sweep at `e82b023` did not finish, and it is a memory kill
-  rather than a red.** `bunx eslint apps/be-01/src` printed `Killed` with four
-  other targets in flight; `free` on h2puni reports 7 GB total and 3 available.
-  What ran and passed at that exact head is in the table above — `fe-01`'s
-  suite, its lint and typecheck, and `format:check --all` — and this chunk
-  changed **no file outside `apps/fe-01`**, so nothing that was killed could
-  have been touched by it. Still owed at the next head, and owed with
-  `--parallel=1`: a green `--all` is the claim every chunk of this task has
-  made, and one chunk's narrow gate does not renew it.
+- ~~**The `--all` sweep at `e82b023` did not finish.**~~ **Closed in the same
+  chunk**: re-run serialized at `a5ff796`, green across 22 projects for
+  `test`, `lint`, `typecheck` and `format:check`. Kept because of what the
+  re-run found — the `mcp-01` drift red above had been standing for four
+  chunks, and it was standing precisely because the sweep that would have shown
+  it had been skipped for a narrow one. A gate that is cheaper than the claim it
+  is asked to support is not a gate.
 - **The `fe-01` baseline was not read.** 1588 is the count **after** four new
   cases; 1584 before them is arithmetic rather than a reading, and this record
   says so rather than printing a delta it never watched.
