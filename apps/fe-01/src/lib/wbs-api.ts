@@ -932,6 +932,20 @@ export interface ProjectApi {
        * transaction. At most 50 ids.
        */
       tagIds?: readonly string[];
+      /**
+       * The service this row is delivered by, or `null` to take the label off.
+       *
+       * A `null` arm where `tagIds` has none, and the difference is the schema
+       * rather than the surface: this is one nullable column on `work_item`
+       * (D2), so "no service" is a value it can hold. Absent leaves it alone —
+       * which is why the cell that clears it sends `null` rather than omitting
+       * the field.
+       *
+       * Refused with a 404 (`unknown_service`) for an id the directory does not
+       * carry, decided inside be-01's own write transaction, `unknown_tag`'s
+       * rule one dimension over.
+       */
+      serviceId?: string | null;
     },
   ): Promise<void>;
   /** The global team list, and adding to it — idempotent by name at be-01. */
