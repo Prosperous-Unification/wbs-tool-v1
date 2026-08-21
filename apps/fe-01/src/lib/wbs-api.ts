@@ -401,8 +401,17 @@ export interface TeamView {
    * Empty means a team that owns nothing, which is every team until somebody
    * fills the map in: it ships with no data, because nothing may invent who owns
    * what.
+   *
+   * **Optional on the wire, for the blue/green window and nothing else** —
+   * `WorkItemView.serviceId`'s rule one level up. `undefined` is "the be-01 that
+   * answered has never heard of services", which a browser holding the new
+   * bundle against the old server sees for the length of a deploy; `[]` is "it
+   * has, and this team owns none". They are the same thing to every reader here,
+   * so `WbsTable` folds the first into the second in the one place it may
+   * (`ownedServicesByTeam`) and nothing below that has to know. A crash in that
+   * window is what this costs a line to avoid.
    */
-  serviceIds: string[];
+  serviceIds?: string[];
 }
 
 /**

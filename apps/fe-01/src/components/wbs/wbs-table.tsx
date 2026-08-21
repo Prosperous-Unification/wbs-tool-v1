@@ -3203,9 +3203,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * A team absent from this map owns nothing, which is the map's own rule: the
    * directory ships with no ownership filled in, and every team is absent until
    * somebody says otherwise.
+   *
+   * **The one place `TeamView.serviceIds` may be `undefined`.** A be-01 that has
+   * never heard of services sends teams without the field, which is a real
+   * state for the length of a blue/green deploy; folded to `[]` here so no
+   * reader below has to hold the distinction, exactly as `toTree` folds
+   * `WorkItemView.serviceId`. Everything downstream reads a list.
    */
   const ownedServicesByTeam = useMemo(
-    () => new Map(teams.map((team) => [team.id, team.serviceIds])),
+    () => new Map(teams.map((team) => [team.id, team.serviceIds ?? []])),
     [teams],
   );
   /**

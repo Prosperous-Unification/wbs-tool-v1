@@ -12867,6 +12867,28 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     expect(owner.closest('label')).toHaveAttribute('title', expect.stringMatching(/No team owns/));
   });
 
+  itDom('takes teams from a be-01 that has never heard of services', async () => {
+    // The blue/green window, and this one is not hypothetical: three fixtures
+    // in this repo already answer `listTeams` with `{ id, name }`, and the
+    // first version of `ownershipKnown` threw `Cannot read properties of
+    // undefined (reading 'length')` on all of them — a white screen for the
+    // length of a deploy, in the render, not in a test-only shape.
+    const api = await aServicedPlan();
+    const older: ProjectApi = {
+      ...api,
+      listTeams: () =>
+        Promise.resolve([
+          { id: api.billing, name: 'Billing' },
+          { id: api.wiring, name: 'Wiring' },
+        ]),
+    };
+    await shown(older);
+
+    // Drawn at all is most of the claim; the box is down because a server that
+    // has never heard of services cannot have been told who owns one.
+    expect(screen.getByLabelText('Built by non-owner only')).toBeDisabled();
+  });
+
   itDom('narrows to the rows a non-owner is building, and not to every labelled row', async () => {
     const api = await aServicedPlan();
     api.ownService(api.wiring, api.checkout);
