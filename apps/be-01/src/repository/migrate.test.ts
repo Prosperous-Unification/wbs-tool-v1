@@ -133,7 +133,7 @@ const SERVICE = '20260821000000_add_service';
  */
 const WORK_ITEM_SERVICE = '20260821080000_add_work_item_service';
 
-const WBS_TABLES =['project', 'work_item', 'role', 'estimate'] as const;
+const WBS_TABLES = ['project', 'work_item', 'role', 'estimate'] as const;
 // Its own migration, reversed with the domain because it references `work_item`.
 const DEPENDENCY_TABLES = ['dependency'] as const;
 // Also its own, and also reversed with the domain: it references `project`.
@@ -2220,7 +2220,12 @@ describe('the not-before reason migration', () => {
         sqlite.close();
       }
 
-      expect(rollbackTo(db.path, FOLDER, ROLE_PROGRESS)).toEqual([WORK_ITEM_SERVICE, SERVICE, TAG, NOT_BEFORE_REASON]);
+      expect(rollbackTo(db.path, FOLDER, ROLE_PROGRESS)).toEqual([
+        WORK_ITEM_SERVICE,
+        SERVICE,
+        TAG,
+        NOT_BEFORE_REASON,
+      ]);
 
       const after = openDatabase(db.path);
       try {
@@ -2445,7 +2450,11 @@ describe('the tag migration', () => {
       runMigrations(db.path, FOLDER);
       seeded(db.path);
 
-      expect(rollbackTo(db.path, FOLDER, NOT_BEFORE_REASON)).toEqual([WORK_ITEM_SERVICE, SERVICE, TAG]);
+      expect(rollbackTo(db.path, FOLDER, NOT_BEFORE_REASON)).toEqual([
+        WORK_ITEM_SERVICE,
+        SERVICE,
+        TAG,
+      ]);
       for (const t of TAG_TABLES) expect(tables(db.path)).not.toContain(t);
 
       const after = openDatabase(db.path);
@@ -2879,10 +2888,9 @@ describe('the work-item-service migration', () => {
     const sqlite = openDatabase(dbPath);
     try {
       return sqlite
-        .query<
-          { service_id: string },
-          [string]
-        >('SELECT service_id FROM work_item_service WHERE work_item_id = ? ORDER BY service_id')
+        .query<{ service_id: string }, [string]>(
+          'SELECT service_id FROM work_item_service WHERE work_item_id = ? ORDER BY service_id',
+        )
         .all(itemId)
         .map((r) => r.service_id);
     } finally {
