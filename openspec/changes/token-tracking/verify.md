@@ -95,7 +95,9 @@ the case that failed and the message it failed on.
 | F8b    | `params.metric` replaced by a hard-coded `'token_actual'` in the measures `PUT`                    | `7df17f8` | `records a figure in each unit against one pair, and clears one without touching the others` **and** `answers 404 for a unit it does not keep, on both verbs, and stores nothing`                 | one row overwritten three times, and `story_points` **written** as a 200 — 56 pass, **2** fail |
 | F8c    | the `holdsKind` guard struck from `DirectoryService.patchPerson`                                   | `4f104d1` | `refuses a kind outside the set before anything is written` **and** `answers 400 invalid_kind for a kind outside the set, rename included`                                                        | a `kind` of `'robot'` reaches the store — 1024 pass, **2** fail                                |
 | F8d    | `...(patch.kind === undefined ? {} : { kind: patch.kind })` struck from the store's one `set`      | `4f104d1` | `writes a name and a kind in one update, and a kind alone in one too`, `marks a person an agent and back, leaving their memberships alone` **and** `marks a person an agent, and marks them back` | the patch answers **200** and stores nothing — 1023 pass, **3** fail                           |
-| F9–F11 | the roll-up and the structure                                                                      | —         | —                                                                                                                                                                                                 | _not yet run_ (sections 5–6)                                                                   |
+| F10a   | `if (held.metric !== metric) continue;` struck from `rollUpMeasures`                               | `8868d6d` | `folds one metric without seeing the others on the same pair` **and** `leaves a role absent per metric rather than reporting it as zero`                                                           | three units summed into one figure — 1034 pass, **2** fail                                     |
+| F10b   | a **recorded** zero dropped on the way in (`if (held.value !== 0) byRole.set(…)`)                   | `8868d6d` | `keeps a recorded zero, which is not the same as nobody having said`                                                                                                                              | `has('dev')` false where somebody recorded a 0 — 1035 pass, 1 fail                             |
+| F11    | the structure                                                                                      | —         | —                                                                                                                                                                                                 | _not yet run_ (section 6, and 5.2–5.3)                                                         |
 
 ### F8b: the fault that says the path segment is load-bearing
 
@@ -193,6 +195,37 @@ person when it names nothing`. One case is the right number: nothing else in
 The asymmetry between the two is the point of `PersonInsert` in one number: one
 case guards the write's optional `kind`, eight guard the read's required one.
 
+### F10a: the metric parameter is the whole function
+
+`rollUpMeasures` takes a metric and filters on it before it folds, and the
+obvious reading of that line is a convenience — the caller could filter instead.
+F10a strikes it at `8868d6d` and the answer is **1034 pass / 2 fail**, on
+`folds one metric without seeing the others on the same pair` and
+`leaves a role absent per metric rather than reporting it as zero`.
+
+What the fault produces is not a wrong total in one unit. It is **one number
+made of three units**: the same `(work_item_id, role_id)` pair holding a
+`token_estimate` of 1000, a `token_actual` of 1400 and an `hours_actual` of 3
+folds to 3 for whichever metric is asked, because the last row written to the
+map wins and the parent sums whatever it finds. Nothing throws, nothing is
+`NaN`, and every figure in the answer is a real recorded figure — it is a plan
+reporting three hours of tokens. The primary key's third column is what stops
+that, and it only stops it if the filter reaching the fold is the one the caller
+asked for.
+
+The second red case is the one that says the filter runs **before** the fold and
+not after: with only a `token_actual` stored, `hours_actual` has to come back
+with `dev` *absent*, and a fold that saw all three units answers it as present.
+
+### F10b: a recorded zero is somebody's statement
+
+`rollUpActuals` keeps a recorded zero and this had to as well, so F10b drops it
+on the way into the map. **1035 pass / 1 fail**, on `keeps a recorded zero,
+which is not the same as nobody having said`. The case asserts `has('dev')`
+rather than the value, deliberately: `0` and `undefined` are both falsy, and a
+test that read the value would have passed under this fault while the payload
+lost the difference between "this role cost nothing" and "nobody has said".
+
 ## The gate
 
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
@@ -218,6 +251,8 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `4b071b6` (2.4, the narrowing)             | `nx run be-01:test`                      | **1028 pass / 0 fail**, 28,164 expect() calls, 75 files |
 | `4b071b6`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                  |
 | `4b071b6`                                  | `nx format:check --all`                  | exit 0                                                  |
+| `8868d6d` (5.1, `rollUpMeasures`)          | `nx run-many -t test lint typecheck`     | **1036 pass / 0 fail**, 28,179 expect() calls, 75 files |
+| `8868d6d`                                  | `nx format:check --all`                  | exit 0, red first (line wrapping)                       |
 
 **Read the test count, not only the pass line.** Chunk 2 gated in `~/wbs-build`
 against a tracking ref stranded at PR #17 and got a green **57 tests across 14

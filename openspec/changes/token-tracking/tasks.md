@@ -180,8 +180,16 @@
 
 ## 5. The roll-up and the payload
 
-- [ ] 5.1 `foldByRole` in `roll-up.ts` gains a third caller rather than a third
+- [x] 5.1 `foldByRole` in `roll-up.ts` gains a third caller rather than a third
       copy — `rollUpMeasures(metric)`, one recursion, generic over the figure.
+      Landed in chunk 10 at `8868d6d`, eight cases. **One metric per call** is
+      the shape the brief's "generic over the figure" turned into: the fold's
+      combine adds two numbers, so the numbers reaching it have to be in one
+      unit, and filtering by metric before the recursion is what makes that true
+      by construction rather than by hoping. Absence stays per metric — a pair
+      holding a `token_actual` and nothing else is absent from `hours_actual` —
+      and a **recorded** zero is kept and summed, as `rollUpActuals` keeps one.
+      **Negatives:** verify.md F10a, F10b.
 - [ ] 5.2 `measures` on every work item in `tree()`: keyed by metric then role,
       its own if a leaf, the sum of its descendants' otherwise, and a metric
       nobody recorded **absent** rather than an empty object.
