@@ -1406,7 +1406,8 @@ describe('a service is undone as the scalar it is, which the tag rule would not 
   }
 
   /** The service on a row, read back the way every face reads it. */
-  const serviceOn = async (id: string): Promise<string | null> => (await found(id))?.serviceId ?? null;
+  const serviceOn = async (id: string): Promise<string | null> =>
+    (await found(id))?.serviceId ?? null;
 
   it('puts a replaced service back', async () => {
     // **The scalar half of D6.** The row carries one service, a patch replaces
