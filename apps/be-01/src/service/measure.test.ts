@@ -183,15 +183,10 @@ describe('recording the figures that are not days', () => {
     // names a unit, and this release keeps no such unit — see `WorkItemRefusal`.
     const strip = await add('Strip');
 
-    // The value is `string` at the route, whatever the signature says; this is
-    // the shape of what arrives.
-    const refused = await service.setMeasure(
-      strip,
-      OWNER,
-      DEV,
-      'tokens_estimate' as 'token_estimate',
-      12_000,
-    );
+    // Passed as the plain string it is at the route: since 4.3 the signature
+    // says `string` too, so this case no longer needs a cast to say what
+    // arrives — it is what arrives.
+    const refused = await service.setMeasure(strip, OWNER, DEV, 'tokens_estimate', 12_000);
 
     expect(refused).toEqual({ ok: false, reason: 'unknown_metric' });
     expect(await measures.listByProject(projectId)).toEqual([]);
@@ -204,7 +199,7 @@ describe('recording the figures that are not days', () => {
     // and answering "done" would confirm it.
     const strip = await add('Strip');
 
-    const refused = await service.clearMeasure(strip, OWNER, DEV, 'hours' as 'hours_actual');
+    const refused = await service.clearMeasure(strip, OWNER, DEV, 'hours');
 
     expect(refused).toEqual({ ok: false, reason: 'unknown_metric' });
   });

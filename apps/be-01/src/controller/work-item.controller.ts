@@ -151,6 +151,36 @@ function parseActual(body: unknown): number {
 }
 
 /**
+ * The one number a figure in a unit other than days is, checked by hand for the
+ * reason at the top of this file and for {@link parseActual}'s.
+ *
+ * **The body key is `value`, not `tokens` or `hours`.** The unit is in the
+ * path — `/measures/token_actual/:roleId` — so a key naming one would be the
+ * same fact twice, and the two could then disagree: `{"hours": 6}` sent to the
+ * `token_actual` path is a request with two answers and no way to pick. One
+ * route serves three metrics precisely because the number is the same shape in
+ * all of them.
+ *
+ * The bounds are `parseActual`'s, and for its reasons: `0` is a statement that
+ * the work cost nothing and is kept, absence is `DELETE`, a negative figure
+ * would subtract from a parent's roll-up, and a non-finite one comes back out
+ * of the column failing every comparison including its own. Nobody spends minus
+ * a token either.
+ *
+ * `invalid_measure` rather than `invalid_actual`: a caller reading the refusal
+ * has three routes it could have come from, and the one it names is the one it
+ * came from.
+ */
+function parseMeasure(body: unknown): number {
+  const raw = asRecord(body);
+  const value: unknown = raw['value'];
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new BadRequest('invalid_measure');
+  }
+  return value;
+}
+
+/**
  * The one state a statement is, checked by hand for the reason at the top of
  * this file and for one of its own.
  *
@@ -393,7 +423,12 @@ const statusFor = (reason: WorkItemRefusal): number =>
         reason === 'unknown_person' ||
         reason === 'unknown_team' ||
         reason === 'unknown_tag' ||
-        reason === 'unknown_service'
+        reason === 'unknown_service' ||
+        // The one refusal on this list that is not an id: a metric outside the
+        // closed set names a unit this release does not keep, and it arrives in
+        // the path exactly as an id does. `WorkItemRefusal` argues why that is
+        // a 404 rather than the 400 the fallthrough would give it.
+        reason === 'unknown_metric'
       ? 404
       : reason === 'cycle' ||
           reason === 'frozen' ||
@@ -1041,6 +1076,102 @@ whole of what that role spent, not a running count.`,
         return { error: 'unauthenticated' };
       }
       const outcome = await workItems.clearActual(params.id, user.id, params.roleId);
+      if (!outcome.ok) {
+        set.status = statusFor(outcome.reason);
+        return { error: outcome.reason };
+      }
+      return { cleared: true };
+    })
+    .put(
+      '/work-items/:id/measures/:metric/:roleId',
+      async ({ params, body, headers, set }) => {
+        const user = await userFromHeaders(auth, headers);
+        if (user === null) {
+          set.status = 401;
+          return { error: 'unauthenticated' };
+        }
+        const value = parseMeasure(body);
+        // `params.metric` is a string and stays one all the way into the
+        // service, which narrows it. Checking the set here as well would put
+        // the closed set in two places that must agree, and the one that
+        // decides is the one beside the write.
+        const outcome = await workItems.setMeasure(
+          params.id,
+          user.id,
+          params.roleId,
+          params.metric,
+          value,
+        );
+        if (!outcome.ok) {
+          set.status = statusFor(outcome.reason);
+          return { error: outcome.reason };
+        }
+        return { recorded: true };
+      },
+      {
+        detail: {
+          summary: 'Record one role’s figure on one work item, in a unit other than days',
+          description: `**Written by agents, not typed by people.** Dany, 2026-08-21:
+_"Tokens are to be set by LLM. So they do not require a separate input to be
+imputed by humans."_ This route is the product surface for token figures — there
+is no cell in the grid to type them into, and the reading surfaces are columns
+and roll-ups. Hours are the same shape and arrive the same way.
+
+**Reporting only. This moves no date.** The scheduler plans in days against team
+capacity, and nothing in the engine reads these numbers: tokens are not a
+substitutable unit of capacity, so an item recorded as having taken 900k tokens
+leaves every successor exactly where it was.
+
+**Three units, one route.** \`metric\` is one of \`token_estimate\` (the tokens
+a role's work is expected to take), \`token_actual\` (the tokens it took) and
+\`hours_actual\` (the hours it took). Anything else is \`unknown_metric\`, **404**
+— the path names a unit this release does not keep, which is a thing that is not
+there rather than a malformed request.
+
+**One number, per role, on a leaf.** A figure on a row that has children is
+\`rolled_up\`, 409 — a parent's figure is the sum of its descendants'. A
+\`roleId\` that is not a role of this project is \`unknown_role\`, 404. A body
+without a finite \`value\` of 0 or more is \`invalid_measure\`, 400.
+
+**Each metric stands alone.** Recording a \`token_actual\` leaves that pair's
+\`token_estimate\` and \`hours_actual\` exactly as they were, and clearing one
+clears one.
+
+**Zero is a statement and absence is not.** Recording 0 says the work cost
+nothing in this unit. Saying nobody has recorded anything is \`DELETE\` on this
+path — never a zero.`,
+          requestBody: handParsedBody('The figure this role’s work cost, in the unit named by the path.', {
+            type: 'object',
+            required: ['value'],
+            properties: {
+              value: {
+                type: 'number',
+                minimum: 0,
+                description:
+                  'The figure, in the unit the path names. Fractions are accepted, as they are for days. 0 means the work cost nothing in this unit, which is not the same as never having said.',
+              },
+            },
+          }),
+        },
+      },
+    )
+    .delete('/work-items/:id/measures/:metric/:roleId', async ({ params, headers, set }) => {
+      // Guarded exactly as the PUT above. Clearing a figure that was never
+      // recorded answers 200, for the reason the estimate's DELETE gives; a
+      // missing work item is still 404, and a **metric this release does not
+      // keep is still 404** rather than a success — idempotence is about a row
+      // that is not there, not about a unit that does not exist.
+      const user = await userFromHeaders(auth, headers);
+      if (user === null) {
+        set.status = 401;
+        return { error: 'unauthenticated' };
+      }
+      const outcome = await workItems.clearMeasure(
+        params.id,
+        user.id,
+        params.roleId,
+        params.metric,
+      );
       if (!outcome.ok) {
         set.status = statusFor(outcome.reason);
         return { error: outcome.reason };

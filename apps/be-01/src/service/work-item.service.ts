@@ -2337,7 +2337,14 @@ export class WorkItemService {
     id: string,
     actorId: string,
     roleId: string,
-    metric: MeasureMetric,
+    /**
+     * `string`, not {@link MeasureMetric}, and that is the honest type: this
+     * value arrives as a path segment, so the caller genuinely has a string and
+     * a narrower signature would only move the assertion to the route — where
+     * `unknown_metric` would then be unreachable through the API it exists for.
+     * {@link holdsMetric} narrows it here, once, for both methods.
+     */
+    metric: string,
     value: number,
   ): Promise<WorkItemOutcome<null>> {
     if (!holdsMetric(metric)) return { ok: false, reason: 'unknown_metric' };
@@ -2391,7 +2398,8 @@ export class WorkItemService {
     id: string,
     actorId: string,
     roleId: string,
-    metric: MeasureMetric,
+    /** `string` for {@link WorkItemService.setMeasure}'s reason. */
+    metric: string,
   ): Promise<WorkItemOutcome<null>> {
     if (!holdsMetric(metric)) return { ok: false, reason: 'unknown_metric' };
     const context = await this.contextFor(id, actorId);

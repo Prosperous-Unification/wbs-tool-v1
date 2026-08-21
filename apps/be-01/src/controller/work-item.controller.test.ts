@@ -96,11 +96,17 @@ function buildHarness() {
     );
   }
 
-  return { register, send };
+  // The measure store rides out with the harness because **nothing reads these
+  // figures back through the API yet** — the tree payload carries them in
+  // section 5, and until it does a route test that asserted through a read
+  // would be asserting against a read that does not exist. Every other store
+  // stays private, as it should: this one is temporary and section 5 takes it
+  // out again.
+  return { register, send, measures: measureStore };
 }
 
 async function setup() {
-  const { register, send } = buildHarness();
+  const { register, send, measures } = buildHarness();
   const token = await register('owner');
   const created = await send('/api/projects', token, {
     method: 'POST',
@@ -116,7 +122,7 @@ async function setup() {
   const devId = body.roles.find((each) => each.name === 'Dev')?.id;
   const qaId = body.roles.find((each) => each.name === 'QA')?.id;
   if (devId === undefined || qaId === undefined) throw new Error('a project without its roles');
-  return { token, send, projectId: body.project.id, devId, qaId };
+  return { token, send, measures, projectId: body.project.id, devId, qaId };
 }
 
 describe('work item routes', () => {
@@ -1448,6 +1454,179 @@ describe('recording the days a role actually spent', () => {
     const res = await send(`/api/work-items/${crypto.randomUUID()}/actuals/${devId}`, token, {
       method: 'DELETE',
     });
+
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: string }).toEqual({ error: 'not_found' });
+  });
+});
+
+describe('recording what a role’s work cost in tokens and hours', () => {
+  const make = async (
+    send: (p: string, t: string, i?: { method?: string; body?: string }) => Promise<Response>,
+    token: string,
+    projectId: string,
+    name: string,
+    parentId: string | null,
+  ): Promise<string> => {
+    const res = await send(`/api/projects/${projectId}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ parentId, afterId: null, name }),
+    });
+    return ((await res.json()) as { id: string }).id;
+  };
+
+  /**
+   * Read off the store, not off the tree: the payload carries these figures in
+   * section 5 and does not yet. Without the `recordedAt` — the moment is the
+   * clock's, and asserting it here would be asserting about `Date.now()`.
+   */
+  const stored = (rows: { workItemId: string; roleId: string; metric: string; value: number }[]) =>
+    rows.map(({ workItemId, roleId, metric, value }) => ({ workItemId, roleId, metric, value }));
+
+  it('records a figure in each unit against one pair, and clears one without touching the others', async () => {
+    const { token, send, measures, projectId, devId } = await setup();
+    const strip = await make(send, token, projectId, 'Strip', null);
+
+    for (const [metric, value] of [
+      ['token_estimate', 400_000],
+      ['token_actual', 512_345],
+      ['hours_actual', 6],
+    ] as const) {
+      const res = await send(`/api/work-items/${strip}/measures/${metric}/${devId}`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ value }),
+      });
+      expect([metric, res.status]).toEqual([metric, 200]);
+      expect((await res.json()) as { recorded: boolean }).toEqual({ recorded: true });
+    }
+
+    // Three rows on one pair, each in its own unit — the whole point of the
+    // metric in the path reaching the write, rather than one row overwritten
+    // three times.
+    expect(stored(await measures.listByProject(projectId))).toEqual([
+      { workItemId: strip, roleId: devId, metric: 'token_estimate', value: 400_000 },
+      { workItemId: strip, roleId: devId, metric: 'token_actual', value: 512_345 },
+      { workItemId: strip, roleId: devId, metric: 'hours_actual', value: 6 },
+    ]);
+
+    const cleared = await send(`/api/work-items/${strip}/measures/token_actual/${devId}`, token, {
+      method: 'DELETE',
+    });
+
+    expect(cleared.status).toBe(200);
+    expect((await cleared.json()) as { cleared: boolean }).toEqual({ cleared: true });
+    expect(stored(await measures.listByProject(projectId))).toEqual([
+      { workItemId: strip, roleId: devId, metric: 'token_estimate', value: 400_000 },
+      { workItemId: strip, roleId: devId, metric: 'hours_actual', value: 6 },
+    ]);
+  });
+
+  it('refuses a body that is not a finite figure, and one below zero', async () => {
+    // `value: 0` is deliberately not in the list: recording zero says the work
+    // cost nothing in this unit, and the route accepts it. Absence is `DELETE`.
+    const { token, send, measures, projectId, devId } = await setup();
+    const strip = await make(send, token, projectId, 'Strip', null);
+
+    for (const body of ['{}', '{"value":"400000"}', '{"value":-1}', '{"value":null}', '{"tokens":5}']) {
+      const res = await send(`/api/work-items/${strip}/measures/token_actual/${devId}`, token, {
+        method: 'PUT',
+        body,
+      });
+      expect([body, res.status]).toEqual([body, 400]);
+      expect((await res.json()) as { error: string }).toEqual({ error: 'invalid_measure' });
+    }
+    expect(await measures.listByProject(projectId)).toEqual([]);
+
+    const zero = await send(`/api/work-items/${strip}/measures/token_actual/${devId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ value: 0 }),
+    });
+    expect(zero.status).toBe(200);
+    expect(stored(await measures.listByProject(projectId))).toEqual([
+      { workItemId: strip, roleId: devId, metric: 'token_actual', value: 0 },
+    ]);
+  });
+
+  it('answers 404 for a unit it does not keep, on both verbs, and stores nothing', async () => {
+    // The refusal this route pair has and the actuals' does not. 404 rather
+    // than 400 — the path names a unit, and this release keeps no such unit.
+    // The DELETE half matters on its own: a clear of a metric that does not
+    // exist is not the idempotent clear of a row that is not there.
+    const { token, send, measures, projectId, devId } = await setup();
+    const strip = await make(send, token, projectId, 'Strip', null);
+
+    const written = await send(`/api/work-items/${strip}/measures/tokens_estimate/${devId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ value: 12_000 }),
+    });
+    const cleared = await send(`/api/work-items/${strip}/measures/story_points/${devId}`, token, {
+      method: 'DELETE',
+    });
+
+    expect([written.status, cleared.status]).toEqual([404, 404]);
+    expect((await written.json()) as { error: string }).toEqual({ error: 'unknown_metric' });
+    expect((await cleared.json()) as { error: string }).toEqual({ error: 'unknown_metric' });
+    expect(await measures.listByProject(projectId)).toEqual([]);
+  });
+
+  it('refuses a row that has children with 409, and a role that is not there with 404', async () => {
+    const { token, send, projectId, devId } = await setup();
+    const strip = await make(send, token, projectId, 'Strip', null);
+    const sockets = await make(send, token, projectId, 'Sockets', strip);
+
+    const rolled = await send(`/api/work-items/${strip}/measures/token_actual/${devId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ value: 900 }),
+    });
+    // On the leaf, for the actuals' reason: the parent answers `rolled_up`
+    // first, so a case that read 409 twice would say nothing about the role.
+    const unknown = await send(
+      `/api/work-items/${sockets}/measures/token_actual/${crypto.randomUUID()}`,
+      token,
+      { method: 'PUT', body: JSON.stringify({ value: 900 }) },
+    );
+
+    expect([rolled.status, unknown.status]).toEqual([409, 404]);
+    expect((await rolled.json()) as { error: string }).toEqual({ error: 'rolled_up' });
+    expect((await unknown.json()) as { error: string }).toEqual({ error: 'unknown_role' });
+  });
+
+  it('refuses an unauthenticated caller on both verbs, and leaves the figure alone', async () => {
+    // Without the read afterwards this passes against a route that answers 401
+    // *after* having written or cleared the row.
+    const { token, send, measures, projectId, devId } = await setup();
+    const strip = await make(send, token, projectId, 'Strip', null);
+    await send(`/api/work-items/${strip}/measures/token_actual/${devId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ value: 512_345 }),
+    });
+
+    const written = await send(
+      `/api/work-items/${strip}/measures/token_actual/${devId}`,
+      'not-a-token',
+      { method: 'PUT', body: JSON.stringify({ value: 1 }) },
+    );
+    const cleared = await send(
+      `/api/work-items/${strip}/measures/token_actual/${devId}`,
+      'not-a-token',
+      { method: 'DELETE' },
+    );
+
+    expect([written.status, cleared.status]).toEqual([401, 401]);
+    expect(stored(await measures.listByProject(projectId))).toEqual([
+      { workItemId: strip, roleId: devId, metric: 'token_actual', value: 512_345 },
+    ]);
+  });
+
+  it('answers this route’s own 404 for a work item that is not there', async () => {
+    // The body, not just the status: Elysia answers an unmatched route with a
+    // 404 of its own, so a status-only assertion passes with the route deleted.
+    const { token, send, devId } = await setup();
+    const res = await send(
+      `/api/work-items/${crypto.randomUUID()}/measures/token_actual/${devId}`,
+      token,
+      { method: 'DELETE' },
+    );
 
     expect(res.status).toBe(404);
     expect((await res.json()) as { error: string }).toEqual({ error: 'not_found' });
