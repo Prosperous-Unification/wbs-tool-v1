@@ -120,11 +120,15 @@
 
 ## 7. The rest of fe-01
 
-- [ ] 7.1 The service cell in `wbs-table.tsx` — a single-select picker, blank =
-      inherit, with the quiet non-owner marker on the cell. No inline create:
-      the directory page is the surface, `tags` 6.1's non-goal for its reasons.
-- [ ] 7.2 The assignee cell's quiet marker for `assignedOutsideTeam`, on the
-      cell the signal is about. Both markers carry a hover sentence naming which
+- [x] 7.1 The service cell in `wbs-table.tsx` — a single-select picker, blank =
+      inherit. No inline create: the directory page is the surface, `tags` 6.1's
+      non-goal for its reasons. **Split**: the quiet non-owner marker moved to
+      7.2, which builds the other one. Two markers that must carry the same
+      kind of hover sentence are one piece of work, and writing the first
+      without the second is how they end up phrased differently.
+- [ ] 7.2 **Both** quiet markers: `builtByNonOwner` on the service cell (moved
+      from 7.1) and `assignedOutsideTeam` on the assignee cell, each on the cell
+      its signal is about. Both markers carry a hover sentence naming which
       team and which service or person — a marker that cannot say why is a
       mystery, not a signal.
 - [ ] 7.3 `plan-cards.tsx`: the `↳` inherited chip for the service dimension,
@@ -138,7 +142,7 @@
       test reads for `member` and for a number box and finds neither.
 - [x] 7.6 `lib/wbs-api.ts`: `serviceId` on the work-item wire type,
       `ServiceView`, `serviceIds` on `TeamView`.
-- [ ] 7.7 The table-width budget rule — **exempted, and the exemption names what
+- [x] 7.7 The table-width budget rule — **exempted, and the exemption names what
       it exempts**: `CONDITIONAL_COLUMNS` in `table-frame.ts` keeps `service`
       out of `FIXED_COLUMNS`, so `foldedTableMinWidth` answers exactly what it
       did before this change. Asserted, not assumed.
