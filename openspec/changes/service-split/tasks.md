@@ -133,7 +133,7 @@
       7.2, which builds the other one. Two markers that must carry the same
       kind of hover sentence are one piece of work, and writing the first
       without the second is how they end up phrased differently.
-- [ ] 7.2 **Both** quiet markers: `builtByNonOwner` on the service cell (moved
+- [x] 7.2 **Both** quiet markers: `builtByNonOwner` on the service cell (moved
       from 7.1) and `assignedOutsideTeam` on the assignee cell, each on the cell
       its signal is about. Both markers carry a hover sentence naming which
       team and which service or person — a marker that cannot say why is a
