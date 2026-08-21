@@ -191,12 +191,13 @@
 - [x] 5.4 `kind` on every person in the directory payload. Landed with the 2.4
       narrowing in chunk 9, because they are one claim: the payload is
       `listPeople()` spread whole, so the be-01 half needed an assertion rather
-      than code, and `answers a kind for a person nobody has patched, on the
-    create and on the list` is it — both `POST /api/people` and
-      `GET /api/people`, since one answers the row it wrote and the other
-      re-reads. The OpenAPI document is unchanged and was regenerated to prove
-      it: neither route schemas its response. **fe-01's `PersonView` still has
-      no `kind`** — that is 7.1's, and nothing in fe-01 reads the field yet.
+      than code. The case is `answers a kind for a person nobody has patched`,
+      and it reads both `POST /api/people` and `GET /api/people` — one answers
+      the row it wrote, the other re-reads, and a default appearing on only one
+      of them would send a client's fallback back into the fe. The OpenAPI
+      document is unchanged and was regenerated to prove it: neither route
+      schemas its response. **fe-01's `PersonView` still has no `kind`** — that
+      is 7.1's, and nothing in fe-01 reads the field yet.
 
 ## 6. The structure
 
