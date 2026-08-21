@@ -112,14 +112,24 @@ const NOT_BEFORE_REASON = '20260818090000_add_not_before_reason';
  */
 const TAG = '20260819120000_add_tag';
 /**
- * The newest. Two tables **and** a column, which is a first: `work_item.service_id`
- * is dropped before `service`, because a column that references a table cannot
+ * Two tables **and** a column, which was a first: `work_item.service_id` is
+ * dropped before `service`, because a column that references a table cannot
  * outlive it by even one statement.
  *
  * Stamped `20260821000000`, later than all twenty-two folders on disk when it was
  * written, checked for a duplicate before the folder existed.
  */
 const SERVICE = '20260821000000_add_service';
+/**
+ * The newest, and the one that widens the service dimension to a set eight hours
+ * after the folder above shipped it as one column. It adds a table and drops
+ * nothing: the column it seeds from is still selected by the outgoing release
+ * during a blue/green swap, so it survives to a later migration.
+ *
+ * Stamped `20260821080000`, later than all twenty-three folders on disk when it
+ * was written, checked for a duplicate before the folder existed.
+ */
+const WORK_ITEM_SERVICE = '20260821080000_add_work_item_service';
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-migrate-down-'));
@@ -212,6 +222,7 @@ describe('readMigrationFolders', () => {
       ROLE_PROGRESS,
       NOT_BEFORE_REASON,
       TAG,
+      WORK_ITEM_SERVICE,
       SERVICE,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
@@ -308,12 +319,14 @@ describe('rollbackTo, against a real database', () => {
         ROLE_PROGRESS,
         NOT_BEFORE_REASON,
         TAG,
+        WORK_ITEM_SERVICE,
         SERVICE,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
         NOT_BEFORE_REASON,
@@ -381,6 +394,7 @@ describe('rollbackTo, against a real database', () => {
         ROLE_PROGRESS,
         NOT_BEFORE_REASON,
         TAG,
+        WORK_ITEM_SERVICE,
         SERVICE,
       ]);
     } finally {
@@ -395,6 +409,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
         NOT_BEFORE_REASON,
@@ -447,7 +462,7 @@ describe('rollbackTo, against a real database', () => {
       // *and* answers `[]` when there is genuinely something to reverse. Reading
       // `[]` as correct is only safe while every stamp is unique, which
       // `readMigrationFolders` now enforces.
-      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([]);
+      expect(rollbackTo(db.path, FOLDER, WORK_ITEM_SERVICE)).toEqual([]);
       expect(tables(db.path)).toContain('users');
     } finally {
       db.cleanup();

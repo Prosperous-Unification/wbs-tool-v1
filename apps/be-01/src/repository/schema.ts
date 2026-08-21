@@ -275,21 +275,30 @@ export const workItem = sqliteTable(
      * read through {@link workItemTeam}: a row states its team and its service
      * separately, and either may be blank. {@link service} is what it points at.
      *
-     * **A column and not a join table, which is the design stating the
-     * cardinality rather than a comment stating it** — one service per item
-     * (`service-split`'s design.md D2). {@link workItemTag} holds a set because
-     * a tag is many-valued; a join table with a `work_item_id` unique index
-     * would say _one_ in a weaker way, read as many-valued to anybody scanning
-     * the schema, and make every read a group-by returning arrays of length ≤ 1.
-     * The **domain** reading is still set-shaped — `effectiveServicesOf` hands
-     * the shared walk a singleton set — so widening to many later is a migration
-     * plus a read, not a redesign of the inheritance.
+     * **Superseded by {@link workItemService}, and still here on purpose.** This
+     * column was the dimension's first store, chosen so the schema stated the
+     * cardinality rather than a comment stating it — one service per item. Dany
+     * widened that to a set on 2026-08-21 (_"can be several services"_), the same
+     * argument then pointed straight at the join table it had rejected, and
+     * `20260821080000_add_work_item_service` seeded one from this column. The
+     * paragraph that made the widening cost a read instead of a redesign was the
+     * one saying the **domain** reading was set-shaped all along:
+     * `effectiveServicesOf` handed the shared walk a singleton, so nothing about
+     * the inheritance had to move.
+     *
+     * It survives the widening because blue and green share one SQLite file
+     * during a swap and the outgoing release still selects and writes it.
+     * Dropping it is a later migration, once no running release names it — the
+     * same additive rule {@link serviceTeam}'s wrong name follows (design.md D2,
+     * amended, and D9).
      *
      * **`ON DELETE SET NULL`, never `CASCADE`: deleting a service must not
      * delete work items.** It is also what makes the directory's removal effect
      * `label_nulled` rather than `label_removed` — a column is nulled, a set
      * member is removed, and `directory-usage.ts` already tells those two
-     * sentences apart.
+     * sentences apart. That is still the true sentence while this column is the
+     * one a reader is told about; it becomes `label_removed` when the read moves
+     * to {@link workItemService} (tasks 10.2 and 10.5), not before.
      *
      * **Blank means inherit**, exactly as it does for teams and tags: a row with
      * no service takes its nearest ancestor's, and a row with one overrides it.
@@ -860,6 +869,75 @@ export const teamService = sqliteTable(
 );
 
 export type TeamServiceRow = typeof teamService.$inferSelect;
+
+/**
+ * Which services one work item is delivered for — **several**, and independently
+ * of its teams and its tags.
+ *
+ * Dany, 2026-08-21: _"can be several services."_ {@link workItem.serviceId} was
+ * this dimension's first store and held exactly one; this table is the same fact
+ * widened, and it is {@link workItemTag} line for line because the cardinality is
+ * now the same.
+ *
+ * **The column above is still there and is not read here.** Blue and green share
+ * one SQLite file during a swap: the outgoing release selects
+ * `work_item.service_id` on every tree read and writes it on every patch, so the
+ * migration that adds this table leaves the column standing and merely stops
+ * being interested in it. Dropping it is a later migration, once no running
+ * release names it — the additive rule `service_team`'s surviving name already
+ * follows (`service-split`'s design.md D2 and D9).
+ *
+ * **Seeded from that column, so the widening loses nothing.** Every row with a
+ * stated service arrives here carrying it, and the set the reader gets after the
+ * migration is the singleton it got before. A migration that created this table
+ * empty would have unlabelled every plan on the box in the name of a wider type.
+ *
+ * The pair is the primary key because the pair is the fact: "this work item is
+ * delivered for Payments" is either stated or not, and a second row saying it
+ * again would be a second answer to one question.
+ *
+ * **Both sides cascade**, and each side's reason is {@link workItemTag}'s
+ * unchanged. `work_item_id`: the outgoing release's plain `DELETE FROM work_item`
+ * must not hit a constraint it cannot see. `service_id`: a service is a label,
+ * deleting the label should take the labelling with it, and there is nothing to
+ * count that the label itself was not — `DELETE /api/services/:id` still counts
+ * what it would unlabel and still refuses with 409 unless `?cascade=1`, for the
+ * person pressing the button rather than for the integrity of anything.
+ *
+ * The cascade is also the one behaviour that changes for a reader on the day this
+ * lands: {@link workItem.serviceId} nulls on a service delete
+ * (`ON DELETE SET NULL`) and a row here is _removed_, so the directory's effect
+ * kind becomes `label_removed` — with the read path, not with this table, since
+ * until then it is the column a reader is told about (tasks 10.2 and 10.5).
+ *
+ * **Inheritance is not stored here**, exactly as it is not stored for teams or
+ * tags: a work item with no rows in this table inherits its nearest ancestor's
+ * services, one with rows overrides them, and `effectiveServicesOf` computes that
+ * on every read. Blank means inherit; there is no third "deliberately none"
+ * state.
+ *
+ * Indexed by `service_id`, because the directory asks "what would removing this
+ * service touch" of every project at once and the primary key answers only the
+ * other direction — {@link workItemTag}'s `work_item_tag_by_tag`, one dimension
+ * over.
+ */
+export const workItemService = sqliteTable(
+  'work_item_service',
+  {
+    workItemId: text('work_item_id')
+      .notNull()
+      .references(() => workItem.id, { onDelete: 'cascade' }),
+    serviceId: text('service_id')
+      .notNull()
+      .references(() => service.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workItemId, t.serviceId] }),
+    index('work_item_service_by_service').on(t.serviceId),
+  ],
+);
+
+export type WorkItemServiceRow = typeof workItemService.$inferSelect;
 
 /**
  * How many of one team may be at work at once **on one project's plan**.

@@ -1,0 +1,41 @@
+-- Reverses 20260821080000_add_work_item_service.
+--
+-- **What comes back is the cardinality, and that is the whole of the loss.**
+-- `work_item.service_id` was never dropped — the forward migration left it
+-- standing for the blue/green swap — so a rollback returns the dimension to one
+-- service per item rather than to no services at all. A row that stated one
+-- service still states it afterwards, out of the column it was seeded from.
+--
+-- What does not survive is a row's **second and later** services, and nothing
+-- copies them back into the column first. That is deliberate: the column holds
+-- one id and any choice of which of three services to keep would be this
+-- migration inventing somebody's answer. A rollback of a widening narrows, and
+-- narrowing is lossy in exactly the way the widening was not.
+--
+-- **No date moves, either way.** The scheduler reads work items, estimates,
+-- dependencies, capacity and the calendar, and reads neither this table nor the
+-- column it was seeded from — the defining property of the dimension, asserted
+-- forward by `service-empty-diff.test.ts` rather than claimed here. A plan
+-- scheduled before this rollback and the same plan after come out identical.
+--
+-- Nothing else is touched in the stronger sense either: no write to
+-- `work_item_service` has ever written to a team, a tag, an estimate, an actual,
+-- a progress state or a date.
+--
+-- The filter degrades rather than breaks, `work_item_tag`'s own arm one
+-- dimension over: `FilterCriteria.serviceIds` is a field on a request,
+-- `narrowTree`'s predicate matches the effective reading of labels that are
+-- fewer than they were, and a saved view naming a service a row has lost reads
+-- as a facet that now narrows to nothing.
+--
+-- Undo and redo stay pressable and one arm is lossy: `command_journal` is not
+-- touched, so every entry survives, but an entry journalling a prior set of two
+-- services replays into a store that can hold one. That is the position every
+-- rollback of an additive migration leaves its own kinds in.
+--
+-- The index goes with the table it is on, and both go while `service` and
+-- `work_item` are still standing — this migration added no column and no table
+-- that anything else references, so there is no ordering constraint here beyond
+-- the index preceding its table.
+DROP INDEX IF EXISTS `work_item_service_by_service`;--> statement-breakpoint
+DROP TABLE IF EXISTS `work_item_service`;
