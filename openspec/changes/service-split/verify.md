@@ -51,19 +51,19 @@ Run on **h2puni** over plain ssh at `6b7895b`, in
 matched against the branch head at both ends. Nothing was compiled or tested on
 h1claw; that box denies both (`bin/block-local-builds.sh`).
 
-| target                                                        | result                                                                                                                                                    |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bunx nx run-many -t lint typecheck --parallel=1 --skip-nx-cache` | **22 projects**, exit 0                                                                                                                                       |
-| be-01 unit (bun **1.3.14**, in `apps/be-01`)                      | **975 pass, 0 fail**, 28,023 `expect()` calls, **73 files**, 23.82s                                                                                            |
-| gw-01 unit (bun 1.3.14)                                           | **45 pass, 0 fail**, 86 `expect()` calls, 8 files                                                                                                             |
-| `libs/domain` unit (bun 1.3.14)                                   | **118 pass, 0 fail**, 320 `expect()` calls, 9 files                                                                                                           |
-| fe-01 unit (`node vitest run`)                                    | **1,584 pass across 53 files, 0 fail**, 70.33s                                                                                                                |
-| `bunx nx format:check`                                            | exit 0                                                                                                                                                        |
-| `bunx @fission-ai/openspec@1.3.0 validate --all --strict`         | **71 items, 71 passed, 0 failed**                                                                                                                             |
-| `migration-lint` / `doc-caps` / `plaintext-secrets` (lefthook, `--all-files`) | all three ✔                                                                                                                                    |
-| lefthook `lint` (`--all-files`, wider than the nx target)         | **2 errors, 1 warning** — both errors pre-existing and neither in this diff; the warning is this branch's. See _Carried findings_.                             |
-| `bunx nx run-many -t build`                                       | **not run here** — `tool-bootstrap` and `tool-devsync` refuse without `shellcheck`, absent on h2puni. CI runs it and is the gate of record.                     |
-| fe-01 e2e (`pixels`)                                              | CI.                                                                                                                                                           |
+| target                                                                        | result                                                                                                                                      |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bunx nx run-many -t lint typecheck --parallel=1 --skip-nx-cache`             | **22 projects**, exit 0                                                                                                                     |
+| be-01 unit (bun **1.3.14**, in `apps/be-01`)                                  | **975 pass, 0 fail**, 28,023 `expect()` calls, **73 files**, 23.82s                                                                         |
+| gw-01 unit (bun 1.3.14)                                                       | **45 pass, 0 fail**, 86 `expect()` calls, 8 files                                                                                           |
+| `libs/domain` unit (bun 1.3.14)                                               | **118 pass, 0 fail**, 320 `expect()` calls, 9 files                                                                                         |
+| fe-01 unit (`node vitest run`)                                                | **1,584 pass across 53 files, 0 fail**, 70.33s                                                                                              |
+| `bunx nx format:check`                                                        | exit 0                                                                                                                                      |
+| `bunx @fission-ai/openspec@1.3.0 validate --all --strict`                     | **71 items, 71 passed, 0 failed**                                                                                                           |
+| `migration-lint` / `doc-caps` / `plaintext-secrets` (lefthook, `--all-files`) | all three ✔                                                                                                                                 |
+| lefthook `lint` (`--all-files`, wider than the nx target)                     | **2 errors, 1 warning** — both errors pre-existing and neither in this diff; the warning is this branch's. See _Carried findings_.          |
+| `bunx nx run-many -t build`                                                   | **not run here** — `tool-bootstrap` and `tool-devsync` refuse without `shellcheck`, absent on h2puni. CI runs it and is the gate of record. |
+| fe-01 e2e (`pixels`)                                                          | CI.                                                                                                                                         |
 
 The bun version is quoted beside the counts deliberately: same tree, 1.2.20 and
 1.3.14 print different `expect()` totals (#58's verify.md measured it both ways).
@@ -105,48 +105,48 @@ not `git diff`.**
 
 ### Section 1 — the tables and the migration
 
-| fault                                                     | printed                                                                                                     |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `ON DELETE SET NULL` → `CASCADE` on `work_item.service_id` | **929 pass, 1 fail** — `keeps the work items when a service is removed`, `Received: undefined` for the item's name. Deleting a service had deleted somebody's plan. |
+| fault                                                      | printed                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ON DELETE SET NULL` → `CASCADE` on `work_item.service_id` | **929 pass, 1 fail** — `keeps the work items when a service is removed`, `Received: undefined` for the item's name. Deleting a service had deleted somebody's plan.                                                                                                     |
 | `DROP TABLE IF EXISTS team_service` struck from `down.sql` | **908 pass, 22 fail**. The target case saw `team_service` still in the table list after a rollback that reported success; the other 21 are the blast radius — an orphan join whose FK points at a dropped table blocks the reversal of nearly every migration under it. |
 
 ### Section 2 — the effective reading
 
-| fault                                                       | printed                                                                                                            |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| shared walk made **union, ancestor-first** (`[...above, ...stated]`) | **92 pass, 8 fail**, three of them the service dimension's own — a leaf's own service losing to its parent's, the nearer-ancestor case, and the three-dimension independence case. |
+| fault                                                                | printed                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| shared walk made **union, ancestor-first** (`[...above, ...stated]`) | **92 pass, 8 fail**, three of them the service dimension's own — a leaf's own service losing to its parent's, the nearer-ancestor case, and the three-dimension independence case.                                                           |
 | shared walk made **union, own-first** (`[...stated, ...above]`)      | **94 pass, 6 fail** and **none of the service cases among them** — the single-valued read took `labelIds[0]`, still the row's own id. Recorded as D3: a single-valued read over a set-shaped walk narrows what a fault in the walk can show. |
-| D3's blind spot **re-injected after the widening** (chunk 13)        | **109 pass, 9 fail**, three of them `effectiveServicesOf`'s own including the two-against-two override. Before the widening the same fault contributed none. Baseline back to **118 / 0** on revert. |
+| D3's blind spot **re-injected after the widening** (chunk 13)        | **109 pass, 9 fail**, three of them `effectiveServicesOf`'s own including the two-against-two override. Before the widening the same fault contributed none. Baseline back to **118 / 0** on revert.                                         |
 
 ### Section 3 — the write path and the undo journal
 
-| fault                                                    | printed                                                                                                        |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| the array habit — `out.serviceId = [before.serviceId]`     | does not compile: `TS2322: Type '(string \| null)[]' is not assignable to type 'string'`. Cast past it: **74 pass, 2 fail**, both `SQLite query expected 2 values, received 1` — the undo **throws** rather than silently unlabelling, which is not what D6 predicted and the comment now says so. |
-| `fieldsOf`'s service line deleted                          | **3 fail** at `expectDone` — `refused: stale_undo`, an undo reaching past an unjournalled write to an entry that write had already made stale.                                                                                        |
-| the store's `patch.serviceId === undefined` guard deleted  | **4 fail**, `Expected: "<id>" / Received: null` — a patch naming only another field unlabelling the row.                                                                                                                             |
+| fault                                                     | printed                                                                                                                                                                                                                                                                                            |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the array habit — `out.serviceId = [before.serviceId]`    | does not compile: `TS2322: Type '(string \| null)[]' is not assignable to type 'string'`. Cast past it: **74 pass, 2 fail**, both `SQLite query expected 2 values, received 1` — the undo **throws** rather than silently unlabelling, which is not what D6 predicted and the comment now says so. |
+| `fieldsOf`'s service line deleted                         | **3 fail** at `expectDone` — `refused: stale_undo`, an undo reaching past an unjournalled write to an entry that write had already made stale.                                                                                                                                                     |
+| the store's `patch.serviceId === undefined` guard deleted | **4 fail**, `Expected: "<id>" / Received: null` — a patch naming only another field unlabelling the row.                                                                                                                                                                                           |
 
 ### Section 4 — the directory, the services card, the ownership map
 
-| fault                                                            | printed                                                                                                     |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `bumpWorkItems` struck from `removeService`                        | **950 pass, 1 fail** — `nulls the column on ?cascade and moves every row's revision`. Without the bump a journal entry holding the old number undoes against a row whose service changed under it. |
-| `directoryUsageOfService` naming every row, not the stating rows   | **949 pass, 2 fail** — the two service-level cases caught it and the route-level 409 test **did not**, because its project holds one work item and that row carries the label. A confirmation test needs a row that is _not_ affected in it. |
-| the `unknown_service` check struck from `inMemoryWorkItems`        | **950 pass, 1 fail** — 4.6's own case, which is what proves the fixture debt was actually paid.                                                                                                     |
-| service validation moved **below** the rename                      | **2 fail** — route and service, both with `Renamed` sitting in the table after a patch that answered `unknown_service`. Returning from a drizzle transaction callback commits it.                    |
-| `if (wanted !== null)` narrowed to `wanted.length > 0`             | **1 fail** — `replaces the whole owned set, and an empty array clears it`. Only the route-level case caught it; repository and service have no clearing case.                                        |
-| the announce guard struck (map edit announced like a rename)       | **1 fail** — `editing the ownership map announces nothing`.                                                                                                                                        |
-| **the scheduler reading a service as a team** (`effectiveTeamsOf` fed `teamIds: [serviceId]`) | **2 pass, 2 fail** — the delete claim _and its control_. The control failing is the fault stated plainly: the plan's dates stop answering to the team at all.                       |
+| fault                                                                                         | printed                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bumpWorkItems` struck from `removeService`                                                   | **950 pass, 1 fail** — `nulls the column on ?cascade and moves every row's revision`. Without the bump a journal entry holding the old number undoes against a row whose service changed under it.                                           |
+| `directoryUsageOfService` naming every row, not the stating rows                              | **949 pass, 2 fail** — the two service-level cases caught it and the route-level 409 test **did not**, because its project holds one work item and that row carries the label. A confirmation test needs a row that is _not_ affected in it. |
+| the `unknown_service` check struck from `inMemoryWorkItems`                                   | **950 pass, 1 fail** — 4.6's own case, which is what proves the fixture debt was actually paid.                                                                                                                                              |
+| service validation moved **below** the rename                                                 | **2 fail** — route and service, both with `Renamed` sitting in the table after a patch that answered `unknown_service`. Returning from a drizzle transaction callback commits it.                                                            |
+| `if (wanted !== null)` narrowed to `wanted.length > 0`                                        | **1 fail** — `replaces the whole owned set, and an empty array clears it`. Only the route-level case caught it; repository and service have no clearing case.                                                                                |
+| the announce guard struck (map edit announced like a rename)                                  | **1 fail** — `editing the ownership map announces nothing`.                                                                                                                                                                                  |
+| **the scheduler reading a service as a team** (`effectiveTeamsOf` fed `teamIds: [serviceId]`) | **2 pass, 2 fail** — the delete claim _and its control_. The control failing is the fault stated plainly: the plan's dates stop answering to the team at all.                                                                                |
 
 ### Section 5 — the two signals
 
-| fault                                                     | printed                                                                                                    |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| the effective reading pointed at the row's own stored teams | **113 pass, 1 fail** — `reads the inherited team, not the row's own stored labels`.                            |
-| the absence guard struck from `builtByNonOwner`              | **112 / 2** — both absence cases. `!teamIds.some(...)` over an empty set is `true`, so every unlabelled row in a young plan would wear the marker. |
-| `teamIds.length === 0` struck from `assignedOutsideTeam`     | **113 / 1** — the no-team case. A row with nobody's team named would flag every assignee on it.                |
-| `some` → `every` in `builtByNonOwner`                        | **113 / 1** — `takes any one owner among several teams as enough`.                                             |
-| the ownership map emptied on the wire (fixture `serviceIds: []`) | **966 / 1**, and only 5.4 — the controller's own map cases run on real SQLite, so the fixture's answer is watched nowhere else. |
+| fault                                                                    | printed                                                                                                                                                            |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| the effective reading pointed at the row's own stored teams              | **113 pass, 1 fail** — `reads the inherited team, not the row's own stored labels`.                                                                                |
+| the absence guard struck from `builtByNonOwner`                          | **112 / 2** — both absence cases. `!teamIds.some(...)` over an empty set is `true`, so every unlabelled row in a young plan would wear the marker.                 |
+| `teamIds.length === 0` struck from `assignedOutsideTeam`                 | **113 / 1** — the no-team case. A row with nobody's team named would flag every assignee on it.                                                                    |
+| `some` → `every` in `builtByNonOwner`                                    | **113 / 1** — `takes any one owner among several teams as enough`.                                                                                                 |
+| the ownership map emptied on the wire (fixture `serviceIds: []`)         | **966 / 1**, and only 5.4 — the controller's own map cases run on real SQLite, so the fixture's answer is watched nowhere else.                                    |
 | `serviceIds.some` → `.every` in `builtByNonOwner` **after the widening** | **116 pass, 2 fail** — the mixed row and the "names which services" case. Every other case states one service, which is exactly why the `any` needed its own pair. |
 
 **The sixth fault does not exist, and the code says so.** Striking the
@@ -157,43 +157,43 @@ spelled the same way in both signals, with a comment saying no case protects it.
 
 ### Section 6 — the filter
 
-| fault                                                              | printed                                                                                                  |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| the service predicate reading the row's **own stored** column         | the case chunk 8 deferred for want of a control and chunk 9 built — the stored-versus-effective fault at its real site in `RowFacets`. |
-| the filter predicate pointed at `row.facets.serviceIds.slice(0, 1)`   | **1 fail, 48 pass** in `tree-search.test.ts` — the row delivering two services stops answering to a tick on its second.                |
+| fault                                                               | printed                                                                                                                                |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| the service predicate reading the row's **own stored** column       | the case chunk 8 deferred for want of a control and chunk 9 built — the stored-versus-effective fault at its real site in `RowFacets`. |
+| the filter predicate pointed at `row.facets.serviceIds.slice(0, 1)` | **1 fail, 48 pass** in `tree-search.test.ts` — the row delivering two services stops answering to a tick on its second.                |
 
 ### Section 7 — the faces
 
-| fault                                                        | printed                                                                                                    |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| the cell's `own` restored to `serviceIds.slice(0, 1)` (7.1/10.4) | **1 fail / 1559 pass** — `Remove Ledger from 010` is not a label the table has: the second service is not on screen at all. |
-| the marker's sentence naming only the first offending service (7.2) | **1 fail**.                                                                                                                |
-| the carded mark carrying a native `title` after all (7.2)          | **1 fail**.                                                                                                                |
-| the folded card dropping the sentence the carded mark moved onto it | **1 fail**.                                                                                                                |
-| the assumed-assignee arm forced off (7.2, F4)                      | **green, 1564/0** — nothing held it up. **F4 disproved the code it was written to prove, so that code is gone.**             |
-| the card's chip printing `names[0]` (7.3)                          | **1568/1**, the two-service case alone.                                                                                    |
-| the inherited chip drawn bare — no `↳`, no `data-inherited` (7.3)   | **1 fail**.                                                                                                                |
-| the chip moved **below** the tags (7.3, F3)                        | **GREEN, 1569/0 first time** — the case was blind, not the order safe. Re-aimed and re-run in the same chunk: moving the chip back up fails.  |
-| the table wiring `effectiveTagLabelOf` into `serviceLabel` (7.3)    | **1566/3**.                                                                                                                |
-| the export cell printing `serviceIds.slice(0, 1)` (7.4)            | **1 fail** — `names every service a row delivers`.                                                                          |
-| the export column moved left of `Tags` (7.4)                       | **1 fail**, the full column-order case.                                                                                     |
-| `plan.services` swapped for `plan.tags` in `serviceCell` (7.4)     | **1 fail**.                                                                                                                 |
-| `removing` pinned to `'tag'` in the dialog — _the bug as it stood_ (7.5) | **1 fail**.                                                                                                            |
-| `removing` pinned to `'service'` (7.5)                             | **1 fail** — `still names the tag when a tag is what is going`.                                                              |
-| the service's `rename` wired to `directory.renameTag` (7.5)        | **1 fail**.                                                                                                                 |
-| the Services card's `askToRemove('service', …)` → `'tag'` (7.5)    | **1 fail**.                                                                                                                 |
-| the rename carrying `serviceIds: []` (7.5, ownership map)          | **1 fail** — `renames a team without touching what it is responsible for`. This is the fault the optional field exists to make impossible: a rename that silently empties a map somebody else just edited. |
-| `servicesOf` following the claim order, not the directory's        | **1 fail**, the order case, which seeds the claims reversed on purpose.                                                     |
-| choosing a service **replacing** the set rather than joining it    | **1 fail**.                                                                                                                 |
-| the picker creating a service and never claiming it                | **1 fail** — `makes a service and claims it in one gesture`.                                                                 |
+| fault                                                                    | printed                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the cell's `own` restored to `serviceIds.slice(0, 1)` (7.1/10.4)         | **1 fail / 1559 pass** — `Remove Ledger from 010` is not a label the table has: the second service is not on screen at all.                                                                                |
+| the marker's sentence naming only the first offending service (7.2)      | **1 fail**.                                                                                                                                                                                                |
+| the carded mark carrying a native `title` after all (7.2)                | **1 fail**.                                                                                                                                                                                                |
+| the folded card dropping the sentence the carded mark moved onto it      | **1 fail**.                                                                                                                                                                                                |
+| the assumed-assignee arm forced off (7.2, F4)                            | **green, 1564/0** — nothing held it up. **F4 disproved the code it was written to prove, so that code is gone.**                                                                                           |
+| the card's chip printing `names[0]` (7.3)                                | **1568/1**, the two-service case alone.                                                                                                                                                                    |
+| the inherited chip drawn bare — no `↳`, no `data-inherited` (7.3)        | **1 fail**.                                                                                                                                                                                                |
+| the chip moved **below** the tags (7.3, F3)                              | **GREEN, 1569/0 first time** — the case was blind, not the order safe. Re-aimed and re-run in the same chunk: moving the chip back up fails.                                                               |
+| the table wiring `effectiveTagLabelOf` into `serviceLabel` (7.3)         | **1566/3**.                                                                                                                                                                                                |
+| the export cell printing `serviceIds.slice(0, 1)` (7.4)                  | **1 fail** — `names every service a row delivers`.                                                                                                                                                         |
+| the export column moved left of `Tags` (7.4)                             | **1 fail**, the full column-order case.                                                                                                                                                                    |
+| `plan.services` swapped for `plan.tags` in `serviceCell` (7.4)           | **1 fail**.                                                                                                                                                                                                |
+| `removing` pinned to `'tag'` in the dialog — _the bug as it stood_ (7.5) | **1 fail**.                                                                                                                                                                                                |
+| `removing` pinned to `'service'` (7.5)                                   | **1 fail** — `still names the tag when a tag is what is going`.                                                                                                                                            |
+| the service's `rename` wired to `directory.renameTag` (7.5)              | **1 fail**.                                                                                                                                                                                                |
+| the Services card's `askToRemove('service', …)` → `'tag'` (7.5)          | **1 fail**.                                                                                                                                                                                                |
+| the rename carrying `serviceIds: []` (7.5, ownership map)                | **1 fail** — `renames a team without touching what it is responsible for`. This is the fault the optional field exists to make impossible: a rename that silently empties a map somebody else just edited. |
+| `servicesOf` following the claim order, not the directory's              | **1 fail**, the order case, which seeds the claims reversed on purpose.                                                                                                                                    |
+| choosing a service **replacing** the set rather than joining it          | **1 fail**.                                                                                                                                                                                                |
+| the picker creating a service and never claiming it                      | **1 fail** — `makes a service and claims it in one gesture`.                                                                                                                                               |
 
 ### Section 8 — the empty diffs
 
-| fault                                                                     | printed                                                                                              |
-| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| fault                                                                                                  | printed                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `const teamOf = effectiveTeamsOf(rows)` reading `r.serviceIds` as `teamIds` (8.1, re-aimed at the set) | **1 pass, 3 fail**. The third is the interesting one: `poolFor` **throws** rather than mis-dating, because a row carrying two services claims two teams and a slice spends one pool. A set-valued dimension read as a pool key is not a wrong date, it is a plan that cannot be scheduled. |
-| `ALTER TABLE project_team_capacity ADD service_id` appended to the migration (8.3) | **1 pass, 2 fail** — asserted against the **migration** rather than the ORM, because a re-key would have to happen in the schema and a `pragma` answer cannot be satisfied by a type that merely looks unchanged. |
-| the same append on `person_team` (8.4)                                            | **1 pass, 2 fail**.                                                                                       |
+| `ALTER TABLE project_team_capacity ADD service_id` appended to the migration (8.3)                     | **1 pass, 2 fail** — asserted against the **migration** rather than the ORM, because a re-key would have to happen in the schema and a `pragma` answer cannot be satisfied by a type that merely looks unchanged.                                                                          |
+| the same append on `person_team` (8.4)                                                                 | **1 pass, 2 fail**.                                                                                                                                                                                                                                                                        |
 
 **8.1's file was measuring a dead column for ten hours of chunks, and that is
 the finding of section 8.** `service-empty-diff.test.ts` was written at task 4.5
@@ -206,11 +206,11 @@ patch's rest-spread **straight onto the dead column**, and the FK's
 the one field no scheduler could read did not move a date.
 
 **Why nothing caught it: `nx typecheck` builds `tsconfig.lib.json`, which
-excludes `src/**/*.test.ts`. Test files in this repo are never typechecked** — a
+excludes `src/**/\*.test.ts`. Test files in this repo are never typechecked** — a
 stale field name in a spec is invisible to lint, to typecheck and to a green
 suite alike. The only defence is asserting the fact came _back_ rather than
-trusting the write, so `pooledPlan` now ends with a guard: two rows carry a
-non-empty `serviceIds` on the read `listByProject` delivers, or the plan under
+trusting the write, so `pooledPlan`now ends with a guard: two rows carry a
+non-empty`serviceIds`on the read`listByProject` delivers, or the plan under
 test is not a service plan. Same four cases, 9 expects → 24.
 
 8.3's strong form uses `rollbackTo(BEFORE_SERVICE)`: seed a capacity row on the
@@ -220,14 +220,14 @@ case cannot pass by comparing a database with itself.
 
 ### Section 10 — the widening
 
-| fault                                                          | printed                                                                                              |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `DROP TABLE IF EXISTS work_item_service` struck from `down.sql`   | **30 pass, 25 fail** — the target case plus the blast radius section 1 named one dimension over.           |
-| the `INSERT … SELECT` seed struck                                 | **52 pass, 3 fail**, all three the new work-item-service cases. The seed is load-bearing and nothing else in the file leans on it. |
-| `WHERE service_id IS NOT NULL` struck                             | **41 pass, 14 fail**, and louder than expected in a useful way: `DrizzleError: Failed to run the query`, because `service_id` is `NOT NULL` on the join table and an inheriting row's null cannot be inserted. A migration that tries to seed absence **refuses to apply** rather than quietly mislabelling a plan. |
-| `(row) => row.serviceIds` → `.slice(0, 1)` in `effectiveServicesOf` | **117 pass, 1 fail**, the two-service override — the realistic regression for this change, a leftover singleton fold.                |
-| the table's `.map` restored to `serviceIds.slice(0, 1)` (facet)    | **1 fail / 1558 pass** at `Unable to find a label with the text of: Service Ledger`. The prediction was wrong in an informative way: the facet is built from the effective reading, so a fold does not narrow the table to nothing — the second service never becomes a facet value, and the box a user would tick is **not on screen at all**. |
-| `before.serviceIds.slice(0, 1)` in `revertTo` (10.3)              | **76 pass, 1 fail** over `undo.test.ts` — `puts a replaced service set back, whole` fails alone while the five one-service cases beside it stay green. |
+| fault                                                               | printed                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DROP TABLE IF EXISTS work_item_service` struck from `down.sql`     | **30 pass, 25 fail** — the target case plus the blast radius section 1 named one dimension over.                                                                                                                                                                                                                                                |
+| the `INSERT … SELECT` seed struck                                   | **52 pass, 3 fail**, all three the new work-item-service cases. The seed is load-bearing and nothing else in the file leans on it.                                                                                                                                                                                                              |
+| `WHERE service_id IS NOT NULL` struck                               | **41 pass, 14 fail**, and louder than expected in a useful way: `DrizzleError: Failed to run the query`, because `service_id` is `NOT NULL` on the join table and an inheriting row's null cannot be inserted. A migration that tries to seed absence **refuses to apply** rather than quietly mislabelling a plan.                             |
+| `(row) => row.serviceIds` → `.slice(0, 1)` in `effectiveServicesOf` | **117 pass, 1 fail**, the two-service override — the realistic regression for this change, a leftover singleton fold.                                                                                                                                                                                                                           |
+| the table's `.map` restored to `serviceIds.slice(0, 1)` (facet)     | **1 fail / 1558 pass** at `Unable to find a label with the text of: Service Ledger`. The prediction was wrong in an informative way: the facet is built from the effective reading, so a fold does not narrow the table to nothing — the second service never becomes a facet value, and the box a user would tick is **not on screen at all**. |
+| `before.serviceIds.slice(0, 1)` in `revertTo` (10.3)                | **76 pass, 1 fail** over `undo.test.ts` — `puts a replaced service set back, whole` fails alone while the five one-service cases beside it stay green.                                                                                                                                                                                          |
 
 ## What this change deliberately did not build
 
@@ -283,9 +283,9 @@ case cannot pass by comparing a database with itself.
   found it at the end of its time box).
 - **The map half of 4.5 is a regression guard, not a proof.** Breaking the
   reading of the _item's_ service leaves `moves not one date when the ownership
-  map is edited` green, because the map is not on the item at all. What proves
+map is edited` green, because the map is not on the item at all. What proves
   that claim today is the grep (`grep -rn serviceIds apps/be-01/src
-  libs/domain/src`, minus its own cases and the five directory files that own
+libs/domain/src`, minus its own cases and the five directory files that own
   it, returns nothing under the scheduling surface) and the announce red. The
   file says so where a reader will find it.
 
@@ -294,9 +294,9 @@ case cannot pass by comparing a database with itself.
 `notes/delivery-modes.md`. The worker does not merge this.
 
 1. **`apps/be-01/drizzle/**`** — two migrations, and the D2 decision to leave
-   `work_item.service_id` standing and unread rather than drop it.
-2. **`libs/domain/**`** — `effective-service.ts` and `label-mismatch.ts`, both
-   read by both apps, and the shared `effectiveLabelsOf` walk they lean on.
+`work_item.service_id` standing and unread rather than drop it.
+2. **`libs/domain/**`** — `effective-service.ts`and`label-mismatch.ts`, both
+read by both apps, and the shared `effectiveLabelsOf` walk they lean on.
 3. **`service/schedule.ts`** — untouched, and asserted untouched by section 8's
    faults rather than by a file list.
 4. **Auth** — untouched. No route added here changes who may read or write; the

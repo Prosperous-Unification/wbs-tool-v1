@@ -221,7 +221,7 @@
       `TagLabel` sit beside it); it is consumed by `wbs-table.tsx` and
       `plan-cards.tsx` and by nothing that computes an x, a width or a colour.
       **Owed, and named as owed rather than quietly dropped:** the service on
-      the chart's bar hover. The hover this change *did* ship is the table
+      the chart's bar hover. The hover this change _did_ ship is the table
       cell's — the title naming the ancestor a row inherits from, and the
       non-owner note — which is what the brief's "hover text" face is answered
       by. A service on the bar is its own change, against `GanttBar` and the
