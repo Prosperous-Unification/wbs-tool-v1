@@ -219,11 +219,18 @@ describe('toolsFromDocument, on the committed document', () => {
   /**
    * A count, deliberately. A new be-01 route arrives here as a red test rather
    * than as a tool nobody decided about — the reader has to say whether it is
-   * plan surface or a new exclusion. 51 operations in the document, 8 excluded
+   * plan surface or a new exclusion. 55 operations in the document, 8 excluded
    * (3 auth, 2 internal, health, metrics, smoke echo).
+   *
+   * It went from 43 to 47 when `service-split` added the directory's four
+   * service routes, and the decision it forced was made rather than skipped:
+   * they are **plan surface**, exactly as `/api/tags` and `/api/teams` already
+   * are. An agent that can label a work item with a service has to be able to
+   * see the vocabulary and add to it, and the removal keeps its 409-then-confirm
+   * shape through the tool as it does through the route.
    */
-  it('is 43 tools, so a route that appears must be decided about', () => {
-    expect(tools).toHaveLength(43);
+  it('is 47 tools, so a route that appears must be decided about', () => {
+    expect(tools).toHaveLength(47);
     expect(EXCLUDED_PATHS).toHaveLength(5);
   });
 

@@ -59,10 +59,13 @@
 
 ## 4. The directory: services, and the ownership map
 
-- [ ] 4.1 `GET/POST /api/services`, `PATCH /api/services/:id` (rename, 409
-      `taken` carrying the surviving name), `DELETE /api/services/:id[?cascade=1]`.
-      Global — no project in the path or the query.
-- [ ] 4.2 `directoryUsageOfService`: `label_nulled` per item, **no
+- [x] 4.1 `GET/POST /api/services`, `PATCH /api/services/:id` (rename, 409
+      `taken` carrying the surviving name), `DELETE /api/services/:id`, confirmed
+      with `?cascade=true`. Global — no project in the path or the query. The
+      brief wrote the flag as `?cascade=1`; D7 says "`removeTeam`'s two-step
+      verbatim", and `isCascade` in `directory.controller.ts` reads `true`, so
+      verbatim won — a second spelling would be a second flag.
+- [x] 4.2 `directoryUsageOfService`: `label_nulled` per item, **no
       `capacity_released` arm and no date effect**. Same 409-then-`?cascade=1`
       shape as `removeTeam`. The `team_service` rows the cascade takes are
       **not** in the usage report (design D7).
@@ -75,7 +78,7 @@
       would be a second copy of it).
 - [ ] 4.5 **Watched red on the empty diff:** deleting a service, and editing the
       ownership map, each move no date in the plan.
-- [ ] 4.6 **Owed from section 3:** `unknown_service` is **404**, asserted over
+- [x] 4.6 **Owed from section 3:** `unknown_service` is **404**, asserted over
       the route. Section 3 proved the refusal over real SQLite (`undo.test.ts`,
       `refuses a service the directory no longer holds, and writes nothing`) but
       could not assert its **status**: `work-item.controller.test.ts` runs on
@@ -175,3 +178,6 @@
 - [ ] 9.4 PR opened, CI green (`gate` and `pixels`). **Prod mode: the worker
       does not merge.** Task goes to `state: review`; the main session reviews
       the four watched paths and merges.
+- [ ] 9.5 `LLM_README.md`'s wbs-mcp entry says **43 MCP tools**, and section 4's
+      four service routes make it **47**. Corrected there when this lands, not
+      before: the number describes what is on `main`.
