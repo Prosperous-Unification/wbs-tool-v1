@@ -1451,6 +1451,52 @@ describe('a service is undone as the set it became, the tag rule and no longer i
     expect(await servicesOn(id)).toEqual([billing]);
   });
 
+  it('puts a replaced service set back, whole', async () => {
+    // **Task 10.3, and the only case in this file that can prove it.** Every
+    // other service case above and below states one service, and a one-member
+    // set restores identically through a whole-set journal and a first-member
+    // one — so until this case existed, `revertTo`'s
+    // `out.serviceIds = before.serviceIds` was a *shape* that arrived with
+    // 10.2's type change rather than a rule anything held to.
+    //
+    // The row carries two services, a patch replaces them with a third, and the
+    // undo has to restore *both*. The scalar habit is the natural mistake on a
+    // field that was a nullable column until this morning, and it fails
+    // silently: the undo reports done, the row comes back carrying one of its
+    // two services, and nothing says the other went. That is the tags fault one
+    // dimension over (`puts a replaced tag set back, whole`, 190 lines up) and
+    // deliberately *not* the throw the column used to give — a set has a
+    // scalar-shaped spelling that loses data quietly, which is D6's whole
+    // argument.
+    //
+    // Proof: `revertTo`'s service line written as
+    // `before.serviceIds.slice(0, 1)` and this failed on `expected [ <billing
+    // id> ] to deeply equal [ <billing id>, <payments id> ]`, alone — **971
+    // pass, 1 fail** — while the four one-service cases beside it stayed green,
+    // which is the point of the sentence above. Watched 2026-08-21.
+    const id = await root('Strip the roof');
+    const payments = serviceNamed('Payments');
+    const billing = serviceNamed('Billing');
+    const checkout = serviceNamed('Checkout');
+
+    // Sorted on both sides, because the join is read in service-id order and
+    // the ids are random — the assertion is about the set, not about the order.
+    await workItems.patch(id, ownerId, { serviceIds: [payments, billing] });
+    expect([...(await servicesOn(id))].sort()).toEqual([payments, billing].sort());
+
+    await workItems.patch(id, ownerId, { serviceIds: [checkout] });
+    expect(await servicesOn(id)).toEqual([checkout]);
+
+    expectDone(await undone());
+    expect([...(await servicesOn(id))].sort()).toEqual([payments, billing].sort());
+
+    // Redo has to narrow it back to the one. A journal that restored a set on
+    // the way back and a member on the way forward would pass the assertion
+    // above and still be wrong in the direction nobody watches.
+    expectDone(await workItems.redo(projectId, ownerId));
+    expect(await servicesOn(id)).toEqual([checkout]);
+  });
+
   it('takes a first service away again, rather than leaving it on', async () => {
     // `[]` is a legal before-value and it is the one an absent field would
     // lose: the inverse of labelling an unlabelled row is *taking the label
