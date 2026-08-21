@@ -118,6 +118,11 @@ export default defineConfig(({ command, mode }) => ({
       // is printing.
       '@wbs/domain/effective-team': resolve(__dirname, '../../libs/domain/src/effective-team.ts'),
       '@wbs/domain/effective-tag': resolve(__dirname, '../../libs/domain/src/effective-tag.ts'),
+      '@wbs/domain/effective-service': resolve(
+        __dirname,
+        '../../libs/domain/src/effective-service.ts',
+      ),
+      '@wbs/domain/label-mismatch': resolve(__dirname, '../../libs/domain/src/label-mismatch.ts'),
       // The same bargain a third time: `priority-band.ts` is four pure functions
       // and a constant, and the rule it holds — which band a number falls in —
       // is what be-01 validates a ladder against. A second copy here is a table
