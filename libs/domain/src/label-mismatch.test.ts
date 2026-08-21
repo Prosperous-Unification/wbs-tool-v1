@@ -18,8 +18,9 @@ const row = (
   serviceId: labels.serviceId ?? null,
 });
 
-const owned = (entries: Record<string, readonly string[]>): ReadonlyMap<string, readonly string[]> =>
-  new Map(Object.entries(entries));
+const owned = (
+  entries: Record<string, readonly string[]>,
+): ReadonlyMap<string, readonly string[]> => new Map(Object.entries(entries));
 
 /**
  * The composition both apps have to make — the **effective** reading of each
