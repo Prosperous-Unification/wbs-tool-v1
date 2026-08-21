@@ -403,7 +403,8 @@ describe('the figures that are not days, read back through the tree', () => {
     // key at all. `toEqual` would pass on a dropped zero if this only read the
     // value, so the presence is asserted on its own.
     const measured = await measuresOn('Rewire');
-    expect(Object.hasOwn(measured.hours_actual ?? {}, DEV)).toBe(true);
+    expect(Object.hasOwn(measured, 'hours_actual')).toBe(true);
+    expect(Object.hasOwn(measured.hours_actual, DEV)).toBe(true);
     expect(measured).toEqual({ hours_actual: { [DEV]: 0, [QA]: 2 } });
   });
 
