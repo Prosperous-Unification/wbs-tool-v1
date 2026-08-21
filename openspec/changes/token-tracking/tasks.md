@@ -32,7 +32,7 @@
 - [x] 2.2 `drizzle/20260821150000_add_person_kind/{migration,down}.sql`.
       **This item's premise was wrong and the correction is the finding of the
       chunk that did it.** It read: SQLite cannot `ALTER TABLE … ADD
-    CONSTRAINT`, so the `CHECK` arrives by table rebuild — new table, copy,
+  CONSTRAINT`, so the `CHECK` arrives by table rebuild — new table, copy,
       drop, rename, indexes recreated. The first clause is true; the conclusion
       does not follow. The restriction is on `ADD CONSTRAINT`, and a
       _column-level_ `CHECK` inside `ADD COLUMN` is not on SQLite's list of
