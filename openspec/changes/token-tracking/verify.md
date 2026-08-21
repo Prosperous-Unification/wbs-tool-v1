@@ -339,6 +339,18 @@ sentence that checks it rather than the one that claims it.
   comes from gets resolved and stated here rather than quoted from memory.
 - The migrations have not been run through the real `migrate` / `migrate-down`
   CLIs against a snapshot of the dev database. Section 8.2.
+- **`removedMeasures`' triple key is unproven, and no reachable path can prove
+  it.** The `where` in `insertSubtree` names the metric so that a restore takes
+  off only the figure the hand-up put on; keyed by the pair it would take the
+  parent's own figures with it. The case that would say so fails on its own
+  setup: the hand-down empties the parent when it gains a child, `setMeasure`
+  refuses a work item that has children, and recording on the parent while it is
+  briefly a leaf again makes the undo refuse on the revision — so at restore time
+  everything the parent holds came from the hand-up, and both keys delete the
+  same set. It was written, watched failing, and deleted with the reasoning left
+  in `undo.test.ts` in its place. Pinning it needs a case at the **repository
+  seam**: hand `insertSubtree` a `removedMeasures` naming one metric of a pair
+  that holds two, and assert the other survives. Chunk 13, item 1.
 - **`NumberedWorkItem` under-declares the payload, and it predates this change.**
   `actuals`, `progress` and `state` have been on every row of `tree()` since
   `actual-days` and `role-progress` and are on **no** interface: the object
