@@ -631,37 +631,21 @@ describe('undoing each kind of change', () => {
     expect(back.every((each) => each.roleId === dev())).toBe(true);
   });
 
-  it('takes back only the metric a deletion handed up, leaving the parent’s own figure alone', async () => {
-    // The `removedMeasures` key is a triple, and this is the case that says why.
-    // The parent holds an `hours_actual` of its own from before it had a child;
-    // deleting the last child hands a `token_actual` up, and undoing that delete
-    // has to take **that** row off and no other. Keyed by the pair, the restore
-    // deletes both and the parent's own hours are gone — no error, no figure
-    // wrong, one recorded fact silently missing.
-    const strip = await root('Strip');
-    await workItems.setMeasure(strip, ownerId, dev(), 'hours_actual', 3);
-    const sockets = await child(strip, 'Sockets');
-    await workItems.setMeasure(sockets, ownerId, dev(), 'token_actual', 15_400);
-
-    expect((await workItems.remove(sockets, ownerId, 'cascade')).ok).toBe(true);
-    // Handed up: the parent is a leaf again and holds both figures itself.
-    expect(
-      new Map(
-        (await measureStore.listByProject(projectId)).map((each) => [each.metric, each.value]),
-      ),
-    ).toEqual(new Map([['hours_actual', 3], ['token_actual', 15_400]]));
-
-    expect(expectDone(await undone())).toBe('delete “Sockets”');
-
-    const back = await measureStore.listByProject(projectId);
-    const byKey = new Map(back.map((each) => [`${each.workItemId}/${each.metric}`, each.value]));
-    // The handed-up token fact is off the parent and back on the child…
-    expect(byKey.get(`${sockets}/token_actual`)).toBe(15_400);
-    expect(byKey.has(`${strip}/token_actual`)).toBe(false);
-    // …and the hours the parent held all along were never this restore's to take.
-    expect(byKey.get(`${strip}/hours_actual`)).toBe(3);
-    expect(back).toHaveLength(2);
-  });
+  // **The case that would pin `removedMeasures`' triple key is not here, because
+  // no reachable path distinguishes it — and that is worth writing down rather
+  // than leaving as a gap somebody fills badly later.** It was written and
+  // watched: a parent holding an `hours_actual` of its own, gaining a child that
+  // hands up a `token_actual`, then the delete undone — and it fails on its own
+  // setup, not on the code. The hand-down empties the parent the moment it gains
+  // the child, `setMeasure` refuses a work item that has children, and if
+  // somebody records on the parent during the window when it is briefly a leaf
+  // again, the undo refuses on the revision. So at restore time everything the
+  // parent holds came from the hand-up, and a `where` keyed by the pair deletes
+  // exactly the set the triple does. The triple is kept because it is right by
+  // construction and free; the honest status is that nothing observable would go
+  // red if it were wrong. Pinning it needs a case at the repository seam, where
+  // `insertSubtree` can be handed a `removedMeasures` naming one metric of a pair
+  // that holds two — filed in verify.md's Owed.
 
   it('takes back the statement a deletion handed up to the parent', async () => {
     // The mirror of the recorded-days case below it. The parent has no children

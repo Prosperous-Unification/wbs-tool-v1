@@ -424,11 +424,13 @@ describe('the team set beside the column', () => {
       estimates: [],
       actuals: [],
       progress: [],
+      measures: [],
       assignments: [],
       dependencies: [],
       removedEstimates: [],
       removedActuals: [],
       removedProgress: [],
+      removedMeasures: [],
     });
 
     expect(joinedTeams()).toEqual(
@@ -520,11 +522,13 @@ describe('WorkItemRepository', () => {
       estimates: [],
       actuals: [],
       progress: [],
+      measures: [],
       assignments: [],
       dependencies: [],
       removedEstimates: [],
       removedActuals: [],
       removedProgress: [],
+      removedMeasures: [],
     });
 
     expect(byPosition(await repo.listByProject(projectId))).toEqual([
@@ -552,6 +556,7 @@ describe('WorkItemRepository', () => {
       ],
       actuals: [],
       progress: [],
+      measures: [],
       assignments: [{ workItemId: copiedSecond.id, roleId, personId }],
       dependencies: [
         {
@@ -564,6 +569,7 @@ describe('WorkItemRepository', () => {
       removedEstimates: [],
       removedActuals: [],
       removedProgress: [],
+      removedMeasures: [],
     });
 
     expect(byPosition(await repo.listByProject(projectId))).toHaveLength(6);
@@ -611,6 +617,7 @@ describe('WorkItemRepository', () => {
       ],
       actuals: [],
       progress: [],
+      measures: [],
       assignments: [{ workItemId: copiedChild.id, roleId, personId }],
       dependencies: [
         {
@@ -624,6 +631,7 @@ describe('WorkItemRepository', () => {
       removedEstimates: [],
       removedActuals: [],
       removedProgress: [],
+      removedMeasures: [],
     };
 
     // Awaited through a catch rather than `.rejects`, so the assertions below
