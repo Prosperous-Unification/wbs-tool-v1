@@ -107,12 +107,12 @@
 
 ## 4. The write path
 
-- [ ] 4.1 `WorkItemService.setMeasure` / `clearMeasure`, cloned from the actual
+- [x] 4.1 `WorkItemService.setMeasure` / `clearMeasure`, cloned from the actual
       pair: `rolled_up`, `unknown_role`, `not_found`, `forbidden`, idempotent
       clear, and the clear of nothing recording nothing. `unknown_metric` is the
       one new refusal — a metric outside the closed set is a 404, not a 400,
       because it names a thing that does not exist.
-- [ ] 4.2 Journalled through `record` as `set_measure` / `clear_measure`;
+- [x] 4.2 Journalled through `record` as `set_measure` / `clear_measure`;
       `CompensatingCommand`, `COMMANDS`, `touchedBy`, `subjectOf` and `apply`
       all carry the metric. The inverse of a **first** recording is
       `clear_measure`, never `set_measure 0`. **Negative:** verify.md F7.
