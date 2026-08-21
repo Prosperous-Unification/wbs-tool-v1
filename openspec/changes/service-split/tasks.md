@@ -220,7 +220,7 @@ surface built on the singleton is a surface built twice.
       every existing directory before writing it — 1.3's `>`-filter bug is the
       reason this sentence is repeated. **Watched red:** revert a `DROP` in
       `down.sql` and the rollback round-trip test must fail.
-- [ ] 10.2 The wire and the write, both ends in one slice: `serviceIds` on the
+- [x] 10.2 The wire and the write, both ends in one slice: `serviceIds` on the
       repository read (a grouped join, as `tagIds` is), an optional readonly
       `serviceIds` array on the patch payload replacing the set whole and
       deduplicating a repeat, `unknown_service` refusing the **whole** patch from
@@ -233,7 +233,15 @@ surface built on the singleton is a surface built twice.
 - [ ] 10.3 The journal takes the **whole prior set**, not the prior scalar
       (design D6, amended). **Watched red:** journal one member and the undo case
       restoring two services must fail — the fault tags 6.3 already caught once
-      on its own dimension.
+      on its own dimension. **The shape landed early, in 10.2, and the proof did
+      not.** 10.2's type change left no compiling way to keep the scalar, so
+      `revertTo` already reads `out.serviceIds = before.serviceIds`; every undo
+      case over it states **one** service, and a one-member set restores
+      identically through a whole-set journal and a first-member one. So this
+      item is now exactly its watched red: the two-service undo case, plus the
+      injection that proves it fails on a first-member journal. Ticking it off
+      the existing green would be chunk 7's 5.2 lesson repeated — a guard
+      mistaken for a proof.
 - [ ] 10.4 7.1's cell becomes a multi-select, the tags cell's control: blank
       still means inherit, the ancestor still named in the title, and the
       column header becomes **Services**. `CONDITIONAL_COLUMNS` unchanged, so
@@ -241,7 +249,7 @@ surface built on the singleton is a surface built twice.
       red:** assert the floor first and the membership second — 7.7's first
       injection fired on the wrong assertion because they were the other way
       round.
-- [ ] 10.5 `directoryUsageOfService` reports `label_removed`, not
+- [x] 10.5 `directoryUsageOfService` reports `label_removed`, not
       `label_nulled`, once the store is a join table — a column is nulled, a set
       member is removed, and `directory-usage.ts:15-30` already distinguishes
       them. ~~**One commit with 10.1**~~ **One commit with 10.2**, and the

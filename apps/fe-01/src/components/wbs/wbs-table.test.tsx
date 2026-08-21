@@ -12845,11 +12845,13 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     // of them.
     //
     // `Strip` delivers `Checkout` **and** `Ledger`. Ticking `Ledger` must find
-    // it. Restore either deleted fold — the `.map` in `wbs-table.tsx` that put
-    // `[serviceIds[0]]` into `effectiveServicesOf`, or the wire's own scalar —
-    // and the row's second service never reaches the table: the facet offers
-    // `Ledger`, ticking it narrows to nothing, and `numbersOnScreen()` comes
-    // back `[]`.
+    // it. Injected on h2puni and watched red, chunk 15: the deleted `.map` in
+    // `wbs-table.tsx` restored as `serviceIds.slice(0, 1)` — **1 fail, this
+    // case, 1558 pass**. It failed one step earlier than written above:
+    // `Unable to find a label with the text of: Service Ledger`. The facet is
+    // built from the effective reading, so a fold does not merely narrow to
+    // nothing — the second service never becomes a facet value at all, and the
+    // box a user would tick is not on screen.
     const api = await aServicedPlan();
     api.labelWithService(api.strip, [api.checkout, api.ledger]);
     await shown(api);
