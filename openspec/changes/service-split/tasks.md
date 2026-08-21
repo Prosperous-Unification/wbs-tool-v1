@@ -28,18 +28,18 @@
 
 ## 2. The read path and the effective reading
 
-- [ ] 2.1 `repository/work-item.ts`: `serviceId` per row beside `teamIds` and
+- [x] 2.1 `repository/work-item.ts`: `serviceId` per row beside `teamIds` and
       `tagIds`. It is a column on the row being selected already — no join, no
       N+1, and if this needs a second query the column went in the wrong place.
-- [ ] 2.2 `effectiveServicesOf` in `libs/domain/src/effective-service.ts`, over
+- [x] 2.2 `effectiveServicesOf` in `libs/domain/src/effective-service.ts`, over
       the shared `effectiveLabelsOf` walk, with its own row shape, result shape
       and cycle error. **The domain reading is set-shaped over a single-valued
       column** (design D2) — `serviceId` in, singleton set through the walk,
       `serviceId` out. Exported from the package index; `effective-label.ts`
       stays unexported.
-- [ ] 2.3 **Watched red** — make the walk union instead of override for this
+- [x] 2.3 **Watched red** — make the walk union instead of override for this
       dimension and the inheritance case must fail.
-- [ ] 2.4 Per dimension, independently: a row with a service and no teams
+- [x] 2.4 Per dimension, independently: a row with a service and no teams
       inherits the ancestor's teams and overrides the ancestor's service, and
       the mirror case with tags. Both asserted — three dimensions now, and the
       independence is the property that has to survive the third.

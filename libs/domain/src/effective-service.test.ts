@@ -8,7 +8,11 @@ import {
 import { effectiveTagsOf } from './effective-tag';
 import { effectiveTeamsOf } from './effective-team';
 
-const row = (id: string, parentId: string | null, serviceId: string | null = null): ServiceLabelled => ({
+const row = (
+  id: string,
+  parentId: string | null,
+  serviceId: string | null = null,
+): ServiceLabelled => ({
   id,
   parentId,
   serviceId,

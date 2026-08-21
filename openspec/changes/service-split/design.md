@@ -124,6 +124,23 @@ comment stays true with three dimensions over it.
 the inheritance case must fail. Same red the tag dimension carries, because the
 same line is what would break.
 
+**What that red actually showed, watched 2026-08-21 and worth writing down**,
+because it is a limit of the single-valued read rather than of the walk: the
+union fault is ordering-dependent for _this_ dimension. Unioned
+**ancestor-first**, three of the service dimension's own cases fail and the
+walk's override rule is proved from here. Unioned **own-first**, the service
+half sees `[own, ancestor]`, takes `labelIds[0]`, and answers correctly — the
+fault is invisible to this dimension and is caught by the team and tag halves of
+the same shared case instead.
+
+So the single-valued read narrows what a fault in the shared walk can show, and
+the reason a union cannot drift in unnoticed is that **three** dimensions read
+the walk and the other two return the whole set. That is an argument for keeping
+`effective-label.ts` shared and for keeping the three-dimension case asserting
+all three, not for a defensive length check inside `effectiveServicesOf`: a
+throw there would be an unreachable branch with no test able to reach it
+honestly.
+
 ### D4 — The ownership map is read on be-01 and shipped whole to the client
 
 The map is small — teams × services, both directory-sized — and both signals
