@@ -59,6 +59,8 @@ function fakeDirectory(
   put: (next: PersonView[]) => void;
   /** Seeds the tag vocabulary, which decides whether the plan has a Tags column. */
   putTags: (next: { id: string; name: string }[]) => void;
+  /** The same for services — the third vocabulary, and the Services card's list. */
+  putServices: (next: { id: string; name: string }[]) => void;
   holdWrites: () => void;
   releaseWrites: () => void;
 } {
@@ -66,6 +68,8 @@ function fakeDirectory(
   let heldTeams = [...teams];
   /** The tag vocabulary this deployment holds. Empty unless a case puts one in. */
   let heldTags: { id: string; name: string }[] = [];
+  /** The service vocabulary, the same way. */
+  let heldServices: { id: string; name: string }[] = [];
   let patchRefusal: DirectoryWrite<PersonView> | Error | null = null;
   let removalUsage: DirectoryUsage | null = null;
   /**
@@ -109,9 +113,38 @@ function fakeDirectory(
     },
     listTeams: () => Promise.resolve(heldTeams.map((team) => ({ ...team }))),
     listTags: () => Promise.resolve(heldTags.map((tag) => ({ ...tag }))),
-    // Empty until the Services card is built (task 7.5). The directory page has
-    // no caller for it yet; this is here because `DirectoryApi` requires it.
-    listServices: () => Promise.resolve([]),
+    listServices: () => Promise.resolve(heldServices.map((service) => ({ ...service }))),
+    // The service half of the fake, and it is the tag half with the word
+    // changed — which is the point: the page's four vocabularies go through one
+    // rename and one removal each, and a fake that answered services
+    // differently would be testing a second directory.
+    addService(name: string) {
+      api.added.push(name);
+      const service = { id: `s${String(heldServices.length + 1)}`, name };
+      heldServices = [...heldServices, service];
+      return Promise.resolve(service);
+    },
+    renameService(id: string, name: string) {
+      heldServices = heldServices.map((each) => (each.id === id ? { ...each, name } : each));
+      const written = heldServices.find((each) => each.id === id);
+      if (written === undefined) throw new Error('not_found');
+      return Promise.resolve({ ok: true as const, entry: written });
+    },
+    removeService(id: string, cascade: boolean) {
+      api.removals.push([id, cascade]);
+      if (removalUsage !== null && !cascade) {
+        return Promise.resolve({
+          ok: false as const,
+          reason: 'in_use' as const,
+          usage: removalUsage,
+        });
+      }
+      heldServices = heldServices.filter((each) => each.id !== id);
+      return Promise.resolve({ ok: true as const });
+    },
+    putServices(next: { id: string; name: string }[]) {
+      heldServices = [...next];
+    },
     addTag(name: string) {
       api.added.push(name);
       const tag = { id: `g${String(heldTags.length + 1)}`, name };
@@ -942,5 +975,160 @@ describe('the Tags section, and what it deliberately has not got', () => {
       expect(api.added).toContain('regulatory');
     });
     expect(await screen.findByLabelText('Name of regulatory')).toBeTruthy();
+  });
+});
+
+describe('the Services section, and the removal that had to say which dimension it was', () => {
+  itDom('offers a service no capacity box and no member count', async () => {
+    // The Tags card's asserted absence, one vocabulary over and for a **third**
+    // reason. Nobody belongs to a tag; nobody belongs to a service either, and
+    // a service is not a pool: it is what the work is part of, and who has the
+    // people is still a team. Dany, 2026-08-20 23:16 — service and team are
+    // independent — taught by the screen rather than by a sentence.
+    const api = fakeDirectory(
+      [{ id: 'p1', name: 'Ada', teamIds: ['t1'] }],
+      [{ id: 't1', name: 'Platform', serviceIds: [] }],
+    );
+    api.putServices([{ id: 's1', name: 'Payments' }]);
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+
+    const box = await screen.findByLabelText('Name of Payments');
+    const row = box.closest('li');
+    if (row === null) throw new Error('the service is not in a row');
+
+    expect(within(row).getByLabelText('Remove Payments')).toBeTruthy();
+    expect(row.textContent).not.toMatch(/member/i);
+    expect(within(row).queryByRole('spinbutton')).toBeNull();
+  });
+
+  itDom('adds a service, and says where the plan column comes from', async () => {
+    const api = fakeDirectory([], []);
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+
+    expect(await screen.findByText(/No services yet/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('New service'), { target: { value: '  Payments  ' } });
+    fireEvent.click(screen.getByText('Add service'));
+
+    // Trimmed at the edges here, decided at be-01 — `Add tag`'s bargain, and
+    // `Add team`'s before it.
+    await waitFor(() => {
+      expect(api.added).toContain('Payments');
+    });
+    expect(await screen.findByLabelText('Name of Payments')).toBeTruthy();
+  });
+
+  itDom('renames a service where the reader typed it', async () => {
+    // The rename goes through the same `writesFor` entry the tag's and the
+    // team's do; what this pins is that the **service** entry is wired to
+    // `renameService` and not to the neighbour a line above it.
+    const api = fakeDirectory([], []);
+    api.putServices([{ id: 's1', name: 'Payements' }]);
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+
+    const box = await screen.findByLabelText('Name of Payements');
+    fireEvent.change(box, { target: { value: 'Payments' } });
+    fireEvent.blur(box);
+
+    expect(await screen.findByLabelText('Name of Payments')).toBeTruthy();
+  });
+
+  itDom('names the service, not the tag, in what a removal would take', async () => {
+    // **The bug this case exists for.** be-01 answers a service removal with
+    // `label_removed` — the same kind a tag's removal carries, because since
+    // task 10.2 both take a labelling row off a join and null no column — and
+    // the payload says which dimension it was **nowhere**. The confirmation
+    // therefore reads the vocabulary off the removal the reader asked for.
+    //
+    // Proof: `removing` pinned to `'tag'` in the dialog and this fails on
+    // `expected … to contain 'The service comes off this item'` — somebody
+    // removing `Payments` being asked to confirm a sentence about tags.
+    const api = fakeDirectory([], []);
+    api.putServices([{ id: 's1', name: 'Payments' }]);
+    api.refuseRemovalWith({
+      projects: [
+        {
+          id: 'pr1',
+          name: 'Ledger',
+          workItems: [
+            { id: 'w1', number: '010', name: 'Backend', effects: [{ kind: 'label_removed' }] },
+          ],
+        },
+      ],
+      members: [],
+    });
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name of Payments')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText('Remove Payments'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('The service comes off this item. No dates move.');
+    expect(dialog.textContent).not.toContain('The tag comes off');
+    // The first ask never carries the cascade — this page's rule for all four
+    // vocabularies, and the one a service must not be the exception to.
+    expect(api.removals).toEqual([['s1', false]]);
+  });
+
+  itDom('still names the tag when a tag is what is going', async () => {
+    // The other side of the same switch. One dimension's sentence being right
+    // is not evidence when both come out of one expression: the fix could have
+    // been `'service'` unconditionally and the case above would still pass.
+    const api = fakeDirectory([], []);
+    api.putTags([{ id: 'g1', name: 'regulatory' }]);
+    api.refuseRemovalWith({
+      projects: [
+        {
+          id: 'pr1',
+          name: 'Ledger',
+          workItems: [
+            { id: 'w1', number: '010', name: 'Backend', effects: [{ kind: 'label_removed' }] },
+          ],
+        },
+      ],
+      members: [],
+    });
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name of regulatory')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText('Remove regulatory'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('The tag comes off this item. No dates move.');
+  });
+
+  itDom('confirms a service removal with the cascade, and only then', async () => {
+    const api = fakeDirectory([], []);
+    api.putServices([{ id: 's1', name: 'Payments' }]);
+    api.refuseRemovalWith({
+      projects: [
+        {
+          id: 'pr1',
+          name: 'Ledger',
+          workItems: [
+            { id: 'w1', number: '010', name: 'Backend', effects: [{ kind: 'label_removed' }] },
+          ],
+        },
+      ],
+      members: [],
+    });
+    render(<DirectoryPage token="t" api={api} nav={null} account={null} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name of Payments')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText('Remove Payments'));
+    fireEvent.click(await screen.findByText('Remove Payments and all of that'));
+
+    await waitFor(() => {
+      expect(api.removals).toEqual([
+        ['s1', false],
+        ['s1', true],
+      ]);
+    });
   });
 });

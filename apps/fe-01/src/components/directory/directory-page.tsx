@@ -27,9 +27,12 @@ import {
   type DirectoryRefusal,
   directoryRefusalSentence,
   directoryRefusedWith,
+  type DirectoryRemoval,
   type DirectoryUsage,
+  type DirectoryWrite,
   httpDirectoryApi,
   type PersonView,
+  type ServiceView,
   type TagView,
   type TeamView,
 } from '@/lib/wbs-api';
@@ -44,9 +47,18 @@ export interface DirectoryPageProps {
   account?: ReactNode;
 }
 
+/**
+ * Which of the directory's four vocabularies a row belongs to.
+ *
+ * One name for what was three separate inline unions — `Confirming.kind`,
+ * `commitRename`'s parameter and `askToRemove`'s — the moment a fourth arm
+ * arrived. Two copies that agree are a fact; four are a chore.
+ */
+export type DirectoryKind = 'person' | 'team' | 'tag' | 'service';
+
 /** A removal be-01 refused, and the decision the reader has not made yet. */
 interface Confirming {
-  kind: 'person' | 'team' | 'tag';
+  kind: DirectoryKind;
   id: string;
   name: string;
   usage: DirectoryUsage;
@@ -74,6 +86,18 @@ export interface EffectContext {
   /** The work item this effect is listed under. */
   workItemId: string;
   /**
+   * Which vocabulary the entry being removed belongs to.
+   *
+   * `label_removed` is the arm that needs it, and it needs it because be-01
+   * emits that **one** kind for two dimensions: a tag's labelling row and,
+   * since task 10.2, a service's. The payload carries no discriminator — the
+   * kind says what happened to the labelling row, not which vocabulary it was —
+   * so the confirmation reads it off the removal the reader actually asked for.
+   *
+   * Without this, removing a service confirmed with a sentence about tags.
+   */
+  removing: DirectoryKind;
+  /**
    * `010 Backend` for a row id, or null where the confirmation does not list
    * it.
    *
@@ -98,12 +122,17 @@ export function effectSentence(effect: DirectoryEffect, on: EffectContext): stri
     case 'label_nulled':
       return 'The service team label is cleared.';
     case 'label_removed':
-      // Its own sentence and not the team's, because nothing is *cleared*: a
-      // tag has no column to null, so what goes is the labelling row itself.
-      // And it says what a tag removal cannot do — no dates move — because the
-      // sentence beside it for a team says they may, and a reader comparing the
-      // two confirmations is entitled to the difference.
-      return 'The tag comes off this item. No dates move.';
+      // Its own sentence and not the team's, because nothing is *cleared*:
+      // neither dimension has a column to null, so what goes is the labelling
+      // row itself. And it says what these two removals cannot do — no dates
+      // move — because the sentence beside it for a team says they may, and a
+      // reader comparing the two confirmations is entitled to the difference.
+      //
+      // Named off `removing` rather than off the effect: `label_removed` is
+      // what be-01 sends for a tag **and** for a service, and a confirmation
+      // that answered "the tag comes off this item" to somebody removing
+      // `Payments` would be naming a dimension they never touched.
+      return `The ${on.removing === 'service' ? 'service' : 'tag'} comes off this item. No dates move.`;
     case 'capacity_released':
       // Two sentences from one arm, and the split is `fromId` against the row
       // it is listed under — be-01's own way of saying "inherited" without a
@@ -141,7 +170,7 @@ const TAP_SQUARE = 'h-11 w-11 shrink-0 p-0';
 const TAP_PICKER = '[&_input]:h-11 [&_input]:rounded-md [&_input]:border [&_input]:px-2';
 
 /**
- * The directory: every person and every service team on this deployment.
+ * The directory: every person, team, tag and service on this deployment.
  *
  * It renders its own {@link AppHeader}, which is the contract
  * `openspec/changes/directory-page/` pins — the account and the navigation come
@@ -169,6 +198,8 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
   const [teams, setTeams] = useState<TeamView[]>([]);
   const [tags, setTags] = useState<TagView[]>([]);
   const [newTag, setNewTag] = useState('');
+  const [services, setServices] = useState<ServiceView[]>([]);
+  const [newService, setNewService] = useState('');
   const [problem, setProblem] = useState<DirectoryRefusal | null>(null);
   const [confirming, setConfirming] = useState<Confirming | null>(null);
   const [busy, setBusy] = useState(false);
@@ -220,10 +251,11 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
   const read = useCallback(async () => {
     const generation = latestRead.current + 1;
     latestRead.current = generation;
-    const [foundPeople, foundTeams, foundTags] = await Promise.all([
+    const [foundPeople, foundTeams, foundTags, foundServices] = await Promise.all([
       directory.listPeople(),
       directory.listTeams(),
       directory.listTags(),
+      directory.listServices(),
     ]);
     // Proof: this line deleted, `and only the newest read may write the screen`
     // alone failed, on `expected null not to be null` — a superseded read
@@ -233,6 +265,7 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
     setPeople(foundPeople);
     setTeams(foundTeams);
     setTags(foundTags);
+    setServices(foundServices);
   }, [directory]);
 
   const reportFailedRead = useCallback((thrown: unknown) => {
@@ -344,6 +377,47 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
     renamed[entry.id] ?? entry.name;
 
   /**
+   * What renaming and removing mean for each vocabulary, in **one** place.
+   *
+   * `commitRename`, `askToRemove` and `confirmRemoval` each carried a copy of
+   * the same three-branch ternary over `kind`, and the copies agreed. A fourth
+   * arm is where that agreement stops being a fact about the code and becomes
+   * something somebody has to keep true in three places — the argument task 7.4
+   * settled for the export's three label cells, one screen over.
+   *
+   * The entry type is narrowed to `{ id; name }` on purpose: these two call
+   * sites read `ok` and `survivingName` and nothing else, and a person, a team,
+   * a tag and a service differ in ways no caller here looks at.
+   */
+  const writesFor: Record<
+    DirectoryKind,
+    {
+      rename: (id: string, name: string) => Promise<DirectoryWrite<{ id: string; name: string }>>;
+      remove: (id: string, cascade: boolean) => Promise<DirectoryRemoval>;
+    }
+  > = {
+    // A person's rename is a **patch** and the others are renames, which is the
+    // one real difference among the four and the reason this map is a map
+    // rather than a naming convention.
+    person: {
+      rename: (id, name) => directory.patchPerson(id, { name }),
+      remove: (id, cascade) => directory.removePerson(id, cascade),
+    },
+    team: {
+      rename: (id, name) => directory.renameTeam(id, name),
+      remove: (id, cascade) => directory.removeTeam(id, cascade),
+    },
+    tag: {
+      rename: (id, name) => directory.renameTag(id, name),
+      remove: (id, cascade) => directory.removeTag(id, cascade),
+    },
+    service: {
+      rename: (id, name) => directory.renameService(id, name),
+      remove: (id, cascade) => directory.removeService(id, cascade),
+    },
+  };
+
+  /**
    * Sends the name typed over an entry's, if it says something different.
    *
    * A name of whitespace alone never leaves this page: the answer is the same
@@ -354,10 +428,7 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
    * alone, and says so` failed on `Unable to find role="alert"`, with
    * `patchPerson` having been called `{ name: '' }`. Watched 2026-08-09.
    */
-  function commitRename(
-    kind: 'person' | 'team' | 'tag',
-    entry: { id: string; name: string },
-  ): void {
+  function commitRename(kind: DirectoryKind, entry: { id: string; name: string }): void {
     const clean = nameShown(entry).trim();
     if (clean === '') {
       setProblem({ reason: 'refused', code: 'name_required' });
@@ -368,12 +439,7 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
       return;
     }
     void attempt(async () => {
-      const written =
-        kind === 'person'
-          ? await directory.patchPerson(entry.id, { name: clean })
-          : kind === 'team'
-            ? await directory.renameTeam(entry.id, clean)
-            : await directory.renameTag(entry.id, clean);
+      const written = await writesFor[kind].rename(entry.id, clean);
       forgetDraft(entry.id);
       if (!written.ok) {
         setProblem({ reason: 'taken', survivingName: written.survivingName });
@@ -475,6 +541,27 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
   }
 
   /**
+   * Adds a service — {@link submitNewTag}'s shape and its argument, one
+   * dimension over.
+   *
+   * The plan's own service cell cannot create one either (`service-split`
+   * task 7.1's non-goal): this page is where a reader sees the whole vocabulary
+   * at once and can rename `Payements` rather than living beside it.
+   */
+  function submitNewService(event: FormEvent): void {
+    event.preventDefault();
+    const clean = newService.trim();
+    if (clean === '') {
+      setProblem({ reason: 'refused', code: 'name_required' });
+      return;
+    }
+    void attempt(async () => {
+      await directory.addService(clean);
+      setNewService('');
+    });
+  }
+
+  /**
    * Asks for a removal **without** a cascade, which is always the first ask.
    *
    * be-01 removes an entry nothing points at outright and refuses one that is
@@ -487,14 +574,9 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
    * `expected [ [ 't2', true ] ] to deeply equal [ [ 't2', false ] ]`. The
    * fault `phases-dialog` already knows. Watched 2026-08-09.
    */
-  function askToRemove(kind: 'person' | 'team' | 'tag', entry: { id: string; name: string }): void {
+  function askToRemove(kind: DirectoryKind, entry: { id: string; name: string }): void {
     void attempt(async () => {
-      const outcome =
-        kind === 'person'
-          ? await directory.removePerson(entry.id, false)
-          : kind === 'team'
-            ? await directory.removeTeam(entry.id, false)
-            : await directory.removeTag(entry.id, false);
+      const outcome = await writesFor[kind].remove(entry.id, false);
       if (outcome.ok) return;
       setConfirming({ kind, id: entry.id, name: entry.name, usage: outcome.usage });
     });
@@ -504,12 +586,7 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
     if (confirming === null) return;
     const asked = confirming;
     void attempt(async () => {
-      const outcome =
-        asked.kind === 'person'
-          ? await directory.removePerson(asked.id, true)
-          : asked.kind === 'team'
-            ? await directory.removeTeam(asked.id, true)
-            : await directory.removeTag(asked.id, true);
+      const outcome = await writesFor[asked.kind].remove(asked.id, true);
       // A second `in_use` against a confirmed cascade is be-01 refusing what it
       // just described; there is nothing left to confirm against, so it is
       // raised rather than turned into a second dialog.
@@ -841,6 +918,92 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
               </form>
             </CardContent>
           </Card>
+
+          {/*
+            Services: the third sibling, and it has the Tags card's shape for
+            the Tags card's reason — **no capacity column and no membership
+            chips**.
+
+            The absence is a different one again, and it is the point of putting
+            this card here rather than inside the Service teams card above.
+            Nobody belongs to a service and a service is not a pool: it is what
+            the work is *part of*, and who has the people is still a team. A
+            reader who sees two columns here and three above has been taught
+            Dany's 2026-08-20 23:16 ruling — service and team are independent —
+            by the screen rather than by a sentence.
+
+            Which services a team is **responsible for** is the one place the
+            two meet, and it is edited on the team row above (task 7.5's second
+            half), not here: an ownership map drawn on this card would read as a
+            property of the service.
+          */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Services</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 pt-4">
+              {services.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  No services yet. Add the first one below — the plan&rsquo;s Services column
+                  appears once one exists.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {services.map((service) => (
+                    <li key={service.id} className="flex items-center gap-2">
+                      <Input
+                        className={`${TAP} min-w-0 flex-1`}
+                        aria-label={`Name of ${service.name}`}
+                        value={nameShown(service)}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const typed = event.currentTarget.value;
+                          setRenamed((current) => ({ ...current, [service.id]: typed }));
+                        }}
+                        onBlur={() => {
+                          commitRename('service', service);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitRename('service', service);
+                          }
+                          if (event.key === 'Escape') forgetNameDraft(service.id);
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={TAP_SQUARE}
+                        aria-label={`Remove ${service.name}`}
+                        disabled={busy}
+                        onClick={() => {
+                          askToRemove('service', service);
+                        }}
+                      >
+                        <span aria-hidden="true">✕</span>
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <form className="flex items-center gap-2" onSubmit={submitNewService}>
+                <Input
+                  className={`${TAP} min-w-0 flex-1`}
+                  aria-label="New service"
+                  placeholder="Name"
+                  value={newService}
+                  disabled={busy}
+                  onChange={(event) => {
+                    setNewService(event.currentTarget.value);
+                  }}
+                />
+                <Button type="submit" className={TAP} disabled={busy}>
+                  Add service
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         </div>
       </main>
 
@@ -883,6 +1046,11 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
                             <li key={`${workItem.id}:${effect.kind}`}>
                               {effectSentence(effect, {
                                 workItemId: workItem.id,
+                                // The dimension the reader asked to remove.
+                                // `label_removed` arrives for a tag and for a
+                                // service alike and says which of the two
+                                // nowhere, so the sentence takes it from here.
+                                removing: confirming.kind,
                                 // Named out of the **same project**, which is
                                 // the only list a row id in this payload can
                                 // mean: two projects may each hold a row

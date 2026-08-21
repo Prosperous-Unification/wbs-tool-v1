@@ -622,10 +622,7 @@ export interface DirectoryApi {
   listTeams(): Promise<TeamView[]>;
   /** Every tag in the global directory, by name. */
   listTags(): Promise<TagView[]>;
-  /**
-   * Every service in the global directory. Read-only here — see
-   * {@link ServiceView} for why the write half is task 7.5's and not missing.
-   */
+  /** Every service in the global directory, by name. */
   listServices(): Promise<ServiceView[]>;
   addTag(name: string): Promise<TagView>;
   renameTag(tagId: string, name: string): Promise<DirectoryWrite<TagView>>;
@@ -635,6 +632,24 @@ export interface DirectoryApi {
    * 409-then-confirm gesture.
    */
   removeTag(tagId: string, cascade: boolean): Promise<DirectoryRemoval>;
+  /**
+   * Adds a service — `addTag`'s shape and its non-goal: the plan's own service
+   * cell deliberately cannot create one, so a typo made in a cell cannot become
+   * a second spelling of something the vocabulary already holds.
+   */
+  addService(name: string): Promise<ServiceView>;
+  renameService(serviceId: string, name: string): Promise<DirectoryWrite<ServiceView>>;
+  /**
+   * Removes a service — `removeTag`'s shape exactly, and since task 10.2 that
+   * is literal rather than analogous: the removal takes labelling **rows** off
+   * `work_item_service` and nulls no column, so its usage arrives as
+   * `label_removed` like a tag's and not as the `label_nulled` a team's does.
+   *
+   * The `team_service` rows it also takes are deliberately **absent** from that
+   * usage (design.md D7): losing an ownership claim about a service that is
+   * going is not an effect on any plan.
+   */
+  removeService(serviceId: string, cascade: boolean): Promise<DirectoryRemoval>;
   /** Adds a person; no teams means a **free agent**. Idempotent by name at be-01. */
   addPerson(name: string, teamIds: readonly string[]): Promise<PersonView>;
   addTeam(name: string): Promise<TeamView>;
@@ -958,8 +973,10 @@ export interface ProjectApi {
   /** Every tag in the global directory, by name. */
   listTags(): Promise<TagView[]>;
   /**
-   * Every service in the global directory. Read-only here — see
-   * {@link ServiceView} for why the write half is task 7.5's and not missing.
+   * Every service in the global directory. **Read-only here on purpose**, which
+   * is not `DirectoryApi`'s state of affairs but this interface's rule: a plan
+   * page reads the vocabulary to fill its picker and its facet, and the
+   * directory page is the one surface that changes it.
    */
   listServices(): Promise<ServiceView[]>;
   addTag(name: string): Promise<TagView>;
@@ -1267,7 +1284,7 @@ async function writeDirectoryAt<T>(
   path: string,
   token: string,
   init: RequestInit,
-  key: 'person' | 'team' | 'tag',
+  key: 'person' | 'team' | 'tag' | 'service',
 ): Promise<DirectoryWrite<T>> {
   const res = await fetch(path, { ...init, headers: auth(token) });
   const text = await res.text();
@@ -1278,7 +1295,7 @@ async function writeDirectoryAt<T>(
     }
   }
   if (!res.ok) throw new Error(refusalCodeIn(text, res.status));
-  const body = JSON.parse(text) as Partial<Record<'person' | 'team' | 'tag', T>>;
+  const body = JSON.parse(text) as Partial<Record<'person' | 'team' | 'tag' | 'service', T>>;
   const entry = body[key];
   if (entry === undefined) throw new Error('unexpected_response');
   return { ok: true, entry };
@@ -1466,7 +1483,7 @@ export function directoryRefusalSentence(refusal: DirectoryRefusal): string {
 /**
  * The deployment's directory over HTTP.
  *
- * The one spelling of these eight calls. `httpProjectApi`'s four directory
+ * The one spelling of these calls. `httpProjectApi`'s four directory
  * methods delegate here rather than repeating the paths, because two copies of
  * `/api/people` is how a page and a picker come to disagree about what a person
  * is.
@@ -1517,12 +1534,30 @@ export function httpDirectoryApi(token: string): DirectoryApi {
       const body = await send<{ tags: TagView[] }>('/api/tags', token);
       return body.tags;
     },
-    // The service half, and it is the tag half's read with the word changed.
-    // Only the read: `POST`, `PATCH` and `DELETE /api/services` all exist at
-    // be-01 (chunk 5) and none of them has a caller on this client yet.
+    // The service half, and it is the tag half with the word changed —
+    // `/api/services` is global exactly as `/api/tags` is, with no project in
+    // any of these four paths.
     async listServices() {
       const body = await send<{ services: ServiceView[] }>('/api/services', token);
       return body.services;
+    },
+    async addService(name) {
+      const body = await send<{ service: ServiceView }>('/api/services', token, {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      return body.service;
+    },
+    renameService(id, name) {
+      return writeDirectoryAt<ServiceView>(
+        `/api/services/${id}`,
+        token,
+        { method: 'PATCH', body: JSON.stringify({ name }) },
+        'service',
+      );
+    },
+    removeService(id, cascade) {
+      return removeDirectoryAt(`/api/services/${id}${cascade ? '?cascade=true' : ''}`, token);
     },
     async addTag(name) {
       const body = await send<{ tag: TagView }>('/api/tags', token, {
