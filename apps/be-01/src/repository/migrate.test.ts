@@ -120,10 +120,16 @@ const SERVICE = '20260821000000_add_service';
  * blue/green swap.
  *
  * Stamped `20260821080000`, later than all twenty-three folders on disk when it
- * was written. `ls apps/be-01/drizzle | sed 's/_.*//' | sort | uniq -d` was
- * silent and `20260821080000` matched nothing before the folder existed, with
- * `refuses a folder set that shares one stamp between two migrations` in
- * `migrate-down.test.ts` the mechanical half of the same check.
+ * was written. The stamps were listed and checked for a duplicate before the
+ * folder existed — verify.md quotes the run — and `refuses a folder set that
+ * shares one stamp between two migrations` in `migrate-down.test.ts` is the
+ * mechanical half of the same check.
+ *
+ * The duplicate-stamp one-liner is deliberately **not** quoted here, and that is
+ * worth a line: its `sed` script ends in a slash-star-slash sequence that closes
+ * a block comment, so pasting it into this JSDoc made the whole file a syntax
+ * error — and bun reported that as fifty tests quietly not running rather than
+ * as a failure. `migration.sql` quotes it safely, in a `--` comment.
  */
 const WORK_ITEM_SERVICE = '20260821080000_add_work_item_service';
 
