@@ -167,6 +167,18 @@ A person who belongs to no service team. The absence of memberships, never membe
 a "Free agents" row — a real row could be renamed, deleted or given work of its own.
 _Avoid_: unassigned, independent, teamless
 
+**Person kind**:
+Whether a person in the directory is a human or a piece of software — `person` or `agent`,
+one per person, always set. Everyone the directory held before kinds existed is a `person`.
+_Avoid_: type, category, is-agent, human flag
+
+**Agent**:
+A person whose kind is `agent`: software that does a work item's work. Assigned,
+scheduled and counted against capacity exactly as a human is; the kind is a label reports
+read, not a rule the engine follows. Not to be confused with **free agent**, which is
+about team membership and predates this term.
+_Avoid_: bot, AI, machine user, automation
+
 **Directory usage**:
 What removing a person or a service team would take with it, named rather than counted:
 the affected projects with their work items by number and name, each work item's effects,
@@ -213,6 +225,33 @@ _Avoid_: missing estimate, unestimated row, TBD
 **Roll-up**:
 The sum of a parent's descendants' estimates, per role, computed on read and never stored.
 _Avoid_: aggregate, total, computed estimate
+
+**Measure**:
+One number somebody typed about one work item, one role and one **metric**, with the
+moment they typed it. Rolls up like an estimate; absent, never zero, when nobody typed it.
+Days live outside this term — they are the **estimate** and the **recorded days**.
+_Avoid_: metric value, figure, datapoint, reading
+
+**Metric**:
+Which unit a measure is in, from a closed set: `token_estimate`, `token_actual`,
+`hours_actual`. A measure is absent per metric — an hours figure says nothing about
+whether a token figure exists.
+_Avoid_: unit, kind (which is the person's), measure type
+
+**Token estimate**:
+The tokens a role's work on one work item is expected to take. One number, not a trio: no
+scheduler folds it, so there is nothing for a range to reduce to.
+_Avoid_: token budget, projected spend, cost estimate
+
+**Token fact**:
+The tokens a role's work on one work item actually took. Says nothing about whether that
+work is finished — completion is the role's **progress**, recorded separately.
+_Avoid_: actual tokens, token spend, usage
+
+**Hours fact**:
+The hours a role's work on one work item actually took. Recorded, never derived: no
+conversion from tokens or from days exists, because neither is one.
+_Avoid_: actual hours, time spent, effort
 
 **Dependency**:
 One work item waiting for another's anchor slice to finish before it starts; the
