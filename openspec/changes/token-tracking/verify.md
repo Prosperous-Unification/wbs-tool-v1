@@ -93,6 +93,8 @@ the case that failed and the message it failed on.
 | F7     | the `before === null` inverse struck from `setMeasure`, leaving `set_measure … value: before ?? 0` | `4765102` | `undoes a first recording back to absence, not to zero` **and** `undoes a first recording of one metric without touching the pair's others`                                       | a stored 0 where nobody said anything — 14 pass, **2** fail                                    |
 | F8     | `reason === 'unknown_metric'` struck from the controller's `statusFor` 404 list                    | `7df17f8` | `answers 404 for a unit it does not keep, on both verbs, and stores nothing`                                                                                                      | `[400, 400]` where `[404, 404]` is owed — 57 pass, 1 fail                                      |
 | F8b    | `params.metric` replaced by a hard-coded `'token_actual'` in the measures `PUT`                    | `7df17f8` | `records a figure in each unit against one pair, and clears one without touching the others` **and** `answers 404 for a unit it does not keep, on both verbs, and stores nothing` | one row overwritten three times, and `story_points` **written** as a 200 — 56 pass, **2** fail |
+| F8c    | the `holdsKind` guard struck from `DirectoryService.patchPerson`                                    | `4f104d1` | `refuses a kind outside the set before anything is written` **and** `answers 400 invalid_kind for a kind outside the set, rename included` | a `kind` of `'robot'` reaches the store — 1024 pass, **2** fail |
+| F8d    | `...(patch.kind === undefined ? {} : { kind: patch.kind })` struck from the store's one `set`       | `4f104d1` | `writes a name and a kind in one update, and a kind alone in one too`, `marks a person an agent and back, leaving their memberships alone` **and** `marks a person an agent, and marks them back` | the patch answers **200** and stores nothing — 1023 pass, **3** fail |
 | F9–F11 | the roll-up and the structure                                                                      | —         | —                                                                                                                                                                                 | _not yet run_ (sections 5–6)                                                                   |
 
 ### F8b: the fault that says the path segment is load-bearing
@@ -151,6 +153,22 @@ one that matters is the first: the counts.
 That is the control: a fault that reddens the file wholesale proves the suite
 runs, not that the case under it is aimed at the constraint it names.
 
+### F8d: a 200 for a write that did not happen
+
+F8c is the ordinary half — the guard gone, so `'robot'` walks past the service
+and reaches a column whose `CHECK` refuses it. **F8d is the one worth having.**
+The store keeps `name` and `kind` in one `set`, and dropping `kind` from it
+leaves a `PATCH` that answers **200** with a body a caller reads as
+confirmation: `{ person: { …, kind: 'person' } }` for a request that said
+`agent`. Nothing throws, nothing is logged, and the only way to notice is to
+read the `kind` in the response — which is what the three cases do.
+
+It reddens at all three layers, and that is why it was worth running rather than
+reasoned about: the store case says the column was not written, the service case
+says the outcome carried the stale value, and the route case says the 200 body
+did too. A fault that reddened only the store would leave open whether either
+layer above it asserts on this at all.
+
 ## The gate
 
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
@@ -169,6 +187,10 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `654033e` (section 3, the store)           | `nx run be-01:test`                      | **998 pass / 0 fail**, 28,083 expect() calls, 74 files |
 | `654033e`                                  | `nx run be-01:lint`, `be-01:typecheck`   | exit 0                                                 |
 | `654033e`                                  | `nx format:check --all`                  | exit 0                                                 |
+| `7df17f8` (4.3, the measures routes)       | `nx run be-01:test`                      | **1020 pass / 0 fail**, 28,145 expect() calls, 75 files |
+| `4f104d1` (4.4, the person patch's kind)   | `nx run be-01:test`                      | **1026 pass / 0 fail**, 28,157 expect() calls, 75 files |
+| `4f104d1`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                 |
+| `4f104d1`                                  | `nx format:check --all`                  | exit 0                                                 |
 
 **Read the test count, not only the pass line.** Chunk 2 gated in `~/wbs-build`
 against a tracking ref stranded at PR #17 and got a green **57 tests across 14

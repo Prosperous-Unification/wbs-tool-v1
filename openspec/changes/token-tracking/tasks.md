@@ -122,8 +122,28 @@
       unit is in the path, so `tokens` or `hours` would be the same fact twice
       and the two could disagree. `unknown_metric` joins the 404 list in the
       controller's `statusFor`. **Negative:** verify.md F8, F8b.
-- [ ] 4.4 `PATCH /people/:id` accepts `kind`, refusing anything outside the set
-      as `invalid_kind` (400).
+- [x] 4.4 `PATCH /people/:id` accepts `kind`, refusing anything outside the set
+      as `invalid_kind` (400). **Negatives:** verify.md F8c, F8d.
+
+      > **Done 2026-08-21 (chunk 8).** The closed set is checked in
+      > `DirectoryService.patchPerson` by `holdsKind`, beside the write and
+      > once, so the route's schema takes a `t.String()` rather than a union of
+      > the two kinds — a union would have Elysia refuse `'robot'` with its own
+      > body and `invalid_kind` would be unreachable through the API that
+      > refusal exists for. It is `holdsMetric`'s argument, one entity over.
+      >
+      > **400 is the only one in this controller**, and it joins
+      > `invalid_measure` rather than the 422s beside it: a blank name is a
+      > value this directory declines, while a `kind` outside the set is a
+      > spelling the API does not have. 404 would claim something was looked
+      > up.
+      >
+      > **Not announced to the broadcaster**, for the membership edit's reason
+      > rather than a weaker one: no row in a plan's tree draws a `kind`. It
+      > reaches the directory payload (5.4) and the card (7.1), both of which
+      > read the directory. The day a badge appears beside an assignee in a
+      > tree, `says nothing when a person becomes an agent` is the case that
+      > has to change first.
 
       > **Corrected 2026-08-21 (chunk 7), premise disproved rather than
       > rewritten.** This item read: _"Journalled beside the rename the directory
