@@ -157,7 +157,11 @@ describe('vite dev server proxy', () => {
 describe('the app and the run resolve the same modules', () => {
   it('lists the same alias keys in both configs', async () => {
     const { default: suiteConfig } = await import('./vitest.config');
-    const appAliases = serveConfig({}).resolve?.alias ?? {};
+    // Both URLs set, because `edgeRoutes` refuses a config without them before
+    // it ever builds a `resolve` block — an empty env here fails this case on
+    // the proxy's rule rather than on the aliases it is about.
+    const appAliases =
+      serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).resolve?.alias ?? {};
     const suiteAliases = suiteConfig.resolve?.alias ?? {};
     expect(Object.keys(suiteAliases).sort()).toEqual(Object.keys(appAliases).sort());
   });
