@@ -68,6 +68,20 @@ function fakeApi(): ProjectApi & {
   stack: { undoable: boolean; redoable: boolean };
   stackCalls: ('undo' | 'redo')[];
   answerStackWith: (answer: UndoResult) => void;
+  /**
+   * The three service writes this fake models directly rather than through
+   * {@link ProjectApi}.
+   *
+   * There is no `serviceId` on the patch and no service CRUD on this client
+   * yet — those are tasks 7.1 and 7.5. A fixture that needs a labelled row
+   * today has to write the column, and writing it here is honest about which
+   * half of the change exists: the **read** path is what task 6 is about.
+   */
+  addService: (name: string) => { id: string; name: string };
+  labelWithService: (workItemId: string, serviceId: string | null) => void;
+  ownService: (teamId: string, serviceId: string) => void;
+  /** The same write undone, for the map emptying under a ticked signal. */
+  disownService: (teamId: string, serviceId: string) => void;
 } {
   const rows: WorkItemView[] = [];
   const edges: { predecessorId: string; successorId: string }[] = [];
@@ -75,7 +89,16 @@ function fakeApi(): ProjectApi & {
   let seq = -1;
   let estimateMethod: EstimateMethod = 'pert';
   let startDate: string | null = null;
-  const teams: { id: string; name: string }[] = [];
+  /**
+   * `serviceIds` present and empty on every team, never absent — be-01 sends
+   * the ownership map whole ({@link TeamView.serviceIds}) and a fake that left
+   * it off would hand the table an `undefined` it can never see in production.
+   * This file's `typecheck` target does not cover the spec tsconfig, so the
+   * shape is kept here by hand rather than by the compiler.
+   */
+  const teams: { id: string; name: string; serviceIds: string[] }[] = [];
+  /** The global service directory, in the order it was added. */
+  const services: { id: string; name: string }[] = [];
   const people: { id: string; name: string; teamIds: string[] }[] = [];
   const assigned = new Map<string, string>();
   /**
@@ -194,6 +217,37 @@ function fakeApi(): ProjectApi & {
     answerStackWith(answer: UndoResult) {
       stackAnswer = answer;
     },
+    addService(name: string) {
+      // Idempotent by name, as `addTeam` is and as be-01's unique
+      // `service_name` makes it: two `Billing`s is not a state the directory
+      // can be in, so it must not be one this fake can be in either.
+      const already = services.find((s) => s.name === name);
+      if (already !== undefined) return already;
+      const service = { id: `service${String(services.length + 1)}`, name };
+      services.push(service);
+      return service;
+    },
+    labelWithService(workItemId: string, serviceId: string | null) {
+      const row = rows.find((r) => r.id === workItemId);
+      if (row !== undefined) row.serviceId = serviceId;
+      // Through `renumber` like every other write here, so the next `tree`
+      // read carries a fresh sequence and the table does not discard it.
+      renumber();
+    },
+    disownService(teamId: string, serviceId: string) {
+      const team = teams.find((t) => t.id === teamId);
+      if (team === undefined) return;
+      team.serviceIds = team.serviceIds.filter((each) => each !== serviceId);
+    },
+    ownService(teamId: string, serviceId: string) {
+      const team = teams.find((t) => t.id === teamId);
+      // Silent on an unknown team rather than throwing: be-01 refuses that
+      // write with `unknown_team`, and a fixture that threw instead would make
+      // a typo in a case look like a bug in the table.
+      if (team !== undefined && !team.serviceIds.includes(serviceId)) {
+        team.serviceIds.push(serviceId);
+      }
+    },
     listProjects: () =>
       Promise.resolve([
         {
@@ -279,15 +333,15 @@ function fakeApi(): ProjectApi & {
       renumber();
       return Promise.resolve();
     },
-    listTeams: () => Promise.resolve([...teams]),
+    listTeams: () => Promise.resolve(teams.map((t) => ({ ...t, serviceIds: [...t.serviceIds] }))),
     listTags: () => Promise.resolve([]),
-    listServices: () => Promise.resolve([]),
+    listServices: () => Promise.resolve([...services]),
     addTeam(name: string) {
       // Idempotent by name, exactly as be-01 is: the picker's "type it if it
       // is not in the list" must not be able to make two `Platform`s.
       const already = teams.find((t) => t.name === name);
       if (already !== undefined) return Promise.resolve(already);
-      const team = { id: `team${String(teams.length + 1)}`, name };
+      const team = { id: `team${String(teams.length + 1)}`, name, serviceIds: [] };
       teams.push(team);
       return Promise.resolve(team);
     },
@@ -12682,6 +12736,202 @@ describe('narrowing the plan by facet', () => {
     });
     openFilters();
     expect(screen.getByLabelText('Team Wiring')).not.toBeChecked();
+  });
+});
+
+describe('narrowing the plan by service, and by the two mismatch signals', () => {
+  /**
+   * The faceted plan again with the third dimension on it, and the directory
+   * facts the two signals are asked against:
+   *
+   * ```
+   * 010     Strip the walls   team Billing, service Checkout, Ada on Dev
+   *  010.1   Sockets          inherits both
+   *   010.1.1 Back boxes      team Wiring, inherits Checkout
+   *  010.2   Skirting         inherits both
+   * 020     Paint             nothing
+   *  020.1   Undercoat        nothing
+   * ```
+   *
+   * `Wiring` owns `Checkout` and `Billing` owns nothing, so `010` is built by a
+   * non-owner and `010.1.1` — the row whose own team is the owner — is not.
+   * Ada belongs to `Wiring` and is on `010`, whose effective team is `Billing`,
+   * so she is assigned outside it. Both facts are deliberately **not** true of
+   * every row: a signal that flagged the whole plan would pass a test that only
+   * counted flags.
+   *
+   * Two services in the directory and one on the plan, the same trap the team
+   * facet's fixture sets: the control must offer what the plan carries, not
+   * what the deployment knows about.
+   */
+  async function aServicedPlan(): Promise<
+    ReturnType<typeof fakeApi> & { checkout: string; billing: string; wiring: string }
+  > {
+    const api = fakeApi();
+    const strip = await api.create('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'Strip the walls',
+    });
+    const sockets = await api.create('p1', { parentId: strip.id, afterId: null, name: 'Sockets' });
+    const back = await api.create('p1', {
+      parentId: sockets.id,
+      afterId: null,
+      name: 'Back boxes',
+    });
+    await api.create('p1', { parentId: strip.id, afterId: sockets.id, name: 'Skirting' });
+    const paint = await api.create('p1', { parentId: null, afterId: strip.id, name: 'Paint' });
+    await api.create('p1', { parentId: paint.id, afterId: null, name: 'Undercoat' });
+
+    const billing = await api.addTeam('Billing');
+    const wiring = await api.addTeam('Wiring');
+    await api.patch(strip.id, { serviceTeamId: billing.id });
+    await api.patch(back.id, { serviceTeamId: wiring.id });
+
+    const checkout = api.addService('Checkout');
+    // In the directory and on no row — what the facet must not offer.
+    api.addService('Ledger');
+    api.labelWithService(strip.id, checkout.id);
+
+    const ada = await api.addPerson('Ada', [wiring.id]);
+    await api.assign(strip.id, DEV.id, ada.id);
+
+    return Object.assign(api, {
+      checkout: checkout.id,
+      billing: billing.id,
+      wiring: wiring.id,
+    });
+  }
+
+  /** Draw it, and wait for the six rows the fixture builds. */
+  async function shown(api: ProjectApi): Promise<void> {
+    render(<WbsTable projectId="p1" api={api} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '010.1', '010.1.1', '010.2', '020', '020.1']);
+    });
+    fireEvent.click(screen.getByText(/^Filters/));
+  }
+
+  const tick = (label: string) => {
+    fireEvent.click(screen.getByLabelText(label));
+  };
+
+  itDom('offers the services the plan carries, by name, and not the rest of the directory', async () => {
+    const api = await aServicedPlan();
+    await shown(api);
+
+    expect(screen.getByLabelText('Service Checkout')).toBeInTheDocument();
+    // `Ledger` is in the directory and on nothing here. Offering it would be a
+    // box that provably empties the table — `optionsFor`'s whole argument.
+    expect(screen.queryByLabelText('Service Ledger')).toBeNull();
+  });
+
+  itDom('keeps the rows that inherit a ticked service, which is task 6.2', async () => {
+    // **The case 6.2's watched red drives.** Only `010` states `Checkout`; the
+    // three rows under it answer to it through `effectiveServicesOf`, and
+    // `020`/`020.1` do not. Point the predicate at `row.serviceId` — the row's
+    // own stored column — instead of the effective reading and this drops to
+    // `['010']`, which is why the fault could not be observed until a control
+    // existed to tick. Injected on h2puni and watched red, chunk 9.
+    const api = await aServicedPlan();
+    await shown(api);
+
+    tick('Service Checkout');
+
+    expect(numbersOnScreen()).toEqual(['010', '010.1', '010.1.1', '010.2']);
+    expect(screen.getByLabelText('Name of 010.2').dataset['match']).toBe('true');
+  });
+
+  itDom('stands both signal boxes down, with the reason, while the directory says nothing', async () => {
+    // The design's first risk. A deployment ships with an empty ownership map
+    // and nobody in a team, and in that state both signals answer `false` for
+    // every row — which is "nobody has said", not "nothing is wrong". An
+    // enabled box answering the second question is how a reader concludes the
+    // feature is broken.
+    const api = fakeApi();
+    await api.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
+    await shown(api);
+
+    const owner = screen.getByLabelText('Built by non-owner only');
+    const outside = screen.getByLabelText('Assigned outside the team only');
+    expect(owner).toBeDisabled();
+    expect(outside).toBeDisabled();
+    // The attribute rather than `toHaveAccessibleDescription`: jest-dom
+    // computes that through `dom-accessibility-api`, whose support for
+    // `aria-description` is version-dependent, and a matcher that quietly
+    // answers `''` on both boxes would pass this test in either state.
+    expect(owner.getAttribute('aria-description')).toMatch(/No team owns a service yet/);
+    expect(outside.getAttribute('aria-description')).toMatch(/Nobody belongs to a team yet/);
+    // Mouse readers get the same sentence, and it is the only place a hint
+    // fits at this panel width.
+    expect(owner.closest('label')).toHaveAttribute('title', expect.stringMatching(/No team owns/));
+  });
+
+  itDom('narrows to the rows a non-owner is building, and not to every labelled row', async () => {
+    const api = await aServicedPlan();
+    api.ownService(api.wiring, api.checkout);
+    await shown(api);
+
+    tick('Built by non-owner only');
+
+    // `010.1.1` carries `Wiring` itself and `Wiring` owns `Checkout`, so the
+    // row nearest the fault is the one **not** flagged. Without it in the
+    // fixture this assertion would pass over a signal that flagged everything
+    // wearing a service — chunk 5's over-broad-usage lesson, one dimension on.
+    expect(numbersOnScreen()).toEqual(['010', '010.1', '010.2']);
+  });
+
+  itDom('narrows to the rows somebody outside the team is on', async () => {
+    const api = await aServicedPlan();
+    await shown(api);
+
+    tick('Assigned outside the team only');
+
+    // Ada is in `Wiring` and `010`'s effective team is `Billing`. The rows
+    // under it inherit the team but not the assignee — `row.assignees` is the
+    // row's own — so one row answers, not the branch.
+    expect(numbersOnScreen()).toEqual(['010']);
+  });
+
+  itDom('leaves a ticked signal live after somebody empties the map under it', async () => {
+    // Ticked wins. Somebody in the directory clears the last owned service
+    // while this reader is filtered by the signal: the map arrives empty on the
+    // next refetch and the box would go down with the tick still in force — a
+    // filter nobody can leave, an empty table and a greyed-out control that
+    // emptied it. It stays live so it can be turned off, and turning it off
+    // puts the plan back.
+    const api = await aServicedPlan();
+    api.ownService(api.wiring, api.checkout);
+    let notify: () => void = () => {
+      throw new Error('the table never subscribed');
+    };
+    const subscribe = (_projectId: string, handlers: SubscriptionHandlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    };
+    render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '010.1', '010.1.1', '010.2', '020', '020.1']);
+    });
+    fireEvent.click(screen.getByText(/^Filters/));
+
+    tick('Built by non-owner only');
+    expect(numbersOnScreen()).toEqual(['010', '010.1', '010.2']);
+
+    // Somebody else's directory edit, arriving the way every other one does.
+    api.disownService(api.wiring, api.checkout);
+    notify();
+    await waitFor(() => {
+      expect(screen.getByLabelText('Built by non-owner only')).toBeChecked();
+    });
+
+    const owner = screen.getByLabelText('Built by non-owner only');
+    expect(owner).not.toBeDisabled();
+    // And the signal now answers `false` everywhere, so the tick finds nothing
+    // — which is the state the reader has to be able to get out of.
+    expect(numbersOnScreen()).toEqual([]);
+    fireEvent.click(owner);
+    expect(numbersOnScreen()).toEqual(['010', '010.1', '010.1.1', '010.2', '020', '020.1']);
   });
 });
 
