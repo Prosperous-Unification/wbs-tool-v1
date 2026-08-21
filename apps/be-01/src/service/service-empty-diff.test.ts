@@ -47,6 +47,25 @@ import { WorkItemService } from './work-item.service';
  * Real SQLite and a real `CapacityRepository` for the same reason the tag file
  * uses them — the in-memory capacity fixture seeds no pool, so nothing decides
  * anything and every fault passes green.
+ *
+ * **Re-aimed in chunk 22, and the reason is the sharpest finding in this
+ * change.** Written at task 4.5 this file labelled its rows with `serviceId`,
+ * because that is what a row carried then. Chunk 12 widened the dimension to a
+ * set and chunk 10.2 moved the fact onto `work_item_service`, leaving
+ * `work_item.service_id` standing for the release that is still running (design
+ * D2) — read by nothing. The file kept passing anyway: `serviceId` is not in
+ * `WorkItemPatch`, so it fell through the patch's rest-spread straight onto the
+ * dead column, and the FK's `on delete set null` nulled it again on removal.
+ * Green, and measuring the one field in the schema that no scheduler could read
+ * even if it wanted to. Every case below now labels through `serviceIds` and
+ * asserts the label's presence **in the shape `listByProject` delivers**, so the
+ * plan under test is one the engine can actually see.
+ *
+ * **Why the gate could not catch it:** `nx typecheck` builds
+ * `tsconfig.lib.json`, which excludes `**/*.test.ts`. Test files in this repo
+ * are never typechecked — a stale field name in a spec is invisible to lint,
+ * typecheck and a green suite alike. The only defence is asserting the fact is
+ * *there* rather than trusting the write, which is what the guards below do.
  */
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -167,12 +186,20 @@ describe('a service and the ownership map decide no date, on a plan where a labe
     await capacityStore.set(projectId, platform.id, 1);
     await workItems.patch(strip, ownerId, {
       serviceTeamId: platform.id,
-      serviceId: payments.id,
+      serviceIds: [payments.id],
     });
     await workItems.patch(cable, ownerId, {
       serviceTeamId: platform.id,
-      serviceId: payments.id,
+      serviceIds: [payments.id],
     });
+    // The plan is only a service plan if the service came back on the read the
+    // engine uses. Asserted here, once, rather than trusted in four cases: this
+    // is the guard that would have failed the file the moment `serviceId` went
+    // stale, and it is cheaper than typechecking specs.
+    expect(
+      (await workItemStore.listByProject(projectId)).filter((row) => row.serviceIds.length > 0)
+        .length,
+    ).toBe(2);
     return {
       strip,
       cable,
@@ -217,15 +244,17 @@ describe('a service and the ownership map decide no date, on a plan where a labe
     const { serviceId } = await pooledPlan();
 
     const before = await datesNow();
-    expect(
-      (await workItemStore.listByProject(projectId)).some((row) => row.serviceId !== null),
-    ).toBe(true);
 
     const removed = await directoryStore.removeService(serviceId, true);
     expect(removed.ok).toBe(true);
 
+    // The cascade really emptied the rows — off the join table, which is where
+    // `removeService` deletes and where the read looks. Asserting this over
+    // `work_item.service_id` instead is what made the case vacuous until
+    // chunk 22: that column is nulled by the FK whether or not the removal
+    // understood the join at all.
     expect(
-      (await workItemStore.listByProject(projectId)).every((row) => row.serviceId === null),
+      (await workItemStore.listByProject(projectId)).every((row) => row.serviceIds.length === 0),
     ).toBe(true);
     expect(await datesNow()).toEqual(before);
   });
@@ -267,14 +296,20 @@ describe('a service and the ownership map decide no date, on a plan where a labe
     // The write path's half of the same claim: labelling and unlabelling are
     // writes, and a write that touched anything the engine reads would show up
     // here rather than in the delete.
-    const { strip, cable, otherServiceId } = await pooledPlan();
+    const { strip, cable, serviceId, otherServiceId } = await pooledPlan();
 
     const before = await datesNow();
 
-    await workItems.patch(strip, ownerId, { serviceId: null });
-    await workItems.patch(cable, ownerId, { serviceId: otherServiceId });
-    await workItems.patch(strip, ownerId, { serviceId: otherServiceId });
+    // Emptied, replaced, and widened to two — the set's reachable states, which
+    // is more than the single column could express and the reason this case is
+    // worth more after the widening than before it.
+    await workItems.patch(strip, ownerId, { serviceIds: [] });
+    await workItems.patch(cable, ownerId, { serviceIds: [otherServiceId] });
+    await workItems.patch(strip, ownerId, { serviceIds: [serviceId, otherServiceId] });
 
+    expect(
+      (await workItemStore.listByProject(projectId)).map((row) => row.serviceIds.length).sort(),
+    ).toEqual([1, 2]);
     expect(await datesNow()).toEqual(before);
   });
 });
