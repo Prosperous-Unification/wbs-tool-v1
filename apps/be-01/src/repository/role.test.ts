@@ -382,7 +382,13 @@ describe('RoleRepository', () => {
     const counted = await roles.usageOf(projectId, qaId);
     const refused = await roles.remove(projectId, qaId, false);
 
-    expect(counted).toEqual({ estimates: 0, actuals: 1, progress: 0, measures: 0, assignments: [] });
+    expect(counted).toEqual({
+      estimates: 0,
+      actuals: 1,
+      progress: 0,
+      measures: 0,
+      assignments: [],
+    });
     expect(refused).toEqual({
       ok: false,
       reason: 'in_use',
@@ -411,7 +417,13 @@ describe('RoleRepository', () => {
     const counted = await roles.usageOf(projectId, qaId);
     const refused = await roles.remove(projectId, qaId, false);
 
-    expect(counted).toEqual({ estimates: 0, actuals: 0, progress: 1, measures: 0, assignments: [] });
+    expect(counted).toEqual({
+      estimates: 0,
+      actuals: 0,
+      progress: 1,
+      measures: 0,
+      assignments: [],
+    });
     expect(refused).toEqual({
       ok: false,
       reason: 'in_use',
@@ -487,7 +499,13 @@ describe('RoleRepository', () => {
     const counted = await roles.usageOf(projectId, qaId);
     const refused = await roles.remove(projectId, qaId, false);
 
-    expect(counted).toEqual({ estimates: 0, actuals: 0, progress: 0, measures: 2, assignments: [] });
+    expect(counted).toEqual({
+      estimates: 0,
+      actuals: 0,
+      progress: 0,
+      measures: 2,
+      assignments: [],
+    });
     expect(refused).toEqual({
       ok: false,
       reason: 'in_use',
