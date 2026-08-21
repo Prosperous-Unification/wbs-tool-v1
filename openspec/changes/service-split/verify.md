@@ -94,15 +94,15 @@ call. The checkable half, and the stronger one, is that both migrations apply to
 never a write to the file dev is serving from), then `runMigrations` from this
 branch against the copy. Run on h2puni at `39f9671`:
 
-| read                                  | before               | after                                                                  |
-| ------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
-| tables matching `service`             | `["service_team"]`   | `["service", "service_team", "team_service", "work_item_service"]`       |
-| `work_item` rows                      | 342                  | **342**                                                                  |
-| `project` rows                        | 57                   | **57**                                                                   |
-| `work_item.service_id`                | absent               | present                                                                  |
-| `service_name` index                  | —                    | present                                                                  |
-| `team_service_by_service` index       | —                    | present                                                                  |
-| `service` rows / `work_item_service` rows | —                | **0 / 0**                                                                |
+| read                                      | before             | after                                                              |
+| ----------------------------------------- | ------------------ | ------------------------------------------------------------------ |
+| tables matching `service`                 | `["service_team"]` | `["service", "service_team", "team_service", "work_item_service"]` |
+| `work_item` rows                          | 342                | **342**                                                            |
+| `project` rows                            | 57                 | **57**                                                             |
+| `work_item.service_id`                    | absent             | present                                                            |
+| `service_name` index                      | —                  | present                                                            |
+| `team_service_by_service` index           | —                  | present                                                            |
+| `service` rows / `work_item_service` rows | —                  | **0 / 0**                                                          |
 
 The two zeroes are decision 4 shown rather than asserted: no existing dev row
 carries a service, so the `INSERT … SELECT` seed correctly moves nothing and
