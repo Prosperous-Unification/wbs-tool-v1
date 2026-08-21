@@ -1385,6 +1385,25 @@ export interface SubtreeCopy {
    * delete took, and the statements went with the rows.
    */
   progress: readonly StoredProgress[];
+  /**
+   * The tokens and hours on the rows being written, in every metric that may be
+   * on them.
+   *
+   * **The one field here a duplication fills selectively, and the first place
+   * the single discriminated table costs something.** Every other collection on
+   * this interface is copied whole or not at all, because each names one kind of
+   * thing; this one names three, and the line the copy rule is drawn on runs
+   * *through* it. `token_estimate` is a description of work and copies for
+   * {@link SubtreeCopy.estimates}' reason exactly — a duplicate that carried the
+   * days plan and not the token plan would be half-planned in a way the reader
+   * can see. `token_actual` and `hours_actual` are records of what a particular
+   * piece of work cost, and do not copy for {@link SubtreeCopy.actuals}' reason
+   * exactly. See `openspec/changes/token-tracking/design.md` D1 and D8.
+   *
+   * Non-empty in every metric for a **restore**: an undo of a delete has to put
+   * back what the delete took, and the measures went with the rows.
+   */
+  measures: readonly StoredMeasure[];
   assignments: readonly Assignment[];
   /** Only the edges with both ends inside the subtree, remapped to the copies. */
   dependencies: readonly StoredDependency[];
@@ -1402,6 +1421,15 @@ export interface SubtreeCopy {
   removedActuals: readonly ActualKey[];
   /** Statements to take off a work item **outside** `rows`, for {@link SubtreeCopy.removedEstimates}' reason. */
   removedProgress: readonly ProgressKey[];
+  /**
+   * Figures to take off a work item **outside** `rows`, for
+   * {@link SubtreeCopy.removedEstimates}' reason, one key per metric.
+   *
+   * Keyed by the triple rather than the pair, because the row's identity is the
+   * triple: the parent may hold a figure in a metric this restore is not
+   * putting back, and taking the pair away wholesale would delete it.
+   */
+  removedMeasures: readonly MeasureKey[];
 }
 
 /** One estimate row's whole identity: the pair its primary key is. */

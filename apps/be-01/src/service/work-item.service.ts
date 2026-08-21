@@ -31,6 +31,7 @@ import type {
   RoleProgressStore,
   StoredActual,
   StoredEstimate,
+  StoredMeasure,
   StoredProgress,
   SubtreeStore,
   TeamCapacity,
@@ -1456,10 +1457,21 @@ export class WorkItemService {
         : (await this.opts.progress.listByProject(projectId)).filter(
             (each) => each.workItemId === gainsFirstChild,
           );
+    // The tokens and hours go down with the days, in every metric at once —
+    // `moveAll` takes no metric because a leaf gaining a child stops holding
+    // figures in all of them together. Read before the move, like the other
+    // three; afterwards they are the child's.
+    const measuredHandedDown =
+      gainsFirstChild === null
+        ? []
+        : (await this.opts.measures.listByProject(projectId)).filter(
+            (each) => each.workItemId === gainsFirstChild,
+          );
     if (gainsFirstChild !== null) {
       await this.opts.estimates.moveAll(gainsFirstChild, workItem.id);
       await this.opts.actuals.moveAll(gainsFirstChild, workItem.id);
       await this.opts.progress.moveAll(gainsFirstChild, workItem.id);
+      await this.opts.measures.moveAll(gainsFirstChild, workItem.id);
     }
     await this.announceTree(projectId);
     await this.record(projectId, actorId, 'create', `add ${quoteName(workItem.name)}`, {
@@ -1471,6 +1483,7 @@ export class WorkItemService {
         estimates: handedDown.map((each) => ({ ...each, workItemId: workItem.id })),
         actuals: recordedHandedDown.map((each) => ({ ...each, workItemId: workItem.id })),
         progress: statedHandedDown.map((each) => ({ ...each, workItemId: workItem.id })),
+        measures: measuredHandedDown.map((each) => ({ ...each, workItemId: workItem.id })),
         assignments: [],
         internalDependencies: [],
         externalDependencies: [],
@@ -1485,6 +1498,14 @@ export class WorkItemService {
         removedProgress: statedHandedDown.map((each) => ({
           workItemId: each.workItemId,
           roleId: each.roleId,
+        })),
+        // The metric rides along, unlike the three above: these keys are
+        // triples, and a pair here would take every figure off the parent
+        // rather than the ones this create handed down.
+        removedMeasures: measuredHandedDown.map((each) => ({
+          workItemId: each.workItemId,
+          roleId: each.roleId,
+          metric: each.metric,
         })),
       },
       inverse: {
@@ -1504,6 +1525,10 @@ export class WorkItemService {
         // create makes the parent a leaf again, and a leaf reports what it
         // holds — including whether its work is finished.
         setProgress: statedHandedDown,
+        // And the figures that are not days, back on the row they came from.
+        // Undoing this create makes the parent a leaf again, and a leaf reports
+        // what it holds — in every unit, not the one the scheduler reads.
+        setMeasures: measuredHandedDown,
       },
       touched: gainsFirstChild === null ? [workItem.id] : [workItem.id, gainsFirstChild],
       before: rows,
@@ -1755,6 +1780,18 @@ export class WorkItemService {
     const copiedEstimates = stored
       .filter((each) => inside.has(each.workItemId))
       .map((each) => ({ ...each, workItemId: copyOf(each.workItemId) }));
+    // **The one collection a duplicate filters by metric rather than taking
+    // whole or leaving whole**, and the first place the single discriminated
+    // table costs something rather than saving it. A `token_estimate` is a
+    // description of the work, so it copies for the days estimate's reason: a
+    // copy planned in days and not in tokens is half-planned, and the reader can
+    // see the gap. `token_actual` and `hours_actual` are records of what one
+    // particular piece of work cost, so they do not copy for the actuals'
+    // reason. Every other structural rule in this file applies to a table;
+    // this one applies to rows inside one. Design D1, D8.
+    const copiedMeasures = (await this.opts.measures.listByProject(workItem.projectId))
+      .filter((each) => inside.has(each.workItemId) && each.metric === 'token_estimate')
+      .map((each) => ({ ...each, workItemId: copyOf(each.workItemId) }));
     const copiedAssignments = assigned.map((each) => ({
       ...each,
       workItemId: copyOf(each.workItemId),
@@ -1785,11 +1822,14 @@ export class WorkItemService {
       // the moment it appears — work nobody has started, drawn as work nobody
       // needs to do. See `design.md` P4.
       progress: [],
+      // The token plan and neither record — see {@link copiedMeasures} above.
+      measures: copiedMeasures,
       assignments: copiedAssignments,
       dependencies: copiedEdges,
       removedEstimates: [],
       removedActuals: [],
       removedProgress: [],
+      removedMeasures: [],
     });
     // Once, at the end. The copy renumbers rows it never touched — every later
     // sibling of the original, at every level — so it is the whole tree rather
@@ -1814,12 +1854,17 @@ export class WorkItemService {
           // Empty for the write's reason above: a redo of a duplication puts
           // back the copy that was made, and nobody ever said a word about it.
           progress: [],
+          // The same half of the table the write above put down: a redo of a
+          // duplication puts back the copy that was made, token plan and all,
+          // and no tokens or hours were ever spent on it.
+          measures: copiedMeasures,
           assignments: copiedAssignments,
           internalDependencies: copiedEdges,
           externalDependencies: [],
           removedEstimates: [],
           removedActuals: [],
           removedProgress: [],
+          removedMeasures: [],
         },
         inverse: {
           do: 'delete_subtree',
@@ -1830,6 +1875,7 @@ export class WorkItemService {
           setEstimates: [],
           setActuals: [],
           setProgress: [],
+          setMeasures: [],
         },
         // Every copied row, all of them at 0. Anything typed into the copy
         // moves one of these and the undo refuses rather than throwing away
@@ -1869,6 +1915,10 @@ export class WorkItemService {
     // left to read and the restore would put the branch back reading as work
     // nobody had started.
     const storedProgress = await this.opts.progress.listByProject(workItem.projectId);
+    // Read before anything is deleted, for the same cascade the two above name,
+    // and in every metric at once: one read feeds three folds, which is what
+    // `listByProject` takes no metric for.
+    const storedMeasures = await this.opts.measures.listByProject(workItem.projectId);
     const allEdges = await this.opts.dependencies.listByProject(workItem.projectId);
 
     if (children.length === 0 || strategy === 'cascade') {
@@ -1911,7 +1961,13 @@ export class WorkItemService {
       // `statedAt` is the newest stamp in the branch, for `recordedAt`'s reason:
       // the parent's reading is now the whole branch's, and the day it was last
       // spoken about is the honest answer to "when was this said".
-      const statedHandedUp: StoredProgress[] = [];
+      // And the figures that are not days, folded per metric — the same argument
+      // the actuals make, three times, because `rollUpMeasures` takes one metric
+      // at a time so that a token and an hour can never be added together. A
+      // metric nobody recorded anywhere in the branch folds to nothing and is
+      // written nowhere: absence is per metric, and the hand-up is not the place
+      // that rule stops holding.
+      const measuredHandedUp: StoredMeasure[] = [];
       if (parentId !== null && rows.filter((row) => row.parentId === parentId).length === 1) {
         const totals = rollUp(rows, storedEstimates);
         for (const [roleId, days] of totals.get(id) ?? []) {
@@ -1937,10 +1993,30 @@ export class WorkItemService {
             .reduce((newest, each) => Math.max(newest, each.statedAt), 0);
           statedHandedUp.push({ workItemId: parentId, roleId, state, statedAt: latest });
         }
+        const measuredInside = storedMeasures.filter((each) => inside.has(each.workItemId));
+        for (const metric of MEASURE_METRICS) {
+          for (const [roleId, value] of rollUpMeasures(rows, storedMeasures, metric).get(id) ?? []) {
+            // The newest stamp **in this metric**, not the newest in the branch.
+            // A pair whose hours were recorded this morning and whose tokens
+            // were recorded a fortnight ago hands up two figures, and the token
+            // one did not become a fortnight newer by being summed.
+            const latest = measuredInside
+              .filter((each) => each.roleId === roleId && each.metric === metric)
+              .reduce((newest, each) => Math.max(newest, each.recordedAt), 0);
+            measuredHandedUp.push({
+              workItemId: parentId,
+              roleId,
+              metric,
+              value,
+              recordedAt: latest,
+            });
+          }
+        }
       }
       for (const each of handedUp) await this.opts.estimates.set(each);
       for (const each of recordedHandedUp) await this.opts.actuals.set(each);
       for (const each of statedHandedUp) await this.opts.progress.set(each);
+      for (const each of measuredHandedUp) await this.opts.measures.set(each);
       const cut = allEdges.filter(
         (edge) => inside.has(edge.predecessorId) || inside.has(edge.successorId),
       );
@@ -1965,6 +2041,7 @@ export class WorkItemService {
           setEstimates: handedUp,
           setActuals: recordedHandedUp,
           setProgress: statedHandedUp,
+          setMeasures: measuredHandedUp,
         },
         inverse: {
           do: 'restore_subtree',
@@ -1982,6 +2059,11 @@ export class WorkItemService {
           // branch reading as work nobody has started — the plan looks whole and
           // a fortnight of finished work is unfinished again.
           progress: storedProgress.filter((each) => inside.has(each.workItemId)),
+          // Every token and hour recorded anywhere in the branch, put back where
+          // it was recorded. Without this an undo of a delete answers `ok` and
+          // returns the branch with its days and none of its tokens — the plan
+          // looks whole and the record of what the work cost to run is gone.
+          measures: storedMeasures.filter((each) => inside.has(each.workItemId)),
           assignments: doomedAssignments,
           internalDependencies: cut.filter(
             (edge) => inside.has(edge.predecessorId) && inside.has(edge.successorId),
@@ -2000,6 +2082,11 @@ export class WorkItemService {
           removedProgress: statedHandedUp.map((each) => ({
             workItemId: each.workItemId,
             roleId: each.roleId,
+          })),
+          removedMeasures: measuredHandedUp.map((each) => ({
+            workItemId: each.workItemId,
+            roleId: each.roleId,
+            metric: each.metric,
           })),
         },
         // Two deliberate absences. The deleted rows are not here — nothing can
@@ -2046,6 +2133,7 @@ export class WorkItemService {
         // below is not becoming a leaf and nothing is handed anywhere.
         setActuals: [],
         setProgress: [],
+        setMeasures: [],
       },
       inverse: {
         do: 'restore_subtree',
@@ -2071,12 +2159,18 @@ export class WorkItemService {
         // becomes representable. Written from the same source as the two figures
         // beside it rather than hard-coded, so it stays true if that ever changes.
         progress: storedProgress.filter((each) => each.workItemId === id),
+        // The promoted row's own tokens and hours — it had children, so it holds
+        // none, and this is the empty list every time until a promotion of a
+        // leaf becomes representable. Written from the same source as the three
+        // beside it rather than hard-coded, so it stays true if that changes.
+        measures: storedMeasures.filter((each) => each.workItemId === id),
         assignments: deletedAssignments,
         internalDependencies: [],
         externalDependencies: cut,
         removedEstimates: [],
         removedActuals: [],
         removedProgress: [],
+        removedMeasures: [],
       },
       // The promoted rows are preconditions because putting them back under the
       // restored parent is part of the undo. The ends of the edges that left
@@ -3130,6 +3224,10 @@ export class WorkItemService {
     // that put back the figures and not the reading would leave the surviving
     // parent reporting a finished branch's work as work nobody has started.
     for (const each of command.setProgress) await this.opts.progress.set(each);
+    // And the figures that are not days, per metric as they were folded. A
+    // re-applied delete that handed up the days and not the tokens would leave
+    // the surviving parent reporting a fortnight of work that cost nothing.
+    for (const each of command.setMeasures) await this.opts.measures.set(each);
     return { ok: true, detail: null };
   }
 
@@ -3187,11 +3285,13 @@ export class WorkItemService {
       estimates: command.estimates,
       actuals: command.actuals,
       progress: command.progress,
+      measures: command.measures,
       assignments: command.assignments,
       dependencies: command.internalDependencies,
       removedEstimates: command.removedEstimates,
       removedActuals: command.removedActuals,
       removedProgress: command.removedProgress,
+      removedMeasures: command.removedMeasures,
     });
 
     // The edges that leave the branch, one at a time and through the same

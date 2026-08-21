@@ -80,6 +80,7 @@ beforeEach(async () => {
       workItems,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,
@@ -417,4 +418,110 @@ describe('the figures that are not days, read back through the tree', () => {
 
     expect(await measuresOn('Strip')).toEqual({ token_actual: { [DEV]: 15_400 } });
   });
+});
+
+describe('the figures that are not days, through the structural commands', () => {
+  /** One work item's `measures`, found by name. Section 6's cases read the tree. */
+  async function measuresOn(name: string): Promise<Record<string, Record<string, number>>> {
+    const tree = await service.tree(projectId);
+    if (tree === null) throw new Error('no tree');
+    const row = tree.workItems.find((each) => each.name === name);
+    if (row === undefined) throw new Error(`no work item called ${name}`);
+    return row.measures;
+  }
+
+  it('hands every metric down when a leaf gains its first child, and back up on undo', async () => {
+    // The hand-down argument, in the units this change adds. A parent's figures
+    // are the sum of its children's, so a token fact left on a row that has just
+    // gained a child is stored, unreadable, and back on screen the day the child
+    // is deleted — invisible rather than zero, exactly as an actual would be.
+    const strip = await add('Strip');
+    await service.setMeasure(strip, OWNER, DEV, 'token_estimate', 12_000);
+    await service.setMeasure(strip, OWNER, DEV, 'token_actual', 15_400);
+    await service.setMeasure(strip, OWNER, QA, 'hours_actual', 3);
+
+    const sockets = await add('Sockets', strip);
+
+    // All three metrics moved, not the one a single-metric loop would have
+    // caught: `moveAll` takes no metric because a leaf stops holding figures in
+    // every unit at once.
+    expect(stored(await measures.listByProject(projectId)).map((each) => each.workItemId)).toEqual([
+      sockets,
+      sockets,
+      sockets,
+    ]);
+    // The parent still reports all three — as sums now rather than as its own
+    // rows, which is what makes the move invisible to whoever recorded them.
+    expect(await measuresOn('Strip')).toEqual({
+      token_estimate: { [DEV]: 12_000 },
+      token_actual: { [DEV]: 15_400 },
+      hours_actual: { [QA]: 3 },
+    });
+
+    await service.undo(projectId, OWNER);
+
+    expect(stored(await measures.listByProject(projectId))).toEqual([
+      { workItemId: strip, roleId: DEV, metric: 'token_estimate', value: 12_000 },
+      { workItemId: strip, roleId: DEV, metric: 'token_actual', value: 15_400 },
+      { workItemId: strip, roleId: QA, metric: 'hours_actual', value: 3 },
+    ]);
+  });
+
+  it('hands the branch’s figures up in every metric when its last child is deleted', async () => {
+    // The mirror, and the reason it cannot be skipped: `role_measure.work_item_id`
+    // cascades, so without the hand-up the tokens are gone the moment the last
+    // child goes — while the estimate beside them survives on the parent.
+    const strip = await add('Strip');
+    const sockets = await add('Sockets', strip);
+    await service.setMeasure(sockets, OWNER, DEV, 'token_actual', 15_400);
+    await service.setMeasure(sockets, OWNER, DEV, 'hours_actual', 3);
+
+    await service.remove(sockets, OWNER, 'cascade');
+
+    expect(await measuresOn('Strip')).toEqual({
+      token_actual: { [DEV]: 15_400 },
+      hours_actual: { [DEV]: 3 },
+    });
+  });
+
+  it('hands up a metric the branch holds and stays silent about one it does not', async () => {
+    // Absence is per metric, and the hand-up is where a fold over all three
+    // could quietly stop honouring that: a loop that wrote a row for every
+    // metric in `MEASURE_METRICS` would put a 0 on the parent for the two
+    // nobody recorded, and 0 is a statement somebody made.
+    const strip = await add('Strip');
+    const sockets = await add('Sockets', strip);
+    await service.setMeasure(sockets, OWNER, DEV, 'hours_actual', 4);
+
+    await service.remove(sockets, OWNER, 'cascade');
+
+    expect(await measuresOn('Strip')).toEqual({ hours_actual: { [DEV]: 4 } });
+  });
+
+  it('copies the token plan into a duplicate and leaves both records behind', async () => {
+    // The one structural rule in this repo that runs *through* a table rather
+    // than around it. `token_estimate` describes work, so it copies as the days
+    // estimate does; a copy planned in days and not in tokens is half-planned
+    // and the reader can see the gap. The two facts are records of what one
+    // particular piece of work cost, and copying them would tell the plan that
+    // 15,400 tokens nobody has spent were already spent.
+    const strip = await add('Strip');
+    await service.setMeasure(strip, OWNER, DEV, 'token_estimate', 12_000);
+    await service.setMeasure(strip, OWNER, DEV, 'token_actual', 15_400);
+    await service.setMeasure(strip, OWNER, QA, 'hours_actual', 3);
+
+    const copied = await service.duplicate(strip, OWNER);
+    expect(copied.ok).toBe(true);
+
+    const tree = await service.tree(projectId);
+    const copy = tree?.workItems.find((each) => each.name !== 'Strip' && each.name.includes('Strip'));
+    expect(copy?.measures).toEqual({ token_estimate: { [DEV]: 12_000 } });
+  });
+
+  // **The restore is not tested here, deliberately** — `actual.test.ts`'s
+  // reading, and it applies unchanged. The in-memory store cannot model
+  // `role_measure.work_item_id`'s cascade: a deleted work item's rows sit in the
+  // array untouched and reappear the moment the row comes back, so a case
+  // written here passes with the restore's `measures` replaced by `[]`. It lives
+  // in `undo.test.ts`, against real SQLite.
 });

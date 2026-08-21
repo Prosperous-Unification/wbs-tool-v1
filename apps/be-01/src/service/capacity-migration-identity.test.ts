@@ -417,6 +417,7 @@ describe('every plan schedules identically across the migration', () => {
         workItems,
         estimates,
         actuals,
+        measures,
         progress,
         dependencies,
         directory,

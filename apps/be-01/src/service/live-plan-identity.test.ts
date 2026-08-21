@@ -109,6 +109,7 @@ async function replay(extraRoles: readonly string[]) {
       workItems,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,

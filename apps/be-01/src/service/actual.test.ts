@@ -79,6 +79,7 @@ beforeEach(async () => {
       workItems,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,

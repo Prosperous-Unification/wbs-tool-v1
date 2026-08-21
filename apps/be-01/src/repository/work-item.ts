@@ -20,6 +20,7 @@ import {
   assignment,
   dependency,
   estimate,
+  roleMeasure,
   roleProgress,
   service,
   serviceTeam,
@@ -607,6 +608,16 @@ export class SubtreeRepository implements SubtreeStore {
         tx.insert(roleProgress)
           .values([...copy.progress])
           .run();
+      // Beside the two above, and the one write here whose emptiness is not a
+      // whole-collection decision: a duplication fills this with the original's
+      // `token_estimate` rows and none of its recorded figures, a restore fills
+      // it in every metric. The rule runs through the collection rather than
+      // around it, because the metric is in the key. See
+      // {@link SubtreeCopy.measures}.
+      if (copy.measures.length > 0)
+        tx.insert(roleMeasure)
+          .values([...copy.measures])
+          .run();
       if (copy.assignments.length > 0)
         tx.insert(assignment)
           .values([...copy.assignments])
@@ -648,10 +659,27 @@ export class SubtreeRepository implements SubtreeStore {
           )
           .run();
       }
+      // And the figures, for the reason above in every unit that is not days —
+      // with the metric in the `where`, because the key is the triple. Deleting
+      // by the pair would take a figure off the parent that this restore never
+      // handed it: an hours fact it has held since before the delete, gone
+      // because a token estimate came home.
+      for (const taken of copy.removedMeasures) {
+        tx.delete(roleMeasure)
+          .where(
+            and(
+              eq(roleMeasure.workItemId, taken.workItemId),
+              eq(roleMeasure.roleId, taken.roleId),
+              eq(roleMeasure.metric, taken.metric),
+            ),
+          )
+          .run();
+      }
       bumpWorkItems(tx, [
         ...copy.removedEstimates.map((taken) => taken.workItemId),
         ...copy.removedActuals.map((taken) => taken.workItemId),
         ...copy.removedProgress.map((taken) => taken.workItemId),
+        ...copy.removedMeasures.map((taken) => taken.workItemId),
       ]);
     });
   }

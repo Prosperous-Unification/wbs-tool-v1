@@ -244,6 +244,7 @@ export function testWorkItemService(): WorkItemService {
       workItems,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,

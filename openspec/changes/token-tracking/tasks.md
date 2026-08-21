@@ -224,10 +224,10 @@
 
 ## 6. The structure
 
-- [ ] 6.1 Hand-down on a first child, hand-up on a last child's deletion, restore
+- [x] 6.1 Hand-down on a first child, hand-up on a last child's deletion, restore
       with a branch, **no copy** into a duplicate — a token fact belongs to the
       work that was actually done, and a duplicate is work that has not been.
-- [ ] 6.2 `setMeasures`, `measures` and `removedMeasures` on the subtree commands,
+- [x] 6.2 `setMeasures`, `measures` and `removedMeasures` on the subtree commands,
       written and unwound in `SubtreeRepository`'s one transaction.
       **Negatives:** verify.md F9 and F10.
 - [ ] 6.3 `RoleRepository.remove` counts measures, refuses an unconfirmed removal
