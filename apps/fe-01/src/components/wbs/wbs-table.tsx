@@ -3370,13 +3370,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     }
     const inherited = effectiveServices.get(row.id);
     if (inherited === undefined) return { state: 'none' };
-    // `only` cannot be `undefined` — a row absent from the map is the `none`
-    // above, and the walk never stores an empty set (`EffectiveServices`). The
-    // arm is here because the index signature says it could be, and answering
-    // `none` is the one answer that states nothing untrue if it ever is.
-    const [only] = inherited.serviceIds;
-    if (only === undefined) return { state: 'none' };
-    const named = nameOf(only);
+    // `serviceIds[0]` with no guard, which lint insists on and the type agrees
+    // with: a row absent from the map is the `none` above, and the walk never
+    // stores an empty set (`EffectiveServices`). Not `at(0)` for the same
+    // reason `effectiveLabelsOf`'s own `labelIds[0]` is not.
+    const named = nameOf(inherited.serviceIds[0]);
     if (named === undefined) return { state: 'unresolved' };
     return {
       state: 'inherited',

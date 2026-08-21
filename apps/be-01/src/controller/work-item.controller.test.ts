@@ -597,7 +597,11 @@ describe('work item routes', () => {
         teams: { id: string; serviceIds: string[] }[];
       };
       return builtByNonOwner({
-        serviceId: stored?.serviceId ?? null,
+        // The wire is still one nullable column at this chunk, folded to a set
+        // of nought or one for the rule — which is set-shaped since the
+        // 2026-08-21 scope change. When the store widens to a join table this
+        // reads `stored?.serviceIds ?? []` and the fold goes.
+        serviceIds: stored === undefined || stored.serviceId === null ? [] : [stored.serviceId],
         teamIds: stored?.teamIds ?? [],
         ownedServicesByTeam: new Map(listed.map((each) => [each.id, each.serviceIds])),
       });
