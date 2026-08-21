@@ -143,7 +143,7 @@ const WORK_ITEM_SERVICE = '20260821080000_add_work_item_service';
  * before them would have applied out of order on any database that took that
  * release. The duplicate check is `refuses a folder set that shares one stamp
  * between two migrations`, and `does nothing when the target is already the
- * newest applied` — which now names *this* migration, with
+ * newest applied` — which now names this migration itself, with
  * `WORK_ITEM_SERVICE` as the one before it — is the case a collision breaks.
  */
 const ROLE_MEASURE = '20260821140000_add_role_measure';
