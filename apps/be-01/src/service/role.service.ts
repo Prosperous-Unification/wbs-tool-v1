@@ -46,6 +46,22 @@ export interface RoleInUse {
    * silently would turn done work back into work nobody has started.
    */
   progress: number;
+  /**
+   * Figures this role holds in the units that are not days — a count of
+   * **rows**, so a pair holding a token estimate and an hours fact counts two.
+   *
+   * A fourth kind of loss, reported separately for the three above's reason: an
+   * estimate is a guess that can be made again, a recorded day and a recorded
+   * hour are accounts of time that was spent, and a token figure is what a
+   * plan's agent work cost. Rows rather than pairs because each metric is a
+   * separate statement — see `RoleUsageRows.measures` in `repository/index.ts`.
+   *
+   * Travels before any face reads it, for {@link RoleInUse.actuals}' reason:
+   * `fe-01`'s `RoleUsage` names estimates and assignments only, and has been
+   * silent about `actuals` and `progress` since they landed. Widening that
+   * sentence is a face change and belongs to a chunk that gates `fe-01`.
+   */
+  measures: number;
   /** Explicit assignments on this role. The assumed ones are in `assumedAssignees`. */
   assignments: number;
   /**
@@ -80,6 +96,7 @@ function inUseFrom(usage: RoleUsageRows, roleId: string): RoleInUse {
     estimates: usage.estimates,
     actuals: usage.actuals,
     progress: usage.progress,
+    measures: usage.measures,
     assignments: usage.assignments.filter((each) => each.roleId === roleId).length,
     assumedAssignees: assumedAssigneeFlips(usage.assignments, roleId),
   };

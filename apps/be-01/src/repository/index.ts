@@ -134,6 +134,24 @@ export interface RoleUsageRows {
    * and one stated row is `in_use`.
    */
   progress: number;
+  /**
+   * How many figures in the units that are not days this role holds — a count
+   * of **rows**, so one pair holding a token estimate and an hours fact counts
+   * two, for {@link RoleUsageRows.estimates}' reason.
+   *
+   * Counted separately and counted **at all** for {@link RoleUsageRows.actuals}'
+   * reason in a third table: `token_actual` and `hours_actual` are records of
+   * work that has already happened, and a removal that took them silently would
+   * delete the only account of what a role's work cost. `token_estimate` is
+   * counted with them rather than with the day-estimates because they share a
+   * table and a key, and a count that split one table by its discriminator
+   * would be reporting a schema rather than a loss.
+   *
+   * Rows rather than pairs because the primary key is the triple: two of the
+   * three metrics on one pair are two separate statements somebody made, and
+   * "1 figure" for them would understate what the cascade takes.
+   */
+  measures: number;
   assignments: readonly Assignment[];
 }
 
@@ -142,8 +160,10 @@ export interface RoleRemoval {
   estimates: number;
   actuals: number;
   progress: number;
+  /** Rows, not pairs — {@link RoleUsageRows.measures}. */
+  measures: number;
   assignments: number;
-  /** Every work item that lost an estimate, an actual, a state or an assignment, and whose revision therefore moved. */
+  /** Every work item that lost an estimate, an actual, a state, a figure or an assignment, and whose revision therefore moved. */
   workItemIds: readonly string[];
 }
 

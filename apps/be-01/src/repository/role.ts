@@ -12,7 +12,7 @@ import type {
 } from './index';
 import { ROLE_POSITION_STEP } from './index';
 import { bumpProject, bumpWorkItems } from './revision';
-import { actual, assignment, estimate, role, roleProgress, workItem } from './schema';
+import { actual, assignment, estimate, role, roleMeasure, roleProgress, workItem } from './schema';
 
 /**
  * Whether a thrown error is SQLite refusing a second role of the same name in
@@ -55,9 +55,10 @@ function assignmentsIn(reader: Pick<SQLiteBunDatabase, 'select'>, projectId: str
  * A project's roles, and the writes that change them.
  *
  * Its own repository rather than more methods on `ProjectRepository`: removing
- * a role spans four tables — estimates, assignments, the role and the revisions
- * of everything that lost a row — and that transaction has nothing to do with a
- * project's own columns.
+ * a role spans six tables — estimates, recorded days, stated progress, the
+ * figures that are not days, assignments and the role itself — plus the
+ * revisions of everything that lost a row, and that transaction has nothing to
+ * do with a project's own columns.
  *
  * Every write here moves the **project's** revision, because a role is a
  * satellite of the project: adding, renaming or removing one changes what every
@@ -184,6 +185,15 @@ export class RoleRepository implements RoleStore {
       .select({ workItemId: roleProgress.workItemId })
       .from(roleProgress)
       .where(eq(roleProgress.roleId, roleId));
+    // Not read through a by-role index, because `role_measure` has none: its
+    // only index is the primary key's, and that leads with the work item, so
+    // this is a scan of one deployment's figures. Filed rather than fixed —
+    // `openspec/changes/token-tracking/verify.md`, Owed — because an index is a
+    // migration, and this reads the same rows `remove` counts either way.
+    const measured = await this.db
+      .select({ workItemId: roleMeasure.workItemId })
+      .from(roleMeasure)
+      .where(eq(roleMeasure.roleId, roleId));
     const ids = await this.db
       .select({ id: workItem.id })
       .from(workItem)
@@ -195,6 +205,7 @@ export class RoleRepository implements RoleStore {
         estimates: held.length,
         actuals: recorded.length,
         progress: spoken.length,
+        measures: measured.length,
         assignments: [],
       };
     const assignments = await this.db
@@ -210,6 +221,7 @@ export class RoleRepository implements RoleStore {
       estimates: held.length,
       actuals: recorded.length,
       progress: spoken.length,
+      measures: measured.length,
       assignments,
     };
   }
@@ -286,6 +298,18 @@ export class RoleRepository implements RoleStore {
         .from(roleProgress)
         .where(inArray(roleProgress.roleId, roleInProject))
         .all();
+      // And the figures that are not days, counted here for the recorded days'
+      // reason in two of its three units and for the estimates' reason in the
+      // third: a `token_actual` or an `hours_actual` is an account of work that
+      // has already happened, and a role holding one and nothing else is
+      // `in_use`. Rows, not pairs — a pair holding a token estimate and an hours
+      // fact is two statements, and the number a person is shown before
+      // consenting has to be the number of statements that go.
+      const measured = tx
+        .select({ workItemId: roleMeasure.workItemId })
+        .from(roleMeasure)
+        .where(inArray(roleMeasure.roleId, roleInProject))
+        .all();
       const assigned = tx
         .select({ workItemId: assignment.workItemId })
         .from(assignment)
@@ -293,7 +317,11 @@ export class RoleRepository implements RoleStore {
         .all();
       if (
         !cascade &&
-        (estimated.length > 0 || recorded.length > 0 || spoken.length > 0 || assigned.length > 0)
+        (estimated.length > 0 ||
+          recorded.length > 0 ||
+          spoken.length > 0 ||
+          measured.length > 0 ||
+          assigned.length > 0)
       ) {
         return {
           ok: false,
@@ -302,6 +330,7 @@ export class RoleRepository implements RoleStore {
             estimates: estimated.length,
             actuals: recorded.length,
             progress: spoken.length,
+            measures: measured.length,
             assignments: assignmentsIn(tx, projectId),
           },
         };
@@ -313,7 +342,12 @@ export class RoleRepository implements RoleStore {
       tx.delete(actual).where(inArray(actual.roleId, roleInProject)).run();
       // Explicit for the same reason once more: `role_progress.role_id` carries
       // no cascade either, deliberately.
-      tx.delete(roleProgress).where(inArray(roleProgress.roleId, roleInProject)).run();
+      // Explicit for the third time and the same reason: `role_measure.role_id`
+      // carries no cascade either (`schema.ts`, `roleMeasure`), so without this
+      // statement the role delete below hits the foreign key and answers 500 to
+      // a confirmed cascade — the exact failure the estimates' delete was added
+      // for in 2026-08-08, one table later.
+      tx.delete(roleMeasure).where(inArray(roleMeasure.roleId, roleInProject)).run();
       tx.delete(assignment).where(inArray(assignment.roleId, roleInProject)).run();
       const removed = tx
         .delete(role)
@@ -327,7 +361,9 @@ export class RoleRepository implements RoleStore {
       if (removed.length === 0) return { ok: false, reason: 'not_found' };
       const workItemIds = [
         ...new Set(
-          [...estimated, ...recorded, ...spoken, ...assigned].map((row) => row.workItemId),
+          [...estimated, ...recorded, ...spoken, ...measured, ...assigned].map(
+            (row) => row.workItemId,
+          ),
         ),
       ];
       bumpWorkItems(tx, workItemIds);
@@ -338,6 +374,7 @@ export class RoleRepository implements RoleStore {
           estimates: estimated.length,
           actuals: recorded.length,
           progress: spoken.length,
+          measures: measured.length,
           assignments: assigned.length,
           workItemIds,
         },

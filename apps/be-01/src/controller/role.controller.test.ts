@@ -284,6 +284,7 @@ describe('DELETE /api/projects/:id/roles/:roleId', () => {
         estimates: 1,
         actuals: 0,
         progress: 0,
+        measures: 0,
         assignments: 1,
         assumedAssignees: [{ workItemId: 'strip', assumedNow: ada.id, assumedAfter: null }],
       },

@@ -65,8 +65,15 @@ export function inMemoryRoles(seed: readonly Role[] = []): RoleStore & {
     },
     usageOf(): Promise<RoleUsageRows> {
       // Nothing points at a role here: this fixture holds no estimates, no
-      // actuals, no stated progress and no assignments to point with.
-      return Promise.resolve({ estimates: 0, actuals: 0, progress: 0, assignments: [] });
+      // actuals, no stated progress, no figures and no assignments to point
+      // with.
+      return Promise.resolve({
+        estimates: 0,
+        actuals: 0,
+        progress: 0,
+        measures: 0,
+        assignments: [],
+      });
     },
     remove(projectId, roleId): Promise<RoleRemoved> {
       const found = rows.findIndex((each) => each.id === roleId && each.projectId === projectId);
@@ -78,7 +85,14 @@ export function inMemoryRoles(seed: readonly Role[] = []): RoleStore & {
       rows.splice(found, 1);
       return Promise.resolve({
         ok: true,
-        removal: { estimates: 0, actuals: 0, progress: 0, assignments: 0, workItemIds: [] },
+        removal: {
+          estimates: 0,
+          actuals: 0,
+          progress: 0,
+          measures: 0,
+          assignments: 0,
+          workItemIds: [],
+        },
       });
     },
   };

@@ -12,6 +12,7 @@ import { EstimateRepository } from './estimate';
 import type { SubtreeCopy, WorkItem } from './index';
 import { runMigrations } from './migrate';
 import { ProjectRepository } from './project';
+import { RoleMeasureRepository } from './role-measure';
 import { UserRepository } from './user';
 import { SubtreeRepository, WorkItemRepository } from './work-item';
 
@@ -22,6 +23,7 @@ let dbPath: string;
 let repo: WorkItemRepository;
 let subtrees: SubtreeRepository;
 let estimates: EstimateRepository;
+let measures: RoleMeasureRepository;
 let dependencies: DependencyRepository;
 let directory: DirectoryRepository;
 let projectId: string;
@@ -36,6 +38,7 @@ beforeEach(async () => {
   repo = new WorkItemRepository(db);
   subtrees = new SubtreeRepository(db);
   estimates = new EstimateRepository(db);
+  measures = new RoleMeasureRepository(db);
   dependencies = new DependencyRepository(db);
   directory = new DirectoryRepository(db);
 
@@ -589,6 +592,69 @@ describe('WorkItemRepository', () => {
         edge.successorId,
       ]),
     ).toEqual([[copiedFirst.id, copiedSecond.id]]);
+  });
+
+  /**
+   * `removedMeasures` is keyed by the **triple**, and this is the only seam it
+   * can be proved at.
+   *
+   * A restore takes off the parent the figures the delete's hand-up put on it.
+   * Keyed by the pair instead, the delete would take every metric that pair
+   * holds — including one the parent has held since before the delete, which
+   * the hand-up never touched and the restore has no business moving.
+   *
+   * **No path through `WorkItemService` can reach that state**, which is why
+   * this case is here and not in `undo.test.ts`: a hand-down empties the parent
+   * the moment it gains a child, `setMeasure` refuses a work item that has
+   * children, and recording on the parent while it is briefly a leaf again
+   * makes the undo refuse on the revision. So at restore time everything the
+   * parent holds came from the hand-up, and the pair and the triple delete the
+   * same set. The repository takes the command as given, so it can be handed
+   * the state the service cannot produce — and the difference becomes visible.
+   *
+   * The command below is otherwise empty on purpose: nothing is restored, no
+   * row is written. What is under test is the `where` on one `DELETE`.
+   */
+  it('takes off only the metric a restore names, and leaves the pair’s other figure', async () => {
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, []);
+    await measures.set({
+      workItemId: strip.id,
+      roleId,
+      metric: 'token_estimate',
+      value: 1000,
+      recordedAt: 111,
+    });
+    await measures.set({
+      workItemId: strip.id,
+      roleId,
+      metric: 'hours_actual',
+      value: 3,
+      recordedAt: 222,
+    });
+
+    await subtrees.insertSubtree({
+      rows: [],
+      respaced: [],
+      reparented: [],
+      estimates: [],
+      actuals: [],
+      progress: [],
+      measures: [],
+      assignments: [],
+      dependencies: [],
+      removedEstimates: [],
+      removedActuals: [],
+      removedProgress: [],
+      removedMeasures: [{ workItemId: strip.id, roleId, metric: 'token_estimate' }],
+    });
+
+    // The hours survive with the stamp they were written under: a delete by the
+    // pair leaves this list empty, and one that rewrote the survivor would be a
+    // different fault wearing the same green.
+    expect(await measures.listByProject(projectId)).toEqual([
+      { workItemId: strip.id, roleId, metric: 'hours_actual', value: 3, recordedAt: 222 },
+    ]);
   });
 
   /**
