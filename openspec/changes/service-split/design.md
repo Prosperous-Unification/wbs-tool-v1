@@ -160,6 +160,18 @@ a fact about a team — the directory edits it on the team row (Dany's "it must 
 configurable in the directory"), and a picker needs it exactly where it is
 edited.
 
+**The write is a patch, not a second route, and that is a departure worth
+naming.** `/api/teams/:id` took a required `{ name }` and called `renameTeam`.
+It now takes `{ name?, serviceIds? }` and calls `patchTeam`, exactly as
+`/api/people/:id` has taken `{ name?, teamIds? }` since the people dimension
+shipped. The alternative — a `PUT /api/teams/:id/services` beside the rename —
+was rejected because the two writes would each need their own transaction, and
+a team renamed and re-owned in one gesture on the directory page would be two
+requests either of which could fail alone. One patch, one transaction, one
+refusal. The cost is that `name` is no longer required on the wire, which is
+why `nothing_to_change` now guards this route as it already guarded the
+person's.
+
 ### D5 — Both signals are one domain module, computed from the effective reading
 
 `libs/domain/src/label-mismatch.ts`, two functions, shared vocabulary:

@@ -69,11 +69,11 @@
       `capacity_released` arm and no date effect**. Same 409-then-`?cascade=1`
       shape as `removeTeam`. The `team_service` rows the cascade takes are
       **not** in the usage report (design D7).
-- [ ] 4.3 The ownership map write: services on the team row — an optional
+- [x] 4.3 The ownership map write: services on the team row — an optional
       `serviceIds` array on the team patch, whole-set semantics, absent leaves
       it alone and empty clears it, exactly `PersonPatch.teamIds`' rule
       (`wbs-api.ts:528`). Unknown service id → `unknown_service`.
-- [ ] 4.4 `TeamView` carries `serviceIds` (design D4 — the map ships whole; the
+- [x] 4.4 `TeamView` carries `serviceIds` (design D4 — the map ships whole; the
       client needs the rule anyway to filter, and a derived flag on the wire
       would be a second copy of it).
 - [ ] 4.5 **Watched red on the empty diff:** deleting a service, and editing the
