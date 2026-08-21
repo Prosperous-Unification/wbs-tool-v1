@@ -2817,7 +2817,7 @@ describe('the service migration', () => {
       runMigrations(db.path, FOLDER);
       seeded(db.path);
 
-      expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([WORK_ITEM_SERVICE, SERVICE]);
+      expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([ROLE_MEASURE, WORK_ITEM_SERVICE, SERVICE]);
       for (const t of SERVICE_TABLES) expect(tables(db.path)).not.toContain(t);
 
       const after = openDatabase(db.path);
@@ -2933,10 +2933,17 @@ describe('the work-item-service migration', () => {
    * running release writes them, and then forward across it. `runMigrations`
    * applies what is unapplied, so the second call runs this folder and nothing
    * else.
+   *
+   * The reversed list is asserted rather than ignored, and it names **every**
+   * folder newer than `SERVICE` — `ROLE_MEASURE` among them since this branch
+   * rebased onto the merged service split. That is the point: the helper's whole
+   * claim is that the database is left at exactly the column-only shape, and a
+   * rollback that quietly reversed one more migration than the caller expected
+   * would still land here with a green `runMigrations` after it.
    */
   function atTheColumnOnly(dbPath: string): void {
     runMigrations(dbPath, FOLDER);
-    expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([WORK_ITEM_SERVICE]);
+    expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([ROLE_MEASURE, WORK_ITEM_SERVICE]);
   }
 
   it('carries every stated service across, and gives the inheriting row nothing', () => {
@@ -3075,7 +3082,7 @@ describe('the work-item-service migration', () => {
         sqlite.close();
       }
 
-      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([WORK_ITEM_SERVICE]);
+      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([ROLE_MEASURE, WORK_ITEM_SERVICE]);
       for (const t of WORK_ITEM_SERVICE_TABLES) expect(tables(db.path)).not.toContain(t);
 
       const after = openDatabase(db.path);
