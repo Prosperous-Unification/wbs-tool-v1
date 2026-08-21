@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { JournalEntry, Role, WorkItem } from '../repository';
 import { ActualRepository } from '../repository/actual';
 import { CommandJournalRepository } from '../repository/command-journal';
-import { openDrizzle } from '../repository/db';
+import { openDatabase, openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
@@ -1372,6 +1372,163 @@ describe('a tag set is undone whole, which a scalar habit would not do', () => {
 
     expect(outcome.ok).toBe(true);
     expect(await tagsOn(id)).toEqual([regulatory]);
+  });
+});
+
+describe('a service is undone as the scalar it is, which the tag rule would not do', () => {
+  /**
+   * A service in the global directory, written straight into SQLite because the
+   * directory's own write path for services does not exist until section 4.
+   *
+   * The same shortcut `work-item.test.ts` takes, for the same reason: a write
+   * path that has not been built yet cannot be the thing that sets up a test of
+   * the one that has.
+   */
+  function serviceNamed(name: string): string {
+    const id = crypto.randomUUID();
+    const db = openDatabase(path);
+    try {
+      db.run('INSERT INTO service (id, name) VALUES (?, ?)', [id, name]);
+    } finally {
+      db.close();
+    }
+    return id;
+  }
+
+  /** Removing one, ditto — and the `ON DELETE SET NULL` beneath it is the point. */
+  function removeService(id: string): void {
+    const db = openDatabase(path);
+    try {
+      db.run('DELETE FROM service WHERE id = ?', [id]);
+    } finally {
+      db.close();
+    }
+  }
+
+  /** The service on a row, read back the way every face reads it. */
+  const serviceOn = async (id: string): Promise<string | null> => (await found(id))?.serviceId ?? null;
+
+  it('puts a replaced service back', async () => {
+    // **The scalar half of D6.** The row carries one service, a patch replaces
+    // it with another, and the undo restores the id that was there — one id,
+    // because a column has exactly one prior value.
+    //
+    // Proof, both watched 2026-08-21. `revertTo`'s service line written as
+    // `[before.serviceId]` — the array habit borrowed from the tags rule —
+    // and `typecheck` refuses it outright, which is the guard a reviewer meets
+    // first. Cast past that and this failed on `Expected: "…" / Received:
+    // null`: the array reached `SET service_id = ?` as a null binding, so the
+    // undo reported **done** and left the row unlabelled. With `fieldsOf`'s
+    // service line deleted instead it fails earlier and louder, at `expectDone`
+    // on `refused: stale_undo` — the undo reaching past an unjournalled write
+    // to an entry that write had already made stale.
+    const id = await root('Strip the roof');
+    const payments = serviceNamed('Payments');
+    const billing = serviceNamed('Billing');
+    await workItems.patch(id, ownerId, { serviceId: payments });
+
+    await workItems.patch(id, ownerId, { serviceId: billing });
+    expect(await serviceOn(id)).toBe(billing);
+
+    expectDone(await undone());
+    expect(await serviceOn(id)).toBe(payments);
+
+    expectDone(await workItems.redo(projectId, ownerId));
+    expect(await serviceOn(id)).toBe(billing);
+  });
+
+  it('takes a first service away again, rather than leaving it on', async () => {
+    // `null` is a legal before-value and it is the one an absent field would
+    // lose: the inverse of labelling an unlabelled row is *taking the label
+    // off*, and a `revertTo` that skipped the null would report a successful
+    // undo over a row still carrying the service it just added.
+    const id = await root('Strip the roof');
+    const payments = serviceNamed('Payments');
+    await workItems.patch(id, ownerId, { serviceId: payments });
+
+    expectDone(await undone());
+
+    expect(await serviceOn(id)).toBeNull();
+  });
+
+  it('leaves the service alone for a patch that does not name it', async () => {
+    // Absent means absent, on this field as on every other: a rename must not
+    // clear the label, and the undo of that rename must not either.
+    const id = await root('Strip the roof');
+    const payments = serviceNamed('Payments');
+    await workItems.patch(id, ownerId, { serviceId: payments });
+
+    await workItems.patch(id, ownerId, { name: 'Strip the whole roof' });
+    expect(await serviceOn(id)).toBe(payments);
+
+    expectDone(await undone());
+    expect(await serviceOn(id)).toBe(payments);
+  });
+
+  it('writes a service named on its own, rather than reporting a write it skipped', async () => {
+    // The store's no-field branch: a patch naming only the service must not
+    // take it. Its own red is on the guard line in `work-item.ts` — without
+    // `patch.serviceId` there, this answers `ok` with the row it found and the
+    // column never moves.
+    const id = await root('Strip the roof');
+    const payments = serviceNamed('Payments');
+
+    const outcome = await workItems.patch(id, ownerId, { serviceId: payments });
+
+    expect(outcome.ok).toBe(true);
+    expect(await serviceOn(id)).toBe(payments);
+  });
+
+  it('refuses a service the directory no longer holds, and writes nothing', async () => {
+    // The out-of-date picker, one dimension over from `unknown_tag`. Decided
+    // inside the write's own transaction, so a service removed between a
+    // client's read and its patch is a refusal naming the service rather than a
+    // raw `FOREIGN KEY constraint failed` — which is what the column would
+    // answer on its own, and a 500 for a request whose only fault is being out
+    // of date.
+    //
+    // **And the row is untouched**, which is the half worth asserting: the
+    // refusal is decided before the `UPDATE` runs, so a version that checked
+    // afterwards would leave the name written and the service not.
+    const id = await root('Strip the roof');
+    const payments = serviceNamed('Payments');
+    await workItems.patch(id, ownerId, { serviceId: payments });
+
+    const outcome = await workItems.patch(id, ownerId, {
+      name: 'Strip the whole roof',
+      serviceId: crypto.randomUUID(),
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'unknown_service' });
+    expect(await serviceOn(id)).toBe(payments);
+    expect((await found(id))?.name).toBe('Strip the roof');
+  });
+
+  it('refuses an undo that would put back a label whose service has gone', async () => {
+    // The replay guard, third dimension. `removeService` cascades to
+    // `SET NULL` on the rows carrying it, so by the time the undo runs the
+    // before-value names a row that is not there. Putting it back is what the
+    // store's in-transaction read refuses, and `apply` reports that refusal
+    // rather than replaying around it.
+    //
+    // Over real SQLite because the deletion under test *is* the foreign key's
+    // action: an in-memory store models no cascade, so this case would pass
+    // there against a version that never nulled anything — #79's exact failure.
+    const id = await root('Strip the roof');
+    const payments = serviceNamed('Payments');
+    const billing = serviceNamed('Billing');
+    await workItems.patch(id, ownerId, { serviceId: payments });
+    await workItems.patch(id, ownerId, { serviceId: billing });
+
+    removeService(payments);
+
+    const detail = expectStale(await undone());
+
+    // The sentence names the service rather than the work item: three
+    // dimensions can each be the one that went, and "the work item is no longer
+    // there" would be a false sentence about a row still on screen.
+    expect(detail).toBe('that service is no longer in the directory.');
+    expect(await serviceOn(id)).toBe(billing);
   });
 });
 

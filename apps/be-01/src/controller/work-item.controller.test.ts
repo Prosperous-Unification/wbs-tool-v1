@@ -460,6 +460,51 @@ describe('work item routes', () => {
     expect(workItems[0]?.priority).toBe(3);
   });
 
+  it('refuses a service that is not an id, and a service the directory has not got', async () => {
+    // The two refusals this field can make, and they are deliberately different
+    // answers. A non-string is **400** — the body is malformed and no plan
+    // anywhere would take it — while an id nothing holds is **404**, a thing
+    // that is not there, which is where `unknown_role`, `unknown_team` and
+    // `unknown_tag` already answer from.
+    //
+    // The 404 is the out-of-date picker: the service was on screen when the
+    // client read it and gone by the time it patched. Without the store's
+    // in-transaction read the same request reaches `work_item.service_id`'s
+    // foreign key and comes back **500**, which tells the reader nothing they
+    // can act on.
+    const { token, send, projectId } = await setup();
+    const created = await send(`/api/projects/${projectId}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
+    });
+    const { id } = (await created.json()) as { id: string };
+
+    for (const bad of [7, true, ['a'], { id: 'a' }]) {
+      const res = await send(`/api/work-items/${id}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ serviceId: bad }),
+      });
+      // The value is carried into the assertion so a failure names which of
+      // them got through rather than reporting `400 !== 200` four times.
+      expect([res.status, JSON.stringify(bad)]).toEqual([400, JSON.stringify(bad)]);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'serviceId_must_be_id_or_null',
+      });
+    }
+
+    const gone = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceId: crypto.randomUUID() }),
+    });
+    expect(gone.status).toBe(404);
+    expect((await gone.json()) as { error: string }).toEqual({ error: 'unknown_service' });
+
+    // Nothing was written by any of them.
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const { workItems } = (await tree.json()) as { workItems: { serviceId: string | null }[] };
+    expect(workItems[0]?.serviceId).toBeNull();
+  });
+
   // C2's landmine test — `puts a capacity floor on the wire, which nothing this
   // change ships can draw` — lived here, and its landmine is spent: C3 (#57)
   // taught `floorWordsOf` the word, and `capacity-per-project` retired the

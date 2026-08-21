@@ -370,6 +370,28 @@ export interface WorkItemPatch {
   /** `null` takes the label off. Never constrains who may be assigned the work. */
   serviceTeamId?: string | null;
   /**
+   * Which service delivers this work — an id, or `null` to take the label off
+   * and inherit again. Absent leaves it alone, like every other field here.
+   *
+   * `null` **clears** where {@link maxParallel} resets: the column is nullable
+   * and null is _unstated_, so taking the service off puts the row back to
+   * inheriting its ancestors' — there is no third "deliberately no service"
+   * state to spell.
+   *
+   * A **scalar**, and its undo is the prior scalar rather than a set — the
+   * inverse of {@link tagIds}'s rule, stated here so the two are not made to
+   * match. A column has exactly one prior value, and wrapping it in an array
+   * to look like its neighbour would journal a shape the patch cannot take.
+   *
+   * An id the directory no longer holds is refused with `unknown_service`,
+   * decided **inside the transaction that performs the update** —
+   * {@link serviceTeamId}'s argument exactly. `work_item.service_id` carries a
+   * foreign key (`ON DELETE SET NULL`), so a service removed in the gap between
+   * a precheck and the write makes the `UPDATE` answer a raw constraint
+   * failure: a 500 for a request whose only fault is being out of date.
+   */
+  serviceId?: string | null;
+  /**
    * How many people may be on this work item at once — an integer of 1 to
    * 1000, or `null` to put it back to one at a time.
    *
@@ -434,6 +456,13 @@ export interface WorkItemPatch {
  * a label is gone has to know **which** picker to reopen, and the two
  * dimensions are independent everywhere else in this model.
  *
+ * `unknown_service` is the third dimension's, and a third reason for the same
+ * reason: three pickers now, and "a label is gone" would leave a reader opening
+ * all of them. `work_item.service_id` has `ON DELETE SET NULL`, so unlike the
+ * tag it *would* be caught by the column's own foreign key — as a raw
+ * `FOREIGN KEY constraint failed`, which is a 500 where the honest answer names
+ * the service.
+ *
  * `not_before_reason_needs_a_date` is decided in the same transaction and for a
  * version of the same reason: the rule is about the row **as it will stand**, so
  * it has to be asked against the stored date and the patch's together, and a
@@ -447,7 +476,12 @@ export type WorkItemPatched =
   | { ok: true; workItem: WorkItem }
   | {
       ok: false;
-      reason: 'not_found' | 'unknown_team' | 'unknown_tag' | 'not_before_reason_needs_a_date';
+      reason:
+        | 'not_found'
+        | 'unknown_team'
+        | 'unknown_tag'
+        | 'unknown_service'
+        | 'not_before_reason_needs_a_date';
     };
 
 /**

@@ -21,6 +21,7 @@ import {
   dependency,
   estimate,
   roleProgress,
+  service,
   serviceTeam,
   tag,
   workItem,
@@ -199,6 +200,11 @@ export class WorkItemRepository implements WorkItemStore {
       patch.startNoEarlierThanReason === undefined &&
       patch.priority === undefined &&
       patch.serviceTeamId === undefined &&
+      // Proof: this line deleted, so a patch naming only the service takes the
+      // no-field branch, writes nothing and answers `ok` with the row it found
+      // — every face reporting a write that never happened, which is the tag
+      // line's own red one dimension over. Watched 2026-08-21; see the log.
+      patch.serviceId === undefined &&
       patch.maxParallel === undefined &&
       // Proof: this line missing is how the tag write path was first written,
       // and all six cases in `a tag set is undone whole, which a scalar habit
@@ -281,6 +287,24 @@ export class WorkItemRepository implements WorkItemStore {
           .where(eq(serviceTeam.id, wanted))
           .all();
         if (held.length === 0) return { ok: false, reason: 'unknown_team' };
+      }
+      // The third dimension's, in the same shape and the same transaction.
+      // `null` takes the label off and names no service, so there is nothing to
+      // read — only a non-null id can be one the directory has lost.
+      //
+      // The column's foreign key would catch this one on its own, unlike the
+      // tag's: `work_item.service_id` references `service(id)`, so an unknown id
+      // reaches SQLite as `FOREIGN KEY constraint failed`. That is the whole
+      // argument for reading it here — the constraint makes the write safe, and
+      // this makes the *answer* readable.
+      const wantedService = patch.serviceId;
+      if (wantedService !== undefined && wantedService !== null) {
+        const held = tx
+          .select({ id: service.id })
+          .from(service)
+          .where(eq(service.id, wantedService))
+          .all();
+        if (held.length === 0) return { ok: false, reason: 'unknown_service' };
       }
       // The other dimension's refusal, read in this transaction for
       // `unknown_team`'s reason and one of its own: `work_item_tag.tag_id`

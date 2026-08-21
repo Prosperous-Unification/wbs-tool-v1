@@ -508,6 +508,13 @@ export type WorkItemRefusal =
    */
   | 'unknown_tag'
   /**
+   * A service the directory no longer holds, decided inside the write's own
+   * transaction — see {@link WorkItemPatch.serviceId}. The third picker, and a
+   * third reason on purpose: told only that "a label is gone", a reader has
+   * three pickers to reopen and no way to choose.
+   */
+  | 'unknown_service'
+  /**
    * A patch that would leave a work item holding a reason with no not-before
    * date for it to be a reason about, decided inside the write's own
    * transaction — see {@link WorkItemPatched}.
@@ -714,6 +721,12 @@ function fieldsOf(patch: WorkItemPatch): (keyof WorkItemPatch)[] {
   // priority the undone patch had written; watched 2026-08-11.
   if (patch.priority !== undefined) named.push('priority');
   if (patch.serviceTeamId !== undefined) named.push('serviceTeamId');
+  // Proof: this line deleted, so a patch naming only the service journals
+  // nothing, and `puts a replaced service back` failed at its `expectDone` on
+  // `refused: stale_undo — “Strip the roof” has changed since then`: the undo
+  // reached past the unjournalled write to an entry that write had already made
+  // stale. The tag line's own red, one dimension over. Watched 2026-08-21.
+  if (patch.serviceId !== undefined) named.push('serviceId');
   // Proof: this line deleted, so a patch naming only a parallelism journals
   // nothing at all, and all three parallelism undo tests — `puts a replaced
   // parallelism back, and leaves one a rename did not name`, `takes a first
@@ -768,6 +781,27 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   }
   if (patch.priority !== undefined) out.priority = before.priority;
   if (patch.serviceTeamId !== undefined) out.serviceTeamId = before.serviceTeamId;
+  // **The prior scalar, and this is deliberately the inverse of the rule below
+  // it.** `service_id` is a column, so the row had exactly one service before
+  // the patch and the field that restores it holds exactly one id. Wrapping it
+  // in an array to match its set-valued neighbour would journal a shape the
+  // patch cannot take — it is written here so nobody "fixes" the two into
+  // agreement.
+  //
+  // `null` is a legal before-value and means the row had no service of its own:
+  // the inverse of labelling it is taking the label off, which is the null
+  // rather than an absent field. Absent would leave the label the undo exists
+  // to remove.
+  //
+  // Proof: written as `out.serviceId = [before.serviceId]`, the array habit —
+  // and `typecheck` refuses it outright (`Type 'null[]' is not assignable to
+  // type 'string | null | undefined'`), which is the first guard and the one a
+  // reviewer meets. Cast past it to see the second: `puts a replaced service
+  // back` failed on `Expected: "…" / Received: null` — the store spread the
+  // array into `SET service_id = ?`, SQLite took the binding as null, and the
+  // undo reported **done** on a row it had quietly unlabelled. Watched
+  // 2026-08-21, see verify.md.
+  if (patch.serviceId !== undefined) out.serviceId = before.serviceId;
   // **The whole prior set, and this is the seam a scalar habit loses data at.**
   // A set-valued field's inverse cannot be a member of the set or a delta
   // against it: undoing "these three tags" has to restore the two that were
@@ -2617,15 +2651,23 @@ export class WorkItemService {
       case 'patch': {
         const written = await this.opts.workItems.patch(command.workItemId, command.patch);
         if (!written.ok) {
-          // The label's team was removed after the command ran, or the row was.
-          // Either way the state this entry describes is gone, and putting the
-          // dead id back is exactly what the guarded path exists to refuse.
+          // The label's team or service was removed after the command ran, or
+          // the row was. Either way the state this entry describes is gone, and
+          // putting the dead id back is exactly what the guarded path exists to
+          // refuse.
+          //
+          // The service gets its own sentence for the reason it gets its own
+          // reason code: three dimensions can each be the one that went, and
+          // "the work item is no longer there" would be a false sentence about
+          // a row still on screen.
           return {
             ok: false,
             detail:
               written.reason === 'unknown_team'
                 ? 'that service team is no longer in the directory.'
-                : 'the work item is no longer there.',
+                : written.reason === 'unknown_service'
+                  ? 'that service is no longer in the directory.'
+                  : 'the work item is no longer there.',
           };
         }
         return { ok: true, detail: null };

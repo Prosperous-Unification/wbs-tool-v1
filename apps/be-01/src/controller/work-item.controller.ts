@@ -310,6 +310,7 @@ function parsePatch(body: unknown): {
   startNoEarlierThanReason?: string | null;
   priority?: number | null;
   serviceTeamId?: string | null;
+  serviceId?: string | null;
   maxParallel?: number | null;
   tagIds?: readonly string[];
 } {
@@ -326,6 +327,10 @@ function parsePatch(body: unknown): {
     priority: asOptionalPriority(raw['priority'], 'priority'),
     serviceTeamId:
       'serviceTeamId' in raw ? asIdOrNull(raw['serviceTeamId'], 'serviceTeamId') : undefined,
+    // `in` rather than a plain read for the reason the line above it uses one:
+    // `null` is a value here — it takes the service off — so absent and null
+    // have to be told apart, and `raw['serviceId']` gives `undefined` for both.
+    serviceId: 'serviceId' in raw ? asIdOrNull(raw['serviceId'], 'serviceId') : undefined,
     maxParallel: asOptionalParallelism(raw['maxParallel'], 'maxParallel'),
     tagIds: asOptionalTagIds(raw['tagIds'], 'tagIds'),
   };
@@ -341,9 +346,9 @@ function parsePatch(body: unknown): {
  * and the request itself is fine. It is not 413 — nothing about the request
  * body is too big.
  *
- * `unknown_person`, `unknown_team` and `unknown_tag` join `unknown_role` on
- * 404: an id the directory no longer holds is a thing that is not there,
- * whichever of the request's ids named it.
+ * `unknown_person`, `unknown_team`, `unknown_tag` and `unknown_service` join
+ * `unknown_role` on 404: an id the directory no longer holds is a thing that is
+ * not there, whichever of the request's ids named it.
  *
  * `has_children` falls through to **400**, which is the capacity plan's own
  * table (§5.1) and is a deliberate split from `rolled_up`'s 409 beside it. The
@@ -362,7 +367,8 @@ const statusFor = (reason: WorkItemRefusal): number =>
         reason === 'unknown_role' ||
         reason === 'unknown_person' ||
         reason === 'unknown_team' ||
-        reason === 'unknown_tag'
+        reason === 'unknown_tag' ||
+        reason === 'unknown_service'
       ? 404
       : reason === 'cycle' ||
           reason === 'frozen' ||
@@ -515,6 +521,7 @@ Body refusals, all 400: \`expected_object\`, \`number_is_derived\`,
 \`startNoEarlierThanReason_must_be_text\`,
 \`startNoEarlierThanReason_must_be_at_most_200_characters\`,
 \`priority_must_be_a_whole_number_from_1\`, \`serviceTeamId_must_be_id_or_null\`,
+\`serviceId_must_be_id_or_null\`,
 \`maxParallel_must_be_a_whole_number_from_1\`,
 \`maxParallel_must_be_at_most_1000\`. A parallelism on a row that has children is
 \`has_children\`, also 400 — the cell is read-only on every parent. A patch that
@@ -551,6 +558,12 @@ neither the words nor itself**, so send both as \`null\` in the one request.`,
                 nullable: true,
                 description:
                   'The team whose people do this work, by id from `GET /api/teams`. Null clears the label.',
+              },
+              serviceId: {
+                type: 'string',
+                nullable: true,
+                description:
+                  'The service this work delivers, by id. One per item. Null clears the label, which puts the row back to inheriting its ancestors’ service. Independent of `serviceTeamId` beside it: a team is who does the work, a service is what the work is part of. An id the directory no longer holds is 404 `unknown_service`.',
               },
               maxParallel: {
                 type: 'integer',
