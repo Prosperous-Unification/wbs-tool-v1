@@ -1,0 +1,61 @@
+-- Reverses 20260821000000_add_service.
+--
+-- Dropping these loses the whole of a plan's third label dimension: the service
+-- vocabulary anybody typed, every statement of the form "this work item is
+-- delivered for Payments", and the map of which team is responsible for which
+-- service. The loss is total in one direction and harmless in the other, and the
+-- asymmetry is the reason this rollback is safe to run.
+--
+-- **No date moves, either way.** The scheduler reads work items, estimates,
+-- dependencies, capacity and the calendar. It does not read `service`,
+-- `team_service` or `work_item.service_id` — that is the defining property of the
+-- dimension, asserted in the forward migration by a test that wires it up and
+-- watches every downstream date move — and nothing writes to the tables it *does*
+-- read on their behalf. A plan scheduled against a database with these and the
+-- same plan after this rollback come out identical, replayed by the identity
+-- corpus in `service/live-plan-identity.test.ts` rather than claimed here.
+--
+-- Nothing else is touched in the stronger sense either: no write to any of the
+-- three has ever written to a team, a tag, an estimate, an actual, a progress
+-- state or a date. A plan that loses its services keeps every figure anybody
+-- typed and every team anybody assigned, because the dimensions are independent
+-- by construction and share no row.
+--
+-- **What comes back is the question the split was made to separate.** After this
+-- rollback a plan's only ownership axis is `service_team` again — one entity
+-- answering both "who does the work" and "what is it for", which is the state the
+-- tool was in before this migration and the state it returns to. The two signals
+-- go with it: nothing can be flagged as built by a non-owner once the ownership
+-- map is gone, and the assignee signal goes too because it is the same module.
+-- Neither ever blocked anything, so nothing that was allowed becomes forbidden
+-- and nothing that was forbidden becomes allowed.
+--
+-- The filter degrades rather than breaks: `FilterCriteria.serviceIds` and the two
+-- signal facets are fields on a request, `narrowTree`'s predicates match on the
+-- effective reading of rows that no longer exist, and an empty facet narrows
+-- nothing. A saved view holding a service id, from `saved-views` (#83), points at
+-- a service that is gone and reads as an empty facet on the next load.
+--
+-- Undo and redo are unaffected in shape and lossy in one arm, which is worth
+-- saying plainly: `command_journal` is not touched, so every entry stays
+-- pressable, but an entry whose command carries `serviceId` names a column that
+-- is no longer there and fails when applied. That is the same position every
+-- rollback of an additive change leaves its own kinds in.
+--
+-- **Order, and it is not the same shape as `add_tag`'s.** The column goes first:
+-- `work_item.service_id` references `service`, and dropping the referenced table
+-- while a column still points at it leaves a foreign key aimed at nothing.
+-- `team_service` follows for the same reason, then its index goes with it, and
+-- `service` last. `DROP COLUMN` rather than a table rebuild — SQLite has
+-- supported it since 3.35 and `20260818090000_add_not_before_reason`'s down
+-- script is the precedent one column over.
+--
+-- All of this runs solely when the release that added it is being taken away — a
+-- forward migration in this repo is additive so blue and green can share one file
+-- mid-swap, and reversing an additive change is destructive by definition, which
+-- is why it lives here and not there.
+ALTER TABLE `work_item` DROP COLUMN `service_id`;--> statement-breakpoint
+DROP INDEX IF EXISTS `team_service_by_service`;--> statement-breakpoint
+DROP TABLE IF EXISTS `team_service`;--> statement-breakpoint
+DROP INDEX IF EXISTS `service_name`;--> statement-breakpoint
+DROP TABLE IF EXISTS `service`;

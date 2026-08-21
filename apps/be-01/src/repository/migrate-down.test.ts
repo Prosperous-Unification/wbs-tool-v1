@@ -111,6 +111,15 @@ const NOT_BEFORE_REASON = '20260818090000_add_not_before_reason';
  * was written, checked for a duplicate before the folder existed.
  */
 const TAG = '20260819120000_add_tag';
+/**
+ * The newest. Two tables **and** a column, which is a first: `work_item.service_id`
+ * is dropped before `service`, because a column that references a table cannot
+ * outlive it by even one statement.
+ *
+ * Stamped `20260821000000`, later than all twenty-two folders on disk when it was
+ * written, checked for a duplicate before the folder existed.
+ */
+const SERVICE = '20260821000000_add_service';
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-migrate-down-'));
@@ -203,6 +212,7 @@ describe('readMigrationFolders', () => {
       ROLE_PROGRESS,
       NOT_BEFORE_REASON,
       TAG,
+      SERVICE,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -298,11 +308,13 @@ describe('rollbackTo, against a real database', () => {
         ROLE_PROGRESS,
         NOT_BEFORE_REASON,
         TAG,
+        SERVICE,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        SERVICE,
         TAG,
         NOT_BEFORE_REASON,
         ROLE_PROGRESS,
@@ -369,6 +381,7 @@ describe('rollbackTo, against a real database', () => {
         ROLE_PROGRESS,
         NOT_BEFORE_REASON,
         TAG,
+        SERVICE,
       ]);
     } finally {
       db.cleanup();
@@ -382,6 +395,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        SERVICE,
         TAG,
         NOT_BEFORE_REASON,
         ROLE_PROGRESS,
@@ -433,7 +447,7 @@ describe('rollbackTo, against a real database', () => {
       // *and* answers `[]` when there is genuinely something to reverse. Reading
       // `[]` as correct is only safe while every stamp is unique, which
       // `readMigrationFolders` now enforces.
-      expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([]);
+      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([]);
       expect(tables(db.path)).toContain('users');
     } finally {
       db.cleanup();

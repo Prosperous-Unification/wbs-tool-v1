@@ -267,6 +267,40 @@ export const workItem = sqliteTable(
      */
     serviceTeamId: text('service_team_id'),
     /**
+     * The one service this work is delivered for, or null — the third label
+     * dimension, beside teams and tags.
+     *
+     * Dany, 2026-08-20: _"I need to have service and team as separate
+     * entities"_, and _"Let service and teams be independent"_. So this is not
+     * read through {@link workItemTeam}: a row states its team and its service
+     * separately, and either may be blank. {@link service} is what it points at.
+     *
+     * **A column and not a join table, which is the design stating the
+     * cardinality rather than a comment stating it** — one service per item
+     * (`service-split`'s design.md D2). {@link workItemTag} holds a set because
+     * a tag is many-valued; a join table with a `work_item_id` unique index
+     * would say _one_ in a weaker way, read as many-valued to anybody scanning
+     * the schema, and make every read a group-by returning arrays of length ≤ 1.
+     * The **domain** reading is still set-shaped — `effectiveServicesOf` hands
+     * the shared walk a singleton set — so widening to many later is a migration
+     * plus a read, not a redesign of the inheritance.
+     *
+     * **`ON DELETE SET NULL`, never `CASCADE`: deleting a service must not
+     * delete work items.** It is also what makes the directory's removal effect
+     * `label_nulled` rather than `label_removed` — a column is nulled, a set
+     * member is removed, and `directory-usage.ts` already tells those two
+     * sentences apart.
+     *
+     * **Blank means inherit**, exactly as it does for teams and tags: a row with
+     * no service takes its nearest ancestor's, and a row with one overrides it.
+     * There is no third "deliberately none" state.
+     *
+     * **Nothing a date reads.** `service/schedule.ts` has an empty diff in the
+     * change that adds this column: a service is a grouping and reporting fact,
+     * with no pool and no size anywhere beside it.
+     */
+    serviceId: text('service_id').references(() => service.id, { onDelete: 'set null' }),
+    /**
      * How many people may be on this work item at once — 1 or more, never
      * null.
      *
@@ -728,6 +762,104 @@ export const workItemTag = sqliteTable(
 );
 
 export type WorkItemTagRow = typeof workItemTag.$inferSelect;
+
+/**
+ * What a work item is delivered **for** — `Payments`, `Search`, `Billing`.
+ *
+ * Dany, 2026-08-20: _"I need to have service and team as separate entities"_,
+ * and, asked how the two relate, _"Let service and teams be independent"_. Until
+ * this table the directory's one entity was literally called `service_team` and
+ * answered both questions with one row; this is the second question given its
+ * own table.
+ *
+ * **The name trap, and it is real for one release: {@link serviceTeam} means
+ * _team_ and this means _service_.** No rename here — blue and green share one
+ * SQLite file during a swap and the outgoing release selects `service_team` on
+ * every tree read, so renaming it would break the release still running while
+ * this one boots. R2-6 does the rename once no running release reads the old
+ * name (`service-split`'s design.md D9).
+ *
+ * **What this table is not, and the absences are the design.** Not a pool: no
+ * `size` column here and no per-project table beside it, so nothing anywhere can
+ * ask how many of a service may be at work at once — {@link serviceTeam} is
+ * where capacity lives, because capacity is spent by the people doing the work
+ * and not by the thing the work is for. **Not anything a date reads**:
+ * `service/schedule.ts` has an empty diff in the change that adds this, watched
+ * by a test that wires the scheduler to a service and shows every downstream
+ * date move. Not a tag either — {@link tag} stayed general-purpose, and what
+ * makes a service more than a label is {@link teamService} below.
+ *
+ * **Global — no project column**, mirroring {@link serviceTeam} and {@link tag}
+ * exactly. `Payments` means `Payments` in every plan, which is what lets an
+ * export column mean the same thing across plans.
+ *
+ * `name` is `NOT NULL` with a unique index on it, and the index is what lets a
+ * rename answer `taken` with the surviving name rather than writing a second row
+ * that reads identically. Unique at the database rather than only in the
+ * service: two people creating `Payments` at the same moment both pass a
+ * check-then-insert, and only a constraint stops the second.
+ */
+export const service = sqliteTable(
+  'service',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+  },
+  (t) => [uniqueIndex('service_name').on(t.name)],
+);
+
+export type ServiceRow = typeof service.$inferSelect;
+
+/**
+ * Which services one team is **responsible for** — several, and this is the fact
+ * that makes a service more than a label.
+ *
+ * Dany, 2026-08-20: _"one team can be responsible for several services - it must
+ * be configurable in the directory. It will help in the future to flag where
+ * teams build something they do not own."_ So this is directory data about teams
+ * and services themselves. It labels no work item, and the flagging it enables
+ * is a **signal** computed on read — a row whose effective team and effective
+ * service are both stated, where the service is not in that team's owned set —
+ * never a validation and never a block.
+ *
+ * The pair is the primary key because the pair is the fact: "Platform owns
+ * Payments" is either stated or not, and a second row saying it again would be a
+ * second answer to one question. {@link workItemTeam}'s shape, two tables up.
+ *
+ * **Both sides cascade**, carrying {@link workItemTag}'s argument unchanged:
+ * blue and green share one SQLite file during a swap, the outgoing release knows
+ * nothing about this table, and its plain `DELETE FROM service_team` must not
+ * hit a constraint it cannot see. `DELETE /api/services/:id` still counts what
+ * it would unlabel and still refuses with 409 unless `?cascade=1` — but the
+ * rows **this** table loses are deliberately not in that count, because an
+ * ownership statement about a service that is being deleted is not a loss a
+ * person needs to weigh (`service-split`'s design.md D7).
+ *
+ * **Not a capacity, and not a scheduling input.** Nothing here bounds anything,
+ * and no date reads it: a team owning three services is not thereby three times
+ * as busy.
+ *
+ * Indexed by `service_id`, because the directory asks "what would removing this
+ * service touch" and the primary key answers only the other direction —
+ * {@link workItemTag}'s `work_item_tag_by_tag`, one dimension over.
+ */
+export const teamService = sqliteTable(
+  'team_service',
+  {
+    teamId: text('team_id')
+      .notNull()
+      .references(() => serviceTeam.id, { onDelete: 'cascade' }),
+    serviceId: text('service_id')
+      .notNull()
+      .references(() => service.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.teamId, t.serviceId] }),
+    index('team_service_by_service').on(t.serviceId),
+  ],
+);
+
+export type TeamServiceRow = typeof teamService.$inferSelect;
 
 /**
  * How many of one team may be at work at once **on one project's plan**.
