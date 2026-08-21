@@ -1400,6 +1400,9 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "kind": {
+                    "type": "string"
                   }
                 }
               }
@@ -1416,6 +1419,9 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "kind": {
+                    "type": "string"
                   }
                 }
               }
@@ -1432,6 +1438,9 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "kind": {
+                    "type": "string"
                   }
                 }
               }
