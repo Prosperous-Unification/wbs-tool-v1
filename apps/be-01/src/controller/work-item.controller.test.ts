@@ -5,6 +5,7 @@ import { buildApp } from '../app';
 import { ProjectService } from '../service/project.service';
 import { WorkItemService } from '../service/work-item.service';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixture';
@@ -27,6 +28,7 @@ function buildHarness() {
   const workItemStore = inMemoryWorkItems(directoryStore);
   const estimateStore = inMemoryEstimates(workItemStore);
   const actualStore = inMemoryActuals(workItemStore);
+  const measureStore = inMemoryMeasures(workItemStore);
   const progressStore = inMemoryProgress(workItemStore);
   const dependencyStore = inMemoryDependencies();
   const app = buildApp({

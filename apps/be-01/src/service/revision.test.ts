@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { Role, WorkItem } from '../repository';
 import { ActualRepository } from '../repository/actual';
+import { RoleMeasureRepository } from '../repository/role-measure';
 import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
@@ -51,6 +52,7 @@ let projectStore: ProjectRepository;
 let workItemStore: WorkItemRepository;
 let estimateStore: EstimateRepository;
 let actualStore: ActualRepository;
+let measureStore: RoleMeasureRepository;
 let progressStore: RoleProgressRepository;
 let projectId: string;
 let ownerId: string;
@@ -75,6 +77,7 @@ beforeEach(async () => {
   workItemStore = new WorkItemRepository(db);
   estimateStore = new EstimateRepository(db);
   actualStore = new ActualRepository(db);
+  measureStore = new RoleMeasureRepository(db);
   progressStore = new RoleProgressRepository(db);
   const dependencies = new DependencyRepository(db);
   const directory = new DirectoryRepository(db);
