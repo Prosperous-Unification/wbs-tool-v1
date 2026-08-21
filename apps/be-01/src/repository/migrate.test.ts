@@ -3128,3 +3128,289 @@ describe('the work-item-service migration', () => {
     }
   });
 });
+
+describe('the role measure migration', () => {
+  /**
+   * A plan with one estimate, one recorded actual and two measures against the
+   * same pair, written the way the release that adds this table writes them.
+   *
+   * Two measures on one `(work item, role)` rather than one, and that is the
+   * fixture's whole job: the primary key carries `metric`, so a pair holding a
+   * token figure and an hours figure is two rows and not a collision. A
+   * single-measure fixture would have made every case below pass against a
+   * two-column key as well.
+   *
+   * By hand rather than through a service, for the reason the `actual` fixture
+   * gives: what is under test is the *schema* — what the outgoing release can
+   * still do to a database with this table in it, which foreign key refuses
+   * what, and what a rollback takes away.
+   */
+  function seeded(dbPath: string): void {
+    const db = openDatabase(dbPath);
+    try {
+      db.run(
+        "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+      );
+      db.run(
+        'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+          " VALUES ('p', 'Rewire the shed', 'u', 0, 'pert', NULL, 0, 1)",
+      );
+      db.run("INSERT INTO role (id, project_id, name, position) VALUES ('r1', 'p', 'Dev', 10)");
+      db.run(
+        'INSERT INTO work_item (id, project_id, parent_id, position, name, notes, priority, max_parallel, revision)' +
+          " VALUES ('w1', 'p', NULL, 10, 'Strip', '', 25, 1, 0)",
+      );
+      db.run(
+        'INSERT INTO estimate (work_item_id, role_id, optimistic, realistic, pessimistic)' +
+          " VALUES ('w1', 'r1', 1, 2, 3)",
+      );
+      db.run(
+        "INSERT INTO actual (work_item_id, role_id, days, recorded_at) VALUES ('w1', 'r1', 8, 1000)",
+      );
+      db.run(
+        'INSERT INTO role_measure (work_item_id, role_id, metric, value, recorded_at)' +
+          " VALUES ('w1', 'r1', 'token_actual', 4000000, 2000)",
+      );
+      db.run(
+        'INSERT INTO role_measure (work_item_id, role_id, metric, value, recorded_at)' +
+          " VALUES ('w1', 'r1', 'hours_actual', 3.5, 2000)",
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  function measureCount(dbPath: string): number {
+    const db = openDatabase(dbPath);
+    try {
+      return (
+        db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM role_measure').get()?.n ?? -1
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  it('creates the table with no rows, because nobody has said what anything cost', () => {
+    // There is nowhere to seed this from. No plan on the server records what its
+    // work cost in tokens or in hours, and deriving one — days times something,
+    // tokens times something — would be the tool asserting a figure nobody
+    // typed. Empty reads as "nobody has said", never as "it cost nothing", and
+    // that is the absence rule every later refusal rests on.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      expect(tables(db.path)).toContain('role_measure');
+      expect(measureCount(db.path)).toBe(0);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('lets the outgoing release keep deleting work items against the migrated schema', () => {
+    // The blue/green half. Green migrates while blue is still serving, and blue
+    // knows nothing about this table — so its plain `DELETE FROM work_item` must
+    // still work, and both measures must go with the row rather than refusing
+    // the delete.
+    //
+    // Proof: `ON DELETE CASCADE` struck from `work_item_id` in the migration —
+    // F1, watched 2026-08-21, see verify.md.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      seeded(db.path);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        sqlite.run('PRAGMA foreign_keys = ON');
+        // The estimate and the actual first: both carry the same missing role
+        // cascade, and neither is this migration's to prove.
+        sqlite.run("DELETE FROM estimate WHERE work_item_id = 'w1'");
+        sqlite.run("DELETE FROM actual WHERE work_item_id = 'w1'");
+        sqlite.run("DELETE FROM work_item WHERE id = 'w1'");
+      } finally {
+        sqlite.close();
+      }
+      // Both rows, not one: a cascade that took the token figure and left the
+      // hours figure would leave a measure pointing at a work item that is gone.
+      expect(measureCount(db.path)).toBe(0);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('refuses to let a role go while it still holds a measure, rather than emptying it', () => {
+    // `role_id` carries **no** cascade, deliberately and unlike
+    // `assignment.role_id` — the asymmetry `estimate`, `actual` and
+    // `role_progress` all carry. A measure is somebody's typing, or an agent's
+    // recorded spend, so a role removal must count it before taking it: the
+    // missing cascade is what makes a role delete that forgot to say so fail
+    // loudly. `RoleRepository.remove` is the caller that deletes them
+    // explicitly, and this is the constraint underneath it.
+    //
+    // Proof: `ON DELETE CASCADE` added to `role_id` in the migration — the
+    // delete then succeeds and both measures are silently gone, which is a
+    // plan losing what an agent's run cost with nothing on screen to say so.
+    // F2, watched 2026-08-21, see verify.md.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      seeded(db.path);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        sqlite.run('PRAGMA foreign_keys = ON');
+        // Everything else holding the role, so this case watches this
+        // migration's foreign key rather than one of theirs.
+        sqlite.run("DELETE FROM estimate WHERE role_id = 'r1'");
+        sqlite.run("DELETE FROM actual WHERE role_id = 'r1'");
+        expect(() => {
+          sqlite.run("DELETE FROM role WHERE id = 'r1'");
+        }).toThrow(/FOREIGN KEY constraint failed/);
+      } finally {
+        sqlite.close();
+      }
+      expect(measureCount(db.path)).toBe(2);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('refuses a second row for one pair and metric, while leaving the other metric alone', () => {
+    // The composite primary key, and the half of it that is new: `metric` is in
+    // the key, so the refusal is **per metric**. Two `token_actual` rows for one
+    // pair would make a reader choose between them and the choice would decide a
+    // figure on screen; a `token_actual` beside an `hours_actual` is two
+    // different sentences about the same work and both are true. A correction
+    // replaces, it does not accumulate.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      seeded(db.path);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        expect(() => {
+          sqlite.run(
+            'INSERT INTO role_measure (work_item_id, role_id, metric, value, recorded_at)' +
+              " VALUES ('w1', 'r1', 'token_actual', 9, 3000)",
+          );
+        }).toThrow(/UNIQUE constraint failed/);
+        // The third metric on the same pair is not a duplicate of anything, and
+        // this is the assertion that tells the key apart from a two-column one:
+        // under `(work_item_id, role_id)` alone the line above would be right
+        // for the wrong reason and this line would fail.
+        sqlite.run(
+          'INSERT INTO role_measure (work_item_id, role_id, metric, value, recorded_at)' +
+            " VALUES ('w1', 'r1', 'token_estimate', 3500000, 3000)",
+        );
+      } finally {
+        sqlite.close();
+      }
+      expect(measureCount(db.path)).toBe(3);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('refuses a fourth metric, because Drizzle’s enum is gone by the time a row is written', () => {
+    // The `CHECK`, which is the whole reason `metric` can be trusted as a closed
+    // set. Drizzle's enum is erased at compile time, so it constrains this
+    // repository's own writes and nothing else: a hand-edit, a stale release or
+    // a future route that forgot the set would otherwise store a fourth value
+    // that every reader dispatches on and none of them folds — silently absent
+    // from every roll-up rather than loudly wrong. The argument
+    // `role_progress.state` already makes.
+    //
+    // Proof: the `CONSTRAINT role_measure_metric CHECK (...)` line struck from
+    // the migration, and this fails on `Received function did not throw` with
+    // `'nonsense'` sitting in the table. F3, watched 2026-08-21, see verify.md.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      seeded(db.path);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        expect(() => {
+          sqlite.run(
+            'INSERT INTO role_measure (work_item_id, role_id, metric, value, recorded_at)' +
+              " VALUES ('w1', 'r1', 'nonsense', 1, 3000)",
+          );
+        }).toThrow(/CHECK constraint failed/);
+      } finally {
+        sqlite.close();
+      }
+      expect(measureCount(db.path)).toBe(2);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('takes the measures away on the way back, and leaves every estimate and every actual', () => {
+    // The rollback, asserted by reading the result. What is lost is what the
+    // work cost in units this plan did not measure in before; what survives is
+    // the plan itself and the record of days — the property that makes the
+    // reversal survivable, because it takes away a unit and never a date.
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      seeded(db.path);
+
+      expect(rollbackTo(db.path, FOLDER, WORK_ITEM_SERVICE)).toEqual([ROLE_MEASURE]);
+
+      const after = openDatabase(db.path);
+      try {
+        expect(
+          after
+            .query<
+              { n: number },
+              []
+            >("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='role_measure'")
+            .get()?.n,
+        ).toBe(0);
+        // The index goes with it rather than being left behind pointing at a
+        // table that is gone.
+        expect(
+          after
+            .query<
+              { n: number },
+              []
+            >("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='index' AND name LIKE 'role_measure%'")
+            .get()?.n,
+        ).toBe(0);
+        // Untouched: the estimate, the recorded days, and the work item. A plan
+        // that loses its token and hour figures still holds every figure it was
+        // committed against and every day anybody typed.
+        expect(
+          after
+            .query<
+              { realistic: number },
+              []
+            >("SELECT realistic FROM estimate WHERE work_item_id = 'w1' AND role_id = 'r1'")
+            .get()?.realistic,
+        ).toBe(2);
+        expect(
+          after
+            .query<
+              { days: number },
+              []
+            >("SELECT days FROM actual WHERE work_item_id = 'w1' AND role_id = 'r1'")
+            .get()?.days,
+        ).toBe(8);
+        expect(
+          after
+            .query<
+              { priority: number | null },
+              []
+            >("SELECT priority FROM work_item WHERE id = 'w1'")
+            .get()?.priority,
+        ).toBe(25);
+      } finally {
+        after.close();
+      }
+    } finally {
+      db.cleanup();
+    }
+  });
+});
