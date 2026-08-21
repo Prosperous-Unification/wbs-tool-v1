@@ -203,7 +203,7 @@
 
 ## 10. The widening — a work item carries a set of services
 
-Dany, 2026-08-21 07:46 Kyiv: *"can be several services."* The domain and the
+Dany, 2026-08-21 07:46 Kyiv: _"can be several services."_ The domain and the
 filter were widened in chunk 12; the store, the wire and the picker were not, and
 the branch folds between them at two commented edges. This section closes that
 gap. **Do it before 7.2, 7.3 and 7.4** — each of those is a new surface, and a
@@ -211,9 +211,9 @@ surface built on the singleton is a surface built twice.
 
 - [ ] 10.1 `work_item_service (work_item_id, service_id)` in `schema.ts` and a
       migration, keyed on the pair, both sides cascading, indexed by
-      `service_id` — `work_item_tag` line for line. Seed it
-      `INSERT … SELECT id, service_id FROM work_item WHERE service_id IS NOT
-      NULL`. **Leave `work_item.service_id` in place and unread**: blue and green
+      `service_id` — `work_item_tag` line for line. Seed it from the column:
+      `INSERT … SELECT id, service_id FROM work_item WHERE service_id IS NOT NULL`.
+      **Leave `work_item.service_id` in place and unread**: blue and green
       share one SQLite file and the outgoing release still selects it, so
       dropping it here breaks the release that is still running (design D2, and
       the same rule 1.1's `service_team` rename follows). Check the stamp against
@@ -221,9 +221,10 @@ surface built on the singleton is a surface built twice.
       reason this sentence is repeated. **Watched red:** revert a `DROP` in
       `down.sql` and the rollback round-trip test must fail.
 - [ ] 10.2 The wire and the write, both ends in one slice: `serviceIds` on the
-      repository read (a grouped join, as `tagIds` is), `serviceIds?: readonly
-      string[]` on the patch payload replacing the set whole and deduplicating a
-      repeat, `unknown_service` refusing the **whole** patch from inside the
+      repository read (a grouped join, as `tagIds` is), an optional readonly
+      `serviceIds` array on the patch payload replacing the set whole and
+      deduplicating a repeat, `unknown_service` refusing the **whole** patch from
+      inside the
       write's transaction, and `WorkItemView.serviceIds` on `lib/wbs-api.ts`.
       Deleting the two folds is how this task is finished: the
       `effectiveServicesOf` memo in `wbs-table.tsx` and be-01's 5.4 controller

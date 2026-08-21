@@ -69,7 +69,7 @@ table it discriminates. Two tables, two behaviours, no branch.
 
 ### D2 — The item's services are a set, stored in a `work_item_service` join table
 
-**Superseded 2026-08-21.** Dany, 07:46 Kyiv: *"can be several services."* D2
+**Superseded 2026-08-21.** Dany, 07:46 Kyiv: _"can be several services."_ D2
 originally decided a nullable `work_item.service_id` column on the argument that
 the schema should state a cardinality of one rather than a comment stating it.
 The cardinality it stated is no longer the one we want, so the argument now
@@ -100,7 +100,7 @@ follows.
 
 **One consequence, carried into the spec:** the directory removal effect for a
 service becomes `label_removed`, not `label_nulled`. A column is nulled; a set
-member is removed. D2 originally chose `label_nulled` *because* of the column,
+member is removed. D2 originally chose `label_nulled` _because_ of the column,
 and named the tag/team distinction in `directory-usage.ts:15-30` as the thing not
 to blur — so the effect follows the storage honestly rather than staying put.
 Until the join table lands, the store is still a column and `label_nulled` is
@@ -155,8 +155,8 @@ invisible to this dimension and was caught by the team and tag halves of the
 same shared case instead.
 
 **The widening closed that hole.** With `serviceIds` returned whole, an own-first
-union is visible to this dimension too: chunk 12's *"overrides a parent's two
-services with a leaf's two, keeping none of them"* puts two ids on each side, so
+union is visible to this dimension too: chunk 12's _"overrides a parent's two
+services with a leaf's two, keeping none of them"_ puts two ids on each side, so
 a union answers with four whichever end it starts from. **Watched 2026-08-21**,
 own-first union re-injected into `effective-label.ts` on h2puni: 109 pass, 9
 fail, and **three** of them are `effectiveServicesOf`'s own — that case, "lets a
@@ -209,7 +209,7 @@ person's.
   `serviceIds` is owned by no team in `teamIds`. `some`, not `every`: one
   unowned service flags the row, which is Dany's sentence and also what makes
   the two signals read alike — some service unowned, some assignee outside.
-  Naming *which* services is the same predicate over a one-element set, so
+  Naming _which_ services is the same predicate over a one-element set, so
   there is no third export.
 - `assignedOutsideTeam({ assigneeIds, teamIds, teamsByPerson })` — true when
   both are non-empty and some assignee belongs to none of `teamIds`.
