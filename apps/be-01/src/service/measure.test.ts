@@ -323,3 +323,97 @@ describe('recording the figures that are not days', () => {
     ]);
   });
 });
+
+describe('the figures that are not days, read back through the tree', () => {
+  /** One work item's `measures`, by the name a case names it with. */
+  async function measuresOn(name: string): Promise<Record<string, Record<string, number>>> {
+    const tree = await service.tree(projectId);
+    if (tree === null) throw new Error('no tree');
+    const row = tree.workItems.find((each) => each.name === name);
+    if (row === undefined) throw new Error(`no work item called ${name}`);
+    return row.measures;
+  }
+
+  it('answers a leaf’s own figures, metric first and then role', async () => {
+    const strip = await add('Strip');
+    await service.setMeasure(strip, OWNER, DEV, 'token_actual', 15_400);
+    await service.setMeasure(strip, OWNER, QA, 'token_actual', 2_100);
+    await service.setMeasure(strip, OWNER, DEV, 'hours_actual', 3);
+
+    expect(await measuresOn('Strip')).toEqual({
+      token_actual: { [DEV]: 15_400, [QA]: 2_100 },
+      hours_actual: { [DEV]: 3 },
+    });
+  });
+
+  it('leaves out a metric nobody recorded rather than carrying it empty', async () => {
+    // The absence rule one level up from `estimates` and `actuals`, and the
+    // reason the object is built by striking metrics rather than by mapping all
+    // three. `hours_actual: {}` on this row would say somebody looked at the
+    // hours and found none, which nobody did.
+    const strip = await add('Strip');
+    await service.setMeasure(strip, OWNER, DEV, 'token_estimate', 12_000);
+
+    expect(await measuresOn('Strip')).toEqual({ token_estimate: { [DEV]: 12_000 } });
+  });
+
+  it('answers an empty object for a row nobody has recorded anything against', async () => {
+    await add('Strip');
+
+    expect(await measuresOn('Strip')).toEqual({});
+  });
+
+  it('sums a parent’s descendants per metric and per role, and no further', async () => {
+    // Two children holding two units between them. The parent's tokens are the
+    // sum of the tokens and its hours the sum of the hours — never one number
+    // made of both, which is what a fold that ignored the metric would answer.
+    const rewire = await add('Rewire');
+    const strip = await add('Strip', rewire);
+    const pull = await add('Pull cable', rewire);
+    await service.setMeasure(strip, OWNER, DEV, 'token_actual', 15_400);
+    await service.setMeasure(pull, OWNER, DEV, 'token_actual', 8_600);
+    await service.setMeasure(pull, OWNER, DEV, 'hours_actual', 4);
+    await service.setMeasure(pull, OWNER, QA, 'hours_actual', 1);
+
+    expect(await measuresOn('Rewire')).toEqual({
+      token_actual: { [DEV]: 24_000 },
+      hours_actual: { [DEV]: 4, [QA]: 1 },
+    });
+  });
+
+  it('reports a branch whose rows hold nothing as holding nothing', async () => {
+    // A parent of two silent children, beside the case above: absence folds up
+    // as absence, so an empty branch is `{}` and not three empty metrics or a
+    // set of zeroes.
+    const rewire = await add('Rewire');
+    await add('Strip', rewire);
+    await add('Pull cable', rewire);
+
+    expect(await measuresOn('Rewire')).toEqual({});
+  });
+
+  it('keeps a recorded zero in the sum, because somebody said the work cost nothing', async () => {
+    const rewire = await add('Rewire');
+    const strip = await add('Strip', rewire);
+    const pull = await add('Pull cable', rewire);
+    await service.setMeasure(strip, OWNER, DEV, 'hours_actual', 0);
+    await service.setMeasure(pull, OWNER, QA, 'hours_actual', 2);
+
+    // `DEV` is a key holding 0 — a statement — where an unrecorded role is no
+    // key at all. `toEqual` would pass on a dropped zero if this only read the
+    // value, so the presence is asserted on its own.
+    const measured = await measuresOn('Rewire');
+    expect(Object.hasOwn(measured.hours_actual ?? {}, DEV)).toBe(true);
+    expect(measured).toEqual({ hours_actual: { [DEV]: 0, [QA]: 2 } });
+  });
+
+  it('stops reporting a metric once its last figure on the row is cleared', async () => {
+    const strip = await add('Strip');
+    await service.setMeasure(strip, OWNER, DEV, 'token_actual', 15_400);
+    await service.setMeasure(strip, OWNER, DEV, 'hours_actual', 3);
+
+    await service.clearMeasure(strip, OWNER, DEV, 'hours_actual');
+
+    expect(await measuresOn('Strip')).toEqual({ token_actual: { [DEV]: 15_400 } });
+  });
+});

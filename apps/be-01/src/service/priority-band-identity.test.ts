@@ -370,6 +370,9 @@ describe('a priority ladder moves no date', () => {
    * moved a date. That the corpus replays identically with the dimension present
    * is the strongest form of this change's central claim: the scheduler does not
    * read a tag.
+   *
+   * **`measures` is lifted by `token-tracking` (R10-C)**, and asserted empty for
+   * `actuals`' reason exactly, one table over.
    */
   function lifted(
     tree: NonNullable<Awaited<ReturnType<WorkItemService['tree']>>>,
@@ -377,7 +380,7 @@ describe('a priority ladder moves no date', () => {
     return {
       ...tree,
       workItems: tree.workItems.map(
-        ({ teamIds, tagIds, serviceIds, actuals, progress, state, ...row }) => {
+        ({ teamIds, tagIds, serviceIds, actuals, measures, progress, state, ...row }) => {
           expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
           // `tagIds` is lifted the same way by `tags` (R10-B) and asserted **empty**
           // for `actuals`' reason: the oracle predates the dimension, nothing in
@@ -392,6 +395,15 @@ describe('a priority ladder moves no date', () => {
           // a join and invented nothing on the way.
           expect(serviceIds).toEqual([]);
           expect(actuals).toEqual({});
+          // `measures` is lifted by `token-tracking` (R10-C) and asserted empty
+          // for `actuals`' reason, one table over. The oracle predates
+          // `role_measure` entirely, so every row now carries a key the capture
+          // cannot have — and `{}` is the whole object rather than three empty
+          // metrics, because a metric nobody recorded is struck rather than
+          // carried. Sixteen replayed plans reporting no metrics at all is this
+          // change's claim about itself: a figure that is not a day reaches
+          // nothing that schedules, and none was invented on the way out.
+          expect(measures).toEqual({});
           // `progress` and `state` are lifted the same way by `role-progress`
           // (R6 H2b), and asserted for `actuals`' reason: an empty object and
           // `not_started` on every row of sixteen replayed plans is that change's

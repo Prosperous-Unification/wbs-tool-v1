@@ -63,6 +63,7 @@ import {
   rollUp,
   rollUpActuals,
   rollUpItemStates,
+  rollUpMeasures,
   rollUpProgress,
   workedRolesOf,
 } from './roll-up';
@@ -384,6 +385,33 @@ export interface NumberedWorkItem extends LabelledWorkItem {
   estimates: Record<string, Days>;
   /** True when the estimates above are sums and therefore not editable here. */
   rolledUp: boolean;
+  /**
+   * The figures that are not days: **metric first, then role**, its own if it is
+   * a leaf and the sum of its descendants' if it is not.
+   *
+   * Nested rather than flat because the primary key is a triple and a flat
+   * `Record<string, number>` would have to spell the other two into one string —
+   * `token_actual:role-dev` — which every reader would then have to take apart
+   * again. Metric outermost because that is the axis a reader picks first: a
+   * column of tokens and a column of hours are two columns, and the roles inside
+   * each are the same roles.
+   *
+   * **A metric nobody has recorded anywhere below is absent, not `{}`.** The
+   * distinction is the one this whole table is built on, one level up from where
+   * `estimates` and `actuals` make it: an empty object under `hours_actual` says
+   * "somebody looked at the hours on this row" and absence says nobody has. So a
+   * work item nobody has recorded anything against is `{}` here — no metrics at
+   * all — rather than three empty objects, and a face rendering a missing metric
+   * as `0` is inventing a statement.
+   *
+   * Absence is per metric and per role both: a pair holding a `token_actual` and
+   * nothing else puts that pair under `token_actual` and leaves it out of
+   * `hours_actual` entirely. See {@link rollUpMeasures}.
+   *
+   * Reported and never planned with, exactly as `actuals` is: it reaches no
+   * scheduling function. R6's rule, one table over.
+   */
+  measures: Record<string, Record<string, number>>;
   /** The work items this one waits for, as written — either end may be a parent. */
   dependsOn: string[];
   /**
@@ -1089,6 +1117,10 @@ export class WorkItemService {
     // estimate of 5 is "overran by 3" or "is 3 over so far", and until this row
     // says which, a variance is a figure nobody can act on.
     const stated = await this.opts.progress.listByProject(projectId);
+    // One read for all three metrics, filtered per metric inside the fold. The
+    // store's `listByProject` takes no metric for exactly this call site — see
+    // {@link MeasureStore}.
+    const measured = await this.opts.measures.listByProject(projectId);
     const edges = await this.opts.dependencies.listByProject(projectId);
     const assigned = await this.opts.directory.assignmentsOf(rows.map((row) => row.id));
     // The names for the ids just read, on this read rather than on a client's
@@ -1108,6 +1140,14 @@ export class WorkItemService {
     const numbers = deriveNumbers(rows);
     const totals = rollUp(rows, stored);
     const recordedTotals = rollUpActuals(rows, recorded);
+    // Three folds over a tree already in memory, one per metric, because adding
+    // a token to an hour is the thing `rollUpMeasures` exists to make
+    // impossible. Built as a map of metric to the whole fold rather than as a
+    // per-row object here, so the recursion runs once per metric for the project
+    // instead of once per metric per row.
+    const measuredTotals = new Map(
+      MEASURE_METRICS.map((metric) => [metric, rollUpMeasures(rows, measured, metric)] as const),
+    );
     const hasChildren = new Set(rows.map((row) => row.parentId).filter((id) => id !== null));
     // Which roles have work on each leaf: the ones with an estimate, the ones
     // with a recorded day, and the ones somebody has already spoken about.
@@ -1249,6 +1289,16 @@ export class WorkItemService {
         // saying somebody stated the work took no time. See `actual` in
         // `schema.ts`.
         actuals: Object.fromEntries(recordedTotals.get(row.id) ?? []),
+        // The figures that are not days, metric first. A metric with no roles
+        // under this row is **struck from the object** rather than carried as
+        // `{}`, which is the same absence rule one level up: an empty object
+        // would say somebody looked at that unit on this row.
+        measures: Object.fromEntries(
+          [...measuredTotals]
+            .map(([metric, byItem]) => [metric, byItem.get(row.id) ?? new Map()] as const)
+            .filter(([, byRole]) => byRole.size > 0)
+            .map(([metric, byRole]) => [metric, Object.fromEntries(byRole)]),
+        ),
         // Where each role's work on this row has got to: its own if it is a
         // leaf, `agree` across its descendants' if it is not.
         //

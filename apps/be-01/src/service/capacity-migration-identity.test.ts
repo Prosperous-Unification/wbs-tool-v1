@@ -237,7 +237,7 @@ describe('every plan schedules identically across the migration', () => {
       const lifted = {
         ...tree,
         workItems: tree.workItems.map(
-          ({ teamIds, tagIds, serviceIds, actuals, progress, state, ...row }) => {
+          ({ teamIds, tagIds, serviceIds, actuals, measures, progress, state, ...row }) => {
             // The arity claim, and the only place it is made: the set the join
             // answered is exactly the singleton of the label the oracle recorded.
             //
@@ -270,6 +270,15 @@ describe('every plan schedules identically across the migration', () => {
             // claim — nothing recorded reads as nothing recorded, never as zero —
             // and a bare lift would hide a roll-up that invented a figure.
             expect(actuals).toEqual({});
+            // Lifted for `actuals`' reason and asserted for the same one, one
+            // table over: `token-tracking` put this key on every row and the
+            // oracle predates `role_measure` entirely. `{}` here is the whole
+            // object and not three empty metrics — a metric nobody recorded is
+            // struck rather than carried — so this one assertion is both of the
+            // change's absence rules at once, and a bare lift would hide a fold
+            // that invented a figure or a payload that carried `hours_actual: {}`
+            // on a plan where nobody ever opened the column.
+            expect(measures).toEqual({});
             // Lifted for `actuals`' reason and asserted for the same one:
             // `role-progress` (R6 H2b) put two more keys on every row and the
             // oracle predates the table. `{}` and `not_started` on all sixteen
