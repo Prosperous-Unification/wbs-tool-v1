@@ -183,15 +183,21 @@
 - [ ] 8.1 `service/schedule.ts` — empty diff, asserted in
       `service-empty-diff.test.ts` on a plan where a sized team really does
       decide dates. **Watched red:** wire the scheduler to read a service, every
-      downstream date moves, revert.
+      downstream date moves, revert. **Re-aimed chunk 22, still unticked on
+      purpose:** the file labelled its rows with `serviceId` — a field that left
+      `WorkItemPatch` at chunk 12 — so it wrote and read the dead
+      `work_item.service_id` column and the whole file was vacuous for the
+      dimension it names. Every case labels through `serviceIds` now and asserts
+      the label came back on `listByProject`. What is left is re-watching the red
+      against the *set*: the recorded one broke a read of the dead column.
 - [ ] 8.2 `libs/domain` — **the scheduling surface** has an empty diff, not the
       whole library: `effective-service.ts` and `label-mismatch.ts` are added
       here and both apps read them, and what a service is not is anything below
       `slicesOf`. Asserted by 8.1's fault rather than by a second test —
       `tags` 7.2's correction, applied up front this time instead of mid-build.
-- [ ] 8.3 `project_team_capacity` — untouched, not generalised, not re-keyed
+- [x] 8.3 `project_team_capacity` — untouched, not generalised, not re-keyed
       (R2-5 §2). Row-for-row unchanged after the migration, one assertion.
-- [ ] 8.4 `person_team` — shape untouched. The assignee signal **reads** it and
+- [x] 8.4 `person_team` — shape untouched. The assignee signal **reads** it and
       writes nothing to it.
 - [ ] 8.5 `gantt-geometry.ts` — the service reaches the hover text and nothing
       that computes a position. `barColorOf` unchanged: a bar already carries a
