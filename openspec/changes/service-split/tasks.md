@@ -107,7 +107,7 @@
 
 ## 6. The filter
 
-- [ ] 6.1 `tree-search.ts`: `serviceIds`, `builtByNonOwner`, `assignedOutsideTeam`
+- [x] 6.1 `tree-search.ts`: `serviceIds`, `builtByNonOwner`, `assignedOutsideTeam`
       on `FilterCriteria` and `NO_FACETS`; `RowFacets` gains the **effective**
       service and the two booleans; three predicates in `narrowTree`;
       `filterWords` gains three labels.
