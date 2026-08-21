@@ -89,17 +89,17 @@ somebody made. Both were run at `d654ce7` on h2puni (bun 1.3.14) against
 items**, the dev deployment as it stood. The three CLI sources were `sha1sum`ed
 on both boxes before anything ran (`26ec1f8…`, `6c4be02…`, `1065e93…`).
 
-| Step                                                        | Answer                                                                                                                   |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `migrate-status-cli.ts` before                              | `20260821080000_add_work_item_service` — the dev database is at `main`                                                    |
-| `migrate-cli.ts`                                            | `migrations applied`                                                                                                     |
-| after: tables                                               | `role_measure` present, with **both** its autoindex and `role_measure_by_role`                                            |
-| after: `person` columns                                     | `id, name, kind`                                                                                                         |
-| after: `select kind, count(*) … group by kind`              | **`person` × 9** — the backfill, on rows that predate the column, read rather than reasoned about                         |
-| after: `role_measure` rows                                  | 0 — additive, and it invents nothing                                                                                     |
-| `migrate-status-cli.ts` after                               | `20260821150000_add_person_kind`                                                                                         |
+| Step                                                            | Answer                                                                                                                   |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `migrate-status-cli.ts` before                                  | `20260821080000_add_work_item_service` — the dev database is at `main`                                                   |
+| `migrate-cli.ts`                                                | `migrations applied`                                                                                                     |
+| after: tables                                                   | `role_measure` present, with **both** its autoindex and `role_measure_by_role`                                           |
+| after: `person` columns                                         | `id, name, kind`                                                                                                         |
+| after: `select kind, count(*) … group by kind`                  | **`person` × 9** — the backfill, on rows that predate the column, read rather than reasoned about                        |
+| after: `role_measure` rows                                      | 0 — additive, and it invents nothing                                                                                     |
+| `migrate-status-cli.ts` after                                   | `20260821150000_add_person_kind`                                                                                         |
 | `migrate-down-cli.ts --to=20260821080000_add_work_item_service` | `rolled back: 20260821150000_add_person_kind, 20260821140000_add_role_measure` — **the two, newest first, and no third** |
-| after down: tables / columns / status                       | `role_measure` gone, `person` back to `id, name`, status back to `…_add_work_item_service`                                |
+| after down: tables / columns / status                           | `role_measure` gone, `person` back to `id, name`, status back to `…_add_work_item_service`                               |
 
 **The half that matters was run a second time with the figures filled in.** An
 empty new table survives a rollback trivially; a column drop is a table rebuild
@@ -385,48 +385,48 @@ assertion.
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 `--skip-nx-cache`, and read off the log rather than assumed.
 
-| Head                                        | What                                     | Result                                                                      |
-| ------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
-| `3e8cb79` (rebase + the three stale lists)  | `nx run be-01:test`                      | **975 pass / 0 fail**, 28,027 expect() calls, 73 files                      |
-| `3e8cb79`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
-| `3e8cb79`                                   | `nx format:check --all`                  | exit 0                                                                      |
-| `bdc1bc7` (1.3, the six cases)              | `nx run be-01:test`                      | **981 pass / 0 fail**, 28,042 expect() calls, 73 files                      |
-| `bdc1bc7`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
-| `c7c6fe9` (section 2, `person.kind`)        | `nx run be-01:test`                      | **987 pass / 0 fail**, 28,061 expect() calls, 73 files                      |
-| `c7c6fe9`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
-| `c7c6fe9`                                   | `nx format:check --all`                  | exit 0                                                                      |
-| `654033e` (section 3, the store)            | `nx run be-01:test`                      | **998 pass / 0 fail**, 28,083 expect() calls, 74 files                      |
-| `654033e`                                   | `nx run be-01:lint`, `be-01:typecheck`   | exit 0                                                                      |
-| `654033e`                                   | `nx format:check --all`                  | exit 0                                                                      |
-| `7df17f8` (4.3, the measures routes)        | `nx run be-01:test`                      | **1020 pass / 0 fail**, 28,145 expect() calls, 75 files                     |
-| `4f104d1` (4.4, the person patch's kind)    | `nx run be-01:test`                      | **1026 pass / 0 fail**, 28,157 expect() calls, 75 files                     |
-| `4f104d1`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
-| `4f104d1`                                   | `nx format:check --all`                  | exit 0                                                                      |
-| `4b071b6` (2.4, the narrowing)              | `nx run be-01:test`                      | **1028 pass / 0 fail**, 28,164 expect() calls, 75 files                     |
-| `4b071b6`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
-| `4b071b6`                                   | `nx format:check --all`                  | exit 0                                                                      |
-| `8868d6d` (5.1, `rollUpMeasures`)           | `nx run-many -t test lint typecheck`     | **1036 pass / 0 fail**, 28,179 expect() calls, 75 files                     |
-| `8868d6d`                                   | `nx format:check --all`                  | exit 0, red first (line wrapping)                                           |
-| `7015af5` (5.2/5.3, the payload)            | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,640 expect() calls, 75 files                     |
-| `7015af5`                                   | `nx run-many -t lint typecheck --all`    | **exit 1** — see below                                                      |
-| `eee3826` (the lint fix)                    | `nx run-many -t lint typecheck --all`    | exit 0, 22 projects                                                         |
-| `eee3826`                                   | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,641 expect() calls, 75 files                     |
-| `eee3826`                                   | `nx format:check --all`                  | exit 0, first time                                                          |
-| `e82b023` (7.1 + 7.2, the first fe-01 work) | `nx run fe-01:test`                      | **1588 pass / 0 fail**, 53 files                                            |
-| `e82b023`                                   | `nx run-many -t lint typecheck -p fe-01` | exit 0                                                                      |
-| `e82b023`                                   | `nx format:check --all`                  | exit 0, and 0 **first try** — the first head in this task that was          |
-| `e82b023`                                   | the `--all` sweep, parallel              | **killed for memory, not red** — see below                                  |
-| `e82b023`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                         |
-| `e82b023`                                   | `-t test --all --parallel=1`             | **exit 1** — `mcp-01`, and it is four chunks old                            |
-| `a5ff796` (the drift count + the format)    | `nx format:check --all`                  | exit 0                                                                      |
-| `a5ff796`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                         |
-| `a5ff796`                                   | `-t test --all --parallel=1`             | exit 0, **22 projects**                                                     |
-| `a5ff796`                                   | be-01                                    | **1052 pass / 0 fail**, 75 files, 28,669 expect() — unmoved, and owed to be |
-| `a5ff796`                                   | fe-01                                    | **1588 pass / 0 fail**, 53 files                                            |
-| `a5ff796`                                   | mcp-01                                   | **64 pass / 0 fail**, 230 expect() calls                                    |
-| `04d644e` (`origin/main`, section 8)        | `bunx vitest run` in `apps/fe-01`        | **1584 pass / 0 fail**, 53 files — the baseline, finally read               |
-| `d654ce7` (section 8)                       | `bunx @fission-ai/openspec@1.3.0 validate --all --json` | exit 0, **72/72**, `token-tracking` `"valid": true`           |
-| `d654ce7`                                   | the two migration CLIs, dev-db copy      | up and down, see "Up and down through the real CLIs"                        |
+| Head                                        | What                                                    | Result                                                                      |
+| ------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `3e8cb79` (rebase + the three stale lists)  | `nx run be-01:test`                                     | **975 pass / 0 fail**, 28,027 expect() calls, 73 files                      |
+| `3e8cb79`                                   | `nx run-many -t lint typecheck -p be-01`                | exit 0                                                                      |
+| `3e8cb79`                                   | `nx format:check --all`                                 | exit 0                                                                      |
+| `bdc1bc7` (1.3, the six cases)              | `nx run be-01:test`                                     | **981 pass / 0 fail**, 28,042 expect() calls, 73 files                      |
+| `bdc1bc7`                                   | `nx run-many -t lint typecheck -p be-01`                | exit 0                                                                      |
+| `c7c6fe9` (section 2, `person.kind`)        | `nx run be-01:test`                                     | **987 pass / 0 fail**, 28,061 expect() calls, 73 files                      |
+| `c7c6fe9`                                   | `nx run-many -t lint typecheck -p be-01`                | exit 0                                                                      |
+| `c7c6fe9`                                   | `nx format:check --all`                                 | exit 0                                                                      |
+| `654033e` (section 3, the store)            | `nx run be-01:test`                                     | **998 pass / 0 fail**, 28,083 expect() calls, 74 files                      |
+| `654033e`                                   | `nx run be-01:lint`, `be-01:typecheck`                  | exit 0                                                                      |
+| `654033e`                                   | `nx format:check --all`                                 | exit 0                                                                      |
+| `7df17f8` (4.3, the measures routes)        | `nx run be-01:test`                                     | **1020 pass / 0 fail**, 28,145 expect() calls, 75 files                     |
+| `4f104d1` (4.4, the person patch's kind)    | `nx run be-01:test`                                     | **1026 pass / 0 fail**, 28,157 expect() calls, 75 files                     |
+| `4f104d1`                                   | `nx run-many -t lint typecheck -p be-01`                | exit 0                                                                      |
+| `4f104d1`                                   | `nx format:check --all`                                 | exit 0                                                                      |
+| `4b071b6` (2.4, the narrowing)              | `nx run be-01:test`                                     | **1028 pass / 0 fail**, 28,164 expect() calls, 75 files                     |
+| `4b071b6`                                   | `nx run-many -t lint typecheck -p be-01`                | exit 0                                                                      |
+| `4b071b6`                                   | `nx format:check --all`                                 | exit 0                                                                      |
+| `8868d6d` (5.1, `rollUpMeasures`)           | `nx run-many -t test lint typecheck`                    | **1036 pass / 0 fail**, 28,179 expect() calls, 75 files                     |
+| `8868d6d`                                   | `nx format:check --all`                                 | exit 0, red first (line wrapping)                                           |
+| `7015af5` (5.2/5.3, the payload)            | `nx run be-01:test`                                     | **1043 pass / 0 fail**, 28,640 expect() calls, 75 files                     |
+| `7015af5`                                   | `nx run-many -t lint typecheck --all`                   | **exit 1** — see below                                                      |
+| `eee3826` (the lint fix)                    | `nx run-many -t lint typecheck --all`                   | exit 0, 22 projects                                                         |
+| `eee3826`                                   | `nx run be-01:test`                                     | **1043 pass / 0 fail**, 28,641 expect() calls, 75 files                     |
+| `eee3826`                                   | `nx format:check --all`                                 | exit 0, first time                                                          |
+| `e82b023` (7.1 + 7.2, the first fe-01 work) | `nx run fe-01:test`                                     | **1588 pass / 0 fail**, 53 files                                            |
+| `e82b023`                                   | `nx run-many -t lint typecheck -p fe-01`                | exit 0                                                                      |
+| `e82b023`                                   | `nx format:check --all`                                 | exit 0, and 0 **first try** — the first head in this task that was          |
+| `e82b023`                                   | the `--all` sweep, parallel                             | **killed for memory, not red** — see below                                  |
+| `e82b023`                                   | `-t lint typecheck --all --parallel=1`                  | exit 0, 22 projects                                                         |
+| `e82b023`                                   | `-t test --all --parallel=1`                            | **exit 1** — `mcp-01`, and it is four chunks old                            |
+| `a5ff796` (the drift count + the format)    | `nx format:check --all`                                 | exit 0                                                                      |
+| `a5ff796`                                   | `-t lint typecheck --all --parallel=1`                  | exit 0, 22 projects                                                         |
+| `a5ff796`                                   | `-t test --all --parallel=1`                            | exit 0, **22 projects**                                                     |
+| `a5ff796`                                   | be-01                                                   | **1052 pass / 0 fail**, 75 files, 28,669 expect() — unmoved, and owed to be |
+| `a5ff796`                                   | fe-01                                                   | **1588 pass / 0 fail**, 53 files                                            |
+| `a5ff796`                                   | mcp-01                                                  | **64 pass / 0 fail**, 230 expect() calls                                    |
+| `04d644e` (`origin/main`, section 8)        | `bunx vitest run` in `apps/fe-01`                       | **1584 pass / 0 fail**, 53 files — the baseline, finally read               |
+| `d654ce7` (section 8)                       | `bunx @fission-ai/openspec@1.3.0 validate --all --json` | exit 0, **72/72**, `token-tracking` `"valid": true`                         |
+| `d654ce7`                                   | the two migration CLIs, dev-db copy                     | up and down, see "Up and down through the real CLIs"                        |
 
 **The `--all` sweep has to be `--parallel=1` on this box.** Run wide it printed
 `Killed` on `bunx eslint apps/be-01/src` with four targets in flight; h2puni has
@@ -506,7 +506,7 @@ dates did not change either.
   it had been skipped for a narrow one. A gate that is cheaper than the claim it
   is asked to support is not a gate.
 - ~~**The `fe-01` baseline was not read.**~~ **Closed in section 8**: `bunx
-  vitest run` at `origin/main@04d644e` on the gate host answers **1584 pass / 0
+vitest run` at `origin/main@04d644e` on the gate host answers **1584 pass / 0
   fail across 53 files**, so 1588 at `e82b023` is +4 as a reading rather than as
   arithmetic. Cost about 70 seconds, having been carried as an open claim for a
   chunk. Noted because the first attempt at it was wrong in an instructive way:
@@ -577,6 +577,7 @@ figure` hands `insertSubtree` a `removedMeasures` naming one metric of a pair
   non-issue is cheaper than a missed one and still not free: it would have cost
   a future chunk a migration, a gate and the ordering lists in both directions,
   all to add a thing that was already there.
+
 - **Nothing else is owed.** The two entries above this one — `NumberedWorkItem`
   under-declaring the payload, and the `undo.test.ts` reasoning left where a
   case could not go — stand as recorded findings about the tree, not as work
