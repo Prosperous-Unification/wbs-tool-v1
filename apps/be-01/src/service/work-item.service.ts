@@ -23,7 +23,6 @@ import type {
   LabelledWorkItem,
   MeasureMetric,
   MeasureStore,
-  Person,
   PriorityBandStore,
   Project,
   ProjectStore,
@@ -1021,8 +1020,16 @@ export class WorkItemService {
      * only ever added, so a person created between the two reads is one this
      * list has and no assignment names; the other order would hand out an
      * assignment to somebody unnamed.
+     *
+     * Typed as the two columns it is, not as a `Person`. The builder has always
+     * mapped to `{ id, name }` — "the names, not the whole directory" above is
+     * that decision — and while `Person.kind` was optional, TypeScript accepted
+     * a projection where a whole person was declared. Narrowing `kind` made the
+     * mismatch a compile error, which is the type telling the truth rather than
+     * a new rule: a chart that wanted to paint agents differently would read
+     * `kind` off `/api/people`, the payload that answers who exists.
      */
-    assignedPeople: Person[];
+    assignedPeople: { id: string; name: string }[];
     /**
      * How many of each team this project may have at work at once, for the teams
      * it has stated a number about.
