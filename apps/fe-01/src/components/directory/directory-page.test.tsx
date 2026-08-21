@@ -467,6 +467,22 @@ describe('renaming on the directory page', () => {
   });
 });
 
+/**
+ * The options **one picker** is offering, rather than every `role="option"` in
+ * the document.
+ *
+ * Scoped since 7.1, and the scoping is the point: the People card now holds a
+ * `<select>` for a person's kind, and a `<select>`'s `<option>`s are in the
+ * accessibility tree whether or not it is open. A bare
+ * `screen.getAllByRole('option')` read `['Person', 'Agent', 'Design']` where it
+ * meant `['Design']` — the query had always meant "what the picker is offering"
+ * and had only been unambiguous because nothing else on the page published
+ * options. The listbox carries the picker's own label, so this asks for it by
+ * name.
+ */
+const optionsOf = (picker: string): HTMLElement[] =>
+  within(screen.getByRole('listbox', { name: picker })).getAllByRole('option');
+
 describe('a person or an agent', () => {
   itDom('is shown as be-01 stored it, and as `person` for anybody never marked', async () => {
     const api = fakeDirectory([KAT, CLAUDE], [PLATFORM]);
@@ -677,9 +693,9 @@ describe('a person’s memberships', () => {
 
     fireEvent.focus(screen.getByLabelText('Add a team for Kat'));
     await waitFor(() => {
-      expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
+      expect(optionsOf('Add a team for Kat').length).toBeGreaterThan(0);
     });
-    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Design']);
+    expect(optionsOf('Add a team for Kat').map((option) => option.textContent)).toEqual(['Design']);
   });
 
   /**
@@ -696,9 +712,9 @@ describe('a person’s memberships', () => {
 
     fireEvent.focus(screen.getByLabelText('Add a team for Kat'));
     await waitFor(() => {
-      expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
+      expect(optionsOf('Add a team for Kat').length).toBeGreaterThan(0);
     });
-    fireEvent.click(screen.getAllByRole('option')[0]);
+    fireEvent.click(optionsOf('Add a team for Kat')[0]);
 
     await waitFor(() => {
       expect(screen.getByLabelText('Remove Design from Kat')).toBeDefined();
@@ -741,9 +757,9 @@ describe('a person’s memberships', () => {
 
     fireEvent.focus(screen.getByLabelText('Add a team for Kat'));
     await waitFor(() => {
-      expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
+      expect(optionsOf('Add a team for Kat').length).toBeGreaterThan(0);
     });
-    fireEvent.click(screen.getAllByRole('option')[0]);
+    fireEvent.click(optionsOf('Add a team for Kat')[0]);
 
     await waitFor(() => {
       expect(api.patched).toHaveLength(1);
@@ -767,9 +783,9 @@ describe('a person’s memberships', () => {
 
       fireEvent.focus(screen.getByLabelText('Add a team for Kat'));
       await waitFor(() => {
-        expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
+        expect(optionsOf('Add a team for Kat').length).toBeGreaterThan(0);
       });
-      fireEvent.click(screen.getAllByRole('option')[0]);
+      fireEvent.click(optionsOf('Add a team for Kat')[0]);
 
       await waitFor(() => {
         expect(api.patched).toHaveLength(1);
