@@ -116,9 +116,12 @@
       `CompensatingCommand`, `COMMANDS`, `touchedBy`, `subjectOf` and `apply`
       all carry the metric. The inverse of a **first** recording is
       `clear_measure`, never `set_measure 0`. **Negative:** verify.md F7.
-- [ ] 4.3 `PUT` / `DELETE /work-items/:id/measures/:metric/:roleId`, hand-parsed
+- [x] 4.3 `PUT` / `DELETE /work-items/:id/measures/:metric/:roleId`, hand-parsed
       body, `invalid_measure` for anything not a finite number at or above zero,
-      and the OpenAPI document regenerated.
+      and the OpenAPI document regenerated. The body key is **`value`**: the
+      unit is in the path, so `tokens` or `hours` would be the same fact twice
+      and the two could disagree. `unknown_metric` joins the 404 list in the
+      controller's `statusFor`. **Negative:** verify.md F8, F8b.
 - [ ] 4.4 `PATCH /people/:id` accepts `kind`, refusing anything outside the set
       as `invalid_kind` (400). Journalled beside the rename the directory already
       journals, so a mis-marking is undoable.

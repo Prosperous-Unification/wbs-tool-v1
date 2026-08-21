@@ -91,7 +91,24 @@ the case that failed and the message it failed on.
 | F6     | `if (changed.n === 0) return;` struck from `RoleMeasureRepository.moveAll`                         | `654033e` | `moves every metric to another work item, and moves neither revision when there was nothing to move`                                             | revision 4 where 3 is owed — 10 pass, 1 fail                                     |
 | F6b    | `eq(roleMeasure.metric, metric)` struck from `remove`'s `WHERE`                                    | `654033e` | `removes one work item's role in one metric, touching neither the other metric, the other role, nor the same pair elsewhere`                     | the pair's hours go with its tokens — 10 pass, 1 fail                            |
 | F7     | the `before === null` inverse struck from `setMeasure`, leaving `set_measure … value: before ?? 0` | `4765102` | `undoes a first recording back to absence, not to zero` **and** `undoes a first recording of one metric without touching the pair's others`      | a stored 0 where nobody said anything — 14 pass, **2** fail                      |
-| F8–F11 | the routes, the roll-up, the structure                                                             | —         | —                                                                                                                                                | _not yet run_ (sections 4.3–6)                                                   |
+| F8 | `reason === 'unknown_metric'` struck from the controller's `statusFor` 404 list | `7df17f8` | `answers 404 for a unit it does not keep, on both verbs, and stores nothing` | `[400, 400]` where `[404, 404]` is owed — 57 pass, 1 fail |
+| F8b | `params.metric` replaced by a hard-coded `'token_actual'` in the measures `PUT` | `7df17f8` | `records a figure in each unit against one pair, and clears one without touching the others` **and** `answers 404 for a unit it does not keep, on both verbs, and stores nothing` | one row overwritten three times, and `story_points` **written** as a 200 — 56 pass, **2** fail |
+| F9–F11 | the roll-up and the structure | — | — | _not yet run_ (sections 5–6) |
+
+### F8b: the fault that says the path segment is load-bearing
+
+F8 is the ordinary half — a refusal on the wrong status line. **F8b is the one
+worth the second injection.** With the metric hard-coded, a `PUT` to
+`/measures/story_points/:roleId` answers **200** and stores a `token_actual`:
+the route accepts a unit this release does not keep and silently files it under
+one it does, with nothing in the response saying so. It reddens the three-unit
+case as well — three writes collapse into one row overwritten twice — which is
+the same defect seen from the write side.
+
+The pair is also why the metric is **not** re-checked in the controller: the
+closed set lives beside the write, in `holdsMetric`, and a second copy at the
+route would be two lists that must agree. F8b is what watches the segment
+actually travelling from the path to that check.
 
 ### F6c: a fault that did **not** redden, and the assertion it leaves unwatched
 
