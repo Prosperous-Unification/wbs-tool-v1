@@ -222,8 +222,8 @@ describe('readMigrationFolders', () => {
       ROLE_PROGRESS,
       NOT_BEFORE_REASON,
       TAG,
-      WORK_ITEM_SERVICE,
       SERVICE,
+      WORK_ITEM_SERVICE,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -319,8 +319,8 @@ describe('rollbackTo, against a real database', () => {
         ROLE_PROGRESS,
         NOT_BEFORE_REASON,
         TAG,
-        WORK_ITEM_SERVICE,
         SERVICE,
+        WORK_ITEM_SERVICE,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
@@ -394,8 +394,8 @@ describe('rollbackTo, against a real database', () => {
         ROLE_PROGRESS,
         NOT_BEFORE_REASON,
         TAG,
-        WORK_ITEM_SERVICE,
         SERVICE,
+        WORK_ITEM_SERVICE,
       ]);
     } finally {
       db.cleanup();
