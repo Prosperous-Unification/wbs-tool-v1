@@ -586,6 +586,112 @@ export const roleProgress = sqliteTable(
   ],
 );
 
+/**
+ * The closed set of units a {@link roleMeasure} can be in.
+ *
+ * Exported because every read and write path takes one of these as a parameter
+ * rather than defaulting it — the cost of a discriminated table, paid on
+ * purpose. `openspec/changes/token-tracking/design.md` D1.
+ */
+export const MEASURE_METRICS = ['token_estimate', 'token_actual', 'hours_actual'] as const;
+
+export type MeasureMetric = (typeof MEASURE_METRICS)[number];
+
+/**
+ * What one role's work on one work item cost, in a unit that is not days.
+ *
+ * Dany, 2026-08-20: _"estimate token use and then record fact token use for each
+ * task (even each phase/role) … then how many hours was spent on a task"_. Three
+ * figures — the tokens a role's work is expected to take, the tokens it took,
+ * and the hours it took — at the grain {@link estimate} and {@link actual}
+ * already use.
+ *
+ * **One table with a `metric` discriminator, not three tables**, and this is the
+ * decision in the change worth arguing rather than assuming:
+ * `openspec/changes/token-tracking/design.md` D1. Three tables would each need
+ * the five-method repository, the `PUT`/`DELETE` pair, the `rolled_up` and
+ * `unknown_role` refusals, two journalled commands, the roll-up fold, the
+ * hand-down/hand-up/restore/no-copy structure rules and the role-removal count —
+ * seven mechanisms times three, every copy able to drift from its siblings in
+ * silence.
+ *
+ * **The obvious objection is that {@link estimate} and {@link actual} are two
+ * tables, and it does not carry over.** That split exists because folding an
+ * actual into `estimate` would have made it a **fourth column on the same row**,
+ * and `estimate`'s three columns are `NOT NULL`, so recording a real actual
+ * would have forced a made-up trio beside it. Here the figures are separate
+ * **rows**: recording hours writes one row and touches nothing else. The rule
+ * that argument was protecting is preserved exactly — the primary key carries
+ * `metric`, so **absence is per metric**, and a pair holding an hours figure is
+ * still absent from every token figure.
+ *
+ * **Absence of a row is what "nobody has said" looks like, never a zero** — the
+ * rule {@link actual} and {@link projectTeamCapacity} follow. Clearing deletes
+ * the row. A stored `0` survives, because "this cost nothing" is a statement
+ * somebody made and a rarer one.
+ *
+ * **One number per figure, not a trio.** {@link estimate} is three durations
+ * because a weighted final falls out of them and the scheduler consumes it.
+ * Nothing consumes these, so a range here would be three numbers no code folds
+ * and no surface reduces. Design D2.
+ *
+ * **Hours are recorded, never derived.** No tokens-to-hours or days-to-hours
+ * conversion exists in this repo, because neither is a fact about the world: an
+ * agent's tokens buy no hours of anybody's attention, and a day here is a
+ * capacity unit rather than eight hours of one person. Design D5.
+ *
+ * **Rows exist only for leaves**, exactly as estimates and actuals do: a
+ * parent's figure is the sum of its descendants', computed on read and never
+ * stored.
+ *
+ * **Nothing here reaches the schedule.** The engine's input is built from
+ * estimates in `slicesOf` and no read path below it touches this table. A token
+ * fact is not evidence about a date — a row that burned four million tokens may
+ * be finished or may still be running, and the model's only completion state
+ * ({@link roleProgress}) is silent about tokens. Design D3, and the change that
+ * adds this table has an empty diff on `service/schedule.ts` and `libs/domain`.
+ *
+ * `metric` is a Drizzle enum **and** a `CHECK`, the pair {@link roleProgress}
+ * uses and for the identical reason: the enum is erased at runtime, and a fourth
+ * value written by a hand-edit or a stale release would be dispatched on by
+ * every reader and folded by none of them.
+ *
+ * `role_id` gets **no** `onDelete` cascade and `work_item_id` does, matching
+ * {@link actual} exactly: a measure is somebody's typing, so a role removal must
+ * count it before taking it, and `RoleRepository.remove` deletes these rows
+ * explicitly inside its transaction. The cascade on `work_item_id` is the
+ * blue/green swap window — two be-01 processes share one SQLite file while green
+ * migrates, and the outgoing release's plain `DELETE FROM work_item` would hit a
+ * constraint it cannot see.
+ *
+ * `recorded_at` is when the number was typed, and a correction carries the
+ * moment the correction was typed rather than the moment the figure it replaced
+ * was.
+ */
+export const roleMeasure = sqliteTable(
+  'role_measure',
+  {
+    workItemId: text('work_item_id')
+      .notNull()
+      .references(() => workItem.id, { onDelete: 'cascade' }),
+    roleId: text('role_id')
+      .notNull()
+      .references(() => role.id),
+    metric: text('metric', { enum: MEASURE_METRICS }).notNull(),
+    value: real('value').notNull(),
+    recordedAt: integer('recorded_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workItemId, t.roleId, t.metric] }),
+    check(
+      'role_measure_metric',
+      sql`${t.metric} IN ('token_estimate', 'token_actual', 'hours_actual')`,
+    ),
+  ],
+);
+
+export type RoleMeasureRow = typeof roleMeasure.$inferSelect;
+
 export type RoleProgressRow = typeof roleProgress.$inferSelect;
 
 /**
