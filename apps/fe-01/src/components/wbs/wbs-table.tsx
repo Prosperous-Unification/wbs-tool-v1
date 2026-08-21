@@ -6947,9 +6947,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             return (
               <CreatablePicker
                 label={`Service for ${row.original.number}`}
-                placeholder={
-                  inherited.state === 'inherited' ? `↳ ${inherited.name}` : 'search'
-                }
+                placeholder={inherited.state === 'inherited' ? `↳ ${inherited.name}` : 'search'}
                 title={
                   inherited.state === 'inherited'
                     ? `${inherited.name} — inherited from ${inherited.fromRow}. This row carries no service of its own.`
