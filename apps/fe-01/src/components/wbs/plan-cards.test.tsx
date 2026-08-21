@@ -9,6 +9,7 @@ import type {
   RoleView,
   ScheduleView,
   ServiceView,
+  TagView,
   TeamView,
   WorkItemView,
 } from '@/lib/wbs-api';
@@ -81,12 +82,15 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
    * that does write them is the table's cell and the directory page.
    */
   services: ServiceView[];
+  /** The directory's tags, arranged the way {@link services} is. */
+  tags: TagView[];
 } {
   const rows: WorkItemView[] = [];
   const roleList: RoleView[] = [{ ...DEV }, { ...QA }];
   const people: PersonView[] = [{ id: 'p1', name: 'Kat', teamIds: [] }];
   const teams: TeamView[] = [];
   const services: ServiceView[] = [];
+  const tags: TagView[] = [];
   const assigned = new Map<string, string>();
   const patched: { id: string; name?: string; notes?: string }[] = [];
   const assignments: string[] = [];
@@ -114,6 +118,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     rows,
     teams,
     services,
+    tags,
     tree: () =>
       Promise.resolve({
         workItems: rows.map(view),
@@ -160,7 +165,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       }),
     roles: () => Promise.resolve(roleList.map((role) => ({ ...role }))),
     listTeams: () => Promise.resolve(teams.map((team) => ({ ...team }))),
-    listTags: () => Promise.resolve([]),
+    listTags: () => Promise.resolve(tags.map((tag) => ({ ...tag }))),
     listServices: () => Promise.resolve(services.map((service) => ({ ...service }))),
     listPeople: () => Promise.resolve(people.map((person) => ({ ...person }))),
     create: (_projectId: string, input: { parentId: string | null; name?: string }) => {
@@ -1013,17 +1018,26 @@ describe('what a card says about capacity', () => {
     // "Billing builds Payments" should not have to read past the tags to find
     // the second half. Nothing else on the card asserts sibling order, so
     // moving the chip would otherwise be free.
+    //
+    // Proof: the chip moved below the tags, and the FIRST version of this case
+    // stayed green — it arranged a team and a service and no tag, so the chip
+    // it was watching had nothing to be out of order with, and `Billing,
+    // Payments` reads the same either way. All three dimensions are stated
+    // here for that reason. Watched 2026-08-21.
     await aPlan((rows, teams, api) => {
       teams.push({ id: 't1', name: 'Billing' });
       api.services.push({ id: 's1', name: 'Payments' });
+      api.tags.push({ id: 'g1', name: 'regulatory' });
       rows[0].serviceTeamId = 't1';
       rows[0].teamIds = ['t1'];
       rows[0].serviceIds = ['s1'];
+      rows[0].tagIds = ['g1'];
     });
 
-    const chips = [...document.querySelectorAll('[data-card-team], [data-card-service]')];
-    expect(chips.map((chip) => chip.textContent)).toEqual(['Billing', 'Payments']);
-    expect(serviceOnCard()?.previousElementSibling).toBe(chips[0] ?? null);
+    const chips = [
+      ...document.querySelectorAll('[data-card-team], [data-card-service], [data-card-tags]'),
+    ];
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Billing', 'Payments', 'regulatory']);
   });
 
   itDom('names the band on a card, in its own colour', async () => {
