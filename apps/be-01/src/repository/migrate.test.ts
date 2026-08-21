@@ -98,8 +98,8 @@ const TAG = '20260819120000_add_tag';
 /**
  * The only migration so far that adds **two tables and a column** in one folder —
  * the service directory, the team↔service ownership map, and
- * `work_item.service_id`. So it appears in the ordering here, in the table lists,
- * *and* in the column cases at the bottom of this file.
+ * `work_item.service_id`. So it appears in the ordering here, in the table
+ * lists, _and_ in the column cases at the bottom of this file.
  *
  * Stamped `20260821000000`, later than all twenty-two folders that were on disk
  * when it was written. The stamps were listed and checked for a duplicate before
