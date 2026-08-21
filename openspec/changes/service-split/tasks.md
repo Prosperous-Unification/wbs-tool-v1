@@ -189,7 +189,7 @@
       `work_item.service_id` column and the whole file was vacuous for the
       dimension it names. Every case labels through `serviceIds` now and asserts
       the label came back on `listByProject`. What is left is re-watching the red
-      against the *set*: the recorded one broke a read of the dead column.
+      against the _set_: the recorded one broke a read of the dead column.
 - [ ] 8.2 `libs/domain` — **the scheduling surface** has an empty diff, not the
       whole library: `effective-service.ts` and `label-mismatch.ts` are added
       here and both apps read them, and what a service is not is anything below
