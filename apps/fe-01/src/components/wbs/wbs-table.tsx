@@ -3515,8 +3515,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // id whose service the directory has since removed, and printing the id
     // would put a uuid in the export's `Scope` line.
     serviceName: (serviceId) =>
-      services.find((each) => each.id === serviceId)?.name ??
-      'a service this plan has not loaded',
+      services.find((each) => each.id === serviceId)?.name ?? 'a service this plan has not loaded',
   };
 
   const facetTeams = useMemo(
@@ -3560,7 +3559,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     () =>
       optionsFor(
         new Set(
-          narrowable.flatMap((row) => (row.facets.serviceId === null ? [] : [row.facets.serviceId])),
+          narrowable.flatMap((row) =>
+            row.facets.serviceId === null ? [] : [row.facets.serviceId],
+          ),
         ),
         facets.serviceIds,
         (id) =>

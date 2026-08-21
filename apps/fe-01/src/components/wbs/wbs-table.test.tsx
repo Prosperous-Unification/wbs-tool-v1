@@ -12816,15 +12816,18 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     fireEvent.click(screen.getByLabelText(label));
   };
 
-  itDom('offers the services the plan carries, by name, and not the rest of the directory', async () => {
-    const api = await aServicedPlan();
-    await shown(api);
+  itDom(
+    'offers the services the plan carries, by name, and not the rest of the directory',
+    async () => {
+      const api = await aServicedPlan();
+      await shown(api);
 
-    expect(screen.getByLabelText('Service Checkout')).toBeInTheDocument();
-    // `Ledger` is in the directory and on nothing here. Offering it would be a
-    // box that provably empties the table — `optionsFor`'s whole argument.
-    expect(screen.queryByLabelText('Service Ledger')).toBeNull();
-  });
+      expect(screen.getByLabelText('Service Checkout')).toBeInTheDocument();
+      // `Ledger` is in the directory and on nothing here. Offering it would be a
+      // box that provably empties the table — `optionsFor`'s whole argument.
+      expect(screen.queryByLabelText('Service Ledger')).toBeNull();
+    },
+  );
 
   itDom('keeps the rows that inherit a ticked service, which is task 6.2', async () => {
     // **The case 6.2's watched red drives.** Only `010` states `Checkout`; the
@@ -12842,42 +12845,48 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     expect(screen.getByLabelText('Name of 010.2').dataset['match']).toBe('true');
   });
 
-  itDom('stands both signal boxes down, with the reason, while the directory says nothing', async () => {
-    // The design's first risk. A deployment ships with an empty ownership map
-    // and nobody in a team, and in that state both signals answer `false` for
-    // every row — which is "nobody has said", not "nothing is wrong". An
-    // enabled box answering the second question is how a reader concludes the
-    // feature is broken.
-    const api = fakeApi();
-    await api.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
-    render(<WbsTable projectId="p1" api={api} />);
-    await waitFor(() => {
-      expect(numbersOnScreen()).toEqual(['010']);
-    });
-    fireEvent.click(screen.getByText(/^Filters/));
+  itDom(
+    'stands both signal boxes down, with the reason, while the directory says nothing',
+    async () => {
+      // The design's first risk. A deployment ships with an empty ownership map
+      // and nobody in a team, and in that state both signals answer `false` for
+      // every row — which is "nobody has said", not "nothing is wrong". An
+      // enabled box answering the second question is how a reader concludes the
+      // feature is broken.
+      const api = fakeApi();
+      await api.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
+      render(<WbsTable projectId="p1" api={api} />);
+      await waitFor(() => {
+        expect(numbersOnScreen()).toEqual(['010']);
+      });
+      fireEvent.click(screen.getByText(/^Filters/));
 
-    const owner = screen.getByLabelText('Built by non-owner only');
-    const outside = screen.getByLabelText('Assigned outside the team only');
-    expect(owner).toBeDisabled();
-    expect(outside).toBeDisabled();
-    // Followed by hand rather than through `toHaveAccessibleDescription`:
-    // jest-dom computes that through `dom-accessibility-api`, and a matcher
-    // that quietly answers `''` on both boxes would pass this test in either
-    // state. `describedBy` fails loudly instead — a missing attribute or a
-    // dangling id throws here rather than reading as an empty description.
-    const describedBy = (box: HTMLElement): string => {
-      const id = box.getAttribute('aria-describedby');
-      expect(id).toBeTruthy();
-      const said = document.getElementById(id as string);
-      expect(said).not.toBeNull();
-      return said?.textContent ?? '';
-    };
-    expect(describedBy(owner)).toMatch(/No team owns a service yet/);
-    expect(describedBy(outside)).toMatch(/Nobody belongs to a team yet/);
-    // Mouse readers get the same sentence, and it is the only place a hint
-    // fits at this panel width.
-    expect(owner.closest('label')).toHaveAttribute('title', expect.stringMatching(/No team owns/));
-  });
+      const owner = screen.getByLabelText('Built by non-owner only');
+      const outside = screen.getByLabelText('Assigned outside the team only');
+      expect(owner).toBeDisabled();
+      expect(outside).toBeDisabled();
+      // Followed by hand rather than through `toHaveAccessibleDescription`:
+      // jest-dom computes that through `dom-accessibility-api`, and a matcher
+      // that quietly answers `''` on both boxes would pass this test in either
+      // state. `describedBy` fails loudly instead — a missing attribute or a
+      // dangling id throws here rather than reading as an empty description.
+      const describedBy = (box: HTMLElement): string => {
+        const id = box.getAttribute('aria-describedby');
+        expect(id).toBeTruthy();
+        const said = document.getElementById(id!);
+        expect(said).not.toBeNull();
+        return said?.textContent ?? '';
+      };
+      expect(describedBy(owner)).toMatch(/No team owns a service yet/);
+      expect(describedBy(outside)).toMatch(/Nobody belongs to a team yet/);
+      // Mouse readers get the same sentence, and it is the only place a hint
+      // fits at this panel width.
+      expect(owner.closest('label')).toHaveAttribute(
+        'title',
+        expect.stringMatching(/No team owns/),
+      );
+    },
+  );
 
   itDom('takes teams from a be-01 that has never heard of services', async () => {
     // The blue/green window, and this one is not hypothetical: three fixtures
