@@ -258,9 +258,12 @@
       carries a service, so the `INSERT … SELECT` seed correctly moves nothing.
       Owed once this merges: the same three objects read off dev's live database
       after it restarts on `main`.
-- [ ] 9.4 PR opened, CI green (`gate` and `pixels`). **Prod mode: the worker
-      does not merge.** Task goes to `state: review`; the main session reviews
-      the four watched paths and merges.
+- [x] 9.4 **PR #90**, opened at `501bec9` — 90 files, 9,397 insertions / 365
+      deletions over 104 commits. CI green: **`gate` pass in 3m12s, `pixels` pass
+      in 10m24s**, run 32484830946. **Prod mode: the worker does not merge**, and
+      did not. Task set to `state: review`; the main session reviews the four
+      watched paths (`drizzle/**`, `libs/domain/**`, `service/schedule.ts`, auth)
+      and merges.
 - [ ] 9.5 `LLM_README.md`'s wbs-mcp entry says **43 MCP tools**, and section 4's
       four service routes make it **47**. Corrected there when this lands, not
       before: the number describes what is on `main`.
