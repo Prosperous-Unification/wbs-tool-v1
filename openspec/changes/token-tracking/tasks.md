@@ -1,25 +1,25 @@
 ## 1. The table, and the migration that adds it
 
-- [ ] 1.1 `roleMeasure` in `schema.ts`: `(work_item_id, role_id, metric)` primary
+- [x] 1.1 `roleMeasure` in `schema.ts`: `(work_item_id, role_id, metric)` primary
       key, `value` and `recorded_at` `NOT NULL`, `work_item_id` cascading and
       `role_id` deliberately not, `metric` a Drizzle enum **and** a `CHECK` on
       the closed set — the pair `role_progress.state` already uses, because
       Drizzle's enum is erased at runtime. The JSDoc says what absence means per
       metric, and what the table is **not**: not a column on `estimate`, not a
       number any scheduler reads, not the home of `actual.days` yet (design D1).
-- [ ] 1.2 `drizzle/20260821140000_add_role_measure/{migration,down}.sql`. **Stamp
+- [x] 1.2 `drizzle/20260821140000_add_role_measure/{migration,down}.sql`. **Stamp
       checked against every folder on disk first**, including the two
       `change/service-split` adds (`20260821000000_add_service`,
       `20260821080000_add_work_item_service`) since that branch is in review and
       merges first, and against `duplicateMigrationStamps`.
-- [ ] 1.3 `migrate.test.ts`, six cases: the table arrives empty, the outgoing
+- [x] 1.3 `migrate.test.ts`, six cases: the table arrives empty, the outgoing
       release can still delete a work item, a role still holding a measure cannot
       be deleted, a second row for one `(pair, metric)` is refused, a **fourth
       metric value is refused by the CHECK**, and the rollback takes the measures
       and leaves every estimate and actual. **Negatives:** the cascade struck
       from `work_item_id`; a cascade _added_ to `role_id`; the `CHECK` dropped
       from the table and a `metric` of `'nonsense'` inserted — verify.md F1–F3.
-- [ ] 1.4 The rollback ordering lists in `migrate.test.ts` and
+- [x] 1.4 The rollback ordering lists in `migrate.test.ts` and
       `migrate-down.test.ts` gain the new stamp, newest first, and
       `does nothing when the target is already the newest applied` names it.
 

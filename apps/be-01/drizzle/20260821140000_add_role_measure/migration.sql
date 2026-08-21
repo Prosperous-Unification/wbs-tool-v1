@@ -61,11 +61,14 @@
 -- **Stamped 20260821140000, later than every folder on disk.** Checked before
 -- this folder existed — `ls apps/be-01/drizzle | sed 's/_.*//' | sort | uniq -d`
 -- silent — and checked mechanically by `duplicateMigrationStamps` in
--- `migrate-down.ts`, which throws where the folders are read. It is also stamped
--- past the two folders `change/service-split` adds on its own branch
--- (`20260821000000_add_service`, `20260821080000_add_work_item_service`), which
--- is in review and merges first: a stamp that sorted before them would apply out
--- of order on any database that took that release. Two migrations shared
+-- `migrate-down.ts`, which throws where the folders are read. It was also
+-- stamped past the two folders `change/service-split` adds
+-- (`20260821000000_add_service`, `20260821080000_add_work_item_service`) while
+-- that branch was still in review, on the expectation that it would merge first:
+-- a stamp that sorted before them would apply out of order on any database that
+-- took that release. It did merge first, at `04d644e`, and this branch was
+-- rebased onto it — so both folders now sit below this one on disk, and the
+-- `uniq -d` above was re-run at the rebased head. Two migrations shared
 -- `20260814100000` on 2026-08-14 and `migrationsToRollback` filters on a strict
 -- `created_at >`, so rolling back *to* either of the pair reversed nothing at
 -- all, silently, with both tables still standing.

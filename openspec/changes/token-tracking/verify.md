@@ -1,0 +1,132 @@
+# verify — `token-tracking`
+
+Branch `change/token-tracking`, cut from `main` @ `d4fe1d0` on 2026-08-21 and
+**rebased onto `04d644e`** (the merged `service-split`) the same day. Dany,
+2026-08-20 23:23: _"estimate token use and then record fact token use for each
+task (even each phase/role) … then how many hours was spent on a task. Also
+maybe allow to set agent as assignee."_
+
+Four figures, one table. `role_measure (work_item_id, role_id, metric, value,
+recorded_at)` with `metric` a `CHECK`ed closed set — `token_estimate`,
+`token_actual`, `hours_actual` — plus `person.kind`. The argument for one table
+rather than three is `design.md` D1; the argument for a column rather than a
+boolean is D6.
+
+The claim under all of it is an **absence**: a token figure is not evidence
+about a date, so no date in any plan may move because one was recorded.
+`service/schedule.ts` and `libs/domain/**` carry an empty diff, and that is
+checked below rather than asserted.
+
+**Prod mode** (`notes/delivery-modes.md`): this adds `apps/be-01/drizzle/**` and
+touches `libs/domain`'s payload later in the change. The PR ends at **review**,
+not merged.
+
+**This file is written as the branch lands and says what has been run.** Rows
+below carry the head they were run at. Sections marked _not yet run_ are owed,
+not quietly skipped.
+
+## The stamps
+
+`20260821140000_add_role_measure` — the table above, `PRIMARY KEY(work_item_id,
+role_id, metric)`, `work_item_id` cascading, `role_id` deliberately not, indexed
+by `role_id` as `role_measure_by_role`.
+
+`20260821150000_add_person_kind` — _not yet written_ (section 2).
+
+Both stamps were chosen against every folder on disk before either existed:
+
+```
+ls apps/be-01/drizzle | sed 's/_.*//' | sort | uniq -d      # silent
+```
+
+That check is not ceremony. #60 and #61 both stamped `20260814100000` and
+`migrationsToRollback` filters on a strict `created_at >`, so `rollbackTo`
+reversed nothing at all, silently, with both tables still standing. The
+mechanical half is `duplicateMigrationStamps` in `migrate-down.ts`, which throws
+where the folders are read, and `refuses a folder set that shares one stamp
+between two migrations` is its case.
+
+**The stamps were chosen against a guess and the guess held.** They were written
+while `change/service-split` was still in review, deliberately sorted past the
+two folders that branch adds so that a database taking that release first would
+not apply this one out of order. That branch merged first (`04d644e`, 14:05Z),
+this branch was rebased onto it, and the two folders are now on disk below these
+two — the guess is a fact, checked again by the `uniq -d` above at the rebased
+head.
+
+### What the rebase cost, and what found it
+
+The rebase brought two migrations onto a branch whose tests enumerate, in about
+twenty places, exactly what is newer than a given folder. Fifteen of those were
+textual conflicts and were resolved by union. **Three were not conflicts at
+all** — `main` wrote them after this branch was cut, so git had nothing to
+flag — and every one of them was wrong at the rebased head:
+
+| Where | Said | Says |
+|---|---|---|
+| `migrate.test.ts` `atTheColumnOnly` | `[WORK_ITEM_SERVICE]` | `[ROLE_MEASURE, WORK_ITEM_SERVICE]` |
+| the service migration's round trip | `[WORK_ITEM_SERVICE, SERVICE]` | `[ROLE_MEASURE, WORK_ITEM_SERVICE, SERVICE]` |
+| the work-item-service narrow-back | `[WORK_ITEM_SERVICE]` | `[ROLE_MEASURE, WORK_ITEM_SERVICE]` |
+
+Five cases failed on those three lines, all of them tests this branch never
+touched. The gate caught all five; reading the conflict list would have caught
+none, because there was no conflict to read. Recorded because the shape recurs:
+**after a rebase, an ordering assertion the merge did not flag is the one to
+re-run, not the one to trust.**
+
+## The fault table
+
+Each row was injected at the head named, run, and reverted; the revert was
+checked with `git status --porcelain` returning empty. A red that does not fire
+is a claim about the test that was run, not about the code — so each row names
+the case that failed and the message it failed on.
+
+| # | Fault | Head | Case that failed | Failure |
+|---|---|---|---|---|
+| F1 | `ON DELETE CASCADE` struck from `role_measure.work_item_id` | `bdc1bc7` | `lets the outgoing release keep deleting work items against the migrated schema` | `SQLiteError: FOREIGN KEY constraint failed` — 60 pass, 1 fail |
+| F2 | `ON DELETE CASCADE` **added** to `role_measure.role_id` | `bdc1bc7` | `refuses to let a role go while it still holds a measure, rather than emptying it` | `Received function did not throw`, both measures silently gone — 60 pass, 1 fail |
+| F3 | `CONSTRAINT role_measure_metric CHECK (…)` struck from the table | `bdc1bc7` | `refuses a fourth metric, because Drizzle's enum is gone by the time a row is written` | the `'nonsense'` insert succeeds — 60 pass, 1 fail |
+| F4–F5 | `person.kind`'s `CHECK` dropped; the unique index left off the rebuilt table | — | — | _not yet run_ (section 2) |
+| F6–F11 | the store, the write path, the roll-up | — | — | _not yet run_ (sections 3–5) |
+
+Each fault fails **exactly one** case and the other sixty pass. That is the
+control: a fault that reddens the file wholesale proves the suite runs, not that
+the case under it is aimed at the constraint it names.
+
+## The gate
+
+Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
+`--skip-nx-cache`, and read off the log rather than assumed.
+
+| Head | What | Result |
+|---|---|---|
+| `3e8cb79` (rebase + the three stale lists) | `nx run be-01:test` | **975 pass / 0 fail**, 28,027 expect() calls, 73 files |
+| `3e8cb79` | `nx run-many -t lint typecheck -p be-01` | exit 0 |
+| `3e8cb79` | `nx format:check --all` | exit 0 |
+| `bdc1bc7` (1.3, the six cases) | `nx run be-01:test` | **981 pass / 0 fail**, 28,042 expect() calls, 73 files |
+| `bdc1bc7` | `nx run-many -t lint typecheck -p be-01` | exit 0 |
+
+**Read the test count, not only the pass line.** Chunk 2 gated in `~/wbs-build`
+against a tracking ref stranded at PR #17 and got a green **57 tests across 14
+files** — a suite a sixteenth the size of the real one, passing. `git fetch` +
+`bun install` before every gate there, and 975 vs 57 is the tell.
+
+## The absence, checked
+
+```
+git diff --stat origin/main -- apps/be-01/src/service/schedule.ts libs/domain
+```
+
+Empty at `3e8cb79`. D3 says the scheduler cannot read this table; this is the
+sentence that checks it rather than the one that claims it.
+
+## Owed
+
+- `bunx openspec validate --strict` has **not** been run. `openspec` is not a
+  dependency of this repo (`node_modules/.bin/openspec` absent, `bunx openspec`
+  on h2puni exits 1 with "could not determine executable to run"), so the CLI
+  behind the "71/71" figure in earlier records lives outside the tree. Where it
+  comes from gets resolved and stated here rather than quoted from memory.
+- The migrations have not been run through the real `migrate` / `migrate-down`
+  CLIs against a snapshot of the dev database. Section 8.2.
+- Sections 2–7.

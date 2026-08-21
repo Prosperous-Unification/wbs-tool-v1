@@ -3183,9 +3183,7 @@ describe('the role measure migration', () => {
   function measureCount(dbPath: string): number {
     const db = openDatabase(dbPath);
     try {
-      return (
-        db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM role_measure').get()?.n ?? -1
-      );
+      return db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM role_measure').get()?.n ?? -1;
     } finally {
       db.close();
     }
