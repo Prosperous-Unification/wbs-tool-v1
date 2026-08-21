@@ -179,7 +179,7 @@ reverted with `git status --porcelain` empty.
 - **F9a — the insert stops carrying the kind.** `tx.insert(person).values(toAdd)`
   becomes `values({ id, name })`, so the column falls back to its `DEFAULT`.
   **1027 pass / 1 fail**, exactly `adds an agent when the insert names one, and a
-  person when it names nothing`. One case is the right number: nothing else in
+person when it names nothing`. One case is the right number: nothing else in
   the suite creates an agent through the store, because nothing else can — the
   API makes agents by patching (4.4).
 - **F9b — the read stops carrying it.** `listPeople` maps `kind` back off every

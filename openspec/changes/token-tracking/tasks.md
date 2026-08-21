@@ -192,7 +192,7 @@
       narrowing in chunk 9, because they are one claim: the payload is
       `listPeople()` spread whole, so the be-01 half needed an assertion rather
       than code, and `answers a kind for a person nobody has patched, on the
-      create and on the list` is it — both `POST /api/people` and
+    create and on the list` is it — both `POST /api/people` and
       `GET /api/people`, since one answers the row it wrote and the other
       re-reads. The OpenAPI document is unchanged and was regenerated to prove
       it: neither route schemas its response. **fe-01's `PersonView` still has
