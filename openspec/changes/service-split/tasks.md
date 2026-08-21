@@ -76,7 +76,7 @@
 - [x] 4.4 `TeamView` carries `serviceIds` (design D4 — the map ships whole; the
       client needs the rule anyway to filter, and a derived flag on the wire
       would be a second copy of it).
-- [ ] 4.5 **Watched red on the empty diff:** deleting a service, and editing the
+- [x] 4.5 **Watched red on the empty diff:** deleting a service, and editing the
       ownership map, each move no date in the plan.
 - [x] 4.6 **Owed from section 3:** `unknown_service` is **404**, asserted over
       the route. Section 3 proved the refusal over real SQLite (`undo.test.ts`,

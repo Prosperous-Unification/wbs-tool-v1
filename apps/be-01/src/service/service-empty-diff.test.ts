@@ -199,7 +199,19 @@ describe('a service and the ownership map decide no date, on a plan where a labe
   });
 
   it('moves not one date when the service is deleted, cascade and all', async () => {
-    // The first claim. The labelling really goes — asserted on both sides, so
+    // The first claim, and the watched red for it.
+    //
+    // Proof: `effectiveTeamsOf(rows)` in `work-item.service.ts` replaced by
+    // `effectiveTeamsOf(rows.map((r) => (r.serviceId !== null ? { ...r, teamIds:
+    // [r.serviceId] } : r)))` — the scheduler reading a service as if it were a
+    // team — and **2 pass, 2 fail**: this one on the dates, because the two rows
+    // then sit in a pool keyed on a service id nothing has stated a capacity
+    // for, so they stop being serialised; and `serialises the two leaves while
+    // the team is sized` beside it, because taking the *team* label off a row
+    // the scheduler is reading services from moves nothing. That the control
+    // fails too is the clearest statement of the fault: the plan's dates stop
+    // answering to the team at all. `tag-empty-diff.test.ts`'s red one dimension
+    // over, down to the count. Watched 2026-08-21 on h2puni. The labelling really goes — asserted on both sides, so
     // this is a comparison of two plans that differ rather than two reads of one
     // that does not — and every schedule number and every date is where it was.
     const { serviceId } = await pooledPlan();
@@ -219,6 +231,18 @@ describe('a service and the ownership map decide no date, on a plan where a labe
   });
 
   it('moves not one date when the ownership map is edited', async () => {
+    // **The map half has no fault to inject, and that is the finding rather
+    // than a gap.** The red above leaves this case green, because it breaks the
+    // reading of the *item's* service and the map is not on the item at all.
+    // Nothing under the scheduling surface reads the map to break: `grep -rn
+    // serviceIds apps/be-01/src libs/domain/src`, minus its own tests and the
+    // five directory files that own it, returns **nothing** — watched
+    // 2026-08-21. So this case is a regression guard rather than a proof: the
+    // day somebody wires the map into a pool key, it goes red here. What proves
+    // the claim today is the grep and `DirectoryService.patchTeam`'s own red,
+    // where announcing a map edit like a rename fails `editing the ownership map
+    // announces nothing`.
+    //
     // The second claim, and the one the spec states in as many words: "editing
     // it SHALL move no date in any plan". Every reachable state of the map for
     // this team, in order — owning what it builds, owning something else
