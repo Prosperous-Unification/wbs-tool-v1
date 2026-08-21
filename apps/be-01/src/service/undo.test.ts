@@ -1413,15 +1413,23 @@ describe('a service is undone as the scalar it is, which the tag rule would not 
     // it with another, and the undo restores the id that was there — one id,
     // because a column has exactly one prior value.
     //
-    // Proof, both watched 2026-08-21. `revertTo`'s service line written as
+    // Proof, all watched 2026-08-21. `revertTo`'s service line written as
     // `[before.serviceId]` — the array habit borrowed from the tags rule —
-    // and `typecheck` refuses it outright, which is the guard a reviewer meets
-    // first. Cast past that and this failed on `Expected: "…" / Received:
-    // null`: the array reached `SET service_id = ?` as a null binding, so the
-    // undo reported **done** and left the row unlabelled. With `fieldsOf`'s
-    // service line deleted instead it fails earlier and louder, at `expectDone`
-    // on `refused: stale_undo` — the undo reaching past an unjournalled write
-    // to an entry that write had already made stale.
+    // and `typecheck` refuses it outright (`TS2322: Type '(string | null)[]' is
+    // not assignable to type 'string'`), which is the guard a reviewer meets
+    // first. Cast past that and this failed with `SQLite query expected 2
+    // values, received 1`: the array becomes two bindings for one placeholder,
+    // so the undo throws instead of unlabelling the row quietly.
+    //
+    // With `fieldsOf`'s service line deleted instead — **3 fail** — this one
+    // failed at `expectDone` on `refused: stale_undo — “Strip the roof” has
+    // changed since then`: the undo reaching past an unjournalled write to an
+    // entry that write had already made stale.
+    //
+    // And with the store's `patch.serviceId === undefined` guard line deleted,
+    // this failed on `Expected: "<id>" / Received: null` along with three
+    // others — the patch taking the no-field branch, answering `ok` with the
+    // row it found, and never writing the column at all.
     const id = await root('Strip the roof');
     const payments = serviceNamed('Payments');
     const billing = serviceNamed('Billing');

@@ -793,14 +793,20 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   // rather than an absent field. Absent would leave the label the undo exists
   // to remove.
   //
-  // Proof: written as `out.serviceId = [before.serviceId]`, the array habit —
-  // and `typecheck` refuses it outright (`Type 'null[]' is not assignable to
-  // type 'string | null | undefined'`), which is the first guard and the one a
-  // reviewer meets. Cast past it to see the second: `puts a replaced service
-  // back` failed on `Expected: "…" / Received: null` — the store spread the
-  // array into `SET service_id = ?`, SQLite took the binding as null, and the
-  // undo reported **done** on a row it had quietly unlabelled. Watched
-  // 2026-08-21, see verify.md.
+  // Proof: written as `out.serviceId = [before.serviceId]`, the array habit,
+  // and `typecheck` refuses it outright — `error TS2322: Type '(string |
+  // null)[]' is not assignable to type 'string'` at this line. That is the
+  // first guard and the one a reviewer meets, so the array cannot reach a
+  // reader by accident.
+  //
+  // Cast past it to see what the column does with one: **74 pass, 2 fail** in
+  // `undo.test.ts`, both throwing `SQLite query expected 2 values, received 1`.
+  // The array spreads into the `SET` as two bindings for one placeholder, so
+  // the undo **throws** rather than quietly unlabelling the row — a 500 on a
+  // key somebody pressed to be safe. Louder than the tags' own failure one
+  // field over, and for the reason the two rules differ: a set has a column-
+  // shaped spelling that silently loses data, and a scalar does not.
+  // Watched 2026-08-21, see verify.md.
   if (patch.serviceId !== undefined) out.serviceId = before.serviceId;
   // **The whole prior set, and this is the seam a scalar habit loses data at.**
   // A set-valued field's inverse cannot be a member of the set or a delta

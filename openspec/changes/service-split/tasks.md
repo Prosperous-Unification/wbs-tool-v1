@@ -46,14 +46,14 @@
 
 ## 3. The write path, and the undo journal
 
-- [ ] 3.1 `controller/work-item.controller.ts`: `serviceId?: string | null` on
+- [x] 3.1 `controller/work-item.controller.ts`: `serviceId?: string | null` on
       the patch payload. Unknown id → `unknown_service`, the refusal shape the
       team and tag writes already make.
-- [ ] 3.2 `service/work-item.service.ts`: the journalled before-value is the
+- [x] 3.2 `service/work-item.service.ts`: the journalled before-value is the
       **prior scalar**, because the field is a column (design D6 — the inverse
       of the tags rule, stated so nobody "fixes" it into an array). **Watched
       red** — journal it as an array and the undo must fail.
-- [ ] 3.3 Undo and redo of a service change over **real SQLite**, not the
+- [x] 3.3 Undo and redo of a service change over **real SQLite**, not the
       in-memory store — the store cannot model a cascade, which is how a restore
       case passed under the very fault it was written for in #79.
 
@@ -75,6 +75,15 @@
       would be a second copy of it).
 - [ ] 4.5 **Watched red on the empty diff:** deleting a service, and editing the
       ownership map, each move no date in the plan.
+- [ ] 4.6 **Owed from section 3:** `unknown_service` is **404**, asserted over
+      the route. Section 3 proved the refusal over real SQLite (`undo.test.ts`,
+      `refuses a service the directory no longer holds, and writes nothing`) but
+      could not assert its **status**: `work-item.controller.test.ts` runs on
+      the in-memory work item fixture, which answers `unknown_team` only because
+      it is handed a team list, and there were no services to hand it. Once 4.1
+      gives the directory services, hand them to `inMemoryWorkItems` the same
+      way and assert the 404 — `statusFor`'s arm for it is untested code until
+      then.
 
 ## 5. The two signals
 
