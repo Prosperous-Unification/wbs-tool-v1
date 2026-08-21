@@ -247,13 +247,27 @@ surface built on the singleton is a surface built twice.
       `before.serviceIds.slice(0, 1)` in `revertTo` it fails alone (76 pass, 1
       fail over that file) while the five one-service cases beside it stay
       green.
-- [ ] 10.4 7.1's cell becomes a multi-select, the tags cell's control: blank
+- [x] 10.4 7.1's cell becomes a multi-select, the tags cell's control: blank
       still means inherit, the ancestor still named in the title, and the
       column header becomes **Services**. `CONDITIONAL_COLUMNS` unchanged, so
       7.7's folded floor of 1067 must still be exactly what it was. **Watched
       red:** assert the floor first and the membership second — 7.7's first
       injection fired on the wrong assertion because they were the other way
-      round.
+      round. **Done in chunk 16:** a chip per stated service with its own ✕ and
+      a picker that adds one, the tag cell's control; the header reads
+      `Services` and the **column id stays `service`**, which is what
+      `CONDITIONAL_COLUMNS`, `cellKey`, the grid's key routing and saved column
+      orders are written against — so 7.7's floor case is untouched and still
+      1067, floor-first. `ServiceLabel` widened to `names` and lost its
+      `unresolved` arm (a chip falls back to the id, so an unnamed service is on
+      screen rather than missing), and `setServiceOf(id, string | null)` became
+      `setServicesOf(id, ids)`. **Red driven:** `own` restored to
+      `serviceIds.slice(0, 1)` and the new two-service case fails alone — 1 fail
+      / 1559 pass, `Unable to find a label with the text of: Remove Ledger from
+      010`. **Found on the way:** the cell passes no `onClear`, because
+      `CreatablePicker` draws its ✕ only while `value !== null` and this box's
+      value is always null — the tag cell beside it carries that prop dead. The
+      chip is the gesture, and the case asserts `[]` goes out through it.
 - [x] 10.5 `directoryUsageOfService` reports `label_removed`, not
       `label_nulled`, once the store is a join table — a column is nulled, a set
       member is removed, and `directory-usage.ts:15-30` already distinguishes
