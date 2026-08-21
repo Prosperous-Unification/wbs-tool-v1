@@ -189,9 +189,7 @@ describe('GET /api/teams', () => {
     // deliberately — the ownership map ships whole on this row (D4) — and
     // `size` is still not.
     const teams = (body as { teams: Record<string, unknown>[] }).teams;
-    expect(teams.map((each) => Object.keys(each).sort())).toEqual([
-      ['id', 'name', 'serviceIds'],
-    ]);
+    expect(teams.map((each) => Object.keys(each).sort())).toEqual([['id', 'name', 'serviceIds']]);
   });
 });
 
@@ -205,9 +203,7 @@ describe('PATCH /api/teams/:id', () => {
       status: 200,
       body: { team: { id: platform, name: 'Payments', serviceIds: [] } },
     });
-    expect(await store.listTeams()).toEqual([
-      { id: platform, name: 'Payments', serviceIds: [] },
-    ]);
+    expect(await store.listTeams()).toEqual([{ id: platform, name: 'Payments', serviceIds: [] }]);
   });
 
   it('answers 409 taken with the surviving name', async () => {
@@ -244,9 +240,7 @@ describe('PATCH /api/teams/:id', () => {
     );
 
     expect(res.status).toBe(401);
-    expect(await store.listTeams()).toEqual([
-      { id: platform, name: 'Platform', serviceIds: [] },
-    ]);
+    expect(await store.listTeams()).toEqual([{ id: platform, name: 'Platform', serviceIds: [] }]);
   });
 
   it('sets the services a team owns, and answers the team with them', async () => {
@@ -324,9 +318,7 @@ describe('PATCH /api/teams/:id', () => {
     // The whole patch, not the half of it that could have worked: a refusal
     // that left the rename behind would be a state nothing can see and nobody
     // asked for.
-    expect(await store.listTeams()).toEqual([
-      { id: platform, name: 'Platform', serviceIds: [] },
-    ]);
+    expect(await store.listTeams()).toEqual([{ id: platform, name: 'Platform', serviceIds: [] }]);
   });
 
   it('answers 422 to a patch naming neither a name nor services', async () => {
@@ -443,9 +435,7 @@ describe('DELETE /api/people/:id and /api/teams/:id', () => {
     );
 
     expect(res.status).toBe(401);
-    expect(await store.listTeams()).toEqual([
-      { id: platform, name: 'Platform', serviceIds: [] },
-    ]);
+    expect(await store.listTeams()).toEqual([{ id: platform, name: 'Platform', serviceIds: [] }]);
   });
 });
 
