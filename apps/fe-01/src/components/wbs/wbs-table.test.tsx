@@ -12789,8 +12789,11 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     await api.patch(back.id, { serviceTeamId: wiring.id });
 
     const checkout = api.addService('Checkout');
-    // In the directory and on no row — what the facet must not offer.
-    api.addService('Ledger');
+    // In the directory and on no row — what the facet must not offer. One case
+    // below puts it on `Strip` as a **second** service, and does so itself
+    // rather than here, so every other case keeps the unlabelled `Ledger` this
+    // fixture exists to offer.
+    const ledger = api.addService('Ledger');
     api.labelWithService(strip.id, [checkout.id]);
 
     const ada = await api.addPerson('Ada', [wiring.id]);
@@ -12798,6 +12801,11 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
 
     return Object.assign(api, {
       checkout: checkout.id,
+      // The unlabelled service and the labelled row, handed back so the
+      // two-service case can state its own labelling without this fixture
+      // carrying it for every other case.
+      ledger: ledger.id,
+      strip: strip.id,
       billing: billing.id,
       wiring: wiring.id,
     });
@@ -12828,6 +12836,30 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
       expect(screen.queryByLabelText('Service Ledger')).toBeNull();
     },
   );
+
+  itDom('finds a row by the second service it delivers, which is task 10.2', async () => {
+    // **The case 10.2's watched red drives, and it is the only one that can.**
+    // Every other service case on this surface states one service per row, and a
+    // row with one member reads identically through a set and through the
+    // singleton fold the store used to force — so a fold left in would pass all
+    // of them.
+    //
+    // `Strip` delivers `Checkout` **and** `Ledger`. Ticking `Ledger` must find
+    // it. Restore either deleted fold — the `.map` in `wbs-table.tsx` that put
+    // `[serviceIds[0]]` into `effectiveServicesOf`, or the wire's own scalar —
+    // and the row's second service never reaches the table: the facet offers
+    // `Ledger`, ticking it narrows to nothing, and `numbersOnScreen()` comes
+    // back `[]`.
+    const api = await aServicedPlan();
+    api.labelWithService(api.strip, [api.checkout, api.ledger]);
+    await shown(api);
+
+    tick('Service Ledger');
+
+    // The whole branch, because the three rows under `Strip` inherit both of its
+    // services — the set is inherited whole, not by its first member.
+    expect(numbersOnScreen()).toEqual(['010', '010.1', '010.1.1', '010.2']);
+  });
 
   itDom('keeps the rows that inherit a ticked service, which is task 6.2', async () => {
     // **The case 6.2's watched red drives.** Only `010` states `Checkout`; the
