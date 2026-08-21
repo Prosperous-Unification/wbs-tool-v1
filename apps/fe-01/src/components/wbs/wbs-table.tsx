@@ -3100,12 +3100,20 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * Which teams each person belongs to — the directory's existing `person_team`
    * membership, read and never written.
    *
-   * `chartRead.people` and not the whole directory, for the assignee facet's
-   * reason one screen down: this plan's people are who can be named on it.
+   * The **directory's** `people` and not `chartRead.people`, which is the one
+   * place this signal may not follow the facets beside it: `AssignedPersonView`
+   * is an id and a name, and only `PersonView` carries the membership. Sourced
+   * from the plan's assigned people instead, every assignee would belong to no
+   * team and every labelled row would wear the marker.
+   *
+   * Somebody the directory read has not caught up with is absent, and absent is
+   * "belongs to no team" — which flags them. That is the honest answer while the
+   * directory says nothing about them, and it is the same reading
+   * `ownedServicesByTeam` takes above.
    */
   const teamsByPerson = useMemo(
-    () => new Map(chartRead.people.map((person) => [person.id, person.teamIds])),
-    [chartRead.people],
+    () => new Map(people.map((person) => [person.id, person.teamIds])),
+    [people],
   );
 
   /**
