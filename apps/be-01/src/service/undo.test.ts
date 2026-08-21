@@ -894,6 +894,7 @@ describe('an undo refuses when what it touched has moved', () => {
         priority: null,
         startNoEarlierThan: null,
         serviceTeamId: null,
+        serviceId: null,
         maxParallel: 1,
         revision: 0,
       },

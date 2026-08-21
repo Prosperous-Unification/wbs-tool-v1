@@ -54,6 +54,7 @@ const newItem = (id: string, position: number, name: string, inProject = project
   priority: null,
   startNoEarlierThan: null,
   serviceTeamId: null,
+  serviceId: null,
   maxParallel: 1,
   revision: 0,
 });

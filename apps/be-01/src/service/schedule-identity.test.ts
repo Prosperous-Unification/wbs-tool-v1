@@ -190,6 +190,7 @@ function generatePlan(seed: number, roleCount: number): GeneratedPlan {
     priority: null,
     startNoEarlierThan: null,
     serviceTeamId: null,
+    serviceId: null,
     maxParallel: 1,
     revision: 0,
   });

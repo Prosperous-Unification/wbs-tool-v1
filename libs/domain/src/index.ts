@@ -1,6 +1,7 @@
 export * from './capacity';
-// `effective-label` is deliberately absent: it is the walk the two dimensions
-// share, not a third thing to read a plan with.
+// `effective-label` is deliberately absent: it is the walk the three dimensions
+// share, not a fourth thing to read a plan with.
+export * from './effective-service';
 export * from './effective-tag';
 export * from './effective-team';
 export * from './estimate';

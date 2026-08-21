@@ -235,6 +235,24 @@ export interface WorkItem {
   /** The service or team this work is labelled with, or null. */
   serviceTeamId: string | null;
   /**
+   * Which service delivers this work, or null for "nobody has said".
+   *
+   * A column and not a set (design.md D2): one service per item. Nothing to do
+   * with {@link serviceTeamId} above it, whose name is a leftover — that one is
+   * a **team**, and it keeps the name for one release because blue and green
+   * share one SQLite file mid-swap (D9).
+   *
+   * Null is _unstated_ and inherits, exactly as an empty `teamIds` or `tagIds`
+   * does; see `effectiveServicesOf` in `libs/domain` for the walk. There is no
+   * third "deliberately no service" state.
+   *
+   * On {@link WorkItem} rather than {@link LabelledWorkItem} because it is
+   * stored in the row: a restore that dropped it would bring a subtree back
+   * unlabelled, and the label would have been lost by the undo that was
+   * supposed to preserve it.
+   */
+  serviceId: string | null;
+  /**
    * How many people may be on this work item at once — an integer of 1 or
    * more, never null, because 1 and unset are the same fact.
    *
@@ -281,6 +299,10 @@ export interface LabelledWorkItem extends WorkItem {
    * the fact.
    */
   tagIds: readonly string[];
+  // The third dimension, `serviceId`, is deliberately **not** here: it is a
+  // column, so it comes down from {@link WorkItem} with the rest of the row and
+  // a field on this interface would be a second declaration of the same fact.
+  // That is also why `listByProject` still runs three queries and not four.
 }
 
 /**

@@ -36,6 +36,7 @@ const insertItem = async (id: string, position: number, name: string): Promise<v
     priority: null,
     startNoEarlierThan: null,
     serviceTeamId: null,
+    serviceId: null,
     maxParallel: 1,
     revision: 0,
   };
@@ -205,6 +206,7 @@ describe('ActualRepository', () => {
         priority: null,
         startNoEarlierThan: null,
         serviceTeamId: null,
+        serviceId: null,
         maxParallel: 1,
         revision: 0,
       },

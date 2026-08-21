@@ -306,6 +306,7 @@ describe('a priority ladder moves no date', () => {
           maxParallel: 1,
           startNoEarlierThan: null,
           serviceTeamId: null,
+          serviceId: null,
           revision: 0,
         },
         [],

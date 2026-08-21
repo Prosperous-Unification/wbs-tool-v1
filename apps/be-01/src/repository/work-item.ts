@@ -96,6 +96,11 @@ export class WorkItemRepository implements WorkItemStore {
    * a read plus a `setOf` per dimension, which is linear in the dimensions and
    * flat in the rows. What it must never become is a read per row.
    *
+   * Still three with the service dimension added, and that is the point of
+   * storing it as a column: `serviceId` arrives in the row the first `select`
+   * already returns, so the third label costs no fourth query. A join table
+   * would have made this four reads for a fact that is single-valued.
+   *
    * Ordered by label id in both dimensions, which is what makes two reads of an
    * unchanged plan answer the same arrays — design.md D6, and the property
    * `EffectiveTeams.teamIds` and `EffectiveTags.tagIds` both document.

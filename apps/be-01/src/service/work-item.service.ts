@@ -1253,6 +1253,11 @@ export class WorkItemService {
       startNoEarlierThanReason: null,
       priority: null,
       serviceTeamId: null,
+      // Unlabelled, in the third dimension as in the other two: a new row states
+      // nothing and therefore inherits whatever its parent is delivering. The
+      // alternative — copying the parent's service down on create — is the
+      // stored-versus-effective bug this repo has shipped twice.
+      serviceId: null,
       // One at a time, which is what every work item has always done and what
       // the column's `DEFAULT 1` says for every row that predates it.
       maxParallel: 1,

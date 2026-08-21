@@ -1,13 +1,19 @@
 /**
  * The inheritance walk both label dimensions read, written once.
  *
- * A plan has two label dimensions now — teams, since `team-sets`, and tags,
- * since R10-B — and they inherit by **exactly** the same rule: most-specific
- * wins, override rather than union, the whole set rather than a member of it,
- * and "unstated" spelled only as absence. Two copies of that walk would be two
- * places for the rule to drift, and this repo has already shipped the
- * stored-versus-effective version of that bug twice. So the walk lives here and
- * {@link effectiveTeamsOf} and {@link effectiveTagsOf} are both one line over it.
+ * A plan has three label dimensions now — teams, since `team-sets`, tags, since
+ * R10-B, and services, since `service-split` — and they inherit by **exactly**
+ * the same rule: most-specific wins, override rather than union, the whole set
+ * rather than a member of it, and "unstated" spelled only as absence. Three
+ * copies of that walk would be three places for the rule to drift, and this repo
+ * has already shipped the stored-versus-effective version of that bug twice. So
+ * the walk lives here and {@link effectiveTeamsOf}, {@link effectiveTagsOf} and
+ * {@link effectiveServicesOf} are each one line over it.
+ *
+ * The third dimension stores a **column** rather than a join table and is still
+ * one line over this walk: `effectiveServicesOf` puts a singleton set in and
+ * takes a single id out, so nothing here knows which dimensions are set-shaped
+ * in the store.
  *
  * What stays per-dimension is only the vocabulary: each keeps its own row shape,
  * its own result type and its own cycle error, because the sentence a consumer
@@ -16,8 +22,9 @@
  * neither.
  *
  * This module is deliberately not exported from the package index: it is the
- * shared mechanism, not a third thing to read a plan with. A consumer asking
- * about labels is asking about teams or about tags, never about "labels".
+ * shared mechanism, not a fourth thing to read a plan with. A consumer asking
+ * about labels is asking about teams, about tags or about services, never about
+ * "labels".
  */
 
 /** A row of a plan as far as any label dimension is concerned. */

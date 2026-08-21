@@ -19,6 +19,7 @@ const item = (id: string, parentId: string | null = null): WorkItem => ({
   priority: null,
   startNoEarlierThan: null,
   serviceTeamId: null,
+  serviceId: null,
   maxParallel: 1,
   revision: 0,
 });

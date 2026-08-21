@@ -82,6 +82,7 @@ function row(parentId: string | null, position: number, name: string): WorkItem 
     startNoEarlierThan: null,
     startNoEarlierThanReason: null,
     serviceTeamId: null,
+    serviceId: null,
     maxParallel: 1,
     revision: 0,
   };
@@ -128,6 +129,82 @@ function joinTeam(workItemId: string, teamId: string): void {
     db.close();
   }
 }
+
+/**
+ * A service in the global directory, written directly because the directory's
+ * own write path for services does not exist until section 4.
+ *
+ * Directly rather than through a repository for the same reason {@link joinTeam}
+ * is: the read is what is under test here, and a write path that does not exist
+ * yet cannot be the thing that sets it up.
+ */
+function service(name: string): string {
+  const id = crypto.randomUUID();
+  const db = openDatabase(dbPath);
+  try {
+    db.run('INSERT INTO service (id, name) VALUES (?, ?)', [id, name]);
+  } finally {
+    db.close();
+  }
+  return id;
+}
+
+/** The service on a row, written directly, until the patch takes one in section 3. */
+function labelService(workItemId: string, serviceId: string | null): void {
+  const db = openDatabase(dbPath);
+  try {
+    db.run('UPDATE work_item SET service_id = ? WHERE id = ?', [serviceId, workItemId]);
+  } finally {
+    db.close();
+  }
+}
+
+describe('the service on the row', () => {
+  it('reads the service back with the row, and asks no second question for it', async () => {
+    // Task 2.1: `serviceId` is a column on the row `listByProject` already
+    // selects, so it arrives with the row and costs no fourth query. If this
+    // ever needs a join to answer, the column went in the wrong place.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, []);
+    const payments = service('Payments');
+    labelService(strip.id, payments);
+
+    const read = await repo.listByProject(projectId);
+
+    expect(read.at(0)?.serviceId).toBe(payments);
+  });
+
+  it('leaves a work item nobody labelled on a null, which is the state that inherits', async () => {
+    // Null is _unstated_, one spelling, exactly as the empty team set is. The
+    // reading that turns it into an inherited service is `effectiveServicesOf`'s
+    // and is deliberately not stored here.
+    await repo.insert(row(null, 10, 'Strip'), []);
+
+    expect((await repo.listByProject(projectId)).at(0)?.serviceId).toBeNull();
+  });
+
+  it('keeps the row when its service is removed, and only nulls the column', async () => {
+    // `ON DELETE SET NULL`, seen from the read side rather than from the
+    // migration: deleting a service must lose the label and never the plan. The
+    // migration test injects the `CASCADE` fault; this is the same guarantee
+    // stated where a reader of the repository will meet it.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, []);
+    const payments = service('Payments');
+    labelService(strip.id, payments);
+
+    const db = openDatabase(dbPath);
+    try {
+      db.run('DELETE FROM service WHERE id = ?', [payments]);
+    } finally {
+      db.close();
+    }
+
+    const read = await repo.listByProject(projectId);
+    expect(read.map((each) => each.name)).toEqual(['Strip']);
+    expect(read.at(0)?.serviceId).toBeNull();
+  });
+});
 
 describe('the team set beside the column', () => {
   it('reads back every team a work item is joined to, in one order', async () => {

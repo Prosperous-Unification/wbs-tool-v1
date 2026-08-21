@@ -33,6 +33,7 @@ const item = (
   startNoEarlierThan: null,
   priority,
   serviceTeamId: null,
+  serviceId: null,
   maxParallel: 1,
   revision: 0,
 });

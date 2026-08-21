@@ -37,6 +37,7 @@ const item = (
   priority: null,
   startNoEarlierThan: null,
   serviceTeamId: null,
+  serviceId: null,
   maxParallel: 1,
   revision: 0,
   ...overrides,

@@ -190,6 +190,7 @@ describe('review finding: between() across a digit-width boundary', () => {
           priority: null,
           startNoEarlierThan: null,
           serviceTeamId: null,
+          serviceId: null,
         },
         { id: 'b', parentId: null, position: 20, frozenNumber: '0100' },
       ]),
