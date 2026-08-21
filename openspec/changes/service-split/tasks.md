@@ -142,8 +142,13 @@
       already exists in `label-mismatch.ts` and needs no third export. **Do 10.2
       first** — a marker built against a single-select cell is the third surface
       that would need redoing.
-- [ ] 7.3 `plan-cards.tsx`: the `↳` inherited chip for the service dimension,
-      per dimension as the other two are.
+- [x] 7.3 `plan-cards.tsx`: the `↳` inherited chip for the service dimension,
+      per dimension as the other two are. **Between the team chip and the tags'**,
+      because team and service are the pair the ownership map relates, and the
+      order is asserted since nothing else on a card asserts sibling order.
+      **No mismatch marker on it**: this face renders neither signal today —
+      `CardAssignee.outside` reaches no phone — and one half of a paired signal
+      on a face silent about the other reads as an all-clear.
 - [ ] 7.4 `plan-export.ts`: a **`Services`** column — plural since the scope
       change — joined and RFC4180-quoted exactly the way `Teams` and `Tags` are,
       beside them.
