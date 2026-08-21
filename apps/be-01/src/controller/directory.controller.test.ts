@@ -482,6 +482,38 @@ describe('PATCH /api/people/:id', () => {
     });
   });
 
+  it('marks a person an agent, and marks them back', async () => {
+    const kat = await addPerson('Kat', []);
+
+    expect(await call('PATCH', `/api/people/${kat}`, { kind: 'agent' })).toEqual({
+      status: 200,
+      body: { person: { id: kat, name: 'Kat', kind: 'agent', teamIds: [] } },
+    });
+    // Patching it back is the whole undo — the directory journals nothing, and
+    // `plan_event` is a plan's history, so it cannot hold this. tasks.md 4.4.
+    expect(await call('PATCH', `/api/people/${kat}`, { kind: 'person' })).toEqual({
+      status: 200,
+      body: { person: { id: kat, name: 'Kat', kind: 'person', teamIds: [] } },
+    });
+  });
+
+  it('answers 400 invalid_kind for a kind outside the set, rename included', async () => {
+    // The refusal is only reachable because the route's schema takes a
+    // `t.String()`: a union of the two kinds would have Elysia answer first,
+    // with its own body, and `invalid_kind` would never be sent by the API that
+    // exists to send it. The name beside it proves the check runs before the
+    // write rather than after.
+    const kat = await addPerson('Kat', []);
+
+    expect(await call('PATCH', `/api/people/${kat}`, { name: 'Katrin', kind: 'robot' })).toEqual({
+      status: 400,
+      body: { error: 'invalid_kind' },
+    });
+    expect(await store.listPeople()).toEqual([
+      { id: kat, name: 'Kat', kind: 'person', teamIds: [] },
+    ]);
+  });
+
   it('answers 409 taken with the surviving name', async () => {
     await addPerson('Kat', []);
     const strip = await addPerson('Strip', []);

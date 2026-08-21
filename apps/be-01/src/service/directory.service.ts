@@ -1,6 +1,7 @@
 import type {
   DirectoryStore,
   Person,
+  PersonKind,
   PersonPatch,
   PersonWithTeams,
   Service,
@@ -10,6 +11,11 @@ import type {
   TeamWithServices,
   TouchedProjects,
 } from '../repository';
+// The constant from `schema.ts`, not from `repository/index.ts`: that module is
+// type-only on purpose, and a value re-export there would pull drizzle into
+// everything importing a store interface. `work-item.service.ts` takes
+// `MEASURE_METRICS` the same way.
+import { PERSON_KINDS } from '../repository/schema';
 import type { Broadcaster } from './broadcast';
 import {
   type DirectoryUsage,
@@ -44,11 +50,37 @@ export interface DirectoryServiceOptions {
  * hold — `unknown_team`'s twin, one dimension over.
  */
 export type DirectoryRefusal =
+  | 'invalid_kind'
   | 'name_required'
   | 'not_found'
   | 'nothing_to_change'
   | 'unknown_service'
   | 'unknown_team';
+
+/**
+ * Whether a caller named one of the things a person can be.
+ *
+ * A narrowing function rather than an inline `includes`, for
+ * `work-item.service.ts`' `holdsMetric` reason: the value arrives from a JSON
+ * body, so it is genuinely `string` no matter what the route's schema says, and
+ * checking it here — beside the write, once — is what keeps the closed set in
+ * one place. A copy in the controller would be two lists that must agree.
+ */
+function holdsKind(kind: string): kind is PersonKind {
+  return (PERSON_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * {@link PersonPatch} as it arrives from outside, where `kind` is a `string`.
+ *
+ * The store's `kind` is a {@link PersonKind} because by then it has been
+ * checked; the service's is not, for the reason `setMeasure`'s `metric`
+ * parameter is a `string` — a narrower type here would force the controller to
+ * cast, and a cast at the route makes `invalid_kind` unreachable through the
+ * API that refusal exists for. {@link holdsKind} is what turns one into the
+ * other.
+ */
+export type PersonPatchInput = Omit<PersonPatch, 'kind'> & { kind?: string };
 
 /**
  * What a directory write answered.
@@ -306,28 +338,39 @@ export class DirectoryService {
   }
 
   /**
-   * Renames a person, replaces their memberships, or both at once.
+   * Renames a person, marks them a person or an agent, replaces their
+   * memberships, or any of those at once.
    *
-   * A patch naming neither is refused rather than answered as a no-op: nothing
-   * on this deployment sends one deliberately, so it is a client bug, and a 200
-   * would leave nothing on the wire to notice it by.
+   * A patch naming none of them is refused rather than answered as a no-op:
+   * nothing on this deployment sends one deliberately, so it is a client bug,
+   * and a 200 would leave nothing on the wire to notice it by.
    *
-   * The two halves are one transaction in the store — see
+   * The halves are one transaction in the store — see
    * {@link DirectoryStore.patchPerson} — so a refused patch leaves the rename
    * beside it unapplied.
+   *
+   * **`kind` is checked before the row is read, and refused rather than
+   * ignored.** A kind outside the set is a request that is wrong, not a
+   * directory that lacks something, so it is 400 and not the 404 an unknown
+   * team gets. Dropping it silently would answer 200 to a caller that believes
+   * it has just marked somebody an agent.
    */
   async patchPerson(
     personId: string,
-    patch: PersonPatch,
+    patch: PersonPatchInput,
   ): Promise<DirectoryOutcome<PersonWithTeams>> {
-    if (patch.name === undefined && patch.teamIds === undefined) {
+    if (patch.name === undefined && patch.teamIds === undefined && patch.kind === undefined) {
       return { ok: false, reason: 'nothing_to_change' };
+    }
+    if (patch.kind !== undefined && !holdsKind(patch.kind)) {
+      return { ok: false, reason: 'invalid_kind' };
     }
     const clean = patch.name === undefined ? undefined : cleanName(patch.name);
     if (clean === null) return { ok: false, reason: 'name_required' };
     const written = await this.opts.directory.patchPerson(personId, {
       ...(clean === undefined ? {} : { name: clean }),
       ...(patch.teamIds === undefined ? {} : { teamIds: patch.teamIds }),
+      ...(patch.kind === undefined ? {} : { kind: patch.kind }),
     });
     if (!written.ok) {
       // `clean` is defined on this branch — `taken` is the name index refusing,
@@ -344,6 +387,12 @@ export class DirectoryService {
     // renders — the assumed assignee is derived from assignments, not from who
     // belongs to which team — so an event would send every open plan to reread
     // a tree that is exactly as it was.
+    //
+    // `kind` is silent for the same reason and not a weaker one: nothing in a
+    // plan's tree draws it. It reaches the directory payload (5.4) and the card
+    // that edits it (7.1), and both read the directory rather than a plan. The
+    // day a badge appears beside an assignee in the tree, this becomes a rename
+    // and gets announced with one.
     if (clean !== undefined) await this.announce(written.projectIds);
     return { ok: true, result: written.person };
   }

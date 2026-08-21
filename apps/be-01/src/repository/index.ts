@@ -978,10 +978,19 @@ export type ServiceTeamWritten =
  * `teamIds` is a **full replacement**, so an absent field and an empty array
  * mean different things: absent leaves the memberships alone, empty makes the
  * person a free agent.
+ *
+ * `kind` is how a person becomes an agent and back again, and patching it back
+ * is the **only** undo it has: the directory journals nothing — no call to
+ * `record` anywhere in `directory.service.ts` — and it cannot, because
+ * `plan_event.project_id` is `NOT NULL REFERENCES project(id) ON DELETE
+ * CASCADE` while the directory belongs to no project. A person's history would
+ * have to be filed under an invented project and would vanish with it.
+ * `openspec/changes/token-tracking/tasks.md` 4.4 carries the whole argument.
  */
 export interface PersonPatch {
   name?: string;
   teamIds?: readonly string[];
+  kind?: PersonKind;
 }
 
 export type PersonWritten =

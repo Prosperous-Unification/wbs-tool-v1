@@ -152,6 +152,32 @@ describe('DirectoryRepository', () => {
     expect((await repo.listPeople())[0]?.teamIds).toEqual([]);
   });
 
+  it('writes a name and a kind in one update, and a kind alone in one too', async () => {
+    const platform = await repo.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+    const ada = await personAdded(
+      repo.addPerson({ id: crypto.randomUUID(), name: 'Ada' }, [platform.id]),
+    );
+
+    const both = await repo.patchPerson(ada.id, { name: 'Ada L', kind: 'agent' });
+
+    expect(both).toEqual({
+      ok: true,
+      person: { id: ada.id, name: 'Ada L', kind: 'agent', teamIds: [platform.id] },
+      projectIds: [],
+    });
+
+    // A patch naming only the kind still writes: the store must not read an
+    // absent `name` as "nothing to do" — deciding that is the service's job,
+    // and here it would silently drop the only field the caller sent.
+    const kindOnly = await repo.patchPerson(ada.id, { kind: 'person' });
+
+    expect(kindOnly).toEqual({
+      ok: true,
+      person: { id: ada.id, name: 'Ada L', kind: 'person', teamIds: [platform.id] },
+      projectIds: [],
+    });
+  });
+
   it('holds one assignee per role, replacing rather than adding', async () => {
     const ada = await personAdded(repo.addPerson({ id: crypto.randomUUID(), name: 'Ada' }, []));
     const grace = await personAdded(repo.addPerson({ id: crypto.randomUUID(), name: 'Grace' }, []));

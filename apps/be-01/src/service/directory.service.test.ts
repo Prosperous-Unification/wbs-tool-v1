@@ -369,13 +369,42 @@ describe('DirectoryService.patchPerson', () => {
     ]);
   });
 
-  it('refuses a patch naming neither a name nor memberships', async () => {
+  it('refuses a patch naming neither a name, memberships, nor a kind', async () => {
     const { katId } = await katInPlatform();
 
     expect(await directory.patchPerson(katId, {})).toEqual({
       ok: false,
       reason: 'nothing_to_change',
     });
+  });
+
+  it('marks a person an agent and back, leaving their memberships alone', async () => {
+    const { katId, platformId } = await katInPlatform();
+
+    expect(await directory.patchPerson(katId, { kind: 'agent' })).toEqual({
+      ok: true,
+      result: { id: katId, name: 'Kat', kind: 'agent', teamIds: [platformId] },
+    });
+    // A kind alone is a whole patch: it is not `nothing_to_change`, and the
+    // memberships it did not name survive it.
+    expect(await directory.patchPerson(katId, { kind: 'person' })).toEqual({
+      ok: true,
+      result: { id: katId, name: 'Kat', kind: 'person', teamIds: [platformId] },
+    });
+  });
+
+  it('refuses a kind outside the set before anything is written', async () => {
+    const { katId, platformId } = await katInPlatform();
+
+    expect(await directory.patchPerson(katId, { name: 'Katrin', kind: 'robot' })).toEqual({
+      ok: false,
+      reason: 'invalid_kind',
+    });
+    // The rename rode along and must not have landed — the check is above the
+    // store call, so no transaction was opened at all.
+    expect(await store.listPeople()).toEqual([
+      { id: katId, name: 'Kat', kind: 'person', teamIds: [platformId] },
+    ]);
   });
 
   it('refuses a name of whitespace alone, and a person that is not there', async () => {
@@ -418,6 +447,30 @@ describe('directory events', () => {
 
     // No project references them, so there is nothing anywhere to reread.
     expect(broadcast.published).toEqual([]);
+  });
+
+  it('says nothing when a person becomes an agent, even one three plans assign', async () => {
+    // The membership rule applied to `kind`, and for the same reason rather
+    // than a weaker one: no row in a plan's tree draws it. It reaches the
+    // directory payload and the directory card, and both read the directory.
+    // The day a badge appears beside an assignee in a tree, this test is the
+    // one that has to change first.
+    const roof = await roofProject();
+    const kat = await added('Kat', []);
+    await store.assign('design', devId, kat.id);
+    await store.assign(roof.workItemOf, (await roleNamed('Dev', roof.projectOf)).id, kat.id);
+    broadcast.published.length = 0;
+
+    await directory.patchPerson(kat.id, { kind: 'agent' });
+
+    expect(broadcast.published).toEqual([]);
+
+    // And a rename in the same patch still announces — the silence belongs to
+    // the field, not to the request.
+    await directory.patchPerson(kat.id, { name: 'Katrin', kind: 'person' });
+    expect(broadcast.published.map((each) => each.projectId).sort()).toEqual(
+      [projectId, roof.projectOf].sort(),
+    );
   });
 
   it('tells the projects a removed team was labelled in, and nobody else', async () => {

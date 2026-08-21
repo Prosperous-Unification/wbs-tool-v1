@@ -207,6 +207,12 @@ export function inMemoryDirectory(): DirectoryStore {
         if (held) return Promise.resolve({ ok: false, reason: 'taken' });
         people.set(personId, { ...found, name: patch.name });
       }
+      // After the rename and off the row as it stands, so a patch carrying both
+      // does not lose one: `found` is the row from before the line above.
+      if (patch.kind !== undefined) {
+        const current = people.get(personId) ?? found;
+        people.set(personId, { ...current, kind: patch.kind });
+      }
       if (wanted !== null) memberships.set(personId, new Set(wanted));
       const patched = people.get(personId);
       if (patched === undefined) throw new Error(`person vanished mid-patch: ${personId}`);

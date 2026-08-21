@@ -21,6 +21,16 @@ const newPerson = t.Object({ name: t.String(), teamIds: t.Optional(t.Array(t.Str
 const personPatch = t.Object({
   name: t.Optional(t.String()),
   teamIds: t.Optional(t.Array(t.String())),
+  /**
+   * `t.String()`, deliberately not a union of the two kinds.
+   *
+   * A union here would have Elysia refuse `"robot"` before the service saw it,
+   * with the framework's own validation body — and `invalid_kind`, the refusal
+   * the service exists to give, would be unreachable through the API. The
+   * closed set is checked once, beside the write, exactly as the measure
+   * metric is.
+   */
+  kind: t.Optional(t.String()),
 });
 
 /**
@@ -46,9 +56,20 @@ const teamPatch = t.Object({
  * not there, whichever of the request's ids named it. `unknown_service` is the
  * same sentence about the third dimension — an ownership map naming a service
  * nothing holds — and answers the same 404 the work item routes answer for it.
+ *
+ * `invalid_kind` is **400**, and it is the only 400 here. It joins
+ * `invalid_measure` on the work item routes rather than the 422s beside it: a
+ * blank name is a value this directory will not accept, while a `kind` outside
+ * the set is a field the API does not have that spelling of at all — the body
+ * is malformed, not merely unwelcome. 404 would be a lie in the other
+ * direction, since nothing was looked up.
  */
-const statusFor = (reason: DirectoryRefusal): number =>
-  reason === 'not_found' || reason === 'unknown_team' || reason === 'unknown_service' ? 404 : 422;
+const statusFor = (reason: DirectoryRefusal): number => {
+  if (reason === 'not_found' || reason === 'unknown_team' || reason === 'unknown_service') {
+    return 404;
+  }
+  return reason === 'invalid_kind' ? 400 : 422;
+};
 
 /**
  * `?cascade=true` and nothing else — the same flag `roleController`'s delete
@@ -201,6 +222,7 @@ export function directoryController(auth: AuthService, directory: DirectoryServi
           const outcome = await directory.patchPerson(params.id, {
             ...(body.name === undefined ? {} : { name: body.name }),
             ...(body.teamIds === undefined ? {} : { teamIds: body.teamIds }),
+            ...(body.kind === undefined ? {} : { kind: body.kind }),
           });
           if (!outcome.ok) {
             if (outcome.reason === 'taken') {
