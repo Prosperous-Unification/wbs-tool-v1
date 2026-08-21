@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
+import { builtByNonOwner } from '@wbs/domain';
+
 import { buildApp } from '../app';
 import { ProjectService } from '../service/project.service';
 import { WorkItemService } from '../service/work-item.service';
@@ -541,6 +543,74 @@ describe('work item routes', () => {
     const still = await send(`/api/projects/${projectId}/work-items`, token);
     const { workItems } = (await still.json()) as { workItems: { serviceId: string | null }[] };
     expect(workItems[0]).toHaveProperty('serviceId', null);
+  });
+
+  it('records a service the row’s team does not own, rather than refusing it', async () => {
+    // **Task 5.4.** The mismatch signals never block a write, and "we decided
+    // not to validate" is invisible in a diff — an absent refusal looks exactly
+    // like a refusal nobody has written yet. So the decision is asserted from
+    // the outside: the patch that creates a mismatch comes back **200**, and
+    // the mismatch is then readable from what the route stored.
+    //
+    // Dany's reason, 2026-08-20 23:18: the point is to "flag where teams build
+    // something they do not own". A plan that refuses to record it cannot flag
+    // it, and a tool that refuses what happened is a tool people work around.
+    const { token, send, projectId } = await setup();
+    const created = await send(`/api/projects/${projectId}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
+    });
+    const { id } = (await created.json()) as { id: string };
+
+    const teamMade = await send('/api/teams', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Platform' }),
+    });
+    const { team } = (await teamMade.json()) as { team: { id: string } };
+    const auth = await send('/api/services', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Auth' }),
+    });
+    const { service: owns } = (await auth.json()) as { service: { id: string } };
+    const payments = await send('/api/services', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Payments' }),
+    });
+    const { service: doesNotOwn } = (await payments.json()) as { service: { id: string } };
+    await send(`/api/teams/${team.id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceIds: [owns.id] }),
+    });
+
+    const patched = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceTeamId: team.id, serviceId: doesNotOwn.id }),
+    });
+
+    expect(patched.status).toBe(200);
+
+    // And the mismatch is real in what came back, not merely unrefused: the
+    // domain rule is run over the row the route stored and the ownership map
+    // the directory answers, which is the same pair fe-01 will filter on. A
+    // 200 alone would pass just as well against a route that dropped the field.
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const { workItems } = (await tree.json()) as {
+      workItems: { id: string; teamIds: string[]; serviceId: string | null }[];
+    };
+    const stored = workItems.find((each) => each.id === id);
+    const teams = await send('/api/teams', token);
+    const { teams: listed } = (await teams.json()) as {
+      teams: { id: string; serviceIds: string[] }[];
+    };
+
+    expect(stored).toMatchObject({ serviceId: doesNotOwn.id, teamIds: [team.id] });
+    expect(
+      builtByNonOwner({
+        serviceId: stored?.serviceId ?? null,
+        teamIds: stored?.teamIds ?? [],
+        ownedServicesByTeam: new Map(listed.map((each) => [each.id, each.serviceIds])),
+      }),
+    ).toBe(true);
   });
 
   // C2's landmine test — `puts a capacity floor on the wire, which nothing this

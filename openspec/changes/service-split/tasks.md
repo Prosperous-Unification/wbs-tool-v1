@@ -90,18 +90,18 @@
 
 ## 5. The two signals
 
-- [ ] 5.1 `libs/domain/src/label-mismatch.ts`: `builtByNonOwner` and
+- [x] 5.1 `libs/domain/src/label-mismatch.ts`: `builtByNonOwner` and
       `assignedOutsideTeam`, one module, one vocabulary (design D5). Both take
       the **effective** team set.
-- [ ] 5.2 **Watched red** — point either at the row's own stored teams instead
+- [x] 5.2 **Watched red** — point either at the row's own stored teams instead
       of the effective reading and the inherited-team case must fail. This is
       the class of bug this repo has shipped twice, and here it would hide the
       marker exactly where inheritance is doing the work.
-- [ ] 5.3 **Absence flags nothing**, asserted per half: no service → no
+- [x] 5.3 **Absence flags nothing**, asserted per half: no service → no
       non-owner flag; no team → neither flag; no assignee → no
       assigned-outside flag. Three tests, and they are what stops the marker
       covering most of a young plan.
-- [ ] 5.4 The signals never block a write: patching a row into a mismatch
+- [x] 5.4 The signals never block a write: patching a row into a mismatch
       returns 200 and the row reads back mismatched. Asserted, because "we
       decided not to validate" is invisible in a diff.
 
