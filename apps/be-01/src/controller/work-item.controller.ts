@@ -1140,18 +1140,21 @@ clears one.
 **Zero is a statement and absence is not.** Recording 0 says the work cost
 nothing in this unit. Saying nobody has recorded anything is \`DELETE\` on this
 path — never a zero.`,
-          requestBody: handParsedBody('The figure this role’s work cost, in the unit named by the path.', {
-            type: 'object',
-            required: ['value'],
-            properties: {
-              value: {
-                type: 'number',
-                minimum: 0,
-                description:
-                  'The figure, in the unit the path names. Fractions are accepted, as they are for days. 0 means the work cost nothing in this unit, which is not the same as never having said.',
+          requestBody: handParsedBody(
+            'The figure this role’s work cost, in the unit named by the path.',
+            {
+              type: 'object',
+              required: ['value'],
+              properties: {
+                value: {
+                  type: 'number',
+                  minimum: 0,
+                  description:
+                    'The figure, in the unit the path names. Fractions are accepted, as they are for days. 0 means the work cost nothing in this unit, which is not the same as never having said.',
+                },
               },
             },
-          }),
+          ),
         },
       },
     )

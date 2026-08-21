@@ -1087,6 +1087,89 @@
         "operationId": "deleteApiWork-itemsByIdProgressByRoleId"
       }
     },
+    "/api/work-items/{id}/measures/{metric}/{roleId}": {
+      "put": {
+        "summary": "Record one role’s figure on one work item, in a unit other than days",
+        "description": "**Written by agents, not typed by people.** Dany, 2026-08-21:\n_\"Tokens are to be set by LLM. So they do not require a separate input to be\nimputed by humans.\"_ This route is the product surface for token figures — there\nis no cell in the grid to type them into, and the reading surfaces are columns\nand roll-ups. Hours are the same shape and arrive the same way.\n\n**Reporting only. This moves no date.** The scheduler plans in days against team\ncapacity, and nothing in the engine reads these numbers: tokens are not a\nsubstitutable unit of capacity, so an item recorded as having taken 900k tokens\nleaves every successor exactly where it was.\n\n**Three units, one route.** `metric` is one of `token_estimate` (the tokens\na role's work is expected to take), `token_actual` (the tokens it took) and\n`hours_actual` (the hours it took). Anything else is `unknown_metric`, **404**\n— the path names a unit this release does not keep, which is a thing that is not\nthere rather than a malformed request.\n\n**One number, per role, on a leaf.** A figure on a row that has children is\n`rolled_up`, 409 — a parent's figure is the sum of its descendants'. A\n`roleId` that is not a role of this project is `unknown_role`, 404. A body\nwithout a finite `value` of 0 or more is `invalid_measure`, 400.\n\n**Each metric stands alone.** Recording a `token_actual` leaves that pair's\n`token_estimate` and `hours_actual` exactly as they were, and clearing one\nclears one.\n\n**Zero is a statement and absence is not.** Recording 0 says the work cost\nnothing in this unit. Saying nobody has recorded anything is `DELETE` on this\npath — never a zero.",
+        "requestBody": {
+          "required": true,
+          "description": "The figure this role’s work cost, in the unit named by the path.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "value"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "The figure, in the unit the path names. Fractions are accepted, as they are for days. 0 means the work cost nothing in this unit, which is not the same as never having said."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metric",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "roleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "putApiWork-itemsByIdMeasuresByMetricByRoleId"
+      },
+      "delete": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metric",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "roleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "deleteApiWork-itemsByIdMeasuresByMetricByRoleId"
+      }
+    },
     "/api/teams": {
       "get": {
         "operationId": "getApiTeams"

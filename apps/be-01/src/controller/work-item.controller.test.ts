@@ -1527,7 +1527,13 @@ describe('recording what a role’s work cost in tokens and hours', () => {
     const { token, send, measures, projectId, devId } = await setup();
     const strip = await make(send, token, projectId, 'Strip', null);
 
-    for (const body of ['{}', '{"value":"400000"}', '{"value":-1}', '{"value":null}', '{"tokens":5}']) {
+    for (const body of [
+      '{}',
+      '{"value":"400000"}',
+      '{"value":-1}',
+      '{"value":null}',
+      '{"tokens":5}',
+    ]) {
       const res = await send(`/api/work-items/${strip}/measures/token_actual/${devId}`, token, {
         method: 'PUT',
         body,
@@ -1555,10 +1561,14 @@ describe('recording what a role’s work cost in tokens and hours', () => {
     const { token, send, measures, projectId, devId } = await setup();
     const strip = await make(send, token, projectId, 'Strip', null);
 
-    const written = await send(`/api/work-items/${strip}/measures/tokens_estimate/${devId}`, token, {
-      method: 'PUT',
-      body: JSON.stringify({ value: 12_000 }),
-    });
+    const written = await send(
+      `/api/work-items/${strip}/measures/tokens_estimate/${devId}`,
+      token,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ value: 12_000 }),
+      },
+    );
     const cleared = await send(`/api/work-items/${strip}/measures/story_points/${devId}`, token, {
       method: 'DELETE',
     });
