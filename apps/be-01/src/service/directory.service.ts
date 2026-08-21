@@ -236,7 +236,11 @@ export class DirectoryService {
     const removed = await this.opts.directory.removeService(serviceId, cascade);
     if (!removed.ok) {
       if (removed.reason === 'not_found') return { ok: false, reason: 'not_found' };
-      return { ok: false, reason: 'in_use', usage: directoryUsageOfService(removed.usage, serviceId) };
+      return {
+        ok: false,
+        reason: 'in_use',
+        usage: directoryUsageOfService(removed.usage, serviceId),
+      };
     }
     await this.announce(removed.removal.projectIds);
     return { ok: true };

@@ -1075,8 +1075,6 @@ describe('removing a service: what it names, what it takes, and what it cannot m
 
     await directory.renameService(payments.id, 'Billing');
 
-    expect(broadcast.published).toEqual([
-      { projectId, event: { type: 'directory_changed' } },
-    ]);
+    expect(broadcast.published).toEqual([{ projectId, event: { type: 'directory_changed' } }]);
   });
 });

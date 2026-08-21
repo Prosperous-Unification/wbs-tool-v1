@@ -452,9 +452,9 @@ describe('the service routes', () => {
       status: 422,
       body: { error: 'name_required' },
     });
-    expect(await call('PATCH', `/api/services/${crypto.randomUUID()}`, { name: 'Billing' })).toEqual(
-      { status: 404, body: { error: 'not_found' } },
-    );
+    expect(
+      await call('PATCH', `/api/services/${crypto.randomUUID()}`, { name: 'Billing' }),
+    ).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(await call('POST', '/api/services', { name: ' ' })).toEqual({
       status: 422,
       body: { error: 'name_required' },
