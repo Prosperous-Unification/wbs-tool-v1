@@ -12,6 +12,7 @@ import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryDirectory } from '../testing/directory-fixture';
 import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { inMemoryActuals } from './actual-fixture';
+import { inMemoryMeasures } from './measure-fixture';
 import { recordingBroadcaster } from './broadcast-fixture';
 import { inMemoryCommandJournal } from './command-journal-fixture';
 import { inMemoryDependencies } from './dependency-fixture';
@@ -225,6 +226,7 @@ export function testWorkItemService(): WorkItemService {
   const workItems = inMemoryWorkItems(directory);
   const estimates = inMemoryEstimates(workItems);
   const actuals = inMemoryActuals(workItems);
+  const measures = inMemoryMeasures(workItems);
   const progress = inMemoryProgress(workItems);
   const dependencies = inMemoryDependencies();
   return new WorkItemService({
@@ -232,6 +234,7 @@ export function testWorkItemService(): WorkItemService {
     projects: inMemoryProjects(),
     estimates,
     actuals,
+    measures,
     progress,
     dependencies,
     directory,

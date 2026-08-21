@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
 import { ActualRepository } from '../repository/actual';
+import { RoleMeasureRepository } from '../repository/role-measure';
 import { CommandJournalRepository } from '../repository/command-journal';
 import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
@@ -45,6 +46,7 @@ let app: ReturnType<typeof buildApp>;
 let roleStore: RoleRepository;
 let estimates: EstimateRepository;
 let actuals: ActualRepository;
+let measures: RoleMeasureRepository;
 let progressStore: RoleProgressRepository;
 let directory: DirectoryRepository;
 let workItems: WorkItemRepository;
@@ -62,6 +64,7 @@ beforeEach(() => {
   roleStore = new RoleRepository(db);
   estimates = new EstimateRepository(db);
   actuals = new ActualRepository(db);
+  measures = new RoleMeasureRepository(db);
   progressStore = new RoleProgressRepository(db);
   directory = new DirectoryRepository(db);
   workItems = new WorkItemRepository(db);
@@ -79,6 +82,7 @@ beforeEach(() => {
       projects,
       estimates,
       actuals,
+      measures,
       progress: progressStore,
       dependencies: new DependencyRepository(db),
       directory,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { Project, ProjectStore, WorkItemStore } from '../repository';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
@@ -33,6 +34,7 @@ beforeEach(async () => {
     projects,
     estimates: inMemoryEstimates(workItems),
     actuals: inMemoryActuals(workItems),
+    measures: inMemoryMeasures(workItems),
     progress: inMemoryProgress(workItems),
     dependencies: inMemoryDependencies(),
     directory: inMemoryDirectory(),

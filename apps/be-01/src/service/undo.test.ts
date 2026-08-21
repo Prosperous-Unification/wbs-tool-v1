@@ -97,6 +97,7 @@ beforeEach(async () => {
     projects: projectStore,
     estimates: estimateStore,
     actuals: actualStore,
+    measures: measureStore,
     progress: progressStore,
     directory: directoryStore,
     capacity: inMemoryCapacity(),

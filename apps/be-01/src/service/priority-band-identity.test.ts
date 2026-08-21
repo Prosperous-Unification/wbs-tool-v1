@@ -12,6 +12,7 @@ import { runMigrations } from '../repository/migrate';
 import { rollbackTo } from '../repository/migrate-down';
 import { PriorityBandRepository } from '../repository/priority-band';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
@@ -252,6 +253,7 @@ describe('a priority ladder moves no date', () => {
     const workItems = inMemoryWorkItems(directory);
     const estimates = inMemoryEstimates(workItems);
     const actuals = inMemoryActuals(workItems);
+    const measures = inMemoryMeasures(workItems);
     const progress = inMemoryProgress(workItems);
     const dependencies = inMemoryDependencies();
     const service = new WorkItemService({
@@ -259,6 +261,7 @@ describe('a priority ladder moves no date', () => {
       projects,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,
@@ -488,6 +491,7 @@ describe('a priority ladder moves no date', () => {
     const workItems = inMemoryWorkItems(directory);
     const estimates = inMemoryEstimates(workItems);
     const actuals = inMemoryActuals(workItems);
+    const measures = inMemoryMeasures(workItems);
     const progress = inMemoryProgress(workItems);
     const dependencies = inMemoryDependencies();
     const service = new WorkItemService({
@@ -495,6 +499,7 @@ describe('a priority ladder moves no date', () => {
       projects,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,

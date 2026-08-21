@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { DirectoryStore, EstimateStore, Role, RoleStore, WorkItem } from '../repository';
 import { ActualRepository } from '../repository/actual';
+import { RoleMeasureRepository } from '../repository/role-measure';
 import { CommandJournalRepository } from '../repository/command-journal';
 import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
@@ -49,6 +50,7 @@ let roleStore: RoleRepository;
 let projectStore: ProjectRepository;
 let estimates: EstimateRepository;
 let actuals: ActualRepository;
+let measures: RoleMeasureRepository;
 let progressStore: RoleProgressRepository;
 let directory: DirectoryRepository;
 let broadcast: RecordingBroadcaster;
@@ -92,6 +94,7 @@ beforeEach(async () => {
   roleStore = new RoleRepository(db);
   estimates = new EstimateRepository(db);
   actuals = new ActualRepository(db);
+  measures = new RoleMeasureRepository(db);
   progressStore = new RoleProgressRepository(db);
   directory = new DirectoryRepository(db);
   broadcast = recordingBroadcaster();
@@ -380,6 +383,7 @@ describe('a role removed between the check and the write', () => {
       projects: projectStore,
       estimates: vanishing,
       actuals: new ActualRepository(db),
+      measures: new RoleMeasureRepository(db),
       progress: new RoleProgressRepository(db),
       directory: vanishingToo,
       capacity: inMemoryCapacity(),
@@ -421,6 +425,7 @@ describe('a role removed between the check and the write', () => {
       projects: projectStore,
       estimates,
       actuals,
+      measures,
       progress: progressStore,
       directory,
       capacity: inMemoryCapacity(),

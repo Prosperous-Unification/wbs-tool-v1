@@ -5,6 +5,7 @@ import type {
   Assignment,
   EstimateKey,
   FrozenNumber,
+  MeasureMetric,
   ProgressKey,
   Reparented,
   StoredActual,
@@ -48,6 +49,17 @@ export type CompensatingCommand =
    */
   | { do: 'set_actual'; workItemId: string; roleId: string; days: number }
   | { do: 'clear_actual'; workItemId: string; roleId: string }
+  /**
+   * A figure in a unit that is not days — tokens estimated, tokens spent, hours
+   * spent — carrying the `metric` because that is part of the row's identity
+   * rather than a property of it. A `set_measure` that dropped it would put the
+   * number back under whichever metric happened to be read first.
+   *
+   * `recordedAt` is **not** carried, for `set_actual`'s reason exactly: an undo
+   * is somebody recording the figure again, now.
+   */
+  | { do: 'set_measure'; workItemId: string; roleId: string; metric: MeasureMetric; value: number }
+  | { do: 'clear_measure'; workItemId: string; roleId: string; metric: MeasureMetric }
   /**
    * Where the work has got to, as one of the two states a role may be **stored**
    * in. There is no `set_progress` carrying `not_started`: the way to say that
@@ -219,6 +231,8 @@ const COMMANDS = [
   'clear_estimate',
   'set_actual',
   'clear_actual',
+  'set_measure',
+  'clear_measure',
   'set_progress',
   'clear_progress',
   'assign',
@@ -306,6 +320,8 @@ export function touchedBy(command: CompensatingCommand): string[] {
     case 'clear_estimate':
     case 'set_actual':
     case 'clear_actual':
+    case 'set_measure':
+    case 'clear_measure':
     case 'set_progress':
     case 'clear_progress':
     case 'assign':
@@ -364,6 +380,8 @@ export function subjectOf(command: CompensatingCommand): CommandSubject {
     case 'clear_estimate':
     case 'set_actual':
     case 'clear_actual':
+    case 'set_measure':
+    case 'clear_measure':
     case 'set_progress':
     case 'clear_progress':
     case 'assign':

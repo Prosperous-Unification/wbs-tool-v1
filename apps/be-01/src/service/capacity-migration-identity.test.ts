@@ -12,6 +12,7 @@ import { openDatabase, openDrizzle } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
 import { rollbackTo } from '../repository/migrate-down';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
@@ -387,6 +388,7 @@ describe('every plan schedules identically across the migration', () => {
     const workItems = inMemoryWorkItems(directory);
     const estimates = inMemoryEstimates(workItems);
     const actuals = inMemoryActuals(workItems);
+    const measures = inMemoryMeasures(workItems);
     const progress = inMemoryProgress(workItems);
     const dependencies = inMemoryDependencies();
     const service = new WorkItemService({
@@ -394,6 +396,7 @@ describe('every plan schedules identically across the migration', () => {
       projects,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,

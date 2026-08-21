@@ -5,12 +5,14 @@ import type {
   ActualStore,
   CapacityStore,
   EstimateStore,
+  MeasureStore,
   Project,
   ProjectStore,
   RoleProgressStore,
   WorkItemStore,
 } from '../repository';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
@@ -42,6 +44,7 @@ let directory: ReturnType<typeof inMemoryDirectory>;
 let capacity: CapacityStore;
 let estimates: EstimateStore;
 let actuals: ActualStore;
+let measures: MeasureStore;
 let progress: RoleProgressStore;
 let broadcast: RecordingBroadcaster;
 
@@ -52,6 +55,7 @@ beforeEach(async () => {
   workItems = inMemoryWorkItems(directory);
   estimates = inMemoryEstimates(workItems);
   actuals = inMemoryActuals(workItems);
+  measures = inMemoryMeasures(workItems);
   progress = inMemoryProgress(workItems);
   broadcast = recordingBroadcaster();
   capacity = inMemoryCapacity();
@@ -61,6 +65,7 @@ beforeEach(async () => {
     projects,
     estimates,
     actuals,
+    measures,
     progress,
     dependencies,
     directory,
@@ -443,6 +448,7 @@ describe('dependencies', () => {
       projects,
       estimates: inMemoryEstimates(workItems),
       actuals: inMemoryActuals(workItems),
+      measures: inMemoryMeasures(workItems),
       progress: inMemoryProgress(workItems),
       dependencies: broken,
       journal: inMemoryCommandJournal(),
@@ -1691,6 +1697,7 @@ describe('the slices the schedule placed, on the wire', () => {
       projects: shifting,
       estimates,
       actuals,
+      measures,
       progress,
       dependencies,
       directory,

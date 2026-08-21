@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import type {
   ActualStore,
   EstimateStore,
+  MeasureStore,
   Project,
   ProjectStore,
   RoleProgressStore,
   WorkItemStore,
 } from '../repository';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
@@ -31,6 +33,7 @@ let projects: ProjectStore;
 let workItems: WorkItemStore;
 let estimates: EstimateStore;
 let actuals: ActualStore;
+let measures: MeasureStore;
 let progress: RoleProgressStore;
 let broadcast: ReturnType<typeof recordingBroadcaster>;
 let service: WorkItemService;
@@ -41,6 +44,7 @@ beforeEach(async () => {
   workItems = inMemoryWorkItems();
   estimates = inMemoryEstimates(workItems);
   actuals = inMemoryActuals(workItems);
+  measures = inMemoryMeasures(workItems);
   progress = inMemoryProgress(workItems);
   broadcast = recordingBroadcaster();
   service = new WorkItemService({
@@ -48,6 +52,7 @@ beforeEach(async () => {
     projects,
     estimates,
     actuals,
+    measures,
     progress,
     dependencies: inMemoryDependencies(),
     directory: inMemoryDirectory(),

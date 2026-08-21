@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
 import { ActualRepository } from '../repository/actual';
+import { RoleMeasureRepository } from '../repository/role-measure';
 import { CapacityRepository } from '../repository/capacity';
 import { CommandJournalRepository } from '../repository/command-journal';
 import { openDrizzle } from '../repository/db';
@@ -87,6 +88,7 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
         projects: projectStore,
         estimates: new EstimateRepository(db),
         actuals: new ActualRepository(db),
+        measures: new RoleMeasureRepository(db),
         progress: new RoleProgressRepository(db),
         dependencies: new DependencyRepository(db),
         directory: directoryStore,

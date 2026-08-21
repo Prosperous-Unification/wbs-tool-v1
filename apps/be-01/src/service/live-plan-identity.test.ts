@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import type { Project, Role, StoredDependency, WorkItem } from '../repository';
 import { ROLE_POSITION_STEP } from '../repository';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
@@ -89,6 +90,7 @@ async function replay(extraRoles: readonly string[]) {
   const workItems = inMemoryWorkItems();
   const estimates = inMemoryEstimates(workItems);
   const actuals = inMemoryActuals(workItems);
+  const measures = inMemoryMeasures(workItems);
   const progress = inMemoryProgress(workItems);
   const dependencies = inMemoryDependencies();
   const directory = inMemoryDirectory();
@@ -97,6 +99,7 @@ async function replay(extraRoles: readonly string[]) {
     projects,
     estimates,
     actuals,
+    measures,
     progress,
     dependencies,
     directory,

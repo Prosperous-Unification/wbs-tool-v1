@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
 import { ActualRepository } from '../repository/actual';
+import { RoleMeasureRepository } from '../repository/role-measure';
 import { CommandJournalRepository } from '../repository/command-journal';
 import { openDatabase, openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
@@ -74,6 +75,7 @@ beforeEach(async () => {
       projects,
       estimates: new EstimateRepository(db),
       actuals: new ActualRepository(db),
+      measures: new RoleMeasureRepository(db),
       progress: new RoleProgressRepository(db),
       dependencies: new DependencyRepository(db),
       directory: store,

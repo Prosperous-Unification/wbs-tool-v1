@@ -4,6 +4,7 @@ import { buildApp } from '../app';
 import { ProjectService } from '../service/project.service';
 import { WorkItemService } from '../service/work-item.service';
 import { inMemoryActuals } from '../testing/actual-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixture';
@@ -26,6 +27,7 @@ function buildWorkItemService(projectStore: ReturnType<typeof inMemoryProjects>)
     projects: projectStore,
     estimates: inMemoryEstimates(workItemStore),
     actuals: inMemoryActuals(workItemStore),
+    measures: inMemoryMeasures(workItemStore),
     progress: inMemoryProgress(workItemStore),
     dependencies: inMemoryDependencies(),
     directory: inMemoryDirectory(),

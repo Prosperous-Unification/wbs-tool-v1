@@ -2,6 +2,7 @@ import type { Logger } from '@wbs/observability';
 
 import { PLAN_EVENT_RETENTION_DAYS } from './repository';
 import { ActualRepository } from './repository/actual';
+import { RoleMeasureRepository } from './repository/role-measure';
 import { CapacityRepository } from './repository/capacity';
 import { CommandJournalRepository } from './repository/command-journal';
 import type { Drizzle } from './repository/db';
@@ -152,6 +153,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
       // a rule the other must not have is the day a shared class becomes a
       // conditional. See `actual` in `schema.ts`.
       actuals: new ActualRepository(opts.db),
+      measures: new RoleMeasureRepository(opts.db),
       // And its own store again, for the same reason once more: a state is a
       // sentence about work and an actual is a number about it, and the table
       // that holds one must not grow a rule the other has to carry. See

@@ -21,6 +21,8 @@ import type {
   EstimateStore,
   JournalEntry,
   LabelledWorkItem,
+  MeasureMetric,
+  MeasureStore,
   Person,
   PriorityBandStore,
   Project,
@@ -38,6 +40,7 @@ import type {
   WorkItemPatch,
   WorkItemStore,
 } from '../repository';
+import { MEASURE_METRICS } from '../repository/schema';
 import { isForeignKeyViolation } from '../repository/constraint';
 import { assumedAssignee } from './assumed-assignee';
 import type { Broadcaster } from './broadcast';
@@ -485,6 +488,18 @@ export type WorkItemRefusal =
    */
   | 'unknown_role'
   /**
+   * A figure in a unit this release does not keep — anything outside
+   * {@link MEASURE_METRICS}.
+   *
+   * A **404** and not a 400, which is the one refusal in `token-tracking` that
+   * is not cloned from the actual pair. The metric is in the path, and it names
+   * a thing: `/measures/tokens_estimate/role-dev` is a request for a figure that
+   * does not exist in the same way a work item id nobody holds does not exist.
+   * A 400 would say the request was malformed, and it is not — it is
+   * well-formed about a unit this release has never heard of.
+   */
+  | 'unknown_metric'
+  /**
    * A person the directory no longer holds, decided inside the write's own
    * transaction — see {@link AssignmentWritten}. Without it the same
    * out-of-date picker reaches `assignment.person_id` and answers 500.
@@ -534,6 +549,34 @@ export type WorkItemRefusal =
 
 export type WorkItemOutcome<T> = { ok: true; result: T } | { ok: false; reason: WorkItemRefusal };
 
+/**
+ * Whether this release keeps figures in the unit a caller named.
+ *
+ * A function rather than an inline `includes`, because both write methods ask
+ * and both must answer the same way; and it narrows, so the `MeasureMetric`
+ * reaching the store is checked rather than asserted. The value arrives from a
+ * URL path, so it is genuinely `string` no matter what the signature says.
+ */
+function holdsMetric(metric: string): metric is MeasureMetric {
+  return (MEASURE_METRICS as readonly string[]).includes(metric);
+}
+
+/**
+ * What each metric is called in a sentence somebody reads in the plan's
+ * history.
+ *
+ * "record 12000 tokens" is not what these say: the label names the **unit**,
+ * never the figure, for {@link quoteName}'s reason turned to numbers — a
+ * history row is read long after the write, and the figure it quoted may have
+ * been corrected twice since. The row's own before-state carries the number for
+ * anybody who wants it.
+ */
+const MEASURE_LABELS: Record<MeasureMetric, string> = {
+  token_estimate: 'estimated tokens',
+  token_actual: 'tokens spent',
+  hours_actual: 'hours spent',
+};
+
 export interface CreateWorkItem {
   parentId: string | null;
   afterId: string | null;
@@ -560,6 +603,16 @@ export interface WorkItemServiceOptions {
    * the day this ships, so the mistake would be invisible for a week.
    */
   actuals: ActualStore;
+  /**
+   * Where the figures that are not days are kept — tokens estimated, tokens
+   * spent, hours spent.
+   *
+   * Required rather than optional, for {@link WorkItemServiceOptions.actuals}'
+   * reason exactly: a service built without one would answer every read with no
+   * measures at all, which is the true answer for every plan on the day this
+   * ships and therefore an invisible mistake for a week.
+   */
+  measures: MeasureStore;
   /**
    * Where each role says its work on a work item has got to.
    *
@@ -2259,6 +2312,114 @@ export class WorkItemService {
   }
 
   /**
+   * Writes one figure in one unit that is not days — tokens estimated, tokens
+   * spent, hours spent — for one role on one work item.
+   *
+   * Guarded exactly as {@link WorkItemService.setActual} is, plus **one refusal
+   * that pair does not have**: a `metric` outside {@link MEASURE_METRICS} is
+   * `unknown_metric`, which the controller answers 404 to. See
+   * {@link WorkItemRefusal} for why it is not a 400.
+   *
+   * The check is here rather than left to the database, even though the column
+   * carries a `CHECK`: a constraint failure is a 500, and a client asking for a
+   * unit this release does not keep is out of date rather than broken.
+   *
+   * **Nothing about this reaches the schedule**, for
+   * {@link WorkItemService.setActual}'s reason and one more of its own: the
+   * engine plans in days against team capacity, and tokens are not a
+   * substitutable unit of it. `design.md` D3, watched by the empty-diff cases.
+   *
+   * **Nobody types these.** Dany, 2026-08-21: tokens are set by the LLM doing
+   * the work, through this route and later through MCP — so this method is the
+   * product surface, not a cell in a grid.
+   */
+  async setMeasure(
+    id: string,
+    actorId: string,
+    roleId: string,
+    metric: MeasureMetric,
+    value: number,
+  ): Promise<WorkItemOutcome<null>> {
+    if (!holdsMetric(metric)) return { ok: false, reason: 'unknown_metric' };
+    const context = await this.contextFor(id, actorId);
+    if (!context.ok) return context;
+    const { rows, workItem } = context.result;
+    if (rows.some((row) => row.parentId === id)) return { ok: false, reason: 'rolled_up' };
+    if (!(await this.holdsRole(workItem.projectId, roleId)))
+      return { ok: false, reason: 'unknown_role' };
+    const before = await this.storedMeasure(workItem.projectId, id, roleId, metric);
+    const written = await this.writeNamingRole(workItem.projectId, roleId, () =>
+      this.opts.measures.set({ workItemId: id, roleId, metric, value, recordedAt: this.now() }),
+    );
+    if (written === null) return { ok: false, reason: 'unknown_role' };
+    await this.announceWorkItem(workItem.projectId, id);
+    await this.record(
+      workItem.projectId,
+      actorId,
+      'measure',
+      `record ${MEASURE_LABELS[metric]} on ${quoteName(workItem.name)}`,
+      {
+        forward: { do: 'set_measure', workItemId: id, roleId, metric, value },
+        // The figure that was there **in this metric**, or its absence. The
+        // inverse of a first recording is `clear_measure` and never
+        // `set_measure 0`, for the reason `set_actual` gives: zero is somebody
+        // saying the work cost nothing, and this table must never hold it as a
+        // stand-in for nobody having said. verify.md F7 watches it.
+        inverse:
+          before === null
+            ? { do: 'clear_measure', workItemId: id, roleId, metric }
+            : { do: 'set_measure', workItemId: id, roleId, metric, value: before },
+        touched: [id],
+        before: context.result.rows,
+      },
+    );
+    return { ok: true, result: null };
+  }
+
+  /**
+   * Takes one recorded figure back off one work item for one role, in one
+   * metric, leaving that pair's other metrics alone.
+   *
+   * Idempotent and not refused on a rolled-up row, exactly as
+   * {@link WorkItemService.clearActual} is and for its reasons. A missing
+   * **work item** is still `not_found`, and a metric outside the set is still
+   * `unknown_metric` — a clear of a unit that does not exist is not the state
+   * the caller asked for, it is a caller who believes in a unit this release
+   * has never kept.
+   */
+  async clearMeasure(
+    id: string,
+    actorId: string,
+    roleId: string,
+    metric: MeasureMetric,
+  ): Promise<WorkItemOutcome<null>> {
+    if (!holdsMetric(metric)) return { ok: false, reason: 'unknown_metric' };
+    const context = await this.contextFor(id, actorId);
+    if (!context.ok) return context;
+    const { workItem } = context.result;
+    const before = await this.storedMeasure(workItem.projectId, id, roleId, metric);
+    await this.opts.measures.remove(id, roleId, metric);
+    await this.announceWorkItem(workItem.projectId, id);
+    // Nothing was stored in this metric, so nothing changed and there is
+    // nothing to put back — `clearActual`'s skip, per metric.
+    if (before !== null) {
+      await this.record(
+        workItem.projectId,
+        actorId,
+        'clear_measure',
+        `clear the recorded ${MEASURE_LABELS[metric]} on ${quoteName(workItem.name)}`,
+        {
+          forward: { do: 'clear_measure', workItemId: id, roleId, metric },
+          inverse: { do: 'set_measure', workItemId: id, roleId, metric, value: before },
+          touched: [id],
+          before: context.result.rows,
+        },
+      );
+    }
+    return { ok: true, result: null };
+  }
+
+  /**
    * States where one role's work on one work item has got to.
    *
    * Guarded exactly as {@link WorkItemService.setActual} is, and the two
@@ -2733,6 +2894,35 @@ export class WorkItemService {
       case 'clear_actual':
         await this.opts.actuals.remove(command.workItemId, command.roleId);
         return { ok: true, detail: null };
+      case 'set_measure': {
+        const rows = await this.opts.workItems.listByProject(projectId);
+        if (rows.some((row) => row.parentId === command.workItemId)) {
+          return { ok: false, detail: 'that work item has children now, so its figures are sums.' };
+        }
+        // The phase the figure was recorded against has been removed since.
+        // `role_measure.role_id` is a foreign key, so putting the number back
+        // would be a constraint error on a key somebody pressed to be safe.
+        if (!(await this.holdsRole(projectId, command.roleId))) {
+          return { ok: false, detail: 'that phase is no longer in this project.' };
+        }
+        const restored = await this.writeNamingRole(projectId, command.roleId, () =>
+          this.opts.measures.set({
+            workItemId: command.workItemId,
+            roleId: command.roleId,
+            metric: command.metric,
+            value: command.value,
+            // Now, not the stamp the row carried — `set_actual`'s reading of
+            // `recordedAt`, and the same one `compensating.ts` states.
+            recordedAt: this.now(),
+          }),
+        );
+        if (restored === null)
+          return { ok: false, detail: 'that phase is no longer in this project.' };
+        return { ok: true, detail: null };
+      }
+      case 'clear_measure':
+        await this.opts.measures.remove(command.workItemId, command.roleId, command.metric);
+        return { ok: true, detail: null };
       case 'set_progress': {
         const rows = await this.opts.workItems.listByProject(projectId);
         if (rows.some((row) => row.parentId === command.workItemId)) {
@@ -3141,6 +3331,28 @@ export class WorkItemService {
       (each) => each.workItemId === workItemId && each.roleId === roleId,
     );
     return found?.days ?? null;
+  }
+
+  /**
+   * One work item's recorded figure in one metric for one role, or null when it
+   * holds none in that metric.
+   *
+   * Null rather than 0, on {@link WorkItemService.storedActual}'s reading and
+   * per metric: a pair holding a token estimate and no hours has said one thing
+   * and not the other, and an undo of the hours must put back the absence
+   * rather than a zero beside a real figure.
+   */
+  private async storedMeasure(
+    projectId: string,
+    workItemId: string,
+    roleId: string,
+    metric: MeasureMetric,
+  ): Promise<number | null> {
+    const found = (await this.opts.measures.listByProject(projectId)).find(
+      (each) =>
+        each.workItemId === workItemId && each.roleId === roleId && each.metric === metric,
+    );
+    return found?.value ?? null;
   }
 
   /**

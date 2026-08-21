@@ -2,6 +2,18 @@ import type { EstimateMethod, IsoDate, PriorityBand, RoleState } from '@wbs/doma
 
 import type { MeasureMetric, PersonKind } from './schema';
 
+/**
+ * Re-exported as types, and deliberately not as values.
+ *
+ * The interfaces below name both, so every caller of a store already needs
+ * them; making them reachable through this module rather than through
+ * `schema.ts` keeps the service layer's imports pointing at the seam it talks
+ * to. The **constants** stay in `schema.ts`: this file is type-only, and a value
+ * re-export here would pull drizzle into everything that imports a store
+ * interface.
+ */
+export type { MeasureMetric, PersonKind } from './schema';
+
 export interface Example {
   id: string;
   label: string;
