@@ -581,35 +581,60 @@ describe('work item routes', () => {
       body: JSON.stringify({ serviceIds: [owns.id] }),
     });
 
+    /**
+     * The domain rule, run over what the route stored and what the directory
+     * answers — the same pair fe-01 will filter on, rather than a second copy
+     * of the rule written here.
+     */
+    const mismatchOf = async (workItemId: string): Promise<boolean> => {
+      const tree = await send(`/api/projects/${projectId}/work-items`, token);
+      const { workItems } = (await tree.json()) as {
+        workItems: { id: string; teamIds: string[]; serviceId: string | null }[];
+      };
+      const stored = workItems.find((each) => each.id === workItemId);
+      const teams = await send('/api/teams', token);
+      const { teams: listed } = (await teams.json()) as {
+        teams: { id: string; serviceIds: string[] }[];
+      };
+      return builtByNonOwner({
+        serviceId: stored?.serviceId ?? null,
+        teamIds: stored?.teamIds ?? [],
+        ownedServicesByTeam: new Map(listed.map((each) => [each.id, each.serviceIds])),
+      });
+    };
+
+    // The **owned** service first, so this case can tell a working ownership
+    // map from an absent one. Without it, `builtByNonOwner` below answers true
+    // whether the map came back right or came back empty — the over-broad
+    // report chunk 5's usage red exposed, one route over.
+    const owning = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceTeamId: team.id, serviceId: owns.id }),
+    });
+
+    expect(owning.status).toBe(200);
+    expect(await mismatchOf(id)).toBe(false);
+
     const patched = await send(`/api/work-items/${id}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ serviceTeamId: team.id, serviceId: doesNotOwn.id }),
+      body: JSON.stringify({ serviceId: doesNotOwn.id }),
     });
 
     expect(patched.status).toBe(200);
 
-    // And the mismatch is real in what came back, not merely unrefused: the
-    // domain rule is run over the row the route stored and the ownership map
-    // the directory answers, which is the same pair fe-01 will filter on. A
-    // 200 alone would pass just as well against a route that dropped the field.
+    // And the mismatch is real in what came back, not merely unrefused: the row
+    // reads back carrying the service its team does not own, and the rule says
+    // so over the stored pair.
     const tree = await send(`/api/projects/${projectId}/work-items`, token);
     const { workItems } = (await tree.json()) as {
       workItems: { id: string; teamIds: string[]; serviceId: string | null }[];
     };
-    const stored = workItems.find((each) => each.id === id);
-    const teams = await send('/api/teams', token);
-    const { teams: listed } = (await teams.json()) as {
-      teams: { id: string; serviceIds: string[] }[];
-    };
 
-    expect(stored).toMatchObject({ serviceId: doesNotOwn.id, teamIds: [team.id] });
-    expect(
-      builtByNonOwner({
-        serviceId: stored?.serviceId ?? null,
-        teamIds: stored?.teamIds ?? [],
-        ownedServicesByTeam: new Map(listed.map((each) => [each.id, each.serviceIds])),
-      }),
-    ).toBe(true);
+    expect(workItems.find((each) => each.id === id)).toMatchObject({
+      serviceId: doesNotOwn.id,
+      teamIds: [team.id],
+    });
+    expect(await mismatchOf(id)).toBe(true);
   });
 
   // C2's landmine test — `puts a capacity floor on the wire, which nothing this
