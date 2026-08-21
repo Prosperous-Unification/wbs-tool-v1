@@ -13414,3 +13414,108 @@ describe('what the filter says it dropped, and what it exports', () => {
     expect(text).not.toContain('Scope');
   });
 });
+
+describe('the service cell', () => {
+  /**
+   * The fixture the facet cases use, one file down: two services in the
+   * directory, `Checkout` on `010`, and three rows under it that state none of
+   * their own. That is the whole of what this cell has to say — what a row is,
+   * and what it inherits when it says nothing.
+   */
+  async function aServicedPlan(): Promise<ReturnType<typeof fakeApi> & { checkout: string }> {
+    const api = fakeApi();
+    const strip = await api.create('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'Strip the walls',
+    });
+    await api.create('p1', { parentId: strip.id, afterId: null, name: 'Sockets' });
+    const checkout = api.addService('Checkout');
+    api.addService('Ledger');
+    api.labelWithService(strip.id, checkout.id);
+    return Object.assign(api, { checkout: checkout.id });
+  }
+
+  const drawn = async (api: ProjectApi): Promise<void> => {
+    render(<WbsTable projectId="p1" api={api} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '010.1']);
+    });
+  };
+
+  itDom('says what a row is, and what its children inherit when they say nothing', async () => {
+    const api = await aServicedPlan();
+    await drawn(api);
+
+    // The row's own, as a value the box holds.
+    expect(screen.getByLabelText('Service for 010')).toHaveValue('Checkout');
+    // The child's, as placeholder ink that is shown and not stored — `↳` for
+    // the inheritance, the same glyph and the same bargain the Team cell makes
+    // at 120px.
+    const child = screen.getByLabelText('Service for 010.1');
+    expect(child).toHaveValue('');
+    expect(child).toHaveAttribute('placeholder', '↳ Checkout');
+    // A marker that cannot say where it came from is a mystery, not a signal.
+    expect(child).toHaveAttribute(
+      'title',
+      expect.stringMatching(/Checkout — inherited from 010 Strip the walls/),
+    );
+  });
+
+  itDom('sends the service the picker chose, and null when it is cleared', async () => {
+    const api = await aServicedPlan();
+    const patches: unknown[] = [];
+    const watched: ProjectApi = {
+      ...api,
+      patch: async (id, patch) => {
+        patches.push({ id, patch });
+        return api.patch(id, patch);
+      },
+    };
+    await drawn(watched);
+
+    // Choosing on the child, which had none: the id goes out.
+    const child = screen.getByLabelText('Service for 010.1');
+    fireEvent.change(child, { target: { value: 'Ledger' } });
+    fireEvent.click(await screen.findByText('Ledger'));
+    await waitFor(() => {
+      expect(patches).toHaveLength(1);
+    });
+
+    // Clearing on the parent, which had one. **`null`, not an omitted field.**
+    // An absent `serviceId` is "no opinion" to the patch and would leave
+    // `Checkout` standing — the cell would appear to clear and the next
+    // refetch would put the label back.
+    fireEvent.click(screen.getByLabelText('Clear Service for 010'));
+    await waitFor(() => {
+      expect(patches).toHaveLength(2);
+    });
+    expect(patches[1]).toMatchObject({ patch: { serviceId: null } });
+  });
+
+  itDom('is not a column at all on a deployment that has never made a service', async () => {
+    // `CONDITIONAL_COLUMNS`' whole bargain: 120px is only spent where somebody
+    // has opted into the dimension. Keyed on the **directory**, not on this
+    // plan's rows — a plan nobody has labelled still needs the cell to put a
+    // first service in, which is why the assertion below uses a fixture with a
+    // service in the directory and none on the row.
+    const bare = fakeApi();
+    await bare.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
+    render(<WbsTable projectId="p1" api={bare} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010']);
+    });
+    expect(screen.queryByLabelText('Service for 010')).toBeNull();
+
+    cleanup();
+
+    const stocked = fakeApi();
+    await stocked.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
+    stocked.addService('Checkout');
+    render(<WbsTable projectId="p1" api={stocked} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010']);
+    });
+    expect(screen.getByLabelText('Service for 010')).toHaveValue('');
+  });
+});
