@@ -710,39 +710,6 @@ export function PlanCards({
                 </span>
               )}
               {/*
-                The services, and `↳` where the row carries none of its own —
-                the team chip's glyph again, third dimension over, with the row
-                the set came from in the `title` (task 7.3).
-
-                **Between the team and the tags, not after both.** Team and
-                service are the two directory dimensions the ownership map
-                relates — "Billing builds Payments" is one sentence, and a
-                reader deciding whether that pairing looks wrong should not have
-                to read past a list of tags to find its second half. Tags label
-                what sort of work it is and relate to neither.
-
-                Every stated name, joined, exactly as the tags chip does it: a
-                row's services are a set since the 2026-08-21 scope change, and
-                a card naming the first of two would be the last surface still
-                narrowing what the store, the wire, the filter and the cell all
-                widened.
-              */}
-              {delivers.state !== 'none' && (
-                <span
-                  data-card-service
-                  {...(delivers.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
-                  title={
-                    delivers.state === 'inherited'
-                      ? `${delivers.names.join(', ')} — inherited from ${delivers.fromRow}. This row carries no service of its own.`
-                      : undefined
-                  }
-                >
-                  {delivers.state === 'inherited'
-                    ? `↳ ${delivers.names.join(', ')}`
-                    : delivers.names.join(', ')}
-                </span>
-              )}
-              {/*
                 The tags, and `↳` where the row carries none of its own — the
                 team chip's one glyph for the same one fact, one dimension over,
                 with the row it came from in the `title`.
@@ -765,6 +732,42 @@ export function PlanCards({
                   {tags.state === 'inherited'
                     ? `↳ ${tags.names.join(', ')}`
                     : tags.names.join(', ')}
+                </span>
+              )}
+              {/*
+                The services, and `↳` where the row carries none of its own —
+                the team chip's glyph again, third dimension over, with the row
+                the set came from in the `title` (task 7.3).
+
+                **Last of the three, because the table already settled that
+                order** — `Service/team`, `Tags`, `Services`, in that sequence
+                in `wbs-table.tsx`'s column list. A reader moving between the
+                two faces of one plan should find its labels in one order, and
+                a phone is not the surface that gets to re-argue it. This chip
+                was written second, between the team and the tags, on the
+                argument that team and service are the pair the ownership map
+                relates; the table's order was not read before choosing, and
+                agreeing with the other face is worth more than that argument.
+
+                Every stated name, joined, exactly as the tags chip does it: a
+                row's services are a set since the 2026-08-21 scope change, and
+                a card naming the first of two would be the last surface still
+                narrowing what the store, the wire, the filter and the cell all
+                widened.
+              */}
+              {delivers.state !== 'none' && (
+                <span
+                  data-card-service
+                  {...(delivers.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
+                  title={
+                    delivers.state === 'inherited'
+                      ? `${delivers.names.join(', ')} — inherited from ${delivers.fromRow}. This row carries no service of its own.`
+                      : undefined
+                  }
+                >
+                  {delivers.state === 'inherited'
+                    ? `↳ ${delivers.names.join(', ')}`
+                    : delivers.names.join(', ')}
                 </span>
               )}
               {/*

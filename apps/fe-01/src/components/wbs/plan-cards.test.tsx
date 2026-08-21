@@ -1012,18 +1012,18 @@ describe('what a card says about capacity', () => {
     expect(serviceOnCard()).toBeNull();
   });
 
-  itDom('keeps the service between the team and the tags', async () => {
-    // The order is the decision, so the order is the assertion: team and
-    // service are the pair the ownership map relates, and a reader checking
-    // "Billing builds Payments" should not have to read past the tags to find
-    // the second half. Nothing else on the card asserts sibling order, so
-    // moving the chip would otherwise be free.
+  itDom('prints the three labels in the order the table puts its columns in', async () => {
+    // `Service/team`, `Tags`, `Services` — `wbs-table.tsx`'s column list, and
+    // therefore this card's chip order. A reader moving between the two faces
+    // of one plan should find its labels in one sequence, and nothing else on
+    // a card asserts sibling order, so without this case the chip is free to
+    // drift back.
     //
-    // Proof: the chip moved below the tags, and the FIRST version of this case
-    // stayed green — it arranged a team and a service and no tag, so the chip
-    // it was watching had nothing to be out of order with, and `Billing,
-    // Payments` reads the same either way. All three dimensions are stated
-    // here for that reason. Watched 2026-08-21.
+    // Proof: the chip moved up between the team and the tags — where it was
+    // first written, before the table's order was read — and this fails on the
+    // middle name. The first version of this case arranged no tag at all and
+    // stayed green through exactly that move, which is why all three
+    // dimensions are stated here. Watched 2026-08-21.
     await aPlan((rows, teams, api) => {
       teams.push({ id: 't1', name: 'Billing' });
       api.services.push({ id: 's1', name: 'Payments' });
@@ -1037,7 +1037,7 @@ describe('what a card says about capacity', () => {
     const chips = [
       ...document.querySelectorAll('[data-card-team], [data-card-service], [data-card-tags]'),
     ];
-    expect(chips.map((chip) => chip.textContent)).toEqual(['Billing', 'Payments', 'regulatory']);
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Billing', 'regulatory', 'Payments']);
   });
 
   itDom('names the band on a card, in its own colour', async () => {
