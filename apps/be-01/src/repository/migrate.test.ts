@@ -3682,7 +3682,12 @@ describe('the person kind migration', () => {
             .query<{ sql: string }, []>("SELECT sql FROM sqlite_master WHERE name = 'person'")
             .get()
             ?.sql.replace(/\s+/g, ' '),
-        ).toBe('CREATE TABLE `person` (`id` text PRIMARY KEY, `name` text NOT NULL)');
+          // Byte for byte what `20260806190000_add_teams_and_assignees` wrote,
+          // down to the newline after the bracket that this collapse turns into
+          // a space. SQLite rewrote the stored DDL to remove the column and did
+          // not otherwise touch it — which is the strongest form of the claim
+          // this case exists to make, and stronger than "the column is gone".
+        ).toBe('CREATE TABLE `person` ( `id` text PRIMARY KEY, `name` text NOT NULL )');
         // The index by name, because the rollback that keeps the rows and drops
         // the index is the one that looks green here and is not.
         expect(
