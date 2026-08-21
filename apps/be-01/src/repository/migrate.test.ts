@@ -2480,6 +2480,7 @@ describe('the tag migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, NOT_BEFORE_REASON)).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
