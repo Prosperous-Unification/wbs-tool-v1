@@ -1961,6 +1961,7 @@ export class WorkItemService {
       // `statedAt` is the newest stamp in the branch, for `recordedAt`'s reason:
       // the parent's reading is now the whole branch's, and the day it was last
       // spoken about is the honest answer to "when was this said".
+      const statedHandedUp: StoredProgress[] = [];
       // And the figures that are not days, folded per metric — the same argument
       // the actuals make, three times, because `rollUpMeasures` takes one metric
       // at a time so that a token and an hour can never be added together. A
