@@ -67,38 +67,53 @@ discriminator would put a nullable `size` on product areas, make every existing
 capacity query filter by kind, and give the ownership map a self-join on the
 table it discriminates. Two tables, two behaviours, no branch.
 
-### D2 — The item's service is a nullable column on `work_item`, not a join table
+### D2 — The item's services are a set, stored in a `work_item_service` join table
 
-`work_item.service_id TEXT REFERENCES service(id) ON DELETE SET NULL`.
+**Superseded 2026-08-21.** Dany, 07:46 Kyiv: *"can be several services."* D2
+originally decided a nullable `work_item.service_id` column on the argument that
+the schema should state a cardinality of one rather than a comment stating it.
+The cardinality it stated is no longer the one we want, so the argument now
+points the other way: the store is a `work_item_service (work_item_id,
+service_id)` join table, keyed on the pair, both sides cascading — literally
+`work_item_tag`, the shape D2 departed from. The departure is over.
 
-This is the one place the design departs from the tags template, and it is the
-task brief's open detail defaulted: **one service per item**. The rationale is
-that the schema should state the cardinality rather than a comment stating it.
-A join table with a `work_item_id` unique index would say the same thing in a
-weaker way — the shape would read as many-valued to anybody scanning it, and
-every read would then be a group-by that returns arrays of length ≤ 1, which is
-how a "temporarily single-valued" field becomes multi-valued by accident.
+The paragraph that turned out to matter is the one D2 wrote to keep the door
+open: **the domain reading was already set-shaped**, because `effectiveLabelsOf`
+works in sets and this dimension handed it a singleton. That is why widening cost
+a migration and a read rather than a redesign of the inheritance, exactly as
+predicted.
 
-`ON DELETE SET NULL` rather than `CASCADE`, and the difference matters: deleting
-a service must not delete work items. This is also the arm that makes the
-directory removal effect `label_nulled` rather than `label_removed` — the
-existing tag/team distinction in `directory-usage.ts:15-30`, which this change
-does not invent and does not blur. A column is nulled; a set member is removed;
-the two are different sentences on screen and now both are true of something.
+**The transition is staged, and the middle state is on the branch right now.**
+Chunk 12 widened the domain and the filter to `serviceIds` and left the store
+single-valued, folding the wire into a singleton set at **two named edges** —
+the `effectiveServicesOf` memo in `wbs-table.tsx` and be-01's 5.4 route case —
+each carrying a comment naming the line that deletes it. Both folds die with the
+migration below. A middle state is fine; an unmarked one is not.
 
-**What multi-service would cost, stated so the door stays visibly open:** a
-`work_item_service` join table, the seed `INSERT … SELECT id, service_id FROM
-work_item WHERE service_id IS NOT NULL`, a read that returns an array, and the
-effective reading changing its `wrap` — the walk itself is already set-valued,
-because `effectiveLabelsOf` works in sets and this dimension hands it a
-singleton set. That last part is deliberate: **the domain reading is set-shaped
-even though the column is single-valued**, so widening the cardinality is a
-migration plus a read, not a redesign of the inheritance. Dany can say "multi"
-and it is a day.
+**What the migration owes, blue/green-safe (two be-01 processes, one SQLite
+file):** create `work_item_service`, seed it `INSERT … SELECT id, service_id FROM
+work_item WHERE service_id IS NOT NULL`, and **leave `work_item.service_id` in
+place**, unread by the new code — the outgoing process still writes it during the
+swap, and a column that is merely ignored breaks nobody. Dropping it is a later,
+separate migration once no process reads it. That is the same additive rule D1
+follows.
+
+**One consequence, carried into the spec:** the directory removal effect for a
+service becomes `label_removed`, not `label_nulled`. A column is nulled; a set
+member is removed. D2 originally chose `label_nulled` *because* of the column,
+and named the tag/team distinction in `directory-usage.ts:15-30` as the thing not
+to blur — so the effect follows the storage honestly rather than staying put.
+Until the join table lands, the store is still a column and `label_nulled` is
+still what the code emits; the switch belongs to the migration chunk, in one
+commit with it.
 
 _Rejected:_ free text on the work item. R2-5 §2 states the reason and it is
 unchanged — typing the label onto the item makes `Payments` and `payments ` two
 product areas and leaves rename with nothing to rename.
+
+_Rejected:_ keeping the column and adding a `work_item_id` unique index later.
+That was the shape D2 warned about — a join table read as many-valued while
+constrained to one — and it is now the wrong constraint besides.
 
 ### D3 — Inheritance is the shared walk, and the fourth line over it
 
@@ -110,11 +125,17 @@ per-dimension vocabulary stays per-dimension for `effective-label.ts`'s stated
 reason — "Payments — inherited from 010 Backend" is not "regulatory — inherited
 from 010 Backend", and a shared error class would name neither.
 
-The row's `serviceId: string | null` becomes `labelIds: serviceId ? [serviceId]
-: []` on the way in, and the result carries `serviceId: labelIds[0]` back out.
-Absence is spelled once — a row with no service anywhere above it is **absent
-from the map**, never present with a null — which is the same single spelling of
-"unstated" the other two dimensions have.
+The row carries `serviceIds: readonly string[]` in and the result carries
+`serviceIds` back out — no conversion at either end, so `effectiveServicesOf` is
+now literally `effectiveTagsOf` with different names. Absence is spelled once — a
+row with no service anywhere above it is **absent from the map**, never present
+with an empty array — which is the same single spelling of "unstated" the other
+two dimensions have.
+
+**This is the widening D2 records**, and it happened at the domain layer first:
+the two conversions this paragraph used to describe (`[serviceId]` in,
+`labelIds[0]` out) were the whole cost of the singleton, and deleting them was
+the whole cost of the set.
 
 `effective-service.ts` is exported from the package index beside
 `effective-tag.ts`; `effective-label.ts` stays deliberately unexported, and that
@@ -124,22 +145,29 @@ comment stays true with three dimensions over it.
 the inheritance case must fail. Same red the tag dimension carries, because the
 same line is what would break.
 
-**What that red actually showed, watched 2026-08-21 and worth writing down**,
-because it is a limit of the single-valued read rather than of the walk: the
-union fault is ordering-dependent for _this_ dimension. Unioned
-**ancestor-first**, three of the service dimension's own cases fail and the
-walk's override rule is proved from here. Unioned **own-first**, the service
-half sees `[own, ancestor]`, takes `labelIds[0]`, and answers correctly — the
-fault is invisible to this dimension and is caught by the team and tag halves of
-the same shared case instead.
+**What that red showed while the read was single-valued, watched 2026-08-21 and
+kept because it explains why the case list looks the way it does:** the union
+fault was ordering-dependent for _this_ dimension. Unioned **ancestor-first**,
+three of the service dimension's own cases failed and the walk's override rule
+was proved from here. Unioned **own-first**, the service half saw
+`[own, ancestor]`, took `labelIds[0]`, and answered correctly — the fault was
+invisible to this dimension and was caught by the team and tag halves of the
+same shared case instead.
 
-So the single-valued read narrows what a fault in the shared walk can show, and
-the reason a union cannot drift in unnoticed is that **three** dimensions read
-the walk and the other two return the whole set. That is an argument for keeping
+**The widening closed that hole.** With `serviceIds` returned whole, an own-first
+union is visible to this dimension too: chunk 12's *"overrides a parent's two
+services with a leaf's two, keeping none of them"* puts two ids on each side, so
+a union answers with four whichever end it starts from. **Watched 2026-08-21**,
+own-first union re-injected into `effective-label.ts` on h2puni: 109 pass, 9
+fail, and **three** of them are `effectiveServicesOf`'s own — that case, "lets a
+leaf's own service beat its parent's", and "gives the nearer ancestor's service
+to a leaf between two" — plus the three-dimension case. Before the widening this
+dimension contributed none of them. The argument for keeping
 `effective-label.ts` shared and for keeping the three-dimension case asserting
-all three, not for a defensive length check inside `effectiveServicesOf`: a
-throw there would be an unreachable branch with no test able to reach it
-honestly.
+all three still stands on its own; it no longer has to carry this dimension's
+blind spot as well. Still no defensive length check inside `effectiveServicesOf`
+— there was never a reachable fault for one, and now there is not even a
+cardinality to check.
 
 ### D4 — The ownership map is read on be-01 and shipped whole to the client
 
@@ -176,9 +204,13 @@ person's.
 
 `libs/domain/src/label-mismatch.ts`, two functions, shared vocabulary:
 
-- `builtByNonOwner({ serviceId, teamIds, ownedServicesByTeam })` — true when
-  `serviceId` is stated, `teamIds` is non-empty, and no team in `teamIds` owns
-  `serviceId`.
+- `builtByNonOwner({ serviceIds, teamIds, ownedServicesByTeam })` — true when
+  `serviceIds` is non-empty, `teamIds` is non-empty, and **some** service in
+  `serviceIds` is owned by no team in `teamIds`. `some`, not `every`: one
+  unowned service flags the row, which is Dany's sentence and also what makes
+  the two signals read alike — some service unowned, some assignee outside.
+  Naming *which* services is the same predicate over a one-element set, so
+  there is no third export.
 - `assignedOutsideTeam({ assigneeIds, teamIds, teamsByPerson })` — true when
   both are non-empty and some assignee belongs to none of `teamIds`.
 
@@ -203,15 +235,26 @@ than not having it. Each half is asserted with its own test.
 Recording that a non-owner built something is the plan being honest about what
 happened; refusing the write is how a tool gets worked around.
 
-### D6 — `work_item.service_id` is set through the existing patch path, journalled as a scalar
+### D6 — A work item's services are set through the existing patch path, journalled whole
 
-`serviceId?: string | null` on the work-item patch payload, unknown id →
-`unknown_service`, the refusal shape the team and tag writes already make.
-Journalled before-value is the **prior scalar**, and that is correct here rather
-than the whole-set rule tags needed: a column has one prior value. The tags
-change had to warn about the scalar habit because its field was set-valued; this
-field is not, and stating that inversion here stops a reviewer "fixing" it into
-an array.
+**Amended 2026-08-21 with D2.** `serviceIds?: readonly string[]` on the
+work-item patch payload, replacing the stated set in full, deduplicated rather
+than refused on a repeat, unknown id → `unknown_service` refusing the whole
+patch — the refusal shape the team and tag writes already make.
+
+The journalled before-value is the **whole prior set**, not one member, so an
+undo restores every service the patch replaced. D6 originally decided the
+opposite — a prior scalar, "correct here rather than the whole-set rule tags
+needed: a column has one prior value" — and warned a reviewer off "fixing" it
+into an array. That warning is now backwards: the field is set-valued, so the
+tags rule applies to it unchanged and the inversion is what would be the bug.
+The paragraph is kept rather than deleted because the branch still carries the
+scalar arm until D2's join table lands, and a reviewer reading the code before
+the migration should find the reason it is still there.
+
+**Still single until the migration:** `serviceId?: string | null` is what be-01
+accepts today, and the two folds D2 names are where it meets the set-shaped
+domain.
 
 Undo and redo asserted over real SQLite rather than the in-memory store — the
 store cannot model a cascade, which is how a restore case passed under the very
@@ -251,8 +294,11 @@ which are the two existing derived-predicate facets: "show me only the
 mismatches" is a question, "show me only the non-mismatches" is not one anybody
 asks, and a tri-state costs every control a third rendering.
 
-`RowFacets` gains `serviceId: string | null` and the two booleans, all three
-from the **effective** reading. `filterWords` gains three labels.
+`RowFacets` gains `serviceIds: readonly string[]` and the two booleans, all three
+from the **effective** reading. The service predicate is therefore the same
+`carriesAnyChosen` line the team and tag facets already use — ticking two
+services widens the result — rather than the nought-or-one fold the single-valued
+shape needed. `filterWords` gains three labels.
 
 ### D9 — `service_team` keeps its name, and the directory page says `Teams`
 
@@ -291,10 +337,16 @@ reviewer of this change should not have to read another one to find out why.
   exemption for the same reason and the same test guards it; if
   `foldedTableMinWidth` answers anything different after this change, that is a
   red, not a rounding.
-- **`ON DELETE SET NULL` is a write the outgoing release will see.** A service
-  deleted during a swap nulls `work_item.service_id`, a column the outgoing
-  release does not select — so it sees nothing, which is the correct outcome and
-  the reason the column is nullable rather than defaulted.
+- **The delete arm is a write the outgoing release will see.** While the store is
+  still a column, a service deleted during a swap nulls `work_item.service_id`, a
+  column the outgoing release does not select — so it sees nothing, which is the
+  correct outcome and the reason the column is nullable rather than defaulted.
+  After D2's join table, the same delete cascades `work_item_service` rows the
+  outgoing release also never reads, so the property survives the migration. What
+  does **not** survive is the column staying authoritative: the migration leaves
+  `work_item.service_id` behind unread, and a delete that stops maintaining it
+  while an old process still reads it is the one ordering that would bite. Hence
+  D2's rule — drop the column in a **later** migration, not the same one.
 - **Two signals is where scope grows.** Counts, a report, a dashboard, blocking
   — all obvious next steps, all deferred by the proposal's non-goals. The risk
   is a build that quietly adds one; the tasks below add none, and the verify

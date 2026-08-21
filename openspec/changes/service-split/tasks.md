@@ -13,6 +13,10 @@
       cardinality (design D2). `SET NULL` not `CASCADE`: deleting a service must
       not delete work items. **Watched red** — make it `CASCADE` and the
       "removing a service keeps the rows" test must fail.
+      **Superseded by 10.1** (scope change, 2026-08-21): the cardinality is now
+      a set. The column stays where it is, unread, until a later migration drops
+      it — see D2's blue/green rule. Left `[x]` because it shipped and the
+      column is still in the schema.
 - [x] 1.3 `drizzle/20260821000000_add_service/{migration,down}.sql`. **Check the
       stamp against every existing directory before writing it** — #60 and #61
       both stamped `20260814100000`, `migrationsToRollback` filters on a strict
@@ -37,6 +41,9 @@
       column** (design D2) — `serviceId` in, singleton set through the walk,
       `serviceId` out. Exported from the package index; `effective-label.ts`
       stays unexported.
+      **Widened in chunk 12** (2026-08-21): `serviceIds` in and out, both
+      conversions deleted, so this is now `effectiveTagsOf` with different
+      names. Four cases added, including the two-against-two override.
 - [x] 2.3 **Watched red** — make the walk union instead of override for this
       dimension and the inheritance case must fail.
 - [x] 2.4 Per dimension, independently: a row with a service and no teams
@@ -130,11 +137,16 @@
       from 7.1) and `assignedOutsideTeam` on the assignee cell, each on the cell
       its signal is about. Both markers carry a hover sentence naming which
       team and which service or person — a marker that cannot say why is a
-      mystery, not a signal.
+      mystery, not a signal. **Under the set** the service sentence names
+      **every** offending service, not the first; the "which ones" predicate
+      already exists in `label-mismatch.ts` and needs no third export. **Do 10.2
+      first** — a marker built against a single-select cell is the third surface
+      that would need redoing.
 - [ ] 7.3 `plan-cards.tsx`: the `↳` inherited chip for the service dimension,
       per dimension as the other two are.
-- [ ] 7.4 `plan-export.ts`: a `Service` column, RFC4180-quoted, beside `Teams`
-      and `Tags`.
+- [ ] 7.4 `plan-export.ts`: a **`Services`** column — plural since the scope
+      change — joined and RFC4180-quoted exactly the way `Teams` and `Tags` are,
+      beside them.
 - [ ] 7.5 `directory-page.tsx`: a **Services** card beside Teams and Tags — no
       capacity column, no membership chips — and a **services picker on the team
       row**, which is where the map is edited (Dany, 2026-08-20 23:18). The
@@ -142,6 +154,9 @@
       test reads for `member` and for a number box and finds neither.
 - [x] 7.6 `lib/wbs-api.ts`: `serviceId` on the work-item wire type,
       `ServiceView`, `serviceIds` on `TeamView`.
+      **Still singular on `WorkItemView`**, deliberately — the wire follows the
+      store, and both widen together in 10.1/10.2. `TeamView.serviceIds` is the
+      ownership map and was always a set.
 - [x] 7.7 The table-width budget rule — **exempted, and the exemption names what
       it exempts**: `CONDITIONAL_COLUMNS` in `table-frame.ts` keeps `service`
       out of `FIXED_COLUMNS`, so `foldedTableMinWidth` answers exactly what it
@@ -185,3 +200,49 @@
 - [ ] 9.5 `LLM_README.md`'s wbs-mcp entry says **43 MCP tools**, and section 4's
       four service routes make it **47**. Corrected there when this lands, not
       before: the number describes what is on `main`.
+
+## 10. The widening — a work item carries a set of services
+
+Dany, 2026-08-21 07:46 Kyiv: *"can be several services."* The domain and the
+filter were widened in chunk 12; the store, the wire and the picker were not, and
+the branch folds between them at two commented edges. This section closes that
+gap. **Do it before 7.2, 7.3 and 7.4** — each of those is a new surface, and a
+surface built on the singleton is a surface built twice.
+
+- [ ] 10.1 `work_item_service (work_item_id, service_id)` in `schema.ts` and a
+      migration, keyed on the pair, both sides cascading, indexed by
+      `service_id` — `work_item_tag` line for line. Seed it
+      `INSERT … SELECT id, service_id FROM work_item WHERE service_id IS NOT
+      NULL`. **Leave `work_item.service_id` in place and unread**: blue and green
+      share one SQLite file and the outgoing release still selects it, so
+      dropping it here breaks the release that is still running (design D2, and
+      the same rule 1.1's `service_team` rename follows). Check the stamp against
+      every existing directory before writing it — 1.3's `>`-filter bug is the
+      reason this sentence is repeated. **Watched red:** revert a `DROP` in
+      `down.sql` and the rollback round-trip test must fail.
+- [ ] 10.2 The wire and the write, both ends in one slice: `serviceIds` on the
+      repository read (a grouped join, as `tagIds` is), `serviceIds?: readonly
+      string[]` on the patch payload replacing the set whole and deduplicating a
+      repeat, `unknown_service` refusing the **whole** patch from inside the
+      write's transaction, and `WorkItemView.serviceIds` on `lib/wbs-api.ts`.
+      Deleting the two folds is how this task is finished: the
+      `effectiveServicesOf` memo in `wbs-table.tsx` and be-01's 5.4 controller
+      case each carry a comment naming the line that goes. **Watched red:**
+      leave either fold in and the two-service row must fail to reach the table.
+- [ ] 10.3 The journal takes the **whole prior set**, not the prior scalar
+      (design D6, amended). **Watched red:** journal one member and the undo case
+      restoring two services must fail — the fault tags 6.3 already caught once
+      on its own dimension.
+- [ ] 10.4 7.1's cell becomes a multi-select, the tags cell's control: blank
+      still means inherit, the ancestor still named in the title, and the
+      column header becomes **Services**. `CONDITIONAL_COLUMNS` unchanged, so
+      7.7's folded floor of 1067 must still be exactly what it was. **Watched
+      red:** assert the floor first and the membership second — 7.7's first
+      injection fired on the wrong assertion because they were the other way
+      round.
+- [ ] 10.5 `directoryUsageOfService` reports `label_removed`, not
+      `label_nulled`, once the store is a join table — a column is nulled, a set
+      member is removed, and `directory-usage.ts:15-30` already distinguishes
+      them. **One commit with 10.1**, never before it: while the column is still
+      authoritative, `label_nulled` is the true sentence. **Watched red:** an
+      item carrying two services loses only the removed one.

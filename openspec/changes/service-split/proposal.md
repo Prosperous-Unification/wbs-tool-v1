@@ -25,8 +25,10 @@ It is. Three things a tag cannot do, all of them asked for on 2026-08-20:
 - **It reads against the team.** That ownership map makes a row whose service is
   not in its team's owned set a statement — _built by a non-owner_ — which is a
   sentence no tag can form.
-- **It is single-valued on the item.** A row is delivered by one product area.
-  Many-valued grouping is what tags are for.
+- ~~**It is single-valued on the item.**~~ Retired 2026-08-21 — Dany, 07:46:
+  _"can be several services."_ A row carries a **set**, the `tagIds` shape. The
+  two bullets above are what still separate a service from a tag, and they are
+  enough: cardinality never was the distinction.
 
 Dany, 23:16: _"Let service and teams be independent."_ So service is its own
 dimension on the work item, not derived through the team — R2-5 §2's shape
@@ -41,10 +43,9 @@ team."_ Second signal, same vocabulary.
 **Two tables, additive only.** `service (id, name)` — a global directory, no
 project column, exactly as `service_team` and `tag` are global — and
 `team_service (team_id, service_id)`, the ownership map, cascading on both
-sides. The item's own service is **a nullable column on `work_item`**, not a
-join table: one service per item, and the single-valued shape says so in the
-schema rather than in a comment. D2 argues that against the join-table
-alternative.
+sides. The item's own services are a third table, `work_item_service`, the
+`work_item_tag` shape — a set per item. D2 records why it was a nullable column
+first and what the widening cost.
 
 **`service_team` keeps its name.** Blue and green share one SQLite file, so
 nothing is renamed while a release beside this one still selects it. The rename
