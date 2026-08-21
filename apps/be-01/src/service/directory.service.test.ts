@@ -123,32 +123,36 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('DirectoryService.renameTeam', () => {
+describe('DirectoryService.patchTeam', () => {
   it('renames a team, trimming what it is given', async () => {
     const platform = await directory.addTeam('Platform');
     if (platform === null) throw new Error('the fixture team was refused');
 
-    const outcome = await directory.renameTeam(platform.id, '  Payments  ');
+    const outcome = await directory.patchTeam(platform.id, { name: '  Payments  ' });
 
     // An id and a name, and nothing else on the row: a team carries no size
     // since `capacity-per-project`, and this is where a rename answering with
     // the retired column would show up.
     expect(outcome).toEqual({
       ok: true,
-      result: { id: platform.id, name: 'Payments' },
+      result: { id: platform.id, name: 'Payments', serviceIds: [] },
     });
-    expect(await store.listTeams()).toEqual([{ id: platform.id, name: 'Payments' }]);
+    expect(await store.listTeams()).toEqual([
+      { id: platform.id, name: 'Payments', serviceIds: [] },
+    ]);
   });
 
   it('refuses a name of whitespace alone, and writes nothing', async () => {
     const platform = await directory.addTeam('Platform');
     if (platform === null) throw new Error('the fixture team was refused');
 
-    expect(await directory.renameTeam(platform.id, '   ')).toEqual({
+    expect(await directory.patchTeam(platform.id, { name: '   ' })).toEqual({
       ok: false,
       reason: 'name_required',
     });
-    expect(await store.listTeams()).toEqual([{ id: platform.id, name: 'Platform' }]);
+    expect(await store.listTeams()).toEqual([
+      { id: platform.id, name: 'Platform', serviceIds: [] },
+    ]);
   });
 
   it('refuses a name another team holds, naming the survivor', async () => {
@@ -159,7 +163,7 @@ describe('DirectoryService.renameTeam', () => {
     // The survivor is `Platform` — the row that already holds the name keeps
     // it, and the refusal says so rather than leaving the caller to guess which
     // of the two names is now which.
-    expect(await directory.renameTeam(payments.id, 'Platform')).toEqual({
+    expect(await directory.patchTeam(payments.id, { name: 'Platform' })).toEqual({
       ok: false,
       reason: 'taken',
       name: 'Platform',
@@ -171,17 +175,101 @@ describe('DirectoryService.renameTeam', () => {
     const platform = await directory.addTeam('Platform');
     if (platform === null) throw new Error('the fixture team was refused');
 
-    expect(await directory.renameTeam(platform.id, 'Platform')).toEqual({
+    expect(await directory.patchTeam(platform.id, { name: 'Platform' })).toEqual({
       ok: true,
-      result: { id: platform.id, name: 'Platform' },
+      result: { id: platform.id, name: 'Platform', serviceIds: [] },
     });
   });
 
   it('refuses a team that is not there', async () => {
-    expect(await directory.renameTeam(crypto.randomUUID(), 'Payments')).toEqual({
+    expect(await directory.patchTeam(crypto.randomUUID(), { name: 'Payments' })).toEqual({
       ok: false,
       reason: 'not_found',
     });
+  });
+
+  it('refuses a patch naming neither a name nor services', async () => {
+    const platform = await directory.addTeam('Platform');
+    if (platform === null) throw new Error('the fixture team was refused');
+
+    // `patchPerson`'s rule and its reason: nothing sends one deliberately, so a
+    // 200 here would hide a client bug rather than report it.
+    expect(await directory.patchTeam(platform.id, {})).toEqual({
+      ok: false,
+      reason: 'nothing_to_change',
+    });
+  });
+
+  it('one team owns several services, and each service reads as owned by it', async () => {
+    const platform = await directory.addTeam('Platform');
+    if (platform === null) throw new Error('the fixture team was refused');
+    const payments = await directory.addService('Payments');
+    const auth = await directory.addService('Auth');
+    if (payments === null || auth === null) throw new Error('a fixture service was refused');
+
+    const outcome = await directory.patchTeam(platform.id, {
+      serviceIds: [payments.id, auth.id],
+    });
+
+    expect(outcome).toEqual({
+      ok: true,
+      result: {
+        id: platform.id,
+        name: 'Platform',
+        serviceIds: [auth.id, payments.id].sort(),
+      },
+    });
+    // The other direction of the same fact, which is what the spec's "each
+    // service reads as owned by that team" asks for: the map is one table and
+    // both readings come out of it.
+    expect(await store.listTeams()).toEqual([
+      { id: platform.id, name: 'Platform', serviceIds: [auth.id, payments.id].sort() },
+    ]);
+  });
+
+  it('refuses a service the directory does not hold, and writes neither half', async () => {
+    const platform = await directory.addTeam('Platform');
+    if (platform === null) throw new Error('the fixture team was refused');
+    const payments = await directory.addService('Payments');
+    if (payments === null) throw new Error('the fixture service was refused');
+
+    expect(
+      await directory.patchTeam(platform.id, {
+        name: 'Renamed',
+        serviceIds: [payments.id, crypto.randomUUID()],
+      }),
+    ).toEqual({ ok: false, reason: 'unknown_service' });
+
+    // Neither half: the rename is gone with the map edit that was refused. The
+    // validation runs before the update **inside the same transaction**, which
+    // is the only thing that makes this true — returning from a drizzle
+    // transaction callback commits it.
+    expect(await store.listTeams()).toEqual([
+      { id: platform.id, name: 'Platform', serviceIds: [] },
+    ]);
+  });
+
+  it('editing the ownership map announces nothing, where a rename announces', async () => {
+    const platform = await directory.addTeam('Platform');
+    if (platform === null) throw new Error('the fixture team was refused');
+    const payments = await directory.addService('Payments');
+    if (payments === null) throw new Error('the fixture service was refused');
+    // The team is on a row of a real project, so there is something to announce
+    // to — without this the silence below would be silence about nothing.
+    await workItems.patch('design', { serviceTeamId: platform.id });
+    broadcast.published.length = 0;
+
+    await directory.patchTeam(platform.id, { serviceIds: [payments.id] });
+    // The map labels no work item, is not inherited and the scheduler never
+    // reads it, so every open plan is still correct — an event would send them
+    // all to reread a tree that is exactly as it was. Half of task 4.5's claim,
+    // asserted where the decision lives; the other half is the schedule itself.
+    expect(broadcast.published).toEqual([]);
+
+    // The control, so this is not a test that events never fire: the same
+    // method with a name on it does announce.
+    await directory.patchTeam(platform.id, { name: 'Platform Team' });
+    expect(broadcast.published).toEqual([{ projectId, event: { type: 'directory_changed' } }]);
   });
 });
 
@@ -335,7 +423,7 @@ describe('directory events', () => {
     await workItems.patch('design', { serviceTeamId: platform.id });
     broadcast.published.length = 0;
 
-    await directory.renameTeam(platform.id, 'Payments');
+    await directory.patchTeam(platform.id, { name: 'Payments' });
     expect(broadcast.published).toEqual([{ projectId, event: { type: 'directory_changed' } }]);
 
     broadcast.published.length = 0;
@@ -343,7 +431,7 @@ describe('directory events', () => {
     expect(broadcast.published).toEqual([{ projectId, event: { type: 'directory_changed' } }]);
 
     broadcast.published.length = 0;
-    await directory.renameTeam(unused.id, 'Still unused');
+    await directory.patchTeam(unused.id, { name: 'Still unused' });
     await directory.removeTeam(unused.id, false);
     expect(broadcast.published).toEqual([]);
   });
@@ -394,7 +482,7 @@ function storeWith(overrides: Partial<DirectoryStore>): DirectoryStore {
   return {
     listTeams: () => store.listTeams(),
     addTeam: (team) => store.addTeam(team),
-    renameTeam: (teamId, name) => store.renameTeam(teamId, name),
+    patchTeam: (teamId, patch) => store.patchTeam(teamId, patch),
     listPeople: () => store.listPeople(),
     addPerson: (toAdd, teamIds) => store.addPerson(toAdd, teamIds),
     patchPerson: (personId, patch) => store.patchPerson(personId, patch),

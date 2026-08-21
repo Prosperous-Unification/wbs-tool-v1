@@ -768,6 +768,35 @@ export interface ServiceTeam {
   name: string;
 }
 
+/**
+ * A team and the services it is **responsible for** — the ownership map, read
+ * on the team's own row.
+ *
+ * {@link PersonWithTeams}' shape one dimension over, and the resemblance stops
+ * at the shape: a person's `teamIds` says who they work with, and a team's
+ * `serviceIds` says what it is accountable for. Neither labels a work item.
+ *
+ * Empty means a team that owns nothing, which is every team the day this ships
+ * — the map starts with no data by design, because nothing may invent who owns
+ * what.
+ */
+export interface TeamWithServices extends ServiceTeam {
+  serviceIds: string[];
+}
+
+/**
+ * A change to one team: a new name, a new owned set, or both.
+ *
+ * `serviceIds` is a **full replacement**, exactly as {@link PersonPatch}'
+ * `teamIds` is, so an absent field and an empty array mean different things:
+ * absent leaves the map alone, empty makes the team own nothing. A patch
+ * naming neither is refused rather than answered as a no-op.
+ */
+export interface TeamPatch {
+  name?: string;
+  serviceIds?: readonly string[];
+}
+
 /** Somebody who does work. Not an account on this tool. */
 export interface Person {
   id: string;
@@ -807,9 +836,21 @@ export type DirectoryWriteRefusal = 'not_found' | 'taken';
  */
 export type TouchedProjects = readonly string[];
 
+/**
+ * What a team patch answered.
+ *
+ * The team comes back **with its owned set**, for {@link PersonWritten}'s
+ * reason: the caller has just replaced it, and a client that had to re-read the
+ * directory to see what it wrote would render the set it sent rather than the
+ * set that is there.
+ *
+ * `unknown_service` refuses the **whole** patch, rename included —
+ * `team_service.service_id` is a foreign key, so the alternative is a raw
+ * constraint failure, and a half-applied patch is not an observable state.
+ */
 export type ServiceTeamWritten =
-  | { ok: true; team: ServiceTeam; projectIds: TouchedProjects }
-  | { ok: false; reason: DirectoryWriteRefusal };
+  | { ok: true; team: TeamWithServices; projectIds: TouchedProjects }
+  | { ok: false; reason: DirectoryWriteRefusal | 'unknown_service' };
 
 /**
  * A change to one person: a new name, a new set of memberships, or both.
@@ -1042,7 +1083,15 @@ export interface DirectoryStore {
    * bumping every row that lost its label.
    */
   removeService(serviceId: string, cascade: boolean): Promise<DirectoryRemoved>;
-  listTeams(): Promise<ServiceTeam[]>;
+  /**
+   * Every team with the services it owns — the ownership map ships **whole**,
+   * on the row where it is edited (design D4).
+   *
+   * One read rather than a second endpoint because both mismatch signals need
+   * the map per row, and a client that had to ask twice would render a tree
+   * against a map from a moment ago.
+   */
+  listTeams(): Promise<TeamWithServices[]>;
   /**
    * Adds a team, or returns the one that already has that name.
    *
@@ -1052,13 +1101,18 @@ export interface DirectoryStore {
    */
   addTeam(team: ServiceTeam): Promise<ServiceTeam>;
   /**
-   * Renames one team, or says why it could not.
+   * Renames one team and replaces the services it owns, in **one** transaction,
+   * or says why it could not.
    *
-   * Refused by the unique index rather than by asking first, exactly as
-   * {@link DirectoryStore.addTeam} is: two clients renaming towards `Platform`
-   * at the same moment both pass a check-then-update.
+   * A rename is refused by the unique index rather than by asking first,
+   * exactly as {@link DirectoryStore.addTeam} is: two clients renaming towards
+   * `Platform` at the same moment both pass a check-then-update. The owned set
+   * is validated **before** anything is written, for
+   * {@link DirectoryStore.patchPerson}'s reason: returning from a drizzle
+   * transaction callback commits it, so a refusal decided after the name had
+   * been set would answer `unknown_service` and leave the rename behind.
    */
-  renameTeam(teamId: string, name: string): Promise<ServiceTeamWritten>;
+  patchTeam(teamId: string, patch: TeamPatch): Promise<ServiceTeamWritten>;
   listPeople(): Promise<PersonWithTeams[]>;
   /**
    * Adds a person, or returns the one with that name, joining them to

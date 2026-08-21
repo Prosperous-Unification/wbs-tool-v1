@@ -24,6 +24,18 @@ const personPatch = t.Object({
 });
 
 /**
+ * {@link personPatch}' shape one dimension over, and optional for its reason.
+ *
+ * `serviceIds` is the **ownership map**: a full replacement, so an absent field
+ * leaves it alone and an empty array makes the team own nothing. Only the
+ * service tells those two apart, which is why neither is defaulted here.
+ */
+const teamPatch = t.Object({
+  name: t.Optional(t.String()),
+  serviceIds: t.Optional(t.Array(t.String())),
+});
+
+/**
  * `taken` is 409 and a blank or absent name is 422, the same split
  * `roleController` makes: a duplicate name is a well-formed request that
  * conflicts with the directory as it stands, and a name of spaces is the
@@ -31,10 +43,12 @@ const personPatch = t.Object({
  *
  * `unknown_team` joins `not_found` on 404, as `unknown_role` already does on
  * the work item routes: an id the directory no longer holds is a thing that is
- * not there, whichever of the request's ids named it.
+ * not there, whichever of the request's ids named it. `unknown_service` is the
+ * same sentence about the third dimension — an ownership map naming a service
+ * nothing holds — and answers the same 404 the work item routes answer for it.
  */
 const statusFor = (reason: DirectoryRefusal): number =>
-  reason === 'not_found' || reason === 'unknown_team' ? 404 : 422;
+  reason === 'not_found' || reason === 'unknown_team' || reason === 'unknown_service' ? 404 : 422;
 
 /**
  * `?cascade=true` and nothing else — the same flag `roleController`'s delete
@@ -116,7 +130,14 @@ export function directoryController(auth: AuthService, directory: DirectoryServi
             set.status = 401;
             return { error: 'unauthenticated' };
           }
-          const outcome = await directory.renameTeam(params.id, body.name);
+          // Spread rather than passed whole, for `/people/:id`'s reason: an
+          // absent `serviceIds` leaves the ownership map alone and an empty one
+          // makes the team own nothing, and `{ serviceIds: undefined }` would
+          // have to be told apart from the absence by every layer below.
+          const outcome = await directory.patchTeam(params.id, {
+            ...(body.name === undefined ? {} : { name: body.name }),
+            ...(body.serviceIds === undefined ? {} : { serviceIds: body.serviceIds }),
+          });
           if (!outcome.ok) {
             if (outcome.reason === 'taken') {
               // The surviving name rides along because the caller has to say
@@ -129,7 +150,7 @@ export function directoryController(auth: AuthService, directory: DirectoryServi
           }
           return { team: outcome.result };
         },
-        { body: named },
+        { body: teamPatch },
       )
       .get('/people', async ({ headers, set }) => {
         const user = await userFromHeaders(auth, headers);

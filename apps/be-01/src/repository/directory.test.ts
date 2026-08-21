@@ -90,6 +90,45 @@ describe('DirectoryRepository', () => {
     expect((await repo.listTeams()).map((t) => t.name)).toEqual(['Platform']);
   });
 
+  it('takes a team\u2019s ownership rows with the service, and moves no work item', async () => {
+    // The cascade the schema declares, read from the map's own side. Chunk 5
+    // proved `ON DELETE SET NULL` on the work item's column; this is the other
+    // half of the same removal, and the two are deliberately separate claims:
+    // an ownership row about a service that no longer exists is not an effect
+    // on any plan (spec), so it goes silently, while the work item stays.
+    const platform = await repo.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+    const payments = await repo.addService({ id: crypto.randomUUID(), name: 'Payments' });
+    const auth = await repo.addService({ id: crypto.randomUUID(), name: 'Auth' });
+    await repo.patchTeam(platform.id, { serviceIds: [payments.id, auth.id] });
+
+    const removed = await repo.removeService(payments.id, true);
+    expect(removed.ok).toBe(true);
+
+    // `Auth` survives on the same team: the cascade takes the rows naming the
+    // removed service, not the team's whole map.
+    expect(await repo.listTeams()).toEqual([
+      { id: platform.id, name: 'Platform', serviceIds: [auth.id] },
+    ]);
+  });
+
+  it('deduplicates the owned set rather than letting the primary key throw', async () => {
+    const platform = await repo.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+    const payments = await repo.addService({ id: crypto.randomUUID(), name: 'Payments' });
+
+    // A client naming the same service twice means exactly what it says. Left
+    // to the pair primary key it would be a 500 for a well-formed request —
+    // `patchPerson`'s reasoning, one dimension over.
+    const written = await repo.patchTeam(platform.id, {
+      serviceIds: [payments.id, payments.id],
+    });
+
+    expect(written).toEqual({
+      ok: true,
+      team: { id: platform.id, name: 'Platform', serviceIds: [payments.id] },
+      projectIds: [],
+    });
+  });
+
   it('keeps a person in several teams at once', async () => {
     const platform = await repo.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
     const billing = await repo.addTeam({ id: crypto.randomUUID(), name: 'Billing' });

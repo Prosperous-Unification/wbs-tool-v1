@@ -149,6 +149,13 @@ async function addTeam(name: string): Promise<string> {
   return team.id;
 }
 
+/** {@link addTeam}'s shape for the third dimension — the ownership map needs both. */
+async function addService(name: string): Promise<string> {
+  const { body } = await call('POST', '/api/services', { name });
+  const { service } = body as { service: { id: string } };
+  return service.id;
+}
+
 describe('GET /api/teams', () => {
   it('answers a team as an id and a name, and never the retired global size', async () => {
     // The one route the retired column could still reach the wire through, and
@@ -175,12 +182,16 @@ describe('GET /api/teams', () => {
     const { status, body } = await call('GET', '/api/teams');
 
     expect(status).toBe(200);
-    expect(body).toEqual({ teams: [{ id: platform, name: 'Platform' }] });
+    expect(body).toEqual({ teams: [{ id: platform, name: 'Platform', serviceIds: [] }] });
     // And by key, because a column added to this table later would arrive here
     // as `null` and `toEqual` says nothing about a field whose value is
-    // `undefined` on the side it is compared with.
+    // `undefined` on the side it is compared with. `serviceIds` is on the list
+    // deliberately — the ownership map ships whole on this row (D4) — and
+    // `size` is still not.
     const teams = (body as { teams: Record<string, unknown>[] }).teams;
-    expect(teams.map((each) => Object.keys(each).sort())).toEqual([['id', 'name']]);
+    expect(teams.map((each) => Object.keys(each).sort())).toEqual([
+      ['id', 'name', 'serviceIds'],
+    ]);
   });
 });
 
@@ -192,9 +203,11 @@ describe('PATCH /api/teams/:id', () => {
 
     expect(renamed).toEqual({
       status: 200,
-      body: { team: { id: platform, name: 'Payments' } },
+      body: { team: { id: platform, name: 'Payments', serviceIds: [] } },
     });
-    expect(await store.listTeams()).toEqual([{ id: platform, name: 'Payments' }]);
+    expect(await store.listTeams()).toEqual([
+      { id: platform, name: 'Payments', serviceIds: [] },
+    ]);
   });
 
   it('answers 409 taken with the surviving name', async () => {
@@ -231,7 +244,100 @@ describe('PATCH /api/teams/:id', () => {
     );
 
     expect(res.status).toBe(401);
-    expect(await store.listTeams()).toEqual([{ id: platform, name: 'Platform' }]);
+    expect(await store.listTeams()).toEqual([
+      { id: platform, name: 'Platform', serviceIds: [] },
+    ]);
+  });
+
+  it('sets the services a team owns, and answers the team with them', async () => {
+    const platform = await addTeam('Platform');
+    const payments = await addService('Payments');
+    const auth = await addService('Auth');
+
+    const owned = await call('PATCH', `/api/teams/${platform}`, {
+      serviceIds: [payments, auth],
+    });
+
+    expect(owned).toEqual({
+      status: 200,
+      body: { team: { id: platform, name: 'Platform', serviceIds: [auth, payments].sort() } },
+    });
+    // Read back through the store rather than trusted from the answer: the
+    // route could echo what it was sent and this is the assertion that says the
+    // map is in the database.
+    const teams = await store.listTeams();
+    expect(teams).toEqual([
+      { id: platform, name: 'Platform', serviceIds: [auth, payments].sort() },
+    ]);
+  });
+
+  it('replaces the whole owned set, and an empty array clears it', async () => {
+    const platform = await addTeam('Platform');
+    const payments = await addService('Payments');
+    const auth = await addService('Auth');
+    await call('PATCH', `/api/teams/${platform}`, { serviceIds: [payments, auth] });
+
+    // Whole-set, not additive: naming one service leaves that one owned and
+    // takes the other away. `PersonPatch.teamIds`' rule, one dimension over.
+    const narrowed = await call('PATCH', `/api/teams/${platform}`, { serviceIds: [auth] });
+    expect(narrowed).toEqual({
+      status: 200,
+      body: { team: { id: platform, name: 'Platform', serviceIds: [auth] } },
+    });
+
+    const cleared = await call('PATCH', `/api/teams/${platform}`, { serviceIds: [] });
+    expect(cleared).toEqual({
+      status: 200,
+      body: { team: { id: platform, name: 'Platform', serviceIds: [] } },
+    });
+  });
+
+  it('leaves the owned set alone when the patch does not name it', async () => {
+    const platform = await addTeam('Platform');
+    const payments = await addService('Payments');
+    await call('PATCH', `/api/teams/${platform}`, { serviceIds: [payments] });
+
+    // Absent and empty are different requests, and only the layers below the
+    // wire can tell them apart — a rename that quietly disowned everything is
+    // the bug this asserts against.
+    const renamed = await call('PATCH', `/api/teams/${platform}`, { name: 'Platform Team' });
+
+    expect(renamed).toEqual({
+      status: 200,
+      body: { team: { id: platform, name: 'Platform Team', serviceIds: [payments] } },
+    });
+  });
+
+  it('answers 404 for a service the directory does not hold, rename included', async () => {
+    const platform = await addTeam('Platform');
+    const payments = await addService('Payments');
+
+    // `unknown_service`'s status, on the directory's own routes this time — the
+    // work item patch answers the same 404 for the same sentence.
+    expect(
+      await call('PATCH', `/api/teams/${platform}`, {
+        name: 'Renamed',
+        serviceIds: [payments, crypto.randomUUID()],
+      }),
+    ).toEqual({ status: 404, body: { error: 'unknown_service' } });
+
+    // The whole patch, not the half of it that could have worked: a refusal
+    // that left the rename behind would be a state nothing can see and nobody
+    // asked for.
+    expect(await store.listTeams()).toEqual([
+      { id: platform, name: 'Platform', serviceIds: [] },
+    ]);
+  });
+
+  it('answers 422 to a patch naming neither a name nor services', async () => {
+    const platform = await addTeam('Platform');
+
+    // `/people/:id`'s rule: a no-op is almost certainly a client bug, and a 200
+    // would leave nothing on the wire to notice it by.
+    expect(await call('PATCH', `/api/teams/${platform}`, {})).toEqual({
+      status: 422,
+      body: { error: 'nothing_to_change' },
+    });
   });
 });
 

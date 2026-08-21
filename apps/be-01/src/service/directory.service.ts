@@ -6,6 +6,8 @@ import type {
   Service,
   ServiceTeam,
   Tag,
+  TeamPatch,
+  TeamWithServices,
   TouchedProjects,
 } from '../repository';
 import type { Broadcaster } from './broadcast';
@@ -33,11 +35,20 @@ export interface DirectoryServiceOptions {
  * Why a directory write was refused. Every one is a state of the directory or
  * of the request, never a fault: the controller turns each into a 4xx.
  *
- * `nothing_to_change` is a patch naming neither a name nor memberships.
- * Accepting it as a no-op would answer 200 to a request that was almost
- * certainly a client bug, and leave nothing on the wire to notice it by.
+ * `nothing_to_change` is a patch naming neither a name nor memberships, and
+ * neither a name nor owned services on a team. Accepting it as a no-op would
+ * answer 200 to a request that was almost certainly a client bug, and leave
+ * nothing on the wire to notice it by.
+ *
+ * `unknown_service` is an ownership map naming a service the directory does not
+ * hold — `unknown_team`'s twin, one dimension over.
  */
-export type DirectoryRefusal = 'name_required' | 'not_found' | 'nothing_to_change' | 'unknown_team';
+export type DirectoryRefusal =
+  | 'name_required'
+  | 'not_found'
+  | 'nothing_to_change'
+  | 'unknown_service'
+  | 'unknown_team';
 
 /**
  * What a directory write answered.
@@ -90,7 +101,8 @@ export class DirectoryService {
     this.newId = opts.newId ?? (() => crypto.randomUUID());
   }
 
-  listTeams(): Promise<ServiceTeam[]> {
+  /** Every team **with the services it owns** — the map ships whole, design D4. */
+  listTeams(): Promise<TeamWithServices[]> {
     return this.opts.directory.listTeams();
   }
 
@@ -106,22 +118,47 @@ export class DirectoryService {
   }
 
   /**
-   * Renames a team, keeping the name unique across the deployment.
+   * Renames a team, replaces the services it owns, or both at once.
    *
    * Any signed-in account may, as any may create one today: there is no admin
    * concept here, and inventing one for a rename would be a different change.
+   *
+   * A patch naming neither is refused rather than answered as a no-op —
+   * {@link DirectoryService.patchPerson}'s rule, and the same reasoning: nothing
+   * sends one deliberately, so it is a client bug, and a 200 would leave nothing
+   * on the wire to notice it by.
+   *
+   * **Only a rename is announced.** Editing the ownership map changes no row any
+   * project renders: the map labels no work item, is not inherited, and the
+   * scheduler never reads it (spec — "editing it SHALL move no date in any
+   * plan"). An event here would send every open plan to reread a tree that is
+   * exactly as it was, and would make "the map moves no date" a claim about
+   * luck rather than about the code.
    */
-  async renameTeam(teamId: string, name: string): Promise<DirectoryOutcome<ServiceTeam>> {
-    const clean = cleanName(name);
+  async patchTeam(teamId: string, patch: TeamPatch): Promise<DirectoryOutcome<TeamWithServices>> {
+    if (patch.name === undefined && patch.serviceIds === undefined) {
+      return { ok: false, reason: 'nothing_to_change' };
+    }
+    const clean = patch.name === undefined ? undefined : cleanName(patch.name);
     // Before the row is read: a team called nothing would sit in every picker
     // with no way to tell it from the next one.
     if (clean === null) return { ok: false, reason: 'name_required' };
-    const written = await this.opts.directory.renameTeam(teamId, clean);
+    const written = await this.opts.directory.patchTeam(teamId, {
+      ...(clean === undefined ? {} : { name: clean }),
+      ...(patch.serviceIds === undefined ? {} : { serviceIds: patch.serviceIds }),
+    });
     if (!written.ok) {
-      if (written.reason === 'taken') return { ok: false, reason: 'taken', name: clean };
-      return { ok: false, reason: 'not_found' };
+      // `clean` is defined on this branch — `taken` is the name index refusing,
+      // and a patch that named no name cannot have reached it.
+      if (written.reason === 'taken' && clean !== undefined) {
+        return { ok: false, reason: 'taken', name: clean };
+      }
+      return {
+        ok: false,
+        reason: written.reason === 'unknown_service' ? 'unknown_service' : 'not_found',
+      };
     }
-    await this.announce(written.projectIds);
+    if (clean !== undefined) await this.announce(written.projectIds);
     return { ok: true, result: written.team };
   }
 

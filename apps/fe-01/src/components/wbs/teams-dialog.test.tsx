@@ -19,9 +19,9 @@ afterEach(cleanup);
  * assertion below pass against a build that still fell back to it — which is the
  * one wrong answer this change is most likely to be written with.
  */
-const BACKEND: TeamView = { id: 't-backend', name: 'Backend' };
-const PLATFORM: TeamView = { id: 't-platform', name: 'Platform' };
-const DESIGN: TeamView = { id: 't-design', name: 'Design' };
+const BACKEND: TeamView = { id: 't-backend', name: 'Backend', serviceIds: [] };
+const PLATFORM: TeamView = { id: 't-platform', name: 'Platform', serviceIds: [] };
+const DESIGN: TeamView = { id: 't-design', name: 'Design', serviceIds: [] };
 
 /** Everything the dialog is given, with each call recorded. */
 function stubbed(overrides: Partial<Parameters<typeof TeamsDialog>[0]> = {}) {

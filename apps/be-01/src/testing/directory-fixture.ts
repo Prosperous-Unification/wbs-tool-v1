@@ -38,12 +38,18 @@ export function inMemoryDirectory(): DirectoryStore {
   const services = new Map<string, Service>();
   const people = new Map<string, Person>();
   const memberships = new Map<string, Set<string>>();
+  /** The ownership map, by team — `memberships`' shape, one dimension over. */
+  const owned = new Map<string, Set<string>>();
   const assignments = new Map<string, Assignment>();
   const key = (workItemId: string, roleId: string) => `${workItemId}::${roleId}`;
 
   return {
     listTeams: () =>
-      Promise.resolve([...teams.values()].sort((a, b) => a.name.localeCompare(b.name))),
+      Promise.resolve(
+        [...teams.values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((each) => ({ ...each, serviceIds: [...(owned.get(each.id) ?? [])].sort() })),
+      ),
     listTags: () =>
       Promise.resolve([...tags.values()].sort((a, b) => a.name.localeCompare(b.name))),
     // Idempotent by name, as the repository is at its unique index. The
@@ -128,17 +134,35 @@ export function inMemoryDirectory(): DirectoryStore {
       teams.set(team.id, team);
       return Promise.resolve(team);
     },
-    renameTeam(teamId, name) {
+    patchTeam(teamId, patch) {
       const found = teams.get(teamId);
       if (found === undefined) return Promise.resolve({ ok: false, reason: 'not_found' });
       // The unique index, modelled: a fixture that let two `Platform`s exist
       // would let a caller's `taken` branch pass untested.
-      const held = [...teams.values()].some((each) => each.name === name && each.id !== teamId);
+      const held =
+        patch.name !== undefined &&
+        [...teams.values()].some((each) => each.name === patch.name && each.id !== teamId);
       if (held) return Promise.resolve({ ok: false, reason: 'taken' });
-      teams.set(teamId, { ...found, name });
+      // The foreign key, modelled, for the same reason: a fixture that accepted
+      // an ownership row about a service nothing holds would let a caller's
+      // `unknown_service` branch — and the 404 above it — pass untested. This is
+      // the strictness `unknown_team` already has one dimension over.
+      if (patch.serviceIds !== undefined) {
+        const unknown = patch.serviceIds.some((each) => !services.has(each));
+        if (unknown) return Promise.resolve({ ok: false, reason: 'unknown_service' });
+      }
+      const renamed = patch.name === undefined ? found : { ...found, name: patch.name };
+      teams.set(teamId, renamed);
+      // Whole-set replacement, exactly as the repository writes it: absent
+      // leaves the map alone, empty clears it.
+      if (patch.serviceIds !== undefined) owned.set(teamId, new Set(patch.serviceIds));
       // No project here to touch: these Maps hold no work items, so the
       // fixture can only ever honestly report the empty set.
-      return Promise.resolve({ ok: true, team: { ...found, name }, projectIds: [] });
+      return Promise.resolve({
+        ok: true,
+        team: { ...renamed, serviceIds: [...(owned.get(teamId) ?? [])].sort() },
+        projectIds: [],
+      });
     },
     listPeople: () =>
       Promise.resolve(

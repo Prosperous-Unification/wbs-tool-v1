@@ -17,6 +17,8 @@ import type {
   ServiceWritten,
   Tag,
   TagWritten,
+  TeamPatch,
+  TeamWithServices,
 } from './index';
 import { bumpedWorkItem, bumpWorkItems } from './revision';
 import {
@@ -29,6 +31,7 @@ import {
   service,
   serviceTeam,
   tag,
+  teamService,
   workItem,
   workItemTag,
   workItemTeam,
@@ -223,11 +226,27 @@ export class DirectoryRepository implements DirectoryStore {
    *
    * Every other read of this table below is projected for the same reason.
    */
-  listTeams(): Promise<ServiceTeam[]> {
-    return this.db
+  async listTeams(): Promise<TeamWithServices[]> {
+    const teams = await this.db
       .select({ id: serviceTeam.id, name: serviceTeam.name })
       .from(serviceTeam)
       .orderBy(asc(serviceTeam.name));
+    // Two queries rather than a join, exactly as `listPeople` reads
+    // memberships: a join would repeat each team's row once per service it
+    // owns, and the caller would have to fold them back. The map is
+    // directory-sized on both axes.
+    const owned = await this.db
+      .select({ teamId: teamService.teamId, serviceId: teamService.serviceId })
+      .from(teamService)
+      .orderBy(asc(teamService.serviceId));
+    const servicesOf = new Map<string, string[]>();
+    for (const row of owned) {
+      servicesOf.set(row.teamId, [...(servicesOf.get(row.teamId) ?? []), row.serviceId]);
+    }
+    // A team owning nothing is the empty array rather than an absent field: the
+    // signal reads "no team here owns this service", and an undefined would
+    // make that sentence depend on which teams happened to have rows.
+    return teams.map((each) => ({ ...each, serviceIds: servicesOf.get(each.id) ?? [] }));
   }
 
   async addTeam(toAdd: ServiceTeam): Promise<ServiceTeam> {
@@ -299,12 +318,24 @@ export class DirectoryRepository implements DirectoryStore {
   }
 
   /**
-   * Renames one team, or reports the name being held or the row being gone.
+   * Renames one team and replaces the services it owns, or reports the name
+   * being held, the row being gone, or a service that is not there.
    *
-   * A refused rename writes nothing. The team carries no revision of its own —
+   * A refused patch writes nothing. The team carries no revision of its own —
    * it is global rather than a satellite of any project — so what tells an open
    * project about the new name is the event the service publishes after this
-   * commits, not a counter moved here.
+   * commits, not a counter moved here. **The ownership map moves no revision
+   * either, and that is the rule rather than an omission:** it labels no work
+   * item and the scheduler never reads it, so a plan rendered a second ago is
+   * still correct.
+   *
+   * **The services are validated before anything is written, inside the same
+   * transaction** — `patchPerson`'s rule and its reason: returning from a
+   * drizzle transaction callback *commits* it, so a refusal decided after the
+   * name had been set would answer `unknown_service` and leave the rename in the
+   * database. The ids are deduplicated here rather than trusted from the
+   * caller, because the primary key would turn a client naming a service twice
+   * into a 500 for a patch that means exactly what it says.
    *
    * Proof: with the `isDuplicateTeamName` branch removed, `refuses a name
    * another team holds, naming the survivor` fails with the raw
@@ -313,22 +344,62 @@ export class DirectoryRepository implements DirectoryStore {
    * `refuses a team that is not there` answers `ok` about a row nothing holds.
    * Both watched 2026-08-09.
    */
-  async renameTeam(teamId: string, name: string): Promise<ServiceTeamWritten> {
+  async patchTeam(teamId: string, patch: TeamPatch): Promise<ServiceTeamWritten> {
     await Promise.resolve();
+    const wanted = patch.serviceIds === undefined ? null : [...new Set(patch.serviceIds)];
     try {
       return this.db.transaction((tx) => {
-        const rows = tx
-          .update(serviceTeam)
-          .set({ name })
+        const held = tx
+          .select({ id: serviceTeam.id, name: serviceTeam.name })
+          .from(serviceTeam)
           .where(eq(serviceTeam.id, teamId))
-          .returning({ id: serviceTeam.id, name: serviceTeam.name })
           .all();
-        const renamed = rows.at(0);
-        if (renamed === undefined) return { ok: false, reason: 'not_found' };
-        // Read here rather than afterwards: these are the very rows the rename
+        const team = held.at(0);
+        if (team === undefined) return { ok: false, reason: 'not_found' };
+        if (wanted !== null && wanted.length > 0) {
+          const found = tx
+            .select({ id: service.id })
+            .from(service)
+            .where(inArray(service.id, wanted))
+            .all();
+          if (found.length !== wanted.length) return { ok: false, reason: 'unknown_service' };
+        }
+        if (patch.name !== undefined) {
+          tx.update(serviceTeam).set({ name: patch.name }).where(eq(serviceTeam.id, teamId)).run();
+        }
+        if (wanted !== null) {
+          // Whole-set semantics: the rows that were there go, whichever they
+          // were. Deleting and re-inserting rather than diffing because the map
+          // has no payload beyond the pair — there is nothing in a surviving row
+          // worth keeping.
+          tx.delete(teamService).where(eq(teamService.teamId, teamId)).run();
+          if (wanted.length > 0) {
+            tx.insert(teamService)
+              .values(wanted.map((serviceId) => ({ teamId, serviceId })))
+              .run();
+          }
+        }
+        const rows = tx
+          .select({ id: serviceTeam.id, name: serviceTeam.name })
+          .from(serviceTeam)
+          .where(eq(serviceTeam.id, teamId))
+          .all();
+        const patched = rows.at(0);
+        if (patched === undefined) throw new Error(`team vanished mid-patch: ${teamId}`);
+        const serviceIds = tx
+          .select({ serviceId: teamService.serviceId })
+          .from(teamService)
+          .where(eq(teamService.teamId, teamId))
+          .orderBy(asc(teamService.serviceId))
+          .all();
+        // Read here rather than afterwards: these are the very rows the patch
         // is about, and a second read would answer for a directory that had
         // already moved on.
-        return { ok: true, team: renamed, projectIds: this.projectsLabelled(tx, teamId) };
+        return {
+          ok: true,
+          team: { ...patched, serviceIds: serviceIds.map((row) => row.serviceId) },
+          projectIds: this.projectsLabelled(tx, teamId),
+        };
       });
     } catch (err) {
       if (isDuplicateTeamName(err)) return { ok: false, reason: 'taken' };

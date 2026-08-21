@@ -360,6 +360,22 @@ export type RoleRemoval = { ok: true } | { ok: false; reason: 'in_use'; inUse: R
 export interface TeamView {
   id: string;
   name: string;
+  /**
+   * The services this team is **responsible for** — the ownership map, shipped
+   * whole (design D4).
+   *
+   * Not a label on any work item and not inherited: it is directory data about
+   * the team itself, edited on the team's own row. The client needs the map per
+   * row anyway to filter on **built by a non-owner** without a round trip, so
+   * be-01 sends the map rather than a derived flag — a flag would be a second
+   * copy of a rule the client already has to hold, and the copy nobody looks at
+   * is the one that drifts.
+   *
+   * Empty means a team that owns nothing, which is every team until somebody
+   * fills the map in: it ships with no data, because nothing may invent who owns
+   * what.
+   */
+  serviceIds: string[];
 }
 
 /**

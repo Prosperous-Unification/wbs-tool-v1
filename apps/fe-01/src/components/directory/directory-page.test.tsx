@@ -35,9 +35,9 @@ const subscribed = vi.mocked(subscribeToProject);
 // `capacity-per-project`: how many of them are at work at once is stated per
 // plan, in the plan's own `Teams` dialog, and the retired global column is not
 // sent by be-01 at all.
-const PLATFORM: TeamView = { id: 't1', name: 'Platform' };
-const PAYMENTS: TeamView = { id: 't2', name: 'Payments' };
-const DESIGN: TeamView = { id: 't3', name: 'Design' };
+const PLATFORM: TeamView = { id: 't1', name: 'Platform', serviceIds: [] };
+const PAYMENTS: TeamView = { id: 't2', name: 'Payments', serviceIds: [] };
+const DESIGN: TeamView = { id: 't3', name: 'Design', serviceIds: [] };
 
 /**
  * A `DirectoryApi` over an in-memory directory, with every call recorded.
