@@ -235,49 +235,51 @@ describe('every plan schedules identically across the migration', () => {
       // `team-sets` design.md D5.
       const lifted = {
         ...tree,
-        workItems: tree.workItems.map(({ teamIds, tagIds, serviceIds, actuals, progress, state, ...row }) => {
-          // The arity claim, and the only place it is made: the set the join
-          // answered is exactly the singleton of the label the oracle recorded.
-          //
-          // Proof, both watched 2026-08-14 and each green under the other's
-          // fault. This assertion: the fixture's join derivation replaced by
-          // one that answers `[]` for every row, and it failed on
-          // `Expected - 3 / Received + 1` — a labelled row whose set is empty,
-          // which is the shape of a write path that forgot the join. The lift
-          // itself: before it existed, the whole-document comparison failed on
-          // the oracle's very first labelled row with `+ "teamIds": [
-          // "team-unsized" ]` and nothing else in the diff — the payload had
-          // gained a field and moved no date, which is this change's claim
-          // arriving as a red test.
-          expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
-          // `tagIds` is lifted the same way by `tags` (R10-B) and asserted **empty**
-          // for `actuals`' reason: the oracle predates the dimension, nothing in
-          // sixteen replayed plans is labelled, and an empty set on every row is
-          // this change's own claim — a plan nobody has tagged reads as untagged.
-          // A bare lift would let a read path that invented a label pass silently.
-          expect(tagIds).toEqual([]);
-        // `serviceIds` is lifted and asserted empty for `tagIds`' reason exactly,
-        // one dimension over: the oracle predates the dimension, no row in the
-        // replayed plans delivers a service, and the empty set on every one of
-        // them is task 10.2's own claim — the read path widened from a column to
-        // a join and invented nothing on the way.
-        expect(serviceIds).toEqual([]);
-          // Lifted for `teamIds`' reason and asserted for the same one:
-          // `actual-days` (R6 H2) put this key on every row and the oracle
-          // predates the table. Empty on all sixteen replayed plans is the
-          // claim — nothing recorded reads as nothing recorded, never as zero —
-          // and a bare lift would hide a roll-up that invented a figure.
-          expect(actuals).toEqual({});
-          // Lifted for `actuals`' reason and asserted for the same one:
-          // `role-progress` (R6 H2b) put two more keys on every row and the
-          // oracle predates the table. `{}` and `not_started` on all sixteen
-          // replayed plans is the claim — nobody having said anything reads as
-          // nobody having said anything, never as untouched-therefore-done — and
-          // a bare lift would hide a fold that invented a state.
-          expect(progress).toEqual({});
-          expect(state).toBe('not_started');
-          return row;
-        }),
+        workItems: tree.workItems.map(
+          ({ teamIds, tagIds, serviceIds, actuals, progress, state, ...row }) => {
+            // The arity claim, and the only place it is made: the set the join
+            // answered is exactly the singleton of the label the oracle recorded.
+            //
+            // Proof, both watched 2026-08-14 and each green under the other's
+            // fault. This assertion: the fixture's join derivation replaced by
+            // one that answers `[]` for every row, and it failed on
+            // `Expected - 3 / Received + 1` — a labelled row whose set is empty,
+            // which is the shape of a write path that forgot the join. The lift
+            // itself: before it existed, the whole-document comparison failed on
+            // the oracle's very first labelled row with `+ "teamIds": [
+            // "team-unsized" ]` and nothing else in the diff — the payload had
+            // gained a field and moved no date, which is this change's claim
+            // arriving as a red test.
+            expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
+            // `tagIds` is lifted the same way by `tags` (R10-B) and asserted **empty**
+            // for `actuals`' reason: the oracle predates the dimension, nothing in
+            // sixteen replayed plans is labelled, and an empty set on every row is
+            // this change's own claim — a plan nobody has tagged reads as untagged.
+            // A bare lift would let a read path that invented a label pass silently.
+            expect(tagIds).toEqual([]);
+            // `serviceIds` is lifted and asserted empty for `tagIds`' reason exactly,
+            // one dimension over: the oracle predates the dimension, no row in the
+            // replayed plans delivers a service, and the empty set on every one of
+            // them is task 10.2's own claim — the read path widened from a column to
+            // a join and invented nothing on the way.
+            expect(serviceIds).toEqual([]);
+            // Lifted for `teamIds`' reason and asserted for the same one:
+            // `actual-days` (R6 H2) put this key on every row and the oracle
+            // predates the table. Empty on all sixteen replayed plans is the
+            // claim — nothing recorded reads as nothing recorded, never as zero —
+            // and a bare lift would hide a roll-up that invented a figure.
+            expect(actuals).toEqual({});
+            // Lifted for `actuals`' reason and asserted for the same one:
+            // `role-progress` (R6 H2b) put two more keys on every row and the
+            // oracle predates the table. `{}` and `not_started` on all sixteen
+            // replayed plans is the claim — nobody having said anything reads as
+            // nobody having said anything, never as untouched-therefore-done — and
+            // a bare lift would hide a fold that invented a state.
+            expect(progress).toEqual({});
+            expect(state).toBe('not_started');
+            return row;
+          },
+        ),
       };
       expect({ project: plan.projectId, ...lifted }).toEqual({
         project: plan.projectId,
