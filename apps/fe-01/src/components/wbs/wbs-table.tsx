@@ -3402,15 +3402,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // `?? null` because absence from the map is how this walk spells
             // "nobody above this row states one".
             //
-            // **Task 6.2's fault has no test to fail here yet, and this comment
-            // is what stops a reader assuming otherwise.** Written as
-            // `row.serviceId` — the row's own stored column — nothing in the
-            // suite goes red, because no control can tick the service facet until
-            // task 6.3 adds one and no marker reads the signal until 7.1. The
-            // fault is injectable the moment either exists, and 6.2 is ticked
-            // there rather than here. Chunk 7 recorded the same shape for 5.2:
-            // the guard is written where the rule lives, and the proof waits for
-            // the surface that can exercise it.
+            // **Task 6.2's watched red, and it is watched here now.** Written as
+            // `row.serviceId` — the row's own stored column — three cases go red
+            // (chunk 9, h2puni): `keeps the rows that inherit a ticked service`
+            // drops from the whole branch to `['010']`, and both signal cases
+            // follow it down, because a service nobody inherits is a service no
+            // team can be caught not owning. Chunk 8 could not observe this and
+            // said so; what changed is 6.3's facet control, which is the surface
+            // that drives the read.
             serviceId,
             // The two signals, computed here and at their **real site** — the
             // one place in the app that answers them per row, which is what

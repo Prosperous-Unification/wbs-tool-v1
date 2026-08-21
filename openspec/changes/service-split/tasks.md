@@ -111,9 +111,9 @@
       on `FilterCriteria` and `NO_FACETS`; `RowFacets` gains the **effective**
       service and the two booleans; three predicates in `narrowTree`;
       `filterWords` gains three labels.
-- [ ] 6.2 **Watched red** — point the service predicate at the row's own stored
+- [x] 6.2 **Watched red** — point the service predicate at the row's own stored
       column instead of the effective reading and the inherited case must fail.
-- [ ] 6.3 The three facet controls beside the eight shipped. The two signal
+- [x] 6.3 The three facet controls beside the eight shipped. The two signal
       facets are **disabled with a stated reason** while no team owns any
       service (design's first risk) — an empty filter offered as if it worked is
       how a reader concludes the feature is broken.
@@ -136,7 +136,7 @@
       row**, which is where the map is edited (Dany, 2026-08-20 23:18). The
       absence on the Services card is asserted the way the Tags card's is: its
       test reads for `member` and for a number box and finds neither.
-- [ ] 7.6 `lib/wbs-api.ts`: `serviceId` on the work-item wire type,
+- [x] 7.6 `lib/wbs-api.ts`: `serviceId` on the work-item wire type,
       `ServiceView`, `serviceIds` on `TeamView`.
 - [ ] 7.7 The table-width budget rule — **exempted, and the exemption names what
       it exempts**: `CONDITIONAL_COLUMNS` in `table-frame.ts` keeps `service`
