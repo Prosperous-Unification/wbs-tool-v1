@@ -1072,13 +1072,14 @@ describe('removing a service: what it names, what it takes, and what it cannot m
   };
 
   it('does not name a row that only inherits the service, because nothing of its moves', async () => {
-    // The tag's rule, and for a stronger reason than the tag's: the removal
-    // writes to `work_item.service_id`, and the only rows it writes to are the
-    // rows that state it. A leaf inheriting the label keeps every date it has
-    // and its own column was already null, so there is nothing to confirm.
+    // The tag's rule, and since task 10.2 it *is* the tag's rule rather than a
+    // stronger one: the removal deletes `work_item_service` rows, and the only
+    // rows it touches are the rows that state the service. A leaf inheriting the
+    // label keeps every date it has and holds no join row of its own, so there
+    // is nothing to confirm.
     const payments = await serviceNamed('Payments');
     await workItems.insert({ ...newItem('cladding', 30, 'Cladding'), parentId: 'design' }, []);
-    await workItems.patch('design', { serviceId: payments.id });
+    await workItems.patch('design', { serviceIds: [payments.id] });
 
     const outcome = await directory.removeService(payments.id, false);
 
@@ -1086,20 +1087,24 @@ describe('removing a service: what it names, what it takes, and what it cannot m
     expect(outcome.usage.projects[0]?.workItems.map((each) => each.id)).toEqual(['design']);
   });
 
-  it('nulls the column on ?cascade and moves every row’s revision', async () => {
-    // `ON DELETE SET NULL` does the clearing, but a foreign key moves no
-    // revision — so the removal bumps the rows itself. Without that a journal
-    // entry holding the old number would undo against a row whose service had
-    // changed under it, which is the stale undo this repo has already shipped
-    // once for people.
+  it('empties the set on ?cascade and moves every row’s revision', async () => {
+    // The cascade on `work_item_service.service_id` does the clearing, but a
+    // foreign key moves no revision — so the removal bumps the rows itself.
+    // Without that a journal entry holding the old number would undo against a
+    // row whose services had changed under it, which is the stale undo this repo
+    // has already shipped once for people.
+    //
+    // "Empties" and not "nulls" since task 10.2, and the name of this case moved
+    // with the mechanism: a set member is removed where a column was nulled, and
+    // `directoryUsageOfService` reports `label_removed` for the same reason.
     const payments = await serviceNamed('Payments');
-    await workItems.patch('design', { serviceId: payments.id });
+    await workItems.patch('design', { serviceIds: [payments.id] });
     const before = (await workItems.listByProject(projectId)).find((row) => row.id === 'design');
 
     expect(await directory.removeService(payments.id, true)).toEqual({ ok: true });
 
     const after = (await workItems.listByProject(projectId)).find((row) => row.id === 'design');
-    expect(after?.serviceId).toBeNull();
+    expect(after?.serviceIds).toEqual([]);
     expect(after?.revision).toBeGreaterThan(before?.revision ?? 0);
     expect(await store.listServices()).toEqual([]);
   });
@@ -1116,7 +1121,7 @@ describe('removing a service: what it names, what it takes, and what it cannot m
     const payments = await serviceNamed('Payments');
     const platform = await store.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
     db.insert(teamService).values({ teamId: platform.id, serviceId: payments.id }).run();
-    await workItems.patch('design', { serviceId: payments.id });
+    await workItems.patch('design', { serviceIds: [payments.id] });
 
     const refused = await directory.removeService(payments.id, false);
 
@@ -1158,7 +1163,7 @@ describe('removing a service: what it names, what it takes, and what it cannot m
     // announced is the set of plans that named the service when it happened.
     // `capacity_changed` is never among them: no date moves.
     const payments = await serviceNamed('Payments');
-    await workItems.patch('design', { serviceId: payments.id });
+    await workItems.patch('design', { serviceIds: [payments.id] });
     broadcast.published.length = 0;
 
     await directory.renameService(payments.id, 'Billing');

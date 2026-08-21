@@ -472,16 +472,20 @@ describe('work item routes', () => {
     });
     const { id } = (await created.json()) as { id: string };
 
-    for (const bad of [7, true, ['a'], { id: 'a' }]) {
+    // A bare id is among them since task 10.2 and is the addition worth naming:
+    // the field takes a **list**, so the string that used to be the only legal
+    // value is now the client sending one id where a set belongs — accepted, it
+    // would write a join row per character.
+    for (const bad of [7, true, 'one-service-id', { id: 'a' }]) {
       const res = await send(`/api/work-items/${id}`, token, {
         method: 'PATCH',
-        body: JSON.stringify({ serviceId: bad }),
+        body: JSON.stringify({ serviceIds: bad }),
       });
       // The value is carried into the assertion so a failure names which of
       // them got through rather than reporting `400 !== 200` four times.
       expect([res.status, JSON.stringify(bad)]).toEqual([400, JSON.stringify(bad)]);
       expect((await res.json()) as { error: string }).toEqual({
-        error: 'serviceId_must_be_id_or_null',
+        error: 'serviceIds_must_be_a_list_of_ids',
       });
     }
 
@@ -489,8 +493,8 @@ describe('work item routes', () => {
     // an assertion of `toBeNull` alone would pass just as well against a route
     // that has never heard of it.
     const still = await send(`/api/projects/${projectId}/work-items`, token);
-    const { workItems } = (await still.json()) as { workItems: { serviceId: string | null }[] };
-    expect(workItems[0]).toHaveProperty('serviceId', null);
+    const { workItems } = (await still.json()) as { workItems: { serviceIds: string[] }[] };
+    expect(workItems[0]).toHaveProperty('serviceIds', []);
 
     // And a well-formed id goes through the parse, the service and the store to
     // the row: without it the four refusals above would pass over a route that
@@ -508,10 +512,19 @@ describe('work item routes', () => {
     const { service } = (await made.json()) as { service: { id: string } };
     const ok = await send(`/api/work-items/${id}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ serviceId: service.id }),
+      body: JSON.stringify({ serviceIds: [service.id] }),
     });
     expect(ok.status).toBe(200);
-    expect((await ok.json()) as { serviceId: string }).toMatchObject({ serviceId: service.id });
+    // Read back off the tree rather than off the response, and the change is
+    // task 10.2's: `PATCH` answers with the **row**, and the row's `service_id`
+    // is the outgoing release's column, which this release deliberately no
+    // longer writes. The tree is where the set lives, so the tree is what proves
+    // the write. Nothing on fe-01 reads the patch response — `api.patch` returns
+    // void — so the stale echo misleads no client; it is named in the task log
+    // as owed rather than fixed here.
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const { workItems: written } = (await tree.json()) as { workItems: { serviceIds: string[] }[] };
+    expect(written[0]).toHaveProperty('serviceIds', [service.id]);
   });
 
   it('answers 404 for a service the directory does not hold, and writes nothing', async () => {
@@ -531,17 +544,18 @@ describe('work item routes', () => {
 
     const res = await send(`/api/work-items/${id}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ serviceId: crypto.randomUUID() }),
+      body: JSON.stringify({ serviceIds: [crypto.randomUUID()] }),
     });
 
     expect(res.status).toBe(404);
     expect((await res.json()) as { error: string }).toEqual({ error: 'unknown_service' });
 
-    // 404 and **nothing written**: a refusal that had already moved the column
-    // would leave the row delivering a service the directory cannot name.
+    // 404 and **nothing written**: a refusal that had already emptied and
+    // rewritten the join would leave the row delivering a service the directory
+    // cannot name.
     const still = await send(`/api/projects/${projectId}/work-items`, token);
-    const { workItems } = (await still.json()) as { workItems: { serviceId: string | null }[] };
-    expect(workItems[0]).toHaveProperty('serviceId', null);
+    const { workItems } = (await still.json()) as { workItems: { serviceIds: string[] }[] };
+    expect(workItems[0]).toHaveProperty('serviceIds', []);
   });
 
   it('records a service the row’s team does not own, rather than refusing it', async () => {
@@ -589,20 +603,18 @@ describe('work item routes', () => {
     const mismatchOf = async (workItemId: string): Promise<boolean> => {
       const tree = await send(`/api/projects/${projectId}/work-items`, token);
       const { workItems } = (await tree.json()) as {
-        workItems: { id: string; teamIds: string[]; serviceId: string | null }[];
+        workItems: { id: string; teamIds: string[]; serviceIds: string[] }[];
       };
       const stored = workItems.find((each) => each.id === workItemId);
       const teams = await send('/api/teams', token);
       const { teams: listed } = (await teams.json()) as {
         teams: { id: string; serviceIds: string[] }[];
       };
-      // The wire is still one nullable column at this chunk, folded to a set of
-      // nought or one for the rule — which is set-shaped since the 2026-08-21
-      // scope change. When the store widens to a join table this reads
-      // `stored?.serviceIds ?? []` and the fold goes.
-      const own = stored?.serviceId ?? null;
+      // The fold is gone, which is what task 10.2 named this line for: the tree
+      // carries `serviceIds` off the join, so the rule is handed the stored set
+      // rather than a set of nought or one built out of a column here.
       return builtByNonOwner({
-        serviceIds: own === null ? [] : [own],
+        serviceIds: stored?.serviceIds ?? [],
         teamIds: stored?.teamIds ?? [],
         ownedServicesByTeam: new Map(listed.map((each) => [each.id, each.serviceIds])),
       });
@@ -614,7 +626,7 @@ describe('work item routes', () => {
     // report chunk 5's usage red exposed, one route over.
     const owning = await send(`/api/work-items/${id}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ serviceTeamId: team.id, serviceId: owns.id }),
+      body: JSON.stringify({ serviceTeamId: team.id, serviceIds: [owns.id] }),
     });
 
     expect(owning.status).toBe(200);
@@ -622,7 +634,7 @@ describe('work item routes', () => {
 
     const patched = await send(`/api/work-items/${id}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ serviceId: doesNotOwn.id }),
+      body: JSON.stringify({ serviceIds: [doesNotOwn.id] }),
     });
 
     expect(patched.status).toBe(200);
@@ -632,11 +644,11 @@ describe('work item routes', () => {
     // so over the stored pair.
     const tree = await send(`/api/projects/${projectId}/work-items`, token);
     const { workItems } = (await tree.json()) as {
-      workItems: { id: string; teamIds: string[]; serviceId: string | null }[];
+      workItems: { id: string; teamIds: string[]; serviceIds: string[] }[];
     };
 
     expect(workItems.find((each) => each.id === id)).toMatchObject({
-      serviceId: doesNotOwn.id,
+      serviceIds: [doesNotOwn.id],
       teamIds: [team.id],
     });
     expect(await mismatchOf(id)).toBe(true);

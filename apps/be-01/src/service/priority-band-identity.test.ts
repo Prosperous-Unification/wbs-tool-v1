@@ -373,7 +373,7 @@ describe('a priority ladder moves no date', () => {
   ): Record<string, unknown> {
     return {
       ...tree,
-      workItems: tree.workItems.map(({ teamIds, tagIds, actuals, progress, state, ...row }) => {
+      workItems: tree.workItems.map(({ teamIds, tagIds, serviceIds, actuals, progress, state, ...row }) => {
         expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
         // `tagIds` is lifted the same way by `tags` (R10-B) and asserted **empty**
         // for `actuals`' reason: the oracle predates the dimension, nothing in
@@ -381,6 +381,12 @@ describe('a priority ladder moves no date', () => {
         // this change's own claim — a plan nobody has tagged reads as untagged.
         // A bare lift would let a read path that invented a label pass silently.
         expect(tagIds).toEqual([]);
+        // `serviceIds` is lifted and asserted empty for `tagIds`' reason exactly,
+        // one dimension over: the oracle predates the dimension, no row in the
+        // replayed plans delivers a service, and the empty set on every one of
+        // them is task 10.2's own claim — the read path widened from a column to
+        // a join and invented nothing on the way.
+        expect(serviceIds).toEqual([]);
         expect(actuals).toEqual({});
         // `progress` and `state` are lifted the same way by `role-progress`
         // (R6 H2b), and asserted for `actuals`' reason: an empty object and
