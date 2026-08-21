@@ -443,7 +443,9 @@ describe('DELETE /api/people/:id and /api/teams/:id', () => {
     );
 
     expect(res.status).toBe(401);
-    expect(await store.listTeams()).toEqual([{ id: platform, name: 'Platform' }]);
+    expect(await store.listTeams()).toEqual([
+      { id: platform, name: 'Platform', serviceIds: [] },
+    ]);
   });
 });
 

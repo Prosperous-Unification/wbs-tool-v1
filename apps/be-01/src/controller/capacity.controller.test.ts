@@ -180,7 +180,9 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
 
     await call(projectId, platform, { size: 4 });
 
-    expect(await directoryStore.listTeams()).toEqual([{ id: platform, name: 'Platform' }]);
+    expect(await directoryStore.listTeams()).toEqual([
+      { id: platform, name: 'Platform', serviceIds: [] },
+    ]);
   });
 
   it('refuses a capacity that is not a whole number of 1 or more', async () => {
