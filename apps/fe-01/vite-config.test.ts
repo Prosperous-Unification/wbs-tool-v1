@@ -134,3 +134,31 @@ describe('vite dev server proxy', () => {
     );
   });
 });
+
+/**
+ * The two alias maps say the same thing, asserted rather than remembered.
+ *
+ * `vite.config.ts` resolves the app's imports and the suite config resolves the
+ * run's, and a `@wbs/domain/*` module listed in one and not the other does not
+ * fail an assertion — it fails **collection**, so the files importing it vanish
+ * and the run reports a smaller number in green. That has now happened three
+ * times here: `priority-band`, then `effective-tag` on 2026-08-20 (7 files lost,
+ * 820 assertions left passing), then `effective-service` and `label-mismatch` on
+ * 2026-08-21 (8 files lost, 835 left passing). The comment in the suite config
+ * has described the trap since the second time, which is how we know a comment
+ * does not catch it.
+ *
+ * The keys and not the resolved paths, on purpose: a missing key is what breaks
+ * a run, and comparing absolute paths would fail this file on a checkout in
+ * another directory for a reason it is not about. Both maps resolve against
+ * their own `__dirname` and the two configs sit in one folder, so a key in both
+ * already names the same file.
+ */
+describe('the app and the run resolve the same modules', () => {
+  it('lists the same alias keys in both configs', async () => {
+    const { default: suiteConfig } = await import('./vitest.config');
+    const appAliases = serveConfig({}).resolve?.alias ?? {};
+    const suiteAliases = suiteConfig.resolve?.alias ?? {};
+    expect(Object.keys(suiteAliases).sort()).toEqual(Object.keys(appAliases).sort());
+  });
+});

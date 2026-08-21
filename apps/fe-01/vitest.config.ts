@@ -5,8 +5,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
-  // The same five the app is built with. `@wbs/domain/workday`,
-  // `@wbs/domain/effective-team`, `@wbs/domain/effective-tag` and
+  // The same six the app is built with. `@wbs/domain/workday`,
+  // `@wbs/domain/effective-team`, `@wbs/domain/effective-tag`,
+  // `@wbs/domain/effective-service`, `@wbs/domain/label-mismatch` and
   // `@wbs/domain/priority-band` are the pure modules and *not* the lib's index
   // barrel, which re-exports arktype-touching validators this bundle excludes —
   // see `vite.config.ts`.
@@ -21,12 +22,24 @@ export default defineConfig({
   // file forgotten, **7 files failed to collect and 820 tests still passed** —
   // a green-looking number beside a suite that had lost a seventh of itself.
   // The count is the tell, not the colour.
+  //
+  // **A third time, 2026-08-21**, adding `effective-service` and
+  // `label-mismatch`: `tsconfig.base.json` and `vite.config.ts` updated, this
+  // file forgotten, and the run read **8 files failed to collect, 835 assertions
+  // passed**. Twice is a slip; three times is a checklist living in prose where
+  // it should be an assertion, so `vite-config.test.ts` now compares the two
+  // alias maps as sets rather than this comment asking a reader to remember.
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
       '@wbs/domain/workday': resolve(__dirname, '../../libs/domain/src/workday.ts'),
       '@wbs/domain/effective-team': resolve(__dirname, '../../libs/domain/src/effective-team.ts'),
       '@wbs/domain/effective-tag': resolve(__dirname, '../../libs/domain/src/effective-tag.ts'),
+      '@wbs/domain/effective-service': resolve(
+        __dirname,
+        '../../libs/domain/src/effective-service.ts',
+      ),
+      '@wbs/domain/label-mismatch': resolve(__dirname, '../../libs/domain/src/label-mismatch.ts'),
       '@wbs/domain/priority-band': resolve(__dirname, '../../libs/domain/src/priority-band.ts'),
     },
   },
