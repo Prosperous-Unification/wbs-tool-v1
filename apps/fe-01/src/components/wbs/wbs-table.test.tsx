@@ -12850,7 +12850,11 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     // feature is broken.
     const api = fakeApi();
     await api.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
-    await shown(api);
+    render(<WbsTable projectId="p1" api={api} />);
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010']);
+    });
+    fireEvent.click(screen.getByText(/^Filters/));
 
     const owner = screen.getByLabelText('Built by non-owner only');
     const outside = screen.getByLabelText('Assigned outside the team only');
@@ -12949,9 +12953,16 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
 
     const owner = screen.getByLabelText('Built by non-owner only');
     expect(owner).not.toBeDisabled();
-    // And the signal now answers `false` everywhere, so the tick finds nothing
-    // — which is the state the reader has to be able to get out of.
-    expect(numbersOnScreen()).toEqual([]);
+    // **And the answer went the other way, which is the finding.** An empty
+    // ownership map does not make the signal quiet: `builtByNonOwner` asks
+    // whether one of the row's teams owns the service, and with nobody owning
+    // anything the answer is "no" for every labelled row. Four of the six here
+    // — the whole branch under `010`, `010.1.1` included, because `Wiring` has
+    // just stopped owning `Checkout` too. That is the marker-on-most-of-a-plan
+    // failure `label-mismatch.ts` argues against, arriving through the
+    // directory rather than through the rule, and it is the real reason the box
+    // is stood down while the map is empty.
+    expect(numbersOnScreen()).toEqual(['010', '010.1', '010.1.1', '010.2']);
     fireEvent.click(owner);
     expect(numbersOnScreen()).toEqual(['010', '010.1', '010.1.1', '010.2', '020', '020.1']);
   });

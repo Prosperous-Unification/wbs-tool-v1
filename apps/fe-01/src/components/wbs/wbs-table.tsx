@@ -1635,10 +1635,12 @@ function FilterFacets({
    * is asked against.
    *
    * False is the state the deployment ships in (the map has no seed data, by
-   * the proposal's non-goal), and in it the signal is not "nothing is built by
-   * a non-owner" but "nobody has said who owns what". A facet that answers the
-   * second question by ticking the first is how a reader concludes the feature
-   * is broken — the design's first risk, mitigated by saying so.
+   * the proposal's non-goal), and in it the signal does not mean "nothing is
+   * built by a non-owner" — it flags **every** row carrying a team and a
+   * service, because no team owns anything. Offering the box there would put a
+   * marker on most of a plan on the strength of a directory nobody has filled
+   * in, which is the failure `label-mismatch.ts` exists to argue against. The
+   * design's first risk, mitigated by saying so instead of by ticking.
    */
   ownershipKnown: boolean;
   /** The same fact for the second signal: whether anybody belongs to any team. */
@@ -3237,10 +3239,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * Whether the directory has been told **anything** about who owns what, and
    * about who belongs where — one bit each, off the two maps above.
    *
-   * These decide whether the mismatch facets can be asked at all. Both signals
-   * answer `false` for every row while their map is empty, and false there
-   * means "nobody has said", not "nothing is wrong" — see {@link FilterFacets}
-   * for what the panel does with that and why it does not simply offer the box.
+   * These decide whether the mismatch facets can be asked at all, and the
+   * reason is the opposite of the one it looks like. An empty map does not make
+   * a signal quiet: `builtByNonOwner` asks whether one of the row's teams owns
+   * the service, so with nobody owning anything **every** row carrying both
+   * labels is flagged, and the same holds for membership. Watched, chunk 9 —
+   * emptying the map under a ticked facet leaves four of six rows on screen,
+   * not none. So the box is stood down not to hide a false negative but to
+   * refuse a question whose only honest answer is "nobody has said who owns
+   * what" — see {@link FilterFacets} for what the panel does with that.
    *
    * `some` over a non-empty list and not `size > 0`: every team is in
    * `ownedServicesByTeam` and every person in `teamsByPerson`, each with a
