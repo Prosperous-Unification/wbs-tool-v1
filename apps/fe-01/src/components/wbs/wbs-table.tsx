@@ -7049,13 +7049,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   // cannot be made in a column that does not exist until the
                   // first service is made, which is precisely why the Team cell,
                   // whose column is always on screen, may keep its `onCreate`.
-                  onClear={
-                    own.length === 0
-                      ? undefined
-                      : () => {
-                          live.current.setServicesOf(row.original.id, []);
-                        }
-                  }
+                  // **No `onClear`, and that is a correction rather than an
+                  // omission.** The tag cell beside this one passes one, and it
+                  // is dead: `CreatablePicker` renders its ✕ only while
+                  // `chosen !== undefined`, and a box whose `value` is always
+                  // `null` never has one. Taking the last service off is done by
+                  // removing its chip — the gesture that is actually on screen —
+                  // and the case asserts that `[]` goes out that way. Copying
+                  // the dead prop here would have made a second surface claim an
+                  // affordance neither of them has. Found 2026-08-21 when a case
+                  // written against `Clear Services for 010` could not find the
+                  // button.
                   gridCell={{
                     dataCell: cellKey(row.original.id, 'service'),
                     onTabKey: (e) => {

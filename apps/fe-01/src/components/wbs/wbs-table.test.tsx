@@ -13552,7 +13552,7 @@ describe('the service cell', () => {
     expect(screen.getByLabelText('Remove Ledger from 010')).toBeTruthy();
   });
 
-  itDom('sends the service the picker chose, and null when it is cleared', async () => {
+  itDom('sends the service the picker chose, and the empty set when the last chip goes', async () => {
     const api = await aServicedPlan();
     const patches: unknown[] = [];
     const watched: ProjectApi = {
@@ -13573,13 +13573,19 @@ describe('the service cell', () => {
       expect(patches).toHaveLength(1);
     });
 
-    // Clearing on the parent, which had one. **`[]`, not an omitted field.**
-    // An absent `serviceIds` is "no opinion" to the patch and would leave
-    // `Checkout` standing — the cell would appear to clear and the next
+    // Taking the last one off the parent, which had one. **`[]`, not an omitted
+    // field.** An absent `serviceIds` is "no opinion" to the patch and would
+    // leave `Checkout` standing — the cell would appear to clear and the next
     // refetch would put the label back. The empty array is the one spelling of
     // taking the label off since task 10.2; the `null` this asserted was the
     // column's.
-    fireEvent.click(screen.getByLabelText('Clear Services for 010'));
+    //
+    // Through the **chip**, not through a Clear button: since task 10.4 this box
+    // holds no value, and `CreatablePicker` draws its ✕ only for a box that
+    // does. This case is what found that — written against `Clear Services for
+    // 010` it failed on `Unable to find a label with the text of`, which is why
+    // the cell passes no `onClear` and says so.
+    fireEvent.click(screen.getByLabelText('Remove Checkout from 010'));
     await waitFor(() => {
       expect(patches).toHaveLength(2);
     });
