@@ -7,10 +7,10 @@ import {
   type RowData,
   useReactTable,
 } from '@tanstack/react-table';
-import { effectiveTagsOf } from '@wbs/domain/effective-tag';
 import { effectiveServicesOf } from '@wbs/domain/effective-service';
-import { assignedOutsideTeam, builtByNonOwner } from '@wbs/domain/label-mismatch';
+import { effectiveTagsOf } from '@wbs/domain/effective-tag';
 import { effectiveTeamsOf } from '@wbs/domain/effective-team';
+import { assignedOutsideTeam, builtByNonOwner } from '@wbs/domain/label-mismatch';
 import { priorityBandOf } from '@wbs/domain/priority-band';
 import { workdaysBetween } from '@wbs/domain/workday';
 import {
@@ -3234,57 +3234,57 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           ...new Set(Object.values(row.assignees).filter((id): id is string => id !== undefined)),
         ];
         return {
-        id: row.id,
-        name: row.name,
-        parentId: row.parentId,
-        facets: {
-          teamIds,
-          // The **effective** tags, for the effective team's reason one line
-          // up: a leaf under a `regulatory` parent is regulatory, and a filter
-          // reading stored labels would not find it.
-          tagIds: effectiveTags.get(row.id)?.tagIds ?? [],
-          // The **effective** service, for the same reason a third time, and
-          // `?? null` because absence from the map is how this walk spells
-          // "nobody above this row states one".
-          //
-          // **Task 6.2's fault has no test to fail here yet, and this comment
-          // is what stops a reader assuming otherwise.** Written as
-          // `row.serviceId` — the row's own stored column — nothing in the
-          // suite goes red, because no control can tick the service facet until
-          // task 6.3 adds one and no marker reads the signal until 7.1. The
-          // fault is injectable the moment either exists, and 6.2 is ticked
-          // there rather than here. Chunk 7 recorded the same shape for 5.2:
-          // the guard is written where the rule lives, and the proof waits for
-          // the surface that can exercise it.
-          serviceId,
-          // The two signals, computed here and at their **real site** — the
-          // one place in the app that answers them per row, which is what
-          // makes task 6.2's stored-instead-of-effective fault a production
-          // fault rather than a fault in a test's own composition (chunk 7's
-          // record of 5.2). `libs/domain/src/label-mismatch.ts` owns both
-          // rules; this hands them the effective reading and the directory's
-          // two maps, and holds no rule of its own.
-          builtByNonOwner: builtByNonOwner({ serviceId, teamIds, ownedServicesByTeam }),
-          assignedOutsideTeam: assignedOutsideTeam({ assigneeIds, teamIds, teamsByPerson }),
-          assigneeIds,
-          // Null and not a band: a row nobody has prioritised carries no rung,
-          // and `priorityBandOf` is asked about numbers only.
-          priorityBand:
-            row.priority === null
-              ? null
-              : (priorityBandOf(priorityBands, row.priority)?.label ?? null),
-          // `Object.hasOwn` and not a truthy test, which is `findEstimateGaps`'
-          // own rule: a stored `0 / 0 / 0` is somebody saying this costs
-          // nothing, which is an answer and not an absence.
-          estimatedRoleIds: roles
-            .filter((role) => Object.hasOwn(row.estimates, role.id))
-            .map((role) => role.id),
-          unestimated: unestimatedIds.has(row.id),
-          // be-01's own answer for the row, not a second reading of the
-          // slices: a row is on the critical path when its work is, and the
-          // Slack cell and the card both already print this field.
-          critical: row.schedule.critical,
-        },
+          id: row.id,
+          name: row.name,
+          parentId: row.parentId,
+          facets: {
+            teamIds,
+            // The **effective** tags, for the effective team's reason one line
+            // up: a leaf under a `regulatory` parent is regulatory, and a filter
+            // reading stored labels would not find it.
+            tagIds: effectiveTags.get(row.id)?.tagIds ?? [],
+            // The **effective** service, for the same reason a third time, and
+            // `?? null` because absence from the map is how this walk spells
+            // "nobody above this row states one".
+            //
+            // **Task 6.2's fault has no test to fail here yet, and this comment
+            // is what stops a reader assuming otherwise.** Written as
+            // `row.serviceId` — the row's own stored column — nothing in the
+            // suite goes red, because no control can tick the service facet until
+            // task 6.3 adds one and no marker reads the signal until 7.1. The
+            // fault is injectable the moment either exists, and 6.2 is ticked
+            // there rather than here. Chunk 7 recorded the same shape for 5.2:
+            // the guard is written where the rule lives, and the proof waits for
+            // the surface that can exercise it.
+            serviceId,
+            // The two signals, computed here and at their **real site** — the
+            // one place in the app that answers them per row, which is what
+            // makes task 6.2's stored-instead-of-effective fault a production
+            // fault rather than a fault in a test's own composition (chunk 7's
+            // record of 5.2). `libs/domain/src/label-mismatch.ts` owns both
+            // rules; this hands them the effective reading and the directory's
+            // two maps, and holds no rule of its own.
+            builtByNonOwner: builtByNonOwner({ serviceId, teamIds, ownedServicesByTeam }),
+            assignedOutsideTeam: assignedOutsideTeam({ assigneeIds, teamIds, teamsByPerson }),
+            assigneeIds,
+            // Null and not a band: a row nobody has prioritised carries no rung,
+            // and `priorityBandOf` is asked about numbers only.
+            priorityBand:
+              row.priority === null
+                ? null
+                : (priorityBandOf(priorityBands, row.priority)?.label ?? null),
+            // `Object.hasOwn` and not a truthy test, which is `findEstimateGaps`'
+            // own rule: a stored `0 / 0 / 0` is somebody saying this costs
+            // nothing, which is an answer and not an absence.
+            estimatedRoleIds: roles
+              .filter((role) => Object.hasOwn(row.estimates, role.id))
+              .map((role) => role.id),
+            unestimated: unestimatedIds.has(row.id),
+            // be-01's own answer for the row, not a second reading of the
+            // slices: a row is on the critical path when its work is, and the
+            // Slack cell and the card both already print this field.
+            critical: row.schedule.critical,
+          },
         };
       }),
     [

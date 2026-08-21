@@ -464,10 +464,7 @@ describe('the service facet narrows like every other facet', () => {
   });
 
   it('takes two chosen services as either of them', () => {
-    const narrowed = narrowTree(
-      PLAN_WITH_SERVICES,
-      asking({ serviceIds: ['ledger', 'payments'] }),
-    );
+    const narrowed = narrowTree(PLAN_WITH_SERVICES, asking({ serviceIds: ['ledger', 'payments'] }));
     expect([...narrowed.matchIds].sort()).toEqual(['a', 'a1', 'a11', 'b']);
   });
 
@@ -496,10 +493,7 @@ describe('the service facet narrows like every other facet', () => {
       row('x', null, 'Wiring', { serviceId: 'payments', tagIds: ['regulatory'] }),
       row('y', null, 'Plaster', { serviceId: 'payments', tagIds: [] }),
     ];
-    const narrowed = narrowTree(
-      rows,
-      asking({ serviceIds: ['payments'], tagIds: ['regulatory'] }),
-    );
+    const narrowed = narrowTree(rows, asking({ serviceIds: ['payments'], tagIds: ['regulatory'] }));
     expect([...narrowed.matchIds]).toEqual(['x']);
   });
 });
@@ -576,18 +570,11 @@ describe('what the filter says it is asking, for the third dimension', () => {
     // Three phrases and not one folded sentence: the dimensions are
     // independent, and a document merging them would say something neither the
     // control nor the predicate means.
-    expect(words).toEqual([
-      'team team-t1',
-      'tag tag-g1',
-      'service service-s1 or service-s2',
-    ]);
+    expect(words).toEqual(['team team-t1', 'tag tag-g1', 'service service-s1 or service-s2']);
   });
 
   it('says what each ticked signal means, rather than naming the checkbox', () => {
-    const words = filterWords(
-      asking({ builtByNonOwner: true, assignedOutsideTeam: true }),
-      LABELS,
-    );
+    const words = filterWords(asking({ builtByNonOwner: true, assignedOutsideTeam: true }), LABELS);
     expect(words).toEqual(['built by a non-owner only', 'assigned outside the team only']);
   });
 
