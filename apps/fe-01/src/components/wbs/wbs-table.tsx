@@ -76,7 +76,7 @@ import {
 } from './estimate-draft';
 import { FoldedRoleCard } from './folded-role-card';
 import { GanttFaultBoundary } from './gantt-fault';
-import type { GanttPlan, ServiceTeamLabel, TagLabel } from './gantt-geometry';
+import type { GanttPlan, ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry';
 import { clampedGanttHeight, GANTT_CEILING_PX, GANTT_MIN_PX, GanttPanel } from './gantt-panel';
 import { HoverPreview } from './hover-preview';
 import { initialsOf } from './initials';
@@ -3333,6 +3333,33 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   };
 
   /**
+   * A row's service as a cell or a card can state it: its own, or the one it
+   * inherits and the row that carries it.
+   *
+   * {@link effectiveTeamLabelOf}'s shape, third dimension over, and off
+   * `effectiveServices` — `libs/domain`'s walk — rather than a second reading
+   * of the tree. No `at(0)`: the team's is there because its write path still
+   * sends one of a set, and this dimension has one by construction (D2).
+   */
+  const effectiveServiceLabelOf = (row: TreeRow): ServiceLabel => {
+    const nameOf = (id: string): { name: string } | undefined =>
+      services.find((each) => each.id === id);
+    if (row.serviceId !== null) {
+      const own = nameOf(row.serviceId);
+      return own === undefined ? { state: 'unresolved' } : { state: 'named', name: own.name };
+    }
+    const inherited = effectiveServices.get(row.id);
+    if (inherited === undefined) return { state: 'none' };
+    const named = nameOf(inherited.serviceId);
+    if (named === undefined) return { state: 'unresolved' };
+    return {
+      state: 'inherited',
+      name: named.name,
+      fromRow: namedInTheTree.get(inherited.fromId) ?? 'a row that is not shown',
+    };
+  };
+
+  /**
    * A pending Ctrl+D whose row the tree no longer holds — or no longer holds
    * under the number the toast promised — is disarmed.
    *
@@ -5272,6 +5299,23 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   );
 
   /**
+   * States which service a work item is delivered by, or takes the label off.
+   *
+   * `setTeamOf`'s shape, and `null` for the same reason: this dimension's
+   * unstated state **is** null, so clearing the cell sends the field rather
+   * than omitting it — an omitted field is "no opinion" to the patch and would
+   * leave the old service standing. be-01 refuses an id the directory does not
+   * carry with `unknown_service` (section 3), which is why nothing here
+   * validates the id a second time.
+   */
+  const setServiceOf = useCallback(
+    (id: string, serviceId: string | null) => {
+      void run(() => api.patch(id, { serviceId }));
+    },
+    [api, run],
+  );
+
+  /**
    * Sets a work item's tags, **whole**.
    *
    * The patch states the set as it will stand, so adding one sends the old set
@@ -5620,15 +5664,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setParallelism,
     effectiveTeamLabelOf,
     effectiveTagLabelOf,
+    effectiveServiceLabelOf,
     editingNotBefore,
     openNotBefore,
     closeNotBefore,
     startDate,
     teams,
     tags,
+    services,
     people,
     setTeamOf,
     setTagsOf,
+    setServiceOf,
     createTeamFor,
     assignTo,
     createPersonFor,
@@ -5692,15 +5739,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setParallelism,
     effectiveTeamLabelOf,
     effectiveTagLabelOf,
+    effectiveServiceLabelOf,
     editingNotBefore,
     openNotBefore,
     closeNotBefore,
     startDate,
     teams,
     tags,
+    services,
     people,
     setTeamOf,
     setTagsOf,
+    setServiceOf,
     createTeamFor,
     assignTo,
     createPersonFor,

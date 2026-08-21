@@ -195,6 +195,25 @@ export type TagLabel =
   | { state: 'named'; names: readonly string[] }
   | { state: 'inherited'; names: readonly string[]; fromRow: string };
 
+/**
+ * What a row is **delivered by**, as any face can state it.
+ *
+ * Structurally {@link ServiceTeamLabel}: single-valued, because D2 puts one
+ * service on a work item as a column rather than a join table, and with an
+ * `unresolved` arm for the same reason the team has one — a service can go
+ * missing between the tree read and the directory read, and a surface that
+ * silently draws a blank is claiming the row has no service when what happened
+ * is that it could not find its name.
+ *
+ * **A named alias rather than a reuse of that type.** `ServiceTeamLabel` is
+ * named for the `service_team` table, and `service_team` is the *team* — D9
+ * keeps the name while blue/green shares one SQLite file. Two dimensions
+ * sharing a shape is not two dimensions being the same thing, and a reader who
+ * finds `ServiceTeamLabel` on the service cell would reasonably conclude the
+ * split had not happened.
+ */
+export type ServiceLabel = ServiceTeamLabel;
+
 /** The three points a role was estimated with, as the plan holds them. */
 export interface EstimateTrio {
   optimistic: number;
