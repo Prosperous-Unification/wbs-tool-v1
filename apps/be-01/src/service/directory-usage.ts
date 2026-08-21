@@ -223,6 +223,38 @@ export function directoryUsageOfTag(rows: DirectoryUsageRows, tagId: string): Di
 }
 
 /**
+ * What removing one **service** would take with it: the label, and nothing else.
+ *
+ * `label_nulled` rather than `label_removed`, and the difference is literal:
+ * this dimension **is** a column (design.md D2), so what happens to a row that
+ * names the service is that `work_item.service_id` goes to null. The tag's
+ * effect is spelled the other way for the same honesty — nothing is nulled
+ * there, because there is no column to null.
+ *
+ * **No `capacity_released` arm**, for {@link directoryUsageOfTag}'s reason: a
+ * service has no pool, no size and no per-project capacity, so there is nothing
+ * a removal could give back. No inherited arm either — losing an inherited
+ * service moves no date, so the rows that only inherit it are not named. Both
+ * absences are the model rule, and a service that grew a pool would have to
+ * change this function to ship.
+ *
+ * Read off the row's own column and never `effectiveServicesOf`: the
+ * confirmation names the rows the removal writes to, which is exactly the rows
+ * that state it.
+ *
+ * The `team_service` rows the removal also takes are **not** here. An ownership
+ * claim about a service that no longer exists is not an effect on any plan, and
+ * a confirmation listing it would ask somebody to weigh a fact that goes with
+ * its own subject (design.md D7).
+ */
+export function directoryUsageOfService(
+  rows: DirectoryUsageRows,
+  serviceId: string,
+): DirectoryUsage {
+  return usageFrom(rows, (row) => (row.serviceId === serviceId ? [{ kind: 'label_nulled' }] : []));
+}
+
+/**
  * The directory usage of one team: every work item labelled with it, every work
  * item that **inherits** it while the team is sized, and every person who
  * belongs to it.

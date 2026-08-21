@@ -11,6 +11,7 @@ import { DirectoryRepository } from '../repository/directory';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { RoleRepository } from '../repository/role';
+import { teamService } from '../repository/schema';
 import { UserRepository } from '../repository/user';
 import { WorkItemRepository } from '../repository/work-item';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
@@ -971,5 +972,111 @@ describe('removing a tag: what it names, and what it cannot move', () => {
     // what stops the second.
     expect(again).toEqual(first);
     expect(await store.listTags()).toEqual([{ id: first.id, name: 'regulatory' }]);
+  });
+});
+
+describe('removing a service: what it names, what it takes, and what it cannot move', () => {
+  /** A service in the global directory, or a throw — a refused fixture is not a result. */
+  const serviceNamed = async (name: string) => {
+    const made = await directory.addService(name);
+    if (made === null) throw new Error(`the fixture service ${name} was refused`);
+    return made;
+  };
+
+  it('does not name a row that only inherits the service, because nothing of its moves', async () => {
+    // The tag's rule, and for a stronger reason than the tag's: the removal
+    // writes to `work_item.service_id`, and the only rows it writes to are the
+    // rows that state it. A leaf inheriting the label keeps every date it has
+    // and its own column was already null, so there is nothing to confirm.
+    const payments = await serviceNamed('Payments');
+    await workItems.insert({ ...newItem('cladding', 30, 'Cladding'), parentId: 'design' }, []);
+    await workItems.patch('design', { serviceId: payments.id });
+
+    const outcome = await directory.removeService(payments.id, false);
+
+    if (outcome.ok || outcome.reason !== 'in_use') throw new Error('the removal was not refused');
+    expect(outcome.usage.projects[0]?.workItems.map((each) => each.id)).toEqual(['design']);
+  });
+
+  it('nulls the column on ?cascade and moves every row’s revision', async () => {
+    // `ON DELETE SET NULL` does the clearing, but a foreign key moves no
+    // revision — so the removal bumps the rows itself. Without that a journal
+    // entry holding the old number would undo against a row whose service had
+    // changed under it, which is the stale undo this repo has already shipped
+    // once for people.
+    const payments = await serviceNamed('Payments');
+    await workItems.patch('design', { serviceId: payments.id });
+    const before = (await workItems.listByProject(projectId)).find((row) => row.id === 'design');
+
+    expect(await directory.removeService(payments.id, true)).toEqual({ ok: true });
+
+    const after = (await workItems.listByProject(projectId)).find((row) => row.id === 'design');
+    expect(after?.serviceId).toBeNull();
+    expect(after?.revision).toBeGreaterThan(before?.revision ?? 0);
+    expect(await store.listServices()).toEqual([]);
+  });
+
+  it('takes the ownership rows with it and never mentions them in the confirmation', async () => {
+    // design.md D7, both halves. The `team_service` rows go — their foreign key
+    // cascades — and they are **not** in the usage: an ownership claim about a
+    // service that is being deleted is not an effect on any plan, and putting it
+    // in the confirmation would ask somebody to weigh a fact that goes with its
+    // own subject.
+    //
+    // The row is written straight to the table because the write path for it is
+    // task 4.3; what is under test here is the removal, not the map's editor.
+    const payments = await serviceNamed('Payments');
+    const platform = await store.addTeam({ id: crypto.randomUUID(), name: 'Platform' });
+    db.insert(teamService).values({ teamId: platform.id, serviceId: payments.id }).run();
+    await workItems.patch('design', { serviceId: payments.id });
+
+    const refused = await directory.removeService(payments.id, false);
+
+    if (refused.ok || refused.reason !== 'in_use') throw new Error('the removal was not refused');
+    // One work item, one effect, and nothing about Platform anywhere in it.
+    expect(refused.usage).toEqual({
+      projects: [
+        {
+          id: projectId,
+          name: 'Rollout',
+          workItems: [
+            { id: 'design', number: '010', name: 'Design', effects: [{ kind: 'label_nulled' }] },
+          ],
+        },
+      ],
+      members: [],
+    });
+
+    expect(await directory.removeService(payments.id, true)).toEqual({ ok: true });
+    // The team survives its ownership claim; only the claim goes.
+    expect(db.select().from(teamService).all()).toEqual([]);
+    expect((await store.listTeams()).map((each) => each.name)).toEqual(['Platform']);
+  });
+
+  it('refuses a rename onto a name another service holds, and writes nothing', async () => {
+    await serviceNamed('Payments');
+    const auth = await serviceNamed('Auth');
+
+    expect(await directory.renameService(auth.id, 'Payments')).toEqual({
+      ok: false,
+      reason: 'taken',
+      name: 'Payments',
+    });
+    expect((await store.listServices()).map((each) => each.name)).toEqual(['Auth', 'Payments']);
+  });
+
+  it('tells every project holding a labelled row that its directory changed', async () => {
+    // The rename's `projectIds` are read inside its own transaction, so what is
+    // announced is the set of plans that named the service when it happened.
+    // `capacity_changed` is never among them: no date moves.
+    const payments = await serviceNamed('Payments');
+    await workItems.patch('design', { serviceId: payments.id });
+    broadcast.published.length = 0;
+
+    await directory.renameService(payments.id, 'Billing');
+
+    expect(broadcast.published).toEqual([
+      { projectId, event: { type: 'directory_changed' } },
+    ]);
   });
 });

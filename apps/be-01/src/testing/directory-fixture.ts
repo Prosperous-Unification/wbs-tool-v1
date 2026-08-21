@@ -5,6 +5,7 @@ import type {
   Person,
   PersonAdded,
   PersonWithTeams,
+  Service,
   ServiceTeam,
   Tag,
 } from '../repository';
@@ -34,6 +35,7 @@ const NOTHING_POINTS_AT_IT: DirectoryUsageRows = {
 export function inMemoryDirectory(): DirectoryStore {
   const teams = new Map<string, ServiceTeam>();
   const tags = new Map<string, Tag>();
+  const services = new Map<string, Service>();
   const people = new Map<string, Person>();
   const memberships = new Map<string, Set<string>>();
   const assignments = new Map<string, Assignment>();
@@ -86,6 +88,38 @@ export function inMemoryDirectory(): DirectoryStore {
       const found = tags.get(tagId);
       if (found === undefined) return Promise.resolve({ ok: false, reason: 'not_found' });
       tags.delete(tagId);
+      return Promise.resolve({ ok: true, removal: { workItemIds: [], projectIds: [] } });
+    },
+    listServices: () =>
+      Promise.resolve([...services.values()].sort((a, b) => a.name.localeCompare(b.name))),
+    // Idempotent by name, as the repository is at its unique index — `addTag`'s
+    // rule and its reason.
+    addService(toAdd) {
+      const already = [...services.values()].find((each) => each.name === toAdd.name);
+      if (already !== undefined) return Promise.resolve(already);
+      services.set(toAdd.id, toAdd);
+      return Promise.resolve(toAdd);
+    },
+    renameService(serviceId, name) {
+      const found = services.get(serviceId);
+      if (found === undefined) return Promise.resolve({ ok: false, reason: 'not_found' });
+      const held = [...services.values()].some(
+        (each) => each.name === name && each.id !== serviceId,
+      );
+      if (held) return Promise.resolve({ ok: false, reason: 'taken' });
+      const renamed = { id: serviceId, name };
+      services.set(serviceId, renamed);
+      return Promise.resolve({ ok: true, service: renamed, projectIds: [] });
+    },
+    // Not modelled beyond the shape, for `usageOfTag`'s reason: this store holds
+    // no work items and no foreign keys, so neither the count that decides a
+    // removal nor the `ON DELETE SET NULL` that performs it can exist in it.
+    // Every behavioural claim about removing a service is asserted against real
+    // SQLite in `service/directory.service.test.ts`.
+    usageOfService: () => Promise.resolve(NOTHING_POINTS_AT_IT),
+    removeService(serviceId) {
+      if (!services.has(serviceId)) return Promise.resolve({ ok: false, reason: 'not_found' });
+      services.delete(serviceId);
       return Promise.resolve({ ok: true, removal: { workItemIds: [], projectIds: [] } });
     },
     addTeam(team) {

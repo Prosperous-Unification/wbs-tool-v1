@@ -405,3 +405,155 @@ describe('PATCH /api/people/:id', () => {
     expect(await store.listPeople()).toEqual([{ id: kat, name: 'Kat', teamIds: [platform] }]);
   });
 });
+
+describe('the service routes', () => {
+  /** A service by name, through the route that creates them. */
+  async function addService(name: string): Promise<string> {
+    const { body } = await call('POST', '/api/services', { name });
+    const { service } = body as { service: { id: string } };
+    return service.id;
+  }
+
+  it('creates, lists by name, and renames', async () => {
+    const payments = await addService('Payments');
+    // Idempotent by name at the unique index, as the teams and the tags are:
+    // two people typing `Payments` at once both pass a check-then-insert.
+    expect(await addService('  Payments  ')).toBe(payments);
+    const auth = await addService('Auth');
+
+    // By name, not by insertion order — the picker reads them in this order.
+    expect(await call('GET', '/api/services')).toEqual({
+      status: 200,
+      body: {
+        services: [
+          { id: auth, name: 'Auth' },
+          { id: payments, name: 'Payments' },
+        ],
+      },
+    });
+
+    expect(await call('PATCH', `/api/services/${payments}`, { name: 'Billing' })).toEqual({
+      status: 200,
+      body: { service: { id: payments, name: 'Billing' } },
+    });
+  });
+
+  it('answers 409 taken with the surviving name, 422 for spaces, 404 for a dead id', async () => {
+    const payments = await addService('Payments');
+    const auth = await addService('Auth');
+
+    // The surviving name, for `/teams/:id`'s reason: the caller has to be able
+    // to say which `Payments` is on screen now.
+    expect(await call('PATCH', `/api/services/${auth}`, { name: 'Payments' })).toEqual({
+      status: 409,
+      body: { error: 'taken', name: 'Payments' },
+    });
+    expect(await call('PATCH', `/api/services/${auth}`, { name: '   ' })).toEqual({
+      status: 422,
+      body: { error: 'name_required' },
+    });
+    expect(await call('PATCH', `/api/services/${crypto.randomUUID()}`, { name: 'Billing' })).toEqual(
+      { status: 404, body: { error: 'not_found' } },
+    );
+    expect(await call('POST', '/api/services', { name: ' ' })).toEqual({
+      status: 422,
+      body: { error: 'name_required' },
+    });
+
+    // Nothing above wrote: both rows are as they were created.
+    expect(await store.listServices()).toEqual([
+      { id: auth, name: 'Auth' },
+      { id: payments, name: 'Payments' },
+    ]);
+  });
+
+  it('answers 409 in_use naming the row that loses its label, then 204 on the cascade', async () => {
+    const payments = await addService('Payments');
+    const { body } = await call('POST', '/api/projects', { name: 'Rollout' });
+    const { project } = body as { project: { id: string } };
+    const created = await call('POST', `/api/projects/${project.id}/work-items`, {
+      parentId: null,
+      afterId: null,
+      name: 'Design',
+    });
+    const { id: workItemOf } = created.body as { id: string };
+    await call('PATCH', `/api/work-items/${workItemOf}`, { serviceId: payments });
+
+    const refused = await call('DELETE', `/api/services/${payments}`);
+
+    // `label_nulled` and **nothing beside it**. This assertion is design.md D7
+    // written as a payload: no `capacity_released`, no size, no second effect of
+    // any kind, and no mention of the ownership rows a cascade would also take.
+    expect(refused).toEqual({
+      status: 409,
+      body: {
+        error: 'in_use',
+        usage: {
+          projects: [
+            {
+              id: project.id,
+              name: 'Rollout',
+              workItems: [
+                {
+                  id: workItemOf,
+                  number: '010',
+                  name: 'Design',
+                  effects: [{ kind: 'label_nulled' }],
+                },
+              ],
+            },
+          ],
+          members: [],
+        },
+      },
+    });
+
+    expect(await call('DELETE', `/api/services/${payments}?cascade=true`)).toEqual({
+      status: 204,
+      body: null,
+    });
+    expect(await store.listServices()).toEqual([]);
+
+    // The work item is **still there**, unlabelled — `ON DELETE SET NULL`, seen
+    // from the route. A cascade that had taken the row with the label would
+    // have deleted somebody's plan to tidy a picker.
+    const tree = await call('GET', `/api/projects/${project.id}/work-items`);
+    const { workItems } = tree.body as { workItems: { id: string; serviceId: string | null }[] };
+    expect(workItems).toMatchObject([{ id: workItemOf, serviceId: null }]);
+  });
+
+  it('removes an unused service on the first press, and 404s the second', async () => {
+    // One clause fewer than a team's refusal and one fewer than a tag's: nobody
+    // belongs to a service, and the teams that own it are not counted either.
+    const payments = await addService('Payments');
+
+    expect(await call('DELETE', `/api/services/${payments}`)).toEqual({ status: 204, body: null });
+    expect(await call('DELETE', `/api/services/${payments}`)).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+  });
+
+  it('answers 401 to every service route carrying no token', async () => {
+    const payments = await addService('Payments');
+    const unauthenticated = async (method: string, path: string, body?: unknown) =>
+      (
+        await app.handle(
+          new Request(`http://localhost${path}`, {
+            method,
+            ...(body === undefined
+              ? {}
+              : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+          }),
+        )
+      ).status;
+
+    expect([
+      await unauthenticated('GET', '/api/services'),
+      await unauthenticated('POST', '/api/services', { name: 'Auth' }),
+      await unauthenticated('PATCH', `/api/services/${payments}`, { name: 'Billing' }),
+      await unauthenticated('DELETE', `/api/services/${payments}`),
+    ]).toEqual([401, 401, 401, 401]);
+    expect(await store.listServices()).toEqual([{ id: payments, name: 'Payments' }]);
+  });
+});

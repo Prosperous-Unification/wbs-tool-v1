@@ -335,6 +335,33 @@ export type TagWritten =
   | { ok: true; tag: Tag; projectIds: readonly string[] }
   | { ok: false; reason: 'taken' | 'not_found' };
 
+/**
+ * One service in the global directory: an id and a name, and nothing else.
+ *
+ * {@link Tag}'s two columns, and for a different reason than the tag's. A tag
+ * has no size because nothing about a tag is ever spent; a service has none
+ * because a service is not a pool either — it is what the work is part of, and
+ * who has the people is {@link ServiceTeam}, whose name is a leftover. The
+ * ownership between the two is `team_service`, read through
+ * {@link DirectoryStore} and never a column here.
+ */
+export interface Service {
+  id: string;
+  name: string;
+}
+
+/**
+ * What a service rename answered — {@link TagWritten}'s shape, one dimension
+ * over, and the same reading of each arm.
+ *
+ * `projectIds` is every project holding a work item that names the service,
+ * read inside the rename's own transaction so the events published after it
+ * name the plans that were labelled when it happened.
+ */
+export type ServiceWritten =
+  | { ok: true; service: Service; projectIds: readonly string[] }
+  | { ok: false; reason: 'taken' | 'not_found' };
+
 export interface WorkItemPatch {
   name?: string;
   notes?: string;
@@ -993,6 +1020,28 @@ export interface DirectoryStore {
    * the labelling — all in one transaction, bumping every row that lost one.
    */
   removeTag(tagId: string, cascade: boolean): Promise<DirectoryRemoved>;
+  /** Every service in the global directory, by name. */
+  listServices(): Promise<Service[]>;
+  /**
+   * Adds a service idempotently **by name**, answering the row that is there —
+   * {@link DirectoryStore.addTag}'s rule and its reason.
+   */
+  addService(toAdd: Service): Promise<Service>;
+  /** Renames one service, refusing a name another service holds. */
+  renameService(serviceId: string, name: string): Promise<ServiceWritten>;
+  /**
+   * What points at one service right now — a fast path for the confirmation,
+   * never the authority for it. {@link DirectoryStore.removeService} decides.
+   */
+  usageOfService(serviceId: string): Promise<DirectoryUsageRows>;
+  /**
+   * Counts what names the service, refuses an unconfirmed removal that would
+   * unlabel anything, and otherwise deletes the service — letting
+   * `work_item.service_id`'s `ON DELETE SET NULL` clear the column and
+   * `team_service`'s cascade take the ownership rows — all in one transaction,
+   * bumping every row that lost its label.
+   */
+  removeService(serviceId: string, cascade: boolean): Promise<DirectoryRemoved>;
   listTeams(): Promise<ServiceTeam[]>;
   /**
    * Adds a team, or returns the one that already has that name.

@@ -461,19 +461,9 @@ describe('work item routes', () => {
   });
 
   it('refuses a service that is not an id, and writes the one that is', async () => {
-    // The parse guard, which is the half of the service's refusals this harness
-    // can answer. A non-string is **400** — the body is malformed and no plan
-    // anywhere would take it.
-    //
-    // The other half, an id the directory no longer holds, is **404**
-    // `unknown_service` and is **not asserted here**: `statusFor`'s mapping of
-    // it is real code with no test over this route, because the in-memory work
-    // item fixture cannot answer the refusal. It takes an optional team list to
-    // answer `unknown_team` with, and the directory has no services to hand it
-    // until section 4 builds them. The refusal itself is proved over real
-    // SQLite in `undo.test.ts` — `refuses a service the directory no longer
-    // holds, and writes nothing` — so what is owed here is the **status**, and
-    // section 4 owes it once a service can be created through the directory.
+    // The parse guard: a non-string is **400** — the body is malformed and no
+    // plan anywhere would take it. The other half, an id the directory no longer
+    // holds, is 404 and has its own test below.
     const { token, send, projectId } = await setup();
     const created = await send(`/api/projects/${projectId}/work-items`, token, {
       method: 'POST',
@@ -505,13 +495,52 @@ describe('work item routes', () => {
     // the row: without it the four refusals above would pass over a route that
     // drops the field entirely. It caught exactly that — the in-memory fixture
     // merged every field but this one.
-    const payments = crypto.randomUUID();
+    //
+    // The service is **created through the directory** rather than invented,
+    // because since section 4 the store checks it: a random id is now the 404
+    // the next test is about, and asserting a 200 on one would be asserting the
+    // absence of the check.
+    const made = await send('/api/services', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Payments' }),
+    });
+    const { service } = (await made.json()) as { service: { id: string } };
     const ok = await send(`/api/work-items/${id}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ serviceId: payments }),
+      body: JSON.stringify({ serviceId: service.id }),
     });
     expect(ok.status).toBe(200);
-    expect((await ok.json()) as { serviceId: string }).toMatchObject({ serviceId: payments });
+    expect((await ok.json()) as { serviceId: string }).toMatchObject({ serviceId: service.id });
+  });
+
+  it('answers 404 for a service the directory does not hold, and writes nothing', async () => {
+    // **Task 4.6, owed by section 3 and paid here.** `statusFor` maps
+    // `unknown_service` onto 404 beside `unknown_team` and `unknown_tag`, and
+    // until the directory could make a service that mapping was code no test
+    // over this route ran: the in-memory work item store took any id at all, so
+    // every patch naming a service came back 200. The refusal itself was already
+    // proved over real SQLite in `undo.test.ts`; what was missing was the
+    // **status** a client branches on, and this is it.
+    const { token, send, projectId } = await setup();
+    const created = await send(`/api/projects/${projectId}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
+    });
+    const { id } = (await created.json()) as { id: string };
+
+    const res = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceId: crypto.randomUUID() }),
+    });
+
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: string }).toEqual({ error: 'unknown_service' });
+
+    // 404 and **nothing written**: a refusal that had already moved the column
+    // would leave the row delivering a service the directory cannot name.
+    const still = await send(`/api/projects/${projectId}/work-items`, token);
+    const { workItems } = (await still.json()) as { workItems: { serviceId: string | null }[] };
+    expect(workItems[0]).toHaveProperty('serviceId', null);
   });
 
   // C2's landmine test — `puts a capacity floor on the wire, which nothing this

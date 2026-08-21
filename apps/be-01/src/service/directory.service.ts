@@ -3,6 +3,7 @@ import type {
   Person,
   PersonPatch,
   PersonWithTeams,
+  Service,
   ServiceTeam,
   Tag,
   TouchedProjects,
@@ -11,6 +12,7 @@ import type { Broadcaster } from './broadcast';
 import {
   type DirectoryUsage,
   directoryUsageOfPerson,
+  directoryUsageOfService,
   directoryUsageOfTag,
   directoryUsageOfTeam,
 } from './directory-usage';
@@ -173,6 +175,68 @@ export class DirectoryService {
     if (!removed.ok) {
       if (removed.reason === 'not_found') return { ok: false, reason: 'not_found' };
       return { ok: false, reason: 'in_use', usage: directoryUsageOfTag(removed.usage, tagId) };
+    }
+    await this.announce(removed.removal.projectIds);
+    return { ok: true };
+  }
+
+  listServices(): Promise<Service[]> {
+    return this.opts.directory.listServices();
+  }
+
+  /**
+   * Adds a service, or refuses a name that is only whitespace.
+   *
+   * {@link addTag}'s shape, and the same absence for a third reason: a service
+   * has no `size` to leave at a default because it never had a pool. Who has the
+   * people is the team, and the two are independent dimensions (Dany,
+   * 2026-08-20: _"Let service and teams be independent."_).
+   */
+  async addService(name: string): Promise<Service | null> {
+    const clean = cleanName(name);
+    if (clean === null) return null;
+    return this.opts.directory.addService({ id: this.newId(), name: clean });
+  }
+
+  /** Renames a service, keeping the name unique across the deployment — {@link renameTag}'s rules. */
+  async renameService(serviceId: string, name: string): Promise<DirectoryOutcome<Service>> {
+    const clean = cleanName(name);
+    if (clean === null) return { ok: false, reason: 'name_required' };
+    const written = await this.opts.directory.renameService(serviceId, clean);
+    if (!written.ok) {
+      if (written.reason === 'taken') return { ok: false, reason: 'taken', name: clean };
+      return { ok: false, reason: 'not_found' };
+    }
+    await this.announce(written.projectIds);
+    return { ok: true, result: written.service };
+  }
+
+  /**
+   * Removes a service, refusing an unconfirmed removal that would unlabel
+   * anything — {@link removeTag}'s shape, one dimension over.
+   *
+   * No members to count, for the tag's reason: nobody belongs to a service. The
+   * teams that **own** it are not counted either, and that is the sharper
+   * absence — `team_service` rows go with the removal, but an ownership claim
+   * about a service that no longer exists is not a loss anybody has to weigh
+   * (design.md D7). So the refusal turns on the work items alone.
+   *
+   * What is announced is `directory_changed` and never `capacity_changed`: no
+   * date moves, so a client re-reads the tree and the schedule it re-reads is
+   * the one it already had.
+   */
+  async removeService(serviceId: string, cascade: boolean): Promise<RemoveDirectoryOutcome> {
+    if (!cascade) {
+      const seen = directoryUsageOfService(
+        await this.opts.directory.usageOfService(serviceId),
+        serviceId,
+      );
+      if (seen.projects.length > 0) return { ok: false, reason: 'in_use', usage: seen };
+    }
+    const removed = await this.opts.directory.removeService(serviceId, cascade);
+    if (!removed.ok) {
+      if (removed.reason === 'not_found') return { ok: false, reason: 'not_found' };
+      return { ok: false, reason: 'in_use', usage: directoryUsageOfService(removed.usage, serviceId) };
     }
     await this.announce(removed.removal.projectIds);
     return { ok: true };

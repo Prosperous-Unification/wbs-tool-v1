@@ -37,8 +37,15 @@ export function inMemoryWorkItems(
    * invented a team list would be answering a question it cannot know. Given
    * one, `patch` refuses an unknown team exactly as the repository does; without
    * one it cannot, and no test may assert that refusal through it.
+   *
+   * The **service** is checked the same way and against the same directory. It
+   * is checked here rather than left to a foreign key because this store has
+   * none: production reads `service` inside the patch's own transaction and
+   * answers `unknown_service`, and a fixture that accepted any id at all would
+   * let a route's 404 arm pass untested — which it did, for one chunk, and
+   * `work-item.controller.test.ts` said so out loud until this line existed.
    */
-  teams?: Pick<DirectoryStore, 'listTeams'>,
+  teams?: Pick<DirectoryStore, 'listTeams' | 'listServices'>,
 ): WorkItemStore {
   const byId = new Map<string, WorkItem>();
   /**
@@ -99,6 +106,13 @@ export function inMemoryWorkItems(
       if (teams !== undefined && wanted !== undefined && wanted !== null) {
         const held = await teams.listTeams();
         if (!held.some((each) => each.id === wanted)) return { ok: false, reason: 'unknown_team' };
+      }
+      const wantedService = patch.serviceId;
+      if (teams !== undefined && wantedService !== undefined && wantedService !== null) {
+        const held = await teams.listServices();
+        if (!held.some((each) => each.id === wantedService)) {
+          return { ok: false, reason: 'unknown_service' };
+        }
       }
       const updated: WorkItem = {
         ...existing,

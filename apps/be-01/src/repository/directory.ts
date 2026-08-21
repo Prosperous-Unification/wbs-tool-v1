@@ -11,8 +11,10 @@ import type {
   PersonPatch,
   PersonWithTeams,
   PersonWritten,
+  Service,
   ServiceTeam,
   ServiceTeamWritten,
+  ServiceWritten,
   Tag,
   TagWritten,
 } from './index';
@@ -24,6 +26,7 @@ import {
   project,
   projectTeamCapacity,
   role,
+  service,
   serviceTeam,
   tag,
   workItem,
@@ -48,6 +51,11 @@ function isDuplicateTeamName(err: unknown): boolean {
 /** The same translation as {@link isDuplicateTeamName}, for the tag name index. */
 function isDuplicateTagName(err: unknown): boolean {
   return err instanceof Error && err.message.includes('UNIQUE constraint failed: tag.name');
+}
+
+/** The same translation as {@link isDuplicateTeamName}, for the service name index. */
+function isDuplicateServiceName(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('UNIQUE constraint failed: service.name');
 }
 
 /** The same translation as {@link isDuplicateTeamName}, for the person name index. */
@@ -266,6 +274,30 @@ export class DirectoryRepository implements DirectoryStore {
     return found;
   }
 
+  /** Every service in the global directory, by name — {@link DirectoryStore.listTeams}' shape. */
+  async listServices(): Promise<Service[]> {
+    return this.db
+      .select({ id: service.id, name: service.name })
+      .from(service)
+      .orderBy(asc(service.name));
+  }
+
+  /**
+   * Adds a service, idempotently **by name**, and answers the row that is there
+   * — {@link DirectoryRepository.addTag}'s shape and every one of its reasons.
+   */
+  async addService(toAdd: Service): Promise<Service> {
+    await this.db.insert(service).values(toAdd).onConflictDoNothing();
+    const rows = await this.db
+      .select({ id: service.id, name: service.name })
+      .from(service)
+      .where(eq(service.name, toAdd.name))
+      .limit(1);
+    const found = rows.at(0);
+    if (found === undefined) throw new Error(`service vanished after insert: ${toAdd.name}`);
+    return found;
+  }
+
   /**
    * Renames one team, or reports the name being held or the row being gone.
    *
@@ -330,6 +362,35 @@ export class DirectoryRepository implements DirectoryStore {
       });
     } catch (err) {
       if (isDuplicateTagName(err)) return { ok: false, reason: 'taken' };
+      throw err;
+    }
+  }
+
+  /**
+   * Renames one service — {@link DirectoryRepository.renameTag}'s shape exactly,
+   * including what it deliberately does **not** do.
+   *
+   * The work items are not bumped. A rename changes what a service is called,
+   * not which rows deliver it, so no journal entry is made stale by it and no
+   * undo has to refuse afterwards. What tells an open plan about the new name is
+   * the event the service publishes once this commits.
+   */
+  async renameService(serviceId: string, name: string): Promise<ServiceWritten> {
+    await Promise.resolve();
+    try {
+      return this.db.transaction((tx) => {
+        const rows = tx
+          .update(service)
+          .set({ name })
+          .where(eq(service.id, serviceId))
+          .returning({ id: service.id, name: service.name })
+          .all();
+        const renamed = rows.at(0);
+        if (renamed === undefined) return { ok: false, reason: 'not_found' };
+        return { ok: true, service: renamed, projectIds: this.projectsServiced(tx, serviceId) };
+      });
+    } catch (err) {
+      if (isDuplicateServiceName(err)) return { ok: false, reason: 'taken' };
       throw err;
     }
   }
@@ -539,6 +600,70 @@ export class DirectoryRepository implements DirectoryStore {
     });
   }
 
+  /**
+   * What points at one service right now — a **fast path** for the
+   * confirmation, never the authority for it.
+   * {@link DirectoryRepository.removeService} decides.
+   *
+   * No `teamId` argument and so no capacity read, for {@link usageOfTag}'s
+   * reason: a service has no pool. The `team_service` rows the removal will also
+   * take are deliberately not read here either — losing an ownership claim about
+   * a service that is going is not an effect on any plan (design.md D7).
+   */
+  async usageOfService(serviceId: string): Promise<DirectoryUsageRows> {
+    await Promise.resolve();
+    return usageRowsIn(this.db, this.projectsServiced(this.db, serviceId), []);
+  }
+
+  /**
+   * Counts, decides and deletes in **one** transaction —
+   * {@link DirectoryRepository.removeTag}'s shape and its argument: the count
+   * *is* the decision, so a labelling written between an unconfirmed caller's
+   * own count and this statement refuses the removal rather than being deleted
+   * by it.
+   *
+   * There is no `UPDATE work_item SET service_id = null` here and that is the
+   * design, not an omission: the column's `ON DELETE SET NULL` clears it, which
+   * is the one place this dimension differs from the tag's cascade-of-rows. The
+   * `team_service` rows go the same way, on their own foreign key.
+   *
+   * The work items **are** bumped explicitly, because neither a `SET NULL` nor a
+   * cascade moves a revision, and a journal entry holding the old one must not
+   * undo against a row whose service has changed under it. `removeTag`'s
+   * argument, and the stale undo this repo has already shipped once for people.
+   */
+  async removeService(serviceId: string, cascade: boolean): Promise<DirectoryRemoved> {
+    await Promise.resolve();
+    return this.db.transaction((tx) => {
+      const labelled = tx
+        .select({ id: workItem.id, projectId: workItem.projectId })
+        .from(workItem)
+        .where(eq(workItem.serviceId, serviceId))
+        .all();
+      if (!cascade && labelled.length > 0) {
+        return {
+          ok: false,
+          reason: 'in_use',
+          usage: usageRowsIn(tx, projectsOf(labelled), []),
+        };
+      }
+      bumpWorkItems(
+        tx,
+        labelled.map((each) => each.id),
+      );
+      const removed = tx
+        .delete(service)
+        .where(eq(service.id, serviceId))
+        .returning({ id: service.id })
+        .all();
+      if (removed.length === 0) return { ok: false, reason: 'not_found' };
+      return {
+        ok: true,
+        removal: { workItemIds: labelled.map((each) => each.id), projectIds: projectsOf(labelled) },
+      };
+    });
+  }
+
   /** The same for a team: the projects it labels work in, the people in it, and its own row. */
   async usageOfTeam(teamId: string): Promise<DirectoryUsageRows> {
     await Promise.resolve();
@@ -710,6 +835,23 @@ export class DirectoryRepository implements DirectoryStore {
         .from(workItemTag)
         .innerJoin(workItem, eq(workItemTag.workItemId, workItem.id))
         .where(eq(workItemTag.tagId, tagId))
+        .all(),
+    );
+  }
+
+  /**
+   * {@link projectsTagged} for the third dimension: the projects holding a row
+   * that names this service.
+   *
+   * No join to read — the label is a column — so this is the only one of the
+   * three that asks `work_item` alone.
+   */
+  private projectsServiced(reader: Reader, serviceId: string): string[] {
+    return projectsOf(
+      reader
+        .select({ projectId: workItem.projectId })
+        .from(workItem)
+        .where(eq(workItem.serviceId, serviceId))
         .all(),
     );
   }
