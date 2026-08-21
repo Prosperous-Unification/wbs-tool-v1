@@ -263,8 +263,8 @@ surface built on the singleton is a surface built twice.
       screen rather than missing), and `setServiceOf(id, string | null)` became
       `setServicesOf(id, ids)`. **Red driven:** `own` restored to
       `serviceIds.slice(0, 1)` and the new two-service case fails alone — 1 fail
-      / 1559 pass, `Unable to find a label with the text of: Remove Ledger from
-      010`. **Found on the way:** the cell passes no `onClear`, because
+      / 1559 pass, on `Remove Ledger from 010` not being a label the table
+      has — the second service is not on screen at all. **Found on the way:** the cell passes no `onClear`, because
       `CreatablePicker` draws its ✕ only while `value !== null` and this box's
       value is always null — the tag cell beside it carries that prop dead. The
       chip is the gesture, and the case asserts `[]` goes out through it.
