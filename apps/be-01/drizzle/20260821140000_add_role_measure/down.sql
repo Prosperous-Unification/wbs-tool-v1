@@ -1,0 +1,37 @@
+-- Reverses 20260821140000_add_role_measure.
+--
+-- Dropping this loses every token and hour figure anybody recorded, and the loss
+-- is total: a measure is typed by a person or written by an agent through the
+-- routes, and it is derived from nothing. `plan_event` holds the `set_measure`
+-- and `clear_measure` commands that wrote them — H1's history — so a plan's
+-- figures could in principle be read back out of its events by hand, for as long
+-- as retention keeps them (365 days). Nothing replays them and this rollback
+-- does not try.
+--
+-- **What survives is the question this table was added to answer.** Estimates,
+-- recorded days and progress states are untouched: every trio, every day and
+-- every `done` is still there. After this rollback the plan is back to measuring
+-- work only in days, which is the state it was in before this migration and the
+-- whole reason the reversal is safe — it takes away a unit, never a date and
+-- never a figure in another unit.
+--
+-- **No date moves, either way.** The scheduler reads work items, estimates,
+-- dependencies, capacity and the calendar; it does not read this table and
+-- nothing writes to those tables on its behalf. A plan scheduled against a
+-- database with this table and the same plan after this rollback come out
+-- identical — asserted by replaying the identity corpus in
+-- `service/live-plan-identity.test.ts` rather than claimed here.
+--
+-- Undo and redo are unaffected in shape and lossy in one arm: `command_journal`
+-- is not touched, so every entry stays pressable, but an entry whose command is
+-- `set_measure` or `clear_measure` names a table that is no longer there and
+-- fails when applied. That is the position every rollback of an additive
+-- migration leaves its own kinds in.
+--
+-- The index goes with the table it is on. Both statements run solely when the
+-- release that added them is being taken away — a forward migration in this repo
+-- is additive so blue and green can share one file mid-swap, and reversing an
+-- additive change is destructive by definition, which is why it lives here and
+-- not there.
+DROP INDEX IF EXISTS `role_measure_by_role`;--> statement-breakpoint
+DROP TABLE IF EXISTS `role_measure`;

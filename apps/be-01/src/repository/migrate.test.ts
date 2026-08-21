@@ -132,6 +132,23 @@ const SERVICE = '20260821000000_add_service';
  * as a failure. `migration.sql` quotes it safely, in a `--` comment.
  */
 const WORK_ITEM_SERVICE = '20260821080000_add_work_item_service';
+/**
+ * The newest. A table of its own referencing `work_item` and `role` again, so it
+ * reverses ahead of the domain that holds both — `ACTUAL`'s place for `ACTUAL`'s
+ * reason.
+ *
+ * Stamped `20260821140000`, later than every folder on disk when it was written
+ * **and** later than the two `change/service-split` added, which it was stamped
+ * against while that branch was still in review. It merged first (`04d644e`),
+ * this branch was rebased onto it, and the two folders are the two above — so
+ * the guess the stamp was written on is now a fact on disk, and a stamp sorting
+ * before them would have applied out of order on any database that took that
+ * release. The duplicate check is `refuses a folder set that shares one stamp
+ * between two migrations`, and `does nothing when the target is already the
+ * newest applied` — which now names *this* migration, with
+ * `WORK_ITEM_SERVICE` as the one before it — is the case a collision breaks.
+ */
+const ROLE_MEASURE = '20260821140000_add_role_measure';
 
 const WBS_TABLES = ['project', 'work_item', 'role', 'estimate'] as const;
 // Its own migration, reversed with the domain because it references `work_item`.
@@ -165,6 +182,8 @@ const SERVICE_TABLES = ['service', 'team_service'] as const;
 // with no vocabulary table beside it — the vocabulary arrived one migration
 // earlier, when this dimension held one value per row.
 const WORK_ITEM_SERVICE_TABLES = ['work_item_service'] as const;
+
+const ROLE_MEASURE_TABLES = ['role_measure'] as const;
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-migrate-'));
@@ -205,6 +224,7 @@ describe('the WBS domain migration', () => {
         ...TAG_TABLES,
         ...SERVICE_TABLES,
         ...WORK_ITEM_SERVICE_TABLES,
+        ...ROLE_MEASURE_TABLES,
       ])
         expect(tables(db.path)).toContain(t);
     } finally {
@@ -226,6 +246,7 @@ describe('the WBS domain migration', () => {
       // ahead of the column it was seeded from, which is the only order in
       // which its foreign keys still have something to point at.
       expect(reversed).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
@@ -261,6 +282,7 @@ describe('the WBS domain migration', () => {
         ...TAG_TABLES,
         ...SERVICE_TABLES,
         ...WORK_ITEM_SERVICE_TABLES,
+        ...ROLE_MEASURE_TABLES,
       ])
         expect(tables(db.path)).not.toContain(t);
       // Reversing the domain must not take the accounts with it: the two
@@ -544,6 +566,7 @@ describe('the capacity migrations', () => {
       const reversed = rollbackTo(db.path, FOLDER, PRIORITY);
 
       expect(reversed).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
@@ -995,6 +1018,7 @@ describe('the work item team migration', () => {
       // migration's business, and named rather than filtered out so the list stays
       // the literal answer `rollbackTo` gave.
       expect(reversed).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
@@ -1221,6 +1245,7 @@ describe('the priority band migration', () => {
       // filtered, so the list is the literal answer `rollbackTo` gave and not a
       // subset somebody chose.
       expect(rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY)).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
@@ -1501,6 +1526,7 @@ describe('the plan event migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PRIORITY_BANDS)).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
@@ -1717,6 +1743,7 @@ describe('the actual migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, PLAN_EVENT)).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
@@ -1978,6 +2005,7 @@ describe('the role progress migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, ACTUAL)).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
@@ -2221,6 +2249,7 @@ describe('the not-before reason migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, ROLE_PROGRESS)).toEqual([
+        ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
         TAG,
