@@ -342,6 +342,7 @@ export class RoleRepository implements RoleStore {
       tx.delete(actual).where(inArray(actual.roleId, roleInProject)).run();
       // Explicit for the same reason once more: `role_progress.role_id` carries
       // no cascade either, deliberately.
+      tx.delete(roleProgress).where(inArray(roleProgress.roleId, roleInProject)).run();
       // Explicit for the third time and the same reason: `role_measure.role_id`
       // carries no cascade either (`schema.ts`, `roleMeasure`), so without this
       // statement the role delete below hits the foreign key and answers 500 to
