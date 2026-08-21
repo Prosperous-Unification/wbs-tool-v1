@@ -62,11 +62,11 @@ textual conflicts and were resolved by union. **Three were not conflicts at
 all** — `main` wrote them after this branch was cut, so git had nothing to
 flag — and every one of them was wrong at the rebased head:
 
-| Where | Said | Says |
-|---|---|---|
-| `migrate.test.ts` `atTheColumnOnly` | `[WORK_ITEM_SERVICE]` | `[ROLE_MEASURE, WORK_ITEM_SERVICE]` |
-| the service migration's round trip | `[WORK_ITEM_SERVICE, SERVICE]` | `[ROLE_MEASURE, WORK_ITEM_SERVICE, SERVICE]` |
-| the work-item-service narrow-back | `[WORK_ITEM_SERVICE]` | `[ROLE_MEASURE, WORK_ITEM_SERVICE]` |
+| Where                               | Said                           | Says                                         |
+| ----------------------------------- | ------------------------------ | -------------------------------------------- |
+| `migrate.test.ts` `atTheColumnOnly` | `[WORK_ITEM_SERVICE]`          | `[ROLE_MEASURE, WORK_ITEM_SERVICE]`          |
+| the service migration's round trip  | `[WORK_ITEM_SERVICE, SERVICE]` | `[ROLE_MEASURE, WORK_ITEM_SERVICE, SERVICE]` |
+| the work-item-service narrow-back   | `[WORK_ITEM_SERVICE]`          | `[ROLE_MEASURE, WORK_ITEM_SERVICE]`          |
 
 Five cases failed on those three lines, all of them tests this branch never
 touched. The gate caught all five; reading the conflict list would have caught
@@ -81,13 +81,13 @@ checked with `git status --porcelain` returning empty. A red that does not fire
 is a claim about the test that was run, not about the code — so each row names
 the case that failed and the message it failed on.
 
-| # | Fault | Head | Case that failed | Failure |
-|---|---|---|---|---|
-| F1 | `ON DELETE CASCADE` struck from `role_measure.work_item_id` | `bdc1bc7` | `lets the outgoing release keep deleting work items against the migrated schema` | `SQLiteError: FOREIGN KEY constraint failed` — 60 pass, 1 fail |
-| F2 | `ON DELETE CASCADE` **added** to `role_measure.role_id` | `bdc1bc7` | `refuses to let a role go while it still holds a measure, rather than emptying it` | `Received function did not throw`, both measures silently gone — 60 pass, 1 fail |
-| F3 | `CONSTRAINT role_measure_metric CHECK (…)` struck from the table | `bdc1bc7` | `refuses a fourth metric, because Drizzle's enum is gone by the time a row is written` | the `'nonsense'` insert succeeds — 60 pass, 1 fail |
-| F4–F5 | `person.kind`'s `CHECK` dropped; the unique index left off the rebuilt table | — | — | _not yet run_ (section 2) |
-| F6–F11 | the store, the write path, the roll-up | — | — | _not yet run_ (sections 3–5) |
+| #      | Fault                                                                        | Head      | Case that failed                                                                       | Failure                                                                          |
+| ------ | ---------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| F1     | `ON DELETE CASCADE` struck from `role_measure.work_item_id`                  | `bdc1bc7` | `lets the outgoing release keep deleting work items against the migrated schema`       | `SQLiteError: FOREIGN KEY constraint failed` — 60 pass, 1 fail                   |
+| F2     | `ON DELETE CASCADE` **added** to `role_measure.role_id`                      | `bdc1bc7` | `refuses to let a role go while it still holds a measure, rather than emptying it`     | `Received function did not throw`, both measures silently gone — 60 pass, 1 fail |
+| F3     | `CONSTRAINT role_measure_metric CHECK (…)` struck from the table             | `bdc1bc7` | `refuses a fourth metric, because Drizzle's enum is gone by the time a row is written` | the `'nonsense'` insert succeeds — 60 pass, 1 fail                               |
+| F4–F5  | `person.kind`'s `CHECK` dropped; the unique index left off the rebuilt table | —         | —                                                                                      | _not yet run_ (section 2)                                                        |
+| F6–F11 | the store, the write path, the roll-up                                       | —         | —                                                                                      | _not yet run_ (sections 3–5)                                                     |
 
 Each fault fails **exactly one** case and the other sixty pass. That is the
 control: a fault that reddens the file wholesale proves the suite runs, not that
@@ -98,13 +98,13 @@ the case under it is aimed at the constraint it names.
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 `--skip-nx-cache`, and read off the log rather than assumed.
 
-| Head | What | Result |
-|---|---|---|
-| `3e8cb79` (rebase + the three stale lists) | `nx run be-01:test` | **975 pass / 0 fail**, 28,027 expect() calls, 73 files |
-| `3e8cb79` | `nx run-many -t lint typecheck -p be-01` | exit 0 |
-| `3e8cb79` | `nx format:check --all` | exit 0 |
-| `bdc1bc7` (1.3, the six cases) | `nx run be-01:test` | **981 pass / 0 fail**, 28,042 expect() calls, 73 files |
-| `bdc1bc7` | `nx run-many -t lint typecheck -p be-01` | exit 0 |
+| Head                                       | What                                     | Result                                                 |
+| ------------------------------------------ | ---------------------------------------- | ------------------------------------------------------ |
+| `3e8cb79` (rebase + the three stale lists) | `nx run be-01:test`                      | **975 pass / 0 fail**, 28,027 expect() calls, 73 files |
+| `3e8cb79`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                 |
+| `3e8cb79`                                  | `nx format:check --all`                  | exit 0                                                 |
+| `bdc1bc7` (1.3, the six cases)             | `nx run be-01:test`                      | **981 pass / 0 fail**, 28,042 expect() calls, 73 files |
+| `bdc1bc7`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                 |
 
 **Read the test count, not only the pass line.** Chunk 2 gated in `~/wbs-build`
 against a tracking ref stranded at PR #17 and got a green **57 tests across 14
