@@ -232,9 +232,9 @@
       **Negatives:** verify.md F9 and F10.
 - [x] 6.3 `RoleRepository.remove` counts measures, refuses an unconfirmed removal
       that would take one, and deletes them explicitly inside its transaction.
-      **Negative:** verify.md F12a/F12b. *(Written 6.3's negative as "F11"; F11
+      **Negative:** verify.md F12a/F12b. _(Written 6.3's negative as "F11"; F11
       is section 5's pair and was already spent — the structure's faults are
-      F12. Corrected in place with the original quoted, chunk 13.)*
+      F12. Corrected in place with the original quoted, chunk 13.)_
 
 ## 7. The directory card
 
