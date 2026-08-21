@@ -243,6 +243,22 @@ const COLUMN_WIDTHS = new Map<string, number>([
   // cell (the proposal's own non-goal): the first tag cannot be made in a
   // column that does not exist until the first tag is made.
   ['tag', 120],
+  // The service cell, 120 like the tag's and the team's, and **exempted from
+  // {@link FIXED_COLUMNS} on exactly the tag column's terms** — read its entry
+  // above for the measurement, because this column does not repeat it, it
+  // spends it a second time.
+  //
+  // What this one is exempted **for**, named as the rule requires: it is
+  // rendered only where the directory has a service at all. A deployment that
+  // has never made one has the table it had before `service-split`, to the
+  // pixel, and `foldedTableMinWidth` answers the number it answered then —
+  // asserted in `table-frame.test.ts`, not assumed.
+  //
+  // The cost is stated rather than hidden: a deployment carrying **both** tags
+  // and services is 240px past the folded floor, not 120. Two exemptions is
+  // the most this budget can hold, and a fourth dimension would have to take a
+  // column away rather than add one.
+  ['service', 120],
   // People at once, and this is the tightest column in the table: `∥` for a
   // heading and three digits of value, right-aligned. 32px is 24px of glyph
   // room plus the 8px of padding the declared width includes — enough for
@@ -330,13 +346,13 @@ const PLAN_WIDTHS = new Map<string, (state: FrameLayoutState) => number>([
  * The columns that are on screen **in every state of the table**, which is what
  * the folded budget is measured over.
  *
- * `tag` is excluded and it is the only exclusion: see its entry in
- * {@link COLUMN_WIDTHS} for what the exemption buys and what it costs. It still
- * has a declared width there, because a column that is sometimes on screen
- * still has to lay out when it is — what it must not do is be counted in the
- * floor of a table that is not showing it.
+ * `tag` and `service` are excluded and they are the only exclusions: see their
+ * entries in {@link COLUMN_WIDTHS} for what each exemption buys and what it
+ * costs. Both still have a declared width there, because a column that is
+ * sometimes on screen still has to lay out when it is — what it must not do is
+ * be counted in the floor of a table that is not showing it.
  */
-export const CONDITIONAL_COLUMNS: readonly string[] = ['tag'];
+export const CONDITIONAL_COLUMNS: readonly string[] = ['tag', 'service'];
 
 export const FIXED_COLUMNS: readonly string[] = [
   ...COLUMN_WIDTHS.keys(),

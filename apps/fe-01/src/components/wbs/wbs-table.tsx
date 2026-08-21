@@ -5767,6 +5767,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * the Tags column's existence — see the filter at the end of `columns`.
    */
   const tagsExist = tags.length > 0;
+  /** {@link tagsExist}'s rule for the service column, and its reasons. */
+  const servicesExist = services.length > 0;
 
   const columns = useMemo(
     () =>
@@ -6932,6 +6934,65 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           },
         }),
         column.display({
+          id: 'service',
+          header: 'Service',
+          cell: ({ row }) => {
+            // The team cell's reading, third dimension over: a row that states
+            // no service of its own still **is** delivered by whatever an
+            // ancestor said, and the placeholder says so in the box's own muted
+            // ink with `↳` for the inheritance. Single-select, because D2 puts
+            // one service on a work item as a column — a picker that took a set
+            // would be offering a shape the schema refuses.
+            const inherited = live.current.effectiveServiceLabelOf(row.original);
+            return (
+              <CreatablePicker
+                label={`Service for ${row.original.number}`}
+                placeholder={
+                  inherited.state === 'inherited' ? `↳ ${inherited.name}` : 'search'
+                }
+                title={
+                  inherited.state === 'inherited'
+                    ? `${inherited.name} — inherited from ${inherited.fromRow}. This row carries no service of its own.`
+                    : undefined
+                }
+                entries={live.current.services}
+                value={row.original.serviceId}
+                onChoose={(id) => {
+                  live.current.setServiceOf(row.original.id, id);
+                }}
+                // **No `onCreate`**, where the Team cell beside it has one. The
+                // task's own non-goal, and the tag cell's reason: a service is
+                // made on the directory page, where a typo can be seen and
+                // renamed, rather than in a cell where it becomes a second
+                // spelling of something that already exists. It is also why
+                // this column only exists once a service does — a service
+                // cannot be made in a column that does not exist until the
+                // first service is made, which is precisely why the Team cell,
+                // whose column is always on screen, may keep its `onCreate`.
+                onClear={
+                  row.original.serviceId === null
+                    ? undefined
+                    : () => {
+                        live.current.setServiceOf(row.original.id, null);
+                      }
+                }
+                gridCell={{
+                  dataCell: cellKey(row.original.id, 'service'),
+                  onTabKey: (e) => {
+                    live.current.onTabKey(e, row.original.id, 'service');
+                  },
+                  onCommandKey: (e) => {
+                    live.current.onCommandKey(e, row.original, 'service');
+                  },
+                  onAltMove: (e) => {
+                    live.current.onAltMove(e, row.original, 'service');
+                  },
+                }}
+              />
+            );
+          },
+        }),
+        column.display({
           id: 'in-parallel',
           // `∥`, not `In parallel` and not `PAR`: the column is 32px at a 10px
           // all-caps header, in which even three letters wrap. The mathematical
@@ -8020,7 +8081,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         // still needs the cell to put a first tag in. What it is keyed on is
         // somebody having made a tag at all, on the page the proposal says tags
         // are made on.
-        .filter((each) => each.id !== 'tag' || tagsExist),
+        .filter((each) => each.id !== 'tag' || tagsExist)
+        // The Services column on the same rule and for the same 120px: keyed on
+        // the directory having a service at all, not on this plan carrying one,
+        // so a plan nobody has labelled still has the cell to put a first
+        // service in.
+        .filter((each) => each.id !== 'service' || servicesExist),
     // `roles` because a role's name is rendered in a header, and
     // `unfoldedRoles` because it decides which columns exist at all.
     // `flexRender` renders each `cell` function as a component type, so
@@ -8036,7 +8102,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // `tagsExist` joins them because it decides whether a column exists at all,
     // exactly as `unfoldedRoles` does — a boolean, so the remount it costs
     // happens once per deployment rather than once per render.
-    [roles, unfoldedRoles, tagsExist],
+    [roles, unfoldedRoles, tagsExist, servicesExist],
   );
 
   const table = useReactTable({
