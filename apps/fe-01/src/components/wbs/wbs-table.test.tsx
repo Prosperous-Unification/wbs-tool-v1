@@ -12976,6 +12976,97 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     expect(numbersOnScreen()).toEqual(['010']);
   });
 
+  itDom('marks the service cell of a row a non-owner is building, and says why', async () => {
+    // **Task 7.2's first marker.** The facet cases above prove the rule; this
+    // proves it reaches the cell it is about, with the sentence on it. A mark
+    // that cannot say why is a mystery rather than a signal — 7.2's own words,
+    // and the reason the whole string is asserted rather than its presence.
+    const api = await aServicedPlan();
+    api.ownService(api.wiring, api.checkout);
+    await shown(api);
+
+    const said =
+      'Built by a non-owner: Billing does not own Checkout.' +
+      ' Nothing is blocked — the plan is recording this, not refusing it.';
+    const mark = rowFor('010').querySelector('[data-mismatch="service"]');
+    expect(mark?.getAttribute('title')).toBe(said);
+    // The same sentence to a reader with no pointer. `role="img"` and a label
+    // rather than a `title` alone, which reaches a mouse only.
+    expect(mark?.getAttribute('aria-label')).toBe(said);
+    expect(mark?.getAttribute('role')).toBe('img');
+    // `010.1.1` states `Wiring` itself, and `Wiring` owns `Checkout`: the row
+    // nearest the fault is the one **not** marked. Without it this case would
+    // pass over a marker that landed on every row wearing a service — chunk
+    // 5's over-broad-usage lesson, on a third surface.
+    expect(rowFor('010.1.1').querySelector('[data-mismatch="service"]')).toBeNull();
+    // And it is the **effective** reading: `010.1` states no service of its own
+    // and is marked, because what it inherits is what it is delivering.
+    expect(rowFor('010.1').querySelector('[data-mismatch="service"]')).not.toBeNull();
+  });
+
+  itDom('names every offending service, and only the offending ones', async () => {
+    // **The case the scope change needs and the only one that can drive it.**
+    // Three services on the row, one of them owned: a sentence built from the
+    // row's whole set names `Checkout` — which the team *does* own — and a
+    // sentence taking the first offender names `Ledger` and drops `Search`.
+    // Every other marker case here has one service, and one service reads
+    // identically through either fault.
+    const api = await aServicedPlan();
+    const search = api.addService('Search');
+    api.labelWithService(api.strip, [api.checkout, api.ledger, search.id]);
+    api.ownService(api.billing, api.checkout);
+    await shown(api);
+
+    const said = rowFor('010').querySelector('[data-mismatch="service"]')?.getAttribute('title');
+    expect(said).toContain('Billing does not own Ledger and Search.');
+    // Said out loud, because it is half the claim: the owned service is not in
+    // the sentence, so a reader is sent to the two that need looking at.
+    expect(said).not.toContain('Checkout');
+  });
+
+  itDom('marks the assignee on a folded role, which is where every plan starts', async () => {
+    // **Task 7.2's second marker, on the surface that is on screen by default.**
+    // `unfoldedRoles` starts empty, so a marker living only in the unfolded `by`
+    // column would be absent from every plan nobody has unfolded — the same
+    // hiding this cell already refuses for a complaint.
+    const api = await aServicedPlan();
+    await shown(api);
+
+    const said =
+      'Assigned outside the team: Ada is not in Billing.' +
+      ' Nothing is blocked — the plan is recording this, not refusing it.';
+    const final = rowFor('010').querySelector('[data-final="role-dev"]');
+    const mark = final?.querySelector('[data-mismatch="assignee"]');
+    expect(mark?.getAttribute('aria-label')).toBe(said);
+    // **No native `title` here**, unlike the service cell's mark: this cell's
+    // one hint is its card, and a tooltip raced it over the same pixels
+    // (2026-08-09). So the sentence moves to the card rather than being
+    // dropped, and both halves of that are asserted.
+    expect(mark?.getAttribute('title')).toBeNull();
+    fireEvent.mouseEnter(final as HTMLElement);
+    expect(screen.getByRole('tooltip').textContent).toContain('Ada is not in Billing');
+    // The team is inherited down the branch and the assignee is not, so the
+    // rows under `010` carry no mark. Absence flagging nothing, on screen.
+    expect(rowFor('010.1').querySelector('[data-mismatch="assignee"]')).toBeNull();
+  });
+
+  itDom('keeps the assignee mark when the role is unfolded, with its own sentence', async () => {
+    // The other half of the same claim: unfolding moves the assignee into a
+    // column of its own, and a marker that lived only on the folded cell would
+    // vanish exactly when somebody looked closer.
+    const api = await aServicedPlan();
+    await shown(api);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unfold Dev estimates' }));
+
+    const cell = screen.getByLabelText('Dev assignee for 010').closest('td');
+    const mark = cell?.querySelector('[data-mismatch="assignee"]');
+    // A `title` here, where the folded cell has none: this column has no card
+    // to fight, so the pointer gets the sentence the way the service cell's
+    // does.
+    expect(mark?.getAttribute('title')).toContain('Ada is not in Billing');
+  });
+
   itDom('leaves a ticked signal live after somebody empties the map under it', async () => {
     // Ticked wins. Somebody in the directory clears the last owned service
     // while this reader is filtered by the signal: the map arrives empty on the

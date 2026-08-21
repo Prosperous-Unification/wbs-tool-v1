@@ -50,6 +50,16 @@ export interface CardRow {
 export interface CardAssignee {
   name: string;
   assumed: boolean;
+  /**
+   * Why this person is marked as assigned outside the team — the whole
+   * sentence, or `null` where they are not (task 7.2).
+   *
+   * The sentence and not a boolean, so every surface showing this person shows
+   * the same words: a flag would be three renderers each writing their own
+   * wording for one rule, which is the drift `label-mismatch.ts` refuses a
+   * third export to prevent.
+   */
+  outside: string | null;
 }
 
 export interface PlanCardsProps {

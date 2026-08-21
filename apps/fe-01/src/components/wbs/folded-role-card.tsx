@@ -93,6 +93,21 @@ export function FoldedRoleCard({
         </div>
       )}
       {/*
+        Task 7.2's assignee sentence, on the card because the folded cell has no
+        `title` to put it in — the decision above `data-folded-assignee`, taken
+        2026-08-09 when a native tooltip raced this card over the same pixels.
+        The mark beside the initials is what says there is something to read;
+        this is what it says.
+
+        Muted and below the name, not `--destructive` like the complaint under
+        it: a person outside the team is a fact about the plan, and the trio
+        that saves nothing is the tool refusing to store what somebody typed.
+        Colouring them alike would make one of the two a lie.
+      */}
+      {doing?.outside != null && (
+        <div style={{ color: 'var(--muted-foreground)' }}>{doing.outside}</div>
+      )}
+      {/*
         Proof: this line deleted, four tests failed — `a folded role cannot
         hide a complaint`, `sends nothing for a trio that runs backwards, and
         says why`, `lets a box replace what the folded cell was holding`,

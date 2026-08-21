@@ -1297,6 +1297,101 @@ function GanttHeightHandle({
   );
 }
 
+/**
+ * The sentence both mismatch markers end on, in one constant so they end alike.
+ *
+ * It is the load-bearing half of D5: neither signal refuses anything, moves a
+ * date or blocks a write, and a reader meeting a mark on their own row needs to
+ * be told that before they go looking for what to fix. Written once because two
+ * markers reassuring a reader in two different wordings read as two different
+ * kinds of trouble.
+ */
+const MISMATCH_TAIL = ' Nothing is blocked — the plan is recording this, not refusing it.';
+
+/**
+ * A list of names as a sentence says them: `A`, `A and B`, `A, B and C`.
+ *
+ * Both markers name a set now — every offending service since the 2026-08-21
+ * scope change, and every team in force — so the alternative is a bare
+ * comma-join that reads as a fragment inside a sentence that is otherwise
+ * English.
+ */
+function listed(names: readonly string[]): string {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Everybody named on any of this row's phases, deduplicated.
+ *
+ * A module function and not two inline spreads because both readers of it — the
+ * `assigneeIds` facet and the assignee marker's list of who is outside — have
+ * to be asking about the same people. One person on three phases is one person
+ * to filter by and one person to mark, and `includes` over a list holding them
+ * three times is the same answer paid for three times on every keystroke.
+ */
+function assigneesOf(row: TreeRow): string[] {
+  return [...new Set(Object.values(row.assignees).filter((id): id is string => id !== undefined))];
+}
+
+/**
+ * The quiet marker both mismatch signals wear (task 7.2, design D5).
+ *
+ * One component for both, which is the whole reason 7.1 was split to bring them
+ * here together: two markers that must carry the same kind of sentence get
+ * phrased differently when they are written a chunk apart. A hollow triangle
+ * and not `!` — `!` is this table's word for a complaint the tool wants fixed
+ * (a trio that saves nothing), and neither of these is a complaint. Nothing is
+ * refused, nothing moves, no date changes; the plan is being honest about what
+ * it holds. Muted ink for the same reason: a marker loud enough to read as an
+ * error would be an error the reader cannot clear.
+ *
+ * `role="img"` with the sentence as its label, because the sentence is the
+ * marker. A glyph that cannot say why is a mystery rather than a signal
+ * (7.2's own words), and a `title` alone reaches a pointer only.
+ */
+function MismatchMark({
+  kind,
+  note,
+  carded = false,
+}: {
+  kind: 'service' | 'assignee';
+  note: string;
+  /**
+   * Whether this mark sits in a cell whose one hint is a hover card, in which
+   * case it carries no native `title`.
+   *
+   * The folded role cell's own decision, 2026-08-09 and stated in its code: a
+   * browser tooltip is one line, a second late, and it raced the card over the
+   * same pixels. So there the sentence goes on the card and the mark keeps only
+   * its `aria-label`, which nothing races. A mark with no sentence anywhere
+   * would be the mystery 7.2 forbids; this moves the sentence, it does not drop
+   * it.
+   */
+  carded?: boolean;
+}) {
+  return (
+    <span
+      data-mismatch={kind}
+      role="img"
+      aria-label={note}
+      // The `title` is the pointer's copy of the same sentence. Both, not one:
+      // `aria-label` is not shown to a sighted reader and `title` is not read
+      // to a screen reader off a `span`.
+      {...(carded ? {} : { title: note })}
+      style={{
+        color: 'var(--muted-foreground)',
+        cursor: 'help',
+        flex: 'none',
+        fontSize: '0.85em',
+        marginLeft: 2,
+      }}
+    >
+      △
+    </span>
+  );
+}
+
 /** Whether two role lists say the same thing, so an equal one can be discarded. */
 function sameRoles(a: readonly RoleView[], b: readonly RoleView[]): boolean {
   return (
@@ -3281,6 +3376,41 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   );
 
   /**
+   * **Which** services and **which** people each row's two signals are about —
+   * not merely whether they fire.
+   *
+   * One memo, read by the filter facets *and* by the two markers, because the
+   * facets' own note says it: recomputing a signal per surface is how a filter
+   * and the marker beside it start to answer two different questions about one
+   * row. The booleans in {@link narrowable} are now `length > 0` over these
+   * lists rather than a second call, so a row that is filtered as a non-owner
+   * build is the same row that wears the mark, by construction.
+   *
+   * Both lists come from `label-mismatch.ts` over **one-element sets**, which
+   * is the trick both its functions document rather than a fourth rule: asking
+   * "is this row built by a non-owner, considering only this one service"
+   * answers "is this the offending service", and the same for one assignee.
+   * That is why 7.2 needed no third export — a function answering *who* would
+   * be a second place for the rule to drift from.
+   */
+  const mismatchByRow = useMemo(() => {
+    const found = new Map<string, { unownedServices: string[]; outsideAssignees: string[] }>();
+    for (const row of flat) {
+      const teamIds = effectiveTeams.get(row.id)?.teamIds ?? [];
+      const serviceIds = effectiveServices.get(row.id)?.serviceIds ?? [];
+      found.set(row.id, {
+        unownedServices: serviceIds.filter((serviceId) =>
+          builtByNonOwner({ serviceIds: [serviceId], teamIds, ownedServicesByTeam }),
+        ),
+        outsideAssignees: assigneesOf(row).filter((personId) =>
+          assignedOutsideTeam({ assigneeIds: [personId], teamIds, teamsByPerson }),
+        ),
+      });
+    }
+    return found;
+  }, [flat, effectiveTeams, effectiveServices, ownedServicesByTeam, teamsByPerson]);
+
+  /**
    * A row's team as a cell or a bar can state it: its own label, or the one it
    * inherits and the row that carries it.
    *
@@ -3437,18 +3567,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   const narrowable = useMemo<NarrowableRow[]>(
     () =>
       flat.map((row) => {
-        // Named once and read four times below, because both mismatch signals
-        // ask about the same two sets the facets themselves carry. Recomputing
-        // them per signal is how a filter and the marker beside it start to
-        // answer two different questions about one row.
+        // Named once and read below, because both mismatch signals ask about
+        // the same two sets the facets themselves carry. Recomputing them per
+        // signal is how a filter and the marker beside it start to answer two
+        // different questions about one row.
         const teamIds = effectiveTeams.get(row.id)?.teamIds ?? [];
         const serviceIds = effectiveServices.get(row.id)?.serviceIds ?? [];
-        // Deduplicated: one person on three phases is one person to filter
-        // by, and `includes` over a list with them in it three times is the
-        // same answer paid for three times on every keystroke.
-        const assigneeIds = [
-          ...new Set(Object.values(row.assignees).filter((id): id is string => id !== undefined)),
-        ];
+        const assigneeIds = assigneesOf(row);
+        // The **same** answer the two markers wear, not a second call — see
+        // {@link mismatchByRow}. A row absent from that map is a row `flat` does
+        // not hold, which cannot happen here because both memos walk `flat`.
+        const mismatch = mismatchByRow.get(row.id);
         return {
           id: row.id,
           name: row.name,
@@ -3473,15 +3602,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // said so; what changed is 6.3's facet control, which is the surface
             // that drives the read.
             serviceIds,
-            // The two signals, computed here and at their **real site** — the
-            // one place in the app that answers them per row, which is what
-            // makes task 6.2's stored-instead-of-effective fault a production
-            // fault rather than a fault in a test's own composition (chunk 7's
-            // record of 5.2). `libs/domain/src/label-mismatch.ts` owns both
-            // rules; this hands them the effective reading and the directory's
-            // two maps, and holds no rule of its own.
-            builtByNonOwner: builtByNonOwner({ serviceIds, teamIds, ownedServicesByTeam }),
-            assignedOutsideTeam: assignedOutsideTeam({ assigneeIds, teamIds, teamsByPerson }),
+            // The two signals, read off {@link mismatchByRow} — which is their
+            // **real site**, the one place in the app that answers them per
+            // row, and what makes task 6.2's stored-instead-of-effective fault
+            // a production fault rather than a fault in a test's own
+            // composition (chunk 7's record of 5.2).
+            // `libs/domain/src/label-mismatch.ts` owns both rules; that memo
+            // hands them the effective reading and the directory's two maps,
+            // and neither it nor this holds a rule of its own.
+            //
+            // `length > 0` over the offenders and not a second row-level call:
+            // "some service is unowned" and "the list of unowned services is
+            // not empty" are one sentence, and asking the domain twice is how
+            // the mark and the facet would come to disagree.
+            builtByNonOwner: (mismatch?.unownedServices.length ?? 0) > 0,
+            assignedOutsideTeam: (mismatch?.outsideAssignees.length ?? 0) > 0,
             assigneeIds,
             // Null and not a band: a row nobody has prioritised carries no rung,
             // and `priorityBandOf` is asked about numbers only.
@@ -3515,6 +3650,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       // marker on screen answering the map as it was at the last tree fetch.
       ownedServicesByTeam,
       teamsByPerson,
+      // Carries both maps' dependencies of its own; listed because the two
+      // booleans above are read out of it and not recomputed here.
+      mismatchByRow,
       priorityBands,
       roles,
       unestimatedIds,
@@ -5584,6 +5722,49 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   );
 
   /**
+   * The teams in force for a row, as a sentence names them — the directory's
+   * word where it has one, the id where it does not.
+   *
+   * Both markers need this half, which is why it is not written twice: the
+   * non-owner sentence names who does not own the service and the assignee
+   * sentence names who the person is not in, and they are the same set.
+   */
+  const teamNamesOn = useCallback(
+    (row: TreeRow): string[] =>
+      (effectiveTeams.get(row.id)?.teamIds ?? []).map(
+        (id) => teams.find((team) => team.id === id)?.name ?? id,
+      ),
+    [effectiveTeams, teams],
+  );
+
+  /**
+   * Why this row's service cell is marked, or `null` where it is not (task 7.2).
+   *
+   * Reads {@link mismatchByRow} rather than asking the domain again, so the
+   * sentence names exactly the services the facet counted. **Every** offending
+   * service, not the first — the scope change made the dimension a set, and a
+   * marker naming one of two would send a reader to fix half of what it saw.
+   *
+   * A service the directory has not caught up with prints as its id, the same
+   * fallback the chips beside it take: a sentence that silently dropped it
+   * would name fewer services than the mark is about.
+   */
+  const nonOwnerNoteOf = useCallback(
+    (row: TreeRow): string | null => {
+      const unowned = mismatchByRow.get(row.id)?.unownedServices ?? [];
+      if (unowned.length === 0) return null;
+      const named = listed(
+        unowned.map((id) => services.find((service) => service.id === id)?.name ?? id),
+      );
+      const owners = teamNamesOn(row);
+      return `Built by a non-owner: ${listed(owners)} ${
+        owners.length === 1 ? 'does' : 'do'
+      } not own ${named}.${MISMATCH_TAIL}`;
+    },
+    [mismatchByRow, services, teamNamesOn],
+  );
+
+  /**
    * Who is doing one phase of one work item, and whether anybody said so.
    *
    * The assumption — nobody named on this phase and exactly one person named on
@@ -5591,18 +5772,44 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * (`doesEveryPhase`), and this is the one place either renderer reads it.
    * `(unknown)` rather than nothing for a person the directory has not got:
    * somebody is assigned, and printing an empty cell would say nobody is.
+   *
+   * **`outside` is task 7.2's other marker**, and it rides here because this is
+   * the one function every surface asks who is doing the work: the folded cell,
+   * the unfolded assignee column and the plan cards all read it, so a signal
+   * added here cannot be on one of them and missing from another. The person
+   * shown and not the row's whole set — the assumed assignee included, because
+   * a phase the plan says they are doing is work assigned to them.
    */
   const assigneeOn = useCallback(
     (row: TreeRow, roleId: string): CardAssignee | null => {
       const named = row.assignees[roleId];
       const shows = named ?? row.doesEveryPhase;
       if (shows === null) return null;
+      const name = people.find((each) => each.id === shows)?.name ?? '(unknown)';
+      // The row's own answer, filtered to the person this cell shows. An
+      // assumed assignee is not in `row.assignees` and so not in
+      // `mismatchByRow`'s list, which is right for the facet — the row states
+      // nobody on this phase — and wrong for the mark, which is about the
+      // person on screen. So the domain is asked directly for that one case,
+      // over the one-element set its own JSDoc prescribes.
+      const outsider =
+        named === undefined
+          ? assignedOutsideTeam({
+              assigneeIds: [shows],
+              teamIds: effectiveTeams.get(row.id)?.teamIds ?? [],
+              teamsByPerson,
+            })
+          : (mismatchByRow.get(row.id)?.outsideAssignees.includes(shows) ?? false);
+      const teamNames = teamNamesOn(row);
       return {
-        name: people.find((each) => each.id === shows)?.name ?? '(unknown)',
+        name,
         assumed: named === undefined,
+        outside: outsider
+          ? `Assigned outside the team: ${name} is not in ${listed(teamNames)}.${MISMATCH_TAIL}`
+          : null,
       };
     },
-    [people],
+    [people, mismatchByRow, effectiveTeams, teamsByPerson, teamNamesOn],
   );
 
   /** The numbers of the work items one waits for, in the order it holds them. */
@@ -5707,6 +5914,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     toggleRole,
     spanOf,
     assigneeOn,
+    nonOwnerNoteOf,
     waitsFor,
     matchIds: search.matchIds,
     filtering,
@@ -5782,6 +5990,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     toggleRole,
     spanOf,
     assigneeOn,
+    nonOwnerNoteOf,
     waitsFor,
     matchIds: search.matchIds,
     filtering,
@@ -6984,6 +7193,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             const own = row.original.serviceIds;
             const named = (id: string): string =>
               live.current.services.find((each) => each.id === id)?.name ?? id;
+            // Task 7.2's first marker, on the cell its signal is about. The
+            // **effective** reading, so a leaf inheriting a service it is not
+            // owned to build is marked where the inheritance put the service —
+            // which is why the note comes off `nonOwnerNoteOf` and not off
+            // `own` above it, and why a row stating no service of its own can
+            // still wear it.
+            const nonOwner = live.current.nonOwnerNoteOf(row.original);
             return (
               <span style={{ display: 'flex', flexWrap: 'wrap', gap: 2, minWidth: 0 }}>
                 {/*
@@ -7016,6 +7232,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     <span aria-hidden>✕</span>
                   </button>
                 ))}
+                {/*
+                  After the chips and before the box, not at the end of the
+                  cell: it is about the services on screen to its left, and the
+                  picker is a search box that stays where it has always been.
+                */}
+                {nonOwner !== null && <MismatchMark kind="service" note={nonOwner} />}
                 <CreatablePicker
                   label={`Services for ${row.original.number}`}
                   placeholder={
@@ -7509,6 +7731,23 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                         · {doing.assumed ? `(${initialsOf(doing.name)})` : initialsOf(doing.name)}
                       </span>
                     )}
+                    {/*
+                      Task 7.2's marker on the folded cell as well as the
+                      unfolded one, and that is the point rather than a
+                      duplication: roles start folded (`unfoldedRoles` is `[]`),
+                      so a marker living only in the `by` column would be absent
+                      from every plan nobody has unfolded. This cell already
+                      holds the rule as `A folded role must not be able to hide
+                      a complaint`; a signal is not a complaint, but it hides
+                      exactly as easily.
+
+                      `carded`, so the sentence rides {@link FoldedRoleCard}
+                      with the assignee's own name rather than fighting it as a
+                      native tooltip.
+                    */}
+                    {doing?.outside != null && (
+                      <MismatchMark kind="assignee" note={doing.outside} carded />
+                    )}
                     {options.length > 0 && (
                       <PickerList
                         id={listId}
@@ -7640,6 +7879,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       // than reading as unassigned. Assigning anyone here ends the
                       // assumption by itself.
                       const assumed = assigned === undefined ? row.original.doesEveryPhase : null;
+                      // Task 7.2's second marker. Read through `assigneeOn` and
+                      // not off the row, because that is the one function that
+                      // resolves *which* person this cell shows — the named one
+                      // or the assumed one — and a marker computed from
+                      // `assigned` alone would go quiet on exactly the assumed
+                      // case, where nobody has looked at the assignment at all.
+                      const doing = live.current.assigneeOn(row.original, role.id);
                       const nameOf = (id: string) =>
                         live.current.people.find((each) => each.id === id)?.name ?? '(unknown)';
                       return (
@@ -7709,6 +7955,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                             >
                               ({nameOf(assumed)})
                             </span>
+                          )}
+                          {doing?.outside != null && (
+                            <MismatchMark kind="assignee" note={doing.outside} />
                           )}
                         </span>
                       );
