@@ -86,12 +86,22 @@ the case that failed and the message it failed on.
 | F1     | `ON DELETE CASCADE` struck from `role_measure.work_item_id`                  | `bdc1bc7` | `lets the outgoing release keep deleting work items against the migrated schema`       | `SQLiteError: FOREIGN KEY constraint failed` — 60 pass, 1 fail                   |
 | F2     | `ON DELETE CASCADE` **added** to `role_measure.role_id`                      | `bdc1bc7` | `refuses to let a role go while it still holds a measure, rather than emptying it`     | `Received function did not throw`, both measures silently gone — 60 pass, 1 fail |
 | F3     | `CONSTRAINT role_measure_metric CHECK (…)` struck from the table             | `bdc1bc7` | `refuses a fourth metric, because Drizzle's enum is gone by the time a row is written` | the `'nonsense'` insert succeeds — 60 pass, 1 fail                               |
-| F4–F5  | `person.kind`'s `CHECK` dropped; the unique index left off the rebuilt table | —         | —                                                                                      | _not yet run_ (section 2)                                                        |
+| F4     | `CHECK (kind IN (…))` struck from the `ADD COLUMN`                           | `b43c188` | `refuses a third kind, because every reader dispatches on the set`                     | the `'robot'` insert succeeds — 5 pass, 1 fail                                   |
+| F5     | the migration rewritten as the table rebuild `tasks.md` 2.2 originally specified | `b43c188` | `leaves every membership and every assignment where it found them` **and** `gives the column back on the way down and keeps the directory whole` | `{people: 2, memberships: 0, assignments: 0}` — 4 pass, **2** fail               |
 | F6–F11 | the store, the write path, the roll-up                                       | —         | —                                                                                      | _not yet run_ (sections 3–5)                                                     |
 
-Each fault fails **exactly one** case and the other sixty pass. That is the
-control: a fault that reddens the file wholesale proves the suite runs, not that
-the case under it is aimed at the constraint it names.
+Each fault fails **exactly one** case and the rest pass — with **F5 the stated
+exception**, and the exception is the finding rather than a loose end. F5 is not
+a constraint struck out of a working migration; it is the whole migration
+written the other way, the way this change's own `tasks.md` specified before the
+probe. It reddens two cases because it breaks two things: it empties
+`person_team` and `assignment`, and it leaves a `person` whose stored DDL is a
+renamed `person_new` rather than the original, so the rollback no longer restores
+the table byte for byte. Both reds are real consequences of the procedure. The
+one that matters is the first: the counts.
+
+That is the control: a fault that reddens the file wholesale proves the suite
+runs, not that the case under it is aimed at the constraint it names.
 
 ## The gate
 
