@@ -3609,9 +3609,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   const facetServices = useMemo(
     () =>
       optionsFor(
-        new Set(
-          narrowable.flatMap((row) => row.facets.serviceIds),
-        ),
+        new Set(narrowable.flatMap((row) => row.facets.serviceIds)),
         facets.serviceIds,
         (id) =>
           services.find((each) => each.id === id)?.name ?? 'a service this plan has not loaded',

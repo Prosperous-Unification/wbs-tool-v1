@@ -88,7 +88,10 @@ describe('effectiveServicesOf', () => {
     // unassigned". A row whose set is empty is on its ancestor's services, and
     // a plan with nothing above it is absent from the map — one spelling of
     // unstated, the same call the other two dimensions made.
-    const inherits = effectiveServicesOf([row('parent', null, ['payments']), row('leaf', 'parent')]);
+    const inherits = effectiveServicesOf([
+      row('parent', null, ['payments']),
+      row('leaf', 'parent'),
+    ]);
     expect(inherits.get('leaf')?.serviceIds).toEqual(['payments']);
 
     const nothing = effectiveServicesOf([row('parent', null), row('leaf', 'parent')]);
