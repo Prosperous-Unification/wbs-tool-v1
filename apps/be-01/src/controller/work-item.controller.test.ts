@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-
 import { builtByNonOwner } from '@wbs/domain';
+import { describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
 import { ProjectService } from '../service/project.service';
