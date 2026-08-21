@@ -1996,7 +1996,8 @@ export class WorkItemService {
         }
         const measuredInside = storedMeasures.filter((each) => inside.has(each.workItemId));
         for (const metric of MEASURE_METRICS) {
-          for (const [roleId, value] of rollUpMeasures(rows, storedMeasures, metric).get(id) ?? []) {
+          for (const [roleId, value] of rollUpMeasures(rows, storedMeasures, metric).get(id) ??
+            []) {
             // The newest stamp **in this metric**, not the newest in the branch.
             // A pair whose hours were recorded this morning and whose tokens
             // were recorded a fortnight ago hands up two figures, and the token

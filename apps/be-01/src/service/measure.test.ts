@@ -514,7 +514,9 @@ describe('the figures that are not days, through the structural commands', () =>
     expect(copied.ok).toBe(true);
 
     const tree = await service.tree(projectId);
-    const copy = tree?.workItems.find((each) => each.name !== 'Strip' && each.name.includes('Strip'));
+    const copy = tree?.workItems.find(
+      (each) => each.name !== 'Strip' && each.name.includes('Strip'),
+    );
     expect(copy?.measures).toEqual({ token_estimate: { [DEV]: 12_000 } });
   });
 
