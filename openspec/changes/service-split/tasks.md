@@ -209,7 +209,7 @@ the branch folds between them at two commented edges. This section closes that
 gap. **Do it before 7.2, 7.3 and 7.4** — each of those is a new surface, and a
 surface built on the singleton is a surface built twice.
 
-- [ ] 10.1 `work_item_service (work_item_id, service_id)` in `schema.ts` and a
+- [x] 10.1 `work_item_service (work_item_id, service_id)` in `schema.ts` and a
       migration, keyed on the pair, both sides cascading, indexed by
       `service_id` — `work_item_tag` line for line. Seed it from the column:
       `INSERT … SELECT id, service_id FROM work_item WHERE service_id IS NOT NULL`.
@@ -244,6 +244,13 @@ surface built on the singleton is a surface built twice.
 - [ ] 10.5 `directoryUsageOfService` reports `label_removed`, not
       `label_nulled`, once the store is a join table — a column is nulled, a set
       member is removed, and `directory-usage.ts:15-30` already distinguishes
-      them. **One commit with 10.1**, never before it: while the column is still
-      authoritative, `label_nulled` is the true sentence. **Watched red:** an
-      item carrying two services loses only the removed one.
+      them. ~~**One commit with 10.1**~~ **One commit with 10.2**, and the
+      correction is this task's own reason read properly: _while the column is
+      still authoritative, `label_nulled` is the true sentence_, and 10.1 does
+      not make the join table authoritative — 10.2 does. 10.1 creates and seeds
+      it while every reader still goes through the column, so shipping
+      `label_removed` there would describe a mechanism nothing uses yet. The
+      watched red needs 10.2 too: **an item carrying two services loses only the
+      removed one** cannot be driven while `directoryUsageOfService` reads a
+      scalar `row.serviceId`, so the case would be a guard mistaken for a proof —
+      chunk 7's 5.2 lesson. Never before 10.1 still holds.
