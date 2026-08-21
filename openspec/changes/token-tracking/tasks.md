@@ -32,10 +32,10 @@
 - [x] 2.2 `drizzle/20260821150000_add_person_kind/{migration,down}.sql`.
       **This item's premise was wrong and the correction is the finding of the
       chunk that did it.** It read: SQLite cannot `ALTER TABLE … ADD
-      CONSTRAINT`, so the `CHECK` arrives by table rebuild — new table, copy,
+    CONSTRAINT`, so the `CHECK` arrives by table rebuild — new table, copy,
       drop, rename, indexes recreated. The first clause is true; the conclusion
       does not follow. The restriction is on `ADD CONSTRAINT`, and a
-      *column-level* `CHECK` inside `ADD COLUMN` is not on SQLite's list of
+      _column-level_ `CHECK` inside `ADD COLUMN` is not on SQLite's list of
       what that clause may not carry. Probed on h2puni against bun's SQLite
       3.53.0 before a line was written: the column backfills, `'robot'` is
       refused with `CHECK constraint failed: kind`, the two-column insert takes
@@ -59,7 +59,7 @@
       naming no `kind` still works, an insert naming `'robot'` is refused, and
       the rollback drops the column and keeps every person and team membership.
       **Negatives:** the `CHECK` dropped (F4); and, since 2.2's rebuild never
-      happened, F5 became the stronger fault — the migration rewritten *as* the
+      happened, F5 became the stronger fault — the migration rewritten _as_ the
       rebuild, which reddens the membership-and-assignment counts exactly as the
       probe predicted. verify.md F4–F5.
 - [x] 2.4 Unplanned, and landed here because 2.1 caused it: `Person` in
