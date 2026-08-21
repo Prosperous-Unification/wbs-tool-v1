@@ -617,10 +617,10 @@ export class DirectoryRepository implements DirectoryStore {
 
   /**
    * Counts, decides and deletes in **one** transaction —
-   * {@link DirectoryRepository.removeTag}'s shape and its argument: the count
-   * *is* the decision, so a labelling written between an unconfirmed caller's
-   * own count and this statement refuses the removal rather than being deleted
-   * by it.
+   * {@link DirectoryRepository.removeTag}'s shape and its argument: the count is
+   * **itself** the decision, so a labelling written between an unconfirmed
+   * caller's own count and this statement refuses the removal rather than being
+   * deleted by it.
    *
    * There is no `UPDATE work_item SET service_id = null` here and that is the
    * design, not an omission: the column's `ON DELETE SET NULL` clears it, which
