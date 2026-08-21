@@ -13068,16 +13068,16 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
   });
 
   itDom('marks the phase nobody named, where the assumption puts them on it', async () => {
-    // **The branch every other assignee case here walks straight past**, and it
-    // is not a hypothetical: Ada is named on Dev alone, so `doesEveryPhase` puts
-    // her on QA as an assumption. An assumed assignee is not in the row's stated
-    // set and so not in `mismatchByRow` — right for the facet, which is asked
-    // what the row states, and wrong for the mark, which is about the person on
-    // screen. So `assigneeOn` asks the domain directly for that one case.
+    // **The surface every other assignee case here walks straight past.** Ada is
+    // named on Dev alone, so `doesEveryPhase` puts her on QA as an assumption,
+    // and a phase the plan says she is doing is work assigned to her.
     //
-    // Written because the injection round found the arm unproven: with
-    // `named === undefined` forced to `false`, all four of the other new cases
-    // stayed green (1564/0). This one is the only thing holding it.
+    // Written during chunk 17's injection round, which is also how the branch
+    // that used to serve it got deleted: `assigneeOn` carried a special arm for
+    // the assumed case, F4 forced it off, and every case stayed green — because
+    // an assumption is the row's own single stated assignee, so the ordinary
+    // path had been answering it all along. The arm went; this case stays,
+    // because nothing else asserts an assumed phase is marked at all.
     const api = await aServicedPlan();
     await shown(api);
 

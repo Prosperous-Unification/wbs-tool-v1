@@ -5786,20 +5786,22 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       const shows = named ?? row.doesEveryPhase;
       if (shows === null) return null;
       const name = people.find((each) => each.id === shows)?.name ?? '(unknown)';
-      // The row's own answer, filtered to the person this cell shows. An
-      // assumed assignee is not in `row.assignees` and so not in
-      // `mismatchByRow`'s list, which is right for the facet — the row states
-      // nobody on this phase — and wrong for the mark, which is about the
-      // person on screen. So the domain is asked directly for that one case,
-      // over the one-element set its own JSDoc prescribes.
-      const outsider =
-        named === undefined
-          ? assignedOutsideTeam({
-              assigneeIds: [shows],
-              teamIds: effectiveTeams.get(row.id)?.teamIds ?? [],
-              teamsByPerson,
-            })
-          : (mismatchByRow.get(row.id)?.outsideAssignees.includes(shows) ?? false);
+      // The row's own answer, filtered to the person this cell shows — and that
+      // covers the assumed assignee too, which is not obvious and is the reason
+      // this is written down. An assumption is `assumedAssignee(row.assignees)`
+      // (`apps/be-01/src/service/assumed-assignee.ts`): the one person the row
+      // *does* state, promoted to cover the phases it does not. So whoever this
+      // cell shows is always in `assigneesOf(row)` and therefore always in
+      // `mismatchByRow`'s list, and a second call for the assumed case cannot
+      // answer anything different.
+      //
+      // There was one here, with a paragraph explaining why the assumed person
+      // was missing from the list. F4 of chunk 17's injection round disproved
+      // it: with that arm forced off, the case written for it stayed green,
+      // 1565/0 — because the else branch had been answering it all along. The
+      // case is kept (an assumed phase must wear the mark, and nothing else
+      // asserts it); the branch is gone.
+      const outsider = mismatchByRow.get(row.id)?.outsideAssignees.includes(shows) ?? false;
       const teamNames = teamNamesOn(row);
       return {
         name,
@@ -5809,7 +5811,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           : null,
       };
     },
-    [people, mismatchByRow, effectiveTeams, teamsByPerson, teamNamesOn],
+    [people, mismatchByRow, teamNamesOn],
   );
 
   /** The numbers of the work items one waits for, in the order it holds them. */
