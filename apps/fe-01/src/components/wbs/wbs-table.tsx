@@ -9567,6 +9567,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           waitsFor={waitsFor}
           teamLabel={effectiveTeamLabelOf}
           tagLabel={effectiveTagLabelOf}
+          serviceLabel={effectiveServiceLabelOf}
           spanOf={spanOf}
           showDay={showDay}
         />

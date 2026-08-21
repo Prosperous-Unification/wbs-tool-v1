@@ -8,7 +8,7 @@ import type { CellRef } from './cell-navigation';
 import { PickerList, type PickerOption } from './creatable-picker';
 import { type CellElement, cellKey } from './editable-grid';
 import { POINTS } from './estimate-draft';
-import type { ServiceTeamLabel, TagLabel } from './gantt-geometry';
+import type { ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry';
 import type { CommitOutcome } from './live-editing';
 import { composeNameCell } from './name-notes';
 import { priorityBandStyleOf } from './priority-band-style';
@@ -139,6 +139,28 @@ export interface PlanCardsProps {
    * `at(0)` anywhere in this dimension to grow out of later.
    */
   tagLabel: (row: TreeRow) => TagLabel;
+  /**
+   * What this row delivers: its own services, the ones it inherits, or neither
+   * (task 7.3).
+   *
+   * The third prop rather than a third arm on either of the other two, for
+   * {@link tagLabel}'s reason one dimension over: the three are independent, a
+   * row states any of them, and the card is the only face some readers have. A
+   * phone that names a team and a tag while dropping the service is the surface
+   * that cannot answer "what is this work for" — which is the question the
+   * split exists to make askable.
+   *
+   * **No mismatch marker rides this chip**, and that is a decision rather than
+   * an omission. 7.2's rule is that a marker carries the sentence saying why,
+   * and both signals — `builtByNonOwner` here, `assignedOutsideTeam` on the
+   * assignee — are one vocabulary. This card renders neither: `CardAssignee`
+   * carries `outside` and no phone shows it. Marking the service alone would
+   * put one half of a paired signal on a face that stays silent about the
+   * other, which reads as "this row's people are fine" to a reader who has no
+   * table to check against. Both markers land on the card together or neither
+   * does; the gap is recorded in the task log, not papered over here.
+   */
+  serviceLabel: (row: TreeRow) => ServiceLabel;
   /**
    * When this work item happens: short dates on a plan with a start date, day
    * offsets without.
@@ -371,6 +393,7 @@ export function PlanCards({
   waitsFor,
   teamLabel,
   tagLabel,
+  serviceLabel,
   spanOf,
   showDay,
   rowActions,
@@ -399,6 +422,7 @@ export function PlanCards({
         const waits = waitsFor(row);
         const team = teamLabel(row);
         const tags = tagLabel(row);
+        const delivers = serviceLabel(row);
         const span = spanOf(row);
         const slack = cardSlackOf(row, showDay);
         return (
@@ -683,6 +707,39 @@ export function PlanCards({
                     : team.state === 'inherited'
                       ? `↳ ${team.name}`
                       : team.name}
+                </span>
+              )}
+              {/*
+                The services, and `↳` where the row carries none of its own —
+                the team chip's glyph again, third dimension over, with the row
+                the set came from in the `title` (task 7.3).
+
+                **Between the team and the tags, not after both.** Team and
+                service are the two directory dimensions the ownership map
+                relates — "Billing builds Payments" is one sentence, and a
+                reader deciding whether that pairing looks wrong should not have
+                to read past a list of tags to find its second half. Tags label
+                what sort of work it is and relate to neither.
+
+                Every stated name, joined, exactly as the tags chip does it: a
+                row's services are a set since the 2026-08-21 scope change, and
+                a card naming the first of two would be the last surface still
+                narrowing what the store, the wire, the filter and the cell all
+                widened.
+              */}
+              {delivers.state !== 'none' && (
+                <span
+                  data-card-service
+                  {...(delivers.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
+                  title={
+                    delivers.state === 'inherited'
+                      ? `${delivers.names.join(', ')} — inherited from ${delivers.fromRow}. This row carries no service of its own.`
+                      : undefined
+                  }
+                >
+                  {delivers.state === 'inherited'
+                    ? `↳ ${delivers.names.join(', ')}`
+                    : delivers.names.join(', ')}
                 </span>
               )}
               {/*

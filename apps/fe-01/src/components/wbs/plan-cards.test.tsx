@@ -8,6 +8,7 @@ import type {
   ProjectApi,
   RoleView,
   ScheduleView,
+  ServiceView,
   TeamView,
   WorkItemView,
 } from '@/lib/wbs-api';
@@ -74,11 +75,18 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
    */
   rows: WorkItemView[];
   teams: TeamView[];
+  /**
+   * The directory's services, arranged the way {@link teams} is and for the
+   * same reason: a card names a service it never writes one, and the picker
+   * that does write them is the table's cell and the directory page.
+   */
+  services: ServiceView[];
 } {
   const rows: WorkItemView[] = [];
   const roleList: RoleView[] = [{ ...DEV }, { ...QA }];
   const people: PersonView[] = [{ id: 'p1', name: 'Kat', teamIds: [] }];
   const teams: TeamView[] = [];
+  const services: ServiceView[] = [];
   const assigned = new Map<string, string>();
   const patched: { id: string; name?: string; notes?: string }[] = [];
   const assignments: string[] = [];
@@ -105,6 +113,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     assignments,
     rows,
     teams,
+    services,
     tree: () =>
       Promise.resolve({
         workItems: rows.map(view),
@@ -152,7 +161,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     roles: () => Promise.resolve(roleList.map((role) => ({ ...role }))),
     listTeams: () => Promise.resolve(teams.map((team) => ({ ...team }))),
     listTags: () => Promise.resolve([]),
-    listServices: () => Promise.resolve([]),
+    listServices: () => Promise.resolve(services.map((service) => ({ ...service }))),
     listPeople: () => Promise.resolve(people.map((person) => ({ ...person }))),
     create: (_projectId: string, input: { parentId: string | null; name?: string }) => {
       next += 1;
@@ -955,6 +964,68 @@ describe('what a card says about capacity', () => {
     expect(teamOnCard()).toBeNull();
   });
 
+  const serviceOnCard = (): HTMLElement | null => document.querySelector('[data-card-service]');
+
+  itDom('names every service a row carries, not the first of them', async () => {
+    // The set, on the last surface that was still narrowing it. The store, the
+    // wire, the filter facet and the table's cell all widened in section 10;
+    // a card that printed `Payments` on a row delivering two would be a phone
+    // reader's only face disagreeing with every other one.
+    await aPlan((rows, _teams, api) => {
+      api.services.push({ id: 's1', name: 'Payments' }, { id: 's2', name: 'Ledger' });
+      rows[0].serviceIds = ['s1', 's2'];
+    });
+
+    expect(serviceOnCard()?.textContent).toBe('Payments, Ledger');
+    expect(serviceOnCard()?.getAttribute('data-inherited')).toBeNull();
+  });
+
+  itDom('marks a service a row only inherits, and names where the label was written', async () => {
+    // The team chip's glyph and the team chip's sentence, third dimension over:
+    // a leaf under a labelled parent delivers what that parent delivers, and a
+    // card printing the name bare would say this row states it when it does not.
+    await aPlan((rows, _teams, api) => {
+      api.services.push({ id: 's1', name: 'Payments' });
+      const [parent, child] = rows;
+      parent.serviceIds = ['s1'];
+      child.parentId = parent.id;
+      parent.rolledUp = true;
+    }, 2);
+
+    const cards = [...document.querySelectorAll('[data-card-service]')];
+    expect(cards[0]?.textContent).toBe('Payments');
+    expect(cards[1]?.textContent).toBe('↳ Payments');
+    expect(cards[1]?.getAttribute('data-inherited')).toBe('true');
+    expect(cards[1]?.getAttribute('title')).toContain('inherited from');
+  });
+
+  itDom('draws no service line at all where nothing above delivers anything', async () => {
+    await aPlan(() => {
+      // Nothing arranged: the plan every project starts as.
+    });
+
+    expect(serviceOnCard()).toBeNull();
+  });
+
+  itDom('keeps the service between the team and the tags', async () => {
+    // The order is the decision, so the order is the assertion: team and
+    // service are the pair the ownership map relates, and a reader checking
+    // "Billing builds Payments" should not have to read past the tags to find
+    // the second half. Nothing else on the card asserts sibling order, so
+    // moving the chip would otherwise be free.
+    await aPlan((rows, teams, api) => {
+      teams.push({ id: 't1', name: 'Billing' });
+      api.services.push({ id: 's1', name: 'Payments' });
+      rows[0].serviceTeamId = 't1';
+      rows[0].teamIds = ['t1'];
+      rows[0].serviceIds = ['s1'];
+    });
+
+    const chips = [...document.querySelectorAll('[data-card-team], [data-card-service]')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Billing', 'Payments']);
+    expect(serviceOnCard()?.previousElementSibling).toBe(chips[0] ?? null);
+  });
+
   itDom('names the band on a card, in its own colour', async () => {
     // The cards are the only face some readers have — a phone shows no table and
     // no chart — so this is where Dany's "ui must display differently for
@@ -1250,6 +1321,7 @@ function renderCards(
       waitsFor={() => []}
       teamLabel={() => ({ state: 'none' })}
       tagLabel={() => ({ state: 'none' })}
+      serviceLabel={() => ({ state: 'none' })}
       spanOf={() => ({ start: { text: '', iso: null }, finish: { text: '', iso: null } })}
       showDay={(days) => String(days)}
       rowActions={rowActions}
