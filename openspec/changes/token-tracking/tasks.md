@@ -70,6 +70,16 @@
       properties survive a spread. Optional rather than required, with the
       narrowing left to section 3: making it required needs a separate insert
       input type and `addPerson`'s signature, which is store work.
+      **Done in chunk 9, after 4.4 rather than in section 3** — `Person.kind` is
+      required, `PersonInsert` (`kind?`) is what `DirectoryStore.addPerson` and
+      the fixture take, and the fixture applies `DEFAULT 'person'` itself so it
+      can no longer hold a row shape SQLite cannot. It found two types that
+      claimed a whole person for a two-column projection and were only accepted
+      because `kind` was optional: `DirectoryUsageRows.members` (the removal
+      confirmation prints who, and `directory-usage.ts` already narrowed it) and
+      `WorkItemService`'s `assignedPeople` (whose own doc says "the names, not
+      the whole directory"). Both are now typed as what they build. Negatives:
+      verify.md F9a and F9b.
 
 ## 3. The store
 
@@ -178,7 +188,15 @@
 - [ ] 5.3 The identity oracles lift the new key and **assert it empty** rather
       than dropping it — the shape `team-sets` established for a payload that
       gained a field. **Negative:** verify.md F8.
-- [ ] 5.4 `kind` on every person in the directory payload.
+- [x] 5.4 `kind` on every person in the directory payload. Landed with the 2.4
+      narrowing in chunk 9, because they are one claim: the payload is
+      `listPeople()` spread whole, so the be-01 half needed an assertion rather
+      than code, and `answers a kind for a person nobody has patched, on the
+      create and on the list` is it — both `POST /api/people` and
+      `GET /api/people`, since one answers the row it wrote and the other
+      re-reads. The OpenAPI document is unchanged and was regenerated to prove
+      it: neither route schemas its response. **fe-01's `PersonView` still has
+      no `kind`** — that is 7.1's, and nothing in fe-01 reads the field yet.
 
 ## 6. The structure
 

@@ -169,6 +169,30 @@ says the outcome carried the stale value, and the route case says the 200 body
 did too. A fault that reddened only the store would leave open whether either
 layer above it asserts on this at all.
 
+### F9a and F9b: the two halves of a required `kind`
+
+The narrowing (2.4) is a type change, and a type change is exactly the sort of
+edit that can be gated green by a compiler while nothing behavioural is asserted
+at all. So both directions were injected at `4b071b6`, watched on h2puni, and
+reverted with `git status --porcelain` empty.
+
+- **F9a — the insert stops carrying the kind.** `tx.insert(person).values(toAdd)`
+  becomes `values({ id, name })`, so the column falls back to its `DEFAULT`.
+  **1027 pass / 1 fail**, exactly `adds an agent when the insert names one, and a
+  person when it names nothing`. One case is the right number: nothing else in
+  the suite creates an agent through the store, because nothing else can — the
+  API makes agents by patching (4.4).
+- **F9b — the read stops carrying it.** `listPeople` maps `kind` back off every
+  row. **1020 pass / 8 fail**, across the repository, the service and the
+  controller: three `DirectoryService.patchPerson` cases, four
+  `PATCH /api/people/:id` cases, and the new
+  `answers a kind for a person nobody has patched`. Eight is the answer to
+  "would anything notice if a person came back kindless" — the read is asserted
+  in three layers and both directions of the patch, not just where it was added.
+
+The asymmetry between the two is the point of `PersonInsert` in one number: one
+case guards the write's optional `kind`, eight guard the read's required one.
+
 ## The gate
 
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
@@ -191,6 +215,9 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `4f104d1` (4.4, the person patch's kind)   | `nx run be-01:test`                      | **1026 pass / 0 fail**, 28,157 expect() calls, 75 files |
 | `4f104d1`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                  |
 | `4f104d1`                                  | `nx format:check --all`                  | exit 0                                                  |
+| `4b071b6` (2.4, the narrowing)             | `nx run be-01:test`                      | **1028 pass / 0 fail**, 28,164 expect() calls, 75 files |
+| `4b071b6`                                  | `nx run-many -t lint typecheck -p be-01` | exit 0                                                  |
+| `4b071b6`                                  | `nx format:check --all`                  | exit 0                                                  |
 
 **Read the test count, not only the pass line.** Chunk 2 gated in `~/wbs-build`
 against a tracking ref stranded at PR #17 and got a green **57 tests across 14
