@@ -3345,37 +3345,38 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * `effectiveServices` — `libs/domain`'s walk — rather than a second reading
    * of the tree.
    *
-   * **Still one name, and now that is a narrowing rather than the shape.** The
-   * store became a set in task 10.2, so a row may state two services and this
-   * reads the first of them; the cell that shows all of them is task 10.4, which
-   * widens this to the team cell's `names` shape — the `ServiceLabel` alias
-   * already carries the four states that needs. Until then a two-service row
-   * reads as its first service here and as both everywhere the set is asked for
-   * directly: the filter facet, `builtByNonOwner`, and the export.
+   * **The whole set since task 10.4**, where 7.1 read the first of them and said
+   * so. The store became a join table in 10.2 and this was the last surface
+   * still narrowing it — a two-service row read as its first service here while
+   * the filter facet, `builtByNonOwner` and the export all had both. It is now
+   * `effectiveTagLabelOf` with different names, which is what the domain walk
+   * underneath has been since chunk 12.
    */
   const effectiveServiceLabelOf = (row: TreeRow): ServiceLabel => {
-    const nameOf = (id: string): { name: string } | undefined =>
-      services.find((each) => each.id === id);
+    // Unnamed ids are dropped rather than carried, which is `effectiveTagLabelOf`'s
+    // rule and the reason `ServiceLabel` lost its `unresolved` arm: this function
+    // feeds the *placeholder*, and the chips beside it show every stated id with
+    // the id itself as the fallback. A service the directory has not caught up
+    // with is therefore on screen in the cell, not silently absent from it.
+    const namesFor = (ids: readonly string[]): string[] =>
+      ids.flatMap((id) => {
+        const found = services.find((each) => each.id === id);
+        return found === undefined ? [] : [found.name];
+      });
     // Its own set, which is what makes the row's answer its own rather than an
     // inherited one — the emptiness below is `effectiveServicesOf`'s question,
-    // not this one's. Length first and `[0]` after, which is the same order the
-    // inherited read below uses: the index type is not `| undefined` here, so a
-    // check against `undefined` is a condition lint proves can never fire.
+    // not this one's.
     if (row.serviceIds.length > 0) {
-      const named = nameOf(row.serviceIds[0]);
-      return named === undefined ? { state: 'unresolved' } : { state: 'named', name: named.name };
+      const names = namesFor(row.serviceIds);
+      return names.length === 0 ? { state: 'none' } : { state: 'named', names };
     }
     const inherited = effectiveServices.get(row.id);
     if (inherited === undefined) return { state: 'none' };
-    // `serviceIds[0]` with no guard, which lint insists on and the type agrees
-    // with: a row absent from the map is the `none` above, and the walk never
-    // stores an empty set (`EffectiveServices`). Not `at(0)` for the same
-    // reason `effectiveLabelsOf`'s own `labelIds[0]` is not.
-    const named = nameOf(inherited.serviceIds[0]);
-    if (named === undefined) return { state: 'unresolved' };
+    const names = namesFor(inherited.serviceIds);
+    if (names.length === 0) return { state: 'none' };
     return {
       state: 'inherited',
-      name: named.name,
+      names,
       fromRow: namedInTheTree.get(inherited.fromId) ?? 'a row that is not shown',
     };
   };
@@ -5317,23 +5318,24 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   );
 
   /**
-   * States which service a work item is delivered by, or takes the label off.
+   * States which services a work item is delivered by, **whole**.
    *
-   * `setTagsOf`'s shape since task 10.2, not `setTeamOf`'s: the patch states the
-   * **whole** set, so clearing the cell sends `[]` rather than omitting the
-   * field — an omitted field is "no opinion" to the patch and would leave the
-   * old service standing. be-01 refuses an id the directory does not carry with
-   * `unknown_service` (section 3), which is why nothing here validates the id a
-   * second time.
+   * `setTagsOf`'s shape and now its signature too: the patch states the set as
+   * it will stand, so adding one sends the old set plus it, removing one sends
+   * the old set minus it, and clearing sends `[]` rather than omitting the field
+   * — an omitted field is "no opinion" to the patch and would leave the old
+   * services standing. be-01 refuses an id the directory does not carry with
+   * `unknown_service` (section 3), which is why nothing here validates a second
+   * time.
    *
-   * **Still one id in, and a two-service row loses the rest through this call.**
-   * The picker is single-select until task 10.4 widens it, so this signature is
-   * the cell's shape rather than the dimension's; naming it here because a
-   * caller reading only the type would not see what the `[serviceId]` costs.
+   * Task 10.4 took the `string | null` this had until the cell became a
+   * multi-select. That parameter was the *cell's* shape rather than the
+   * dimension's, and it silently dropped every service past the first on any row
+   * that carried two.
    */
-  const setServiceOf = useCallback(
-    (id: string, serviceId: string | null) => {
-      void run(() => api.patch(id, { serviceIds: serviceId === null ? [] : [serviceId] }));
+  const setServicesOf = useCallback(
+    (id: string, serviceIds: readonly string[]) => {
+      void run(() => api.patch(id, { serviceIds: [...serviceIds] }));
     },
     [api, run],
   );
@@ -5698,7 +5700,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     people,
     setTeamOf,
     setTagsOf,
-    setServiceOf,
+    setServicesOf,
     createTeamFor,
     assignTo,
     createPersonFor,
@@ -5773,7 +5775,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     people,
     setTeamOf,
     setTagsOf,
-    setServiceOf,
+    setServicesOf,
     createTeamFor,
     assignTo,
     createPersonFor,
@@ -6957,63 +6959,117 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           },
         }),
         column.display({
+          // **The column id stays `service` while the header reads `Services`.**
+          // The id is what `CONDITIONAL_COLUMNS`, `cellKey`, the grid's
+          // Tab/Alt/Command routing and every saved column-order key are written
+          // against; renaming it would move 120px around and rewrite people's
+          // stored layouts to say the same thing. The header is the word a
+          // reader sees, and since task 10.4 a row can carry several.
           id: 'service',
-          header: 'Service',
+          header: 'Services',
           cell: ({ row }) => {
-            // The team cell's reading, third dimension over: a row that states
-            // no service of its own still **is** delivered by whatever an
-            // ancestor said, and the placeholder says so in the box's own muted
-            // ink with `↳` for the inheritance. Single-select, because D2 puts
-            // one service on a work item as a column — a picker that took a set
-            // would be offering a shape the schema refuses.
+            // The **tags** cell's control since task 10.4, where 7.1 built the
+            // team cell's: a chip per service the row states, each with its own
+            // ✕, and a picker beside them that adds one. A row that states none
+            // of its own still **is** delivered by whatever an ancestor said, and
+            // the placeholder says so in the box's own muted ink with `↳` for the
+            // inheritance — that half is unchanged, because inheritance is per
+            // dimension and blank still means inherit.
+            //
+            // The single-select this replaces was D2's shape: one service, one
+            // nullable column. The 2026-08-21 scope change made it a set and
+            // task 10.2 made the store a join table, so a single-select was by
+            // then a control that could not express what the row already held.
             const inherited = live.current.effectiveServiceLabelOf(row.original);
+            const own = row.original.serviceIds;
+            const named = (id: string): string =>
+              live.current.services.find((each) => each.id === id)?.name ?? id;
             return (
-              <CreatablePicker
-                label={`Service for ${row.original.number}`}
-                placeholder={inherited.state === 'inherited' ? `↳ ${inherited.name}` : 'search'}
-                title={
-                  inherited.state === 'inherited'
-                    ? `${inherited.name} — inherited from ${inherited.fromRow}. This row carries no service of its own.`
-                    : undefined
-                }
-                entries={live.current.services}
-                // The first stated service, which is what a single-select control
-                // can hold — {@link effectiveServiceLabelOf}'s narrowing, and
-                // task 10.4's to remove. `?? null` because the picker's "nothing
-                // chosen" is a null and an empty set's `[0]` is `undefined`.
-                value={row.original.serviceIds[0] ?? null}
-                onChoose={(id) => {
-                  live.current.setServiceOf(row.original.id, id);
-                }}
-                // **No `onCreate`**, where the Team cell beside it has one. The
-                // task's own non-goal, and the tag cell's reason: a service is
-                // made on the directory page, where a typo can be seen and
-                // renamed, rather than in a cell where it becomes a second
-                // spelling of something that already exists. It is also why
-                // this column only exists once a service does — a service
-                // cannot be made in a column that does not exist until the
-                // first service is made, which is precisely why the Team cell,
-                // whose column is always on screen, may keep its `onCreate`.
-                onClear={
-                  row.original.serviceIds.length === 0
-                    ? undefined
-                    : () => {
-                        live.current.setServiceOf(row.original.id, null);
-                      }
-                }
-                gridCell={{
-                  dataCell: cellKey(row.original.id, 'service'),
-                  onTabKey: (e) => {
-                    live.current.onTabKey(e, row.original.id, 'service');
-                  },
-                  onCommandKey: (e) => {
-                    live.current.onCommandKey(e, row.original, 'service');
-                  },
-                  onAltMove: (e) => {
-                    live.current.onAltMove(e, row.original, 'service');
-                  },
-                }}
-              />
+              <span style={{ display: 'flex', flexWrap: 'wrap', gap: 2, minWidth: 0 }}>
+                {/*
+                One chip per service the row states, each removable on its own.
+                A set is edited a member at a time on screen and written whole on
+                the wire — `setServicesOf` sends the set as it will stand,
+                because a delta has no inverse the undo journal could carry
+                (design D6, and task 10.3's red).
+
+                `named` falls back to the id, which is why `ServiceLabel` no
+                longer needs an `unresolved` arm: a service the directory has not
+                caught up with is on screen as an id rather than missing from a
+                cell that then claims the row has none.
+              */}
+                {own.map((serviceId) => (
+                  <button
+                    key={serviceId}
+                    type="button"
+                    data-service-chip={serviceId}
+                    className="bg-muted flex max-w-full items-center gap-0.5 rounded px-1 text-xs"
+                    aria-label={`Remove ${named(serviceId)} from ${row.original.number}`}
+                    onClick={() => {
+                      live.current.setServicesOf(
+                        row.original.id,
+                        own.filter((each) => each !== serviceId),
+                      );
+                    }}
+                  >
+                    <span className="truncate">{named(serviceId)}</span>
+                    <span aria-hidden>✕</span>
+                  </button>
+                ))}
+                <CreatablePicker
+                  label={`Services for ${row.original.number}`}
+                  placeholder={
+                    own.length > 0
+                      ? 'add'
+                      : inherited.state === 'inherited'
+                        ? `↳ ${inherited.names.join(', ')}`
+                        : 'search'
+                  }
+                  title={
+                    own.length === 0 && inherited.state === 'inherited'
+                      ? `${inherited.names.join(', ')} — inherited from ${inherited.fromRow}. This row carries no service of its own.`
+                      : undefined
+                  }
+                  // Only the services this row does not already carry: offering
+                  // one that is a chip beside it can only mean "add it twice",
+                  // which be-01 deduplicates and the join's primary key refuses.
+                  entries={live.current.services.filter((each) => !own.includes(each.id))}
+                  // Always null: this box adds a member, it does not show the
+                  // set. What the row carries is the chips to its left.
+                  value={null}
+                  onChoose={(id) => {
+                    live.current.setServicesOf(row.original.id, [...own, id]);
+                  }}
+                  // **No `onCreate`**, where the Team cell beside it has one. The
+                  // task's own non-goal, and the tag cell's reason: a service is
+                  // made on the directory page, where a typo can be seen and
+                  // renamed, rather than in a cell where it becomes a second
+                  // spelling of something that already exists. It is also why
+                  // this column only exists once a service does — a service
+                  // cannot be made in a column that does not exist until the
+                  // first service is made, which is precisely why the Team cell,
+                  // whose column is always on screen, may keep its `onCreate`.
+                  onClear={
+                    own.length === 0
+                      ? undefined
+                      : () => {
+                          live.current.setServicesOf(row.original.id, []);
+                        }
+                  }
+                  gridCell={{
+                    dataCell: cellKey(row.original.id, 'service'),
+                    onTabKey: (e) => {
+                      live.current.onTabKey(e, row.original.id, 'service');
+                    },
+                    onCommandKey: (e) => {
+                      live.current.onCommandKey(e, row.original, 'service');
+                    },
+                    onAltMove: (e) => {
+                      live.current.onAltMove(e, row.original, 'service');
+                    },
+                  }}
+                />
+              </span>
             );
           },
         }),

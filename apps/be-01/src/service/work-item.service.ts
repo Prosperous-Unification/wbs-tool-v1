@@ -795,9 +795,13 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   // The scalar habit is what this loses data to, and it is the *tags* fault one
   // dimension over rather than the throw the column used to give: journal one
   // member of a two-service row and the undo reports success while restoring
-  // half the fact. Task 10.3 drives that red — this line is only the shape it
-  // needs, and it arrived here because 10.2's type change left no compiling way
-  // to keep the scalar.
+  // half the fact. This line arrived with 10.2's type change, which left no
+  // compiling way to keep the scalar; **task 10.3 drove the red that makes it a
+  // rule rather than a shape** — written as `before.serviceIds.slice(0, 1)`,
+  // `puts a replaced service set back, whole` in `undo.test.ts` fails alone (76
+  // pass, 1 fail over that file) on a restored set holding one of the row's two
+  // services, while every one-service case beside it stays green. Watched
+  // 2026-08-21.
   if (patch.serviceIds !== undefined) out.serviceIds = before.serviceIds;
   // **The whole prior set, and this is the seam a scalar habit loses data at.**
   // A set-valued field's inverse cannot be a member of the set or a delta

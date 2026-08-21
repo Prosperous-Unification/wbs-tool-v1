@@ -230,7 +230,7 @@ surface built on the singleton is a surface built twice.
       `effectiveServicesOf` memo in `wbs-table.tsx` and be-01's 5.4 controller
       case each carry a comment naming the line that goes. **Watched red:**
       leave either fold in and the two-service row must fail to reach the table.
-- [ ] 10.3 The journal takes the **whole prior set**, not the prior scalar
+- [x] 10.3 The journal takes the **whole prior set**, not the prior scalar
       (design D6, amended). **Watched red:** journal one member and the undo case
       restoring two services must fail — the fault tags 6.3 already caught once
       on its own dimension. **The shape landed early, in 10.2, and the proof did
@@ -241,7 +241,12 @@ surface built on the singleton is a surface built twice.
       item is now exactly its watched red: the two-service undo case, plus the
       injection that proves it fails on a first-member journal. Ticking it off
       the existing green would be chunk 7's 5.2 lesson repeated — a guard
-      mistaken for a proof.
+      mistaken for a proof. **Done in chunk 16, red first:** `puts a replaced
+      service set back, whole` in `undo.test.ts` — two services on, replaced by
+      a third, undo restores both and redo narrows it back — and with
+      `before.serviceIds.slice(0, 1)` in `revertTo` it fails alone (76 pass, 1
+      fail over that file) while the five one-service cases beside it stay
+      green.
 - [ ] 10.4 7.1's cell becomes a multi-select, the tags cell's control: blank
       still means inherit, the ancestor still named in the title, and the
       column header becomes **Services**. `CONDITIONAL_COLUMNS` unchanged, so

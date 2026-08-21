@@ -13487,12 +13487,16 @@ describe('the service cell', () => {
     const api = await aServicedPlan();
     await drawn(api);
 
-    // The row's own, as a value the box holds.
-    expect(screen.getByLabelText('Service for 010')).toHaveValue('Checkout');
+    // The row's own, as a chip rather than as the picker's value — task 10.4's
+    // control change. The box beside the chip is the *add* box and holds
+    // nothing, which is what `own.length > 0 ? 'add'` says.
+    expect(screen.getByLabelText('Remove Checkout from 010')).toBeTruthy();
+    expect(screen.getByLabelText('Services for 010')).toHaveAttribute('placeholder', 'add');
     // The child's, as placeholder ink that is shown and not stored — `↳` for
     // the inheritance, the same glyph and the same bargain the Team cell makes
-    // at 120px.
-    const child = screen.getByLabelText('Service for 010.1');
+    // at 120px. Inheritance did not change with the widening: blank still means
+    // inherit, and a row with a chip of its own inherits nothing.
+    const child = screen.getByLabelText('Services for 010.1');
     expect(child).toHaveValue('');
     expect(child).toHaveAttribute('placeholder', '↳ Checkout');
     // A marker that cannot say where it came from is a mystery, not a signal.
@@ -13500,6 +13504,52 @@ describe('the service cell', () => {
       'title',
       expect.stringMatching(/Checkout — inherited from 010 Strip the walls/),
     );
+  });
+
+  itDom('shows every service a row states, and takes one off without the rest', async () => {
+    // **Task 10.4's own case, and the one a single-select could not pass.** The
+    // store has been a set since 10.2 and the cell read `serviceIds[0]` until
+    // now, so a row carrying two services showed one of them and any edit sent
+    // that one back — the second was invisible on screen and lost on the next
+    // choice.
+    const api = fakeApi();
+    const strip = await api.create('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'Strip the walls',
+    });
+    await api.create('p1', { parentId: strip.id, afterId: null, name: 'Sockets' });
+    const checkout = api.addService('Checkout');
+    // `addService` is idempotent by name, so this is the same `Ledger` the
+    // shared fixture makes rather than a second one.
+    const ledger = api.addService('Ledger');
+    api.labelWithService(strip.id, [checkout.id, ledger.id]);
+
+    const patches: unknown[] = [];
+    const watched: ProjectApi = {
+      ...api,
+      patch: async (id, patch) => {
+        patches.push({ id, patch });
+        return api.patch(id, patch);
+      },
+    };
+    await drawn(watched);
+
+    // Both on screen, each removable on its own.
+    expect(screen.getByLabelText('Remove Checkout from 010')).toBeTruthy();
+    expect(screen.getByLabelText('Remove Ledger from 010')).toBeTruthy();
+
+    // Removing one sends **the set as it will stand**, not the member removed —
+    // a delta has no inverse the undo journal could carry (task 10.3).
+    fireEvent.click(screen.getByLabelText('Remove Checkout from 010'));
+    await waitFor(() => {
+      expect(patches).toHaveLength(1);
+    });
+    expect(patches[0]).toMatchObject({ patch: { serviceIds: [ledger.id] } });
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Remove Checkout from 010')).toBeNull();
+    });
+    expect(screen.getByLabelText('Remove Ledger from 010')).toBeTruthy();
   });
 
   itDom('sends the service the picker chose, and null when it is cleared', async () => {
@@ -13514,8 +13564,9 @@ describe('the service cell', () => {
     };
     await drawn(watched);
 
-    // Choosing on the child, which had none: the id goes out.
-    const child = screen.getByLabelText('Service for 010.1');
+    // Choosing on the child, which had none: the id goes out, as the whole set
+    // it will stand as — one member here because the child had nothing.
+    const child = screen.getByLabelText('Services for 010.1');
     fireEvent.change(child, { target: { value: 'Ledger' } });
     fireEvent.click(await screen.findByText('Ledger'));
     await waitFor(() => {
@@ -13528,7 +13579,7 @@ describe('the service cell', () => {
     // refetch would put the label back. The empty array is the one spelling of
     // taking the label off since task 10.2; the `null` this asserted was the
     // column's.
-    fireEvent.click(screen.getByLabelText('Clear Service for 010'));
+    fireEvent.click(screen.getByLabelText('Clear Services for 010'));
     await waitFor(() => {
       expect(patches).toHaveLength(2);
     });
@@ -13547,7 +13598,7 @@ describe('the service cell', () => {
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010']);
     });
-    expect(screen.queryByLabelText('Service for 010')).toBeNull();
+    expect(screen.queryByLabelText('Services for 010')).toBeNull();
 
     cleanup();
 
@@ -13558,6 +13609,6 @@ describe('the service cell', () => {
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010']);
     });
-    expect(screen.getByLabelText('Service for 010')).toHaveValue('');
+    expect(screen.getByLabelText('Services for 010')).toHaveValue('');
   });
 });

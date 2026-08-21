@@ -198,21 +198,34 @@ export type TagLabel =
 /**
  * What a row is **delivered by**, as any face can state it.
  *
- * Structurally {@link ServiceTeamLabel}: single-valued, because D2 puts one
- * service on a work item as a column rather than a join table, and with an
- * `unresolved` arm for the same reason the team has one — a service can go
- * missing between the tree read and the directory read, and a surface that
- * silently draws a blank is claiming the row has no service when what happened
- * is that it could not find its name.
+ * Structurally {@link TagLabel} since task 10.4, and it was structurally
+ * {@link ServiceTeamLabel} before it. D2 put one service on a work item as a
+ * nullable column; the 2026-08-21 scope change ("can be several services") made
+ * the store a join table, so `names` is a list here for exactly the reason it is
+ * one on the tag: a work item carries as many services as somebody put on it.
  *
- * **A named alias rather than a reuse of that type.** `ServiceTeamLabel` is
- * named for the `service_team` table, and `service_team` is the *team* — D9
- * keeps the name while blue/green shares one SQLite file. Two dimensions
- * sharing a shape is not two dimensions being the same thing, and a reader who
- * finds `ServiceTeamLabel` on the service cell would reasonably conclude the
- * split had not happened.
+ * **The `unresolved` arm went with the widening, and that is a decision rather
+ * than a translation.** It existed because a single-valued label the directory
+ * could not name had no way to appear at all — the box simply drew empty, which
+ * claims the row has no service when what happened is that its name could not be
+ * found. A set is shown as a chip per stated id and a chip falls back to the id
+ * itself, so the row can no longer go quiet: an unnamed service is on screen as
+ * an id, which is ugly and honest. That is {@link TagLabel}'s own argument, and
+ * this type now carries it for the same reason.
+ *
+ * **Still its own type rather than an alias of `TagLabel`.** The service
+ * dimension is not a general label — it decides `builtByNonOwner` against the
+ * team's owned set, and a tag decides nothing. Sharing a shape is not being
+ * the same thing, which is the argument the old alias of `ServiceTeamLabel`
+ * already made one dimension over: `service_team` is the *team* (D9 keeps that
+ * table name while blue/green shares one SQLite file), and a reader who found
+ * `ServiceTeamLabel` on the service cell would reasonably conclude the split had
+ * not happened.
  */
-export type ServiceLabel = ServiceTeamLabel;
+export type ServiceLabel =
+  | { state: 'none' }
+  | { state: 'named'; names: readonly string[] }
+  | { state: 'inherited'; names: readonly string[]; fromRow: string };
 
 /** The three points a role was estimated with, as the plan holds them. */
 export interface EstimateTrio {

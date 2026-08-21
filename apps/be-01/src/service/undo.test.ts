@@ -1470,10 +1470,12 @@ describe('a service is undone as the set it became, the tag rule and no longer i
     // argument.
     //
     // Proof: `revertTo`'s service line written as
-    // `before.serviceIds.slice(0, 1)` and this failed on `expected [ <billing
-    // id> ] to deeply equal [ <billing id>, <payments id> ]`, alone — **971
-    // pass, 1 fail** — while the four one-service cases beside it stayed green,
-    // which is the point of the sentence above. Watched 2026-08-21.
+    // `before.serviceIds.slice(0, 1)` and this case failed **alone** — 76 pass,
+    // 1 fail over this file — at the line below, on a received set holding one
+    // id where two were expected (`- Expected - 1 / + Received + 0`, a bare
+    // missing element rather than a wrong one). The five one-service cases
+    // beside it all stayed green, which is the whole of why this case had to
+    // exist. Watched 2026-08-21.
     const id = await root('Strip the roof');
     const payments = serviceNamed('Payments');
     const billing = serviceNamed('Billing');

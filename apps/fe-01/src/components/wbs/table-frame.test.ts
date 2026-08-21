@@ -627,6 +627,11 @@ describe('how wide the phases make the table', () => {
     // the membership assertion fires first and the number nobody sees is the
     // one that mattered.
     expect(foldedTableMinWidth([], DATED)).toBe(1067);
+    // The id, not the header. Task 10.4 made the cell a multi-select and its
+    // header read `Services`; the id stayed `service` precisely so this stays
+    // true — it is what `CONDITIONAL_COLUMNS`, `cellKey`, the grid's key
+    // routing and every saved column order are written against, and renaming it
+    // would move 120px and rewrite stored layouts to say the same thing.
     expect(widthFor('service', DATED)).toBe(120);
     expect(CONDITIONAL_COLUMNS).toContain('service');
     expect(FIXED_COLUMNS).not.toContain('service');
