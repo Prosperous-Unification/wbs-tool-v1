@@ -256,11 +256,7 @@ describe('recording the figures that are not days', () => {
     await service.setMeasure(strip, OWNER, DEV, 'token_actual', 15_400);
     await service.clearMeasure(strip, OWNER, DEV, 'token_actual');
 
-    expect(journal.events.map((each) => each.kind)).toEqual([
-      'create',
-      'measure',
-      'clear_measure',
-    ]);
+    expect(journal.events.map((each) => each.kind)).toEqual(['create', 'measure', 'clear_measure']);
     // The role travels on the event, which is what "how did this figure move"
     // filters on.
     expect(journal.events.at(1)?.roleId).toBe(DEV);
@@ -331,5 +327,4 @@ describe('recording the figures that are not days', () => {
       { workItemId: strip, roleId: DEV, metric: 'hours_actual', value: 6 },
     ]);
   });
-
 });

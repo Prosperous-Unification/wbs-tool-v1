@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { JournalEntry, LabelledWorkItem, Role, WorkItem } from '../repository';
 import { ActualRepository } from '../repository/actual';
-import { RoleMeasureRepository } from '../repository/role-measure';
 import { CommandJournalRepository } from '../repository/command-journal';
 import { openDatabase, openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
@@ -15,6 +14,7 @@ import { EstimateRepository } from '../repository/estimate';
 import { runMigrations } from '../repository/migrate';
 import { PlanEventRepository } from '../repository/plan-event';
 import { ProjectRepository } from '../repository/project';
+import { RoleMeasureRepository } from '../repository/role-measure';
 import { RoleProgressRepository } from '../repository/role-progress';
 import { commandJournal } from '../repository/schema';
 import { UserRepository } from '../repository/user';

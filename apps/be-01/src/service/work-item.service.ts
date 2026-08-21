@@ -40,8 +40,8 @@ import type {
   WorkItemPatch,
   WorkItemStore,
 } from '../repository';
-import { MEASURE_METRICS } from '../repository/schema';
 import { isForeignKeyViolation } from '../repository/constraint';
+import { MEASURE_METRICS } from '../repository/schema';
 import { assumedAssignee } from './assumed-assignee';
 import type { Broadcaster } from './broadcast';
 import { withAncestors } from './broadcast';
@@ -3349,8 +3349,7 @@ export class WorkItemService {
     metric: MeasureMetric,
   ): Promise<number | null> {
     const found = (await this.opts.measures.listByProject(projectId)).find(
-      (each) =>
-        each.workItemId === workItemId && each.roleId === roleId && each.metric === metric,
+      (each) => each.workItemId === workItemId && each.roleId === roleId && each.metric === metric,
     );
     return found?.value ?? null;
   }

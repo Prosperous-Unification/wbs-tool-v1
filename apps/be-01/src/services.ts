@@ -2,7 +2,6 @@ import type { Logger } from '@wbs/observability';
 
 import { PLAN_EVENT_RETENTION_DAYS } from './repository';
 import { ActualRepository } from './repository/actual';
-import { RoleMeasureRepository } from './repository/role-measure';
 import { CapacityRepository } from './repository/capacity';
 import { CommandJournalRepository } from './repository/command-journal';
 import type { Drizzle } from './repository/db';
@@ -14,6 +13,7 @@ import { PlanEventRepository } from './repository/plan-event';
 import { PriorityBandRepository } from './repository/priority-band';
 import { ProjectRepository } from './repository/project';
 import { RoleRepository } from './repository/role';
+import { RoleMeasureRepository } from './repository/role-measure';
 import { RoleProgressRepository } from './repository/role-progress';
 import { UserRepository } from './repository/user';
 import { SubtreeRepository, WorkItemRepository } from './repository/work-item';

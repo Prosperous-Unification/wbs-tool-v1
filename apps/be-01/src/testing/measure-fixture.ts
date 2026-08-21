@@ -27,8 +27,7 @@ export function inMemoryMeasures(workItems: WorkItemStore): MeasureStore {
     },
     remove(workItemId, roleId, metric) {
       rows = rows.filter(
-        (row) =>
-          !(row.workItemId === workItemId && row.roleId === roleId && row.metric === metric),
+        (row) => !(row.workItemId === workItemId && row.roleId === roleId && row.metric === metric),
       );
       return Promise.resolve();
     },

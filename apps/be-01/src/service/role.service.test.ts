@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { DirectoryStore, EstimateStore, Role, RoleStore, WorkItem } from '../repository';
 import { ActualRepository } from '../repository/actual';
-import { RoleMeasureRepository } from '../repository/role-measure';
 import { CommandJournalRepository } from '../repository/command-journal';
 import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
@@ -16,6 +15,7 @@ import { DrizzleEventLogRepo } from '../repository/event-log';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
 import { RoleRepository } from '../repository/role';
+import { RoleMeasureRepository } from '../repository/role-measure';
 import { RoleProgressRepository } from '../repository/role-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';

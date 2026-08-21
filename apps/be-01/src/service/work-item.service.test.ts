@@ -12,13 +12,13 @@ import type {
   WorkItemStore,
 } from '../repository';
 import { inMemoryActuals } from '../testing/actual-fixture';
-import { inMemoryMeasures } from '../testing/measure-fixture';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { inMemoryCommandJournal } from '../testing/command-journal-fixture';
 import { inMemoryDependencies } from '../testing/dependency-fixture';
 import { inMemoryDirectory, personAdded } from '../testing/directory-fixture';
 import { inMemoryEstimates } from '../testing/estimate-fixture';
+import { inMemoryMeasures } from '../testing/measure-fixture';
 import { inMemoryPriorityBands } from '../testing/priority-band-fixture';
 import { inMemoryProgress } from '../testing/progress-fixture';
 import { inMemoryProjects } from '../testing/project-fixture';
