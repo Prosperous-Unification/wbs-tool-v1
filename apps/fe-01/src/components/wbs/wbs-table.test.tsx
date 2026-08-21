@@ -72,13 +72,13 @@ function fakeApi(): ProjectApi & {
    * The three service writes this fake models directly rather than through
    * {@link ProjectApi}.
    *
-   * There is no `serviceId` on the patch and no service CRUD on this client
-   * yet — those are tasks 7.1 and 7.5. A fixture that needs a labelled row
-   * today has to write the column, and writing it here is honest about which
-   * half of the change exists: the **read** path is what task 6 is about.
+   * There is no service CRUD on this client yet — task 7.5. A fixture that needs
+   * a labelled row writes the set straight onto the view, which since task 10.2
+   * is what be-01 sends: `serviceIds` off the join, no column anywhere on the
+   * wire.
    */
   addService: (name: string) => { id: string; name: string };
-  labelWithService: (workItemId: string, serviceId: string | null) => void;
+  labelWithService: (workItemId: string, serviceIds: readonly string[]) => void;
   ownService: (teamId: string, serviceId: string) => void;
   /** The same write undone, for the map emptying under a ticked signal. */
   disownService: (teamId: string, serviceId: string) => void;
@@ -227,9 +227,9 @@ function fakeApi(): ProjectApi & {
       services.push(service);
       return service;
     },
-    labelWithService(workItemId: string, serviceId: string | null) {
+    labelWithService(workItemId: string, serviceIds: readonly string[]) {
       const row = rows.find((r) => r.id === workItemId);
-      if (row !== undefined) row.serviceId = serviceId;
+      if (row !== undefined) row.serviceIds = [...serviceIds];
       // Through `renumber` like every other write here, so the next `tree`
       // read carries a fresh sequence and the table does not discard it.
       renumber();
@@ -12791,7 +12791,7 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     const checkout = api.addService('Checkout');
     // In the directory and on no row — what the facet must not offer.
     api.addService('Ledger');
-    api.labelWithService(strip.id, checkout.id);
+    api.labelWithService(strip.id, [checkout.id]);
 
     const ada = await api.addPerson('Ada', [wiring.id]);
     await api.assign(strip.id, DEV.id, ada.id);
@@ -12832,8 +12832,8 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
   itDom('keeps the rows that inherit a ticked service, which is task 6.2', async () => {
     // **The case 6.2's watched red drives.** Only `010` states `Checkout`; the
     // three rows under it answer to it through `effectiveServicesOf`, and
-    // `020`/`020.1` do not. Point the predicate at `row.serviceId` — the row's
-    // own stored column — instead of the effective reading and this drops to
+    // `020`/`020.1` do not. Point the predicate at `row.serviceIds` — the row's
+    // own stated set, a column until task 10.2 — instead of the effective reading and this drops to
     // `['010']`, which is why the fault could not be observed until a control
     // existed to tick. Injected on h2puni and watched red, chunk 9.
     const api = await aServicedPlan();
@@ -13432,7 +13432,7 @@ describe('the service cell', () => {
     await api.create('p1', { parentId: strip.id, afterId: null, name: 'Sockets' });
     const checkout = api.addService('Checkout');
     api.addService('Ledger');
-    api.labelWithService(strip.id, checkout.id);
+    api.labelWithService(strip.id, [checkout.id]);
     return Object.assign(api, { checkout: checkout.id });
   }
 
@@ -13482,15 +13482,17 @@ describe('the service cell', () => {
       expect(patches).toHaveLength(1);
     });
 
-    // Clearing on the parent, which had one. **`null`, not an omitted field.**
-    // An absent `serviceId` is "no opinion" to the patch and would leave
+    // Clearing on the parent, which had one. **`[]`, not an omitted field.**
+    // An absent `serviceIds` is "no opinion" to the patch and would leave
     // `Checkout` standing — the cell would appear to clear and the next
-    // refetch would put the label back.
+    // refetch would put the label back. The empty array is the one spelling of
+    // taking the label off since task 10.2; the `null` this asserted was the
+    // column's.
     fireEvent.click(screen.getByLabelText('Clear Service for 010'));
     await waitFor(() => {
       expect(patches).toHaveLength(2);
     });
-    expect(patches[1]).toMatchObject({ patch: { serviceId: null } });
+    expect(patches[1]).toMatchObject({ patch: { serviceIds: [] } });
   });
 
   itDom('is not a column at all on a deployment that has never made a service', async () => {

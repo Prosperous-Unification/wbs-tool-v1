@@ -575,13 +575,17 @@ describe('the service routes', () => {
       name: 'Design',
     });
     const { id: workItemOf } = created.body as { id: string };
-    await call('PATCH', `/api/work-items/${workItemOf}`, { serviceId: payments });
+    await call('PATCH', `/api/work-items/${workItemOf}`, { serviceIds: [payments] });
 
     const refused = await call('DELETE', `/api/services/${payments}`);
 
-    // `label_nulled` and **nothing beside it**. This assertion is design.md D7
+    // `label_removed` and **nothing beside it**. This assertion is design.md D7
     // written as a payload: no `capacity_released`, no size, no second effect of
     // any kind, and no mention of the ownership rows a cascade would also take.
+    //
+    // `label_removed` and not `label_nulled` since task 10.2 (10.5): the store is
+    // a join table, so a member goes rather than a column being nulled, and the
+    // word a client branches on had to move with the mechanism.
     expect(refused).toEqual({
       status: 409,
       body: {
@@ -596,7 +600,7 @@ describe('the service routes', () => {
                   id: workItemOf,
                   number: '010',
                   name: 'Design',
-                  effects: [{ kind: 'label_nulled' }],
+                  effects: [{ kind: 'label_removed' }],
                 },
               ],
             },

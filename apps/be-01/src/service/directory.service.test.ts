@@ -1133,7 +1133,12 @@ describe('removing a service: what it names, what it takes, and what it cannot m
           id: projectId,
           name: 'Rollout',
           workItems: [
-            { id: 'design', number: '010', name: 'Design', effects: [{ kind: 'label_nulled' }] },
+            // `label_removed`, task 10.5's word: the removal takes a
+            // `work_item_service` row, and a member removed is not a column
+            // nulled. Every other `label_nulled` in this file is the **team**
+            // dimension's, whose column really is nulled — the two words are
+            // told apart here rather than made to match.
+            { id: 'design', number: '010', name: 'Design', effects: [{ kind: 'label_removed' }] },
           ],
         },
       ],
