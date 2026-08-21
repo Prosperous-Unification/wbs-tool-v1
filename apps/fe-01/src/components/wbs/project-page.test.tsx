@@ -76,6 +76,7 @@ function fakeProjects(
     setStartDate: () => Promise.resolve(),
     listTeams: () => Promise.resolve([]),
     listTags: () => Promise.resolve([]),
+    listServices: () => Promise.resolve([]),
     addTeam: () => Promise.reject(new Error('not_in_these_tests')),
     listPeople: () => Promise.resolve([]),
     addPerson: () => Promise.reject(new Error('not_in_these_tests')),

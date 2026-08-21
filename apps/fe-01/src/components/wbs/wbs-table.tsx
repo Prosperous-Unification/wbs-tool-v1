@@ -32,6 +32,7 @@ import type {
   AssignedPersonView,
   PersonView,
   PriorityBandView,
+  ServiceView,
   TagView,
   TeamCapacityView,
   TeamView,
@@ -1614,17 +1615,34 @@ function FilterFacets({
   setFacets,
   teams,
   tags,
+  services,
   people,
   bands,
   phases,
+  ownershipKnown,
+  membershipKnown,
 }: {
   facets: FacetCriteria;
   setFacets: (next: FacetCriteria) => void;
   teams: readonly FacetOption[];
   tags: readonly FacetOption[];
+  services: readonly FacetOption[];
   people: readonly FacetOption[];
   bands: readonly FacetOption[];
   phases: readonly FacetOption[];
+  /**
+   * Whether any team owns any service — the directory fact `builtByNonOwner`
+   * is asked against.
+   *
+   * False is the state the deployment ships in (the map has no seed data, by
+   * the proposal's non-goal), and in it the signal is not "nothing is built by
+   * a non-owner" but "nobody has said who owns what". A facet that answers the
+   * second question by ticking the first is how a reader concludes the feature
+   * is broken — the design's first risk, mitigated by saying so.
+   */
+  ownershipKnown: boolean;
+  /** The same fact for the second signal: whether anybody belongs to any team. */
+  membershipKnown: boolean;
 }) {
   const chosen = facetsChosen(facets);
   /** One group of tick boxes, or nothing at all where the plan offers none. */
@@ -1657,6 +1675,51 @@ function FilterFacets({
       </fieldset>
     );
 
+  /**
+   * One mismatch signal's box, with the reason it cannot be asked yet where a
+   * reader will read it.
+   *
+   * **Disabled only while it is not already ticked.** A view saved when the
+   * directory had ownership in it, reopened after somebody emptied the map,
+   * would otherwise show a ticked box that cannot be unticked and a table with
+   * nothing in it — a filter a reader cannot leave. Ticked wins: the box stays
+   * live so it can be turned off, and the hint below still says why it now
+   * finds nothing.
+   *
+   * `title` rather than a paragraph under the label, because this panel is 56
+   * units wide and two sentences of hint per box push the State group off the
+   * bottom of a phone's sheet. The hint is also the `aria-description`, so it
+   * is not a mouse-only explanation.
+   */
+  const signal = (
+    label: string,
+    what: string,
+    ticked: boolean,
+    askable: boolean,
+    why: string,
+    take: (next: boolean) => FacetCriteria,
+  ): ReactNode => {
+    const off = !askable && !ticked;
+    return (
+      <label
+        className={`flex min-h-6 items-center gap-1.5 ${off ? 'text-muted-foreground' : ''}`}
+        title={off ? why : what}
+      >
+        <input
+          type="checkbox"
+          aria-label={label}
+          aria-description={off ? why : what}
+          checked={ticked}
+          disabled={off}
+          onChange={() => {
+            setFacets(take(!ticked));
+          }}
+        />
+        <span>{label.replace(' only', '')}</span>
+      </label>
+    );
+  };
+
   return (
     <details data-facets className="relative">
       <summary
@@ -1681,6 +1744,17 @@ function FilterFacets({
           narrowing by one usually wants the other in view.
         */}
         {group('Tag', 'tag', tags, facets.tagIds, (tagIds) => ({ ...facets, tagIds }))}
+        {/*
+          The third label dimension, beside the other two and after them: Team,
+          Tag and Service are one question asked three ways, and a reader
+          narrowing by one wants the others in view. Like both of them it
+          disappears when the plan carries no services at all — `group` returns
+          nothing for an empty list.
+        */}
+        {group('Service', 'service', services, facets.serviceIds, (serviceIds) => ({
+          ...facets,
+          serviceIds,
+        }))}
         {group('Assignee', 'assignee', people, facets.assigneeIds, (assigneeIds) => ({
           ...facets,
           assigneeIds,
@@ -1722,6 +1796,31 @@ function FilterFacets({
             />
             <span>On the critical path</span>
           </label>
+        </fieldset>
+        {/*
+          The two mismatch signals, in a group of their own and not in `State`.
+          Every box above narrows by something a row *carries*; these two narrow
+          by something a row and the **directory** disagree about, which is a
+          different question and reads as one.
+        */}
+        <fieldset data-facet-group="mismatch" className="mb-2 border-0 p-0">
+          <legend className="text-muted-foreground mb-1 text-xs font-semibold">Mismatch</legend>
+          {signal(
+            'Built by non-owner only',
+            'Rows whose effective team does not own their effective service.',
+            facets.builtByNonOwner,
+            ownershipKnown,
+            'No team owns a service yet — set that on the team rows in the directory.',
+            (builtByNonOwner) => ({ ...facets, builtByNonOwner }),
+          )}
+          {signal(
+            'Assigned outside the team only',
+            "Rows whose assignee is not a member of the row's effective team.",
+            facets.assignedOutsideTeam,
+            membershipKnown,
+            'Nobody belongs to a team yet — set that on the people in the directory.',
+            (assignedOutsideTeam) => ({ ...facets, assignedOutsideTeam }),
+          )}
         </fieldset>
         {/*
           Offered only while there is something to forget, the same bargain
@@ -2187,6 +2286,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   /** The global tag vocabulary, for the facet's labels and the cell's picker. */
   const [tags, setTags] = useState<TagView[]>([]);
   /**
+   * The global service vocabulary, for the third dimension's facet labels and —
+   * from task 7.1 — its cell picker.
+   *
+   * Beside the tags and loaded on the same read for the same reason: a facet
+   * that offers ids instead of names is a filter nobody can aim.
+   */
+  const [services, setServices] = useState<ServiceView[]>([]);
+  /**
    * How many of each team this plan may have at work at once, as be-01 sent it
    * with the tree.
    *
@@ -2575,16 +2682,20 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // arrive afterwards and repair it. Only the newest request may write.
     const generation = latestRefresh.current + 1;
     latestRefresh.current = generation;
-    const [tree, loadedRoles, loadedTeams, loadedTags, loadedPeople] = await Promise.all([
-      api.tree(projectId),
-      api.roles(projectId),
-      api.listTeams(),
-      // Beside the teams rather than behind them: both are global lists the
-      // pickers need before a reader can tick anything, and a second round trip
-      // would put the tag facet a frame behind the team one.
-      api.listTags(),
-      api.listPeople(),
-    ]);
+    const [tree, loadedRoles, loadedTeams, loadedTags, loadedServices, loadedPeople] =
+      await Promise.all([
+        api.tree(projectId),
+        api.roles(projectId),
+        api.listTeams(),
+        // Beside the teams rather than behind them: both are global lists the
+        // pickers need before a reader can tick anything, and a second round trip
+        // would put the tag facet a frame behind the team one.
+        api.listTags(),
+        // And the third dimension in the same breath, for that reason a third
+        // time: the service facet names its options out of this list.
+        api.listServices(),
+        api.listPeople(),
+      ]);
     if (generation !== latestRefresh.current) return;
     // This read landed, so whatever the last failed one left behind is over.
     // After the generation check, not before: a superseded read must not
@@ -2597,6 +2708,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setTreeMayBeStale(false);
     setTeams(loadedTeams);
     setTags(loadedTags);
+    setServices(loadedServices);
     setPeople(loadedPeople);
     const drawn = toTree(tree.workItems);
     setWorkItems(drawn);
@@ -3115,6 +3227,28 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     () => new Map(people.map((person) => [person.id, person.teamIds])),
     [people],
   );
+  /**
+   * Whether the directory has been told **anything** about who owns what, and
+   * about who belongs where — one bit each, off the two maps above.
+   *
+   * These decide whether the mismatch facets can be asked at all. Both signals
+   * answer `false` for every row while their map is empty, and false there
+   * means "nobody has said", not "nothing is wrong" — see {@link FilterFacets}
+   * for what the panel does with that and why it does not simply offer the box.
+   *
+   * `some` over a non-empty list and not `size > 0`: every team is in
+   * `ownedServicesByTeam` and every person in `teamsByPerson`, each with a
+   * possibly-empty list, so the map having entries says only that the directory
+   * has teams.
+   */
+  const ownershipKnown = useMemo(
+    () => [...ownedServicesByTeam.values()].some((owned) => owned.length > 0),
+    [ownedServicesByTeam],
+  );
+  const membershipKnown = useMemo(
+    () => [...teamsByPerson.values()].some((memberOf) => memberOf.length > 0),
+    [teamsByPerson],
+  );
 
   /**
    * A row's team as a cell or a bar can state it: its own label, or the one it
@@ -3352,13 +3486,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     phaseName: (roleId) => roles.find((role) => role.id === roleId)?.name ?? '(unknown)',
     tagName: (tagId) =>
       tags.find((each) => each.id === tagId)?.name ?? 'a tag this plan has not loaded',
-    // **This cannot name a service yet, and says so rather than printing an
-    // id.** fe-01 has no services list until task 7.6 adds `listServices` and
-    // `ServiceView`; the sentence is the one every other lookup here falls back
-    // to. Nothing reaches it in the shipped UI meanwhile — the service facet has
-    // no control until 6.3, so only a hand-edited saved view can put an id in
-    // `criteria.serviceIds`, and that is exactly the case the fallback is for.
-    serviceName: () => 'a service this plan has not loaded',
+    // Names a service since task 6.3 pulled `listServices` forward out of 7.6.
+    // The fallback is the one every lookup here keeps: a saved view can hold an
+    // id whose service the directory has since removed, and printing the id
+    // would put a uuid in the export's `Scope` line.
+    serviceName: (serviceId) =>
+      services.find((each) => each.id === serviceId)?.name ??
+      'a service this plan has not loaded',
   };
 
   const facetTeams = useMemo(
@@ -3388,6 +3522,27 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         (id) => tags.find((each) => each.id === id)?.name ?? 'a tag this plan has not loaded',
       ),
     [narrowable, facets.tagIds, tags],
+  );
+  /**
+   * The services the rows on this plan are **effectively** delivered by, plus
+   * whatever is already ticked.
+   *
+   * Off `row.facets.serviceId` and so off the effective reading, which is what
+   * makes the offered list match what ticking one will find: a plan whose only
+   * stored service sits on a parent still offers it, because every child under
+   * that parent answers to it.
+   */
+  const facetServices = useMemo(
+    () =>
+      optionsFor(
+        new Set(
+          narrowable.flatMap((row) => (row.facets.serviceId === null ? [] : [row.facets.serviceId])),
+        ),
+        facets.serviceIds,
+        (id) =>
+          services.find((each) => each.id === id)?.name ?? 'a service this plan has not loaded',
+      ),
+    [narrowable, facets.serviceIds, services],
   );
   const facetPeople = useMemo(
     () =>
@@ -8433,9 +8588,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         setFacets={setFacets}
         teams={facetTeams}
         tags={facetTags}
+        services={facetServices}
         people={facetPeople}
         bands={facetBands}
         phases={facetPhases}
+        // The two directory maps read as one bit each — the same two the row
+        // facets are computed from, so the box and the answer behind it can
+        // never disagree about whether the question is askable.
+        ownershipKnown={ownershipKnown}
+        membershipKnown={membershipKnown}
       />
       {/*
         Name the current filter, or pick one already named — R10 F4. Beside

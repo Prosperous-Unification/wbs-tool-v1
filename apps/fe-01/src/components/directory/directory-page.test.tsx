@@ -109,6 +109,9 @@ function fakeDirectory(
     },
     listTeams: () => Promise.resolve(heldTeams.map((team) => ({ ...team }))),
     listTags: () => Promise.resolve(heldTags.map((tag) => ({ ...tag }))),
+    // Empty until the Services card is built (task 7.5). The directory page has
+    // no caller for it yet; this is here because `DirectoryApi` requires it.
+    listServices: () => Promise.resolve([]),
     addTag(name: string) {
       api.added.push(name);
       const tag = { id: `g${String(heldTags.length + 1)}`, name };

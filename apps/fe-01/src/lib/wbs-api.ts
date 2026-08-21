@@ -420,6 +420,27 @@ export interface TagView {
 }
 
 /**
+ * One service in the global directory — {@link TagView}'s two columns, and for
+ * a different absence again.
+ *
+ * A tag has no size because nothing about a tag is spent. A service has none
+ * because a service is not a pool either: it is what the work is *part of*, and
+ * who has the people is still {@link TeamView}, whose ownership of services is
+ * {@link TeamView.serviceIds} and not a column here.
+ *
+ * **Read-only on this client so far.** Adding, renaming and removing a service
+ * are the directory page's, and that card is task 7.5; the list arrived early
+ * because the filter's service facet cannot name what it offers without it
+ * (task 6.3). A reader who notices `listServices` standing alone where the tags
+ * have four methods has read the order the change is being built in, not a gap
+ * in the API.
+ */
+export interface ServiceView {
+  id: string;
+  name: string;
+}
+
+/**
  * How many of one team may be at work at once **on one project's plan**.
  *
  * A team the plan has stated nothing about is **absent** from the list, not
@@ -589,6 +610,11 @@ export interface DirectoryApi {
   listTeams(): Promise<TeamView[]>;
   /** Every tag in the global directory, by name. */
   listTags(): Promise<TagView[]>;
+  /**
+   * Every service in the global directory. Read-only here — see
+   * {@link ServiceView} for why the write half is task 7.5's and not missing.
+   */
+  listServices(): Promise<ServiceView[]>;
   addTag(name: string): Promise<TagView>;
   renameTag(tagId: string, name: string): Promise<DirectoryWrite<TagView>>;
   /**
@@ -903,6 +929,11 @@ export interface ProjectApi {
   listTeams(): Promise<TeamView[]>;
   /** Every tag in the global directory, by name. */
   listTags(): Promise<TagView[]>;
+  /**
+   * Every service in the global directory. Read-only here — see
+   * {@link ServiceView} for why the write half is task 7.5's and not missing.
+   */
+  listServices(): Promise<ServiceView[]>;
   addTag(name: string): Promise<TagView>;
   renameTag(tagId: string, name: string): Promise<DirectoryWrite<TagView>>;
   /**
@@ -1458,6 +1489,13 @@ export function httpDirectoryApi(token: string): DirectoryApi {
       const body = await send<{ tags: TagView[] }>('/api/tags', token);
       return body.tags;
     },
+    // The service half, and it is the tag half's read with the word changed.
+    // Only the read: `POST`, `PATCH` and `DELETE /api/services` all exist at
+    // be-01 (chunk 5) and none of them has a caller on this client yet.
+    async listServices() {
+      const body = await send<{ services: ServiceView[] }>('/api/services', token);
+      return body.services;
+    },
     async addTag(name) {
       const body = await send<{ tag: TagView }>('/api/tags', token, {
         method: 'POST',
@@ -1543,6 +1581,7 @@ export function httpProjectApi(token: string): ProjectApi {
     listTeams: () => directory.listTeams(),
     addTeam: (name) => directory.addTeam(name),
     listTags: () => directory.listTags(),
+    listServices: () => directory.listServices(),
     addTag: (name) => directory.addTag(name),
     renameTag: (tagId, name) => directory.renameTag(tagId, name),
     removeTag: (tagId, cascade) => directory.removeTag(tagId, cascade),
