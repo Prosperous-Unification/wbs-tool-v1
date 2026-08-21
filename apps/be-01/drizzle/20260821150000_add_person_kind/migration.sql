@@ -1,0 +1,69 @@
+-- Whether a person in the directory is a human or an AI agent.
+--
+-- Dany, 2026-08-20: "Also maybe allow to set agent as assignee. I mean mark ppl
+-- as agents vs person." The directory was built for people, and some of the rows
+-- in it are now going to be agents. Nothing about assignment or scheduling
+-- changes: an agent is assigned, and consumes capacity, exactly as a person is.
+-- This column is the classification the reports and the SDLC integration read,
+-- and it is what makes `role_measure`'s token figures legible — a token estimate
+-- against a human is a curiosity, against an agent it is the effort unit.
+--
+-- **A column with a CHECKed set, not a boolean `is_agent`.** A third kind is
+-- plausible — a service account, a team inbox, a queue lane — and under a
+-- boolean each one costs a migration plus a rewrite of every branch that read
+-- it. Under a set it costs a value. `token-tracking/design.md` D6.
+--
+-- **The DEFAULT is a claim, and it is the one place this change makes one.**
+-- Everywhere else in this schema absence means "nobody has said" and is left as
+-- the absence of a row — `estimate`, `actual`, `role_measure`,
+-- `project_team_capacity` all follow it. Here every existing row is written to,
+-- with `person`. That is not an invented fact: the directory predates the idea
+-- of an agent entirely, so `person` is what those rows are rather than a guess
+-- about them. It is also load-bearing for the blue/green swap: two be-01
+-- processes share one SQLite file while green migrates, and the outgoing
+-- release's `INSERT INTO person (id, name)` does not know this column exists.
+-- Without the DEFAULT that insert violates NOT NULL and the directory answers
+-- 500 for the length of the swap.
+--
+-- **ALTER TABLE ADD COLUMN, and not the table rebuild this change's own tasks.md
+-- called for.** The brief said SQLite cannot `ALTER TABLE … ADD CONSTRAINT`, so
+-- the CHECK had to arrive by rebuild — new table, copy, drop, rename, indexes
+-- recreated. The first half is true and the conclusion does not follow: the
+-- restriction is on `ADD CONSTRAINT`, while a *column-level* CHECK inside
+-- `ADD COLUMN` is not on SQLite's list of things that clause may not carry, and
+-- it works. Probed on h2puni against bun's SQLite 3.53.0 before this file was
+-- written, on a copy of this table with its unique index and its two children:
+-- the column backfills `person`, `INSERT … VALUES ('robot')` is refused with
+-- `CHECK constraint failed: kind`, the old two-column insert takes the default,
+-- and `person_name` is untouched.
+--
+-- **The rebuild was not merely unnecessary. Run here it would have deleted
+-- data.** This repo migrates with `PRAGMA foreign_keys = ON` — `assertPragmas`
+-- in `db.ts` sets it and then verifies it was adopted, deliberately, because
+-- zero-downtime deploys depend on it. `DROP TABLE person` under that pragma
+-- fires the `ON DELETE CASCADE` on every child: the same probe, run with the
+-- rebuild the brief described, ended with the person copied across and
+-- `person_team` and `assignment` **empty** — every team membership and every
+-- assignment in the directory, gone silently, in a migration whose stated
+-- purpose is to add a column. With the pragma OFF both survive, which is the
+-- SQLite manual's rebuild procedure and the reason it opens by turning foreign
+-- keys off. That escape is not available here: `PRAGMA foreign_keys` is a no-op
+-- inside a transaction, drizzle's migrator runs each migration in one, and the
+-- probe confirms the pragma still reads 1 after being set to OFF mid-transaction.
+-- A rebuild in this runner cannot be made safe by the documented means.
+--
+-- Stamped 20260821150000, later than every folder on disk — including the two
+-- `change/service-split` merged at 04d644e and this change's own
+-- 20260821140000_add_role_measure, which is the one directly below it.
+-- `ls apps/be-01/drizzle | sed 's/_.*//' | sort | uniq -d` was silent before this
+-- folder existed, and `duplicateMigrationStamps` in `migrate-down.ts` checks the
+-- same thing mechanically where the folders are read. It matters because
+-- `migrationsToRollback` filters on a strict `created_at >`: two folders sharing
+-- a stamp make a rollback *to* either of them reverse nothing at all, silently,
+-- with everything still standing.
+--
+-- No seeding beyond the default, and nothing to seed: no row in any directory on
+-- any box has ever been an agent, so writing `agent` onto one would be the tool
+-- asserting something about a person nobody typed. Marking agents is a thing
+-- somebody does in the card, once, per row.
+ALTER TABLE `person` ADD `kind` text DEFAULT 'person' NOT NULL CHECK (`kind` IN ('person', 'agent'));

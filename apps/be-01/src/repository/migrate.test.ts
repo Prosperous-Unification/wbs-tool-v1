@@ -133,9 +133,8 @@ const SERVICE = '20260821000000_add_service';
  */
 const WORK_ITEM_SERVICE = '20260821080000_add_work_item_service';
 /**
- * The newest. A table of its own referencing `work_item` and `role` again, so it
- * reverses ahead of the domain that holds both — `ACTUAL`'s place for `ACTUAL`'s
- * reason.
+ * A table of its own referencing `work_item` and `role` again, so it reverses
+ * ahead of the domain that holds both — `ACTUAL`'s place for `ACTUAL`'s reason.
  *
  * Stamped `20260821140000`, later than every folder on disk when it was written
  * **and** later than the two `change/service-split` added, which it was stamped
@@ -144,11 +143,36 @@ const WORK_ITEM_SERVICE = '20260821080000_add_work_item_service';
  * the guess the stamp was written on is now a fact on disk, and a stamp sorting
  * before them would have applied out of order on any database that took that
  * release. The duplicate check is `refuses a folder set that shares one stamp
- * between two migrations`, and `does nothing when the target is already the
- * newest applied` — which now names this migration itself, with
- * `WORK_ITEM_SERVICE` as the one before it — is the case a collision breaks.
+ * between two migrations`.
+ *
+ * It was the newest when it was written; `PERSON_KIND` is now above it, and
+ * `does nothing when the target is already the newest applied` moved with the
+ * title. This constant is the one that case names as *the one before the
+ * newest*, so it carries the half a shared stamp would silently empty.
  */
 const ROLE_MEASURE = '20260821140000_add_role_measure';
+/**
+ * The newest, and the only migration in this change that alters an existing
+ * table. It adds `person.kind` — the `person | agent` classification — by
+ * `ALTER TABLE … ADD COLUMN` carrying a column-level `CHECK`.
+ *
+ * **The cases below are about what it does *not* touch**, and that is the point
+ * of them rather than a formality. This change's own `tasks.md` specified a
+ * table rebuild here, on the reasonable-sounding ground that SQLite cannot
+ * `ALTER TABLE … ADD CONSTRAINT`. Under this repo's migrator — which runs with
+ * `PRAGMA foreign_keys = ON`, asserted in `db.ts` — a rebuild's `DROP TABLE
+ * person` cascades every `person_team` membership and every `assignment` away,
+ * and the pragma cannot be turned off inside the transaction drizzle wraps a
+ * migration in. `the person kind migration` therefore asserts the memberships
+ * and the assignments are still there afterwards, not because `ADD COLUMN`
+ * plausibly threatens them, but because the procedure this file was nearly
+ * written with does, silently, and only a case that counts rows would have said
+ * so.
+ *
+ * Stamped `20260821150000`, later than every folder on disk including
+ * `ROLE_MEASURE` directly below it.
+ */
+const PERSON_KIND = '20260821150000_add_person_kind';
 
 const WBS_TABLES = ['project', 'work_item', 'role', 'estimate'] as const;
 // Its own migration, reversed with the domain because it references `work_item`.
@@ -246,6 +270,7 @@ describe('the WBS domain migration', () => {
       // ahead of the column it was seeded from, which is the only order in
       // which its foreign keys still have something to point at.
       expect(reversed).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -566,6 +591,7 @@ describe('the capacity migrations', () => {
       const reversed = rollbackTo(db.path, FOLDER, PRIORITY);
 
       expect(reversed).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -1018,6 +1044,7 @@ describe('the work item team migration', () => {
       // migration's business, and named rather than filtered out so the list stays
       // the literal answer `rollbackTo` gave.
       expect(reversed).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -1245,6 +1272,7 @@ describe('the priority band migration', () => {
       // filtered, so the list is the literal answer `rollbackTo` gave and not a
       // subset somebody chose.
       expect(rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY)).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -1526,6 +1554,7 @@ describe('the plan event migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PRIORITY_BANDS)).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -1743,6 +1772,7 @@ describe('the actual migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, PLAN_EVENT)).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -2005,6 +2035,7 @@ describe('the role progress migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, ACTUAL)).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -2249,6 +2280,7 @@ describe('the not-before reason migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, ROLE_PROGRESS)).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -2480,6 +2512,7 @@ describe('the tag migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, NOT_BEFORE_REASON)).toEqual([
+        PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
         SERVICE,
@@ -2817,7 +2850,7 @@ describe('the service migration', () => {
       runMigrations(db.path, FOLDER);
       seeded(db.path);
 
-      expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([ROLE_MEASURE, WORK_ITEM_SERVICE, SERVICE]);
+      expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([PERSON_KIND, ROLE_MEASURE, WORK_ITEM_SERVICE, SERVICE]);
       for (const t of SERVICE_TABLES) expect(tables(db.path)).not.toContain(t);
 
       const after = openDatabase(db.path);
@@ -2936,14 +2969,15 @@ describe('the work-item-service migration', () => {
    *
    * The reversed list is asserted rather than ignored, and it names **every**
    * folder newer than `SERVICE` — `ROLE_MEASURE` among them since this branch
-   * rebased onto the merged service split. That is the point: the helper's whole
+   * rebased onto the merged service split, and `PERSON_KIND` since the chunk
+   * below it. That is the point: the helper's whole
    * claim is that the database is left at exactly the column-only shape, and a
    * rollback that quietly reversed one more migration than the caller expected
    * would still land here with a green `runMigrations` after it.
    */
   function atTheColumnOnly(dbPath: string): void {
     runMigrations(dbPath, FOLDER);
-    expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([ROLE_MEASURE, WORK_ITEM_SERVICE]);
+    expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([PERSON_KIND, ROLE_MEASURE, WORK_ITEM_SERVICE]);
   }
 
   it('carries every stated service across, and gives the inheriting row nothing', () => {
@@ -3082,7 +3116,7 @@ describe('the work-item-service migration', () => {
         sqlite.close();
       }
 
-      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([ROLE_MEASURE, WORK_ITEM_SERVICE]);
+      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([PERSON_KIND, ROLE_MEASURE, WORK_ITEM_SERVICE]);
       for (const t of WORK_ITEM_SERVICE_TABLES) expect(tables(db.path)).not.toContain(t);
 
       const after = openDatabase(db.path);
@@ -3355,7 +3389,7 @@ describe('the role measure migration', () => {
       runMigrations(db.path, FOLDER);
       seeded(db.path);
 
-      expect(rollbackTo(db.path, FOLDER, WORK_ITEM_SERVICE)).toEqual([ROLE_MEASURE]);
+      expect(rollbackTo(db.path, FOLDER, WORK_ITEM_SERVICE)).toEqual([PERSON_KIND, ROLE_MEASURE]);
 
       const after = openDatabase(db.path);
       try {
@@ -3407,6 +3441,261 @@ describe('the role measure migration', () => {
       } finally {
         after.close();
       }
+    } finally {
+      db.cleanup();
+    }
+  });
+});
+
+describe('the person kind migration', () => {
+  /**
+   * A directory as the release *before* this migration left it: two people with
+   * no `kind` column to write, both on a team, both holding an assignment.
+   *
+   * The database is walked forward and then rolled back one folder rather than
+   * migrated part way, because `runMigrations` applies what is unapplied and the
+   * second call in each case has to run this folder and nothing else. The
+   * reversed list is asserted, for `atTheColumnOnly`'s reason: a rollback that
+   * quietly took one migration more than asked would still leave a green
+   * `runMigrations` behind it.
+   *
+   * By hand rather than through the directory service, and the two-column insert
+   * is the point of doing it that way — it is literally the statement the
+   * outgoing release runs, so the fixture is also the blue/green premise.
+   */
+  function beforeTheColumn(dbPath: string): void {
+    runMigrations(dbPath, FOLDER);
+    expect(rollbackTo(dbPath, FOLDER, ROLE_MEASURE)).toEqual([PERSON_KIND]);
+
+    const db = openDatabase(dbPath);
+    try {
+      db.run(
+        "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u', 'owner', 'x', 1)",
+      );
+      db.run(
+        'INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at)' +
+          " VALUES ('p', 'Rewire the shed', 'u', 0, 'pert', NULL, 0, 1)",
+      );
+      db.run("INSERT INTO role (id, project_id, name, position) VALUES ('r1', 'p', 'Dev', 10)");
+      db.run(
+        'INSERT INTO work_item (id, project_id, parent_id, position, name, notes, priority, max_parallel, revision)' +
+          " VALUES ('w1', 'p', NULL, 10, 'Strip', '', 25, 1, 0)",
+      );
+      db.run("INSERT INTO service_team (id, name) VALUES ('t1', 'Electrics')");
+      db.run("INSERT INTO person (id, name) VALUES ('pe1', 'Ada')");
+      db.run("INSERT INTO person (id, name) VALUES ('pe2', 'Bob')");
+      db.run("INSERT INTO person_team (person_id, service_team_id) VALUES ('pe1', 't1')");
+      db.run("INSERT INTO person_team (person_id, service_team_id) VALUES ('pe2', 't1')");
+      db.run("INSERT INTO assignment (work_item_id, role_id, person_id) VALUES ('w1', 'r1', 'pe1')");
+    } finally {
+      db.close();
+    }
+  }
+
+  function counts(dbPath: string): { people: number; memberships: number; assignments: number } {
+    const db = openDatabase(dbPath);
+    try {
+      const one = (sql: string): number =>
+        db.query<{ n: number }, []>(sql).get()?.n ?? -1;
+      return {
+        people: one('SELECT COUNT(*) AS n FROM person'),
+        memberships: one('SELECT COUNT(*) AS n FROM person_team'),
+        assignments: one('SELECT COUNT(*) AS n FROM assignment'),
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  it('calls every person who was already in the directory a person', () => {
+    // The one place this change writes a value onto rows nobody asked about, and
+    // it is a claim rather than a guess: the directory predates the idea of an
+    // agent, so `person` is what these rows are. A nullable column would have
+    // been the alternative and it is worse — every reader would then carry a
+    // third case, "not said", for a distinction that did not exist when the row
+    // was written.
+    const db = tempDb();
+    try {
+      beforeTheColumn(db.path);
+      runMigrations(db.path, FOLDER);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        expect(
+          sqlite.query<{ id: string; kind: string }, []>('SELECT id, kind FROM person ORDER BY id').all(),
+        ).toEqual([
+          { id: 'pe1', kind: 'person' },
+          { id: 'pe2', kind: 'person' },
+        ]);
+      } finally {
+        sqlite.close();
+      }
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('leaves every membership and every assignment where it found them', () => {
+    // This case is not about `ADD COLUMN`, which threatens nothing. It is about
+    // the procedure this migration was nearly written with.
+    //
+    // `tasks.md` 2.2 specified a table rebuild — new table, copy, drop, rename —
+    // on the true premise that SQLite cannot `ALTER TABLE … ADD CONSTRAINT`.
+    // This repo migrates with `PRAGMA foreign_keys = ON`, asserted in `db.ts`
+    // because zero-downtime deploys need it, and under that pragma the rebuild's
+    // `DROP TABLE person` fires `ON DELETE CASCADE` on `person_team` and
+    // `assignment` and empties both. Probed on 2026-08-21 against bun's SQLite
+    // 3.53.0: the rebuild ends with the person copied across, one person, **zero**
+    // memberships and **zero** assignments; the same script with the pragma OFF
+    // keeps all three. The manual's rebuild recipe opens by turning foreign keys
+    // off for exactly this reason, and that escape is not available here —
+    // `PRAGMA foreign_keys` is a no-op inside a transaction and drizzle wraps
+    // each migration in one.
+    //
+    // So the counts are asserted, and they are asserted because a migration that
+    // silently deleted the whole team map would otherwise have shipped with a
+    // green suite: nothing else in this file counts these rows across a folder.
+    const db = tempDb();
+    try {
+      beforeTheColumn(db.path);
+      expect(counts(db.path)).toEqual({ people: 2, memberships: 2, assignments: 1 });
+
+      runMigrations(db.path, FOLDER);
+
+      expect(counts(db.path)).toEqual({ people: 2, memberships: 2, assignments: 1 });
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('keeps the unique name index across the column, duplicate and all', () => {
+    // The index is the other thing a rebuild drops on the floor — it lives on
+    // the table, so a rebuild that forgot to recreate it would leave a directory
+    // that accepts two people called Ada, and every screen would then show a
+    // name that means two different rows. `ADD COLUMN` does not touch it; the
+    // case asserts the refusal rather than the index's presence in
+    // `sqlite_master`, because a present index that stopped being unique is the
+    // failure worth catching.
+    const db = tempDb();
+    try {
+      beforeTheColumn(db.path);
+      runMigrations(db.path, FOLDER);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        expect(() => {
+          sqlite.run("INSERT INTO person (id, name, kind) VALUES ('pe3', 'Ada', 'agent')");
+        }).toThrow();
+      } finally {
+        sqlite.close();
+      }
+      expect(counts(db.path).people).toBe(2);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('lets the outgoing release keep inserting people that name no kind', () => {
+    // The blue/green half, and the whole reason the column carries a DEFAULT.
+    // Green migrates while blue is still serving, and blue's directory writes
+    // `INSERT INTO person (id, name)` — the statement below, character for
+    // character. Without the DEFAULT that violates NOT NULL and the directory
+    // answers 500 for the length of the swap.
+    const db = tempDb();
+    try {
+      beforeTheColumn(db.path);
+      runMigrations(db.path, FOLDER);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        sqlite.run("INSERT INTO person (id, name) VALUES ('pe3', 'Cy')");
+        expect(
+          sqlite.query<{ kind: string }, []>("SELECT kind FROM person WHERE id = 'pe3'").get()?.kind,
+        ).toBe('person');
+      } finally {
+        sqlite.close();
+      }
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('refuses a third kind, because every reader dispatches on the set', () => {
+    // Drizzle's enum is erased at runtime, so the `CHECK` is the only thing
+    // standing between a hand-edit or a stale release and a value every reader
+    // branches on and none of them folds. `role_progress.state` and
+    // `role_measure.metric` make the same argument.
+    //
+    // Proof: the `CHECK` struck from the migration — F4, watched 2026-08-21, see
+    // verify.md.
+    const db = tempDb();
+    try {
+      beforeTheColumn(db.path);
+      runMigrations(db.path, FOLDER);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        expect(() => {
+          sqlite.run("INSERT INTO person (id, name, kind) VALUES ('pe3', 'Cy', 'robot')");
+        }).toThrow();
+        // And the two that are in the set are accepted, so the case is about the
+        // boundary of the set rather than about inserts failing.
+        sqlite.run("INSERT INTO person (id, name, kind) VALUES ('pe4', 'Dee', 'agent')");
+        sqlite.run("INSERT INTO person (id, name, kind) VALUES ('pe5', 'Eve', 'person')");
+      } finally {
+        sqlite.close();
+      }
+      expect(counts(db.path).people).toBe(4);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('gives the column back on the way down and keeps the directory whole', () => {
+    // SQLite documents `DROP COLUMN` as unavailable while a constraint names the
+    // column, and `person_kind` names this one. 3.53.0 drops it anyway and takes
+    // the constraint with it — asserted here against the real rollback rather
+    // than trusted, so a future SQLite that enforces the documented restriction
+    // fails this case instead of failing somebody's rollback at 3am.
+    //
+    // What must survive is the directory: the classification goes, the people,
+    // the memberships and the assignments stay. That is the difference between a
+    // reversal of this migration and a reversal of the directory itself.
+    const db = tempDb();
+    try {
+      beforeTheColumn(db.path);
+      runMigrations(db.path, FOLDER);
+
+      const sqlite = openDatabase(db.path);
+      try {
+        sqlite.run("UPDATE person SET kind = 'agent' WHERE id = 'pe2'");
+      } finally {
+        sqlite.close();
+      }
+
+      expect(rollbackTo(db.path, FOLDER, ROLE_MEASURE)).toEqual([PERSON_KIND]);
+
+      const after = openDatabase(db.path);
+      try {
+        expect(
+          after
+            .query<{ sql: string }, []>("SELECT sql FROM sqlite_master WHERE name = 'person'")
+            .get()
+            ?.sql.replace(/\s+/g, ' '),
+        ).toBe('CREATE TABLE `person` (`id` text PRIMARY KEY, `name` text NOT NULL)');
+        // The index by name, because the rollback that keeps the rows and drops
+        // the index is the one that looks green here and is not.
+        expect(
+          after
+            .query<{ name: string }, []>(
+              "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'person_name'",
+            )
+            .all(),
+        ).toEqual([{ name: 'person_name' }]);
+      } finally {
+        after.close();
+      }
+      expect(counts(db.path)).toEqual({ people: 2, memberships: 2, assignments: 1 });
     } finally {
       db.cleanup();
     }

@@ -1151,20 +1151,68 @@ export const projectPriorityBand = sqliteTable(
 export type ProjectPriorityBandRow = typeof projectPriorityBand.$inferSelect;
 
 /**
+ * The closed set of things a {@link person} row can be.
+ *
+ * Exported for the same reason {@link MEASURE_METRICS} is: the directory route
+ * and the card take one of these as a value rather than a boolean, so the day a
+ * third kind arrives it is a value added here and not a schema change.
+ * `openspec/changes/token-tracking/design.md` D6.
+ */
+export const PERSON_KINDS = ['person', 'agent'] as const;
+
+export type PersonKind = (typeof PERSON_KINDS)[number];
+
+/**
  * Somebody who does work. Global, like the teams, and for the same reason.
  *
  * Not a `users` row: the people a plan assigns work to are mostly not accounts
  * on this tool, and requiring them to be would make the field unusable on the
  * day it is needed. If the two ever have to meet, they meet through a column
  * added then, not through a foreign key guessed at now.
+ *
+ * `kind` says whether the row is a human or an AI agent. Dany, 2026-08-20:
+ * _"Also maybe allow to set agent as assignee. I mean mark ppl as agents vs
+ * person."_ Design D6, and three parts of it are worth keeping next to the
+ * column:
+ *
+ * **A column, not a boolean `is_agent`.** A third kind is plausible — a service
+ * account, a team inbox — and under a boolean each one is a migration plus a
+ * rewrite of every `if` that read it. Under a `CHECK`ed set it is a value.
+ *
+ * **A column, not a table.** A `person_kind` table would buy renameable labels
+ * for a set whose members are dispatched on by name in code; the label and the
+ * key would then be free to disagree.
+ *
+ * **The default is a claim, and it is the one exception this design makes.**
+ * Everywhere else absence means "nobody has said" and is never filled with a
+ * guess. Here `NOT NULL DEFAULT 'person'` writes `person` onto every row that
+ * predates the column. That is not a guess: the directory predates agents
+ * entirely, so `person` is what those rows *are*. It is also what keeps the
+ * blue/green swap window safe — the outgoing release's
+ * `INSERT INTO person (id, name)` knows nothing of this column and must keep
+ * working while green migrates.
+ *
+ * `kind` is a Drizzle enum **and** a `CHECK`, the pair {@link roleMeasure} and
+ * {@link roleProgress} use, for the identical reason: the enum is erased at
+ * runtime and a third value written by a hand-edit or a stale release would be
+ * dispatched on by every reader and folded by none of them.
+ *
+ * Nothing about scheduling changes. An agent is assigned, and appears in
+ * capacity, exactly as a person is — the classification is what the reports and
+ * the future SDLC integration read, and `service/schedule.ts` has an empty diff
+ * in the change that adds it.
  */
 export const person = sqliteTable(
   'person',
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
+    kind: text('kind', { enum: PERSON_KINDS }).notNull().default('person'),
   },
-  (t) => [uniqueIndex('person_name').on(t.name)],
+  (t) => [
+    uniqueIndex('person_name').on(t.name),
+    check('person_kind', sql`${t.kind} IN ('person', 'agent')`),
+  ],
 );
 
 export type PersonRow = typeof person.$inferSelect;

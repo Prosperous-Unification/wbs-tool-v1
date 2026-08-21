@@ -1,0 +1,42 @@
+-- Reverses 20260821150000_add_person_kind.
+--
+-- What this loses is the classification and nothing else: which rows in the
+-- directory were agents. Every person survives, under the same id and the same
+-- name, with every team membership and every assignment intact — the column goes
+-- and the rows stay. Somebody has to mark the agents again afterwards, one card
+-- at a time, and that is the whole of the loss.
+--
+-- `plan_event` is not touched, so the directory's history still holds whatever
+-- commands wrote the kinds, for as long as retention keeps them. Nothing replays
+-- them and this rollback does not try.
+--
+-- **DROP COLUMN, even though a CHECK names the column.** SQLite's documented
+-- restriction is that a column cannot be dropped while it is indexed or named in
+-- a constraint, and this one is named by `person_kind`. bun's SQLite 3.53.0
+-- drops it anyway, taking the constraint with it, and that was verified rather
+-- than read: probed on h2puni on a copy of this table before this file was
+-- written, the result is `CREATE TABLE person (id text PRIMARY KEY, name text
+-- NOT NULL)` — the original DDL exactly — with the row still there, the
+-- `person_name` unique index still there, and `person_team` still holding its
+-- membership. `migrate-down.test.ts` runs the real rollback and asserts the same
+-- three things, so a future SQLite that tightens this fails the suite instead of
+-- failing a deploy.
+--
+-- **The alternative was a table rebuild, and it is the destructive one.** The
+-- forward migration's comment carries the evidence in full; the short version is
+-- that this repo migrates with `PRAGMA foreign_keys = ON`, `DROP TABLE person`
+-- under it cascades every membership and every assignment away, and the pragma
+-- cannot be turned off inside the transaction drizzle wraps a migration in. The
+-- rebuild here would take strictly more than the column it was written to remove.
+--
+-- No date moves. The scheduler reads work items, estimates, dependencies,
+-- capacity and the calendar; a person's kind is not among its inputs, and the
+-- change that adds this column has an empty diff on `service/schedule.ts` and
+-- `libs/domain`. A plan scheduled before this rollback and after it comes out
+-- identical.
+--
+-- This statement runs solely when the release that added the column is being
+-- taken away — a forward migration in this repo is additive so blue and green
+-- can share one file mid-swap, and reversing an additive change is destructive
+-- by definition, which is why it lives here and not there.
+ALTER TABLE `person` DROP COLUMN `kind`;
