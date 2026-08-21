@@ -251,10 +251,25 @@
 
 ## 8. The record
 
-- [ ] 8.1 `proposal.md`, `design.md` (seven decisions), this file, and the spec
+- [x] 8.1 `proposal.md`, `design.md` (seven decisions), this file, and the spec
       delta. **Done in chunk 1.**
-- [ ] 8.2 `verify.md`: both stamps and their collision check, up and down through
+- [x] 8.2 `verify.md`: both stamps and their collision check, up and down through
       the real CLIs on h2puni, the full gate with the bun version, the F1–F11
       fault table, and the **empty diff on `service/schedule.ts` and
       `libs/domain/**`** quoted from `git diff --stat` as a claim that was
       checked rather than asserted.
+
+      > **Done 2026-08-21 (chunk 15).** Both stamps on disk and the `uniq -d`
+      > collision check re-run at the head against all 26 folders. The CLIs were
+      > run for real — `migrate-status-cli`, `migrate-cli`, `migrate-down-cli`
+      > against a byte copy of the dev database (9 people, 342 work items): up
+      > applies exactly the two, `person.kind` backfills `person` × 9, down
+      > reverses exactly the two newest-first, and a second round trip with a
+      > recorded `agent` and a recorded 120,000-token estimate leaves the person
+      > digest identical across the column drop. `openspec validate --all` is 72
+      > passed / 0 failed under the CLI's real name, `@fission-ai/openspec@1.3.0`
+      > — the earlier "could not determine executable" was a wrong package name,
+      > not a missing dependency. The absence diff is empty at the branch head
+      > on the gate host. `fe-01`'s baseline was read at `origin/main` (1584) so
+      > 1588 is a delta and not arithmetic. One Owed entry was **withdrawn as
+      > false**: `role_measure_by_role` has existed since section 1.

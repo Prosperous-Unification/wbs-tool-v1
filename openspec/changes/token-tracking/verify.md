@@ -31,9 +31,14 @@ not quietly skipped.
 role_id, metric)`, `work_item_id` cascading, `role_id` deliberately not, indexed
 by `role_id` as `role_measure_by_role`.
 
-`20260821150000_add_person_kind` — _not yet written_ (section 2).
+`20260821150000_add_person_kind` — the column, `NOT NULL DEFAULT 'person'` under
+a `CHECK`, written in section 2 at `c7c6fe9`. **This line said _not yet written_
+for eleven chunks after it was.** Kept as a correction rather than an edit,
+because a record that describes the branch as it lands has to be re-read at the
+end and not only appended to; the section below is what re-read it.
 
-Both stamps were chosen against every folder on disk before either existed:
+Both stamps were chosen against every folder on disk before either existed, and
+the check was re-run at `d654ce7` against all **26** folders:
 
 ```
 ls apps/be-01/drizzle | sed 's/_.*//' | sort | uniq -d      # silent
@@ -73,6 +78,42 @@ touched. The gate caught all five; reading the conflict list would have caught
 none, because there was no conflict to read. Recorded because the shape recurs:
 **after a rebase, an ordering assertion the merge did not flag is the one to
 re-run, not the one to trust.**
+
+### Up and down through the real CLIs, on a copy of the dev database
+
+`migrate.test.ts` drives `runMigrations` and `rollbackTo` against databases the
+test builds. That proves the functions; it does not prove the two **CLIs** the
+deploy actually invokes, and it does not prove either migration against rows
+somebody made. Both were run at `d654ce7` on h2puni (bun 1.3.14) against
+`/tmp/tt-snap.db`, a byte copy of `~/wbs-dev/data/wbs.db` — **9 people, 342 work
+items**, the dev deployment as it stood. The three CLI sources were `sha1sum`ed
+on both boxes before anything ran (`26ec1f8…`, `6c4be02…`, `1065e93…`).
+
+| Step                                                        | Answer                                                                                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `migrate-status-cli.ts` before                              | `20260821080000_add_work_item_service` — the dev database is at `main`                                                    |
+| `migrate-cli.ts`                                            | `migrations applied`                                                                                                     |
+| after: tables                                               | `role_measure` present, with **both** its autoindex and `role_measure_by_role`                                            |
+| after: `person` columns                                     | `id, name, kind`                                                                                                         |
+| after: `select kind, count(*) … group by kind`              | **`person` × 9** — the backfill, on rows that predate the column, read rather than reasoned about                         |
+| after: `role_measure` rows                                  | 0 — additive, and it invents nothing                                                                                     |
+| `migrate-status-cli.ts` after                               | `20260821150000_add_person_kind`                                                                                         |
+| `migrate-down-cli.ts --to=20260821080000_add_work_item_service` | `rolled back: 20260821150000_add_person_kind, 20260821140000_add_role_measure` — **the two, newest first, and no third** |
+| after down: tables / columns / status                       | `role_measure` gone, `person` back to `id, name`, status back to `…_add_work_item_service`                                |
+
+**The half that matters was run a second time with the figures filled in.** An
+empty new table survives a rollback trivially; a column drop is a table rebuild
+in SQLite, and the question is what happens to the nine rows that were there
+first. So: up again, one person set to `kind = 'agent'`, one `token_estimate` of
+120,000 inserted against a real work item and role, then down. **Person count 9
+before and 9 after, and the `id:name` digest identical across the rollback**
+(`751b1fccfc3c493a` both sides) — the rebuild kept every row and every other
+column of the person who had been marked an agent. What it did not keep is that
+person's `kind` and that item's estimate, which is the definition of reversing
+the migration that added them and is what `down.sql` says in its own comment.
+
+**This is also the check that caught a false entry in this file's own Owed
+list** — see the correction there about `role_measure_by_role`.
 
 ## The fault table
 
@@ -383,6 +424,9 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `a5ff796`                                   | be-01                                    | **1052 pass / 0 fail**, 75 files, 28,669 expect() — unmoved, and owed to be |
 | `a5ff796`                                   | fe-01                                    | **1588 pass / 0 fail**, 53 files                                            |
 | `a5ff796`                                   | mcp-01                                   | **64 pass / 0 fail**, 230 expect() calls                                    |
+| `04d644e` (`origin/main`, section 8)        | `bunx vitest run` in `apps/fe-01`        | **1584 pass / 0 fail**, 53 files — the baseline, finally read               |
+| `d654ce7` (section 8)                       | `bunx @fission-ai/openspec@1.3.0 validate --all --json` | exit 0, **72/72**, `token-tracking` `"valid": true`           |
+| `d654ce7`                                   | the two migration CLIs, dev-db copy      | up and down, see "Up and down through the real CLIs"                        |
 
 **The `--all` sweep has to be `--parallel=1` on this box.** Run wide it printed
 `Killed` on `bunx eslint apps/be-01/src` with four targets in flight; h2puni has
@@ -438,9 +482,19 @@ files** — a suite a sixteenth the size of the real one, passing. `git fetch` +
 git diff --stat origin/main -- apps/be-01/src/service/schedule.ts libs/domain
 ```
 
-Empty at `3e8cb79`, `c7c6fe9` and `654033e` — re-run at each head rather than
-assumed to hold. D3 says the scheduler cannot read this table; this is the
-sentence that checks it rather than the one that claims it.
+Empty at `3e8cb79`, `c7c6fe9`, `654033e` and — the run that decides it, because
+it is the diff the PR carries — at `d654ce7`, the branch head, on the gate host,
+against `origin/main`. Re-run at each head rather than assumed to hold. D3 says
+the scheduler cannot read this table; this is the sentence that checks it rather
+than the one that claims it.
+
+The scheduler's own answer is checked in a second place and by a different
+means: `service/live-plan-identity.test.ts` replays the identity corpus through
+a `WorkItemService` that now has the measures store wired into it
+(`inMemoryMeasures`, and again inside `inMemorySubtrees`) — so the corpus runs
+against a service that _can_ read figures and produces the same dates anyway. An
+empty diff says the code that computes dates did not change; the corpus says the
+dates did not change either.
 
 ## Owed
 
@@ -451,16 +505,28 @@ sentence that checks it rather than the one that claims it.
   chunks, and it was standing precisely because the sweep that would have shown
   it had been skipped for a narrow one. A gate that is cheaper than the claim it
   is asked to support is not a gate.
-- **The `fe-01` baseline was not read.** 1588 is the count **after** four new
-  cases; 1584 before them is arithmetic rather than a reading, and this record
-  says so rather than printing a delta it never watched.
-- `bunx openspec validate --strict` has **not** been run. `openspec` is not a
-  dependency of this repo (`node_modules/.bin/openspec` absent, `bunx openspec`
-  on h2puni exits 1 with "could not determine executable to run"), so the CLI
-  behind the "71/71" figure in earlier records lives outside the tree. Where it
-  comes from gets resolved and stated here rather than quoted from memory.
-- The migrations have not been run through the real `migrate` / `migrate-down`
-  CLIs against a snapshot of the dev database. Section 8.2.
+- ~~**The `fe-01` baseline was not read.**~~ **Closed in section 8**: `bunx
+  vitest run` at `origin/main@04d644e` on the gate host answers **1584 pass / 0
+  fail across 53 files**, so 1588 at `e82b023` is +4 as a reading rather than as
+  arithmetic. Cost about 70 seconds, having been carried as an open claim for a
+  chunk. Noted because the first attempt at it was wrong in an instructive way:
+  `bun test` in `apps/fe-01` returns **537 pass / 94 fail** — `fe-01:test` is
+  `bunx vitest run`, and running "the app's own runner" means the runner the
+  target names, not the one the workspace uses everywhere else.
+- ~~`bunx openspec validate --strict` has **not** been run.~~ **Closed in
+  section 8, and the CLI is `@fission-ai/openspec`.** Bare `bunx openspec`
+  resolves an unrelated npm package with no bin, which is exactly why it exited
+  1 with "could not determine executable to run" — the tree was never missing a
+  dependency, the name was wrong. `ci.yml`'s OpenSpec step pins
+  `bunx @fission-ai/openspec@1.3.0 validate --all --json` and says so in a
+  comment; run at `d654ce7` on h2puni it exits 0 with **72 items, 72 passed, 0
+  failed**, and `token-tracking` is `"valid": true` with an empty `issues`. The
+  "71/71" of earlier records was this same gate one change ago.
+- ~~The migrations have not been run through the real `migrate` /
+  `migrate-down` CLIs against a snapshot of the dev database.~~ **Closed in
+  section 8** — the table above under "Up and down through the real CLIs",
+  including the round trip with a recorded `agent` and a recorded estimate
+  standing in the rows.
 - ~~**`removedMeasures`' triple key is unproven, and no reachable path can prove
   it.**~~ **Closed in chunk 13** by the repository-seam case this entry asked
   for: `takes off only the metric a restore names, and leaves the pair's other
@@ -491,14 +557,27 @@ figure` hands `insertSubtree` a `removedMeasures` naming one metric of a pair
   this one. Recorded here because the two identity oracles **destructure all
   four** and only pass because `be-01:typecheck` excludes `.test.ts`: the fields
   are checked by nothing at all today.
-- **`role_measure` has no by-role index, and two counts now scan it.**
-  `RoleRepository.usageOf` and `RoleRepository.remove` both ask "what does this
-  role hold", and `actual` and `role_progress` each carry an index built for
-  exactly that question (`actual_by_role`, `role_progress_by_role`). This table
-  carries only its primary key's autoindex, which leads with the work item, so
-  both reads are a scan of one deployment's figures. Correctness is unaffected
-  and the volume is small today. **Filed rather than fixed** because an index is
-  a migration, and a fifth migration inside this change would ride on a gate
-  built for the role removal — it deserves its own, with the ordering lists in
-  both directions that `migrate.test.ts` keeps.
-- Section 7.
+- ~~**`role_measure` has no by-role index, and two counts now scan it.**~~
+  **WITHDRAWN IN SECTION 8 — THE ENTRY WAS FALSE.** The index has existed since
+  section 1: `apps/be-01/drizzle/20260821140000_add_role_measure/migration.sql`
+  line 112 creates `role_measure_by_role` on `role_measure (role_id)`,
+  `down.sql` drops it before the table, and the migrated copy of
+  the dev database above lists **both** `sqlite_autoindex_role_measure_1` and
+  `role_measure_by_role`. This file's own "The stamps" section had said
+  "indexed by `role_id` as `role_measure_by_role`" from the first chunk, twelve
+  chunks before the entry claiming the opposite was filed against it.
+
+  Kept rather than deleted, because the way it got here is the finding.
+  Chunk 13 was reading `RoleRepository.usageOf` and `RoleRepository.remove`,
+  saw the same "what does this role hold" shape that `actual_by_role` and
+  `role_progress_by_role` exist to serve, inferred the absence from the two
+  neighbours' presence, and wrote it down as a reading. **An index is a fact
+  about a schema and `sqlite_master` answers it in one query** — the same query
+  this section ran for another reason and got the answer for free. A filed
+  non-issue is cheaper than a missed one and still not free: it would have cost
+  a future chunk a migration, a gate and the ordering lists in both directions,
+  all to add a thing that was already there.
+- **Nothing else is owed.** The two entries above this one — `NumberedWorkItem`
+  under-declaring the payload, and the `undo.test.ts` reasoning left where a
+  case could not go — stand as recorded findings about the tree, not as work
+  this change stopped short of.
