@@ -434,6 +434,24 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 difference matters because the serialized re-run is what surfaced the one real
 red below.
 
+### CI on #91, and three flakes that had to be told from a regression
+
+`gate` **passed in 3m51s** on the first run — CI's own machine agreeing with
+h2puni. `pixels` **failed 3 of 180**: `dark-mode.spec.ts:269`,
+`header.spec.ts:377`, `hover-cards.spec.ts:85`. **Rerun: 180 of 180, 9m1s.**
+Flakes, and now said so by a run rather than by an argument.
+
+The argument was made first, and is kept because it is how the rerun was worth
+starting rather than a guess dressed as one. The first failure never reached an
+assertion — a 60s timeout inside `seedPlan`'s `beforeEach` waiting for
+`getByLabel('Name of 020')`, with `[WebServer] Error: write EPIPE` and
+`read ECONNRESET` running through the whole job either side of it. And the three
+**moved**, which is the tell this queue already had a name for: the standing red
+that `dark-mode-animations` fixed was one spec failing at the same number twice.
+Corroborating rather than deciding: the only `fe-01` change on this branch is a
+`<select>` on the directory card, and none of those three specs opens the
+directory.
+
 ### The drift test that had been red for four chunks
 
 `mcp-01`'s `is 47 tools, so a route that appears must be decided about` failed
