@@ -5,6 +5,7 @@ import {
   cardIndentFor,
   CELL,
   clampColumnWidth,
+  CONDITIONAL_COLUMNS,
   DATE_EDITOR_WIDTH,
   DAY_ENVELOPE,
   DEEPEST_INDENT,
@@ -612,6 +613,22 @@ describe('how wide the phases make the table', () => {
     // A project may hold none — `R1`'s spec says the seeded pair is data rather
     // than a limit — and the dialog still has a number to print.
     expect(foldedTableMinWidth([], DATED)).toBe(1067);
+  });
+
+  it('is the same number after service-split as it was before it, which is task 7.7', () => {
+    // The width-budget rule, and the exemption named rather than assumed.
+    // `service` has a declared width — it has to lay out on the deployments
+    // that show it — and it is kept out of `FIXED_COLUMNS` by
+    // `CONDITIONAL_COLUMNS`, so the floor of a table that is not showing it is
+    // the floor it had before this change. 1067 is that number, pinned above
+    // since 2026-08-09 and unmoved here.
+    expect(widthFor('service', DATED)).toBe(120);
+    expect(CONDITIONAL_COLUMNS).toContain('service');
+    expect(FIXED_COLUMNS).not.toContain('service');
+    expect(foldedTableMinWidth([], DATED)).toBe(1067);
+    // Proof, watched 2026-08-21: `service` struck from `CONDITIONAL_COLUMNS`,
+    // this failed on `expected 1187 to be 1067` — the 120px it would have cost
+    // every deployment, including the ones that have never made a service.
   });
 });
 
