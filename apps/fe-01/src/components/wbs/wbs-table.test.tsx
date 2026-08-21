@@ -13552,45 +13552,48 @@ describe('the service cell', () => {
     expect(screen.getByLabelText('Remove Ledger from 010')).toBeTruthy();
   });
 
-  itDom('sends the service the picker chose, and the empty set when the last chip goes', async () => {
-    const api = await aServicedPlan();
-    const patches: unknown[] = [];
-    const watched: ProjectApi = {
-      ...api,
-      patch: async (id, patch) => {
-        patches.push({ id, patch });
-        return api.patch(id, patch);
-      },
-    };
-    await drawn(watched);
+  itDom(
+    'sends the service the picker chose, and the empty set when the last chip goes',
+    async () => {
+      const api = await aServicedPlan();
+      const patches: unknown[] = [];
+      const watched: ProjectApi = {
+        ...api,
+        patch: async (id, patch) => {
+          patches.push({ id, patch });
+          return api.patch(id, patch);
+        },
+      };
+      await drawn(watched);
 
-    // Choosing on the child, which had none: the id goes out, as the whole set
-    // it will stand as — one member here because the child had nothing.
-    const child = screen.getByLabelText('Services for 010.1');
-    fireEvent.change(child, { target: { value: 'Ledger' } });
-    fireEvent.click(await screen.findByText('Ledger'));
-    await waitFor(() => {
-      expect(patches).toHaveLength(1);
-    });
+      // Choosing on the child, which had none: the id goes out, as the whole set
+      // it will stand as — one member here because the child had nothing.
+      const child = screen.getByLabelText('Services for 010.1');
+      fireEvent.change(child, { target: { value: 'Ledger' } });
+      fireEvent.click(await screen.findByText('Ledger'));
+      await waitFor(() => {
+        expect(patches).toHaveLength(1);
+      });
 
-    // Taking the last one off the parent, which had one. **`[]`, not an omitted
-    // field.** An absent `serviceIds` is "no opinion" to the patch and would
-    // leave `Checkout` standing — the cell would appear to clear and the next
-    // refetch would put the label back. The empty array is the one spelling of
-    // taking the label off since task 10.2; the `null` this asserted was the
-    // column's.
-    //
-    // Through the **chip**, not through a Clear button: since task 10.4 this box
-    // holds no value, and `CreatablePicker` draws its ✕ only for a box that
-    // does. This case is what found that — written against `Clear Services for
-    // 010` it failed on `Unable to find a label with the text of`, which is why
-    // the cell passes no `onClear` and says so.
-    fireEvent.click(screen.getByLabelText('Remove Checkout from 010'));
-    await waitFor(() => {
-      expect(patches).toHaveLength(2);
-    });
-    expect(patches[1]).toMatchObject({ patch: { serviceIds: [] } });
-  });
+      // Taking the last one off the parent, which had one. **`[]`, not an omitted
+      // field.** An absent `serviceIds` is "no opinion" to the patch and would
+      // leave `Checkout` standing — the cell would appear to clear and the next
+      // refetch would put the label back. The empty array is the one spelling of
+      // taking the label off since task 10.2; the `null` this asserted was the
+      // column's.
+      //
+      // Through the **chip**, not through a Clear button: since task 10.4 this box
+      // holds no value, and `CreatablePicker` draws its ✕ only for a box that
+      // does. This case is what found that — written against `Clear Services for
+      // 010` it failed on `Unable to find a label with the text of`, which is why
+      // the cell passes no `onClear` and says so.
+      fireEvent.click(screen.getByLabelText('Remove Checkout from 010'));
+      await waitFor(() => {
+        expect(patches).toHaveLength(2);
+      });
+      expect(patches[1]).toMatchObject({ patch: { serviceIds: [] } });
+    },
+  );
 
   itDom('is not a column at all on a deployment that has never made a service', async () => {
     // `CONDITIONAL_COLUMNS`' whole bargain: 120px is only spent where somebody

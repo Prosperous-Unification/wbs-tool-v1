@@ -241,8 +241,8 @@ surface built on the singleton is a surface built twice.
       item is now exactly its watched red: the two-service undo case, plus the
       injection that proves it fails on a first-member journal. Ticking it off
       the existing green would be chunk 7's 5.2 lesson repeated — a guard
-      mistaken for a proof. **Done in chunk 16, red first:** `puts a replaced
-      service set back, whole` in `undo.test.ts` — two services on, replaced by
+      mistaken for a proof. **Done in chunk 16, red first:**
+      `puts a replaced service set back, whole` in `undo.test.ts` — two services on, replaced by
       a third, undo restores both and redo narrows it back — and with
       `before.serviceIds.slice(0, 1)` in `revertTo` it fails alone (76 pass, 1
       fail over that file) while the five one-service cases beside it stay
