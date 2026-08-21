@@ -2897,7 +2897,7 @@ interface ReadSkew {
  * borrowing it would mean importing a file whose own tests would run again.
  */
 function fakeApi(startDate: string | null, skew: ReadSkew = {}): ProjectApi {
-  const people: PersonView[] = [{ id: 'kat', name: 'Kat', teamIds: [] }];
+  const people: PersonView[] = [{ id: 'kat', name: 'Kat', kind: 'person', teamIds: [] }];
   /** One label as be-01 sends it now: the column, and the join beside it. */
   const teamsOf = (serviceTeamId: string | null): string[] =>
     serviceTeamId === null ? [] : [serviceTeamId];

@@ -31,6 +31,8 @@ import {
   type DirectoryUsage,
   type DirectoryWrite,
   httpDirectoryApi,
+  isPersonKind,
+  type PersonKindView,
   type PersonView,
   type ServiceView,
   type TagView,
@@ -456,6 +458,34 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
     The two local decisions and both of their watched negatives moved with them.
   */
 
+  /**
+   * Marks somebody a person or an agent.
+   *
+   * **No draft, and that is the whole of 7.2's third scenario.** Every other
+   * editable thing on this card is a box somebody types into, so it needs
+   * somewhere to hold the half-typed value — `renamed` — and a rule for what
+   * happens to it when the write comes back. A two-option control has no
+   * half-typed state: what is shown is `person.kind`, which is what the last
+   * read answered, so a refused write leaves the displayed kind at what be-01
+   * still holds without anything here having to put it back. Optimism would
+   * have to be added on purpose, and the case that watches this would then be
+   * watching a rollback rather than the absence of one.
+   *
+   * Sent alone rather than beside the name: `commitRename` is the surface for
+   * the name and it fires on blur, so folding both into one patch would make
+   * choosing `agent` also send whatever half-typed name was standing in the box
+   * beside it.
+   */
+  function commitKind(person: PersonView, kind: PersonKindView): void {
+    if (kind === person.kind) return;
+    void attempt(async () => {
+      const written = await directory.patchPerson(person.id, { kind });
+      if (!written.ok) {
+        setProblem({ reason: 'taken', survivingName: written.survivingName });
+      }
+    });
+  }
+
   /** Sets exactly the teams a person belongs to — the set the chips show. */
   function setMemberships(person: PersonView, teamIds: readonly string[]): void {
     void attempt(async () => {
@@ -676,6 +706,36 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
                             if (event.key === 'Escape') forgetDraft(person.id);
                           }}
                         />
+                        {/*
+                          A `<select>` and not a pair of buttons or a switch:
+                          the two arms are a classification with no default
+                          reading — an agent is not "a person, on" — and the
+                          `Plan with` control one screen over already spells
+                          this gesture out for a closed set.
+
+                          Its own control rather than a column on the row,
+                          because `kind` is directory data about a person and
+                          not a label on anybody's work: it travels with them
+                          into every plan, exactly as their teams do.
+                        */}
+                        <select
+                          className="border-input bg-background h-11 shrink-0 rounded-md border px-2 text-sm"
+                          aria-label={`Kind of ${person.name}`}
+                          value={person.kind}
+                          disabled={busy}
+                          onChange={(event) => {
+                            const chosen = event.currentTarget.value;
+                            // The narrowing is the only thing between this page
+                            // and a 400: be-01 takes `kind` as a `string` so
+                            // that `invalid_kind` is reachable through the API,
+                            // which means an unnarrowed value would be sent and
+                            // refused rather than refused here.
+                            if (isPersonKind(chosen)) commitKind(person, chosen);
+                          }}
+                        >
+                          <option value="person">Person</option>
+                          <option value="agent">Agent</option>
+                        </select>
                         <Button
                           type="button"
                           variant="outline"

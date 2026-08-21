@@ -87,7 +87,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
 } {
   const rows: WorkItemView[] = [];
   const roleList: RoleView[] = [{ ...DEV }, { ...QA }];
-  const people: PersonView[] = [{ id: 'p1', name: 'Kat', teamIds: [] }];
+  const people: PersonView[] = [{ id: 'p1', name: 'Kat', kind: 'person', teamIds: [] }];
   const teams: TeamView[] = [];
   const services: ServiceView[] = [];
   const tags: TagView[] = [];

@@ -480,10 +480,45 @@ export interface TeamCapacityView {
  */
 export type PriorityBandView = PriorityBand;
 
+/**
+ * Whether the assignee is a human being or an AI agent.
+ *
+ * Two arms and no third, the same closed set be-01 checks in
+ * `DirectoryService`: a value outside it is `invalid_kind`, a **400**, and this
+ * type is what keeps the page from ever sending one.
+ *
+ * Named `…View` like everything else here because it is the shape on the wire,
+ * and structurally be-01's `PersonKind` rather than an import of it: fe-01 does
+ * not depend on the backend's repository types, and the day be-01 grows a third
+ * arm this file is where the page learns of it.
+ *
+ * An array first and a type off it, {@link ESTIMATE_METHODS}' shape, because a
+ * `<select>` hands its value back as a `string` and something has to narrow it.
+ */
+export const PERSON_KINDS = ['person', 'agent'] as const;
+export type PersonKindView = (typeof PERSON_KINDS)[number];
+
+/** Whether `value` is one of the two, for reading a `<select>`'s string back. */
+export function isPersonKind(value: string): value is PersonKindView {
+  return (PERSON_KINDS as readonly string[]).includes(value);
+}
+
 /** Somebody who does work, and the teams they belong to. Empty means a free agent. */
 export interface PersonView {
   id: string;
   name: string;
+  /**
+   * **Required, and never defaulted here.**
+   *
+   * The column is `NOT NULL DEFAULT 'person'`, so every row that comes back out
+   * of be-01 carries a kind whether or not anybody ever sent one — which is
+   * exactly what makes "existing people render as `person` without a request"
+   * (task 7.1) a fact about the read rather than a client-side fallback. A
+   * `kind?: PersonKindView` with `?? 'person'` at the render would draw the
+   * word `person` for a payload that said nothing, and the page would look
+   * identical on the day be-01 stopped sending the field at all.
+   */
+  kind: PersonKindView;
   teamIds: string[];
 }
 
@@ -607,6 +642,19 @@ export type DirectoryWrite<T> =
  */
 export interface PersonPatch {
   name?: string;
+  /**
+   * Marks somebody a person or an agent. Absent leaves the classification
+   * alone, exactly as an absent `name` leaves the name alone.
+   *
+   * Typed as the closed set rather than `string`, which is where this differs
+   * from be-01's own `PersonPatchInput`: the controller takes a `string` on
+   * purpose, so that a value outside the set reaches the service and is refused
+   * as `invalid_kind` rather than being turned away by the framework's
+   * validator (4.4). Nothing on this page can produce such a value — the
+   * control offers two options — so the narrow type here costs nothing and
+   * makes a third arm a compile error rather than a 400.
+   */
+  kind?: PersonKindView;
   teamIds?: readonly string[];
 }
 
@@ -676,7 +724,11 @@ export interface DirectoryApi {
   /** Adds a person; no teams means a **free agent**. Idempotent by name at be-01. */
   addPerson(name: string, teamIds: readonly string[]): Promise<PersonView>;
   addTeam(name: string): Promise<TeamView>;
-  /** Renames a person, or sets exactly the teams they belong to, or both. */
+  /**
+   * Renames a person, marks them a person or an agent, sets exactly the teams
+   * they belong to, or any of those at once — one method for the one route,
+   * `patchTeam`'s standing argument.
+   */
   patchPerson(id: string, patch: PersonPatch): Promise<DirectoryWrite<PersonView>>;
   /**
    * Renames a team, or sets exactly the services it is responsible for, or

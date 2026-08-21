@@ -6,6 +6,7 @@ import type {
   DirectoryApi,
   DirectoryUsage,
   DirectoryWrite,
+  PersonPatch,
   PersonView,
   TeamView,
 } from '@/lib/wbs-api';
@@ -51,7 +52,7 @@ function fakeDirectory(
   teams: TeamView[],
 ): DirectoryApi & {
   reads: number;
-  patched: { id: string; patch: { name?: string; teamIds?: readonly string[] } }[];
+  patched: { id: string; patch: PersonPatch }[];
   teamPatches: { id: string; patch: { name?: string; serviceIds?: readonly string[] } }[];
   removals: [string, boolean][];
   added: string[];
@@ -96,7 +97,7 @@ function fakeDirectory(
       if (release !== null) release();
     },
     reads: 0,
-    patched: [] as { id: string; patch: { name?: string; teamIds?: readonly string[] } }[],
+    patched: [] as { id: string; patch: PersonPatch }[],
     /** Every team patch, in order — the ownership map's writes are read off this. */
     teamPatches: [] as { id: string; patch: { name?: string; serviceIds?: readonly string[] } }[],
     removals: [] as [string, boolean][],
@@ -177,7 +178,15 @@ function fakeDirectory(
     },
     addPerson(name: string, teamIds: readonly string[]) {
       api.added.push(name);
-      const person = { id: `p${String(held.length + 1)}`, name, teamIds: [...teamIds] };
+      // `person`, and be-01's own default rather than this fake's invention:
+      // the column is `NOT NULL DEFAULT 'person'` and `addPerson` names no
+      // kind, so a row created through this route comes back as one.
+      const person = {
+        id: `p${String(held.length + 1)}`,
+        name,
+        kind: 'person' as const,
+        teamIds: [...teamIds],
+      };
       held = [...held, person];
       return Promise.resolve(person);
     },
@@ -189,7 +198,7 @@ function fakeDirectory(
       heldTeams = [...heldTeams, team];
       return Promise.resolve(team);
     },
-    async patchPerson(id: string, patch: { name?: string; teamIds?: readonly string[] }) {
+    async patchPerson(id: string, patch: PersonPatch) {
       api.patched.push({ id, patch });
       if (inFlight !== null) await inFlight;
       if (patchRefusal instanceof Error) throw patchRefusal;
@@ -199,6 +208,11 @@ function fakeDirectory(
           ? {
               ...person,
               ...(patch.name === undefined ? {} : { name: patch.name }),
+              // Spread on presence like the other two, and for the fake's own
+              // reason: a `kind: patch.kind` here would write `undefined` over
+              // a stored `agent` every time somebody renames one, and the page
+              // would look like it demotes agents on rename.
+              ...(patch.kind === undefined ? {} : { kind: patch.kind }),
               ...(patch.teamIds === undefined ? {} : { teamIds: [...patch.teamIds] }),
             }
           : person,
@@ -254,8 +268,11 @@ function fakeDirectory(
   return api;
 }
 
-const KAT: PersonView = { id: 'p1', name: 'Kat', teamIds: ['t1', 't2'] };
-const ADA: PersonView = { id: 'p2', name: 'Ada', teamIds: ['t1'] };
+const KAT: PersonView = { id: 'p1', name: 'Kat', kind: 'person', teamIds: ['t1', 't2'] };
+const ADA: PersonView = { id: 'p2', name: 'Ada', kind: 'person', teamIds: ['t1'] };
+
+/** An assignee somebody has already marked an agent, for the read half of 7.2. */
+const CLAUDE: PersonView = { id: 'p3', name: 'Claude', kind: 'agent', teamIds: [] };
 
 /** The usage be-01 answers for a person somebody's plan is holding. */
 const PERSON_USAGE: DirectoryUsage = {
@@ -408,7 +425,10 @@ describe('renaming on the directory page', () => {
   });
 
   itDom('reads a taken name as a sentence and leaves the entry as it was', async () => {
-    const api = fakeDirectory([KAT, { id: 'p2', name: 'Strip', teamIds: [] }], [PLATFORM]);
+    const api = fakeDirectory(
+      [KAT, { id: 'p2', name: 'Strip', kind: 'person', teamIds: [] }],
+      [PLATFORM],
+    );
     // be-01 trims, so the surviving name is the one it kept rather than the one
     // that was typed.
     api.refusePatchWith({ ok: false, reason: 'taken', survivingName: 'Kat' });
@@ -444,6 +464,88 @@ describe('renaming on the directory page', () => {
       expect(screen.getByRole('alert').textContent).toContain('blank');
     });
     expect(api.patched).toEqual([]);
+  });
+});
+
+describe('a person or an agent', () => {
+  itDom('is shown as be-01 stored it, and as `person` for anybody never marked', async () => {
+    const api = fakeDirectory([KAT, CLAUDE], [PLATFORM]);
+    pageWith(api);
+    await drawn('Kat');
+
+    // Nobody asked for Kat to be a person: the column's default answered, and
+    // the page draws what the read carried. The only way this can be wrong is
+    // be-01 sending something else.
+    expect(screen.getByLabelText('Kind of Kat')).toHaveValue('person');
+    expect(screen.getByLabelText('Kind of Claude')).toHaveValue('agent');
+  });
+
+  itDom('is patched alone when it changes, and the row redraws as what came back', async () => {
+    const api = fakeDirectory([KAT], [PLATFORM]);
+    pageWith(api);
+    await drawn('Kat');
+
+    fireEvent.change(screen.getByLabelText('Kind of Kat'), { target: { value: 'agent' } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Kind of Kat')).toHaveValue('agent');
+    });
+    // `{ kind }` and nothing beside it: a patch carrying the name as well would
+    // send whatever draft was standing in the box, and an absent field is what
+    // tells be-01 to leave the memberships alone.
+    expect(api.patched).toEqual([{ id: 'p1', patch: { kind: 'agent' } }]);
+  });
+
+  itDom('is not sent again when the option already shown is chosen', async () => {
+    const api = fakeDirectory([CLAUDE], [PLATFORM]);
+    pageWith(api);
+    await drawn('Claude');
+
+    fireEvent.change(screen.getByLabelText('Kind of Claude'), { target: { value: 'agent' } });
+    // A second, real write behind it, because "no request was made" cannot be
+    // waited for: an assertion the moment after the event would hold whether
+    // the guard exists or not. The rename is what gives the no-op somewhere to
+    // show up, and `patched` is in order.
+    fireEvent.change(screen.getByLabelText('Name of Claude'), { target: { value: 'Claudine' } });
+    fireEvent.blur(screen.getByLabelText('Name of Claude'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name of Claudine')).toBeDefined();
+    });
+    // `commitRename`'s rule for a name typed back to itself, one field over: a
+    // write nobody asked for still journals, and a journal of no-ops is a
+    // history somebody has to read past.
+    expect(api.patched).toEqual([{ id: 'p3', patch: { name: 'Claudine' } }]);
+  });
+
+  /**
+   * The scenario 7.2 asks for, and what makes it non-vacuous: the page holds
+   * **no draft** for the kind, so there is nothing to roll back — the select
+   * reads `person.kind`, which is what the last read answered. Proof that it is
+   * watching something: `value={person.kind}` replaced by a local
+   * `useState`-backed draft set in `onChange` leaves the box on `agent` after
+   * the refusal, and this fails on `expected 'agent' to be 'person'`.
+   */
+  itDom('stays at what be-01 still holds when the write is refused', async () => {
+    const api = fakeDirectory([KAT], [PLATFORM]);
+    api.refusePatchWith(new Error('unknown_person'));
+    api.holdWrites();
+    pageWith(api);
+    await drawn('Kat');
+
+    fireEvent.change(screen.getByLabelText('Kind of Kat'), { target: { value: 'agent' } });
+
+    await waitFor(() => {
+      expect(api.patched).toHaveLength(1);
+    });
+    // In flight, and already not an agent: nothing was drawn ahead of the answer.
+    expect(screen.getByLabelText('Kind of Kat')).toHaveValue('person');
+
+    api.releaseWrites();
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined();
+    });
+    expect(screen.getByLabelText('Kind of Kat')).toHaveValue('person');
   });
 });
 
