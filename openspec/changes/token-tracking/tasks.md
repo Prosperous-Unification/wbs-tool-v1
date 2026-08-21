@@ -190,12 +190,27 @@
       holding a `token_actual` and nothing else is absent from `hours_actual` —
       and a **recorded** zero is kept and summed, as `rollUpActuals` keeps one.
       **Negatives:** verify.md F10a, F10b.
-- [ ] 5.2 `measures` on every work item in `tree()`: keyed by metric then role,
+- [x] 5.2 `measures` on every work item in `tree()`: keyed by metric then role,
       its own if a leaf, the sum of its descendants' otherwise, and a metric
-      nobody recorded **absent** rather than an empty object.
-- [ ] 5.3 The identity oracles lift the new key and **assert it empty** rather
+      nobody recorded **absent** rather than an empty object. Landed in chunk 11
+      at `7015af5`, seven cases. Built as **one fold per metric over the whole
+      project** — a `Map` of metric to `rollUpMeasures`' answer, taken apart per
+      row — rather than three folds per row, because the recursion is over the
+      tree and the tree does not change between rows. The absence rule is
+      enforced by **striking** empty metrics from the object rather than by
+      mapping all three and hoping: `hours_actual: {}` on a row says somebody
+      looked at the hours and found none, which is a statement nobody made. So a
+      row nobody has recorded anything against is `{}` — no metrics at all.
+      **Negatives:** verify.md F11a, F11b.
+- [x] 5.3 The identity oracles lift the new key and **assert it empty** rather
       than dropping it — the shape `team-sets` established for a payload that
-      gained a field. **Negative:** verify.md F8.
+      gained a field. Landed with 5.2, both files. **Negative:** verify.md F11a,
+      not F8 as this line originally said — F8 is the controller's 404 list and
+      has nothing to do with the corpus; corrected here rather than silently,
+      and F11a is the fault that actually reddens these two files (3 of its 10).
+      F11b is recorded beside it because it leaves both oracles **green**: the
+      corpus proves a change invented nothing and cannot prove the payload
+      carries what it was given.
 - [x] 5.4 `kind` on every person in the directory payload. Landed with the 2.4
       narrowing in chunk 9, because they are one claim: the payload is
       `listPeople()` spread whole, so the be-01 half needed an assertion rather

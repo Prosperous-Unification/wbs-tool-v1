@@ -97,7 +97,9 @@ the case that failed and the message it failed on.
 | F8d  | `...(patch.kind === undefined ? {} : { kind: patch.kind })` struck from the store's one `set`      | `4f104d1` | `writes a name and a kind in one update, and a kind alone in one too`, `marks a person an agent and back, leaving their memberships alone` **and** `marks a person an agent, and marks them back` | the patch answers **200** and stores nothing — 1023 pass, **3** fail                           |
 | F10a | `if (held.metric !== metric) continue;` struck from `rollUpMeasures`                               | `8868d6d` | `folds one metric without seeing the others on the same pair` **and** `leaves a role absent per metric rather than reporting it as zero`                                                          | three units summed into one figure — 1034 pass, **2** fail                                     |
 | F10b | a **recorded** zero dropped on the way in (`if (held.value !== 0) byRole.set(…)`)                  | `8868d6d` | `keeps a recorded zero, which is not the same as nobody having said`                                                                                                                              | `has('dev')` false where somebody recorded a 0 — 1035 pass, 1 fail                             |
-| F11  | the structure                                                                                      | —         | —                                                                                                                                                                                                 | _not yet run_ (section 6, and 5.2–5.3)                                                         |
+| F11a | `.filter(([, byRole]) => byRole.size > 0)` struck from `tree()`'s `measures`                       | `eee3826` | all seven of `the figures that are not days, read back through the tree` **and** three identity-oracle cases across two files                                                                      | every row carries three empty metrics — 1033 pass, **10** fail                                 |
+| F11b | `MEASURE_METRICS` narrowed to `MEASURE_METRICS.slice(0, 1)` in the same fold                       | `eee3826` | `answers a leaf's own figures, metric first and then role` **and** three more of the same block                                                                                                    | two of three units missing from the wire — 1039 pass, **4** fail                               |
+| F11  | the structure                                                                                      | —         | —                                                                                                                                                                                                 | _not yet run_ (section 6)                                                                      |
 
 ### F8b: the fault that says the path segment is load-bearing
 
@@ -226,6 +228,43 @@ rather than the value, deliberately: `0` and `undefined` are both falsy, and a
 test that read the value would have passed under this fault while the payload
 lost the difference between "this role cost nothing" and "nobody has said".
 
+### F11a: the identity oracles are what stop a payload inventing a unit
+
+The one worth the injection in 5.2/5.3, and it is worth it for **where** it went
+red rather than for how loudly. Striking the `size > 0` filter makes `measures`
+carry `{token_estimate: {}, token_actual: {}, hours_actual: {}}` on every row of
+every plan — nothing wrong per role, no number changed, and a screen rendering it
+would show three empty columns where a reader is owed none. **1033 pass / 10
+fail** at `eee3826`: the seven new cases in `measure.test.ts`, and then **three
+cases in `capacity-migration-identity.test.ts` and
+`priority-band-identity.test.ts`** that know nothing about this change at all.
+
+That is 5.3's whole argument, and the argument is about the lift rather than the
+assertion. Both oracles compare a whole payload against a capture taken before
+`role_measure` existed, so the new key has to come **off** every row or sixteen
+replayed plans fail on a field nobody moved a date with. A bare lift would have
+done that and left the hole: a read path that invented a unit would pass sixteen
+plans silently, because the key it invented was being dropped before the
+comparison. `expect(measures).toEqual({})` is what closes it, and F11a is the
+fault that proves the closing is real rather than decorative — the same shape
+`team-sets` established for `teamIds` and `actual-days` for `actuals`.
+
+### F11b: and the fault the oracles cannot see
+
+Recorded because it did **not** redden everything, which is the more useful half.
+`MEASURE_METRICS.slice(0, 1)` leaves only `token_estimate` reaching the wire:
+every recorded hour and every recorded token-actual in the project vanishes from
+the payload with nothing thrown, nothing logged and no figure wrong. **1039 pass
+/ 4 fail**, all four in `measure.test.ts` — and **both identity oracles stay
+green**, because their sixteen plans have no measures recorded in them, so a read
+path that omits two units answers exactly what a read path that has none does.
+
+So the oracles watch **invention** and are blind to **omission**, and the two
+faults together say which file is load-bearing for which failure. The corpus can
+only ever prove that a change added nothing; only a case that records a figure
+and reads it back can prove the payload carries what it was given. Worth knowing
+before section 6 leans on the same corpus for the structural moves.
+
 ## The gate
 
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
@@ -253,6 +292,28 @@ Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 | `4b071b6`                                  | `nx format:check --all`                  | exit 0                                                  |
 | `8868d6d` (5.1, `rollUpMeasures`)          | `nx run-many -t test lint typecheck`     | **1036 pass / 0 fail**, 28,179 expect() calls, 75 files |
 | `8868d6d`                                  | `nx format:check --all`                  | exit 0, red first (line wrapping)                       |
+| `7015af5` (5.2/5.3, the payload)           | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,640 expect() calls, 75 files |
+| `7015af5`                                  | `nx run-many -t lint typecheck --all`    | **exit 1** — see below                                  |
+| `eee3826` (the lint fix)                   | `nx run-many -t lint typecheck --all`    | exit 0, 22 projects                                     |
+| `eee3826`                                  | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,641 expect() calls, 75 files |
+| `eee3826`                                  | `nx format:check --all`                  | exit 0, first time                                      |
+
+`--all` on lint/typecheck rather than `-p be-01`, because 5.2 widens a type
+`broadcast.ts` builds and fe-01 reads through the wire. It found the one red of
+this chunk, and in a **test** file: `measure.test.ts:406` wrote
+`measured.hours_actual ?? {}` inside the zero case, and
+`no-unnecessary-condition` is right — the field's type is
+`Record<string, Record<string, number>>`, so the left side cannot be nullish and
+the fallback was dressing up an assertion as a guard. Rewritten as two
+`Object.hasOwn` calls, which is what the case was actually claiming. Worth
+noting for the trap chunk 6 recorded: `be-01:typecheck` builds
+`tsconfig.lib.json` and **excludes** `.test.ts`, so lint is the only thing
+reading these files at all.
+
+The content gated was proved identical to the commit rather than assumed:
+`sha1sum` on both boxes before the numbers were read, and again after each
+injection was reverted (`1242b10` for `work-item.service.ts`, `342cd3e` for
+`measure.test.ts`, `git status --porcelain` empty).
 
 **Read the test count, not only the pass line.** Chunk 2 gated in `~/wbs-build`
 against a tracking ref stranded at PR #17 and got a green **57 tests across 14
@@ -278,4 +339,15 @@ sentence that checks it rather than the one that claims it.
   comes from gets resolved and stated here rather than quoted from memory.
 - The migrations have not been run through the real `migrate` / `migrate-down`
   CLIs against a snapshot of the dev database. Section 8.2.
-- Sections 2–7.
+- **`NumberedWorkItem` under-declares the payload, and it predates this change.**
+  `actuals`, `progress` and `state` have been on every row of `tree()` since
+  `actual-days` and `role-progress` and are on **no** interface: the object
+  literal in `tree()` is built by `rows.map(...)`, whose result is not a literal,
+  so excess-property checking never runs on it. 5.2 declares `measures` properly
+  and deliberately does **not** widen the other three — each belongs to a merged
+  change, and adding three required fields to a type `broadcast.ts` also builds
+  is a typecheck-surface change that deserves its own gate rather than a ride on
+  this one. Recorded here because the two identity oracles **destructure all
+  four** and only pass because `be-01:typecheck` excludes `.test.ts`: the fields
+  are checked by nothing at all today.
+- Sections 6–7.
