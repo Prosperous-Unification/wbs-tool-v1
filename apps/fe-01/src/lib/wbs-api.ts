@@ -1199,9 +1199,38 @@ function isNamed(value: unknown): value is { id: string; name: string } {
   return isRecord(value) && typeof value['id'] === 'string' && typeof value['name'] === 'string';
 }
 
+/**
+ * One arm of {@link DirectoryEffect}, as it really arrives.
+ *
+ * Every arm the type declares is answered here, and the reason is a defect
+ * found on dev 2026-08-21: this guard knew three of five, so a tag or a service
+ * that labelled any row came back from be-01 with a correct
+ * `409 in_use`+`usage`, failed the parse on its one `label_removed`, and fell
+ * through to the throw below — the generic refusal banner, no confirmation
+ * dialog, and therefore no way to reach the `?cascade=true` second ask. An
+ * entry nothing could remove, from a payload nothing was wrong with.
+ *
+ * `capacity_released` was unknown to it too and had simply never been sent by a
+ * case: a team on a project carrying a capacity would have been as unremovable
+ * as the tag. `directory-page.tsx` has had a sentence for both arms since each
+ * landed — the page could always *say* it, this could never *read* it.
+ *
+ * The arms are answered in the order the type declares them, and
+ * `wbs-api.test.ts` sends one payload per arm off a `Record` keyed by the
+ * union's own `kind`, so a sixth arm fails the typecheck there until it is
+ * given one.
+ */
 function isDirectoryEffect(value: unknown): value is DirectoryEffect {
   if (!isRecord(value)) return false;
   if (value['kind'] === 'label_nulled') return true;
+  if (value['kind'] === 'label_removed') return true;
+  if (value['kind'] === 'capacity_released') {
+    // Both fields checked, because the sentence prints both: a `size` that
+    // arrived as a string would reach the page as "no longer limited to 4 at a
+    // time" spelled from something that is not a number, and a missing
+    // `fromId` would take the inherited-limit sentence's whole subject with it.
+    return typeof value['size'] === 'number' && typeof value['fromId'] === 'string';
+  }
   if (value['kind'] === 'assignment_dropped') return isNamed(value['role']);
   if (value['kind'] === 'assumed_assignee_changed') {
     // Both, and present: `undefined` fails this, so a payload that dropped the
