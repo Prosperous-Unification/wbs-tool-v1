@@ -65,6 +65,14 @@ export function inMemoryWorkItems(
    * where the patch names one.
    */
   const tagsOf = new Map<string, readonly string[]>();
+  /**
+   * The service sets, `tagsOf`'s shape and for its reason: since task 10.2 the
+   * dimension is `work_item_service` and there is no column to derive it from.
+   * `work_item.service_id` is still on the row below and is still written by
+   * this fixture, exactly as the real store leaves it standing — and, exactly as
+   * the real store, nothing here reads it back.
+   */
+  const servicesOf = new Map<string, readonly string[]>();
 
   /** The join rows one write owes, as `WorkItemRepository` derives them. */
   const joinFor = (row: WorkItem): readonly string[] =>
@@ -87,6 +95,7 @@ export function inMemoryWorkItems(
             ...row,
             teamIds: teamsOf.get(row.id) ?? [],
             tagIds: tagsOf.get(row.id) ?? [],
+            serviceIds: servicesOf.get(row.id) ?? [],
           })),
       );
     },
@@ -107,10 +116,14 @@ export function inMemoryWorkItems(
         const held = await teams.listTeams();
         if (!held.some((each) => each.id === wanted)) return { ok: false, reason: 'unknown_team' };
       }
-      const wantedService = patch.serviceId;
-      if (teams !== undefined && wantedService !== undefined && wantedService !== null) {
+      const wantedServices = patch.serviceIds;
+      if (teams !== undefined && wantedServices !== undefined && wantedServices.length > 0) {
         const held = await teams.listServices();
-        if (!held.some((each) => each.id === wantedService)) {
+        // Every named id, and counted against the **distinct** ones — the real
+        // store's rule, mirrored so a repeated id passes here exactly as it
+        // passes there. One unknown member refuses the whole patch.
+        const distinct = new Set(wantedServices);
+        if ([...distinct].some((each) => !held.some((one) => one.id === each))) {
           return { ok: false, reason: 'unknown_service' };
         }
       }
@@ -129,16 +142,14 @@ export function inMemoryWorkItems(
         priority: patch.priority === undefined ? existing.priority : patch.priority,
         serviceTeamId:
           patch.serviceTeamId === undefined ? existing.serviceTeamId : patch.serviceTeamId,
-        // `null` **clears** where the parallelism below resets: the real column
-        // is nullable and null is unstated, so taking the service off is a
-        // value and not an absence. `?? existing` would make the two the same
-        // and quietly leave the label on.
-        //
-        // Found by a controller test rather than by reading: without this line
-        // the fixture dropped every service a patch named, so a route test
-        // could watch a 200 come back and the column never move. The lax-mirror
-        // fault this file's other notes warn about, one dimension over.
-        serviceId: patch.serviceId === undefined ? existing.serviceId : patch.serviceId,
+        // **Left where it stands**, which is task 10.2's rule and the reverse of
+        // what this line used to do: the column is the outgoing release's copy
+        // and the join is the fact, so a patch moves the set and never this.
+        // Writing it from the patch would make the fixture laxer than the store
+        // in the direction that matters least and stricter in the one that
+        // matters most — a test could watch the column follow a set it cannot
+        // hold.
+        serviceId: existing.serviceId,
         // `null` is **back to one at a time**, not "no answer": the real column
         // is `NOT NULL` and would refuse a null outright, so a fixture that
         // stored one would be laxer than the schema it stands for and would let
@@ -165,6 +176,11 @@ export function inMemoryWorkItems(
       // Only where the patch names the label, as the repository's own
       // transaction does: a rename must leave the join alone.
       if (patch.serviceTeamId !== undefined) teamsOf.set(id, joinFor(updated));
+      // The service set, whole and deduplicated, only where the patch names the
+      // dimension — the real store's write, mirrored. `[]` is written as an
+      // empty set rather than a delete so a later read answers the same either
+      // way, which is what `listByProject`'s `?? []` above already means.
+      if (wantedServices !== undefined) servicesOf.set(id, [...new Set(wantedServices)]);
       return { ok: true, workItem: updated };
     },
     move(id, parentId, position, respaced) {
@@ -196,6 +212,7 @@ export function inMemoryWorkItems(
       for (const id of [...ids].reverse()) {
         byId.delete(id);
         teamsOf.delete(id);
+        servicesOf.delete(id);
       }
       return Promise.resolve();
     },

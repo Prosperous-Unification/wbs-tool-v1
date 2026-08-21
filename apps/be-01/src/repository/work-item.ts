@@ -223,7 +223,7 @@ export class WorkItemRepository implements WorkItemStore {
       // no-field branch, writes nothing and answers `ok` with the row it found
       // — every face reporting a write that never happened, which is the tag
       // line's own red one dimension over. Watched 2026-08-21; see the log.
-      patch.serviceId === undefined &&
+      patch.serviceIds === undefined &&
       patch.maxParallel === undefined &&
       // Proof: this line missing is how the tag write path was first written,
       // and all six cases in `a tag set is undone whole, which a scalar habit

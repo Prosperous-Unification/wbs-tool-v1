@@ -936,19 +936,21 @@ export interface ProjectApi {
        */
       tagIds?: readonly string[];
       /**
-       * The service this row is delivered by, or `null` to take the label off.
+       * The services this row delivers, **whole**: the set as it will stand, not
+       * a delta against the one that is there.
        *
-       * A `null` arm where `tagIds` has none, and the difference is the schema
-       * rather than the surface: this is one nullable column on `work_item`
-       * (D2), so "no service" is a value it can hold. Absent leaves it alone —
-       * which is why the cell that clears it sends `null` rather than omitting
-       * the field.
+       * No `null` arm, and `tagIds`' rule rather than its own since task 10.2:
+       * the store is `work_item_service` and not a nullable column (D2 as
+       * amended), so "no services" is the empty array and a null would be a
+       * second spelling of it. Absent leaves the dimension alone — which is why
+       * the cell that clears it sends `[]` rather than omitting the field.
        *
        * Refused with a 404 (`unknown_service`) for an id the directory does not
-       * carry, decided inside be-01's own write transaction, `unknown_tag`'s
-       * rule one dimension over.
+       * carry — the **whole** patch, rename included — decided inside be-01's own
+       * write transaction, `unknown_tag`'s rule one dimension over. At most 10
+       * ids.
        */
-      serviceId?: string | null;
+      serviceIds?: readonly string[];
     },
   ): Promise<void>;
   /** The global team list, and adding to it — idempotent by name at be-01. */
