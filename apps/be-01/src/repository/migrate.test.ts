@@ -2850,7 +2850,12 @@ describe('the service migration', () => {
       runMigrations(db.path, FOLDER);
       seeded(db.path);
 
-      expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([PERSON_KIND, ROLE_MEASURE, WORK_ITEM_SERVICE, SERVICE]);
+      expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([
+        PERSON_KIND,
+        ROLE_MEASURE,
+        WORK_ITEM_SERVICE,
+        SERVICE,
+      ]);
       for (const t of SERVICE_TABLES) expect(tables(db.path)).not.toContain(t);
 
       const after = openDatabase(db.path);
@@ -2977,7 +2982,11 @@ describe('the work-item-service migration', () => {
    */
   function atTheColumnOnly(dbPath: string): void {
     runMigrations(dbPath, FOLDER);
-    expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([PERSON_KIND, ROLE_MEASURE, WORK_ITEM_SERVICE]);
+    expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([
+      PERSON_KIND,
+      ROLE_MEASURE,
+      WORK_ITEM_SERVICE,
+    ]);
   }
 
   it('carries every stated service across, and gives the inheriting row nothing', () => {
@@ -3116,7 +3125,11 @@ describe('the work-item-service migration', () => {
         sqlite.close();
       }
 
-      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([PERSON_KIND, ROLE_MEASURE, WORK_ITEM_SERVICE]);
+      expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([
+        PERSON_KIND,
+        ROLE_MEASURE,
+        WORK_ITEM_SERVICE,
+      ]);
       for (const t of WORK_ITEM_SERVICE_TABLES) expect(tables(db.path)).not.toContain(t);
 
       const after = openDatabase(db.path);
@@ -3486,7 +3499,9 @@ describe('the person kind migration', () => {
       db.run("INSERT INTO person (id, name) VALUES ('pe2', 'Bob')");
       db.run("INSERT INTO person_team (person_id, service_team_id) VALUES ('pe1', 't1')");
       db.run("INSERT INTO person_team (person_id, service_team_id) VALUES ('pe2', 't1')");
-      db.run("INSERT INTO assignment (work_item_id, role_id, person_id) VALUES ('w1', 'r1', 'pe1')");
+      db.run(
+        "INSERT INTO assignment (work_item_id, role_id, person_id) VALUES ('w1', 'r1', 'pe1')",
+      );
     } finally {
       db.close();
     }
@@ -3495,8 +3510,7 @@ describe('the person kind migration', () => {
   function counts(dbPath: string): { people: number; memberships: number; assignments: number } {
     const db = openDatabase(dbPath);
     try {
-      const one = (sql: string): number =>
-        db.query<{ n: number }, []>(sql).get()?.n ?? -1;
+      const one = (sql: string): number => db.query<{ n: number }, []>(sql).get()?.n ?? -1;
       return {
         people: one('SELECT COUNT(*) AS n FROM person'),
         memberships: one('SELECT COUNT(*) AS n FROM person_team'),
@@ -3522,7 +3536,9 @@ describe('the person kind migration', () => {
       const sqlite = openDatabase(db.path);
       try {
         expect(
-          sqlite.query<{ id: string; kind: string }, []>('SELECT id, kind FROM person ORDER BY id').all(),
+          sqlite
+            .query<{ id: string; kind: string }, []>('SELECT id, kind FROM person ORDER BY id')
+            .all(),
         ).toEqual([
           { id: 'pe1', kind: 'person' },
           { id: 'pe2', kind: 'person' },
@@ -3610,7 +3626,8 @@ describe('the person kind migration', () => {
       try {
         sqlite.run("INSERT INTO person (id, name) VALUES ('pe3', 'Cy')");
         expect(
-          sqlite.query<{ kind: string }, []>("SELECT kind FROM person WHERE id = 'pe3'").get()?.kind,
+          sqlite.query<{ kind: string }, []>("SELECT kind FROM person WHERE id = 'pe3'").get()
+            ?.kind,
         ).toBe('person');
       } finally {
         sqlite.close();
@@ -3692,9 +3709,10 @@ describe('the person kind migration', () => {
         // the index is the one that looks green here and is not.
         expect(
           after
-            .query<{ name: string }, []>(
-              "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'person_name'",
-            )
+            .query<
+              { name: string },
+              []
+            >("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'person_name'")
             .all(),
         ).toEqual([{ name: 'person_name' }]);
       } finally {
