@@ -99,7 +99,9 @@ the case that failed and the message it failed on.
 | F10b | a **recorded** zero dropped on the way in (`if (held.value !== 0) byRole.set(…)`)                  | `8868d6d` | `keeps a recorded zero, which is not the same as nobody having said`                                                                                                                              | `has('dev')` false where somebody recorded a 0 — 1035 pass, 1 fail                             |
 | F11a | `.filter(([, byRole]) => byRole.size > 0)` struck from `tree()`'s `measures`                       | `eee3826` | all seven of `the figures that are not days, read back through the tree` **and** three identity-oracle cases across two files                                                                     | every row carries three empty metrics — 1033 pass, **10** fail                                 |
 | F11b | `MEASURE_METRICS` narrowed to `MEASURE_METRICS.slice(0, 1)` in the same fold                       | `eee3826` | `answers a leaf's own figures, metric first and then role` **and** three more of the same block                                                                                                   | two of three units missing from the wire — 1039 pass, **4** fail                               |
-| F11  | the structure                                                                                      | —         | —                                                                                                                                                                                                 | _not yet run_ (section 6)                                                                      |
+| F12a | `measured.length > 0` struck from `RoleRepository.remove`'s `in_use` condition                      | `38c17ec` | `counts the figures that are not days, and refuses an unconfirmed removal of a role that holds only those` **and** `carries the figures that are not days into the refusal it shows a person`     | a role whose only usage is two token figures is removed unconfirmed — 1050 pass, **2** fail    |
+| F12b | `tx.delete(roleMeasure)` struck from the same transaction                                          | `38c17ec` | `deletes the figures that are not days with the role it confirmed, moving the work items that lost one`                                                                                           | `SQLITE_CONSTRAINT_FOREIGNKEY` out of the transaction — a **500** — 1051 pass, 1 fail          |
+| F12c | `eq(roleMeasure.metric, taken.metric)` struck from `insertSubtree`'s `removedMeasures` delete      | `38c17ec` | `takes off only the metric a restore names, and leaves the pair's other figure`                                                                                                                   | a restore takes the parent's hours away with the tokens — 1051 pass, 1 fail                    |
 
 ### F8b: the fault that says the path segment is load-bearing
 
@@ -265,6 +267,30 @@ only ever prove that a change added nothing; only a case that records a figure
 and reads it back can prove the payload carries what it was given. Worth knowing
 before section 6 leans on the same corpus for the structural moves.
 
+### F12c: the fault chunk 12 could not reach, and the seam that reaches it
+
+Chunk 12 wrote a case for `removedMeasures`' triple key, watched it fail on its
+own setup, and deleted it — no path through `WorkItemService` can put a parent
+in the state the fault needs. The hand-down empties the parent the moment it
+gains a child, `setMeasure` refuses a work item that has children, and recording
+on the parent while it is briefly a leaf again makes the undo refuse on the
+revision. So at restore time everything the parent holds came from the hand-up,
+the pair and the triple delete the same rows, and a case at the service seam is
+green whichever `where` the repository was written with.
+
+**The repository takes the command as given**, so it can be handed the state the
+service cannot produce: a pair holding a `token_estimate` and an `hours_actual`,
+and a `removedMeasures` naming only the first. F12c strikes
+`eq(roleMeasure.metric, taken.metric)` and reddens **exactly one case** — the
+new one. The failure it describes is a restore taking an hours fact off a parent
+that has held it since before the delete, because a token estimate came home.
+
+What this says beyond the one key: **a fault's reachability is a property of the
+seam, not of the fault.** Chunk 12's conclusion — "nothing observable would go
+red if it were wrong" — was true of every seam it had tried and false of the
+repository, and the difference cost one chunk. Where a rule lives in a `where`
+clause, the layer that writes the clause is where the rule can be watched.
+
 ## The gate
 
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
@@ -339,8 +365,15 @@ sentence that checks it rather than the one that claims it.
   comes from gets resolved and stated here rather than quoted from memory.
 - The migrations have not been run through the real `migrate` / `migrate-down`
   CLIs against a snapshot of the dev database. Section 8.2.
-- **`removedMeasures`' triple key is unproven, and no reachable path can prove
-  it.** The `where` in `insertSubtree` names the metric so that a restore takes
+- ~~**`removedMeasures`' triple key is unproven, and no reachable path can prove
+  it.**~~ **Closed in chunk 13** by the repository-seam case this entry asked
+  for: `takes off only the metric a restore names, and leaves the pair's other
+  figure` hands `insertSubtree` a `removedMeasures` naming one metric of a pair
+  that holds two, and **F12c reddens it and nothing else**. The reasoning below
+  is why the proof had to live at that seam rather than in `undo.test.ts`, and
+  stands as written.
+- **The original entry, kept:** **`removedMeasures`' triple key is unproven, and
+  no reachable path can prove it.** The `where` in `insertSubtree` names the metric so that a restore takes
   off only the figure the hand-up put on; keyed by the pair it would take the
   parent's own figures with it. The case that would say so fails on its own
   setup: the hand-down empties the parent when it gains a child, `setMeasure`
@@ -362,4 +395,14 @@ sentence that checks it rather than the one that claims it.
   this one. Recorded here because the two identity oracles **destructure all
   four** and only pass because `be-01:typecheck` excludes `.test.ts`: the fields
   are checked by nothing at all today.
-- Sections 6–7.
+- **`role_measure` has no by-role index, and two counts now scan it.**
+  `RoleRepository.usageOf` and `RoleRepository.remove` both ask "what does this
+  role hold", and `actual` and `role_progress` each carry an index built for
+  exactly that question (`actual_by_role`, `role_progress_by_role`). This table
+  carries only its primary key's autoindex, which leads with the work item, so
+  both reads are a scan of one deployment's figures. Correctness is unaffected
+  and the volume is small today. **Filed rather than fixed** because an index is
+  a migration, and a fifth migration inside this change would ride on a gate
+  built for the role removal — it deserves its own, with the ordering lists in
+  both directions that `migrate.test.ts` keeps.
+- Section 7.
