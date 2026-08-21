@@ -31,6 +31,8 @@
       "@wbs/domain/workday": ["libs/domain/src/workday.ts"],
       "@wbs/domain/effective-team": ["libs/domain/src/effective-team.ts"],
       "@wbs/domain/effective-tag": ["libs/domain/src/effective-tag.ts"],
+      "@wbs/domain/effective-service": ["libs/domain/src/effective-service.ts"],
+      "@wbs/domain/label-mismatch": ["libs/domain/src/label-mismatch.ts"],
       "@wbs/domain/priority-band": ["libs/domain/src/priority-band.ts"],
       "@wbs/gw-01": ["apps/gw-01/src/index.ts"],
       "@wbs/observability": ["libs/observability/src/index.ts"],
