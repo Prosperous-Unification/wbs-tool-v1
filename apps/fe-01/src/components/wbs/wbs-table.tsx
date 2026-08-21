@@ -3206,10 +3206,23 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   /**
    * The third dimension's reading — one walk, memoised, over the same rows.
    *
-   * Single-valued out where the two above hand back sets, which is the column
-   * showing through and not a difference in the rule (`effectiveServicesOf`).
+   * A set out, like the two above, since the 2026-08-21 scope change. The
+   * store is still one nullable column until a later chunk of this change
+   * migrates it, so the fold to a singleton happens here, at the one edge that
+   * knows the column exists — `effectiveServicesOf` is asked a set-shaped
+   * question and cannot tell. When `WorkItemView` carries `serviceIds`, this
+   * `.map` is the line that goes.
    */
-  const effectiveServices = useMemo(() => effectiveServicesOf(flat), [flat]);
+  const effectiveServices = useMemo(
+    () =>
+      effectiveServicesOf(
+        flat.map((row) => ({
+          ...row,
+          serviceIds: row.serviceId === null ? [] : [row.serviceId],
+        })),
+      ),
+    [flat],
+  );
   /**
    * Which services each team is responsible for, from the directory's ownership
    * map — the shape `builtByNonOwner` asks for, built once instead of per row.
@@ -3338,8 +3351,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    *
    * {@link effectiveTeamLabelOf}'s shape, third dimension over, and off
    * `effectiveServices` — `libs/domain`'s walk — rather than a second reading
-   * of the tree. No `at(0)`: the team's is there because its write path still
-   * sends one of a set, and this dimension has one by construction (D2).
+   * of the tree.
+   *
+   * **Still one name, while the store is still one column.** The walk hands
+   * back a set since the 2026-08-21 scope change, but the fold at
+   * `effectiveServices` puts in a set of nought or one, so what comes out has
+   * at most one member and this reads the whole answer rather than the first of
+   * several. The chunk that migrates the column to a join table widens this to
+   * the team cell's `names` shape; the `ServiceLabel` alias already carries the
+   * four states that needs.
    */
   const effectiveServiceLabelOf = (row: TreeRow): ServiceLabel => {
     const nameOf = (id: string): { name: string } | undefined =>
@@ -3350,7 +3370,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     }
     const inherited = effectiveServices.get(row.id);
     if (inherited === undefined) return { state: 'none' };
-    const named = nameOf(inherited.serviceId);
+    // `only` cannot be `undefined` — a row absent from the map is the `none`
+    // above, and the walk never stores an empty set (`EffectiveServices`). The
+    // arm is here because the index signature says it could be, and answering
+    // `none` is the one answer that states nothing untrue if it ever is.
+    const [only] = inherited.serviceIds;
+    if (only === undefined) return { state: 'none' };
+    const named = nameOf(only);
     if (named === undefined) return { state: 'unresolved' };
     return {
       state: 'inherited',
@@ -3420,7 +3446,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         // them per signal is how a filter and the marker beside it start to
         // answer two different questions about one row.
         const teamIds = effectiveTeams.get(row.id)?.teamIds ?? [];
-        const serviceId = effectiveServices.get(row.id)?.serviceId ?? null;
+        const serviceIds = effectiveServices.get(row.id)?.serviceIds ?? [];
         // Deduplicated: one person on three phases is one person to filter
         // by, and `includes` over a list with them in it three times is the
         // same answer paid for three times on every keystroke.
@@ -3449,7 +3475,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // team can be caught not owning. Chunk 8 could not observe this and
             // said so; what changed is 6.3's facet control, which is the surface
             // that drives the read.
-            serviceId,
+            serviceIds,
             // The two signals, computed here and at their **real site** — the
             // one place in the app that answers them per row, which is what
             // makes task 6.2's stored-instead-of-effective fault a production
@@ -3457,7 +3483,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // record of 5.2). `libs/domain/src/label-mismatch.ts` owns both
             // rules; this hands them the effective reading and the directory's
             // two maps, and holds no rule of its own.
-            builtByNonOwner: builtByNonOwner({ serviceId, teamIds, ownedServicesByTeam }),
+            builtByNonOwner: builtByNonOwner({ serviceIds, teamIds, ownedServicesByTeam }),
             assignedOutsideTeam: assignedOutsideTeam({ assigneeIds, teamIds, teamsByPerson }),
             assigneeIds,
             // Null and not a band: a row nobody has prioritised carries no rung,
@@ -3577,7 +3603,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * The services the rows on this plan are **effectively** delivered by, plus
    * whatever is already ticked.
    *
-   * Off `row.facets.serviceId` and so off the effective reading, which is what
+   * Off `row.facets.serviceIds` and so off the effective reading, which is what
    * makes the offered list match what ticking one will find: a plan whose only
    * stored service sits on a parent still offers it, because every child under
    * that parent answers to it.
@@ -3586,9 +3612,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     () =>
       optionsFor(
         new Set(
-          narrowable.flatMap((row) =>
-            row.facets.serviceId === null ? [] : [row.facets.serviceId],
-          ),
+          narrowable.flatMap((row) => row.facets.serviceIds),
         ),
         facets.serviceIds,
         (id) =>

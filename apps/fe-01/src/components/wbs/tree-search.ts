@@ -45,13 +45,13 @@ export interface RowFacets {
    * What this row delivers — the **effective**, inherited reading
    * (`effectiveServicesOf`), never `work_item.service_id` straight off the row.
    *
-   * The same rule as `teamIds` and `tagIds` above, and single-valued where they
-   * are lists because the column is (design.md D2): a row is delivered by one
-   * service, and `null` is nobody having said. The predicate treats it as a set
-   * of nought or one, so widening the cardinality later is this field and that
-   * one line rather than a rewrite of the filter.
+   * The same rule and now the same shape as `teamIds` and `tagIds` above — a
+   * set, empty where nobody above this row has said (Dany, 2026-08-21, "can be
+   * several services"). It was a single nullable id until chunk 12, and the
+   * predicate below already treated it as a set of nought or one, which is why
+   * widening it cost this field and one line.
    */
-  serviceId: string | null;
+  serviceIds: readonly string[];
   /**
    * Whether the teams doing this row's work own the service it delivers —
    * `builtByNonOwner` over the effective reading of both, against the
@@ -359,15 +359,12 @@ export function narrowTree(
     // {@link RowFacets.tagIds}. Pointed at a row's own stored labels this finds
     // the parent and loses every child under it.
     carriesAnyChosen(criteria.tagIds, row.facets.tagIds) &&
-    // A set of nought or one, out of a single-valued field — the same
-    // conversion `effectiveServicesOf` makes at its own edge, and against
-    // `row.facets.serviceId`, which is the **effective** reading. Pointed at
-    // the row's own stored column this finds the parent that states a service
-    // and loses every child delivering it by inheritance (task 6.2).
-    carriesAnyChosen(
-      criteria.serviceIds,
-      row.facets.serviceId === null ? [] : [row.facets.serviceId],
-    ) &&
+    // Against `row.facets.serviceIds`, the **effective** reading, and now a set
+    // like the two above it. Pointed at the row's own stored column this finds
+    // the parent that states a service and loses every child delivering it by
+    // inheritance (task 6.2). `carriesAnyChosen` is an intersection, so a row
+    // delivering two services answers to a tick on either.
+    carriesAnyChosen(criteria.serviceIds, row.facets.serviceIds) &&
     carriesAnyChosen(criteria.assigneeIds, row.facets.assigneeIds) &&
     carriesAnyChosen(
       criteria.priorityBands,

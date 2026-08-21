@@ -8,34 +8,35 @@ import { effectiveLabelsOf } from './effective-label';
  * {@link TagsLabelled}'s reason — the point of this module is that both sides
  * read the same rule.
  *
- * `serviceId` is **single-valued and nullable**, which is where this dimension's
- * row shape differs from the other two: a work item is delivered by one service
- * (design.md D2), so the store holds a column rather than a join table. `null`
- * is _unstated_ — the state that inherits — and there is deliberately no third
- * "deliberately no service" state, for the reason there is none for teams or
- * tags (Dany, 2026-08-13, Q4).
+ * `serviceIds` is a **set**, the `tagIds` shape (Dany, 2026-08-21 07:46 — "can
+ * be several services"). Empty is _unstated_ — the state that inherits — and
+ * there is deliberately no third "deliberately no service" state, for the
+ * reason there is none for teams or tags (Dany, 2026-08-13, Q4).
+ *
+ * This field was `serviceId: string | null` until chunk 12, when the scope
+ * change landed. The walk underneath never moved: it was set-shaped all along
+ * and the single column went in as a singleton, which is why widening it is
+ * this interface, the two conversions below, and nothing else in the
+ * inheritance.
  */
 export interface ServiceLabelled {
   id: string;
   parentId: string | null;
-  serviceId: string | null;
+  serviceIds: readonly string[];
 }
 
-/** Which service delivers this row, and which row said so. */
+/** Which services deliver this row, and which row said so. */
 export interface EffectiveServices {
   /**
-   * The service in force for this row: the one the nearest stating row carries.
+   * The services in force for this row: the ones the nearest stating row
+   * carries.
    *
-   * A single id rather than a set, because the column is single-valued — the
-   * set lives one layer down, inside the walk, and never surfaces. Widening the
-   * cardinality later changes this field and the two lines that build it, not
-   * the inheritance.
-   *
-   * Never null. A row with no service anywhere above it is absent from the map
+   * Never empty. A row with no service anywhere above it is absent from the map
    * instead, so "unstated" has one spelling here as it does in the other two
-   * dimensions.
+   * dimensions — and a reader who finds an entry knows somebody stated
+   * something.
    */
-  serviceId: string;
+  serviceIds: readonly string[];
   /**
    * The row that carries the service — this row itself, or the nearest ancestor
    * above it that states one.
@@ -63,11 +64,18 @@ export class ServiceAncestryCycleError extends Error {
  * spelled only as absence from the map. The walk is literally the same code, in
  * `effective-label.ts`, and every proof comment about its faults is there.
  *
- * **Set-shaped inside, single-valued outside** (design.md D2). The column goes
- * in as a singleton set and the answer comes back out of one, so the walk that
- * the other two dimensions share needs no special case for the one dimension
- * that stores a column. Widening to many services per item is then a migration
- * and these two conversions, not a redesign of the inheritance.
+ * **Set-shaped throughout**, since the 2026-08-21 scope change. It was
+ * set-shaped inside and single-valued at the edges before it, which is why the
+ * widening cost the two conversions below and nothing in the walk. The store is
+ * still one nullable column at the time of writing — `work_item.service_id`,
+ * design.md D2 — and the migration to a join table is a later chunk of this same
+ * change; until it lands the caller folds its column into a singleton and this
+ * function cannot tell the difference, which is the point.
+ *
+ * **Override, not union, still** — and it is worth saying out loud now that the
+ * answer is a set: a row stating `[Payments]` under a parent stating `[Checkout,
+ * Search]` delivers `[Payments]` alone. The set is the cardinality of one row's
+ * statement, never an accumulation down the tree.
  *
  * **Per dimension, independently**, which three dimensions make easier to doubt
  * and no less true: a row stating a service and no teams inherits its ancestor's
@@ -90,12 +98,8 @@ export function effectiveServicesOf(
 ): Map<string, EffectiveServices> {
   return effectiveLabelsOf(
     rows,
-    (row) => (row.serviceId === null ? [] : [row.serviceId]),
-    // `labelIds[0]` is always there: `effectiveLabelsOf` calls `wrap` only for a
-    // set it has already found non-empty, and the only set this dimension puts
-    // in is the singleton above. The other member of that pair is the `[]` for a
-    // null column, which never reaches here.
-    ({ labelIds, fromId }) => ({ serviceId: labelIds[0], fromId }),
+    (row) => row.serviceIds,
+    ({ labelIds, fromId }) => ({ serviceIds: labelIds, fromId }),
     (startedAt) => new ServiceAncestryCycleError(startedAt),
   );
 }

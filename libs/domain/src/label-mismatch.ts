@@ -31,15 +31,18 @@
  */
 export interface BuiltByNonOwnerAsked {
   /**
-   * The service in force for this row — `effectiveServicesOf`'s answer, or
-   * `null` where no row above it states one.
+   * The services in force for this row — `effectiveServicesOf`'s answer, or
+   * empty where no row above it states any.
    *
    * The **effective** reading, never `work_item.service_id` straight off the
    * row: a leaf inheriting `Payments` from its parent is delivering `Payments`,
    * and a signal reading the stored column would fall silent exactly where the
    * inheritance is doing the work.
+   *
+   * A set since the 2026-08-21 scope change ("can be several services"), which
+   * is what makes the rule below an **any** rather than a lookup.
    */
-  serviceId: string | null;
+  serviceIds: readonly string[];
   /**
    * The teams in force for this row — `effectiveTeamsOf`'s answer, or empty
    * where no row above it states one.
@@ -65,12 +68,21 @@ export interface BuiltByNonOwnerAsked {
 }
 
 /**
- * Whether this row's work was built by a team that does not own the service it
- * delivers.
+ * Whether this row's work includes a service that none of the teams doing it
+ * own.
  *
- * True only when **both** facts are stated and they disagree: a service in
- * force, at least one team in force, and not one of those teams owning that
- * service. Everything else is false.
+ * True when **both** facts are stated and **at least one** service disagrees: a
+ * service in force that no team in force owns (Dany's scope change, 2026-08-21
+ * — "a row is built by a non-owner when at least one effective service is
+ * missing from the team's owned set"). Everything else is false.
+ *
+ * **Any rather than every**, and the choice is the same one
+ * {@link assignedOutsideTeam} already made one signal over: a row delivering
+ * `Payments` and `Search` where the team owns only `Search` is a row where
+ * somebody is building something they do not own, and a rule demanding *all*
+ * of them be unowned would go quiet on exactly the mixed case worth seeing.
+ * The two signals now read alike — some service unowned, some assignee outside
+ * — which is the one vocabulary the module was written for.
  *
  * **Absence is not a mismatch** — no service, or no team, and the answer is
  * false. This is a rule rather than a convenient default: a marker that lands
@@ -78,17 +90,33 @@ export interface BuiltByNonOwnerAsked {
  * covers most of a plan teaches its readers to stop seeing it, which is worse
  * than not having one.
  *
- * Any owner clears it. A row labelled with two teams, one of which owns the
- * service, was built by an owner — the question is whether the work sits inside
- * the ownership, not whether every team named on it owns the thing.
+ * Any owner clears a service. A row labelled with two teams, one of which owns
+ * the service, was built by an owner — the question is whether that service
+ * sits inside somebody's ownership, not whether every team named on the row
+ * owns it.
+ *
+ * **Which services** the marker names (task 7.2's hover sentence) is this same
+ * function over a one-element set, the trick {@link assignedOutsideTeam}
+ * documents and for its reason — one rule, one place to drift:
+ * `serviceIds.filter((id) => builtByNonOwner({ serviceIds: [id], teamIds,
+ * ownedServicesByTeam }))`.
  */
 export function builtByNonOwner({
-  serviceId,
+  serviceIds,
   teamIds,
   ownedServicesByTeam,
 }: BuiltByNonOwnerAsked): boolean {
-  if (serviceId === null || teamIds.length === 0) return false;
-  return !teamIds.some((teamId) => ownedServicesByTeam.get(teamId)?.includes(serviceId));
+  // The guard splits the way `assignedOutsideTeam`'s does, now that both sides
+  // are sets. The `serviceIds` half is a **statement of the rule rather than
+  // load-bearing code** — `.some` over an empty set already answers false — and
+  // stays so a reader meets the absence rule spelled the same way in both
+  // signals. The `teamIds` half *is* load-bearing: without it every service on
+  // a row nobody gave a team to reads as unowned, and the marker lands on the
+  // rows least worth marking.
+  if (serviceIds.length === 0 || teamIds.length === 0) return false;
+  return serviceIds.some(
+    (serviceId) => !teamIds.some((teamId) => ownedServicesByTeam.get(teamId)?.includes(serviceId)),
+  );
 }
 
 /**

@@ -10,12 +10,12 @@ interface Row extends ServiceLabelled, TeamsLabelled {}
 const row = (
   id: string,
   parentId: string | null,
-  labels: { teamIds?: readonly string[]; serviceId?: string | null } = {},
+  labels: { teamIds?: readonly string[]; serviceIds?: readonly string[] } = {},
 ): Row => ({
   id,
   parentId,
   teamIds: labels.teamIds ?? [],
-  serviceId: labels.serviceId ?? null,
+  serviceIds: labels.serviceIds ?? [],
 });
 
 const owned = (
@@ -42,10 +42,10 @@ function signalsFor(
   } = {},
 ): { builtByNonOwner: boolean; assignedOutsideTeam: boolean } {
   const teamIds = effectiveTeamsOf(rows).get(id)?.teamIds ?? [];
-  const serviceId = effectiveServicesOf(rows).get(id)?.serviceId ?? null;
+  const serviceIds = effectiveServicesOf(rows).get(id)?.serviceIds ?? [];
   return {
     builtByNonOwner: builtByNonOwner({
-      serviceId,
+      serviceIds,
       teamIds,
       ownedServicesByTeam: directory.ownedServicesByTeam ?? new Map(),
     }),
@@ -64,7 +64,7 @@ describe('builtByNonOwner', () => {
     // moves — the plan simply says who built what it does not own, which is the
     // whole of what Dany asked for (2026-08-20 23:18).
     const flagged = builtByNonOwner({
-      serviceId: 'payments',
+      serviceIds: ['payments'],
       teamIds: ['platform'],
       ownedServicesByTeam: owned({ platform: ['auth'] }),
     });
@@ -74,9 +74,38 @@ describe('builtByNonOwner', () => {
 
   it('does not flag a row whose team owns the service', () => {
     const flagged = builtByNonOwner({
-      serviceId: 'payments',
+      serviceIds: ['payments'],
       teamIds: ['platform'],
       ownedServicesByTeam: owned({ platform: ['auth', 'payments'] }),
+    });
+
+    expect(flagged).toBe(false);
+  });
+
+  it('flags a row delivering two services when the team owns only one of them', () => {
+    // The scope change's rule, in Dany's own terms (2026-08-21): a row is built
+    // by a non-owner when **at least one** effective service is missing from
+    // the team's owned set. Any rather than every — the mixed row is the one
+    // worth seeing, and a rule demanding every service be unowned would go
+    // quiet on exactly it while both cases above still passed.
+    const flagged = builtByNonOwner({
+      serviceIds: ['payments', 'search'],
+      teamIds: ['platform'],
+      ownedServicesByTeam: owned({ platform: ['payments'] }),
+    });
+
+    expect(flagged).toBe(true);
+  });
+
+  it('does not flag a row whose every service is owned, across two teams', () => {
+    // The other side of the any: each service needs *an* owner among the row's
+    // teams, and it need not be the same team for both. Two teams building
+    // together, between them owning everything the row delivers, is work
+    // sitting inside the ownership.
+    const flagged = builtByNonOwner({
+      serviceIds: ['payments', 'search'],
+      teamIds: ['platform', 'discovery'],
+      ownedServicesByTeam: owned({ platform: ['payments'], discovery: ['search'] }),
     });
 
     expect(flagged).toBe(false);
@@ -90,7 +119,7 @@ describe('builtByNonOwner', () => {
     // collaborate, which is the marker-covers-everything failure one step over
     // from the absence rule below.
     const flagged = builtByNonOwner({
-      serviceId: 'payments',
+      serviceIds: ['payments'],
       teamIds: ['design', 'platform'],
       ownedServicesByTeam: owned({ platform: ['payments'] }),
     });
@@ -104,7 +133,7 @@ describe('builtByNonOwner', () => {
     // has filled the map in" and "this team owns nothing" are the same fact
     // about the directory and get the same answer, deliberately.
     const flagged = builtByNonOwner({
-      serviceId: 'payments',
+      serviceIds: ['payments'],
       teamIds: ['platform'],
       ownedServicesByTeam: new Map(),
     });
@@ -190,7 +219,7 @@ describe('both signals, over the effective reading', () => {
     // a reader to assume the stronger thing.
     const rows = [
       row('parent', null, { teamIds: ['platform'] }),
-      row('leaf', 'parent', { serviceId: 'payments' }),
+      row('leaf', 'parent', { serviceIds: ['payments'] }),
     ];
 
     const found = signalsFor(rows, 'leaf', {
@@ -207,7 +236,7 @@ describe('both signals, over the effective reading', () => {
     // team is the leaf's own. A signal reading `work_item.service_id` off the
     // row would find null here and flag nothing.
     const rows = [
-      row('parent', null, { serviceId: 'payments' }),
+      row('parent', null, { serviceIds: ['payments'] }),
       row('leaf', 'parent', { teamIds: ['design'] }),
     ];
 
@@ -222,7 +251,7 @@ describe('both signals, over the effective reading', () => {
     // **5.3, first half.** The row says what it delivers and nobody has said
     // who is doing it. There is no team to compare an owner against, so there
     // is no mismatch — not an unknown one, not a suspected one, none.
-    const rows = [row('root', null, { serviceId: 'payments' })];
+    const rows = [row('root', null, { serviceIds: ['payments'] })];
 
     const found = signalsFor(rows, 'root', {
       ownedServicesByTeam: owned({ platform: ['payments'] }),
@@ -231,6 +260,28 @@ describe('both signals, over the effective reading', () => {
     });
 
     expect(found).toEqual({ builtByNonOwner: false, assignedOutsideTeam: false });
+  });
+
+  it('names which of a row’s services are the unowned ones', () => {
+    // Task 7.2's hover sentence, and the reason there is no third export: the
+    // filter documented on `builtByNonOwner` is the same rule over a
+    // one-element set, so "which" and "whether" cannot drift apart. Asserted
+    // here rather than in the cell that renders it, because it is a claim about
+    // the rule and not about a tooltip.
+    const asked = {
+      serviceIds: ['payments', 'search', 'auth'],
+      teamIds: ['platform'],
+      ownedServicesByTeam: owned({ platform: ['search'] }),
+    };
+
+    const offending = asked.serviceIds.filter((id) =>
+      builtByNonOwner({ ...asked, serviceIds: [id] }),
+    );
+
+    expect(offending).toEqual(['payments', 'auth']);
+    // And the whole-row answer agrees with the list being non-empty, which is
+    // the property that keeps a marker from appearing with nothing to name.
+    expect(builtByNonOwner(asked)).toBe(offending.length > 0);
   });
 
   it('flags nothing on a row with a team and no service', () => {

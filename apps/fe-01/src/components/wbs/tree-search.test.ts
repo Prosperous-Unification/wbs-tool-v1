@@ -14,7 +14,7 @@ import {
 const NO_FACETS: RowFacets = {
   teamIds: [],
   tagIds: [],
-  serviceId: null,
+  serviceIds: [],
   builtByNonOwner: false,
   assignedOutsideTeam: false,
   assigneeIds: [],
@@ -447,11 +447,11 @@ describe('the tag facet narrows like every other facet', () => {
  */
 describe('the service facet narrows like every other facet', () => {
   const PLAN_WITH_SERVICES: NarrowableRow[] = [
-    row('a', null, 'Strip the walls', { serviceId: 'payments' }),
-    row('a1', 'a', 'Sockets', { serviceId: 'payments' }),
-    row('a11', 'a1', 'Back boxes', { serviceId: 'ledger' }),
+    row('a', null, 'Strip the walls', { serviceIds: ['payments'] }),
+    row('a1', 'a', 'Sockets', { serviceIds: ['payments'] }),
+    row('a11', 'a1', 'Back boxes', { serviceIds: ['ledger'] }),
     row('a2', 'a', 'Skirting'),
-    row('b', null, 'Paint', { serviceId: 'ledger' }),
+    row('b', null, 'Paint', { serviceIds: ['ledger'] }),
     row('b1', 'b', 'Undercoat'),
   ];
 
@@ -468,11 +468,13 @@ describe('the service facet narrows like every other facet', () => {
     expect([...narrowed.matchIds].sort()).toEqual(['a', 'a1', 'a11', 'b']);
   });
 
-  it('leaves out a row stating no service, rather than treating null as a match', () => {
+  it('leaves out a row stating no service, rather than treating empty as a match', () => {
     const narrowed = narrowTree(PLAN_WITH_SERVICES, asking({ serviceIds: ['payments'] }));
-    // `a2` and `b1` state nothing. A scalar folded into a set as `[null]` — or
-    // compared with `includes` against a chosen list — is how "unstated" starts
-    // matching whichever facet is asked about.
+    // `a2` and `b1` state nothing. An empty set intersected with a chosen list
+    // has to answer no; `carriesAnyChosen` answering "no constraint" for an
+    // empty *row* set — the mirror of what it correctly answers for an empty
+    // *criteria* set — is how "unstated" starts matching whichever facet is
+    // asked about.
     expect(narrowed.matchIds.has('a2')).toBe(false);
     expect(narrowed.matchIds.has('b1')).toBe(false);
   });
@@ -485,13 +487,30 @@ describe('the service facet narrows like every other facet', () => {
     expect(narrowed.visibleIds.has('a2')).toBe(false);
   });
 
+  it('matches a row on either of the two services it delivers', () => {
+    // The scope change (Dany, 2026-08-21 — "can be several services"): a row's
+    // reading is a set now, so ticking one service finds a row delivering it
+    // among others. Written as an equality against the chosen list, or as
+    // `serviceIds[0]`, this row answers only to `payments`.
+    const rows = [
+      row('multi', null, 'Checkout rework', { serviceIds: ['payments', 'search'] }),
+      row('single', null, 'Reindex', { serviceIds: ['search'] }),
+    ];
+
+    expect([...narrowTree(rows, asking({ serviceIds: ['payments'] })).matchIds]).toEqual(['multi']);
+    expect([...narrowTree(rows, asking({ serviceIds: ['search'] })).matchIds].sort()).toEqual([
+      'multi',
+      'single',
+    ]);
+  });
+
   it('is independent of the team and the tag beside it', () => {
     // Three dimensions and one AND: a row answering the service and not the tag
     // is not a match, which is the property that has to survive the third
     // dimension being added.
     const rows = [
-      row('x', null, 'Wiring', { serviceId: 'payments', tagIds: ['regulatory'] }),
-      row('y', null, 'Plaster', { serviceId: 'payments', tagIds: [] }),
+      row('x', null, 'Wiring', { serviceIds: ['payments'], tagIds: ['regulatory'] }),
+      row('y', null, 'Plaster', { serviceIds: ['payments'], tagIds: [] }),
     ];
     const narrowed = narrowTree(rows, asking({ serviceIds: ['payments'], tagIds: ['regulatory'] }));
     expect([...narrowed.matchIds]).toEqual(['x']);
