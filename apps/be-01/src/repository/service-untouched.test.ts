@@ -83,7 +83,9 @@ describe('the pool and the membership list, across the service migrations', () =
 
       const sqlite = openDatabase(db.path);
       try {
-        sqlite.run("INSERT INTO project (id, name, owner_id) VALUES ('p1', 'Shed', 'u1')");
+        sqlite.run(
+          "INSERT INTO project (id, name, owner_id, created_at) VALUES ('p1', 'Shed', 'u1', 1)",
+        );
         sqlite.run("INSERT INTO service_team (id, name) VALUES ('t1', 'Platform')");
         sqlite.run(
           "INSERT INTO project_team_capacity (project_id, service_team_id, size) VALUES ('p1', 't1', 3)",

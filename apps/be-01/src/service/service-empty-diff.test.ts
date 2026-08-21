@@ -62,8 +62,8 @@ import { WorkItemService } from './work-item.service';
  * plan under test is one the engine can actually see.
  *
  * **Why the gate could not catch it:** `nx typecheck` builds
- * `tsconfig.lib.json`, which excludes `**/*.test.ts`. Test files in this repo
- * are never typechecked — a stale field name in a spec is invisible to lint,
+ * `tsconfig.lib.json`, which excludes every `.test.ts` under `src`. Test files
+ * in this repo are never typechecked — a stale field name is invisible to lint,
  * typecheck and a green suite alike. The only defence is asserting the fact is
  * *there* rather than trusting the write, which is what the guards below do.
  */
