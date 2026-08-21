@@ -344,45 +344,45 @@ assertion.
 Run on **h2puni** (`~/wbs-build`, bun 1.3.14), never on `h1claw`, with
 `--skip-nx-cache`, and read off the log rather than assumed.
 
-| Head                                        | What                                     | Result                                                             |
-| ------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------ |
-| `3e8cb79` (rebase + the three stale lists)  | `nx run be-01:test`                      | **975 pass / 0 fail**, 28,027 expect() calls, 73 files             |
-| `3e8cb79`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                             |
-| `3e8cb79`                                   | `nx format:check --all`                  | exit 0                                                             |
-| `bdc1bc7` (1.3, the six cases)              | `nx run be-01:test`                      | **981 pass / 0 fail**, 28,042 expect() calls, 73 files             |
-| `bdc1bc7`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                             |
-| `c7c6fe9` (section 2, `person.kind`)        | `nx run be-01:test`                      | **987 pass / 0 fail**, 28,061 expect() calls, 73 files             |
-| `c7c6fe9`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                             |
-| `c7c6fe9`                                   | `nx format:check --all`                  | exit 0                                                             |
-| `654033e` (section 3, the store)            | `nx run be-01:test`                      | **998 pass / 0 fail**, 28,083 expect() calls, 74 files             |
-| `654033e`                                   | `nx run be-01:lint`, `be-01:typecheck`   | exit 0                                                             |
-| `654033e`                                   | `nx format:check --all`                  | exit 0                                                             |
-| `7df17f8` (4.3, the measures routes)        | `nx run be-01:test`                      | **1020 pass / 0 fail**, 28,145 expect() calls, 75 files            |
-| `4f104d1` (4.4, the person patch's kind)    | `nx run be-01:test`                      | **1026 pass / 0 fail**, 28,157 expect() calls, 75 files            |
-| `4f104d1`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                             |
-| `4f104d1`                                   | `nx format:check --all`                  | exit 0                                                             |
-| `4b071b6` (2.4, the narrowing)              | `nx run be-01:test`                      | **1028 pass / 0 fail**, 28,164 expect() calls, 75 files            |
-| `4b071b6`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                             |
-| `4b071b6`                                   | `nx format:check --all`                  | exit 0                                                             |
-| `8868d6d` (5.1, `rollUpMeasures`)           | `nx run-many -t test lint typecheck`     | **1036 pass / 0 fail**, 28,179 expect() calls, 75 files            |
-| `8868d6d`                                   | `nx format:check --all`                  | exit 0, red first (line wrapping)                                  |
-| `7015af5` (5.2/5.3, the payload)            | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,640 expect() calls, 75 files            |
-| `7015af5`                                   | `nx run-many -t lint typecheck --all`    | **exit 1** — see below                                             |
-| `eee3826` (the lint fix)                    | `nx run-many -t lint typecheck --all`    | exit 0, 22 projects                                                |
-| `eee3826`                                   | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,641 expect() calls, 75 files            |
-| `eee3826`                                   | `nx format:check --all`                  | exit 0, first time                                                 |
-| `e82b023` (7.1 + 7.2, the first fe-01 work) | `nx run fe-01:test`                      | **1588 pass / 0 fail**, 53 files                                   |
-| `e82b023`                                   | `nx run-many -t lint typecheck -p fe-01` | exit 0                                                             |
-| `e82b023`                                   | `nx format:check --all`                  | exit 0, and 0 **first try** — the first head in this task that was |
-| `e82b023`                                   | the `--all` sweep, parallel               | **killed for memory, not red** — see below                        |
-| `e82b023`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                |
-| `e82b023`                                   | `-t test --all --parallel=1`             | **exit 1** — `mcp-01`, and it is four chunks old                   |
-| `a5ff796` (the drift count + the format)    | `nx format:check --all`                  | exit 0                                                             |
-| `a5ff796`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                |
-| `a5ff796`                                   | `-t test --all --parallel=1`             | exit 0, **22 projects**                                            |
+| Head                                        | What                                     | Result                                                                      |
+| ------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
+| `3e8cb79` (rebase + the three stale lists)  | `nx run be-01:test`                      | **975 pass / 0 fail**, 28,027 expect() calls, 73 files                      |
+| `3e8cb79`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
+| `3e8cb79`                                   | `nx format:check --all`                  | exit 0                                                                      |
+| `bdc1bc7` (1.3, the six cases)              | `nx run be-01:test`                      | **981 pass / 0 fail**, 28,042 expect() calls, 73 files                      |
+| `bdc1bc7`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
+| `c7c6fe9` (section 2, `person.kind`)        | `nx run be-01:test`                      | **987 pass / 0 fail**, 28,061 expect() calls, 73 files                      |
+| `c7c6fe9`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
+| `c7c6fe9`                                   | `nx format:check --all`                  | exit 0                                                                      |
+| `654033e` (section 3, the store)            | `nx run be-01:test`                      | **998 pass / 0 fail**, 28,083 expect() calls, 74 files                      |
+| `654033e`                                   | `nx run be-01:lint`, `be-01:typecheck`   | exit 0                                                                      |
+| `654033e`                                   | `nx format:check --all`                  | exit 0                                                                      |
+| `7df17f8` (4.3, the measures routes)        | `nx run be-01:test`                      | **1020 pass / 0 fail**, 28,145 expect() calls, 75 files                     |
+| `4f104d1` (4.4, the person patch's kind)    | `nx run be-01:test`                      | **1026 pass / 0 fail**, 28,157 expect() calls, 75 files                     |
+| `4f104d1`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
+| `4f104d1`                                   | `nx format:check --all`                  | exit 0                                                                      |
+| `4b071b6` (2.4, the narrowing)              | `nx run be-01:test`                      | **1028 pass / 0 fail**, 28,164 expect() calls, 75 files                     |
+| `4b071b6`                                   | `nx run-many -t lint typecheck -p be-01` | exit 0                                                                      |
+| `4b071b6`                                   | `nx format:check --all`                  | exit 0                                                                      |
+| `8868d6d` (5.1, `rollUpMeasures`)           | `nx run-many -t test lint typecheck`     | **1036 pass / 0 fail**, 28,179 expect() calls, 75 files                     |
+| `8868d6d`                                   | `nx format:check --all`                  | exit 0, red first (line wrapping)                                           |
+| `7015af5` (5.2/5.3, the payload)            | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,640 expect() calls, 75 files                     |
+| `7015af5`                                   | `nx run-many -t lint typecheck --all`    | **exit 1** — see below                                                      |
+| `eee3826` (the lint fix)                    | `nx run-many -t lint typecheck --all`    | exit 0, 22 projects                                                         |
+| `eee3826`                                   | `nx run be-01:test`                      | **1043 pass / 0 fail**, 28,641 expect() calls, 75 files                     |
+| `eee3826`                                   | `nx format:check --all`                  | exit 0, first time                                                          |
+| `e82b023` (7.1 + 7.2, the first fe-01 work) | `nx run fe-01:test`                      | **1588 pass / 0 fail**, 53 files                                            |
+| `e82b023`                                   | `nx run-many -t lint typecheck -p fe-01` | exit 0                                                                      |
+| `e82b023`                                   | `nx format:check --all`                  | exit 0, and 0 **first try** — the first head in this task that was          |
+| `e82b023`                                   | the `--all` sweep, parallel              | **killed for memory, not red** — see below                                  |
+| `e82b023`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                         |
+| `e82b023`                                   | `-t test --all --parallel=1`             | **exit 1** — `mcp-01`, and it is four chunks old                            |
+| `a5ff796` (the drift count + the format)    | `nx format:check --all`                  | exit 0                                                                      |
+| `a5ff796`                                   | `-t lint typecheck --all --parallel=1`   | exit 0, 22 projects                                                         |
+| `a5ff796`                                   | `-t test --all --parallel=1`             | exit 0, **22 projects**                                                     |
 | `a5ff796`                                   | be-01                                    | **1052 pass / 0 fail**, 75 files, 28,669 expect() — unmoved, and owed to be |
-| `a5ff796`                                   | fe-01                                    | **1588 pass / 0 fail**, 53 files                                   |
-| `a5ff796`                                   | mcp-01                                   | **64 pass / 0 fail**, 230 expect() calls                           |
+| `a5ff796`                                   | fe-01                                    | **1588 pass / 0 fail**, 53 files                                            |
+| `a5ff796`                                   | mcp-01                                   | **64 pass / 0 fail**, 230 expect() calls                                    |
 
 **The `--all` sweep has to be `--parallel=1` on this box.** Run wide it printed
 `Killed` on `bunx eslint apps/be-01/src` with four targets in flight; h2puni has
@@ -402,7 +402,7 @@ The count is now 49 and names its two tools:
 `putApiWork-itemsByIdMeasuresByMetricByRoleId` and
 `deleteApiWork-itemsByIdMeasuresByMetricByRoleId`. **That is Dany's 2026-08-21
 19:06 addendum discharged** — token figures reachable from MCP — and it is
-discharged as a *check* rather than as the assumption it was filed as: neither
+discharged as a _check_ rather than as the assumption it was filed as: neither
 path matches an exclusion class, so the tools were free, and this is the line
 that observed it.
 
