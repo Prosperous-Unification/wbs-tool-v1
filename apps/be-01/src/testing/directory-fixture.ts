@@ -183,9 +183,14 @@ export function inMemoryDirectory(): DirectoryStore {
       if (teamIds.some((each) => !teams.has(each))) {
         return Promise.resolve({ ok: false, reason: 'unknown_team' });
       }
+      // The column's `DEFAULT 'person'` applied here rather than left off, because
+      // the fixture stands for the table: SQLite cannot hold a person without a
+      // kind, so a fixture that stored `toAdd` unchanged would hand every reader
+      // above it a row shape the database never produces.
+      const stored: Person = { ...toAdd, kind: toAdd.kind ?? 'person' };
       const already = [...people.values()].find((each) => each.name === toAdd.name);
-      const kept = already ?? toAdd;
-      if (already === undefined) people.set(toAdd.id, toAdd);
+      const kept = already ?? stored;
+      if (already === undefined) people.set(stored.id, stored);
       if (teamIds.length > 0) {
         memberships.set(kept.id, new Set([...(memberships.get(kept.id) ?? []), ...teamIds]));
       }

@@ -6,8 +6,8 @@ import type {
   DirectoryRemoved,
   DirectoryStore,
   DirectoryUsageRows,
-  Person,
   PersonAdded,
+  PersonInsert,
   PersonPatch,
   PersonWithTeams,
   PersonWritten,
@@ -92,7 +92,7 @@ type Reader = Pick<SQLiteBunDatabase, 'select'>;
 function usageRowsIn(
   reader: Reader,
   projectIds: readonly string[],
-  members: readonly Person[],
+  members: readonly { id: string; name: string }[],
   /**
    * The team being removed, or null for a person's usage. Read here rather than
    * handed in as a number, because what the confirmation needs is one number
@@ -508,7 +508,7 @@ export class DirectoryRepository implements DirectoryStore {
    * not even JSON — the raw constraint failure this replaces; watched
    * 2026-08-09.
    */
-  async addPerson(toAdd: Person, teamIds: readonly string[]): Promise<PersonAdded> {
+  async addPerson(toAdd: PersonInsert, teamIds: readonly string[]): Promise<PersonAdded> {
     await Promise.resolve();
     const wanted = [...new Set(teamIds)];
     return this.db.transaction((tx) => {
@@ -961,7 +961,7 @@ export class DirectoryRepository implements DirectoryStore {
   }
 
   /** The people in one team, by name, which is the order a confirmation reads them in. */
-  private membersOf(reader: Reader, teamId: string): Person[] {
+  private membersOf(reader: Reader, teamId: string): { id: string; name: string }[] {
     return reader
       .select({ id: person.id, name: person.name })
       .from(person)

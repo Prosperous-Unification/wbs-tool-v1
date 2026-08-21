@@ -902,22 +902,43 @@ export interface TeamPatch {
 /**
  * Somebody who does work. Not an account on this tool.
  *
- * `kind` is **optional here and always present on a row read back**, and the
- * asymmetry is deliberate rather than sloppy. A write may omit it — the column
- * carries `NOT NULL DEFAULT 'person'`, which is what lets the outgoing release's
- * two-column insert survive a blue/green swap — while every read carries it,
- * because the migration wrote `person` onto every row that predates the column.
+ * `kind` is **required, because every row read back carries one**: the column is
+ * `NOT NULL DEFAULT 'person'` and the migration wrote `person` onto every row
+ * that predates it, so there is no person in the database without a kind and no
+ * read path that could produce one. It was optional between 2.1 and this
+ * narrowing only because making it required means a separate input type for the
+ * insert, which is {@link PersonInsert}.
  *
  * It is declared at all because it *arrives* at all: `DirectoryRepository`
  * spreads the Drizzle row, so `kind` reached the API response the moment the
  * column existed, and a type that denied it would have been a lie TypeScript
- * cannot catch — excess properties survive a spread. Narrowing this to required,
- * with a separate input type for the insert, is section 3's job when the store
- * gets its read and write paths; doing it here would have meant rewriting
- * `addPerson`'s signature inside a chunk that was supposed to touch only the
- * schema.
+ * cannot catch — excess properties survive a spread. Required is the stronger
+ * form of the same argument: a caller that reads a person and renders `kind`
+ * now needs no `?? 'person'` fallback, and a fallback is where the two spellings
+ * of "unknown kind" would have started to diverge.
  */
 export interface Person {
+  id: string;
+  name: string;
+  kind: PersonKind;
+}
+
+/**
+ * What an insert of a person may name, which is **not** what a read of one
+ * carries: `kind` is optional here and required on {@link Person}.
+ *
+ * The asymmetry is the column's, not a convenience. `NOT NULL DEFAULT 'person'`
+ * means a two-column insert is a legal insert — that is exactly what lets the
+ * outgoing release keep writing people across a blue/green swap — while every
+ * row that comes back out has a kind whether or not anybody sent one.
+ *
+ * `kind` is on the type rather than left off because the table takes it, not
+ * because a caller sends it today: `DirectoryService.addPerson` omits it, and
+ * the API's way to make an agent is `PATCH /people/:id` (4.4). A store method is
+ * the table's contract, and `adds an agent when the insert names one` in
+ * `directory.test.ts` holds the store to it.
+ */
+export interface PersonInsert {
   id: string;
   name: string;
   kind?: PersonKind;
@@ -1037,8 +1058,14 @@ export interface DirectoryUsageRows {
    * People whose membership the removal would drop, **other than the entity
    * being removed**. Empty for a person: their own memberships name nobody
    * else and go with them, so they force no confirmation.
+   *
+   * Named rather than {@link Person}, the shape `projects` and `roles` above
+   * already use: the confirmation prints who loses the membership, and
+   * `directory-usage.ts` narrows this to `{ id, name }` before it leaves the
+   * service. Widening it to a whole person would mean reading a `kind` column
+   * to satisfy a type, which is the tail wagging the query.
    */
-  members: readonly Person[];
+  members: readonly { id: string; name: string }[];
   /**
    * What each project in this usage has stated about the team being removed, as
    * `projectId -> slots`. Empty when the usage is a person's.
@@ -1247,8 +1274,11 @@ export interface DirectoryStore {
    * Adds a person, or returns the one with that name, joining them to
    * `teamIds` — the person and every membership in **one** transaction, with
    * the teams read inside it. See {@link PersonAdded}.
+   *
+   * Takes a {@link PersonInsert} rather than a {@link Person}: the kind may be
+   * omitted on the way in and never is on the way out.
    */
-  addPerson(toAdd: Person, teamIds: readonly string[]): Promise<PersonAdded>;
+  addPerson(toAdd: PersonInsert, teamIds: readonly string[]): Promise<PersonAdded>;
   /**
    * Renames a person and replaces their memberships, in **one** transaction.
    *

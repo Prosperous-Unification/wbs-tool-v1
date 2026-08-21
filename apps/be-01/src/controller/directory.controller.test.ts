@@ -348,6 +348,23 @@ describe('POST /api/people into teams', () => {
     // without the validation this request is a raw constraint failure — a 500.
     expect(await store.listPeople()).toEqual([]);
   });
+
+  it('answers a kind for a person nobody has patched, on the create and on the list', async () => {
+    // The read half of `kind`: 4.4 proved a `PATCH` can set it, and this proves
+    // a client never has to patch to *see* one. Both the create's own body and
+    // the list, because `POST` answers the row it wrote while `GET` re-reads —
+    // a default that only appeared on one of them would send a client's
+    // `?? 'person'` fallback back into the fe.
+    const created = await call('POST', '/api/people', { name: 'Kat', teamIds: [] });
+
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({ person: { name: 'Kat', kind: 'person' } });
+
+    const listed = await call('GET', '/api/people');
+
+    expect(listed.status).toBe(200);
+    expect(listed.body).toMatchObject({ people: [{ name: 'Kat', kind: 'person' }] });
+  });
 });
 
 describe('DELETE /api/people/:id and /api/teams/:id', () => {
