@@ -75,6 +75,12 @@ describe('the pool and the membership list, across the service migrations', () =
     // not a schema snapshot: rows written **before** the split exist **after**
     // it, unchanged and still keyed the same way. A re-key that preserved the
     // shape would still have to rewrite or drop these rows to do it.
+    //
+    // Proof: `ALTER TABLE project_team_capacity ADD service_id text REFERENCES
+    // service(id);` appended to `20260821000000_add_service/migration.sql` — the
+    // split reaching into the pool, which is the one edit R2-5 §2 refused —
+    // and **1 pass, 2 fail**: this case on the column comparison and `does not
+    // generalise the pool` beside it. Watched on h2puni 2026-08-21, reverted.
     const db = tempDb();
     try {
       runMigrations(db.path, FOLDER);
@@ -150,6 +156,19 @@ describe('the pool and the membership list, across the service migrations', () =
     // service nor a mismatch flag joins them: a flag stored here would be a
     // *decision* cached against a plan it cannot see, and the signal is derived
     // on every read for exactly that reason.
+    //
+    // Proof: the same append one table over — `ALTER TABLE person_team ADD
+    // service_id text REFERENCES service(id);` — **1 pass, 2 fail**, this case
+    // and 8.3's row comparison. Watched on h2puni 2026-08-21, reverted.
+    //
+    // **The guard that made both reds trustworthy, and it nearly did not.** The
+    // first two attempts appended to `up.sql`, a file this repo does not have
+    // (the pair on disk is `migration.sql` + `down.sql`), so each one *created*
+    // it — and `git diff --quiet` says clean about a file git has never seen.
+    // A no-diff reported as a green. The runner asserts a non-empty diff before
+    // believing anything, which is what caught it, and the lesson on top of the
+    // three earlier quoting misses is that the assertion has to cover untracked
+    // files too: `git status --porcelain`, not `git diff`.
     const db = tempDb();
     try {
       runMigrations(db.path, FOLDER);

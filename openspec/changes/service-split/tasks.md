@@ -180,17 +180,17 @@
 
 ## 8. The empty diffs, asserted
 
-- [ ] 8.1 `service/schedule.ts` — empty diff, asserted in
+- [x] 8.1 `service/schedule.ts` — empty diff, asserted in
       `service-empty-diff.test.ts` on a plan where a sized team really does
       decide dates. **Watched red:** wire the scheduler to read a service, every
-      downstream date moves, revert. **Re-aimed chunk 22, still unticked on
-      purpose:** the file labelled its rows with `serviceId` — a field that left
-      `WorkItemPatch` at chunk 12 — so it wrote and read the dead
-      `work_item.service_id` column and the whole file was vacuous for the
-      dimension it names. Every case labels through `serviceIds` now and asserts
-      the label came back on `listByProject`. What is left is re-watching the red
-      against the _set_: the recorded one broke a read of the dead column.
-- [ ] 8.2 `libs/domain` — **the scheduling surface** has an empty diff, not the
+      downstream date moves, revert. **Re-aimed in chunk 22:** the file labelled
+      its rows with `serviceId` — a field that left `WorkItemPatch` at chunk 12 —
+      so it wrote and read the dead `work_item.service_id` column and was vacuous
+      for the dimension it names. Every case labels through `serviceIds` now,
+      asserts the label came back on `listByProject`, and the red was re-watched
+      against the set: **1 pass, 3 fail**, one of them `poolFor` throwing outright
+      on a row carrying two services.
+- [x] 8.2 `libs/domain` — **the scheduling surface** has an empty diff, not the
       whole library: `effective-service.ts` and `label-mismatch.ts` are added
       here and both apps read them, and what a service is not is anything below
       `slicesOf`. Asserted by 8.1's fault rather than by a second test —
@@ -199,7 +199,17 @@
       (R2-5 §2). Row-for-row unchanged after the migration, one assertion.
 - [x] 8.4 `person_team` — shape untouched. The assignee signal **reads** it and
       writes nothing to it.
-- [ ] 8.5 `gantt-geometry.ts` — the service reaches the hover text and nothing
+- [ ] 8.5 **Chunk 22 finding — this task is written against a surface that does
+      not exist.** `ServiceLabel` is declared in `gantt-geometry.ts` and consumed
+      only by `wbs-table.tsx` and `plan-cards.tsx`; `GanttPlan`, `GanttRow` and
+      `GanttBar` carry `team` and `tags` and **no service field at all**, so
+      `layOutGantt` has no service input to vary and the tags precedent (the
+      untagged-vs-tagged identical-geometry case at `gantt-geometry.test.ts`
+      :1315) cannot be copied. The half about `barColorOf` holds vacuously and
+      the half about the hover text is unbuilt, not asserted. Decide before the
+      PR: either build the chart's service hover and then assert this, or restate
+      8.5 as the absence it currently is. Original text:
+      `gantt-geometry.ts` — the service reaches the hover text and nothing
       that computes a position. `barColorOf` unchanged: a bar already carries a
       person as a colour and a priority as a cap, and a third meaning on one
       small rectangle stops it meaning anything.

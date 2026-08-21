@@ -228,17 +228,23 @@ describe('a service and the ownership map decide no date, on a plan where a labe
   it('moves not one date when the service is deleted, cascade and all', async () => {
     // The first claim, and the watched red for it.
     //
-    // Proof: `effectiveTeamsOf(rows)` in `work-item.service.ts` replaced by
-    // `effectiveTeamsOf(rows.map((r) => (r.serviceId !== null ? { ...r, teamIds:
-    // [r.serviceId] } : r)))` — the scheduler reading a service as if it were a
-    // team — and **2 pass, 2 fail**: this one on the dates, because the two rows
-    // then sit in a pool keyed on a service id nothing has stated a capacity
-    // for, so they stop being serialised; and `serialises the two leaves while
-    // the team is sized` beside it, because taking the *team* label off a row
-    // the scheduler is reading services from moves nothing. That the control
-    // fails too is the clearest statement of the fault: the plan's dates stop
-    // answering to the team at all. `tag-empty-diff.test.ts`'s red one dimension
-    // over, down to the count. Watched 2026-08-21 on h2puni. The labelling really goes — asserted on both sides, so
+    // Proof: `const teamOf = effectiveTeamsOf(rows)` at `work-item.service.ts`
+    // :1097 replaced by `effectiveTeamsOf(rows.map((r) => (r.serviceIds.length >
+    // 0 ? { ...r, teamIds: r.serviceIds } : r)))` — the scheduler reading a
+    // row's service set as if it were its team set — and **1 pass, 3 fail**,
+    // watched on h2puni 2026-08-21 (chunk 22). The recorded red before it aimed
+    // at `r.serviceId !== null`, the dead column, and is exactly what the
+    // re-aim above was for.
+    //
+    // Three different shapes of failure, which is why the count went up: this
+    // case and the ownership-map case fail on the dates, and `put on, taken off
+    // and replaced` fails *harder* — `poolFor` throws outright, because a row
+    // carrying two services now claims two teams and a slice can only spend one
+    // pool. A set-valued dimension read as a pool key is not merely a wrong
+    // date; it is a plan that cannot be scheduled at all. The control passes
+    // here only because that row keeps one service.
+    //
+    // The labelling really goes — asserted on both sides, so
     // this is a comparison of two plans that differ rather than two reads of one
     // that does not — and every schedule number and every date is where it was.
     const { serviceId } = await pooledPlan();
