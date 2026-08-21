@@ -139,6 +139,14 @@ export function assignedOutsideTeam({
   teamIds,
   teamsByPerson,
 }: AssignedOutsideTeamAsked): boolean {
+  // The `assigneeIds` half of this guard is a **statement of the rule rather
+  // than load-bearing code**: `.some` over an empty set already answers false,
+  // so striking it fails nothing (watched 2026-08-21 — 114 pass, 0 fail). It
+  // stays because absence is one rule across both signals and a reader should
+  // meet it spelled the same way in both; this comment is what stops the next
+  // reader assuming a test protects it. The `teamIds` half *is* load-bearing —
+  // without it a row with no team flags every assignee on it, and striking it
+  // fails the no-team case.
   if (assigneeIds.length === 0 || teamIds.length === 0) return false;
   return assigneeIds.some((personId) => {
     const belongsTo = teamsByPerson.get(personId) ?? [];
