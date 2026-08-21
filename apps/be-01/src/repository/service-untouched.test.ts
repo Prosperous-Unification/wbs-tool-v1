@@ -40,7 +40,9 @@ function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-service-untouched-'));
   return {
     path: join(dir, 'test.db'),
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    cleanup: (): void => {
+      rmSync(dir, { recursive: true, force: true });
+    },
   };
 }
 

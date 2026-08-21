@@ -65,7 +65,7 @@ import { WorkItemService } from './work-item.service';
  * `tsconfig.lib.json`, which excludes every `.test.ts` under `src`. Test files
  * in this repo are never typechecked — a stale field name is invisible to lint,
  * typecheck and a green suite alike. The only defence is asserting the fact is
- * *there* rather than trusting the write, which is what the guards below do.
+ * present rather than trusting the write, which is what the guards below do.
  */
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
