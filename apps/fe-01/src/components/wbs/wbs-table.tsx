@@ -1349,6 +1349,18 @@ function assigneesOf(row: TreeRow): string[] {
  * `role="img"` with the sentence as its label, because the sentence is the
  * marker. A glyph that cannot say why is a mystery rather than a signal
  * (7.2's own words), and a `title` alone reaches a pointer only.
+ *
+ * **The pointer rule, in one sentence, because 2026-08-22 found the two marks
+ * disagreeing in the DOM and read that as one of them saying nothing:** every
+ * mark answers the hover that lands on it with its own sentence — as a `title`
+ * where nothing else owns that hover, and off the cell's card where something
+ * does. The two are the same promise through different means, not a rule and an
+ * exception, which is why `carded` is a property of the *cell* rather than of
+ * the kind: the folded assignee mark drops its `title` and the unfolded one
+ * keeps it, and both are the same mark. What must never happen is a third case
+ * — no `title` and no card — and `answers a pointer at every mark` asserts the
+ * promise over every mark on a row rather than over the two this file happens
+ * to place today.
  */
 function MismatchMark({
   kind,
@@ -1367,6 +1379,12 @@ function MismatchMark({
    * its `aria-label`, which nothing races. A mark with no sentence anywhere
    * would be the mystery 7.2 forbids; this moves the sentence, it does not drop
    * it.
+   *
+   * The mark sits **inside** the cell whose `onMouseEnter` opens that card, so
+   * the pointer that reaches the triangle is the pointer that opens the card:
+   * the sentence arrives from hovering the mark either way. Giving this mark a
+   * `title` as well would put both on screen at once over the same 96px, which
+   * is the race that decision was taken to end.
    */
   carded?: boolean;
 }) {

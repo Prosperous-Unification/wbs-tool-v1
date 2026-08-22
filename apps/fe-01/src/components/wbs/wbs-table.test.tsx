@@ -13067,6 +13067,56 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     expect(mark?.getAttribute('title')).toContain('Ada is not in Billing');
   });
 
+  itDom(
+    'answers a pointer at every mark, by title or by the card that owns the hover',
+    async () => {
+      // **The case the three above cannot state between them.** Each of them
+      // pins one mark's own attributes, so the pair drifting apart reads as two
+      // green tests: 2026-08-22's cloud walk counted `title` in the DOM, found
+      // the service mark carrying one and both assignee marks carrying `null`,
+      // and filed it as one mark saying nothing to a pointer.
+      //
+      // It is not saying nothing — it is saying it through the card, because the
+      // mark sits inside the cell whose hover opens that card. So the promise
+      // worth asserting is the **outcome**, not the attribute: hover a mark, get
+      // its sentence. Written over `querySelectorAll` rather than over two named
+      // marks, so a third mark added anywhere on this row has to answer it too.
+      const api = await aServicedPlan();
+      api.ownService(api.wiring, api.checkout);
+      await shown(api);
+
+      const marks = [...rowFor('010').querySelectorAll('[data-mismatch]')];
+      // Said out loud and by kind, because every assertion below is inside the
+      // loop: a render that stopped drawing the marks would otherwise pass this
+      // by having nothing left to check. One service mark, and two assignee
+      // marks — Ada named on Dev and assumed onto QA.
+      expect(marks.map((mark) => mark.getAttribute('data-mismatch')).sort()).toEqual([
+        'assignee',
+        'assignee',
+        'service',
+      ]);
+
+      for (const mark of marks) {
+        const note = mark.getAttribute('aria-label') ?? '';
+        // The sentence exists at all before either route is asked about it.
+        expect(note).toContain('Nothing is blocked — the plan is recording this, not refusing it.');
+        const owner = mark.closest('[data-final]');
+        if (owner === null) {
+          // Nothing else owns this hover, so the mark carries the sentence
+          // itself — and carries the **same** one, not a shorter cousin of it.
+          expect(mark.getAttribute('title')).toBe(note);
+          continue;
+        }
+        // A card owns the hover. Both halves: no `title` to race it, and the
+        // sentence really is on the card the same hover opens.
+        expect(mark.getAttribute('title')).toBeNull();
+        fireEvent.mouseEnter(owner);
+        expect(screen.getByRole('tooltip').textContent).toContain(note);
+        fireEvent.mouseLeave(owner);
+      }
+    },
+  );
+
   itDom('marks the phase nobody named, where the assumption puts them on it', async () => {
     // **The surface every other assignee case here walks straight past.** Ada is
     // named on Dev alone, so `doesEveryPhase` puts her on QA as an assumption,
