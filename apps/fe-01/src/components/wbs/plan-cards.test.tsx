@@ -1106,21 +1106,24 @@ describe('what a card says about capacity', () => {
     );
   });
 
-  itDom('prints the sentence rather than hiding it in a title, which a phone cannot open', async () => {
-    // The breakpoint's own decision and the reason this task existed: the
-    // table's mark carries its words in `title` + `aria-label`, and a `title`
-    // reaches a pointer only. There is no pointer here. So the words are text —
-    // asserted as *absence of a title anywhere on the block*, because a copy
-    // left in one would let the visible text be deleted later and the case
-    // still pass on the tooltip.
-    await aMismatchedPlan();
+  itDom(
+    'prints the sentence rather than hiding it in a title, which a phone cannot open',
+    async () => {
+      // The breakpoint's own decision and the reason this task existed: the
+      // table's mark carries its words in `title` + `aria-label`, and a `title`
+      // reaches a pointer only. There is no pointer here. So the words are text —
+      // asserted as *absence of a title anywhere on the block*, because a copy
+      // left in one would let the visible text be deleted later and the case
+      // still pass on the tooltip.
+      await aMismatchedPlan();
 
-    for (const each of mismatchesOnCard()) expect(each.getAttribute('title')).toBeNull();
-    expect(document.querySelector('[data-card-mismatches]')?.getAttribute('title')).toBeNull();
-    // The glyph is decoration now that the sentence beside it is the accessible
-    // name; a screen reader announcing the triangle first would read it out.
-    expect(mismatchesOnCard()[0]?.querySelector('[aria-hidden]')?.textContent).toBe('△');
-  });
+      for (const each of mismatchesOnCard()) expect(each.getAttribute('title')).toBeNull();
+      expect(document.querySelector('[data-card-mismatches]')?.getAttribute('title')).toBeNull();
+      // The glyph is decoration now that the sentence beside it is the accessible
+      // name; a screen reader announcing the triangle first would read it out.
+      expect(mismatchesOnCard()[0]?.querySelector('[aria-hidden]')?.textContent).toBe('△');
+    },
+  );
 
   itDom('marks nothing on a row the directory has no quarrel with', async () => {
     // The control, and it is what makes the two cases above findings rather
