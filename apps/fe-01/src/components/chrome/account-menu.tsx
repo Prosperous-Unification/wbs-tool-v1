@@ -188,7 +188,13 @@ export function AccountMenu({
   });
 
   return (
-    <span ref={wrapper} className="relative inline-block">
+    // `data-account-menu` is how `styles.css` finds this surface on a phone,
+    // and it is on the wrapper rather than on the `role="menu"` div so that the
+    // trigger is inside it: the trigger is `size="sm"` — 32px — and it is the
+    // control a finger has to hit *first*. Named rather than reached through
+    // `[role="menu"]`, which would also catch the table's own row-actions menu
+    // and the cards', and both of those size themselves.
+    <span ref={wrapper} data-account-menu className="relative inline-block">
       <Button
         ref={trigger}
         variant="outline"

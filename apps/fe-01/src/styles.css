@@ -1104,3 +1104,96 @@
     box-shadow: inset 0 -2px 0 var(--ring);
   }
 }
+
+/*
+ * The 44px a finger needs, on the three surfaces a phone reaches controls
+ * through — and only on a phone.
+ *
+ * The cards themselves have been right since `M mobile-cards`: `plan-cards.tsx`
+ * writes `min-h-11` on every box it draws and `e2e/mobile.spec.ts` measures it.
+ * What that assertion never reached is everything *around* a card, and the sweep
+ * of 2026-08-22 measured the hole at 390×844: **36 of 36** controls on the `Plan
+ * actions` sheet under 44px (the filter tick boxes at **13px**), 9 of 9 in the
+ * Teams dialog, 4 of 4 in the account menu. `Button size="sm"` is `h-8`, the
+ * capacity boxes are `h-8`, and the ✕ is 25px — every one of them a size chosen
+ * for a mouse, on the only surfaces a phone has.
+ *
+ * **Here rather than on each control**, which is what the same rule would look
+ * like written 49 times. The toolbar's controls are *one array* rendered into
+ * both the desktop row and the phone's sheet (`wbs-table.tsx`'s
+ * `toolbarControls`), so a class on any of them is a class on the desktop too —
+ * the density this app's tables are built around. A media query is the only
+ * place the two viewports can differ for a control neither of them owns. It also
+ * reaches a control added to a dialog next month, which a class list cannot.
+ *
+ * **767.98px is `CARDS_BELOW - 0.02`** (`plan-renderer.ts`): the renderer swaps
+ * to cards strictly below 768, and this has to change hands at the same width or
+ * there is a viewport with a table in it and a phone's sizing on its dialogs.
+ * `e2e/mobile.spec.ts` pins both ends — 390 measures the floor, and 768 measures
+ * that the floor is *not* there.
+ *
+ * **Unlayered, and that is the load-bearing part.** `@layer theme, base,
+ * components, utilities` puts utilities last, so `min-h-6` on a facet's label
+ * would beat this rule from the components layer no matter how specific it is —
+ * watched: with this block inside `@layer components`, the tick-box rows stayed
+ * 24px and `every control on the Plan actions sheet is at least 44px` failed on
+ * exactly those. Unlayered styles beat every layered one, which is what a floor
+ * has to do.
+ *
+ * The tap target is the **label**, not the tick box, wherever a label wraps one.
+ * A 44px checkbox glyph is a 44px checkbox glyph; the rectangle a finger can
+ * actually hit is the row, because a click anywhere in a `<label>` toggles the
+ * control inside it. `mobile.spec.ts` proves that rather than assuming it — it
+ * taps the top-left corner of a row and watches the box change.
+ */
+@media (max-width: 767.98px) {
+  [data-modal-surface] button,
+  [data-modal-surface] summary,
+  [data-modal-surface] select,
+  [data-modal-surface] textarea,
+  [data-modal-surface] input:not([type='checkbox'], [type='radio']),
+  [data-modal-surface] label:has(> input[type='checkbox']),
+  [data-modal-surface] label:has(> input[type='radio']),
+  [data-account-menu] button {
+    min-height: 44px;
+  }
+
+  /*
+   * A square target for the two controls whose width is their glyph: the ✕, and
+   * the three words of the palette switch, which sit in one row and would
+   * otherwise be 44px of nothing to aim at.
+   */
+  [data-modal-surface] [aria-label='Close'],
+  [data-account-menu] [role='menuitemradio'] {
+    min-width: 44px;
+  }
+
+  /*
+   * The glyph in the middle of the box the two rules above just grew. Every
+   * `<Button>` is already `inline-flex items-center justify-center`; these two
+   * are a bare `<button>` and a `<button>` with `text-left`, and a floor applied
+   * to either of them without this puts the word at the top of a 44px box.
+   */
+  [data-modal-surface] [aria-label='Close'],
+  [data-account-menu] [role='menuitemradio'],
+  [data-account-menu] [role='menuitem'] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  [data-account-menu] [role='menuitem'] {
+    justify-content: flex-start;
+  }
+
+  /*
+   * The tick box itself, grown from the platform's 13px to something visible at
+   * arm's length. Not to 44 — the row is the target, and a 44px checkbox in a
+   * six-group facet panel is a page of squares.
+   */
+  [data-modal-surface] input[type='checkbox'],
+  [data-modal-surface] input[type='radio'] {
+    width: 22px;
+    height: 22px;
+  }
+}

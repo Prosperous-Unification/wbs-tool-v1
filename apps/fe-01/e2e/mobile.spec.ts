@@ -50,6 +50,17 @@ async function seedPlan(page: Page, account: string): Promise<void> {
   await page.getByRole('button', { name: 'Create account' }).click();
 
   await page.getByRole('button', { name: 'New project' }).click();
+
+  // The desktop case at the bottom of this file shares this fixture and asks
+  // one thing of it: a dialog, whose density is a fact about the dialog and not
+  // about what is in the plan behind it. It gets no rows because the control
+  // that adds one here is on a sheet that does not exist at that width —
+  // `rendererForWidth` draws the table from 768 up.
+  if ((page.viewportSize()?.width ?? 0) >= 768) {
+    await expect(page.getByRole('button', { name: 'Teams' })).toBeVisible();
+    return;
+  }
+
   await expect(page.getByRole('button', { name: 'Plan actions' })).toBeVisible();
 
   for (const number of ['010', '020']) {
@@ -88,11 +99,75 @@ async function aPeerRenames(page: Page, workItemId: string, name: string): Promi
   expect(status, 'the peer edit was refused by be-01').toBe(200);
 }
 
+/**
+ * Everything a finger is ever aimed at, as one selector.
+ *
+ * Roles as well as tags, because two of the three surfaces measured here answer
+ * a tap through a bare `<button>` carrying `role="menuitem"` rather than through
+ * anything the tag list would find on its own merits.
+ */
+const A_CONTROL = [
+  'button',
+  'summary',
+  'select',
+  'textarea',
+  'input',
+  'a[href]',
+  '[role="menuitem"]',
+  '[role="menuitemradio"]',
+].join(', ');
+
+/** What a control on `surface` is called, and how tall the box a finger hits is. */
+interface TapTarget {
+  name: string;
+  height: number;
+}
+
+/**
+ * Every control inside `surface` whose tap target is shorter than 44px.
+ *
+ * **The tap target is the `<label>` wherever one wraps the control**, and that
+ * is a measurement decision worth stating: a click anywhere inside a label
+ * activates the control inside it, so the rectangle a finger can hit for a tick
+ * box is the whole row and not the 13px glyph. Measuring the `<input>` would
+ * report a target the reader does not have — in either direction. `the row of a
+ * tick box is the tick box` below proves the equivalence with a click rather
+ * than leaving it as a claim about HTML.
+ */
+async function shortTargetsIn(page: Page, surface: string): Promise<TapTarget[]> {
+  return page.evaluate(
+    ([surfaceSelector, controlSelector]) => {
+      const root = document.querySelector(surfaceSelector);
+      if (root === null) throw new Error(`nothing matching ${surfaceSelector} is on screen`);
+      return [...root.querySelectorAll(controlSelector)]
+        .filter((control) => control.getClientRects().length > 0)
+        .map((control) => {
+          const target = control.closest('label') ?? control;
+          // `textContent` without a `?.`: it is `string` on an `Element` this
+          // lib types, and the optional chain lint refuses is not a spelling
+          // choice — `no-unnecessary-condition` reads the type and errors.
+          const words = control.textContent.trim();
+          return {
+            name:
+              control.getAttribute('aria-label') ??
+              (words === '' ? control.tagName : words.slice(0, 32)),
+            height: Math.round(target.getBoundingClientRect().height),
+          };
+        })
+        .filter((target) => target.height < 44);
+    },
+    [surface, A_CONTROL] as const,
+  );
+}
+
 let account = 0;
+/** The account this test's page is signed into, which is what names its menu. */
+let username = '';
 
 test.beforeEach(async ({ page }) => {
   account += 1;
-  await seedPlan(page, `e2e-mb-${String(Date.now())}-${String(account)}`);
+  username = `e2e-mb-${String(Date.now())}-${String(account)}`;
+  await seedPlan(page, username);
 });
 
 test.describe('the plan on a phone, measured by a browser', () => {
@@ -182,6 +257,92 @@ test.describe('the plan on a phone, measured by a browser', () => {
     }
   });
 
+  /**
+   * The other three surfaces, which the test above never reached.
+   *
+   * `gives every control a finger has to hit at least 44px` names three controls
+   * and all three are on a **card**, so the sizing `plan-cards.tsx` writes is the
+   * only sizing it has ever proved. The sweep of 2026-08-22 measured what that
+   * left out at 390×844: 36 of 36 controls on the `Plan actions` sheet under
+   * 44px, the filter tick boxes at 13, 9 of 9 in the Teams dialog, 4 of 4 in the
+   * account menu. Every one of those is a control a phone has no other route to
+   * — the sheet *is* the toolbar here.
+   *
+   * Soft per surface, which is the one place this file wants it: three surfaces
+   * fail for three different reasons, and a hard failure on the sheet would hide
+   * whatever the account menu is doing until the next run.
+   *
+   * Watched red at `22b9a73` — the sheet reported 30 short controls (13px tick
+   * rows, 25px `Close`, 32px buttons), the Teams dialog 2, the account menu 4.
+   */
+  test('gives every control on the phone’s own surfaces at least 44px', async ({ page }) => {
+    // The sheet, with `Filters` expanded — the state the sweep measured, and the
+    // one holding the 13px controls. A `<summary>` is not the `<button>` that
+    // closes the sheet, so this leaves it open (`closingControlIn`).
+    await openTheSheet(page);
+    await page.locator('[data-modal-surface] [data-facets] summary').click();
+    await expect(page.locator('[data-facet-panel]')).toBeVisible();
+    expect
+      .soft(await shortTargetsIn(page, '[data-modal-surface]'), 'on the Plan actions sheet')
+      .toEqual([]);
+
+    // The Teams dialog, opened from that sheet because there is no other way in
+    // at this width. This plan carries no team labels — nothing on a card edits
+    // one — so what is on screen is the empty sentence, `Done` and the ✕ rather
+    // than the seven capacity boxes the sweep measured. The floor those boxes
+    // sit under is the same `input` rule, and it *is* measured above: the sheet
+    // carries the Find box.
+    await page.getByRole('button', { name: 'Teams' }).click();
+    await expect(page.getByRole('dialog', { name: 'Teams on this plan' })).toBeVisible();
+    expect
+      .soft(await shortTargetsIn(page, '[data-modal-surface="centre"]'), 'in the Teams dialog')
+      .toEqual([]);
+    await page.getByRole('button', { name: 'Done' }).click();
+
+    // The account menu, which is chrome rather than plan and is the way out of
+    // the app: its trigger is 32px and its three palette buttons are 22.
+    await page.getByTitle('This account').click();
+    await expect(page.getByRole('menu', { name: `Signed in as ${username}` })).toBeVisible();
+    expect
+      .soft(await shortTargetsIn(page, '[data-account-menu]'), 'in the account menu')
+      .toEqual([]);
+
+    // A 44px control that pushed the page sideways would be a worse phone than
+    // a 32px one. The first test in this file asserts this with nothing open.
+    const root = await page.evaluate(() => {
+      const element = document.scrollingElement ?? document.documentElement;
+      return { scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+    });
+    expect(
+      root.scrollWidth,
+      'the grown controls made the page scroll sideways',
+    ).toBeLessThanOrEqual(root.clientWidth);
+  });
+
+  /**
+   * The claim the measurement above rests on: a tick box's target is its row.
+   *
+   * Without this, `shortTargetsIn` measuring the `<label>` would be a way of
+   * passing rather than a way of measuring — 44px of label around a 13px box
+   * that only answers a tap on the glyph is the same broken control with a
+   * better number. So: a tap at the far end of the row, 40px down it, and the
+   * box changes.
+   */
+  test('makes the row of a tick box the tick box, for the whole 44px', async ({ page }) => {
+    await openTheSheet(page);
+    await page.locator('[data-modal-surface] [data-facets] summary').click();
+
+    const box = page.getByLabel('Unestimated only');
+    const row = page.locator('[data-facet-group="state"] label').first();
+    await expect(box).not.toBeChecked();
+
+    const rect = await row.boundingBox();
+    expect(rect, 'the tick box has no row on screen').not.toBeNull();
+    await row.click({ position: { x: (rect?.width ?? 0) - 6, y: 40 } });
+
+    await expect(box).toBeChecked();
+  });
+
   test('sends a name typed on a card, and reads it back after a reload', async ({ page }) => {
     const name = page.getByLabel('Name of 010');
     await name.fill(A_LONG_NAME);
@@ -266,5 +427,59 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await expect(page.getByLabel('Name of 020')).toHaveValue('Their new name');
     await expect(mine).toBeFocused();
     await expect(mine).toHaveValue('Strip the wir');
+  });
+});
+
+/**
+ * The other end of the same rule: a desktop keeps the density it was built with.
+ *
+ * The 44px floor is written as a media query, which means it has a **boundary**,
+ * and a boundary is a place a rule can be wrong in a way no 390px test can see.
+ * Both widths here are that check rather than a second sizing test: 1400 is an
+ * ordinary desktop, and 768 is `CARDS_BELOW` itself — the first width that draws
+ * a table, and therefore the first that must not carry a phone's sizing. Write
+ * the query as `max-width: 768px` instead of `767.98` and this file goes red at
+ * the second width while every other test in it passes.
+ */
+test.describe('the same dialog on a desktop, where the density is the point', () => {
+  test.use({ viewport: { width: 1400, height: 900 } });
+
+  test('leaves a dialog and the account menu at their own size at 1400 and at 768', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Teams' }).click();
+    await expect(page.getByRole('dialog', { name: 'Teams on this plan' })).toBeVisible();
+
+    const done = page.getByRole('button', { name: 'Done' });
+    const close = page.getByRole('button', { name: 'Close' });
+    const account = page.getByTitle('This account');
+
+    for (const width of [1400, 768]) {
+      await page.setViewportSize({ width, height: 900 });
+
+      // `h-9`, which is what `<Button>` is at its default size. Named as the
+      // number rather than as "under 44" because criterion 2 is that the
+      // desktop is *unchanged*, and a `Done` that had grown to 40 would pass
+      // the looser claim while still being a phone's button on a mouse's page.
+      expect(
+        Math.round((await done.boundingBox())?.height ?? 0),
+        `the phone’s floor reached Done at ${String(width)}px`,
+      ).toBe(36);
+
+      // The ✕, which is the control the floor changes most: 25px to 44, and
+      // square. Under 44 here is the whole claim.
+      expect(
+        Math.round((await close.boundingBox())?.height ?? 0),
+        `the phone’s floor reached the ✕ at ${String(width)}px`,
+      ).toBeLessThan(44);
+
+      // The account menu is chrome rather than a dialog, and it is reached by
+      // `[data-account-menu]` — a selector with no modal surface in it, and
+      // therefore the one most able to leak past the media query.
+      expect(
+        Math.round((await account.boundingBox())?.height ?? 0),
+        `the phone’s floor reached the account trigger at ${String(width)}px`,
+      ).toBe(32);
+    }
   });
 });
