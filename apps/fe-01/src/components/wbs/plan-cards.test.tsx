@@ -96,8 +96,20 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
    * that passes for the wrong reason.
    */
   people: PersonView[];
+  /**
+   * Every row-action write this fake was asked to make, in order.
+   *
+   * The **request** and not the screen, for the reason `studio-dev-vhost`
+   * chunk 3 wrote down the hard way: a fake that mutates whatever it is asked
+   * to mutate lets a card whose menu is wired to nothing pass, as long as
+   * something else on the page happens to redraw. `duplicate:w1` here is proof
+   * the card's ⋯ reached `api.duplicate`, which is the fact
+   * `card-row-actions-unwired` is about.
+   */
+  rowActionCalls: string[];
 } {
   const rows: WorkItemView[] = [];
+  const rowActionCalls: string[] = [];
   const roleList: RoleView[] = [{ ...DEV }, { ...QA }];
   const people: PersonView[] = [{ id: 'p1', name: 'Kat', kind: 'person', teamIds: [] }];
   const teams: TeamView[] = [];
@@ -132,6 +144,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     services,
     tags,
     people,
+    rowActionCalls,
     tree: () =>
       Promise.resolve({
         workItems: rows.map(view),
@@ -263,12 +276,45 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     addTeam: () => notImplemented('addTeam'),
     addPerson: () => notImplemented('addPerson'),
     move: () => notImplemented('move'),
-    duplicate: () => notImplemented('duplicate'),
-    remove: () => notImplemented('remove'),
+    /**
+     * A copy beside the original, numbered as {@link create} numbers, because
+     * a card that duplicated nothing and a card that duplicated something both
+     * look the same until a second row is on screen.
+     */
+    duplicate: (id: string) => {
+      rowActionCalls.push(`duplicate:${id}`);
+      const original = rows.find((each) => each.id === id);
+      if (original === undefined) return Promise.reject(new Error('not_found'));
+      next += 1;
+      const copy: WorkItemView = {
+        ...original,
+        id: `w${String(next)}`,
+        number: String(rows.length + 1).padStart(2, '0') + '0',
+        // A freeze pins the number a row left the tool under, and the copy is
+        // given none — `wbs-table.tsx`'s own comment on offering Duplicate on a
+        // frozen row.
+        frozenNumber: null,
+      };
+      rows.push(copy);
+      return Promise.resolve({ id: copy.id });
+    },
+    remove: (id: string) => {
+      rowActionCalls.push(`remove:${id}`);
+      const at = rows.findIndex((each) => each.id === id);
+      if (at === -1) return Promise.reject(new Error('not_found'));
+      rows.splice(at, 1);
+      return Promise.resolve();
+    },
     clearEstimate: () => notImplemented('clearEstimate'),
     freeze: () => notImplemented('freeze'),
     unfreezeProject: () => notImplemented('unfreezeProject'),
-    unfreeze: () => notImplemented('unfreeze'),
+    unfreeze: (id: string) => {
+      rowActionCalls.push(`unfreeze:${id}`);
+      const row = rows.find((each) => each.id === id);
+      if (row === undefined) return Promise.reject(new Error('not_found'));
+      row.frozenNumber = null;
+      return Promise.resolve();
+    },
     addDependency: () => notImplemented('addDependency'),
     removeDependency: () => notImplemented('removeDependency'),
   };
@@ -1400,16 +1446,99 @@ describe('the trio behind a phase’s figure, on a card', () => {
 });
 
 /**
- * The row-actions menu tests render `<PlanCards>` directly rather than
- * through `<WbsTable>`, unlike every describe block above.
+ * A card's ⋯ menu driven the way a person on a phone drives it: through
+ * `<WbsTable>`, over a fake that records the writes.
  *
- * `wbs-table.tsx` is two other agents' file tonight
- * (`notes/wbs-plan-2026-08-14-mobile-parity.md` M2's file split) and its
- * `<PlanCards>` call site does not pass `rowActions` — wiring real
- * `duplicateRow`/`unfreeze`/`deleteRow` callbacks in is a follow-up left for
- * when the file frees up. These tests prove the menu and its wiring in
- * isolation; they cannot prove it is reachable from a running plan, which is
- * `verify.md`'s open question for Dany.
+ * **This block exists because the isolated one below passed for eight days
+ * while no phone could reach the menu at all.** `<PlanCards>` renders the ⋯
+ * only where the caller passes `rowActions`, and until `card-row-actions-
+ * unwired` the only caller that ever did was this file: `wbs-table.tsx`'s call
+ * site left it out, so a card carried zero buttons on a real plan and three
+ * green tests guarded it. A component test cannot tell a wired feature from an
+ * unreachable one — only its call site can — and that is the gap these cases
+ * close. Every assertion is on `rowActionCalls`, the request, rather than on
+ * the redraw that follows it.
+ */
+describe('the ⋯ row-actions menu on a card in a running plan', () => {
+  afterEach(cleanup);
+
+  itDom('duplicates a row through the table’s own handler', async () => {
+    const api = fakeApi();
+    await api.create('p1', { parentId: null });
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByRole('article', { name: 'Work item 010' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for 010' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+
+    await waitFor(() => {
+      expect(api.rowActionCalls).toEqual(['duplicate:w1']);
+    });
+    // And the copy arrives on the same face, because a phone's only proof that
+    // the duplicate happened is the card that was not there before.
+    await screen.findByRole('article', { name: 'Work item 020' });
+  });
+
+  itDom('deletes a row through the table’s own handler', async () => {
+    const api = fakeApi();
+    await api.create('p1', { parentId: null });
+    await api.create('p1', { parentId: null });
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByRole('article', { name: 'Work item 020' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for 010' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(api.rowActionCalls).toEqual(['remove:w1']);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('article', { name: 'Work item 010' })).toBeNull();
+    });
+  });
+
+  itDom(
+    'unfreezes a frozen row, and refuses to delete one, with the table’s own words',
+    async () => {
+      const api = fakeApi();
+      await api.create('p1', { parentId: null });
+      // Arranged on the row rather than through a write path: this fake has no
+      // `freeze`, and what is under test is what the menu does with a frozen row,
+      // not how it came to be frozen.
+      api.rows[0].frozenNumber = '010';
+      widthIs(PHONE);
+      render(<WbsTable projectId="p1" api={api} />);
+      await screen.findByRole('article', { name: 'Work item 010' });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Actions for 010' }));
+      const items = screen.getAllByRole('menuitem');
+      expect(items.map((item) => item.textContent)).toEqual(['Duplicate', 'Unfreeze', 'Delete']);
+      expect(items[2]).toHaveAttribute('title', 'Frozen — unfreeze this row before deleting it');
+
+      // The refusal refuses on the real handler, not only on the stub the
+      // isolated suite hands it.
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+      expect(api.rowActionCalls).toEqual([]);
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Unfreeze' }));
+      await waitFor(() => {
+        expect(api.rowActionCalls).toEqual(['unfreeze:w1']);
+      });
+    },
+  );
+});
+
+/**
+ * The row-actions menu tests below render `<PlanCards>` directly rather than
+ * through `<WbsTable>`, unlike every other describe block in this file.
+ *
+ * Kept, and kept isolated, now that the call site is wired: these pin the
+ * menu's own shape — the ids, the labels, the order, the 44px target, the
+ * one-menu-at-a-time rule — against props a running plan cannot easily
+ * arrange. What they cannot prove is reachability, which is why the block
+ * above goes through `<WbsTable>` and asserts the writes.
  */
 const EMPTY_SCHEDULE: ScheduleView = {
   duration: 0,
