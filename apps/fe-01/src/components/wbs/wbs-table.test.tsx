@@ -4204,6 +4204,88 @@ describe('one cell for the whole trio', () => {
     expect(written).toHaveLength(1);
   });
 
+  itDom('sends the trio on Enter, without waiting for the cell to be left', async () => {
+    // The most-edited box in the product, and until this it was the one cell of
+    // the grid where Enter did nothing at all: the name cell takes it, the
+    // dependency picker takes it, Prio has taken it since 2026-08-11, and an
+    // estimate typed and confirmed sat as a draft with the plan's dates
+    // unmoved. Observed live on dev by `wbs-e2e-planning-qa` chunk 3,
+    // 2026-08-22: `20/24/30` into `Dev estimate for 040`, Enter, ten seconds of
+    // an unchanged DAYS and END, then `8.8 → 26.5 days` the instant the cell
+    // was clicked away from.
+    const api = await oneRow();
+    const written = watchWrites(api);
+
+    const cell = combinedCell('010');
+    cell.focus();
+    fireEvent.change(cell, { target: { value: '2/3/8' } });
+    fireEvent.keyDown(cell, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(written).toEqual([
+        ['w1', 'role-dev', { optimistic: 2, realistic: 3, pessimistic: 8 }],
+      ]);
+    });
+    // The caret stays where it is, exactly as Prio's does: moving on is
+    // Ctrl/⌘ + Enter's, and a bare Enter that also moved would be a second
+    // chord wearing the first one's key.
+    expect(document.activeElement).toBe(combinedCell('010'));
+  });
+
+  itDom('sends one request for a trio entered with Enter and then left', async () => {
+    // `LiveField` rule 5 across the two callers: the blur that follows an Enter
+    // finds `shown` no further on than the submission already recorded, and
+    // sends nothing. Two patches here would be two broadcasts, two refetches
+    // and two Ctrl/⌘ + Zs for one trio.
+    const api = await oneRow();
+    const written = watchWrites(api);
+
+    const cell = combinedCell('010');
+    cell.focus();
+    fireEvent.change(cell, { target: { value: '2/3/8' } });
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    fireEvent.blur(cell);
+
+    await waitFor(() => {
+      expect(combinedCell('010').value).toBe('4');
+    });
+    expect(written).toHaveLength(1);
+  });
+
+  itDom('sends an unfolded point on Enter too', async () => {
+    // The same keystroke one column along. The three-box face is the one an
+    // estimator opens to argue about a single number, and a number typed and
+    // confirmed there was the same silent draft.
+    //
+    // The first two boxes are left the old way and send nothing — a trio with a
+    // box still empty is a complaint, not a request (`trioProblem`) — so the
+    // only thing that can produce a write here is Enter in the third.
+    const api = await oneRow();
+    const written = watchWrites(api);
+    click('Unfold Dev estimates');
+
+    const optimistic = await screen.findByLabelText<HTMLInputElement>('Dev optimistic for 010');
+    fireEvent.change(optimistic, { target: { value: '2' } });
+    fireEvent.blur(optimistic);
+    const pessimistic = screen.getByLabelText<HTMLInputElement>('Dev pessimistic for 010');
+    fireEvent.change(pessimistic, { target: { value: '8' } });
+    fireEvent.blur(pessimistic);
+    expect(written, 'a half-filled trio was sent').toEqual([]);
+
+    const realistic = screen.getByLabelText<HTMLInputElement>('Dev realistic for 010');
+    realistic.focus();
+    fireEvent.change(realistic, { target: { value: '3' } });
+    fireEvent.keyDown(realistic, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.rows[0]?.estimates['role-dev']).toEqual({
+        optimistic: 2,
+        realistic: 3,
+        pessimistic: 8,
+      });
+    });
+  });
+
   itDom('takes the spaces and the decimals a person types', async () => {
     const api = await oneRow();
 

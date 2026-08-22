@@ -259,6 +259,74 @@ describe('stating how many of a team are at work at once on this plan', () => {
     expect(setCapacity).toHaveBeenCalledWith('t-platform', 5);
   });
 
+  itDom('Done keeps the number typed into a box it was never left', async () => {
+    // The fault this test exists for, observed live on dev by
+    // `wbs-e2e-planning-qa` chunk 3, 2026-08-22: `1` typed into `How many of
+    // growth-squad at once` and `Done` clicked sent `teamCapacities: []` — an
+    // unlevelled plan with four items on a one-person team all starting on day
+    // 0. Tab first and then `Done`, and the same gesture stated the number and
+    // levelled the plan. The scheduler was never wrong; the value never reached
+    // it, because `Done` closed the surface and `onOpenChange` cleared every
+    // draft on the way out.
+    //
+    // A blur is a defensible commit for a free-text cell. It is not defensible
+    // as the *only* commit for a button whose whole job is "keep this" — and a
+    // button that discards is worse than one that does nothing, because the
+    // reader has already been told it saved.
+    const { setCapacity } = stubbed();
+
+    fireEvent.change(boxFor('Platform'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await settle();
+
+    expect(setCapacity).toHaveBeenCalledWith('t-platform', 1);
+  });
+
+  itDom('Done sends one request for a box that was left first', async () => {
+    // The ordinary mouse path: the click blurs the box before it reaches the
+    // button, so the commit is already out when `Done` runs. Two requests for
+    // one typed number would be two writes and two re-reads of the plan — which
+    // is why the outstanding request is what `Done` waits on rather than a
+    // second one it starts.
+    const { setCapacity } = stubbed();
+
+    fireEvent.change(boxFor('Platform'), { target: { value: '4' } });
+    fireEvent.blur(boxFor('Platform'));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await settle();
+
+    expect(setCapacity).toHaveBeenCalledTimes(1);
+    expect(setCapacity).toHaveBeenCalledWith('t-platform', 4);
+  });
+
+  itDom('Done keeps the surface open when be-01 refuses what it sent', async () => {
+    // A refusal is about the number on screen, and the number is only on screen
+    // while the dialog is. Closing over the top of one would leave the reader
+    // with a plan that did not change and nothing anywhere saying why.
+    const setCapacity = vi.fn(() => Promise.reject(new Error('size_must_be_at_most_1000')));
+    stubbed({ setCapacity });
+
+    fireEvent.change(boxFor('Platform'), { target: { value: '1001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await settle();
+
+    expect(screen.getByRole('alert').textContent).toContain('at most 1000');
+    expect(boxFor('Platform').value).toBe('1001');
+  });
+
+  itDom('Done closes once every box it kept has landed', async () => {
+    // The other half of the one above: a change that is accepted still leaves
+    // through the button, and a dialog that stayed open on success would read as
+    // a save that failed silently.
+    stubbed();
+
+    fireEvent.change(boxFor('Platform'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await settle();
+
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull();
+  });
+
   itDom('says so when no work on the plan is labelled with a team', () => {
     // Said out loud rather than left as an empty panel, which reads as a list that
     // failed to load — and it names the thing to do about it.
