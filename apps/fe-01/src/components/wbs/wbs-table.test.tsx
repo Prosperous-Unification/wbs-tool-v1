@@ -13081,6 +13081,15 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
       // worth asserting is the **outcome**, not the attribute: hover a mark, get
       // its sentence. Written over `querySelectorAll` rather than over two named
       // marks, so a third mark added anywhere on this row has to answer it too.
+      //
+      // Proof, three faults watched on h2puni 2026-08-22, one per way the pair
+      // can drift. `title` dropped from the uncarded arm: `expected null to be
+      // 'Built by a non-owner: Billing does no…'`. The card's sentence removed
+      // (`folded-role-card.tsx`, the `doing?.outside` block): `expected 'Dev for
+      // 010No estimate yetAdaDays as …' to contain 'Assigned outside the team:
+      // Ada is not…'`. A `title` put back on the carded arm, which is the race
+      // 2026-08-09 ended: `expected 'Assigned outside the team: Ada is not…' to
+      // be null`. Three for three.
       const api = await aServicedPlan();
       api.ownService(api.wiring, api.checkout);
       await shown(api);
