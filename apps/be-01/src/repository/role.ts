@@ -185,11 +185,11 @@ export class RoleRepository implements RoleStore {
       .select({ workItemId: roleProgress.workItemId })
       .from(roleProgress)
       .where(eq(roleProgress.roleId, roleId));
-    // Not read through a by-role index, because `role_measure` has none: its
-    // only index is the primary key's, and that leads with the work item, so
-    // this is a scan of one deployment's figures. Filed rather than fixed —
-    // `openspec/changes/token-tracking/verify.md`, Owed — because an index is a
-    // migration, and this reads the same rows `remove` counts either way.
+    // Read through `role_measure_by_role`, which exists for this question for
+    // `actual_by_role`'s reason — the primary key leads with the work item, so
+    // counting one role's rows without it would be a scan. Nothing owed here:
+    // the index has shipped with the table since
+    // `20260821140000_add_role_measure`.
     const measured = await this.db
       .select({ workItemId: roleMeasure.workItemId })
       .from(roleMeasure)
