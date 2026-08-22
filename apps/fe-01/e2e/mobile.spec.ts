@@ -298,6 +298,17 @@ test.describe('the plan on a phone, measured by a browser', () => {
       .soft(await shortTargetsIn(page, '[data-modal-surface="centre"]'), 'in the Teams dialog')
       .toEqual([]);
     await page.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByRole('dialog', { name: 'Teams on this plan' })).toBeHidden();
+
+    // **The sheet is still open behind that dialog**, and its overlay is a
+    // `fixed inset-0` sheet of black over the whole page — so the account menu
+    // in the chrome is not reachable until it is dismissed. Watched: without
+    // this Escape the run below spent its full 60s on `<div class="fixed inset-0
+    // z-50 bg-black/40"> intercepts pointer events`. Escape rather than the ✕
+    // because the ✕ is one of the controls being measured and a test that
+    // dismisses a surface through the control under test can pass by moving it.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Plan actions' })).toBeHidden();
 
     // The account menu, which is chrome rather than plan and is the way out of
     // the app: its trigger is 32px and its three palette buttons are 22.
