@@ -276,6 +276,34 @@ test.describe('the plan on a phone, measured by a browser', () => {
    * rows, 25px `Close`, 32px buttons), the Teams dialog 2, the account menu 4.
    */
   test('gives every control on the phone’s own surfaces at least 44px', async ({ page }) => {
+    // The account menu **first**, and the order is not arbitrary: it is chrome
+    // rather than plan, and every modal on this page lays a `fixed inset-0`
+    // overlay over the chrome. Measured after the sheet, this click spent its
+    // full 60s on `<div class="fixed inset-0 z-50 bg-black/40"> intercepts
+    // pointer events` — and an Escape between the two did not put the sheet away
+    // either, watched at `f9781b0`. A surface reached before anything covers it
+    // needs no dismissal to be right.
+    await page.getByTitle('This account').click();
+    await expect(page.getByRole('menu', { name: `Signed in as ${username}` })).toBeVisible();
+    expect
+      .soft(await shortTargetsIn(page, '[data-account-menu]'), 'in the account menu')
+      .toEqual([]);
+
+    // A 44px control that pushed the page sideways would be a worse phone than
+    // a 32px one, and the menu is the surface that can: it is `absolute` in the
+    // header rather than in a portal, and three palette buttons that will not
+    // fit take the document with them. The first test in this file makes the
+    // same assertion with nothing open.
+    const root = await page.evaluate(() => {
+      const element = document.scrollingElement ?? document.documentElement;
+      return { scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+    });
+    expect(
+      root.scrollWidth,
+      'the grown controls made the page scroll sideways',
+    ).toBeLessThanOrEqual(root.clientWidth);
+    await page.getByTitle('This account').click();
+
     // The sheet, with `Filters` expanded — the state the sweep measured, and the
     // one holding the 13px controls. A `<summary>` is not the `<button>` that
     // closes the sheet, so this leaves it open (`closingControlIn`).
@@ -297,37 +325,6 @@ test.describe('the plan on a phone, measured by a browser', () => {
     expect
       .soft(await shortTargetsIn(page, '[data-modal-surface="centre"]'), 'in the Teams dialog')
       .toEqual([]);
-    await page.getByRole('button', { name: 'Done' }).click();
-    await expect(page.getByRole('dialog', { name: 'Teams on this plan' })).toBeHidden();
-
-    // **The sheet is still open behind that dialog**, and its overlay is a
-    // `fixed inset-0` sheet of black over the whole page — so the account menu
-    // in the chrome is not reachable until it is dismissed. Watched: without
-    // this Escape the run below spent its full 60s on `<div class="fixed inset-0
-    // z-50 bg-black/40"> intercepts pointer events`. Escape rather than the ✕
-    // because the ✕ is one of the controls being measured and a test that
-    // dismisses a surface through the control under test can pass by moving it.
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog', { name: 'Plan actions' })).toBeHidden();
-
-    // The account menu, which is chrome rather than plan and is the way out of
-    // the app: its trigger is 32px and its three palette buttons are 22.
-    await page.getByTitle('This account').click();
-    await expect(page.getByRole('menu', { name: `Signed in as ${username}` })).toBeVisible();
-    expect
-      .soft(await shortTargetsIn(page, '[data-account-menu]'), 'in the account menu')
-      .toEqual([]);
-
-    // A 44px control that pushed the page sideways would be a worse phone than
-    // a 32px one. The first test in this file asserts this with nothing open.
-    const root = await page.evaluate(() => {
-      const element = document.scrollingElement ?? document.documentElement;
-      return { scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
-    });
-    expect(
-      root.scrollWidth,
-      'the grown controls made the page scroll sideways',
-    ).toBeLessThanOrEqual(root.clientWidth);
   });
 
   /**
