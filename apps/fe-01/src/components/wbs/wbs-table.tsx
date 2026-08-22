@@ -76,7 +76,13 @@ import {
 } from './estimate-draft';
 import { FoldedRoleCard } from './folded-role-card';
 import { GanttFaultBoundary } from './gantt-fault';
-import type { GanttPlan, ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry';
+import {
+  type GanttPlan,
+  type ServiceLabel,
+  type ServiceTeamLabel,
+  startFloorByRow,
+  type TagLabel,
+} from './gantt-geometry';
 import { clampedGanttHeight, GANTT_CEILING_PX, GANTT_MIN_PX, GanttPanel } from './gantt-panel';
 import { HoverPreview } from './hover-preview';
 import { initialsOf } from './initials';
@@ -5868,6 +5874,25 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     if (typeof cell.scrollIntoView === 'function') cell.scrollIntoView({ block: 'nearest' });
   }, []);
 
+  /**
+   * What holds each row's start, in the chart's own words — filled below, once
+   * {@link ganttPlan} exists, and read by the `Start` cell out of the returned
+   * tree.
+   *
+   * A ref for {@link live}'s reason and not a second one: the `columns` memo
+   * depends on `roles` alone, and a value added to its dependency list remounts
+   * every cell in the table and eats the focus (LLM_README landmine #1). Its own
+   * ref rather than a field on `live` because it is assigned two thousand lines
+   * further down than that object is — the plan it is computed from is built
+   * after the columns are, and a field of `live` filled late would be `undefined`
+   * for anybody reading `live.current` early.
+   *
+   * Empty until the first render gets far enough to fill it, which is the same
+   * state a payload the geometry cannot explain leaves it in: a cell that says
+   * only its date, exactly as it did before this existed.
+   */
+  const startFloor = useRef<ReadonlyMap<string, string>>(new Map());
+
   const live = useRef({
     api,
     projectId,
@@ -8379,10 +8404,22 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           header: () => <span title={live.current.startDateHint('earliest start')}>Start</span>,
           cell: ({ row }) => {
             const start = live.current.spanOf(row.original).start;
-            // The whole day in the `title`, so the shortening costs nothing: a
-            // cell reading `1 Jun` still answers "which 1 Jun" on hover.
+            // Both facts in one `title`, the `End` cell's own shape one column
+            // over: the whole day, so the shortening costs nothing — a cell
+            // reading `1 Jun` still answers "which 1 Jun" on hover — and then
+            // what is holding that day where it is.
+            //
+            // The floor sentence is the **chart's**, word for word
+            // (`startFloorByRow`), and that is the whole of why this is a seam
+            // rather than a feature: the hover card over the bar has said
+            // `Waits for a dependency’s first estimated role` all along, which
+            // is the answer to the question this column has been provoking —
+            // why a row starts before the `End` of the thing it waits for.
+            const said = [start.iso, startFloor.current.get(row.original.id)]
+              .filter((part) => part !== null && part !== undefined)
+              .join(' — ');
             return (
-              <span data-start title={start.iso ?? undefined}>
+              <span data-start title={said === '' ? undefined : said}>
                 {start.text}
               </span>
             );
@@ -8840,6 +8877,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // table's cells read, so a bar's cap and its row's digits are one colour.
     priorityBands,
   };
+
+  // The `Start` column's sentences, off the same payload the chart is drawn
+  // from and therefore off the same rows: a row narrowed away by the search has
+  // no cell to explain, and one on a collapsed branch has none either.
+  //
+  // Assigned here rather than where the ref is declared because this is the
+  // first line at which `ganttPlan` exists, and it is read out of the returned
+  // tree — every cell renders after this statement has run.
+  startFloor.current = startFloorByRow(ganttPlan);
 
   /**
    * The plan as one reader has it on screen: the rows the filter and the

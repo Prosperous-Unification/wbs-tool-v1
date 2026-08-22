@@ -20,6 +20,7 @@ import {
   placeOnCalendar,
   placeOnWorkdays,
   routeArrow,
+  startFloorByRow,
   type TagLabel,
   UNASSIGNED_BAR_COLOR,
 } from './gantt-geometry';
@@ -2517,5 +2518,126 @@ describe('the waits that were not drawn', () => {
       'Not drawn: 1 wait whose other end this filter is hiding — 1 stored dependency. ' +
         'Clear the filter to see it.',
     );
+  });
+});
+
+describe('what holds a row’s start, for the table', () => {
+  it('gives every leaf the floor of the slice that starts when the row does', () => {
+    // Dev runs 0→2 and QA 2→5, so the row starts when Dev does and QA's own
+    // floor — the row waiting on itself — is not the row's answer.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('020', 0, 5)],
+        slices: [
+          sliceAt('020-dev', '020', 0, 2),
+          sliceAt('020-qa', '020', 2, 5, { roleId: 'qa', boundBy: 'roleOrder' }),
+        ],
+      }),
+    );
+
+    expect(floors.get('020')).toBe('Starts with the project');
+  });
+
+  it('says a dependency floor in the chart’s words, not the End column’s', () => {
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('030', 0, 6), rowAt('020', 3, 8)],
+        slices: [
+          sliceAt('030-dev', '030', 0, 3),
+          sliceAt('020-dev', '020', 3, 8, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [{ predecessorId: '030', successorId: '020' }],
+      }),
+    );
+
+    expect(floors.get('020')).toBe('Waits for a dependency’s first estimated role');
+  });
+
+  it('names the person a row is queued behind, and what they were finishing', () => {
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('010', 0, 2, { name: 'Strip' }), rowAt('020', 2, 4)],
+        slices: [
+          sliceAt('010-dev', '010', 0, 2, { personId: 'kat' }),
+          sliceAt('020-dev', '020', 2, 4, {
+            personId: 'kat',
+            boundBy: 'person',
+            resourcePredecessorId: '010-dev',
+          }),
+        ],
+      }),
+    );
+
+    expect(floors.get('020')).toBe('Kat — after Strip (Dev)');
+  });
+
+  it('names the pool a row is short of, how many it needs and who freed them', () => {
+    const floors = startFloorByRow(
+      planOf({
+        rows: [
+          rowAt('010', 0, 2, { name: 'Strip' }),
+          rowAt('020', 2, 4, { team: { state: 'named', name: 'Growth squad' } }),
+        ],
+        slices: [
+          sliceAt('010-dev', '010', 0, 2),
+          sliceAt('020-dev', '020', 2, 4, {
+            boundBy: 'capacity',
+            resourcePredecessorId: '010-dev',
+            capacityPredecessorIds: ['010-dev'],
+          }),
+        ],
+      }),
+    );
+
+    expect(floors.get('020')).toBe('Waits for Growth squad to free a person — after Strip (Dev)');
+  });
+
+  it('has nothing to say about a parent, which holds no slices', () => {
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('000', 0, 5, { leaf: false }), rowAt('010', 0, 5, { depth: 1 })],
+        slices: [sliceAt('010-dev', '010', 0, 5)],
+      }),
+    );
+
+    expect(floors.has('000')).toBe(false);
+    expect(floors.get('010')).toBe('Starts with the project');
+  });
+
+  it('skips the row it cannot explain and keeps every row it can', () => {
+    // A capacity floor with no team to be short of: `layOutGantt` refuses this
+    // payload whole and the chart's error boundary says so. The table cannot
+    // afford that, so the broken row loses its sentence alone.
+    const plan = planOf({
+      rows: [rowAt('010', 0, 2), rowAt('020', 2, 4)],
+      slices: [
+        sliceAt('010-dev', '010', 0, 2),
+        sliceAt('020-dev', '020', 2, 4, {
+          boundBy: 'capacity',
+          resourcePredecessorId: '010-dev',
+          capacityPredecessorIds: ['010-dev'],
+        }),
+      ],
+    });
+
+    expect(() => layOutGantt(plan)).toThrow(GanttDataError);
+    const floors = startFloorByRow(plan);
+    expect(floors.has('020')).toBe(false);
+    expect(floors.get('010')).toBe('Starts with the project');
+  });
+
+  it('skips a row whose slice is under a role the plan does not list', () => {
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('010', 0, 2), rowAt('020', 0, 2)],
+        slices: [
+          sliceAt('010-dev', '010', 0, 2),
+          sliceAt('020-ops', '020', 0, 2, { roleId: 'ops' }),
+        ],
+      }),
+    );
+
+    expect(floors.has('020')).toBe(false);
+    expect(floors.get('010')).toBe('Starts with the project');
   });
 });

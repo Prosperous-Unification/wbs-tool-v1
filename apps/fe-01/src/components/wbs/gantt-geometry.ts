@@ -2190,3 +2190,108 @@ function floorWordsOf(
     }
   }
 }
+
+/**
+ * What holds each row's **start**, in the same words the chart's bars use — for
+ * the table, which has never asked.
+ *
+ * The table shows a `Start` figure and no reason for it, and the commonest
+ * reading of a plan is somebody deciding the tool is broken: a row starting
+ * four days before the `End` of the thing it waits for is
+ * `dep-waits-on-first-role` working correctly, and nothing on that line says
+ * so. Every fact needed to say it has been on the wire since `boundBy` was
+ * added; this is the seam, not new prose. {@link floorWordsOf} is the one
+ * vocabulary, so a reader moving between the chart's hover and the table's
+ * hover reads the same sentence about the same row rather than two accounts of
+ * one wait.
+ *
+ * **The row's floor is its earliest slice's**, and that is the only judgement
+ * here. A row's `earliestStart` is the least of its slices' — be-01 computes it
+ * that way — so the slice that starts when the row does is the one whose floor
+ * is the row's, and a tie goes to role order because that is the order the row
+ * is read in. A row's *later* roles are held by `roleOrder`, which is the row
+ * waiting on itself and answers nothing.
+ *
+ * **Total, and that is the difference from {@link layOutGantt}.** The chart
+ * refuses a malformed payload whole, behind an error boundary that says why;
+ * the table cannot, because forty columns of real data would go with it. So a
+ * row this cannot explain is simply absent from the map and its cell says
+ * exactly what it said before this existed — and the chart, on the same
+ * payload, still refuses out loud. Silence here is never silence everywhere.
+ *
+ * Parents are skipped: a parent holds no slices, its span is a projection of
+ * what is underneath, and nothing floors it.
+ */
+export function startFloorByRow(plan: GanttPlan): ReadonlyMap<string, string> {
+  const rowNames = new Map(plan.rows.map((row) => [row.id, row.name]));
+  const sliceById = new Map(plan.slices.map((slice) => [slice.id, slice]));
+  const rolesById: ReadonlyMap<string, GanttRolePlace> = new Map(
+    plan.roles.map((role, place) => [role.id, { place, name: role.name }]),
+  );
+  const slicesByWorkItem = new Map<string, GanttSlice[]>();
+  for (const slice of plan.slices) {
+    const own = slicesByWorkItem.get(slice.workItemId);
+    if (own === undefined) slicesByWorkItem.set(slice.workItemId, [slice]);
+    else own.push(slice);
+  }
+
+  const words = new Map<string, string>();
+  for (const row of plan.rows) {
+    if (!row.leaf) continue;
+    const own = inRoleOrderSafely(slicesByWorkItem.get(row.id) ?? [], rolesById);
+    if (own === null || own.length === 0) continue;
+    // `<` and not `<=`, so a tie keeps the first in role order rather than the
+    // last: two slices starting together are Dev and QA both standing on the
+    // project's first day, and the row is read Dev-first.
+    let anchor = own[0];
+    for (const each of own) {
+      if (each.slice.earliestStart < anchor.slice.earliestStart) anchor = each;
+    }
+    try {
+      words.set(
+        row.id,
+        floorWordsOf(
+          anchor.slice,
+          anchor.slice.resourcePredecessorId === null
+            ? undefined
+            : sliceById.get(anchor.slice.resourcePredecessorId),
+          personNameOf(anchor.slice, plan.personNames),
+          row.team,
+          row.notBeforeReason ?? null,
+          rowNames,
+          rolesById,
+        ),
+      );
+    } catch (error) {
+      // The narrow catch is the point: `GanttDataError` is this module saying a
+      // payload broke a promise, and skipping the row is the table's answer to
+      // exactly that. Anything else thrown out of here is a fault in this
+      // function, and swallowing it would leave a column quietly blank on every
+      // row of every plan with nothing anywhere to read.
+      if (!(error instanceof GanttDataError)) throw error;
+    }
+  }
+  return words;
+}
+
+/**
+ * {@link inRoleOrder}, or null where the payload puts a slice under a role the
+ * plan does not list.
+ *
+ * The throw is right for the chart and wrong here for {@link startFloorByRow}'s
+ * reason, and it is caught around the sort rather than around the whole row
+ * because the sort is not inside the `try` below it: `inRoleOrder` resolves
+ * every place *before* comparing, so the throw fires while the list is being
+ * built and not while the sentence is being written.
+ */
+function inRoleOrderSafely(
+  slices: readonly GanttSlice[],
+  rolesById: ReadonlyMap<string, GanttRolePlace>,
+): PlacedSlice[] | null {
+  try {
+    return inRoleOrder(slices, rolesById);
+  } catch (error) {
+    if (!(error instanceof GanttDataError)) throw error;
+    return null;
+  }
+}
