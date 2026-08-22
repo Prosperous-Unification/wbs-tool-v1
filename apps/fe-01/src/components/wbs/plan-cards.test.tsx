@@ -84,6 +84,18 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
   services: ServiceView[];
   /** The directory's tags, arranged the way {@link services} is. */
   tags: TagView[];
+  /**
+   * The directory's people, arranged the way {@link teams} is — and it is the
+   * **membership** on them that matters here, not the names.
+   *
+   * Exposed for the `assigned outside the team` control: this fake's one person
+   * belongs to no team, so every assignment onto a labelled row provokes that
+   * signal, and a case meaning to show the signal *absent* has no way to say so
+   * without putting them in a team. Without this, "the directory has no
+   * quarrel" is a claim only half of which can be arranged, which is a control
+   * that passes for the wrong reason.
+   */
+  people: PersonView[];
 } {
   const rows: WorkItemView[] = [];
   const roleList: RoleView[] = [{ ...DEV }, { ...QA }];
@@ -119,6 +131,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     teams,
     services,
     tags,
+    people,
     tree: () =>
       Promise.resolve({
         workItems: rows.map(view),
@@ -1111,14 +1124,22 @@ describe('what a card says about capacity', () => {
 
   itDom('marks nothing on a row the directory has no quarrel with', async () => {
     // The control, and it is what makes the two cases above findings rather
-    // than counted flags: `Billing` owns `Payments` and `Kat` is in `Billing`,
-    // so the same arrangement that provoked both signals provokes neither. A
-    // block that rendered unconditionally would put a sentence on every card of
-    // a plan, which is the marker-covers-everything failure `label-mismatch.ts`
-    // spends three paragraphs refusing.
+    // than counted flags: the identical arrangement — same team, same service,
+    // same assignee — with `Billing` owning `Payments` and `Kat` in `Billing`
+    // provokes neither signal. A block that rendered unconditionally would put
+    // a sentence on every card of a plan, which is the marker-covers-everything
+    // failure `label-mismatch.ts` spends three paragraphs refusing.
+    //
+    // **Both halves have to be cleared and the first version cleared one.** It
+    // owned the service and left Kat in no team, so the card still carried the
+    // assignee sentence and the case passed only while an injection had the
+    // whole block struck. Watched 2026-08-22: with the dedup injected off, this
+    // failed on `expected <ul> to be null` — a control reddening for a fault it
+    // was not about is a control asserting nothing.
     await aPlan((rows, teams, api) => {
       teams.push({ id: 't1', name: 'Billing', serviceIds: ['s1'] });
       api.services.push({ id: 's1', name: 'Payments' });
+      api.people[0].teamIds = ['t1'];
       rows[0].serviceTeamId = 't1';
       rows[0].teamIds = ['t1'];
       rows[0].serviceIds = ['s1'];
