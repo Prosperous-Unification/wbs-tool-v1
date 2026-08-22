@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,9 +21,20 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function boot(): RunningBe {
-  const dir = mkdtempSync(join(tmpdir(), 'wbs-boot-'));
+function tempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
   dirs.push(dir);
+  return dir;
+}
+
+/**
+ * `commitDir` defaults to a directory with no repository above it, so `/health`
+ * answers a fixed `commit: null` here. Left at the real default it would report
+ * whatever commit the checkout running the suite happens to be at, and an
+ * assertion on that is an assertion on the developer's afternoon.
+ */
+function boot(commitDir: string = tempDir('wbs-boot-nogit-')): RunningBe {
+  const dir = tempDir('wbs-boot-');
   const dbPath = join(dir, 'test.db');
   runMigrations(dbPath, FOLDER);
   running = bootBe01({
@@ -33,6 +44,7 @@ function boot(): RunningBe {
     jwtKey: 'k'.repeat(32),
     gwUrl: 'http://gw.invalid',
     internalAuthSecret: 's'.repeat(32),
+    commitDir,
   });
   return running;
 }
@@ -60,7 +72,32 @@ describe('bootBe01', () => {
     const res = await fetch(`http://localhost:${String(be.port)}/health`);
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { status: string }).toEqual({ status: 'ok' });
+    expect((await res.json()) as { status: string }).toEqual({ status: 'ok', commit: null });
+  });
+
+  it('names the commit its checkout is at, not one captured at startup', async () => {
+    // The wiring test for `deployedCommit`. `buildApp` defaults it to a
+    // function answering null, so a `boot.ts` that stopped passing the real
+    // reader would keep every other test in this file green and report `null`
+    // from every deployment — which reads as "prod image, no .git" rather than
+    // as a bug. Proof: the `deployedCommit:` line struck from `boot.ts` and
+    // only this test failed.
+    const repo = tempDir('wbs-boot-git-');
+    const sha = 'c'.repeat(39) + '3';
+    mkdirSync(join(repo, '.git', 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(repo, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    writeFileSync(join(repo, '.git', 'refs', 'heads', 'main'), sha + '\n');
+    const be = boot(repo);
+
+    const first = await fetch(`http://localhost:${String(be.port)}/health`);
+    expect((await first.json()) as { commit: string }).toEqual({ status: 'ok', commit: sha });
+
+    // The deploy this exists for moves the checkout under a process that is
+    // never restarted, so the second read has to see the move.
+    const moved = 'd'.repeat(39) + '4';
+    writeFileSync(join(repo, '.git', 'refs', 'heads', 'main'), moved + '\n');
+    const second = await fetch(`http://localhost:${String(be.port)}/health`);
+    expect((await second.json()) as { commit: string }).toEqual({ status: 'ok', commit: moved });
   });
 
   it('answers a resume from the log it opened', async () => {

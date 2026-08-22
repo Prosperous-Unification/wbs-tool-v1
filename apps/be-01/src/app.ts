@@ -89,6 +89,21 @@ export interface AppOptions {
    * fail is the failure `AGENTS.md` R5 is about.
    */
   probeDatabase: () => DatabaseHealth;
+  /**
+   * The commit the checkout on disk is at, read fresh on every `/health` call.
+   *
+   * Optional, and this is the one place an absent value does not lie: `null`
+   * means "this deployment cannot tell you which commit it is at", which is the
+   * true answer for a prod image with no `.git` and for a test that never
+   * wired it. `boot.ts` passes the real reader, and `boot.test.ts` fails if it
+   * stops doing so, so the default cannot quietly become production's answer.
+   *
+   * A function rather than a string because dev's deploy is a `git reset` under
+   * running watchers: a docs-only commit moves the checkout and restarts
+   * nothing, so a value captured at startup would report the previous deploy
+   * for as long as the process happened to live.
+   */
+  deployedCommit?: () => string | null;
   version?: string;
 }
 
@@ -139,9 +154,15 @@ export function buildApp(opts: AppOptions) {
         }),
       )
       .get('/health', ({ set }) => {
+        // On every answer, including the unhealthy ones. "Which commit is this
+        // wedged process at" is the first question a failed deploy raises, and
+        // an endpoint that only names the commit when all is well cannot answer
+        // it — the deploy poller reads this precisely when it does not yet know
+        // whether the reset it just made has taken effect.
+        const commit = opts.deployedCommit?.() ?? null;
         if (!opts.migrationsApplied) {
           set.status = 503;
-          return { status: 'migrating' as const };
+          return { status: 'migrating' as const, commit };
         }
         let schema: DatabaseHealth;
         try {
@@ -152,13 +173,13 @@ export function buildApp(opts: AppOptions) {
           // operator reading the log needs to know which.
           logger.error({ err }, 'health probe could not reach the database');
           set.status = 503;
-          return { status: 'database_unreachable' as const };
+          return { status: 'database_unreachable' as const, commit };
         }
         if (schema !== 'ok') {
           set.status = 503;
-          return { status: schema };
+          return { status: schema, commit };
         }
-        return { status: 'ok' as const };
+        return { status: 'ok' as const, commit };
       })
   );
 }

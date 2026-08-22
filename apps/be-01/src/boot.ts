@@ -1,6 +1,7 @@
 import type { Logger } from '@wbs/observability';
 
 import { buildApp } from './app';
+import { readDeployedCommit } from './deployed-commit';
 import { openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
 import { runMigrations } from './repository/migrate';
@@ -26,6 +27,15 @@ export interface BootOptions {
    */
   migrateOnStartup?: boolean;
   migrationsFolder?: string;
+  /**
+   * Where to start looking for the checkout `/health` should name the commit of.
+   *
+   * Defaults to the process's working directory, which for a served tier is
+   * `apps/be-01` — the reader walks up from there. It is an option only so a
+   * test can point it at a repository it built itself; nothing in a deployment
+   * sets it.
+   */
+  commitDir?: string;
 }
 
 export interface RunningBe {
@@ -70,6 +80,9 @@ export function bootBe01(opts: BootOptions): RunningBe {
     history: services.history,
     replay: services.replay,
     probeDatabase: () => probeSchema(db),
+    // Read per call, not captured here: dev's deploy is a `git reset` under
+    // live watchers, so this process outlives the commit it started on.
+    deployedCommit: () => readDeployedCommit(opts.commitDir),
     internalAuthSecret: opts.internalAuthSecret,
     version: opts.version,
   });
