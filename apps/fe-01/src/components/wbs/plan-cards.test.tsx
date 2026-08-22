@@ -681,6 +681,35 @@ describe('a picker open on a card', () => {
     expect(figure.value).toBe('4@ka');
     expect(api.assignments).toEqual([]);
   });
+
+  itDom('sends the trio on Enter where no list is open', async () => {
+    // The table's fix on the face that has the most reason to want it: a phone
+    // has no convenient elsewhere to tap, so blur-only commit means a figure is
+    // saved by whatever the reader happens to touch next — and their own
+    // keyboard's confirm key did nothing at all.
+    //
+    // With no `@` in the box there is no list to own the key, which is what
+    // makes this the same box as the one above and a different branch of it.
+    const api = fakeApi();
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await addAWorkItem();
+
+    const figure = screen.getByLabelText<HTMLInputElement>('Dev estimate for 010');
+    fireEvent.focus(figure);
+    fireEvent.change(figure, { target: { value: '2/3/8' } });
+    expect(screen.queryByRole('listbox'), 'a list is open, so Enter is not this branch').toBeNull();
+
+    fireEvent.keyDown(figure, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.rows[0]?.estimates['role-dev']).toEqual({
+        optimistic: 2,
+        realistic: 3,
+        pessimistic: 8,
+      });
+    });
+  });
 });
 
 describe('the toolbar sheet', () => {

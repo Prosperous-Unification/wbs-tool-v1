@@ -9,7 +9,7 @@ import { PickerList, type PickerOption } from './creatable-picker';
 import { type CellElement, cellKey } from './editable-grid';
 import { POINTS } from './estimate-draft';
 import type { ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry';
-import type { CommitOutcome } from './live-editing';
+import { type CommitOutcome, flushCell } from './live-editing';
 import { composeNameCell } from './name-notes';
 import { priorityBandStyleOf } from './priority-band-style';
 import type { PrintedDay } from './short-date';
@@ -639,7 +639,19 @@ export function PlanCards({
                           // is given back — the same routing the table's folded
                           // cell has, minus the chords and the alt-arrows, which
                           // are not wired on a card at all.
-                          if (options.length === 0) return;
+                          if (options.length === 0) {
+                            // Enter saves, the table's rule on the face that has
+                            // the most reason to keep it: a phone has no
+                            // convenient elsewhere to click, and the keyboard's
+                            // own confirm key is how a number is finished on one.
+                            // No modifier guard, because no chord is wired here
+                            // for one to leave alone.
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              void flushCell(event.currentTarget);
+                            }
+                            return;
+                          }
                           if (event.key === 'Escape') {
                             event.preventDefault();
                             closeMention();

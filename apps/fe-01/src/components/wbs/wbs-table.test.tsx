@@ -4247,7 +4247,9 @@ describe('one cell for the whole trio', () => {
     fireEvent.blur(cell);
 
     await waitFor(() => {
-      expect(combinedCell('010').value).toBe('4');
+      // `2/3/8` is PERT 3.7, which is none of the three numbers typed — the
+      // cell going back to be-01's computed figure is what says the trio landed.
+      expect(combinedCell('010').value).toBe('3.7');
     });
     expect(written).toHaveLength(1);
   });

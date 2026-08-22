@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -116,6 +116,17 @@ export function TeamsDialog({ teams, setCapacity, onChanged }: TeamsDialogProps)
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * The request in the air for each team, and the number it is carrying.
+   *
+   * A ref rather than state: nothing on screen reads it, and a re-render per
+   * entry would be a re-render in the middle of the blur that made it. Cleared
+   * in {@link attempt}'s `finally`, so it holds only what is genuinely still
+   * out.
+   */
+  const inFlight = useRef<Map<string, { size: number | null; landing: Promise<boolean> }>>(
+    new Map(),
+  );
 
   const shown = (team: TeamOnThePlan): string =>
     team.id in typed ? (typed[team.id] ?? '') : team.stated === null ? '' : String(team.stated);
@@ -157,31 +168,53 @@ export function TeamsDialog({ teams, setCapacity, onChanged }: TeamsDialogProps)
    * times` — `1e999` on its way out as `{ size: null }`, unlimiting a limited team
    * with nothing on screen said about it.
    */
-  function commit(team: TeamOnThePlan): void {
+  function commit(team: TeamOnThePlan): Promise<boolean> {
     const draft = shown(team).trim();
     if (draft === '' && team.stated === null) {
       forget(team.id);
-      return;
+      return Promise.resolve(true);
     }
     const asNumber = draft === '' ? null : Number(draft);
     if (asNumber !== null && !Number.isFinite(asNumber)) {
       setProblem(capacityRefusalSentence('size_must_be_a_whole_number_from_1'));
-      return;
+      return Promise.resolve(false);
     }
     if (asNumber === team.stated) {
       forget(team.id);
-      return;
+      return Promise.resolve(true);
     }
-    void attempt(team.id, asNumber);
+    // The request already out for this team carrying this very number, if there
+    // is one — `LiveField`'s rule 5, one tier along, and here for its reason.
+    // The ordinary mouse path through `Done` is two gestures over one number:
+    // the click blurs the box, which commits, and then reaches the button,
+    // which commits again. **The answer is the request's own**, so `Done` waits
+    // on what be-01 does with the number already travelling rather than sending
+    // a second copy of it.
+    const flying = inFlight.current.get(team.id);
+    // `?.` and not a `!== undefined` guard beside it: `asNumber` is
+    // `number | null` and never `undefined`, so the optional chain narrows the
+    // entry by itself and the second half of the pair would be unreachable.
+    if (flying?.size === asNumber) return flying.landing;
+    const landing = attempt(team.id, asNumber);
+    inFlight.current.set(team.id, { size: asNumber, landing });
+    return landing;
   }
 
-  async function attempt(teamId: string, size: number | null): Promise<void> {
+  /**
+   * Sends one number and answers whether be-01 kept it.
+   *
+   * The boolean is the caller's, not the box's: a blur has nothing left to
+   * decide once the sentence is on screen, but {@link done} does — it may only
+   * close over a surface with nothing left to say.
+   */
+  async function attempt(teamId: string, size: number | null): Promise<boolean> {
     setBusy(true);
     setProblem(null);
     try {
       await setCapacity(teamId, size);
       forget(teamId);
       await onChanged();
+      return true;
     } catch (thrown: unknown) {
       // The draft is deliberately **kept** on a refusal: the number on screen is
       // what the reader typed and what the sentence beside it is about, and
@@ -190,9 +223,46 @@ export function TeamsDialog({ teams, setCapacity, onChanged }: TeamsDialogProps)
       setProblem(
         capacityRefusalSentence(thrown instanceof Error ? thrown.message : 'request_failed'),
       );
+      return false;
     } finally {
       setBusy(false);
+      // Dropped whether it landed or was refused, so the entry only ever covers
+      // the window a request is really in the air for. Kept past that, a
+      // refusal could not be retried by pressing `Done` again, and a peer's
+      // change followed by the reader typing the old number back would be
+      // answered by a promise that settled a minute ago.
+      inFlight.current.delete(teamId);
     }
+  }
+
+  /**
+   * Keeps what is typed, then leaves — which is the whole job of a button
+   * called `Done`.
+   *
+   * It used to be `onOpenChange(false)` alone, and that cleared every draft on
+   * the way out: a capacity typed and confirmed reached be-01 as nothing, the
+   * plan came back unlevelled, and the reader had been told it saved. Blur-only
+   * commit is defensible for a box somebody may merely wander out of; it is not
+   * defensible for the one control on the surface whose meaning is "keep this".
+   * Observed live on dev by `wbs-e2e-planning-qa`, 2026-08-22: `1` typed into
+   * `How many of growth-squad at once`, then `Done`, put `teamCapacities: []`
+   * on the wire and four items of a one-person team on day 0 — and the same
+   * gesture with a Tab in front of it levelled the plan correctly.
+   *
+   * Every box rather than the focused one: the focus may be anywhere by the
+   * time the button is reached, and a second team's typed number is exactly as
+   * unsaved. Sequentially, because one refusal is one sentence, and two
+   * requests racing to write it leave the reader reading about whichever lost.
+   *
+   * A refusal stops the close and stops the loop: the surface is where the
+   * refusal is said, and the number it is about is only on screen while the
+   * surface is.
+   */
+  async function done(): Promise<void> {
+    for (const team of teams) {
+      if (!(await commit(team))) return;
+    }
+    onOpenChange(false);
   }
 
   /**
@@ -301,12 +371,12 @@ export function TeamsDialog({ teams, setCapacity, onChanged }: TeamsDialogProps)
                     setTyped((current) => ({ ...current, [team.id]: draft }));
                   }}
                   onBlur={() => {
-                    commit(team);
+                    void commit(team);
                   }}
                   onKeyDown={(event) => {
                     if (event.key !== 'Enter') return;
                     event.preventDefault();
-                    commit(team);
+                    void commit(team);
                   }}
                 />
               </li>
@@ -319,7 +389,7 @@ export function TeamsDialog({ teams, setCapacity, onChanged }: TeamsDialogProps)
             variant="outline"
             type="button"
             onClick={() => {
-              onOpenChange(false);
+              void done();
             }}
           >
             Done

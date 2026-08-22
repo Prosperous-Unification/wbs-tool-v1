@@ -7664,6 +7664,31 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                               return;
                             }
                           } else {
+                            // Enter saves, exactly as Prio and People-at-once do
+                            // and for the same reason — see the comment on Prio's.
+                            // This cell is the one it mattered most in and the
+                            // last to get it: a trio typed and confirmed sat as a
+                            // draft with the plan's dates unmoved until somebody
+                            // happened to click elsewhere. Observed live on dev by
+                            // `wbs-e2e-planning-qa`, 2026-08-22.
+                            //
+                            // Inside the `else`, and that is the whole placement
+                            // argument: with a mention open Enter belongs to the
+                            // list above, which takes the first person offered.
+                            // The modifier guard leaves Ctrl/⌘ + Enter to
+                            // `onCommandKey` underneath, which saves *and* makes
+                            // the next row.
+                            if (
+                              e.key === 'Enter' &&
+                              !e.metaKey &&
+                              !e.ctrlKey &&
+                              !e.altKey &&
+                              !e.shiftKey
+                            ) {
+                              e.preventDefault();
+                              void flushCell(e.currentTarget);
+                              return;
+                            }
                             // The routing matrix's inert row is this `else` and
                             // nothing more: while the `@` list is open it owns
                             // the keyboard, and Escape above is how it is given
@@ -7860,6 +7885,23 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                             aria-invalid={wrong}
                             title={problem?.message}
                             onKeyDown={(e) => {
+                              // Enter saves, the folded cell's rule in the face
+                              // an estimator opens to argue about one number.
+                              // A box with no list over it, so there is no
+                              // `mentioning` arm to sit inside — the modifier
+                              // guard is still the chord's, and is the whole of
+                              // what this branch has to be careful about.
+                              if (
+                                e.key === 'Enter' &&
+                                !e.metaKey &&
+                                !e.ctrlKey &&
+                                !e.altKey &&
+                                !e.shiftKey
+                              ) {
+                                e.preventDefault();
+                                void flushCell(e.currentTarget);
+                                return;
+                              }
                               live.current.onAltMove(e, row.original, `${role.id}-${point}`);
                               live.current.onCommandKey(e, row.original, `${role.id}-${point}`);
                               live.current.onTabKey(e, row.original.id, `${role.id}-${point}`);
