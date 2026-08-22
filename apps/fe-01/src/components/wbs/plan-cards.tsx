@@ -187,11 +187,20 @@ export interface PlanCardsProps {
    * table's own words, refusing Delete on a frozen row with the table's own
    * sentence (`wbs-table.tsx`'s `actions` column). One vocabulary, not two.
    *
-   * Optional and additive: `wbs-table.tsx` is two other agents' file tonight
-   * (`notes/wbs-plan-2026-08-14-mobile-parity.md` M2's file split), so wiring
-   * real callbacks into its `<PlanCards>` call site is a follow-up left for
-   * when the file frees up. Absent, a card prints no ⋯ button at all rather
-   * than one that opens onto nothing.
+   * **Wired since `card-row-actions-unwired`, 2026-08-22.** It was optional for
+   * eight days because `wbs-table.tsx` was two other agents' file when this
+   * renderer was written (`notes/wbs-plan-2026-08-14-mobile-parity.md` M2's
+   * file split), and in those eight days the only caller that ever passed it
+   * was `plan-cards.test.tsx` — so every card on every phone carried zero
+   * buttons while three green tests guarded the menu. The lesson, which is why
+   * this paragraph stays: a prop left optional "until the file frees up" is a
+   * feature nobody can use, and only a test through the call site can tell the
+   * two apart.
+   *
+   * Still optional in the type, because absent it prints no ⋯ button at all
+   * rather than one that opens onto nothing — the right answer for a caller
+   * that has no handlers, and the thing `prints no ⋯ button at all when the
+   * caller has not wired row actions` pins.
    */
   rowActions?: CardRowActionHandlers;
 }

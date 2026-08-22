@@ -9640,6 +9640,33 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           nonOwner={nonOwnerNoteOf}
           spanOf={spanOf}
           showDay={showDay}
+          // The `actions` column's own three handlers, handed to the only other
+          // face this plan has. Not card-shaped copies of them: `duplicateRow`
+          // and `deleteRow` are the callbacks the table's ⋯ calls, so a row
+          // duplicated on a phone lands the caret where a row duplicated on a
+          // laptop does, and a delete promotes its children the same way.
+          //
+          // Read straight rather than through `live`, unlike the column that
+          // does the same three things: `columns` is a memo that must not
+          // depend on state, and this is ordinary JSX in the render — reading
+          // `live.current` here would pin the handlers to whichever render
+          // built the ref last.
+          //
+          // Unfreeze has no `unfreezeRow` of its own to borrow because the
+          // table has none either; both faces spell it the same way, one `run`
+          // around one request.
+          rowActions={{
+            busy,
+            duplicate: (rowId) => {
+              void duplicateRow(rowId);
+            },
+            unfreeze: (rowId) => {
+              void run(() => api.unfreeze(rowId));
+            },
+            remove: (row) => {
+              void deleteRow(row);
+            },
+          }}
         />
       ) : (
         <>
