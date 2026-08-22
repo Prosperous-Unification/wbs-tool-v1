@@ -9573,6 +9573,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           teamLabel={effectiveTeamLabelOf}
           tagLabel={effectiveTagLabelOf}
           serviceLabel={effectiveServiceLabelOf}
+          // The same sentence the Services cell's `△` carries, handed to the
+          // face that had none. Not a card-shaped copy of the rule: one memo
+          // (`mismatchByRow`) answers both renderers, so a phone and a laptop
+          // cannot disagree about which services a team does not own.
+          nonOwner={nonOwnerNoteOf}
           spanOf={spanOf}
           showDay={showDay}
         />

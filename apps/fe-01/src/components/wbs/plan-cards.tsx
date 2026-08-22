@@ -150,17 +150,27 @@ export interface PlanCardsProps {
    * that cannot answer "what is this work for" — which is the question the
    * split exists to make askable.
    *
-   * **No mismatch marker rides this chip**, and that is a decision rather than
-   * an omission. 7.2's rule is that a marker carries the sentence saying why,
-   * and both signals — `builtByNonOwner` here, `assignedOutsideTeam` on the
-   * assignee — are one vocabulary. This card renders neither: `CardAssignee`
-   * carries `outside` and no phone shows it. Marking the service alone would
-   * put one half of a paired signal on a face that stays silent about the
-   * other, which reads as "this row's people are fine" to a reader who has no
-   * table to check against. Both markers land on the card together or neither
-   * does; the gap is recorded in the task log, not papered over here.
+   * **No mismatch marker rides this chip**, and that is still a decision rather
+   * than an omission. 7.2's rule is that a marker carries the sentence saying
+   * why, and both signals — `builtByNonOwner` here, `assignedOutsideTeam` on
+   * the assignee — are one vocabulary. Marking the service chip alone would put
+   * one half of a paired signal on a face that stays silent about the other,
+   * which reads as "this row's people are fine" to a reader who has no table to
+   * check against. Both land together, and since `phone-mismatch-markers` they
+   * do: not on this chip, but under the chips as sentences — see
+   * {@link PlanCardsProps.nonOwner}.
    */
   serviceLabel: (row: TreeRow) => ServiceLabel;
+  /**
+   * Why this row's work is marked as built by a non-owner — the whole sentence,
+   * or `null` where it is not (task `phone-mismatch-markers`).
+   *
+   * The sentence and not a boolean, for {@link CardAssignee.outside}'s reason
+   * one signal over: two surfaces phrasing one rule two ways is the drift
+   * `label-mismatch.ts` refuses a third export to prevent. `wbs-table.tsx`
+   * builds both, this renderer prints them, and neither asks the domain twice.
+   */
+  nonOwner: (row: TreeRow) => string | null;
   /**
    * When this work item happens: short dates on a plan with a start date, day
    * offsets without.
@@ -289,6 +299,45 @@ const cardSlackOf = (
 };
 
 /**
+ * The two mismatch signals as this card says them: the sentences, in one
+ * vocabulary, or an empty list where the row is clean (`phone-mismatch-markers`).
+ *
+ * **Both signals or neither**, which is the rule {@link PlanCardsProps.nonOwner}
+ * was added to keep: the service half and the assignee half are one signal
+ * wearing two faces, and a card that showed one would tell a reader with no
+ * table that the other is fine. So they are gathered in one place, printed by
+ * one loop, and there is no arm here that can render one without the other.
+ *
+ * The assignee half is **deduplicated by sentence**, not by phase. One person
+ * outside the team, named on Dev and assumed onto QA, is one fact about this
+ * row; three phases would print the same words three times under a card that is
+ * 390px wide, and a signal repeated is a signal a reader stops reading.
+ *
+ * Ordered service-then-assignee, matching the order `wbs-table.tsx` meets them
+ * in left to right — the Services column sits before the assignee cells — so
+ * the two faces of one plan say the two facts in one sequence.
+ */
+const cardMismatchesOf = (
+  row: TreeRow,
+  roles: readonly RoleView[],
+  nonOwner: (row: TreeRow) => string | null,
+  assigneeOn: (row: TreeRow, roleId: string) => CardAssignee | null,
+): { kind: 'service' | 'assignee'; note: string }[] => {
+  const built = nonOwner(row);
+  const outside = [
+    ...new Set(
+      roles
+        .map((role) => assigneeOn(row, role.id)?.outside)
+        .filter((note): note is string => note !== undefined && note !== null),
+    ),
+  ];
+  return [
+    ...(built === null ? [] : [{ kind: 'service' as const, note: built }]),
+    ...outside.map((note) => ({ kind: 'assignee' as const, note })),
+  ];
+};
+
+/**
  * One point of one phase's trio, off the row rather than a box's draft —
  * `wbs-table.tsx`'s own `showDays`, so a phase estimated on the table and one
  * estimated on a phone cannot print the point differently.
@@ -394,6 +443,7 @@ export function PlanCards({
   teamLabel,
   tagLabel,
   serviceLabel,
+  nonOwner,
   spanOf,
   showDay,
   rowActions,
@@ -425,6 +475,7 @@ export function PlanCards({
         const delivers = serviceLabel(row);
         const span = spanOf(row);
         const slack = cardSlackOf(row, showDay);
+        const mismatches = cardMismatchesOf(row, roles, nonOwner, assigneeOn);
         return (
           <article
             key={row.id}
@@ -789,6 +840,48 @@ export function PlanCards({
                 </span>
               )}
             </p>
+            {/*
+              The two mismatch signals, **as sentences and not as a tooltip**
+              (`phone-mismatch-markers`, 2026-08-22).
+
+              The table wears these as a `△` whose `title` and `aria-label`
+              carry the sentence, and that mark did not reach a phone at all —
+              Browser Use Cloud counted 0 titles and 0 triangles at 390px
+              against 2 and 2 on the same data at desktop width, on a card that
+              was still printing the team and the service the mismatch is
+              *about*. A reader could even filter down to exactly these rows
+              (`Plan actions` carries both facets) and then be told nothing
+              about why they matched.
+
+              Visible text rather than the table's `title`, and that is the
+              breakpoint's decision rather than an oversight: the sentence *is*
+              the signal — a glyph that cannot say why is a mystery rather than
+              a signal, 7.2's own words — and a `title` is reachable by a
+              pointer alone. A phone has no pointer. So the words that a
+              desktop reader hovers for are simply printed here, where there is
+              a card's width to print them in and no column budget to defend.
+              The `△` comes along as the shared glyph and is `aria-hidden`,
+              because the sentence beside it is now the accessible name and a
+              screen reader announcing "white up-pointing triangle" first would
+              be reading the decoration out loud.
+
+              `--muted-foreground` for `MismatchMark`'s reason, unchanged:
+              nothing here is refused, nothing moves, no date changes, and a
+              signal loud enough to read as an error would be an error the
+              reader cannot clear.
+            */}
+            {mismatches.length > 0 && (
+              <ul data-card-mismatches className="text-muted-foreground m-0 list-none p-0 text-sm">
+                {mismatches.map(({ kind, note }) => (
+                  <li key={note} data-card-mismatch={kind} className="flex min-w-0 gap-1">
+                    <span aria-hidden className="shrink-0">
+                      △
+                    </span>
+                    <span className="min-w-0">{note}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </article>
         );
       })}
