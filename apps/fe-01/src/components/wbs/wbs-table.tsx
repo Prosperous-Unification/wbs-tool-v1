@@ -6602,6 +6602,54 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   >
                     +
                   </button>
+                  {/*
+                  How many rows this one waits for, on the leading edge beside
+                  the `+` because that is the only place on a clipping `nowrap`
+                  line that is never cut — the same reason the add affordance is
+                  first (see the block above it).
+
+                  **This is not the `+N` the block above ruled out**, and the
+                  difference is the whole design. That marker was to be the
+                  count of the *hidden* chips, which is a layout fact: it needs
+                  the strip measured, a `ResizeObserver` on every deps cell, and
+                  a number that changes when the column is dragged. This is the
+                  count of the *dependencies*, which is data the cell already
+                  holds — `waitingFor.length`, the same list the sr-only line
+                  and the hover card are built from. It cannot be stale and it
+                  needs nothing measured.
+
+                  Filed by `wbs-e2e-planning-qa` on dev: `020` waits for four
+                  rows, `030` five, `060` six, and every one of them showed two
+                  clipped chips with no count anywhere — so the planner reading
+                  the cell had no way to know the chips were a sample, and the
+                  one dependency that explains the row's start is exactly the
+                  one off the right edge. The fade said "there is more" to
+                  somebody already looking for it; a number says how much more.
+
+                  Only past one, because a single chip is the whole truth and a
+                  `1` beside it is a second way of saying what is already said —
+                  noise in a 110px cell whose every pixel is a chip that does
+                  not fit.
+
+                  `aria-hidden`, and that is deliberate rather than an omission:
+                  the cell already tells a reader `Waiting for 010 - Strip, …`
+                  in full through {@link waitsForId}, so a count spoken beside
+                  it would be a third voice in one cell saying less than the
+                  second. The `title` is for the pointer, which has no such
+                  line — and a `title` on a non-interactive span is not the
+                  "control answering to two names" the add button refuses,
+                  since this span has no accessible name to contradict.
+                */}
+                  {waitingFor.length > 1 && (
+                    <span
+                      data-dep-count={row.original.id}
+                      aria-hidden="true"
+                      title={`Waits for ${String(waitingFor.length)} rows`}
+                      style={{ flexShrink: 0 }}
+                    >
+                      {waitingFor.length}
+                    </span>
+                  )}
                   {waitingFor.map(({ id, number }) => (
                     <button
                       key={id}

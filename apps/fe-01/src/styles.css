@@ -991,6 +991,29 @@
    * precedent for that one; only the arithmetic in the paragraph above is a
    * light-palette, odd-row snapshot now.
    */
+  /*
+   * The dependency count, between the add affordance and the first chip.
+   *
+   * Reads as a number and not as a chip: no border and no fill, the add
+   * affordance's own quiet. Two bordered tokens on the leading edge would look
+   * like two controls, and this one does nothing when clicked.
+   *
+   * `line-height: 1.5` and `padding: 0 4px` are the chip's, to the pixel, for
+   * the reason `[data-dep-add]` gives above — the chips set the strip's line
+   * box, and anything taller in it makes every deps row taller than every
+   * other row in the table.
+   *
+   * `tabular-nums` so a column of counts lines up on the digit rather than on
+   * whatever the face felt like, which is what the derived figures below do
+   * for the same reason.
+   */
+  [data-grid] td[data-column='depends'] [data-dep-count] {
+    color: var(--muted-foreground);
+    padding: 0 4px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+
   [data-grid] td[data-column='depends'] button[data-dep-add]:hover {
     background: color-mix(in oklab, var(--foreground) 7%, var(--cell-bg));
     color: var(--foreground);

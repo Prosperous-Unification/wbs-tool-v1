@@ -6558,6 +6558,61 @@ describe('dependencies in the table', () => {
     });
   });
 
+  /** `threeRoots` plus `040` and `050`, so a row can wait for four others. */
+  const fiveRoots = async () => {
+    const api = await threeRoots();
+    for (const number of ['040', '050']) {
+      click('Add work item');
+      await screen.findByLabelText(`Name of ${number}`);
+    }
+    return api;
+  };
+
+  /** One row's dependency count, or `null` where the cell shows none. */
+  const dependsCountOf = (number: string): HTMLElement | null => {
+    const found = dependsCellOf(number).querySelector('[data-dep-count]');
+    return found instanceof HTMLElement ? found : null;
+  };
+
+  const waitFor050 = async (predecessor: string) => {
+    dependOn('050', predecessor);
+    await waitFor(() => {
+      expect(screen.getByLabelText(`Stop 050 waiting for ${predecessor}`)).toBeDefined();
+    });
+  };
+
+  itDom('counts what a row waits for, where the chips saying it are clipped', async () => {
+    // The filed bug, in a fixture: four predecessors, a 110px column, and two
+    // chips on screen. The count is the cell's answer to "is that all of
+    // them" — asked of the *data*, so it is right whatever the column's width
+    // does to the chips, which is why nothing here measures anything.
+    await fiveRoots();
+    for (const predecessor of ['010', '020', '030', '040']) await waitFor050(predecessor);
+
+    expect(dependsCountOf('050')?.textContent).toBe('4');
+  });
+
+  itDom('says nothing where one chip is the whole truth', async () => {
+    // A `1` beside a single chip is the cell saying the same thing twice in a
+    // column with no room to say anything once.
+    await fiveRoots();
+    await waitFor050('010');
+
+    expect(dependsCountOf('050')).toBeNull();
+  });
+
+  itDom('keeps the count off the line a reader is already told in full', async () => {
+    // The cell's sr-only line names every dependency; a count spoken beside it
+    // is a third voice saying less. The pointer, which has no such line, gets
+    // the same fact as a `title`.
+    await fiveRoots();
+    for (const predecessor of ['010', '020', '030', '040']) await waitFor050(predecessor);
+
+    const count = dependsCountOf('050');
+    expect(count?.getAttribute('aria-hidden')).toBe('true');
+    expect(count?.getAttribute('title')).toBe('Waits for 4 rows');
+  });
+
   /**
    * The depends cell's wrapper for one row: the strip, the box, and the card.
    *
