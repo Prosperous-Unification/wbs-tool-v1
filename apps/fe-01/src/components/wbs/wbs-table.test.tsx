@@ -302,7 +302,16 @@ function fakeApi(): ProjectApi & {
             roleId: DEV.id,
             personId: assigned.get(`${r.id}::${DEV.id}`) ?? null,
             ...scheduleOf(r),
-            boundBy: 'projectStart' as const,
+            // The one floor this fake can honestly tell apart, and it tells it
+            // apart because `row-start-floor` made the Start column say which:
+            // be-01 floors a row with a stored predecessor on `predecessor`,
+            // and a constant `projectStart` here would let a cell claim a plan
+            // has no waits in it at all. The other four floors need a scheduler
+            // and this fake is not one — the tests about them are
+            // `gantt-geometry.test.ts`'s, over payloads shaped by hand.
+            boundBy: edges.some((e) => e.successorId === r.id)
+              ? ('predecessor' as const)
+              : ('projectStart' as const),
             resourcePredecessorId: null,
             // One at a time and nothing holding a pool, which is every plan
             // this fake stands in for.
@@ -1715,7 +1724,14 @@ describe('the plan on a calendar', () => {
     await waitFor(() => {
       expect(rowFor('010').querySelector('[data-start]')?.textContent).toBe('6 Aug');
     });
-    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe('2026-08-06');
+    // The day and then what holds it there, the `End` cell's own two-facts
+    // shape. This assertion read `toBe('2026-08-06')` until `row-start-floor`
+    // put the floor sentence beside it, and the change is why it is spelled out
+    // rather than loosened to `toContain`: what a reader is shown on hover is
+    // exactly this, dash and all.
+    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
+      '2026-08-06 — Starts with the project',
+    );
     expect(rowFor('010').querySelector('[data-finish]')?.textContent).toContain('6 Aug');
     expect(rowFor('010').querySelector('[data-finish]')?.getAttribute('title')).toContain(
       '2026-08-06',
@@ -1740,12 +1756,43 @@ describe('the plan on a calendar', () => {
 
   itDom('leaves the workday offsets alone while the plan has no start date', async () => {
     // The fallback this change did not touch: without a project start date
-    // there are no dates to shorten, and the columns print day numbers with
-    // nothing fuller to put in a `title`.
+    // there are no dates to shorten, and the columns print day numbers with no
+    // fuller day to put in a `title`.
+    //
+    // The floor sentence is there anyway, and that is the point of asserting it
+    // here rather than deleting the line: what holds a row's start is a fact
+    // about the plan's shape, not about the calendar it has not been put on, so
+    // it is the one thing this cell can say on a plan with no dates at all.
     await oneRow();
 
     expect(rowFor('010').querySelector('[data-start]')?.textContent).toBe('0');
-    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(null);
+    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
+      'Starts with the project',
+    );
+  });
+
+  itDom('says a row is waiting on a dependency where its Start does not look like it', async () => {
+    // The fault this whole task is about, in one row pair: `020` waits for
+    // `010`, and a reader who compares `020`'s Start against `010`'s End
+    // concludes the tool is broken. `dep-waits-on-first-role` is why it is not,
+    // and this is the line that says so.
+    // Built through the api before the render, the way the picker's fixtures
+    // are: the shape is the fixture here, not the thing under test.
+    const api = fakeApi();
+    const strip = await api.create('p1', { parentId: null, afterId: null, name: 'Strip' });
+    const paint = await api.create('p1', { parentId: null, afterId: strip.id, name: 'Paint' });
+    await api.addDependency(paint.id, strip.id);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 020');
+
+    expect(rowFor('020').querySelector('[data-start]')?.getAttribute('title')).toBe(
+      'Waits for a dependency’s first estimated role',
+    );
+    // Not the successor's own sentence on the row it waits for: the two cells
+    // answer for themselves, which a single shared string would hide.
+    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
+      'Starts with the project',
+    );
   });
 
   itDom('will not take an earliest start while the plan has no start date', async () => {
