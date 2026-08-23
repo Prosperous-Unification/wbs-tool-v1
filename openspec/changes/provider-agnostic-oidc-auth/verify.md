@@ -1,7 +1,7 @@
 # Verification Report
 
 **Change**: `provider-agnostic-oidc-auth`
-**State**: partial — shared contract slice complete; later tasks intentionally open
+**State**: partial — shared contract and transaction-store slices complete
 
 ## 1. Structural Validation
 
@@ -9,8 +9,8 @@
 
 ## 2. Task Completion
 
-Tasks 1.1–1.3 are complete. Browser transactions, identity, MCP OAuth, solution
-integration, acceptance, and the public cutover remain separate worker chunks.
+Tasks 1.1–2.2 are complete. OIDC routes, identity, MCP OAuth, solution integration,
+acceptance, and the public cutover remain separate worker chunks.
 
 ## 3. Failure Proofs — shared contract slice
 
@@ -22,6 +22,11 @@ integration, acceptance, and the public cutover remain separate worker chunks.
 | production local mode | production used `AUTH_MODE=local`                     | be-01 and gw-01 config tests            | boot refused      |
 | MCP mode set          | unknown `MCP_AUTH_MODE`                               | mcp-01 config test                      | boot refused      |
 | devsync coverage      | `libs/auth/project.json` absent from restart manifest | `tools/dev/setup.test.ts`               | affected gate red |
+| transaction replay    | consumed browser transaction presented again          | `oidc-store.test.ts` one-use case       | refused           |
+| browser binding       | another browser presented the valid state             | `oidc-store.test.ts` binding case       | refused           |
+| transaction expiry    | callback arrived exactly at expiry                    | `oidc-store.test.ts` expiry case        | refused           |
+| refresh replay        | rotated refresh token presented again                 | `oidc-store.test.ts` replay case        | session ended     |
+| refresh mismatch      | unrelated token attempted rotation                    | `oidc-store.test.ts` unknown-token case | refused           |
 
 The implementation run observed each row red before the production line was
 accepted. Future safety checks append their own faults here; no reasoning-only
@@ -36,14 +41,19 @@ At branch `9db0791` on h2puni, cache skipped:
 - auth 10/0; fe-01 1714/0; be-01 1064/0; gw-01 46/0; mcp-01 65/0
 - lint: one pre-existing fe-01 hook warning, zero errors
 
-## 5. Implementation Signal
+## 5. Gate Output — transaction-store slice
+
+On h2puni with the Nx cache skipped: auth 19/0, lint clean, typecheck clean,
+`nx format:check --all` clean, and strict OpenSpec validation 73/73.
+
+## 6. Implementation Signal
 
 - [x] Shared code committed and pushed on `change/okta-auth`
 - [x] OpenSpec artifacts committed and pushed
 - [ ] All tasks complete
+- [x] Transaction and refresh-token stores implemented on `change/okta-auth-transaction`
 
 ## Decision
 
 - [ ] PASS — archive
-- [x] IN PROGRESS — continue with browser transaction core after this change
-      validates and its first implementation PR lands.
+- [x] IN PROGRESS — continue with OIDC login, callback, refresh, and logout routes.

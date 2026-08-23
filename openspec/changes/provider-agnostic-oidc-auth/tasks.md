@@ -17,9 +17,9 @@ main-session review even when earlier slices merge to dev on green.
 
 ## 2. Browser OIDC transaction and session
 
-- [ ] 2.1 Implement single-use, browser-bound transaction records with TTL,
+- [x] 2.1 Implement single-use, browser-bound transaction records with TTL,
       PKCE verifier, state, and nonce — test: consume/replay/expiry unit cases.
-- [ ] 2.2 Implement rotating session records behind `TokenStore` — test:
+- [x] 2.2 Implement rotating session records behind `TokenStore` — test:
       renewal, replay refusal, cleanup, and logout deletion.
 - [ ] 2.3 Mount login/callback/logout/refresh in be-01 and assert the callback
       path — test: route integration and wrong-path boot failure.
