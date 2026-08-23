@@ -20,6 +20,7 @@ import type {
   WorkItemView,
 } from '@/lib/wbs-api';
 
+import { hintFor, ROLE_FINAL_HINT } from './column-hints';
 import { cellKey } from './editable-grid';
 import { DAY_PX } from './gantt-panel';
 import { initialsOf } from './initials';
@@ -2026,6 +2027,25 @@ describe('the plan on a calendar', () => {
     expect(headerTitled('Start')).not.toContain('days from the start of the plan');
   });
 
+  itDom('gives every heading on screen the sentence its column carries', async () => {
+    // The seam, asserted where the columns actually render: `column-hints.ts`
+    // has its own unit test for the copy, and this is the one that says the
+    // copy reaches the reader — on the `<th>`, for every column the table put
+    // on screen, with nothing left saying only what it is called.
+    //
+    // Read through `hintFor` rather than against a written-out list, because a
+    // list here is a second place to add a column to and the whole point of the
+    // seam is that there is one.
+    await oneRow();
+
+    const headers = screen.getAllByRole('columnheader');
+    expect(headers.length).toBeGreaterThan(5);
+    for (const th of headers) {
+      const columnId = th.getAttribute('data-column') ?? '';
+      expect(th.getAttribute('title')).toBe(hintFor(columnId, { hasProjectStartDate: false }));
+    }
+  });
+
   itDom('holds a date typed one segment at a time, and saves the one that was typed', async () => {
     // The fault, exactly as a browser produces it. A native date input fires a
     // `change` for **every completed segment**, so typing the year `2026` fires
@@ -3755,16 +3775,22 @@ describe('role columns fold away', () => {
     // wants 84px, measured 2026-08-09 — and prints the letter the cells
     // already teach (`o/r/p` is the folded box's own placeholder) at 44px.
     //
-    // The word is still reachable in both of the ways it was: as the `title`,
+    // The word is still reachable in both of the ways it was: in the `title`,
     // and — new here — as the heading's accessible name, which is what a
     // screen reader reads out for the column and what `o` alone would have
     // reduced to a letter.
+    //
+    // The `title` is the column's hint since `wbs-column-hints` and no longer
+    // the bare word, so these three are the one place in the table where a hint
+    // opens with the column's name rather than with its effect — the heading is
+    // a single letter, and a sentence that never says `optimistic` would leave
+    // the reader with nothing to call it.
     await oneRow();
 
     unfoldRole('Dev');
 
     for (const point of ['optimistic', 'realistic', 'pessimistic']) {
-      expect(headerTitled(point.slice(0, 1))).toBe(point);
+      expect(headerTitled(point.slice(0, 1)).toLowerCase()).toContain(point);
       expect(screen.getByRole('columnheader', { name: point })).toBeDefined();
     }
   });
@@ -3816,14 +3842,18 @@ describe('role columns fold away', () => {
     await oneRow();
 
     const folded = screen.getByRole('button', { name: 'Unfold Dev estimates' });
-    expect(folded.title).toContain('show the three points behind the figure');
+    expect(folded.title).toContain('Click to show the three points');
     expect(folded.title).toContain('the table may scroll sideways');
     expect(folded.title).not.toContain('any other role folds');
     expect(folded.title).not.toContain('assignee');
+    // And it opens with the column's own sentence, because this button covers
+    // most of its `<th>`: a reader resting on it would otherwise be the one
+    // reader in the table who learns nothing about the column under the cursor.
+    expect(folded.title.startsWith(ROLE_FINAL_HINT)).toBe(true);
 
     unfoldRole('Dev');
     const open = screen.getByRole('button', { name: 'Fold Dev estimates' });
-    expect(open.title).toContain('fold the three points back into the figure');
+    expect(open.title).toContain('Click to fold the three points back into the figure');
     expect(open.title).not.toContain('assignee');
   });
 
@@ -5011,18 +5041,19 @@ describe('estimates are never edited for you', () => {
 /**
  * What the column heading reading `text` says about itself in its `title`.
  *
- * The schedule columns are one word wide, so the sentence that says whether
- * their figures are dates or day numbers lives in the tooltip rather than in
- * the heading. Read from the heading's own descendant, which is where the
- * `title` is: the `<th>` carries the sticky chrome and the span carries the
- * words.
+ * The headings are a word or a mark each, so the sentence saying what the
+ * column does to the plan lives in the tooltip rather than in the heading. Read
+ * off the `<th>` itself since `wbs-column-hints`, which is where every column's
+ * sentence is (`column-hints.ts`) — a descendant `[title]` would find whichever
+ * control the heading happens to hold, and on a resizable column that is the
+ * drag handle.
  */
 const headerTitled = (text: string): string => {
   const header = screen.getAllByRole('columnheader').find((th) => th.textContent.trim() === text);
   if (header === undefined) throw new Error(`no column heading reads ${text}`);
-  const titled = header.querySelector('[title]');
-  if (titled === null) throw new Error(`the ${text} heading says nothing about itself`);
-  return titled.getAttribute('title') ?? '';
+  const hint = header.getAttribute('title');
+  if (hint === null) throw new Error(`the ${text} heading says nothing about itself`);
+  return hint;
 };
 
 /**
