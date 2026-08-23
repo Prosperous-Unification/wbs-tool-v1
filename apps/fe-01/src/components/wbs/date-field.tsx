@@ -25,11 +25,14 @@ export interface DateFieldProps extends PassedThrough {
    *
    * `'commit'` for Enter and for leaving the field: the day in the box has been
    * sent, if it differed from the one already agreed. `'cancel'` for Escape:
-   * the box is back to the day it held when the focus arrived, and so is the
-   * server — nothing was abandoned in between. For a typed edit that means
-   * nothing was ever sent; for a **picked** one it means the pick was sent and
-   * then taken back, since a pick does not wait for the box to be left. Either
-   * way the blur Escape causes has nothing left to send.
+   * the box is back to the day the server agreed, so the blur Escape causes has
+   * nothing left to send.
+   *
+   * **`'cancel'` is about a typed edit, and only a typed edit.** A picked day
+   * is already sent by the time Escape could arrive, so there is nothing left
+   * to abandon and `agreed` is the picked day — Escape puts that same day back
+   * and sends nothing. That is not a gap; see the class note above for why the
+   * undo that would close it cannot be reached from a browser.
    *
    * Optional because the toolbar's project start date has no editor lifecycle
    * to report: it is always on screen, and leaving it is not closing it. The
@@ -73,11 +76,26 @@ export interface DateFieldProps extends PassedThrough {
  * On the one control whose value is the whole screen's calendar, "saved when
  * you move on" reads as a screen that ignores you.
  *
- * The remaining cost, and it is real: **Escape after a pick is an undo, not a
- * cancel** — the day is already at the server by then, so Escape puts the box
- * back *and sends the day the box held when the focus arrived*. `heldAtFocus`
- * is what makes that possible, and it is why Escape no longer restores from
- * `agreed`: after a pick, `agreed` is the abandoned day.
+ * **Escape does not undo a pick, and that is a measured limit rather than an
+ * oversight.** A picked day is at the server before Escape could be pressed,
+ * so an undo would have to *send the old day back* — which was written, and
+ * then deleted, because **a browser cannot reach it**. The toolbar disables its
+ * controls for the write's window (`wbs-table.tsx`, `disabled={busy}`), and
+ * disabling a focused input drops the focus out of it: by the time a reader
+ * could press Escape after a pick, the key goes to `<body>` and this component
+ * never sees it. The row's editor loses the focus the same way. Watched in
+ * Chromium on 2026-08-23 — with the undo in place, two `e2e/keyboard.spec.ts`
+ * cases read `1 Jul` and `2026-09-09` where the undo claimed `—` and
+ * `2026-06-01`, because the Escape they press never arrives. A branch
+ * production cannot enter is a branch this codebase deletes.
+ *
+ * So Escape's contract is exactly what it was before the exception: it cancels
+ * a **typed** edit, where nothing has been sent yet. That is the gesture it was
+ * written for on 2026-08-09 and the only one it is claimed for.
+ *
+ * The remaining cost, and it is real, is the other half of that same window: a
+ * reader who picks a day loses the focus out of the box a moment later, where
+ * before they had already left it themselves. The day is saved either way.
  *
  * And **Tab does not leave a date input in Chrome**: it steps between the day,
  * month and year segments, so a keyboard leaves this box on the third Tab or on
@@ -118,13 +136,6 @@ export function DateField({ value, commit, onExit, onKeyDown, onFocus, ...rest }
    * `false` while it holds, so the next `change` is a pick and is sent at once.
    */
   const typedSinceFocus = useRef(false);
-  /**
-   * The day the box held when the focus arrived — what Escape puts back.
-   *
-   * Not `agreed`: a picked day is already sent and already agreed, so restoring
-   * from `agreed` after a pick would restore the day being abandoned.
-   */
-  const heldAtFocus = useRef(value);
   /**
    * The day this box last agreed with the server about — what a commit is
    * compared against.
@@ -174,7 +185,6 @@ export function DateField({ value, commit, onExit, onKeyDown, onFocus, ...rest }
       defaultValue={value}
       onFocus={(event) => {
         typedSinceFocus.current = false;
-        heldAtFocus.current = event.currentTarget.value;
         onFocus?.(event);
       }}
       onChange={() => {
@@ -223,20 +233,14 @@ export function DateField({ value, commit, onExit, onKeyDown, onFocus, ...rest }
           // project start date back, and leaving it does not send the abandoned
           // day` failed on `expected "2026-09-09" to be "2026-06-01"`.
           // Watched in Chromium, 2026-08-09.
-          node.value = heldAtFocus.current;
-          // **After a pick, Escape has something to take back rather than
-          // something to withhold.** A picked day is sent the moment it lands,
-          // so by the time Escape arrives the server is holding the day being
-          // abandoned and putting the box back would leave the two disagreeing
-          // — the box saying one day, the chart drawing another. This is the
-          // one commit in this component that is not "what is in the box now".
           //
-          // Nothing is sent for the typing path, where `agreed` and
-          // `heldAtFocus` are the same day: that is the old behaviour exactly.
-          if (agreed.current !== heldAtFocus.current) {
-            agreed.current = heldAtFocus.current;
-            commit(heldAtFocus.current);
-          }
+          // **Still `agreed` after the pick exception, and deliberately so.**
+          // An undo restoring the day held at focus was written here and
+          // deleted: after a pick the focus is already gone (the toolbar
+          // disables its controls for the write's window), so no Escape ever
+          // reaches this branch to run it. See the class note above for the two
+          // browser cases that measured it.
+          node.value = agreed.current;
           onExit?.('cancel');
         }
         onKeyDown?.(event);

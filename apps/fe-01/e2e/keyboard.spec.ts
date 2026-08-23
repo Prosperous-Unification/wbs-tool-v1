@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 /**
  * The command chords, in a browser.
@@ -53,9 +53,49 @@ async function seedRows(page: Page, account: string, rows: number): Promise<void
  * state.
  */
 async function setProjectStart(page: Page): Promise<void> {
+  // `fill` is a **pick** since 2026-08-23 — it sets the value and fires
+  // `input`/`change` with no keydown, and a keyless change is a day the browser
+  // put in the box, which `DateField` sends at once. So the write leaves here
+  // rather than on the blur below; the blur stays because it is what a person
+  // does and because it has to stay silent. The `toBeEnabled` wait is what
+  // holds until the refetch that write starts has landed.
   await page.getByLabel('Project start date').fill('2026-06-01');
   await page.getByLabel('Project start date').blur();
   await expect(page.getByLabel('Earliest start for 010', { exact: true })).toBeEnabled();
+}
+
+/**
+ * Delivers a day the way Chrome's own calendar popup delivers one: the value
+ * arrives in the box, the focus stays in it, and **no key is pressed**.
+ *
+ * **Through the native prototype setter.** React installs an instance-level
+ * `value` setter on every input it renders, to dedupe `change` against the
+ * value it last saw; assigning `node.value` goes through it, updates React's
+ * tracker, and React drops the event as "nothing changed" — so `onChange` never
+ * runs and the test measures the harness. The descriptor off
+ * `HTMLInputElement.prototype` steps around the tracker, which is what the
+ * browser's picker does.
+ *
+ * Watched, 2026-08-23: the case below passed with a plain `node.value = …`
+ * only because the commit it checked came from the **blur afterwards** — the
+ * pick itself was never seen by the component at all. `e2e/gantt.spec.ts` has
+ * the same helper for the same reason.
+ */
+async function pickDay(box: Locator, day: string): Promise<void> {
+  await box.evaluate((node, chosen) => {
+    if (!(node instanceof HTMLInputElement)) throw new Error('that is not a date input');
+    // Bound at the point it is taken off the prototype: an unbound setter is a
+    // `this` waiting to be the wrong object, and `.bind` is what the lint rule
+    // that catches it asks for.
+    const assign = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.bind(
+      node,
+    );
+    if (assign === undefined) throw new Error('HTMLInputElement has no value setter to borrow');
+    node.focus();
+    assign(chosen);
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+    node.dispatchEvent(new Event('change', { bubbles: true }));
+  }, day);
 }
 
 /** Every work item number on screen, top to bottom. */
@@ -434,7 +474,17 @@ test.describe('the command chords, in a browser', () => {
 
     await page.getByLabel('Earliest start for 010', { exact: true }).click();
     const editor = page.locator('tbody input[type="date"]');
-    await editor.fill('2026-07-01');
+    // **Typed, not `fill`ed, and the difference is the subject of this test.**
+    // Since 2026-08-23 a `fill` is a picked day — value set, no keydown — and a
+    // pick is sent the moment it lands, so a filled date here would already be
+    // at the server and there would be nothing for Escape to abandon. Escape
+    // cancels a *typed* edit; typing is therefore the only gesture that can put
+    // this test in the state it claims to be testing.
+    //
+    // Watched, 2026-08-23: with `fill`, this failed on `Expected: "—" /
+    // Received: "1 Jul"` — the day saved before Escape was ever pressed.
+    await editor.pressSequentially('07012026', { delay: 30 });
+    await expect(editor).toHaveValue('2026-07-01');
     await page.keyboard.press('Escape');
 
     await expect(page.locator('tbody input[type="date"]')).toHaveCount(0);
@@ -470,7 +520,13 @@ test.describe('the command chords, in a browser', () => {
     await setProjectStart(page);
 
     const starts = page.getByLabel('Project start date');
-    await starts.fill('2026-09-09');
+    // Typed rather than `fill`ed, for the reason the row's case above gives:
+    // a `fill` is a pick now and a pick is already sent, so it would leave this
+    // test nothing to abandon. `pressSequentially` focuses the box itself,
+    // which also puts the caret on the first segment — clicking it first would
+    // put the caret wherever the pointer landed.
+    await starts.pressSequentially('09092026', { delay: 30 });
+    await expect(starts).toHaveValue('2026-09-09');
     await page.keyboard.press('Escape');
 
     // Put back in the box, before anything has been sent.
@@ -504,13 +560,7 @@ test.describe('the command chords, in a browser', () => {
 
     await page.getByLabel('Earliest start for 010', { exact: true }).click();
     const editor = page.locator('tbody input[type="date"]');
-    await editor.evaluate((node) => {
-      if (!(node instanceof HTMLInputElement)) throw new Error('the editor is not an input');
-      node.focus();
-      node.value = '2026-07-03';
-      node.dispatchEvent(new Event('input', { bubbles: true }));
-      node.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await pickDay(editor, '2026-07-03');
     await expect(page.locator('tbody input[type="date"]')).toHaveCount(1);
 
     // Left by clicking another row's name, which is what a person does next.
@@ -566,7 +616,18 @@ test.describe('the command chords, in a browser', () => {
     await page.getByLabel('Earliest start for 010', { exact: true }).click();
     const editor = page.locator('tbody input[type="date"]');
     await expect(editor).toHaveAttribute('type', 'date');
-    await editor.click();
+    // **No second click on the editor, and that is not tidying.** A click on a
+    // date input puts the caret on whichever segment is under the pointer, so
+    // clicking the middle of the box starts the typing at the day or the year
+    // and `05202026` then lands as segments nobody asked for — with the first
+    // written version of this case the box read `''` afterwards, a date too
+    // incomplete for the browser to parse rather than one saved wrongly.
+    // Watched, 2026-08-23: `Expected: "2026-05-20" / Received: ""`.
+    //
+    // The editor is already focused when it mounts (the case above asserts
+    // exactly that), and `pressSequentially` focuses too, which leaves the
+    // caret where a freshly-focused date input puts it — the first segment.
+    //
     // Typed as a person types it: the segments in the order Chrome puts the
     // caret through them, one keystroke at a time.
     await editor.pressSequentially('05202026', { delay: 30 });

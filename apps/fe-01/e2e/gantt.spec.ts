@@ -4,15 +4,61 @@ import { calendarScale } from '../src/components/wbs/gantt-geometry';
 import { CHART_PAD_PX, DAY_PX, ROW_PX } from '../src/components/wbs/gantt-panel';
 
 /**
- * Types a whole date into a date field and leaves it, which is what saves one.
+ * Delivers a day the way Chrome's own calendar popup delivers one: the value
+ * arrives in the box, the focus stays in it, and **no key is pressed**.
  *
- * `fill` alone is not a saved date any more, and that is the product's rule
- * rather than an automation quirk: `DateField` holds everything typed while the
- * box has the focus, because a native date input fires a `change` per completed
- * segment and committing each of them saved a plan starting in year 0002. Tab
- * is how a person leaves the box, and the wait afterwards is the refetch that
- * commit starts — a click that lands inside it hits a `disabled` control and
- * goes nowhere (`aria-busy` on the toolbar is that window, said out loud).
+ * **Through the native prototype setter, and that is the whole of this
+ * helper.** React installs an instance-level `value` setter on every input it
+ * renders, to dedupe `change` against the value it last saw. Assigning
+ * `node.value` goes through that setter, updates React's tracker, and React
+ * then drops the event as "nothing changed" — so the component's `onChange`
+ * never runs and a test written that way measures the harness rather than the
+ * product. The descriptor off `HTMLInputElement.prototype` steps around the
+ * tracker, which is what the browser's picker does when it writes the day in.
+ *
+ * Watched, 2026-08-23: with a plain `node.value = day`, the case below failed
+ * on `waitForResponse` timing out — no write had left the browser at all,
+ * against a component that does send one. The dev repro this bug was found
+ * with (`queue/tasks/2026-08-23-wbs-gantt-stale-on-start-date.md`, chunk 2)
+ * used the native setter, which is why it saw the real behaviour.
+ */
+async function pickDay(box: Locator, day: string): Promise<void> {
+  await box.evaluate((node, chosen) => {
+    if (!(node instanceof HTMLInputElement)) throw new Error('that is not a date input');
+    // Bound at the point it is taken off the prototype: an unbound setter is a
+    // `this` waiting to be the wrong object, and `.bind` is what the lint rule
+    // that catches it asks for.
+    const assign = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.bind(
+      node,
+    );
+    if (assign === undefined) throw new Error('HTMLInputElement has no value setter to borrow');
+    node.focus();
+    assign(chosen);
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+    node.dispatchEvent(new Event('change', { bubbles: true }));
+  }, day);
+}
+
+/**
+ * Puts a whole date into a date field and leaves it, and waits for the write.
+ *
+ * **The write now leaves during the `fill`, not during the blur, and the wait
+ * is registered before either.** Playwright's `fill` sets the value and fires
+ * `input`/`change` with **no keydown**, and since 2026-08-23 a keyless `change`
+ * is a picked day and is sent at once (`date-field.tsx`) — so a
+ * `waitForResponse` created after the `fill`, as this helper had it, is
+ * listening for a response that has already gone by. Watched: it times out at
+ * 60 seconds, on cases that are otherwise fine.
+ *
+ * The blur stays, because it is what a person does and because it must stay
+ * silent — `commitIfChanged` sends nothing when the box already holds the
+ * agreed day, and a second PATCH here would be the old double-write back.
+ * Leaving is still how a **typed** date is saved: `DateField` holds every
+ * completed segment while keys are landing, because committing each of them
+ * saved a plan starting in year 0002.
+ *
+ * The `aria-busy` wait afterwards is the refetch that commit starts — a click
+ * that lands inside it hits a `disabled` control and goes nowhere.
  */
 async function setDate(page: Page, label: string, day: string): Promise<void> {
   // A row's earliest-start cell is text at rest since `T2 compact-columns` and
@@ -26,22 +72,22 @@ async function setDate(page: Page, label: string, day: string): Promise<void> {
   }
   const box = page.getByLabel(label, { exact: true });
   await expect(box).toHaveAttribute('type', 'date');
+  // Registered before the gesture, because the gesture is what sends: see the
+  // note above.
+  const saved = page.waitForResponse((response) => response.request().method() === 'PATCH');
   await box.fill(day);
+  await saved;
   // `blur`, not `press('Tab')`: Chrome's date input owns Tab for stepping
   // between its own day/month/year segments, so a Tab from the day segment
   // never leaves the field at all — probed here, `document.activeElement` was
-  // still the box afterwards. Leaving is what saves, so leaving is what this
-  // does.
+  // still the box afterwards.
   //
-  // The response is awaited, and the `aria-busy` after it, because the write
-  // and the refetch it starts are the window every toolbar control is disabled
-  // for — a click that lands inside it is dropped on the floor. Playwright's
-  // own "wait until enabled" cannot see that: the button is still enabled at
-  // the moment it is checked and goes dead a tick later, which is the same race
-  // a person loses by hand.
-  const saved = page.waitForResponse((response) => response.request().method() === 'PATCH');
+  // The `aria-busy` after it is the refetch the write starts, and it is the
+  // window every toolbar control is disabled for — a click that lands inside it
+  // is dropped on the floor. Playwright's own "wait until enabled" cannot see
+  // that: the button is still enabled at the moment it is checked and goes dead
+  // a tick later, which is the same race a person loses by hand.
   await box.blur();
-  await saved;
   await expect(page.locator('[data-toolbar]')).toHaveAttribute('aria-busy', 'false');
 }
 
@@ -1074,13 +1120,7 @@ test.describe('the chart under a plan being edited', () => {
 
     const starts = page.getByLabel('Project start date');
     const saved = page.waitForResponse((response) => response.request().method() === 'PATCH');
-    await starts.evaluate((node) => {
-      if (!(node instanceof HTMLInputElement)) throw new Error('the start date is not an input');
-      node.focus();
-      node.value = '2026-09-07';
-      node.dispatchEvent(new Event('input', { bubbles: true }));
-      node.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await pickDay(starts, '2026-09-07');
     await saved;
 
     // The axis is drawn against the new day zero — with nothing in this test

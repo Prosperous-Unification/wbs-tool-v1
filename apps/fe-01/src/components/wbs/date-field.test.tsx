@@ -247,27 +247,36 @@ describe('a day picked from the calendar', () => {
     expect(sent).toEqual(['2026-09-07']);
   });
 
-  itDom('is taken back by Escape, which after a pick is an undo rather than a cancel', () => {
-    // A picked day is already at the server when Escape arrives, so putting the
-    // box back is not enough — the box would read one day and the chart draw
-    // another. Escape sends the day the box held when the focus arrived.
+  itDom('is not taken back by Escape, because a pick is finished the moment it is sent', () => {
+    // **The limit of the exception, pinned so that re-adding an undo has to be
+    // a decision rather than an accident.** An Escape branch that restored the
+    // day held at focus *and sent it* was written on 2026-08-23 and deleted the
+    // same day: a browser cannot reach it. The toolbar disables its controls
+    // for the write's window and disabling a focused input drops the focus out
+    // of it, so after a pick the Escape goes to `<body>` and this component
+    // never sees the key. Two `e2e/keyboard.spec.ts` cases measured exactly
+    // that, reading `1 Jul` and `2026-09-09` where the undo claimed otherwise.
     //
-    // Proof: the `heldAtFocus` commit removed from the Escape branch, this
-    // fails on `expected [ '2026-09-07' ] to deeply equal [ '2026-09-07',
-    // '2026-06-01' ]` — the abandoned day left standing.
+    // What jsdom can still say is what the code does *if* the key did arrive,
+    // and this is it: the box goes back to the day the server agreed, which
+    // after a pick is the picked day, and nothing more is sent.
+    //
+    // Proof: `node.value = agreed.current` changed back to a `heldAtFocus`
+    // restore-and-commit, this fails on `expected [ '2026-09-07',
+    // '2026-06-01' ] to deeply equal [ '2026-09-07' ]`.
     const { box, sent } = shownDay('2026-06-01');
     box.focus();
     fireEvent.change(box, { target: { value: '2026-09-07' } });
 
     fireEvent.keyDown(box, { key: 'Escape' });
 
-    expect(sent).toEqual(['2026-09-07', '2026-06-01']);
-    expect(box.value).toBe('2026-06-01');
+    expect(sent).toEqual(['2026-09-07']);
+    expect(box.value).toBe('2026-09-07');
 
-    // And the blur Escape causes has nothing left to send: the box and the
-    // server agree on the day it started with.
+    // And the blur Escape causes has nothing left to send either: the box and
+    // the server agree on the picked day.
     fireEvent.blur(box);
-    expect(sent).toEqual(['2026-09-07', '2026-06-01']);
+    expect(sent).toEqual(['2026-09-07']);
   });
 });
 
