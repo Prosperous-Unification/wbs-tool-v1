@@ -51,6 +51,36 @@ async function openTheSheet(page: Page): Promise<void> {
 }
 
 /**
+ * Gives the plan a day zero, which is the one thing standing between a phone
+ * and its earliest-start field.
+ *
+ * `CardNotBeforeField` is **disabled without a project start date** — the
+ * table cell's own refusal, word for word, because be-01 ignores the
+ * constraint when there is no day to count from. `seedPlan` builds a dateless
+ * plan (nothing else in this file needs a calendar), so the case below has to
+ * set one, and on a phone the only route to that control is the `Plan actions`
+ * sheet: `toolbarControls` is one array rendered either into the toolbar row
+ * or into the sheet, and at 390×844 it is the sheet.
+ *
+ * **`fill` then `blur`, not `fill` then a tap on Save** — `DateField`'s one
+ * rule is *the box is left, then it is sent*, which is why `keyboard.spec.ts`
+ * and `layout.spec.ts` both blur this same box rather than pressing anything.
+ *
+ * Escape closes the sheet afterwards, and a tap outside would not do: the
+ * sheet closes itself on any `<button>` taken inside it
+ * (`closingControlIn`), and a date input is not one — so without this the
+ * sheet is still over the cards the case is about to touch.
+ */
+async function giveThePlanADayZero(page: Page, day: string): Promise<void> {
+  await openTheSheet(page);
+  const starts = page.getByLabel('Project start date');
+  await starts.fill(day);
+  await starts.blur();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Plan actions' })).toBeHidden();
+}
+
+/**
  * Signs up a throwaway account and builds the smallest plan with two cards in
  * it, through the UI and therefore through the sheet.
  *
@@ -454,6 +484,77 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await expect(
       page.getByRole('button', { name: 'Service or team for 010' }).locator('[data-card-team]'),
     ).toHaveText(team);
+  });
+
+  /**
+   * The earliest start's round trip, by touch alone — `card-field-pickers`
+   * chunk 4's fifth criterion, and the only one that chunk left unticked.
+   *
+   * `plan-cards.test.tsx` has five cases over this sheet and every one of them
+   * answers a **fake** api: they prove the box is `rowId::not-before`, that the
+   * day and the words leave as **one** patch, and that a draft backed out of
+   * does not come back on the next open. None of them can prove anything left
+   * the browser — and the rule the whole design is shaped around lives in
+   * be-01, not in the client: a reason with no date to be about is
+   * `not_before_reason_needs_a_date`, **400**, checked inside the transaction
+   * that would write it.
+   *
+   * **So the words are set in the same gesture on purpose, and that is what
+   * this case is really for.** `run` is fire-and-forget, so a card that sent
+   * the date and the reason as two patches would have them arrive unordered
+   * and 400 roughly half the time — on exactly the rows a planner had bothered
+   * to explain. Reading the reason back out of the `title` *after* the reload
+   * turns the third parameter of `setNotBefore` from a design note into a fact
+   * about a request that happened.
+   *
+   * The day is asserted as a substring rather than in full because
+   * `shortIsoDate` omits the year only when it is the reader's own: `not
+   * before 15 Jul` is what survives a run in any year, `15 Jul 2026` is what a
+   * run in 2027 would read.
+   */
+  test('sets an earliest start from a card by touch, and still says so after a reload', async ({
+    page,
+  }) => {
+    const reason = 'waiting on the client sign off';
+    const field = page.getByRole('button', { name: 'Earliest start for 010' });
+
+    // Disabled first, and this is not a formality. It is the state every other
+    // case in this file finds the field in, it is why chunk 4 could not write
+    // this case at all, and without it a day zero that silently failed to
+    // commit would leave this case tapping a dead button and timing out with
+    // nothing to say about which half broke.
+    await expect(field).toBeDisabled();
+    await giveThePlanADayZero(page, '2026-06-01');
+    await expect(field).toBeEnabled();
+
+    // Nothing is claimed yet, which is what stops the assertion at the end
+    // passing vacuously: `data-card-not-before` is the claim, and a row that
+    // constrains nothing does not draw it at all.
+    await expect(field.locator('[data-card-not-before]')).toHaveCount(0);
+
+    await field.click();
+    await expect(page.getByRole('dialog', { name: 'Earliest start for 010' })).toBeVisible();
+
+    // No key is pressed to *end* the edit, the team case's rule one field over:
+    // the subject is a face with no keyboard, and `Save` is the gesture this
+    // sheet chose instead of the table's `focusout` over both boxes — which
+    // needs a `relatedTarget` a thumb does not produce.
+    await page.locator('[data-card-not-before-input]').fill('2026-07-15');
+    await page.locator('[data-card-not-before-reason]').fill(reason);
+    await page.locator('[data-card-not-before-save]').click();
+
+    await expect(page.getByRole('dialog', { name: 'Earliest start for 010' })).toBeHidden();
+    await expect(field.locator('[data-card-not-before]')).toContainText('not before 15 Jul');
+
+    // The plan, not the card: the line above proves only that React heard the
+    // Save. This is the one that asks be-01, and it asks about both halves of
+    // the patch at once — a pair that arrived split would have been refused.
+    await page.reload();
+    const saved = page
+      .getByRole('button', { name: 'Earliest start for 010' })
+      .locator('[data-card-not-before]');
+    await expect(saved).toContainText('not before 15 Jul');
+    await expect(saved).toHaveAttribute('title', new RegExp(`Why: ${reason}`));
   });
 
   /**
