@@ -707,6 +707,67 @@ test.describe('the plan on a phone, measured by a browser', () => {
   });
 
   /**
+   * The whole trio, entered the way a thumb enters it — `wbs-mobile-orp-input`.
+   *
+   * Dany, 2026-08-23: *"I cannot input o/r/p on WBS from mobile."* The card's
+   * figure box takes `2/3/8`, and the keypad it asks for has no `/` on it. The
+   * mobile sweep's `2/3/8 → 3.7d` pass is not a counter-example: it typed
+   * through CDP, which bypasses the on-screen keyboard entirely — and so does
+   * `fill()` here, which is exactly why **this case never types a separator at
+   * all**. Three boxes, three separate fills, nothing between them. A fix that
+   * kept one box and taught it a new separator would still pass a CDP test and
+   * still be untypeable on a phone; this one cannot pass unless the three boxes
+   * exist.
+   *
+   * `3.7` is the round trip's proof rather than `2 · 3 · 8`: the final figure is
+   * PERT over the three points — (2 + 4×3 + 8) / 6 — computed by be-01 and read
+   * back after a reload, so a card that only redrew what React was holding
+   * fails here.
+   */
+  test('types a whole estimate on a card without a slash, and it survives a reload', async ({
+    page,
+  }) => {
+    // The trio lives behind the `o·r·p` disclosure the card already had — the
+    // read view is where the edit belongs, and a `<details>` that is shut hides
+    // its own contents from a click.
+    await page.locator('details[data-phase-detail="role-dev"] summary').first().click();
+
+    const field = page.getByRole('button', { name: 'Dev o, r and p for 010' });
+    // Non-vacuous: nothing is estimated yet, and the words say so. A selector
+    // typo or a card that never drew the trigger fails here rather than at the
+    // end.
+    await expect(field.locator('[data-phase-trio="role-dev"]')).toHaveText('No estimate yet');
+    // Chunk 3's 21px lesson, applied rather than re-learned: the 44px floor in
+    // `styles.css` is scoped to `[data-modal-surface]` and `[data-account-menu]`,
+    // and a card is neither — so a trigger a card grows has to carry its own
+    // height. Measured here and not in the sweep above, because that list walks
+    // controls a `<details>` keeps hidden until it is opened.
+    const trigger = await field.boundingBox();
+    expect(
+      trigger?.height ?? 0,
+      'the trio trigger is under a finger’s size',
+    ).toBeGreaterThanOrEqual(44);
+
+    await field.click();
+    await expect(page.getByRole('dialog', { name: 'Dev estimate for 010' })).toBeVisible();
+
+    await page.getByLabel('Dev optimistic for 010').fill('2');
+    await page.getByLabel('Dev realistic for 010').fill('3');
+    await page.getByLabel('Dev pessimistic for 010').fill('8');
+    await page.locator('[data-card-trio-save]').click();
+    await expect(page.getByRole('dialog', { name: 'Dev estimate for 010' })).toBeHidden();
+
+    await page.reload();
+    await page.locator('details[data-phase-detail="role-dev"] summary').first().click();
+    await expect(page.locator('[data-phase-trio="role-dev"]').first()).toHaveText(
+      'optimistic 2 · realistic 3 · pessimistic 8',
+    );
+    await expect(page.locator('[data-phase-final="role-dev"]').first()).toHaveText(
+      'Final 3.7 days',
+    );
+  });
+
+  /**
    * The sheet gets out of the way, and the caret goes where the create asked
    * for it.
    *
