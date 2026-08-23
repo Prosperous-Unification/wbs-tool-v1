@@ -215,11 +215,17 @@ async function seedPlan(
   // start before: the caret and the bar's left edge on the same workday.
   // From the cell's `title`, not its text: the columns print `14 Aug` since `T2
   // compact-columns` and carry the whole `YYYY-MM-DD` in the attribute.
-  const startsOn = await rowOf(page, '010.2').locator('[data-start]').getAttribute('title');
+  //
+  // **The first of two facts**, since `row-start-floor`: the `title` reads
+  // `2026-08-14 — Waits for a dependency’s first estimated role`, the `End`
+  // cell's own shape. This helper wants the day alone, and the guard below is
+  // kept rather than loosened to a prefix match — it is what turned that change
+  // into 26 named failures instead of a fixture quietly holding the wrong row
+  // at the wrong date.
+  const title = await rowOf(page, '010.2').locator('[data-start]').getAttribute('title');
+  const startsOn = title?.split(' — ')[0] ?? null;
   if (startsOn === null || !/^\d{4}-\d{2}-\d{2}$/.test(startsOn)) {
-    throw new Error(
-      `010.2's Start cell reads ${String(startsOn)}, which is not a date to hold it at`,
-    );
+    throw new Error(`010.2's Start cell reads ${String(title)}, which has no date to hold it at`);
   }
   await setDate(page, 'Earliest start for 010.2', startsOn);
 
