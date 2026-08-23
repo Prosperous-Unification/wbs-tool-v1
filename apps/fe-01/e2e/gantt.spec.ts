@@ -1058,6 +1058,33 @@ test.describe('the chart under a plan being edited', () => {
  * click-to-row lands on the **card's** name box because `cellIn` names a cell
  * rather than a piece of markup.
  */
+/**
+ * Cells wholly on screen, measured from the label column's **right** edge
+ * rather than the panel's left.
+ *
+ * That is the difference between counting days and counting cells: the column
+ * is `sticky left-0` and paints over the chart's first 176px, so a cell
+ * scrolled under it has a rectangle inside the panel and is not on screen.
+ * Counting from the panel's edge would have reported the collapse as buying
+ * nothing — the same cells, still there, still hidden.
+ *
+ * At the describe's scope rather than inside one test since chunk 4: the
+ * full-screen case below is the same measurement of the same defect, and two
+ * copies of a counting rule this particular are two things to keep in step.
+ */
+const visibleDays = async (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const panel = document.querySelector('[data-gantt-panel]');
+    if (panel === null) throw new Error('no chart panel');
+    const box = panel.getBoundingClientRect();
+    const column = document.querySelector('[data-gantt-labels]');
+    const leftEdge = column === null ? box.left : column.getBoundingClientRect().right;
+    return [...document.querySelectorAll('[data-axis-day]')].filter((cell) => {
+      const cellBox = cell.getBoundingClientRect();
+      return cellBox.left >= leftEdge - 0.5 && cellBox.right <= box.right + 0.5;
+    }).length;
+  });
+
 test.describe('the chart on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -1093,29 +1120,6 @@ test.describe('the chart on a phone', () => {
     await seedOnALaptop(page, nextAccount(), { estimate: '40/40/40' });
     await openTheChart(page, { throughTheSheet: true });
 
-    /**
-     * Cells wholly on screen, measured from the label column's **right** edge
-     * rather than the panel's left.
-     *
-     * That is the difference between counting days and counting cells: the
-     * column is `sticky left-0` and paints over the chart's first 176px, so a
-     * cell scrolled under it has a rectangle inside the panel and is not on
-     * screen. Counting from the panel's edge would have reported the collapse
-     * as buying nothing — the same cells, still there, still hidden.
-     */
-    const visibleDays = async (): Promise<number> =>
-      page.evaluate(() => {
-        const panel = document.querySelector('[data-gantt-panel]');
-        if (panel === null) throw new Error('no chart panel');
-        const box = panel.getBoundingClientRect();
-        const column = document.querySelector('[data-gantt-labels]');
-        const leftEdge = column === null ? box.left : column.getBoundingClientRect().right;
-        return [...document.querySelectorAll('[data-axis-day]')].filter((cell) => {
-          const cellBox = cell.getBoundingClientRect();
-          return cellBox.left >= leftEdge - 0.5 && cellBox.right <= box.right + 0.5;
-        }).length;
-      });
-
     const atEachRung = async (): Promise<Record<string, number>> => {
       const counted: Record<string, number> = {};
       for (const rung of [28, 12, 4]) {
@@ -1123,7 +1127,7 @@ test.describe('the chart on a phone', () => {
         // The cells are re-sized by React, so the count is taken after the
         // width the rung asks for has actually landed on one.
         await expect(page.locator('[data-axis-day="0"]')).toHaveCSS('width', `${String(rung)}px`);
-        counted[String(rung)] = await visibleDays();
+        counted[String(rung)] = await visibleDays(page);
       }
       return counted;
     };
@@ -1158,6 +1162,86 @@ test.describe('the chart on a phone', () => {
     expect(withNames['28']).toBeLessThanOrEqual(9);
     expect(withoutNames['4']).toBeGreaterThanOrEqual(60);
     expect(withoutNames['4']).toBeLessThanOrEqual(91);
+  });
+
+  test('gives the chart the whole screen, and gives it back on Escape', async ({ page }) => {
+    // Chunk 4, and the task's first done-criterion: **a quarter, end to end,
+    // without scrolling sideways**. The ladder and the collapsed column got a
+    // 390px phone to about 79 days of the 91 a quarter needs, and the missing
+    // ~47px is the page padding around the panel — which is the one thing
+    // nothing inside the panel can win back.
+    await seedOnALaptop(page, nextAccount(), { estimate: '40/40/40' });
+    await openTheChart(page, { throughTheSheet: true });
+    await page.locator('[data-gantt-labels-toggle]').click();
+    await expect(page.locator('[data-gantt-labels]')).toHaveCount(0);
+    await page.locator('[data-gantt-day-scale]').selectOption('4');
+    await expect(page.locator('[data-axis-day="0"]')).toHaveCSS('width', '4px');
+    const inThePage = await visibleDays(page);
+
+    await page.locator('[data-gantt-fullscreen-toggle]').click();
+    await expect(page.locator('[data-gantt-fullscreen]')).toHaveCount(1);
+    // The rung is not re-picked: full screen is a bigger frame for the chart
+    // already on screen, and a mode that silently re-scaled would be answering
+    // a question the reader did not ask.
+    await expect(page.locator('[data-axis-day="0"]')).toHaveCSS('width', '4px');
+    const inFullScreen = await visibleDays(page);
+    console.log('visible days at 4px — in the page', inThePage, '| full screen', inFullScreen);
+
+    // Where the padding went. Both edges, because a layer that reached the
+    // right edge alone would be one shifted sideways rather than widened.
+    const panel = await rectOf(page, '[data-gantt-panel]');
+    const window_ = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+    expect(panel.left, 'the chart does not start at the left edge of the screen').toBeLessThanOrEqual(
+      NEARLY,
+    );
+    expect(
+      window_.width - panel.right,
+      'the chart does not reach the right edge of the screen',
+    ).toBeLessThanOrEqual(NEARLY);
+
+    // The strip is the way out, so it is on screen and it is inside the layer —
+    // both, since a strip left behind in the page would be under the chart.
+    const strip = await rectOf(page, '[data-gantt-controls]');
+    expect(strip.bottom, 'the control strip is off the bottom of the screen').toBeLessThanOrEqual(
+      window_.height + NEARLY,
+    );
+    expect(
+      await page.locator('[data-gantt-fullscreen] [data-gantt-controls]').count(),
+      'the way out is outside the layer it is the way out of',
+    ).toBe(1);
+
+    // The claim, in the unit the task states it in. A quarter is 91 days; the
+    // brackets are wide on purpose — what this pins is that the padding is
+    // worth about a dozen days at this rung and that the criterion is met.
+    expect(inFullScreen).toBeGreaterThan(inThePage);
+    expect(inFullScreen).toBeGreaterThanOrEqual(91);
+
+    // **The hover surface still paints over the chart.** The layer is `z-20`
+    // and the card is `zIndex: 20` portalled to `document.body`, so the card
+    // wins on tree order alone — an ordering worth a hit test rather than a
+    // `toBeVisible`, which is equally true of a card painted underneath.
+    await page.locator('[data-gantt-bar]').first().click();
+    const card = page.getByRole('tooltip');
+    await expect(card).toBeVisible();
+    const cardOnTop = await page.evaluate(() => {
+      const tooltip = document.querySelector('[role="tooltip"]');
+      if (tooltip === null) throw new Error('no card open');
+      const box = tooltip.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return hit !== null && tooltip.contains(hit);
+    });
+    expect(cardOnTop, 'the full-screen layer paints over the card a tapped bar opens').toBe(true);
+
+    // Escape leaves, and leaves a chart behind rather than a closed panel.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-gantt-fullscreen]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-panel]')).toBeVisible();
+    expect(await visibleDays(page), 'the chart came back wider than the page it is in').toBe(
+      inThePage,
+    );
   });
 
   test('takes the cards face to a row when its bar is clicked', async ({ page }) => {

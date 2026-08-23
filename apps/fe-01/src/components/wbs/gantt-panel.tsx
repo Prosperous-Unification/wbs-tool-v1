@@ -1887,6 +1887,38 @@ function GanttChart({
   useEffect(() => {
     rememberedDetail();
   }, []);
+  // Whether the chart has taken the whole viewport. Chunk 4 of
+  // `wbs-gantt-phone-scale`, and Dany's R8 #1 — built once, for both faces.
+  //
+  // **Not remembered, where the scale and the names both are.** Those two are
+  // answers about how to draw a chart and are worth keeping; this one is a
+  // reader standing closer for a moment. An overlay that survives a reload is
+  // an app that opens covering itself, with no table, no toolbar and one small
+  // button between the reader and everything they came for — and the reader who
+  // would meet it is the one who closed the tab *because* they were finished.
+  const [fullScreen, setFullScreen] = useState(false);
+  // Escape leaves, because a box that covers the whole app has to answer the
+  // one key every reader already tries on one — and the button that opened it
+  // is the only other way out, at the far end of a strip a finger may have
+  // scrolled past. Bound on the document rather than the overlay: focus after
+  // the click is on the toggle, but a tap on a bar moves it onto the chart, and
+  // a reader who has scrolled 2000px along should not have to find a control to
+  // be allowed to press Escape.
+  //
+  // Registered only while it is open, so the ordinary chart adds no key
+  // listener at all and nothing here can swallow an Escape the hover surface
+  // (`dismiss`) or a dialog above it wanted.
+  useEffect(() => {
+    if (!fullScreen) return undefined;
+    const leave = (key: KeyboardEvent) => {
+      if (key.key !== 'Escape') return;
+      setFullScreen(false);
+    };
+    document.addEventListener('keydown', leave);
+    return () => {
+      document.removeEventListener('keydown', leave);
+    };
+  }, [fullScreen]);
   const [open, setOpen] = useState<OpenSurface | null>(null);
   // The axis's own open card: which cell, and the rectangle it was placed
   // against. Separate from the bars' state and mutually exclusive with it —
@@ -2181,7 +2213,7 @@ function GanttChart({
     URL.revokeObjectURL(url);
   };
 
-  return (
+  const chartAndItsControls = (
     <>
       <section
         data-gantt-panel
@@ -2214,12 +2246,22 @@ function GanttChart({
         // the strip came back as the chart's own boxes (15 × `div in the chart`,
         // 3 × `span in the chart`) instead of the handle. Watched in Chromium
         // 2026-08-12.
+        //
+        // **Full screen takes both the share and the dragged height away**, and
+        // that is the whole mechanism: `flex-1` inside the overlay's column, with
+        // `min-h-0` so a chart taller than the phone scrolls inside this box
+        // instead of pushing the control strip off the bottom of the screen (a
+        // flex item's default `min-height: auto` refuses to shrink below its
+        // content, and the strip is the item after it). `heightPx` is ignored
+        // rather than raised: it is a number dragged against a page that is not
+        // on screen, and the handle that set it is behind the overlay.
         className={cn(
-          'border-border isolate shrink-0 overflow-auto border-t',
-          heightPx === null && 'max-h-[40vh]',
+          'border-border isolate overflow-auto border-t',
+          fullScreen ? 'min-h-0 flex-1' : 'shrink-0',
+          !fullScreen && heightPx === null && 'max-h-[40vh]',
         )}
         style={
-          heightPx === null
+          fullScreen || heightPx === null
             ? undefined
             : { height: heightPx, maxHeight: `${String(GANTT_VIEWPORT_SHARE * 100)}vh` }
         }
@@ -3278,6 +3320,36 @@ function GanttChart({
         `wbs-table.tsx`'s toolbar, because this file may not touch that
         one — see the PR proposal for the control still owed there.
       */}
+        {/*
+        Full screen. Beside the scale rather than at the end of the strip
+        because the two are one gesture on a phone — widen the rung, take the
+        page padding, and the chart is as much of the plan as this screen can
+        hold. `Full` / `Close` and not one word with a pressed state: the strip
+        is *inside* the layer once it is open, so this button is the way out and
+        has to say so. `aria-pressed` is carried as well, for the reader who
+        meets it by name and not by position.
+
+        No keyboard shortcut of its own. `f` is a character a plan full of
+        `<input>`s is being typed into, and the panel has no focus of its own to
+        scope one to; Escape is bound only while the layer is open, which is the
+        half that costs nothing.
+      */}
+        <button
+          type="button"
+          data-gantt-fullscreen-toggle
+          aria-pressed={fullScreen}
+          title={
+            fullScreen
+              ? 'Leave full screen and put the chart back under the plan (Escape)'
+              : 'Draw the chart on the whole screen — the page padding is about 47px of it'
+          }
+          className="border-border hover:bg-accent ml-1 rounded border px-1 normal-case"
+          onClick={() => {
+            setFullScreen(!fullScreen);
+          }}
+        >
+          {fullScreen ? 'Close' : 'Full'}
+        </button>
         <button
           type="button"
           data-gantt-svg-download
@@ -3311,5 +3383,50 @@ function GanttChart({
         </p>
       )}
     </>
+  );
+
+  /*
+    Full screen, and it is **this** box rather than the browser's own.
+
+    `Element.requestFullscreen` was the first answer and it is the wrong one for
+    the reader this chunk is for: WebKit gives iOS no element fullscreen at all
+    — only `HTMLVideoElement.webkitEnterFullscreen` — so on an iPhone the native
+    call is a rejected promise and a button that does nothing, which is the one
+    device the whole task is measured on. A fixed layer works identically on
+    every browser here, and the 47px it wins back is the page padding around the
+    panel, which is what the arithmetic needs: 4px/day on the panel's 343px buys
+    about 79 days, and a quarter is 91.
+
+    `z-20` and not higher, which is a real ordering and not a spare number. It
+    clears the table's sticky cells (`zIndex: 10`) and stays under the toasts
+    and the modals (`z-50`), so a save that fails while the chart is open is
+    still on screen. It ties with the hover surface, which is `zIndex: 20`
+    **portalled to `document.body`** — later in tree order than this layer, so
+    the card a tapped bar opens paints over the chart it belongs to. Tested at
+    the pixel rather than asserted here: `e2e/gantt.spec.ts` hit-tests the card's
+    own centre in full screen, because "the card is visible" is true of a card
+    painted underneath.
+
+    `flex-col` with the panel `flex-1` above: the control strip is the last row
+    and keeps its own height, so the way out is on screen whatever the chart
+    does. No `body` scroll lock — the layer covers the page, the page under it
+    keeps its offset, and taking `overflow: hidden` off `body` on the way out is
+    a global this component would then own for every other reason it is unmounted.
+  */
+  return fullScreen ? (
+    <div
+      data-gantt-fullscreen
+      // A dialog is what it behaves like — it covers the app, Escape leaves,
+      // and the reader is inside it until they say otherwise. Not `modal`:
+      // nothing under it is inert, focus is not trapped, and claiming a trap
+      // this does not build would be a label that lies to a screen reader.
+      role="dialog"
+      aria-label="Gantt chart, full screen"
+      className="bg-background fixed inset-0 z-20 flex flex-col"
+    >
+      {chartAndItsControls}
+    </div>
+  ) : (
+    chartAndItsControls
   );
 }
