@@ -4629,6 +4629,58 @@ describe('downloading the chart as a standalone .svg', () => {
     expect(button?.getAttribute('aria-label')).toBe('Download this chart as a standalone SVG');
   });
 
+  itDom('draws the downloaded axis at the rung the chart is on screen at', async () => {
+    // The drift a threaded scale can have, and the only place it cannot be
+    // checked for after the fact: the nested `<svg>` brings the live geometry
+    // over at whatever width the panel sized it to, while the axis, the label
+    // column and the on-bar words are rebuilt here from pixel arithmetic. A
+    // constant in that arithmetic gives a file whose calendar is spaced 28px
+    // apart over bars laid out 4px apart — every date over the wrong bar, in a
+    // file with no app around it to notice.
+    //
+    // Written because the injection that should have caught it did not: with
+    // `day.offset * dayPx` put back to `day.offset * DAY_PX`, the whole spec
+    // stayed green at 137 passed. Every download case above runs at the default
+    // rung, where the constant and the value agree. Watched 2026-08-23.
+    render(
+      <GanttPanel
+        plan={twoRolePlan()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={4}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+    const { blobs } = captureDownloads();
+    clickDownload();
+
+    const doc = new DOMParser().parseFromString(await readBlobText(blobs[0]), 'image/svg+xml');
+    expect(doc.querySelector('parsererror')).toBeNull();
+    // The weekend bands are the axis cells that carry a width as well as a
+    // position, so one of them says both halves of the arithmetic at once.
+    const bands = [...doc.querySelectorAll('rect')].filter(
+      (rect) => rect.getAttribute('fill-opacity') === '0.1',
+    );
+    expect(bands.length).toBeGreaterThan(0);
+    for (const band of bands) {
+      expect(Number(band.getAttribute('width'))).toBe(4);
+      // Cell `k` stands at `LABEL_COLUMN_PX + CHART_PAD_PX + 4k`, so every band
+      // is on the 4px grid off that origin — at 28 not one of them would be.
+      const offGrid = (Number(band.getAttribute('x')) - 176 - CHART_PAD_PX) % 4;
+      expect(offGrid).toBe(0);
+    }
+    // And the nested live geometry is the same width the axis was drawn for, so
+    // the two halves of the file are one chart: the outer `<svg>`'s width is
+    // the label column plus the nested one's.
+    const nested = doc.querySelector('svg svg');
+    const outer = Number(doc.documentElement.getAttribute('width'));
+    expect(outer).toBe(176 + Number(nested?.getAttribute('width')));
+  });
+
   itDom('downloads a well-formed, self-contained .svg carrying the chart’s own marks', async () => {
     render(
       <GanttPanel
