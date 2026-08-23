@@ -25,7 +25,7 @@ import type { ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry'
 import { type CommitOutcome, flushCell } from './live-editing';
 import { composeNameCell } from './name-notes';
 import { priorityBandStyleOf } from './priority-band-style';
-import type { PrintedDay } from './short-date';
+import { type PrintedDay, shortIsoDate } from './short-date';
 import { cardIndentFor } from './table-frame';
 import type { TreeRow } from './wbs-rows';
 
@@ -187,6 +187,31 @@ export interface PlanCardsProps {
   setTeam: (row: TreeRow, teamId: string | null) => void;
   /** Makes a team nobody had yet and labels this work item with it, in one go. */
   createTeam: (row: TreeRow, name: string) => void;
+  /**
+   * Whether the plan has a start date at all.
+   *
+   * The one fact {@link CardNotBeforeField} cannot read off its row, and the
+   * one that decides whether the field opens: without a day zero be-01 ignores
+   * the constraint entirely, so the control refuses rather than taking a date
+   * that would do nothing. The table's cell asks the same question of
+   * `live.current.startDate` and words its refusal the same way.
+   */
+  hasCalendar: boolean;
+  /**
+   * Sets, changes or clears the earliest day this work item may start, **and
+   * the words about it, in one request**.
+   *
+   * The table's own {@link setNotBefore}, widened rather than copied: the date
+   * cell there still names only the day, and the card's sheet — which edits
+   * both boxes and closes on one tap — names both. One writer, one patch, and
+   * be-01's pair rule (`not_before_reason_needs_a_date`) is answered inside the
+   * one transaction that checks it. `rowActions`' bargain, a fourth dimension
+   * over: what a phone sends reaches be-01 by the path a laptop's edit does.
+   *
+   * `null` for the day clears the constraint and takes the words with it,
+   * because be-01 will not hold words about a date that has gone.
+   */
+  setNotBefore: (row: TreeRow, day: string | null, reason: string | null) => void;
   /**
    * What kind of thing this row is: its own tags, the ones it inherits, or
    * neither.
@@ -596,6 +621,212 @@ function CardTeamField({
 }
 
 /**
+ * The earliest start on a card — printed as the table prints it, and **settable**.
+ *
+ * `card-field-pickers`' second field, and the one the table itself calls a date
+ * field rather than a picker. At 390×844 the day was not on the card *at all*
+ * (`wbs-mobile-sweep`): a phone could read that a row waits for `010, 030` and
+ * could not read, or say, the calendar floor under it.
+ *
+ * **A sheet with an explicit Save, and that is a different touch design from
+ * the team's on purpose.** The team sheet closes on the line you tap, because
+ * choosing *is* the whole gesture. A date is two boxes — the day and the words
+ * about it — and there is no tap that means "and I am done". The table settles
+ * the same question with a `focusout` over both boxes, which needs a
+ * `relatedTarget` a finger does not produce.
+ *
+ * **One request for both boxes**, which is why {@link PlanCardsProps.setNotBefore}
+ * takes the words as well as the day. be-01 refuses a reason with no date to be
+ * about (`not_before_reason_needs_a_date`, 400) and checks the pair inside one
+ * transaction; two `void run(…)` calls are not ordered, so a card that sent the
+ * date and the words separately would 400 on exactly the rows a planner has
+ * bothered to explain, roughly half the time.
+ *
+ * **The control is drawn on a row with no day**, the team field's departure for
+ * the team field's reason: a control that appears once a value exists cannot
+ * set the first one. `data-card-not-before` is still the *claim* and is absent
+ * where the row makes none, so a card that constrains nothing says nothing.
+ *
+ * **Disabled without a project start date**, which is the table cell's own
+ * refusal word for word: be-01 ignores the constraint when there is no day zero
+ * to count from, and a field that took a date and did nothing with it is worse
+ * than one that will not open.
+ */
+function CardNotBeforeField({
+  row,
+  hasCalendar,
+  setNotBefore,
+}: {
+  row: TreeRow;
+  hasCalendar: boolean;
+  setNotBefore: (row: TreeRow, day: string | null, reason: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const day = row.startNoEarlierThan;
+  const reason = row.startNoEarlierThanReason;
+  /*
+    The drafts, held here and seeded from the row every time the sheet opens —
+    `key` on the panel below rather than an effect, which is React's own way of
+    saying "this is a new edit". Uncontrolled boxes would leave the previous
+    row's words in the box on the next open; a controlled box fed straight from
+    the row would fight the reader's typing on every refetch, which is the
+    fault {@link import('./date-field').DateField} exists for. A draft is
+    neither: nothing is sent until Save, so no refetch can land under the caret.
+  */
+  const [draftDay, setDraftDay] = useState(day ?? '');
+  const [draftReason, setDraftReason] = useState(reason ?? '');
+  const title = hasCalendar
+    ? [
+        day === null ? null : `${day}.`,
+        'This work item may not start before this day. Its dependencies can still push it later.',
+        reason === null || reason.trim() === '' ? null : `Why: ${reason.trim()}`,
+      ]
+        .filter((part) => part !== null)
+        .join(' ')
+    : 'Set the project start date first — without one there are no dates to constrain.';
+  const save = (): void => {
+    // An emptied box is the reader saying "no constraint", the table's date
+    // cell's own reading of `''`, and it takes the words with it because be-01
+    // will not hold words about a date that is gone.
+    setNotBefore(row, draftDay === '' ? null : draftDay, draftReason);
+    setOpen(false);
+  };
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          setDraftDay(day ?? '');
+          setDraftReason(reason ?? '');
+        }
+        setOpen(next);
+      }}
+    >
+      <ModalTrigger asChild>
+        <button
+          type="button"
+          data-card-not-before-field
+          disabled={!hasCalendar}
+          // The table cell's own label, so one plan read on two faces answers
+          // to one name — a screen reader and a test both find this by it.
+          aria-label={`Earliest start for ${row.number}`}
+          title={title}
+          // `TAP` and `inline-flex items-center`, the repair chunk 3 measured at
+          // 21px: the 44px floor in `styles.css` is scoped to
+          // `[data-modal-surface]` and `[data-account-menu]`, a card is neither,
+          // so every control this file draws carries its own height or none.
+          className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2 disabled:no-underline disabled:opacity-60`}
+        >
+          {day === null ? (
+            // No `data-card-not-before`: this row constrains nothing, and the
+            // attribute is the constraint. What is drawn is the invitation.
+            <span className="opacity-70">not before…</span>
+          ) : (
+            <span data-card-not-before title={title}>
+              not before {shortIsoDate(day, new Date())}
+            </span>
+          )}
+        </button>
+      </ModalTrigger>
+      <ModalContent side="bottom">
+        <ModalHeader>
+          <ModalTitle>Earliest start for {row.number}</ModalTitle>
+          <ModalDescription>
+            A floor and not a pin: this work item may not start before the day you set, and its
+            dependencies can still push it later.
+          </ModalDescription>
+        </ModalHeader>
+        {/*
+          `key` on the fields and not on the sheet: remounting the panel each
+          time it opens is what makes "seeded from the row" true of the second
+          open as well as the first, without an effect that would also fire on
+          every refetch while somebody is typing.
+        */}
+        <div className="flex flex-col gap-3" key={open ? 'open' : 'shut'}>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Earliest start</span>
+            {/*
+              A native `<input type="date">` and not {@link DateField}: that
+              component's whole rule is "the box is left, then it is sent",
+              which is the right rule for a cell a Tab walks out of and the
+              wrong one for a sheet where the exit *is* the Save button. Its
+              fault — the server's answer re-asserted between two keystrokes —
+              cannot happen here, because a draft sends nothing until Save and
+              so provokes no refetch to be re-asserted from.
+
+              The cell id the table's own box carries: `rowId::not-before`, one
+              string out of `cellKey`, so the two faces are the same cell rather
+              than two boxes over one field.
+            */}
+            <input
+              type="date"
+              aria-label={`Earliest start for ${row.number}`}
+              data-cell={cellKey(row.id, 'not-before')}
+              data-card-not-before-input
+              className={`${TAP} box-border w-full rounded-md border p-2 text-base`}
+              value={draftDay}
+              onChange={(event) => {
+                setDraftDay(event.target.value);
+              }}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Why? (optional)</span>
+            {/*
+              No `maxLength`, the table's own call one column over: be-01 bounds
+              this at 200 and refuses a longer one, and a box that quietly
+              stopped taking characters would be this client keeping a rule the
+              server also keeps — two copies of one number, which is how the two
+              come to disagree.
+            */}
+            <input
+              type="text"
+              aria-label={`Why ${row.number} may not start earlier`}
+              data-card-not-before-reason
+              className={`${TAP} box-border w-full rounded-md border p-2 text-base`}
+              value={draftReason}
+              onChange={(event) => {
+                setDraftReason(event.target.value);
+              }}
+            />
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-card-not-before-save
+              className={`${TAP} inline-flex flex-1 items-center justify-center rounded-md border px-3 font-semibold`}
+              onClick={save}
+            >
+              Save
+            </button>
+            {/*
+              Its own control, because a finger cannot empty a native date
+              input: Chrome draws a clear affordance on a desktop date field and
+              none a thumb can find on a phone, and "no earliest start" is a
+              state a planner has to be able to get back to. It sends the same
+              null the table's cleared box sends, which takes the words with it.
+            */}
+            {day !== null && (
+              <button
+                type="button"
+                data-card-not-before-clear
+                className={`${TAP} inline-flex items-center justify-center rounded-md border px-3`}
+                onClick={() => {
+                  setNotBefore(row, null, null);
+                  setOpen(false);
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+/**
  * The plan as a list of outline cards: what a phone gets instead of the table.
  *
  * **The same plan, not a summary of it.** Every card is a work item of the same
@@ -652,6 +883,8 @@ export function PlanCards({
   teams,
   setTeam,
   createTeam,
+  hasCalendar,
+  setNotBefore,
   tagLabel,
   serviceLabel,
   nonOwner,
@@ -950,6 +1183,16 @@ export function PlanCards({
                 table's Start and End cells make — a phone has no hover, and
                 the attribute is still what a test and a screen reader read.
               */}
+              {/*
+                The floor under the span, **before** the span, because that is
+                where the table keeps it: `not-before`, `start`, `finish`,
+                `float` is the column order, and the two lines below already
+                read span-then-slack off it. The same argument the services chip
+                lost one paragraph down — a reader moving between the two faces
+                of one plan should find its facts in one order, and a phone is
+                not the surface that gets to re-argue it.
+              */}
+              <CardNotBeforeField row={row} hasCalendar={hasCalendar} setNotBefore={setNotBefore} />
               <span data-card-span title={cardSpanTitle(span)}>
                 {span.start.text} → {span.finish.text}
               </span>

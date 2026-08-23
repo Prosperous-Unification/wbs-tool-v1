@@ -5319,9 +5319,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * rather than cascaded is be-01's call and the right one; the client that
    * cleared the date is the one place that knows the words are meant to go too.
    *
-   * Setting a day names only the day. The words on a row that already has some
-   * are still true of the new date, and a set that silently blanked them would
-   * be this same deletion wearing the other hat.
+   * Setting a day names only the day, **unless the caller names the words too**.
+   * The table's two boxes are edited one at a time and each sends its own
+   * field, so the date box omits `reason` and the words on a row that already
+   * has some stay true of the new date — a set that silently blanked them would
+   * be the deletion above wearing the other hat. A card's sheet edits both at
+   * once and passes both, which is why `reason` is *optional* rather than
+   * absent: `undefined` means "not this caller's business", `null` means "take
+   * the words off".
+   *
+   * **One patch and never two, which is the whole reason the parameter is here
+   * rather than a second `run` at the call site.** `run` is fire-and-forget —
+   * callers say `void run(…)` — so a date request and a reason request issued
+   * back to back are not ordered, and the pair rule above turns the losing
+   * order into a **400** on the row somebody just explained. be-01 checks the
+   * pair inside one transaction; this sends it as one.
    *
    * Proof: the second field dropped from the null arm, `clearing a not-before
    * date clears the words with it` fails on `expected [ { startNoEarlierThan:
@@ -5329,13 +5341,22 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * startNoEarlierThanReason: null } ]`. Watched, 2026-08-18.
    */
   const setNotBefore = useCallback(
-    (id: string, day: string | null) => {
+    (id: string, day: string | null, reason?: string | null) => {
       void run(() =>
         api.patch(
           id,
           day === null
             ? { startNoEarlierThan: null, startNoEarlierThanReason: null }
-            : { startNoEarlierThan: day },
+            : reason === undefined
+              ? { startNoEarlierThan: day }
+              : // The blank box is `null` and never `''`, {@link setNotBeforeReason}'s
+                // own call: one spelling of "nobody has said", and the one thing
+                // be-01 cannot see from a field that is simply absent.
+                {
+                  startNoEarlierThan: day,
+                  startNoEarlierThanReason:
+                    reason === null || reason.trim() === '' ? null : reason.trim(),
+                },
         ),
       );
     },
@@ -9799,6 +9820,20 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           }}
           createTeam={(row, name) => {
             createTeamFor(row.id, name);
+          }}
+          // The `not-before` cell's own question and its own writer, handed to
+          // the face that had neither. `hasCalendar` is the cell's `noCalendar`
+          // read the positive way round: without a project start date be-01
+          // ignores the constraint, so both faces refuse rather than taking a
+          // date that would do nothing.
+          hasCalendar={startDate !== null}
+          // Both boxes in one call, which is what the third argument is for —
+          // `setNotBefore` is the table's own writer widened, not a card-shaped
+          // copy, so a date set on a phone reaches be-01 by the path a date set
+          // on a laptop reaches it by, and the pair rule be-01 checks inside one
+          // transaction is answered by one request.
+          setNotBefore={(row, day, reason) => {
+            setNotBefore(row.id, day, reason);
           }}
           tagLabel={effectiveTagLabelOf}
           serviceLabel={effectiveServiceLabelOf}

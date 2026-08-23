@@ -16,6 +16,7 @@ import type {
 
 import { refusedDraftFor, unsent } from './live-editing';
 import { type CardRowActionHandlers, PlanCards } from './plan-cards';
+import { shortIsoDate } from './short-date';
 import type { TreeRow } from './wbs-rows';
 import { WbsTable } from './wbs-table';
 
@@ -265,7 +266,13 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     },
     patch: (
       id: string,
-      patch: { name?: string; notes?: string; serviceTeamId?: string | null },
+      patch: {
+        name?: string;
+        notes?: string;
+        serviceTeamId?: string | null;
+        startNoEarlierThan?: string | null;
+        startNoEarlierThanReason?: string | null;
+      },
     ) => {
       if (options.refusePatch === true) return Promise.reject(new Error('forbidden'));
       patched.push({ id, ...patch });
@@ -279,6 +286,18 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       if (patch.serviceTeamId !== undefined) {
         row.serviceTeamId = patch.serviceTeamId;
         row.teamIds = patch.serviceTeamId === null ? [] : [patch.serviceTeamId];
+      }
+      // be-01's pair rule, kept by the fake so a card cannot pass here what the
+      // server would refuse: words about a date that is not there are a
+      // `not_before_reason_needs_a_date` 400, checked inside the one
+      // transaction that would write them. A fake that took them silently would
+      // let the two-request version of this write look correct.
+      if (patch.startNoEarlierThan !== undefined) row.startNoEarlierThan = patch.startNoEarlierThan;
+      if (patch.startNoEarlierThanReason !== undefined) {
+        if (patch.startNoEarlierThanReason !== null && row.startNoEarlierThan === null) {
+          return Promise.reject(new Error('not_before_reason_needs_a_date'));
+        }
+        row.startNoEarlierThanReason = patch.startNoEarlierThanReason;
       }
       return Promise.resolve();
     },
@@ -1779,6 +1798,19 @@ function renderCards(
       waitsFor={() => []}
       startFloor={startFloor}
       teamLabel={() => ({ state: 'none' })}
+      // The three team props and the two date ones, stubbed rather than
+      // omitted: they are required, this stub predates them, and a suite that
+      // leaves a required prop out is one that will typecheck differently from
+      // the app that uses it.
+      teams={[]}
+      setTeam={() => undefined}
+      createTeam={() => undefined}
+      // No calendar, which is what a stub tree honestly is: none of these rows
+      // came from a plan, so none of them has a project start date behind it.
+      // The date field draws its refusal and opens onto nothing, which is
+      // exactly what these row-actions tests want it doing.
+      hasCalendar={false}
+      setNotBefore={() => undefined}
       tagLabel={() => ({ state: 'none' })}
       serviceLabel={() => ({ state: 'none' })}
       nonOwner={() => null}
@@ -2104,4 +2136,163 @@ describe('setting a card’s team', () => {
       });
     },
   );
+});
+
+describe('setting a card’s earliest start', () => {
+  /**
+   * A phone plan **on a calendar**, which is this field's precondition rather
+   * than a convenience: without a project start date be-01 ignores the
+   * constraint, so a dateless fixture would only ever exercise the refusal.
+   * The fake is kept, like the team's, because what a tap *sent* is the subject.
+   */
+  async function aDatedPhonePlan(
+    arrange: (rows: WorkItemView[]) => void = () => {
+      // The plan a project starts as: on a calendar, constraining nothing.
+    },
+  ): Promise<ReturnType<typeof fakeApi>> {
+    const api = fakeApi({ dated: true });
+    await api.create('p1', { parentId: null });
+    arrange(api.rows);
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  /** The control the day now sits inside, drawn on every card with or without one. */
+  const dateFields = (): HTMLElement[] => [
+    ...document.querySelectorAll<HTMLElement>('[data-card-not-before-field]'),
+  ];
+  /** The claim, which is a different thing from the control around it. */
+  const dayOnCard = (): HTMLElement | null => document.querySelector('[data-card-not-before]');
+
+  const openTheDateSheet = async (): Promise<HTMLElement> => {
+    fireEvent.click(dateFields()[0]);
+    return screen.findByRole('dialog', { name: 'Earliest start for 010' });
+  };
+
+  itDom('opens a sheet over the same cell the table’s Not before box edits', async () => {
+    // `plan-cards.tsx`'s opening contract, and this field's third
+    // done-criterion: the box a card mounts is the box the table mounted, which
+    // is what makes one draft survive a rotation instead of becoming two.
+    const api = await aDatedPhonePlan();
+
+    await openTheDateSheet();
+
+    const box = screen.getByLabelText('Earliest start for 010', { selector: 'input[type=date]' });
+    expect(box.getAttribute('data-cell')).toBe(`${api.rows[0]?.id ?? ''}::not-before`);
+  });
+
+  itDom('sends the day and the words about it as one request', async () => {
+    // The whole reason `setNotBefore` grew a third parameter. `run` is
+    // fire-and-forget, so a date request and a reason request issued back to
+    // back are unordered, and be-01 answers the losing order with
+    // `not_before_reason_needs_a_date` — which this fake now also does. Two
+    // entries in `patched` here would be that bug, whether or not it happened
+    // to win the race on the day.
+    const api = await aDatedPhonePlan();
+    const before = api.patched.length;
+    await openTheDateSheet();
+
+    fireEvent.change(
+      screen.getByLabelText('Earliest start for 010', { selector: 'input[type=date]' }),
+      { target: { value: DATED_PLAN.startsOn } },
+    );
+    fireEvent.change(screen.getByLabelText('Why 010 may not start earlier'), {
+      target: { value: '  waiting on client sign-off  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(api.patched.slice(before)).toEqual([
+        {
+          id: api.rows[0]?.id,
+          startNoEarlierThan: DATED_PLAN.startsOn,
+          // Trimmed, and `null` would be the spelling for a blank one: one
+          // sentence for "nobody has said", `setNotBeforeReason`'s own call.
+          startNoEarlierThanReason: 'waiting on client sign-off',
+        },
+      ]);
+    });
+    // And the card says so, which is the half a patch alone does not prove.
+    await waitFor(() => {
+      expect(dayOnCard()?.textContent).toBe(
+        `not before ${shortIsoDate(DATED_PLAN.startsOn, new Date())}`,
+      );
+    });
+  });
+
+  itDom('clears the day and the words together, in one request', async () => {
+    // The control exists because a finger cannot empty a native date input, and
+    // it sends the table's own null — which takes the reason with it, because
+    // be-01 will not hold words about a date that has gone.
+    const api = await aDatedPhonePlan((rows) => {
+      rows[0].startNoEarlierThan = DATED_PLAN.startsOn;
+      rows[0].startNoEarlierThanReason = 'waiting on client sign-off';
+    });
+    const before = api.patched.length;
+    await openTheDateSheet();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+    await waitFor(() => {
+      expect(api.patched.slice(before)).toEqual([
+        {
+          id: api.rows[0]?.id,
+          startNoEarlierThan: null,
+          startNoEarlierThanReason: null,
+        },
+      ]);
+    });
+    await waitFor(() => {
+      expect(dayOnCard()).toBeNull();
+    });
+  });
+
+  itDom('will not open on a plan with no start date, and says why', async () => {
+    // The table cell's own refusal, word for word. A date that saved and did
+    // nothing would be worse than a field that will not take one: be-01 ignores
+    // the constraint entirely without a day zero to count from.
+    const api = fakeApi();
+    await api.create('p1', { parentId: null });
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+
+    const field = dateFields()[0];
+    expect(field.hasAttribute('disabled')).toBe(true);
+    expect(field.getAttribute('title')).toBe(
+      'Set the project start date first — without one there are no dates to constrain.',
+    );
+
+    fireEvent.click(field);
+    expect(screen.queryByRole('dialog', { name: 'Earliest start for 010' })).toBeNull();
+  });
+
+  itDom('seeds the boxes from the row again on the second open', async () => {
+    // What the `key` on the panel buys. Proof: the `key` removed, this fails on
+    // `expected '1999-01-01' to be '<this year>-06-01'` — the abandoned draft
+    // still in the box, offering to save a date the reader had already backed
+    // out of.
+    await aDatedPhonePlan((rows) => {
+      rows[0].startNoEarlierThan = DATED_PLAN.startsOn;
+    });
+    const sheet = await openTheDateSheet();
+
+    fireEvent.change(
+      screen.getByLabelText('Earliest start for 010', { selector: 'input[type=date]' }),
+      { target: { value: '1999-01-01' } },
+    );
+    fireEvent.keyDown(sheet, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Earliest start for 010' })).toBeNull();
+    });
+
+    await openTheDateSheet();
+    expect(
+      screen.getByLabelText<HTMLInputElement>('Earliest start for 010', {
+        selector: 'input[type=date]',
+      }).value,
+    ).toBe(DATED_PLAN.startsOn);
+  });
 });
