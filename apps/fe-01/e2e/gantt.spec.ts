@@ -1194,9 +1194,10 @@ test.describe('the chart on a phone', () => {
       width: window.innerWidth,
       height: window.innerHeight,
     }));
-    expect(panel.left, 'the chart does not start at the left edge of the screen').toBeLessThanOrEqual(
-      NEARLY,
-    );
+    expect(
+      panel.left,
+      'the chart does not start at the left edge of the screen',
+    ).toBeLessThanOrEqual(NEARLY);
     expect(
       window_.width - panel.right,
       'the chart does not reach the right edge of the screen',
