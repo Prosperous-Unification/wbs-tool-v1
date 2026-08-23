@@ -62,6 +62,29 @@ const DATED_PLAN = {
   endsOn: `${String(new Date().getFullYear())}-06-03`,
 } as const;
 
+/**
+ * Which floor this fake claims held a row's start.
+ *
+ * **A choice, not a computation, and that is why it is written down.** be-01
+ * takes the *latest* of a slice's floors after a real levelling pass, and a
+ * fixture with no scheduler in it cannot. What it can do is stop lying: every
+ * slice this fake built said `projectStart` — the same fixture bug
+ * `wbs-table.test.tsx` carried until chunk 2 fixed it — so its plans claimed no
+ * waits at all, and a card could only ever be shown one of the six sentences.
+ *
+ * The order is the only one two stored fields can honestly support, and each
+ * arm is somebody's own rule rather than this file's: a row with a
+ * start-no-earlier-than is held by it (`notBeforeFloorWords` appends the typed
+ * reason to exactly that floor), a row with a stored dependency waits for that
+ * dependency (be-01's `schedule.ts`), and everything else stands on the
+ * project's first day.
+ */
+const fixtureFloorOf = (row: WorkItemView): 'notBefore' | 'predecessor' | 'projectStart' => {
+  if (row.startNoEarlierThan !== null) return 'notBefore';
+  if (row.dependsOn.length > 0) return 'predecessor';
+  return 'projectStart';
+};
+
 function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): ProjectApi & {
   patched: { id: string; name?: string; notes?: string }[];
   assignments: string[];
@@ -150,8 +173,10 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         workItems: rows.map(view),
         seq: 0,
         scheduleError: null,
-        // Nothing here reads them; they are on the payload, so the fake carries
-        // them. One per row, since these tests make no parents.
+        // One per row, since these tests make no parents. Read since
+        // `wbs-row-waiting-explanation` chunk 4: `startFloorByRow` turns the
+        // `boundBy` below into the sentence a card prints, so the field that
+        // used to be inert payload is now the thing three cases arrange.
         slices: rows.map((row) => ({
           id: `${row.id}::${DEV.id}`,
           workItemId: row.id,
@@ -165,7 +190,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
           latestFinish: 0,
           float: 0,
           critical: false,
-          boundBy: 'projectStart' as const,
+          boundBy: fixtureFloorOf(row),
           resourcePredecessorId: null,
           // One at a time and nothing holding a pool. The cards read neither —
           // a card's parallelism line is the row's stored number — but the
@@ -1389,6 +1414,62 @@ describe('what a card says about the schedule', () => {
       'On the critical path: any delay here moves the whole plan’s finish.',
     );
   });
+
+  /*
+    What is holding a row's start, on the face that has no hover to ask
+    (`wbs-row-waiting-explanation`, criteria 1–2 on a phone).
+
+    Through `<WbsTable>` at 390px and never through `<PlanCards>` alone, which
+    is `card-row-actions-unwired`'s lesson taken as a rule: a card prop the
+    caller does not pass is a feature no reader can reach, and only a case
+    through the call site can tell a wired prop from a stubbed one. These
+    three run the real `startFloorByRow` over the real payload, so what they
+    pin is the seam — that the phone gets the *chart's* sentence — rather than
+    the prose, which `gantt-geometry.test.ts` owns.
+  */
+  const floorOnCard = (rowId = 'w1'): HTMLElement | null =>
+    document.querySelector(`[data-card="${rowId}"] [data-card-floor]`);
+
+  itDom('says a row nothing holds back starts with the project, in words', async () => {
+    // The project-start floor prints like every other floor rather than
+    // printing nothing, and that is the contract the `null` case below is
+    // about: absence means the geometry could not explain the row, and it can
+    // only mean that if "nothing holds this" has words of its own.
+    await aPlan(() => undefined);
+
+    expect(floorOnCard()?.textContent).toBe('Starts with the project');
+  });
+
+  itDom(
+    'says a row waiting on a dependency is waiting, where the table needs a pointer',
+    async () => {
+      // The report this task was filed on, on the phone face: the card already
+      // prints `waits for 010` and a span that starts before that row's `End`,
+      // and until this line existed nothing on it reconciled the two.
+      await aPlan((rows) => {
+        rows[1].dependsOn = [rows[0].id];
+      }, 2);
+
+      expect(floorOnCard('w2')?.textContent).toBe('Waits for a dependency’s first estimated role');
+      // The first row is untouched by its dependant, so one card's sentence is
+      // not the whole plan's.
+      expect(floorOnCard('w1')?.textContent).toBe('Starts with the project');
+    },
+  );
+
+  itDom('carries the whole not-before sentence, the typed reason included', async () => {
+    // `notBeforeFloorWords` appends somebody's own words to the floor rather
+    // than replacing it, and a card that printed the floor alone would drop
+    // the only half a reader cannot get anywhere else on a phone.
+    await aPlan((rows) => {
+      rows[0].startNoEarlierThan = DATED_PLAN.startsOn;
+      rows[0].startNoEarlierThanReason = 'waiting on client sign-off';
+    });
+
+    expect(floorOnCard()?.textContent).toBe(
+      'Held by its start-no-earlier-than date — waiting on client sign-off',
+    );
+  });
 });
 
 describe('the trio behind a phase’s figure, on a card', () => {
@@ -1590,6 +1671,12 @@ function renderCards(
   rowActions?: CardRowActionHandlers,
   /** The rows that answered a filter themselves, which is what the tint marks. */
   matchedIds: readonly string[] = [],
+  /**
+   * What holds each row's start, defaulting to the answer a payload the
+   * geometry could not explain produces — which is also what every row of this
+   * suite's stub tree honestly is, since none of them came from a plan.
+   */
+  startFloor: (row: TreeRow) => string | null = () => null,
 ) {
   return render(
     <PlanCards
@@ -1616,6 +1703,7 @@ function renderCards(
       mentionOptions={() => []}
       assigneeOn={() => null}
       waitsFor={() => []}
+      startFloor={startFloor}
       teamLabel={() => ({ state: 'none' })}
       tagLabel={() => ({ state: 'none' })}
       serviceLabel={() => ({ state: 'none' })}
@@ -1626,6 +1714,43 @@ function renderCards(
     />,
   );
 }
+
+/**
+ * The one thing `<PlanCards>` decides for itself about the start floor: what a
+ * row it was given no sentence for looks like.
+ *
+ * Direct rather than through `<WbsTable>`, unlike the three cases above, and
+ * for this block's stated reason — a plan a running table can arrange always
+ * has a floor for every row, so the absence these pin cannot be reached from
+ * there. It is reachable in production: `startFloorByRow` skips a row whose
+ * payload broke a promise, and that row's card must read exactly as it did
+ * before this feature existed.
+ *
+ * The pair, not the negative alone: a case asserting a selector finds nothing
+ * passes just as well when the selector is a typo, so the one above it proves
+ * the selector by finding something.
+ */
+describe('a card given no sentence for its start', () => {
+  afterEach(cleanup);
+
+  const floors = (): NodeListOf<Element> => document.querySelectorAll('[data-card-floor]');
+
+  itDom('prints the sentence where there is one', () => {
+    renderCards([aTreeRow()], undefined, [], () => 'Starts with the project');
+
+    expect(floors()).toHaveLength(1);
+    expect(floors()[0].textContent).toBe('Starts with the project');
+  });
+
+  itDom('prints no line at all for a row the geometry could not explain', () => {
+    // Not an empty paragraph and not the word `null`: the card says what it
+    // said before this existed, which is the whole of `startFloorByRow`'s
+    // skip being safe to make.
+    renderCards([aTreeRow()], undefined, [], () => null);
+
+    expect(floors()).toHaveLength(0);
+  });
+});
 
 const doNothingActions = (): CardRowActionHandlers => ({
   duplicate: () => undefined,

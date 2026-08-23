@@ -115,6 +115,33 @@ export interface PlanCardsProps {
   /** The numbers of the work items this one waits for. */
   waitsFor: (row: TreeRow) => string[];
   /**
+   * What is holding this row's start where it is — the chart's own sentence,
+   * or `null` for a row the geometry cannot explain.
+   *
+   * **The one prop on this component that a `title` cannot serve.** The table
+   * says this in the `Start` cell's `title` (`wbs-table.tsx`, task
+   * `wbs-row-waiting-explanation`), and a phone has no pointer to rest on one:
+   * at 390px nothing in the document matched `waiting|blocked|bound|because|
+   * queued` at all before this line existed (`wbs-mobile-sweep`, 2026-08-22).
+   * So the card prints the sentence as text, where the table hides it in an
+   * attribute, and that difference is the feature rather than a divergence.
+   *
+   * The sentence and not the `boundBy` code, for
+   * {@link PlanCardsProps.nonOwner}'s reason: `startFloorByRow` is
+   * `gantt-geometry.ts`'s own words for all six floors, so the bar's hover, the
+   * row's `title` and this line cannot tell one reader three things about one
+   * wait.
+   *
+   * **`null` means one thing only.** Not "this row waits for nothing" — that
+   * row says `Starts with the project`, in words, like every other floor. It
+   * means the payload broke a promise this sentence is built from, the row
+   * `startFloorByRow` skipped, and the card then says exactly what it said
+   * before this existed. A line suppressed for tidiness on the project-start
+   * floor would collapse those two absences into one, and a reader could no
+   * longer tell "nothing holds this" from "we cannot say".
+   */
+  startFloor: (row: TreeRow) => string | null;
+  /**
    * Whose work this is: the row's own label, the one it inherits, or neither.
    *
    * The **effective** team and not the stored label, and it is the same
@@ -449,6 +476,7 @@ export function PlanCards({
   mentionOptions,
   assigneeOn,
   waitsFor,
+  startFloor,
   teamLabel,
   tagLabel,
   serviceLabel,
@@ -479,6 +507,7 @@ export function PlanCards({
     >
       {rows.map(({ row, depth, expandable, expanded, toggleBranch, matched }) => {
         const waits = waitsFor(row);
+        const floor = startFloor(row);
         const team = teamLabel(row);
         const tags = tagLabel(row);
         const delivers = serviceLabel(row);
@@ -861,6 +890,40 @@ export function PlanCards({
                 </span>
               )}
             </p>
+            {/*
+              What is holding this row's start, in the chart's own words
+              (`wbs-row-waiting-explanation`, criteria 1–2 on the card face).
+
+              **The question this answers is the one the dates provoke.** A row
+              starting four days before the `End` of the thing it waits for is
+              the report this task was filed on, and the two facts that make it
+              read as a bug — the span above and the `waits for 010, 030` chip
+              beside it — are already on this card. This is the sentence that
+              reconciles them, so it goes directly under them and above the
+              ownership sentences, which are about whose work this is rather
+              than when it happens.
+
+              **Its own line, not a chip in the paragraph above.** Everything in
+              that flex-wrap row is three or four words; this is a sentence, and
+              a sentence dropped among chips reads as several of them.
+
+              Printed rather than hidden in a `title`, which is
+              `phone-mismatch-markers`' decision one block down, taken again for
+              the same reason: a phone has no pointer, and the sentence *is* the
+              signal. The table can afford the attribute because a pointer can
+              reach it; here the words are simply on the card.
+
+              **No `title` on this element, deliberately** — the sentence is
+              already whole. The `Start` cell's `title` joins the day and the
+              sentence with ` — `, a join `e2e/gantt.spec.ts:218` now has to
+              `split` back apart; this line carries one fact and gives nothing
+              a second parse to get wrong.
+            */}
+            {floor !== null && (
+              <p data-card-floor className="text-muted-foreground m-0 text-sm">
+                {floor}
+              </p>
+            )}
             {/*
               The two mismatch signals, **as sentences and not as a tooltip**
               (`phone-mismatch-markers`, 2026-08-22).

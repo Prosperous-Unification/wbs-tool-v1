@@ -9724,6 +9724,16 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           mentionOptions={mentionOptions}
           assigneeOn={assigneeOn}
           waitsFor={waitsFor}
+          // The `Start` cell's own sentence, off the one map, handed to the
+          // face that has no hover to give it. `startFloor.current` is filled
+          // two hundred lines above this JSX, from the same `ganttPlan` the
+          // chart is drawn from — so a plan read on a phone and on a laptop
+          // cannot be told two different things about one wait.
+          //
+          // `?? null` and never the empty string: a row this map has no entry
+          // for is a row the geometry refused to explain, and the card's
+          // contract is that `null` is the only way to say so.
+          startFloor={(row) => startFloor.current.get(row.id) ?? null}
           teamLabel={effectiveTeamLabelOf}
           tagLabel={effectiveTagLabelOf}
           serviceLabel={effectiveServiceLabelOf}
