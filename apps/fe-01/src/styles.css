@@ -1155,6 +1155,14 @@
  * `e2e/mobile.spec.ts` pins both ends — 390 measures the floor, and 768 measures
  * that the floor is *not* there.
  *
+ * **499.98px is `TABLE_NEEDS_HEIGHT - 0.02`**, and the comma is an `or`. The
+ * same invariant, in the dimension `plan-renderer.ts` grew on 2026-08-23: a
+ * landscape phone is 844 CSS px wide, so a width-only query left the one
+ * viewport this app draws cards on with a mouse's sizing — 44px targets on a
+ * screen 390px tall being the whole reason cards are drawn there. The two rules
+ * change hands together or neither of them means anything; `the same phone,
+ * turned sideways` in `mobile.spec.ts` measures this end.
+ *
  * **Unlayered, and that is the load-bearing part.** `@layer theme, base,
  * components, utilities` puts utilities last, so `min-h-6` on a facet's label
  * would beat this rule from the components layer no matter how specific it is —
@@ -1169,7 +1177,7 @@
  * control inside it. `mobile.spec.ts` proves that rather than assuming it — it
  * taps the top-left corner of a row and watches the box change.
  */
-@media (max-width: 767.98px) {
+@media (max-width: 767.98px), (max-height: 499.98px) {
   [data-modal-surface] button,
   [data-modal-surface] summary,
   [data-modal-surface] select,

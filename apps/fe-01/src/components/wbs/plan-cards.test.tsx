@@ -25,8 +25,12 @@ const itDom = hasDom ? it : it.skip;
 
 /** jsdom's own default, and the width every other test in this app runs at. */
 const LAPTOP = 1024;
+/** jsdom's own default height, which clears `TABLE_NEEDS_HEIGHT` on its own. */
+const LAPTOP_TALL = 768;
 /** An iPhone 14's CSS width, which is what `e2e/mobile.spec.ts` measures at. */
 const PHONE = 390;
+/** The same phone's CSS height, and sideways the two swap places. */
+const PHONE_TALL = 844;
 
 const DEV: RoleView = { id: 'role-dev', name: 'Dev' };
 const QA: RoleView = { id: 'role-qa', name: 'QA' };
@@ -345,15 +349,23 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
   };
 }
 
-/** Sets the width the next render will read, before anything is on screen. */
-function widthIs(width: number): void {
-  (window as unknown as { innerWidth: number }).innerWidth = width;
+/**
+ * Sets the size the next render will read, before anything is on screen.
+ *
+ * The height defaults to jsdom's own, which is the size every case that says
+ * nothing about height has always run at — and clears `TABLE_NEEDS_HEIGHT`, so
+ * a width-only caller still asks the width-only question.
+ */
+function widthIs(width: number, height = LAPTOP_TALL): void {
+  const w = window as unknown as { innerWidth: number; innerHeight: number };
+  w.innerWidth = width;
+  w.innerHeight = height;
 }
 
-/** Turns the phone: the width, then the event the page hears about it through. */
-function resizeTo(width: number): void {
+/** Turns the phone: the size, then the event the page hears about it through. */
+function resizeTo(width: number, height = LAPTOP_TALL): void {
   act(() => {
-    widthIs(width);
+    widthIs(width, height);
     window.dispatchEvent(new Event('resize'));
   });
 }
@@ -599,6 +611,42 @@ describe('the plan on a phone', () => {
     expect(screen.getByLabelText<HTMLTextAreaElement>('Name of 010').value).toBe(
       'Strip the wiring',
     );
+  });
+
+  /**
+   * The rotation, which is the same contract as the two above and a different
+   * event: turning a phone does not cross the *width* breakpoint at all — it
+   * takes the window from 390 to 844, which is wider — so until
+   * `TABLE_NEEDS_HEIGHT` existed this was the one resize that put the 1471px
+   * table on a 390px-tall screen and threw the card's boxes away with it.
+   *
+   * The cells are asserted by `data-cell` rather than by what is on screen,
+   * because that is the key `heldRefusals` is stored under: a rotation that
+   * kept the draft but re-spelled the cell would pass a value check and still
+   * be the fault `renders no cell the table has not got one for` exists for.
+   */
+  itDom('keeps a refused draft, and its cells, when the phone is turned', async () => {
+    const api = fakeApi({ refusePatch: true });
+    widthIs(PHONE, PHONE_TALL);
+    render(<WbsTable projectId="p1" api={api} />);
+    await addAWorkItem();
+
+    const inPortrait = screen.getByLabelText<HTMLTextAreaElement>('Name of 010');
+    fireEvent.change(inPortrait, { target: { value: 'Strip the wiring' } });
+    fireEvent.blur(inPortrait);
+    await waitFor(() => {
+      expect(refusedDraftFor('w1::name')).toBe('Strip the wiring');
+    });
+    const cellsInPortrait = cellsOnScreen();
+
+    resizeTo(PHONE_TALL, PHONE);
+
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.getByRole('article', { name: 'Work item 010' })).toBeInTheDocument();
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Name of 010').value).toBe(
+      'Strip the wiring',
+    );
+    expect(cellsOnScreen()).toEqual(cellsInPortrait);
   });
 
   itDom('sends a name typed on a card', async () => {

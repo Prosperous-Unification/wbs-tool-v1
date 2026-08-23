@@ -27,6 +27,23 @@ test.use({ viewport: { width: 390, height: 844 } });
 /** The name every card test types, long enough to wrap on a 390px screen. */
 const A_LONG_NAME = 'Survey the existing warehouse racking and photograph every aisle end';
 
+/**
+ * `plan-renderer.ts`'s rule, restated because a Playwright process cannot
+ * import a module that calls `useSyncExternalStore`.
+ *
+ * Restated and not approximated: the two numbers are the two exported there,
+ * and the case below that turns the phone sideways is what keeps this copy
+ * honest — get either number wrong here and the fixture builds no rows, which
+ * fails loudly rather than quietly measuring the wrong renderer.
+ */
+const CARDS_BELOW = 768;
+const TABLE_NEEDS_HEIGHT = 500;
+
+function drawsCards(page: Page): boolean {
+  const viewport = page.viewportSize() ?? { width: 0, height: 0 };
+  return viewport.width < CARDS_BELOW || viewport.height < TABLE_NEEDS_HEIGHT;
+}
+
 /** Opens the toolbar sheet, which is the only way to any toolbar control here. */
 async function openTheSheet(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Plan actions' }).click();
@@ -54,9 +71,10 @@ async function seedPlan(page: Page, account: string): Promise<void> {
   // The desktop case at the bottom of this file shares this fixture and asks
   // one thing of it: a dialog, whose density is a fact about the dialog and not
   // about what is in the plan behind it. It gets no rows because the control
-  // that adds one here is on a sheet that does not exist at that width —
-  // `rendererForWidth` draws the table from 768 up.
-  if ((page.viewportSize()?.width ?? 0) >= 768) {
+  // that adds one here is on a sheet that does not exist at that size —
+  // `rendererForViewport` draws the table from 768 wide up, and only where the
+  // viewport is at least `TABLE_NEEDS_HEIGHT` tall.
+  if (!drawsCards(page)) {
     await expect(page.getByRole('button', { name: 'Teams' })).toBeVisible();
     return;
   }
@@ -435,6 +453,48 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await expect(page.getByLabel('Name of 020')).toHaveValue('Their new name');
     await expect(mine).toBeFocused();
     await expect(mine).toHaveValue('Strip the wir');
+  });
+});
+
+/**
+ * The same phone, turned sideways — 390×844 becomes 844×390.
+ *
+ * A rotation is the one resize that makes the window **wider**, so a renderer
+ * that only read `innerWidth` answered it by clearing 768 and drawing the
+ * 1471px table on a screen 390px tall: 689px of horizontal scroll and 243
+ * controls under 44px, measured on dev at `9b62ef1` by `wbs-mobile-sweep`.
+ *
+ * Here rather than in `plan-renderer.test.ts` because jsdom lays nothing out.
+ * The unit spec can prove the rule returns `'cards'`; only a browser can prove
+ * that what is then on screen does not scroll sideways and is not sized for a
+ * mouse, which are the two things the reader actually loses.
+ */
+test.describe('the same phone, turned sideways', () => {
+  test.use({ viewport: { width: 844, height: 390 } });
+
+  test('is still cards, at a finger’s size, and still does not scroll sideways', async ({
+    page,
+  }) => {
+    await expect(page.locator('[data-plan-cards]')).toBeVisible();
+    await expect(page.locator('table')).toHaveCount(0);
+
+    const root = await page.evaluate(() => {
+      const element = document.scrollingElement ?? document.documentElement;
+      return { scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+    });
+    expect(root.scrollWidth, 'the page scrolls sideways').toBeLessThanOrEqual(root.clientWidth);
+
+    // The 44px floor is a media query and therefore has its own copy of the
+    // rule (`styles.css`). A renderer fixed without it is a landscape phone
+    // holding cards it cannot hit: the sheet is where the sweep counted the
+    // 13px tick rows, so it is the surface that answers.
+    await openTheSheet(page);
+    await page.locator('[data-modal-surface] [data-facets] summary').click();
+    await expect(page.locator('[data-facet-panel]')).toBeVisible();
+    expect(
+      await shortTargetsIn(page, '[data-modal-surface]'),
+      'on the Plan actions sheet, sideways',
+    ).toEqual([]);
   });
 });
 
