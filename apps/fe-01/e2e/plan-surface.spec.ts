@@ -106,6 +106,7 @@ function measureSurface(page: Page): Promise<{
   gap: number;
   reserved: number;
   belowChart: number;
+  underTheScrollBox: number;
   frameBottom: number;
   chartTop: number;
   windowHeight: number;
@@ -117,11 +118,25 @@ function measureSurface(page: Page): Promise<{
     const panel = document.querySelector('[data-gantt-panel]');
     if (frame === null) throw new Error('the scrolling frame is not on the page');
     if (panel === null) throw new Error('the chart is not on the page');
+    // The chart is two boxes, and has been since the label column learned to
+    // collapse: the scroll box, and the control strip below it. The strip is a
+    // **sibling** of `[data-gantt-panel]` rather than a descendant, because a
+    // control inside a box that scrolls 2000px sideways is a control that goes
+    // with it (`gantt-panel.tsx`) — so the bottom of the chart is the strip's
+    // bottom, and measuring the panel's would report the strip's own height as
+    // dead space at the bottom of the window.
+    //
+    // Nullable rather than required: a plan whose dependencies run in a circle
+    // draws its sentence under this same `[data-gantt-panel]` with no axis, no
+    // rows and no controls at all, and the panel's own bottom is the honest
+    // answer for that shape.
+    const controls = document.querySelector('[data-gantt-controls]');
     const rows = [...frame.querySelectorAll('tbody tr[data-row-id]')];
     const last = rows.at(-1);
     if (last === undefined) throw new Error('the plan has no rows to measure');
     const frameBox = frame.getBoundingClientRect();
     const panelBox = panel.getBoundingClientRect();
+    const controlsBox = controls === null ? null : controls.getBoundingClientRect();
     const frameStyle = getComputedStyle(frame);
     const room = Number.parseFloat(frameStyle.paddingBottom);
     const floor = Number.parseFloat(frameStyle.minHeight);
@@ -135,7 +150,12 @@ function measureSurface(page: Page): Promise<{
       // it: the picker room under the last row, and however much of the frame's
       // own floor a short plan does not fill.
       reserved: room + Math.max(0, floor - (table.getBoundingClientRect().height + room)),
-      belowChart: document.documentElement.clientHeight - panelBox.bottom,
+      belowChart: document.documentElement.clientHeight - (controlsBox ?? panelBox).bottom,
+      // How far the strip stands off the box it belongs to. Reported so that
+      // "the surface reaches the bottom of the window" cannot be satisfied by a
+      // strip that floated away from its chart and landed there on its own —
+      // the substitution above is only sound while the two are adjacent.
+      underTheScrollBox: (controlsBox?.top ?? panelBox.bottom) - panelBox.bottom,
       frameBottom: frameBox.bottom,
       chartTop: panelBox.top,
       windowHeight: document.documentElement.clientHeight,
@@ -277,6 +297,16 @@ test.describe('the plan and its chart as one surface', () => {
       measured.belowChart,
       `the column stops ${String(Math.round(measured.belowChart))}px short of the window`,
     ).toBeLessThanOrEqual(16);
+    // And the bottom of the column is the chart's own bottom, not a strip that
+    // parted company with it. Both halves are needed: the line above says the
+    // column reaches the window, this one says the thing that reaches it is
+    // still attached to the chart.
+    expect(
+      measured.underTheScrollBox,
+      `the control strip stands ${String(
+        Math.round(measured.underTheScrollBox),
+      )}px off the chart it belongs to`,
+    ).toBeLessThanOrEqual(NEARLY);
     // The two faces are adjacent, which is the other half of one surface: the
     // frame ends exactly where the chart begins.
     expect(measured.chartTop - measured.frameBottom).toBeLessThanOrEqual(NEARLY);
