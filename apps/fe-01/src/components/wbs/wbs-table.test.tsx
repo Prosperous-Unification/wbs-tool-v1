@@ -8,7 +8,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   AssumedAssigneeFlipView,
@@ -1791,29 +1791,48 @@ describe('the plan on a calendar', () => {
     // and the assertion below says why.
     await api.setEstimate(paint.id, DEV.id, { optimistic: 2, realistic: 2, pessimistic: 2 });
     await api.setStartDate('p1', '2026-09-01');
-    render(<WbsTable projectId="p1" api={api} />);
-    await screen.findByLabelText('Name of 020');
-
-    // The whole title through the real call site, day and sentence, spelled out
-    // dash and all for the same reason the calendar case above is: this cell now
-    // joins ` — ` twice, and `e2e/gantt.spec.ts:218` splits on it.
+    // The clock is pinned for this case alone, and it is the assertion below
+    // that needs it: `<WbsTable>` hands `startFloorByRow` a `today` of
+    // `new Date()`, and `shortIsoDate` drops a date's year only while it
+    // matches the reader's own — so `finishes 7 Sep` becomes `finishes 7 Sep
+    // 2026` on the first run of 2027 and this case fails on a calendar page
+    // turning rather than on anything in the code. The day is
+    // `gantt-geometry.test.ts`'s `calendarOf()`'s, so the two specs pin one
+    // reader's today and not two.
     //
-    // `finishes 7 Sep` is the part that proves something, and the leading
-    // `2026-09-01` is not: this fake gives EVERY row `dates: { startsOn:
-    // startDate }` (see `tree()`), so the day in front is a constant and would
-    // read `2026-09-01` whatever the row waited for. The day inside the sentence
-    // is computed here and nowhere else — five working days from a **Tuesday**
-    // start is Monday the 7th, not the 5th — and `<WbsTable>` is the only thing
-    // that hands `startFloorByRow` a calendar, so a stubbed or forgotten second
-    // argument is invisible to every unit test of the function itself.
-    expect(rowFor('020').querySelector('[data-start]')?.getAttribute('title')).toBe(
-      '2026-09-01 — Waits for Strip (Dev) — finishes 7 Sep',
-    );
-    // Not the successor's own sentence on the row it waits for: the two cells
-    // answer for themselves, which a single shared string would hide.
-    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
-      '2026-09-01 — Starts with the project',
-    );
+    // `shouldAdvanceTime` because everything below it is async RTL: a frozen
+    // clock stops `findBy*`'s polling and the render never resolves. Restored
+    // in `finally` and not after the expectations, so a red case cannot leave
+    // a mocked clock to the ~500 that follow it.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-09-15T00:00:00Z'));
+    try {
+      render(<WbsTable projectId="p1" api={api} />);
+      await screen.findByLabelText('Name of 020');
+
+      // The whole title through the real call site, day and sentence, spelled out
+      // dash and all for the same reason the calendar case above is: this cell now
+      // joins ` — ` twice, and `e2e/gantt.spec.ts:218` splits on it.
+      //
+      // `finishes 7 Sep` is the part that proves something, and the leading
+      // `2026-09-01` is not: this fake gives EVERY row `dates: { startsOn:
+      // startDate }` (see `tree()`), so the day in front is a constant and would
+      // read `2026-09-01` whatever the row waited for. The day inside the sentence
+      // is computed here and nowhere else — five working days from a **Tuesday**
+      // start is Monday the 7th, not the 5th — and `<WbsTable>` is the only thing
+      // that hands `startFloorByRow` a calendar, so a stubbed or forgotten second
+      // argument is invisible to every unit test of the function itself.
+      expect(rowFor('020').querySelector('[data-start]')?.getAttribute('title')).toBe(
+        '2026-09-01 — Waits for Strip (Dev) — finishes 7 Sep',
+      );
+      // Not the successor's own sentence on the row it waits for: the two cells
+      // answer for themselves, which a single shared string would hide.
+      expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
+        '2026-09-01 — Starts with the project',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   itDom('will not take an earliest start while the plan has no start date', async () => {
