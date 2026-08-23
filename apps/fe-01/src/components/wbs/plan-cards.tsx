@@ -523,7 +523,16 @@ function CardTeamField({
           // alone names the value, not what tapping does.
           aria-label={`Service or team for ${row.number}`}
           title={inheritedNote}
-          className="text-muted-foreground max-w-full min-w-0 text-left underline decoration-dotted underline-offset-2"
+          // `TAP`, like every other control this file draws. It was missing
+          // when the sheet landed and the card measured **21px** in CI — and
+          // the reason it was missable is worth keeping: the 44px floor in
+          // `styles.css` is scoped to `[data-modal-surface]` and
+          // `[data-account-menu]`, so a card gets none of it and every control
+          // one grows has to carry its own height. `inline-flex items-center`
+          // beside it because a bare `min-height` on a button leaves the word
+          // at the top of the box it just grew (`styles.css` makes the same
+          // repair for the ✕ and the palette switch).
+          className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
         >
           {team.state === 'none' ? (
             // No `data-card-team`: this row claims no team, and the attribute
@@ -928,7 +937,14 @@ export function PlanCards({
               into: when it happens, what it waits for, and whose it is. Read
               off the same fields the table's columns print.
             */}
-            <p className="text-muted-foreground flex flex-wrap gap-x-3 text-sm">
+            {/*
+              `items-center` because one child of this row is now 44px tall and
+              the rest are ink: a flex line stretches its items by default, so
+              without it the spans beside the team become 44px boxes with their
+              word at the top and the meta line reads as three different
+              baselines.
+            */}
+            <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 text-sm">
               {/*
                 The days in full behind the short ones, the same bargain the
                 table's Start and End cells make — a phone has no hover, and
