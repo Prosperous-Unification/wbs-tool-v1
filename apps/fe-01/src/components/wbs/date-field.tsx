@@ -11,9 +11,10 @@ export interface DateFieldProps extends PassedThrough {
   /**
    * Sends the day in the box, as `YYYY-MM-DD` or `''` for "no day".
    *
-   * Called on the way out of the field and on Enter, and only when what is in
-   * the box differs from what was last sent or last read from the server. A
-   * focus and a blur with nothing typed is not an edit — the same rule
+   * Called on the way out of the field, on Enter, and the moment a day arrives
+   * with no key behind it — a pick, which is a finished gesture. Only ever when
+   * what is in the box differs from what was last sent or last read from the
+   * server. A focus and a blur with nothing typed is not an edit — the same rule
    * {@link import('./cell-input').CellInput}'s `commit` keeps, for the same
    * reason: sending anyway writes the value that was on screen when the focus
    * arrived over whatever has happened since.
@@ -24,8 +25,11 @@ export interface DateFieldProps extends PassedThrough {
    *
    * `'commit'` for Enter and for leaving the field: the day in the box has been
    * sent, if it differed from the one already agreed. `'cancel'` for Escape:
-   * nothing was sent, and nothing will be — Escape puts the box back to the day
-   * the server agreed, so the blur it causes has nothing left to send.
+   * the box is back to the day it held when the focus arrived, and so is the
+   * server — nothing was abandoned in between. For a typed edit that means
+   * nothing was ever sent; for a **picked** one it means the pick was sent and
+   * then taken back, since a pick does not wait for the box to be left. Either
+   * way the blur Escape causes has nothing left to send.
    *
    * Optional because the toolbar's project start date has no editor lifecycle
    * to report: it is always on screen, and leaving it is not closing it. The
