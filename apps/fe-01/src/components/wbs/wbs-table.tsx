@@ -3815,6 +3815,55 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   );
 
   /**
+   * `Add work item` clicks waiting their turn, and the drain that spends them.
+   *
+   * The reason this exists rather than `disabled={busy}`: **a planner clicks
+   * faster than the round trip and every click is a different row.** Measured
+   * on dev — 6 clicks at 350ms produced 3 rows, 4 at 1500ms produced 4 — and
+   * the losses were silent, because a click on a disabled button is not
+   * refused, it simply never happens. The rest of the toolbar is right to
+   * refuse: `Freeze all` twice is the same command asked twice, and holding it
+   * back costs nothing. This one is the exception the convention needs.
+   *
+   * Refs rather than state, for the reason {@link run}'s neighbours are: two
+   * clicks in one tick would both read the count from before either.
+   *
+   * **`afterId` is chained, never re-read.** The first click in a burst reads
+   * the tree, which is current because nothing is in flight yet; every click
+   * after it goes after the row the click before it made. That is both more
+   * correct and cheaper than re-reading `siblingsOf` per iteration — the
+   * refetch's state has not necessarily rendered by the time the next turn of
+   * this loop runs, so a re-read could hand be-01 the same `afterId` twice and
+   * stack the burst in reverse.
+   */
+  const queuedAdds = useRef(0);
+  const drainingAdds = useRef(false);
+  const addWorkItem = useCallback(() => {
+    queuedAdds.current += 1;
+    if (drainingAdds.current) return;
+    drainingAdds.current = true;
+    void (async () => {
+      try {
+        let afterId = siblingsOf(null).at(-1)?.id ?? null;
+        while (queuedAdds.current > 0) {
+          queuedAdds.current -= 1;
+          const outcome = await run(async () => {
+            const created = await api.create(projectId, { parentId: null, afterId, name: '' });
+            afterId = created.id;
+            focusIntent.current.wants({ rowId: created.id, columnId: 'name' });
+          });
+          // A refused create ends the burst. The rows after it would be built
+          // on an `afterId` that was never written, and be-01 has already said
+          // why it said no — six more of the same toast is not more information.
+          if (outcome === 'refused') queuedAdds.current = 0;
+        }
+      } finally {
+        drainingAdds.current = false;
+      }
+    })();
+  }, [api, projectId, run, siblingsOf]);
+
+  /**
    * Every fact about this plan that a column's width is allowed to depend on.
    *
    * `flat` rather than the rows on screen, and that is the whole point of the
@@ -9054,17 +9103,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         // One of the three controls that aims the caret itself — the new
         // row's name, through `focusIntent` below. See {@link TAKES_THE_FOCUS}.
         {...{ [TAKES_THE_FOCUS]: '' }}
-        onClick={() =>
-          void run(async () => {
-            const created = await api.create(projectId, {
-              parentId: null,
-              afterId: siblingsOf(null).at(-1)?.id ?? null,
-              name: '',
-            });
-            focusIntent.current.wants({ rowId: created.id, columnId: 'name' });
-          })
-        }
-        disabled={busy}
+        onClick={addWorkItem}
+        // The one write in this toolbar that is **not** `disabled={busy}`, and
+        // {@link addWorkItem} is where the argument is: each click is its own
+        // row, so refusing one loses work rather than deduplicating a command.
+        // The affordance stays — the wait is still shown, it just no longer
+        // eats what arrives during it.
         {...busyAffordance(busy)}
       >
         Add work item
