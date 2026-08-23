@@ -2,7 +2,11 @@ import { createLogger } from '@wbs/observability';
 import { observabilityPlugin } from '@wbs/observability/server';
 import { Elysia } from 'elysia';
 
-import { authController } from './controller/auth.controller';
+import {
+  authController,
+  hasInvalidCookieOrigin,
+  type OidcRouteOptions,
+} from './controller/auth.controller';
 import { capacityController } from './controller/capacity.controller';
 import { directoryController } from './controller/directory.controller';
 import { historyController } from './controller/history.controller';
@@ -32,6 +36,7 @@ export interface AppOptions {
    * absent, answering 404 — indistinguishable from a routing fault at the edge.
    */
   auth: AuthService;
+  oidc?: OidcRouteOptions;
   /**
    * Required for the same reason as `auth`: an absent project service would
    * answer 404 on every project route, which reads as an edge misconfiguration
@@ -121,8 +126,15 @@ export function buildApp(opts: AppOptions) {
       // this app by `openapi-document.test.ts`, so a route that goes missing
       // here is a red rather than a silent omission.
       .use(openApiPlugin())
+      .onBeforeHandle(({ request, set }) => {
+        if (opts.oidc !== undefined && hasInvalidCookieOrigin(request, opts.oidc.appOrigin)) {
+          set.status = 403;
+          return { error: 'invalid_origin' };
+        }
+        return undefined;
+      })
       .use(smokeController)
-      .use(authController(opts.auth))
+      .use(authController(opts.auth, opts.oidc))
       .use(projectController(opts.auth, opts.projects))
       .use(roleController(opts.auth, opts.roles))
       .use(workItemController(opts.auth, opts.workItems))
