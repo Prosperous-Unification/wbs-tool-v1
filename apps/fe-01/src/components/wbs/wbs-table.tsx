@@ -9787,6 +9787,19 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // contract is that `null` is the only way to say so.
           startFloor={(row) => startFloor.current.get(row.id) ?? null}
           teamLabel={effectiveTeamLabelOf}
+          // The Service/team cell's own directory and its own two writers,
+          // handed to the other face — `rowActions`' bargain, one dimension
+          // over. Not card-shaped copies: `setTeamOf` is what makes the patch
+          // and `createTeamFor` is what makes a team idempotently by name, so a
+          // team chosen on a phone reaches be-01 by the path a team chosen on a
+          // laptop reaches it by.
+          teams={teams}
+          setTeam={(row, teamId) => {
+            setTeamOf(row.id, teamId);
+          }}
+          createTeam={(row, name) => {
+            createTeamFor(row.id, name);
+          }}
           tagLabel={effectiveTagLabelOf}
           serviceLabel={effectiveServiceLabelOf}
           // The same sentence the Services cell's `△` carries, handed to the

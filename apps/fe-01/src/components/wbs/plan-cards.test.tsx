@@ -263,13 +263,23 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       });
       return Promise.resolve({ id });
     },
-    patch: (id: string, patch: { name?: string; notes?: string }) => {
+    patch: (
+      id: string,
+      patch: { name?: string; notes?: string; serviceTeamId?: string | null },
+    ) => {
       if (options.refusePatch === true) return Promise.reject(new Error('forbidden'));
       patched.push({ id, ...patch });
       const row = rows.find((each) => each.id === id);
       if (row === undefined) return Promise.reject(new Error('not_found'));
       if (patch.name !== undefined) row.name = patch.name;
       if (patch.notes !== undefined) row.notes = patch.notes;
+      // `serviceTeamId` is the stored label and `teamIds` is what the row is
+      // read through — be-01 keeps both in step, so a fake that moved only one
+      // would let a card pass a test the server would fail.
+      if (patch.serviceTeamId !== undefined) {
+        row.serviceTeamId = patch.serviceTeamId;
+        row.teamIds = patch.serviceTeamId === null ? [] : [patch.serviceTeamId];
+      }
       return Promise.resolve();
     },
     setEstimate: (id: string, roleId: string, days: Days) => {
@@ -302,7 +312,16 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     setStartDate: () => notImplemented('setStartDate'),
     renameRole: () => notImplemented('renameRole'),
     removeRole: () => notImplemented('removeRole'),
-    addTeam: () => notImplemented('addTeam'),
+    // Idempotent by name, because be-01 is: two browsers typing `Platform`
+    // at once end up on one team, and a fake that made two would hide the
+    // whole reason `createTeamFor` goes through the server at all.
+    addTeam: (name: string) => {
+      const existing = teams.find((team) => team.name.toLowerCase() === name.toLowerCase());
+      if (existing !== undefined) return Promise.resolve({ ...existing });
+      const team = { id: `team-${name.toLowerCase()}`, name };
+      teams.push(team);
+      return Promise.resolve({ ...team });
+    },
     addPerson: () => notImplemented('addPerson'),
     move: () => notImplemented('move'),
     /**
@@ -1986,4 +2005,103 @@ describe('a filter on a phone', () => {
 
     expect(screen.getByText('1 of 2 rows')).toBeInTheDocument();
   });
+});
+
+describe('setting a card’s team', () => {
+  /**
+   * A plan on a phone, with the fake kept — unlike `aPlan` above, which hands
+   * its api to `arrange` and then drops it. What a tap *sent* is the whole
+   * subject here, and `patched` is where the fake records it.
+   */
+  async function aPhonePlan(
+    arrange: (rows: WorkItemView[], teams: TeamView[]) => void,
+    howMany = 1,
+  ): Promise<ReturnType<typeof fakeApi>> {
+    const api = fakeApi();
+    for (let at = 0; at < howMany; at += 1) await api.create('p1', { parentId: null });
+    arrange(api.rows, api.teams);
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  /** The control the printed team now sits inside, per card. */
+  const teamFields = (): HTMLElement[] => [
+    ...document.querySelectorAll<HTMLElement>('[data-card-team-field]'),
+  ];
+
+  itDom('opens a sheet over the same cell the table’s Team box edits', async () => {
+    // The `data-cell` is the contract `plan-cards.tsx` opens with — the box a
+    // card mounts is the box the table mounted — and it is what makes a draft
+    // survive a rotation. A sheet whose picker carried no cell id would be a
+    // second box over the same field, which is the divergence the cards were
+    // written not to have.
+    const api = await aPhonePlan((_rows, teams) => {
+      teams.push({ id: 't1', name: 'Billing' });
+    });
+
+    fireEvent.click(teamFields()[0]);
+
+    const box = await screen.findByRole('combobox', { name: 'Service or team for 010' });
+    expect(box.getAttribute('data-cell')).toBe(`${api.rows[0]?.id ?? ''}::team`);
+  });
+
+  itDom(
+    'labels the row with the team the first line offers, not the one typed inside',
+    async () => {
+      // `team-picker-substitutes`' own case, on the face that could not reach a
+      // picker at all until now: `QA` typed in full must not bind
+      // `claire qa billing`. It passes here because the sheet mounts the *same*
+      // `CreatablePicker` — which is the argument for not drawing a phone-shaped
+      // list of its own, stated as a test rather than in a comment.
+      const api = await aPhonePlan((_rows, teams) => {
+        teams.push({ id: 't1', name: 'claire qa billing' }, { id: 't2', name: 'QA' });
+      });
+
+      fireEvent.click(teamFields()[0]);
+      const box = await screen.findByRole('combobox', { name: 'Service or team for 010' });
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: 'QA' } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+
+      await waitFor(() => {
+        expect(api.patched.at(-1)).toEqual({ id: api.rows[0]?.id, serviceTeamId: 't2' });
+      });
+      // And the card now says so, which is the half a patch alone does not prove.
+      await waitFor(() => {
+        expect(document.querySelector('[data-card-team]')?.textContent).toBe('QA');
+      });
+    },
+  );
+
+  itDom(
+    'is reachable on a row that carries no team, and makes one from the name typed',
+    async () => {
+      // The departure from the printed chip, and the reason for it: a control
+      // drawn only where a value already exists cannot set the first one. Every
+      // plan starts as this row.
+      const api = await aPhonePlan(() => {
+        // Nothing arranged: the plan every project starts as.
+      });
+
+      // Still no *claim* about a team — `data-card-team` is the claim, and this
+      // row makes none. The control around it is what is new.
+      expect(document.querySelector('[data-card-team]')).toBeNull();
+      expect(teamFields().length).toBe(1);
+
+      fireEvent.click(teamFields()[0]);
+      const box = await screen.findByRole('combobox', { name: 'Service or team for 010' });
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: 'Platform' } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+
+      await waitFor(() => {
+        expect(api.teams.map((team) => team.name)).toEqual(['Platform']);
+      });
+      await waitFor(() => {
+        expect(document.querySelector('[data-card-team]')?.textContent).toBe('Platform');
+      });
+    },
+  );
 });

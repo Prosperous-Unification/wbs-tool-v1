@@ -162,6 +162,22 @@ export interface CreatablePickerProps {
    */
   title?: string;
   /**
+   * The cell this box edits, on a surface that is **not** a keyboard grid.
+   *
+   * Beside {@link gridCell} rather than inside it, and the pair below is why:
+   * `gridCell` deliberately refuses to hand out the attribute without the keys,
+   * because a box in a table that Tab can walk into and not out of is a trap.
+   * A card is not a table. `plan-cards.tsx` wires none of `onTabKey`,
+   * `onCommandKey` or `onAltMove` — a phone has no Tab key and no chords — yet
+   * every editable box on a card still carries its cell's id, because that id
+   * is what `editable-grid.ts` finds a box by and what makes a draft refused on
+   * one face still be there on the other. The name box already does this; this
+   * prop is how a picker can.
+   *
+   * Ignored when `gridCell` is given: a box in a grid takes the grid's id.
+   */
+  dataCell?: string;
+  /**
    * What joins this box to a table's keyboard grid, where it stands in one.
    *
    * Both halves together, because either alone is broken: `dataCell` makes the
@@ -249,6 +265,7 @@ export function CreatablePicker({
   onClear,
   placeholder,
   title,
+  dataCell,
   gridCell,
 }: CreatablePickerProps) {
   /** What has been typed, or null while the picker is closed. */
@@ -330,7 +347,7 @@ export function CreatablePicker({
         aria-autocomplete="list"
         placeholder={placeholder}
         title={title}
-        data-cell={gridCell?.dataCell}
+        data-cell={gridCell?.dataCell ?? dataCell}
         // A layout the grid does not touch: the attribute is what the table
         // finds this box by, and it adds nothing to the flex row it sits in.
         style={{ font: 'inherit', flex: 1, minWidth: 0, width: 'auto' }}

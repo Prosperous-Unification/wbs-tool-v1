@@ -1,11 +1,24 @@
 import { Fragment, useState } from 'react';
 
+import {
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalHeader,
+  ModalTitle,
+  ModalTrigger,
+} from '@/components/ui/modal';
 import type { Days, PriorityBandView, RoleView } from '@/lib/wbs-api';
 
 import { ActionsMenu, type RowAction } from './actions-menu';
 import { CellInput } from './cell-input';
 import type { CellRef } from './cell-navigation';
-import { PickerList, type PickerOption } from './creatable-picker';
+import {
+  CreatablePicker,
+  type PickableEntry,
+  PickerList,
+  type PickerOption,
+} from './creatable-picker';
 import { type CellElement, cellKey } from './editable-grid';
 import { POINTS } from './estimate-draft';
 import type { ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry';
@@ -151,6 +164,29 @@ export interface PlanCardsProps {
    * of that parent's pool — and a card is the only face some readers have.
    */
   teamLabel: (row: TreeRow) => ServiceTeamLabel;
+  /**
+   * Every team on offer — the same directory the table's Service/team cell
+   * draws, in the order the server sent it.
+   *
+   * One shared list and not a per-project one: `service_team` has no owner
+   * column and that is deliberate (Dany, 2026-08-06), so a team another plan
+   * made belongs on offer here too. `team-picker-substitutes` settled what
+   * ranking does to it, and it settled it inside `CreatablePicker` — which is
+   * why this card hands the same component the same directory rather than
+   * drawing a phone-shaped list of its own that would have to be fixed twice.
+   */
+  teams: readonly PickableEntry[];
+  /**
+   * Labels a work item with a team, or — with `null` — takes the label off.
+   *
+   * The table's own `setTeamOf` and `createTeamFor`, handed to the other face
+   * (`rowActions`' bargain, one dimension over): a team chosen on a phone has
+   * to reach be-01 by the path a team chosen on a laptop reaches it by, or the
+   * two faces disagree about what a choice does.
+   */
+  setTeam: (row: TreeRow, teamId: string | null) => void;
+  /** Makes a team nobody had yet and labels this work item with it, in one go. */
+  createTeam: (row: TreeRow, name: string) => void;
   /**
    * What kind of thing this row is: its own tags, the ones it inherits, or
    * neither.
@@ -425,6 +461,132 @@ const TAP = 'min-h-11';
 const MATCH_TINT = 'var(--grid-match)';
 
 /**
+ * The team on a card — printed as the table prints it, and **tappable**.
+ *
+ * `card-field-pickers` measured the hole this fills: at 390×844 the complete
+ * editable set of a card was `name`, `Dev estimate`, `QA estimate`, and the
+ * team was ink. A phone could read whose work an item was and not say.
+ *
+ * **A sheet, not an inline cell** — `wbs-plan-2026-08-14-mobile-parity.md` §2.1,
+ * and the reason is the list rather than the box: `PickerList` opens at
+ * `top: 100%` of its own box, so a picker in a chip halfway down a scrolling
+ * card list would drop a 200px list over the cards under it, out of a `<p>` of
+ * wrapped chips. The bottom sheet `ModalContent` already has (`side="bottom"`,
+ * written for `M mobile-cards`) gives the list a surface of its own, a focus
+ * trap, Escape, and — through `PageShortcutsHeld` — the page's chords held back
+ * while it is open.
+ *
+ * **The same `CreatablePicker` the table's cell mounts**, with the same
+ * directory and the same three handlers. Not a phone-shaped list of its own:
+ * `team-picker-substitutes` is the argument, in that its whole subject was one
+ * picker whose display and whose Enter had drifted apart, and two pickers over
+ * one dimension is that bug with a second place to happen. So the ranking, the
+ * `Add "…"` line, the first-line highlight and `aria-activedescendant` arrive
+ * here for free, and a fix to any of them lands on both faces at once.
+ *
+ * **The control is drawn even when the row has no team**, which is the one place
+ * this departs from the printed chip. `data-card-team` still means what it
+ * meant — the label this row carries or inherits, absent where there is
+ * neither, so a card that claims nothing still carries no team line. The button
+ * around it is `data-card-team-field`, and it is always there, because a
+ * control that appears only once a value exists is a control that cannot set
+ * the first one.
+ */
+function CardTeamField({
+  row,
+  team,
+  teams,
+  setTeam,
+  createTeam,
+}: {
+  row: TreeRow;
+  team: ServiceTeamLabel;
+  teams: readonly PickableEntry[];
+  setTeam: (row: TreeRow, teamId: string | null) => void;
+  createTeam: (row: TreeRow, name: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Inherited is the case the sentence exists for: the box is empty because
+  // this row carries no team, and the name beside it is one a reader is owed
+  // the source of. The table's cell says exactly this in its own `title`.
+  const inheritedNote =
+    team.state === 'inherited'
+      ? `${team.name} — inherited from ${team.fromRow}. This row carries no team of its own.`
+      : undefined;
+  return (
+    <Modal open={open} onOpenChange={setOpen}>
+      <ModalTrigger asChild>
+        <button
+          type="button"
+          data-card-team-field
+          // The sheet's own name, said on the control that opens it: `Billing`
+          // alone names the value, not what tapping does.
+          aria-label={`Service or team for ${row.number}`}
+          title={inheritedNote}
+          className="text-muted-foreground max-w-full min-w-0 text-left underline decoration-dotted underline-offset-2"
+        >
+          {team.state === 'none' ? (
+            // No `data-card-team`: this row claims no team, and the attribute
+            // is the claim. What is drawn is the invitation to make one.
+            <span className="opacity-70">team…</span>
+          ) : (
+            <span
+              data-card-team
+              {...(team.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
+              title={inheritedNote}
+            >
+              {team.state === 'unresolved'
+                ? 'a team this plan has not loaded'
+                : team.state === 'inherited'
+                  ? `↳ ${team.name}`
+                  : team.name}
+            </span>
+          )}
+        </button>
+      </ModalTrigger>
+      {/*
+        `min-h` and not only the sheet's own `max-h-[85vh]`: `PickerList` is
+        absolutely positioned under its box and `ModalContent` scrolls, so a
+        sheet sized to a single input would clip the list it exists to show.
+      */}
+      <ModalContent side="bottom" className="min-h-[60vh]">
+        <ModalHeader>
+          <ModalTitle>Service or team for {row.number}</ModalTitle>
+          <ModalDescription>
+            {team.state === 'inherited'
+              ? `This row carries no team of its own — it is on ${team.name}, from ${team.fromRow}. Choosing one here labels this row.`
+              : 'Type to search the directory, or type a name nobody has used yet to make it.'}
+          </ModalDescription>
+        </ModalHeader>
+        <CreatablePicker
+          label={`Service or team for ${row.number}`}
+          placeholder={team.state === 'inherited' ? `↳ ${team.name}` : 'search or add'}
+          title={inheritedNote}
+          entries={teams}
+          value={row.teamIds.at(0) ?? null}
+          // The cell the table's Team box carries, on the box that edits it
+          // here — `rowId::team`, one string out of `cellKey`, so the two faces
+          // are the same cell rather than two boxes over one field.
+          dataCell={cellKey(row.id, 'team')}
+          onChoose={(id) => {
+            setTeam(row, id);
+            setOpen(false);
+          }}
+          onCreate={(name) => {
+            createTeam(row, name);
+            setOpen(false);
+          }}
+          onClear={() => {
+            setTeam(row, null);
+            setOpen(false);
+          }}
+        />
+      </ModalContent>
+    </Modal>
+  );
+}
+
+/**
  * The plan as a list of outline cards: what a phone gets instead of the table.
  *
  * **The same plan, not a summary of it.** Every card is a work item of the same
@@ -478,6 +640,9 @@ export function PlanCards({
   waitsFor,
   startFloor,
   teamLabel,
+  teams,
+  setTeam,
+  createTeam,
   tagLabel,
   serviceLabel,
   nonOwner,
@@ -793,23 +958,13 @@ export function PlanCards({
                 `title` on both faces. A card that printed the inherited name
                 bare would say this row is labelled when it is not.
               */}
-              {team.state !== 'none' && (
-                <span
-                  data-card-team
-                  {...(team.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
-                  title={
-                    team.state === 'inherited'
-                      ? `${team.name} — inherited from ${team.fromRow}. This row carries no team of its own.`
-                      : undefined
-                  }
-                >
-                  {team.state === 'unresolved'
-                    ? 'a team this plan has not loaded'
-                    : team.state === 'inherited'
-                      ? `↳ ${team.name}`
-                      : team.name}
-                </span>
-              )}
+              <CardTeamField
+                row={row}
+                team={team}
+                teams={teams}
+                setTeam={setTeam}
+                createTeam={createTeam}
+              />
               {/*
                 The tags, and `↳` where the row carries none of its own — the
                 team chip's one glyph for the same one fact, one dimension over,
