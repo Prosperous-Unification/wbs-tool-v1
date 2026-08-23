@@ -1397,6 +1397,36 @@ const FLOOR_SENTENCE: Record<Exclude<BindingFloor, 'person' | 'capacity'>, strin
 };
 
 /**
+ * What a sentence about *another* row calls that row.
+ *
+ * **A work item is created with no name and named later** — be-01's `create`
+ * takes one optionally, the column's own input is labelled `Name of 010`, and
+ * a row can sit unnamed for as long as its planner likes. So `row.name` is an
+ * empty string on real plans and not only in a fixture, and the three floor
+ * sentences that point at a neighbour would print `Waits for  (Dev)`: a hole
+ * where the referent goes, in the one place a reader will read it as the tool
+ * being broken. That is the fault {@link predecessorFloorWords}' `(null)` arm
+ * already refuses for the *role*, arriving through the other half of the name.
+ *
+ * **The number and not `(unnamed)`**, which is the one judgement here.
+ * `wbs-table.tsx`'s `namedInTheTree` says `<number> (unnamed)` and is right for
+ * a chip, whose job is to list; a sentence has to let the reader *find* the row
+ * it blames, and `(unnamed)` names nothing while `010` names exactly one row —
+ * the token the card's own `waits for 010` line prints two lines above this
+ * sentence, and the table's `Deleted 010 — Cmd+Z restores`. A named row is
+ * untouched: the sentences stay `Waits for Strip (Dev)` rather than growing a
+ * number nobody asked for on the surface where they are already 54 characters.
+ *
+ * Absence still means absence. A predecessor missing from `plan.rows` is
+ * `undefined` from these maps, which is the *row is not in the payload* state
+ * each caller has its own words for; this only fills a name that is present
+ * and empty.
+ */
+function spokenNameOf(row: GanttRow): string {
+  return row.name === '' ? row.number : row.name;
+}
+
+/**
  * The sentence a not-before-floored bar shows: the floor, and — where somebody
  * wrote one — why it is there.
  *
@@ -1655,7 +1685,7 @@ function personNameOf(slice: GanttSlice, personNames: ReadonlyMap<string, string
  * rows whose predecessor has no slice in the payload to anchor its arrow.
  */
 export function layOutGantt(plan: GanttPlan): GanttGeometry {
-  const rowNames = new Map(plan.rows.map((row) => [row.id, row.name]));
+  const rowNames = new Map(plan.rows.map((row) => [row.id, spokenNameOf(row)]));
   const placedRows = new Map(plan.rows.map((row, rowIndex) => [row.id, { row, rowIndex }]));
   const sliceById = new Map(plan.slices.map((slice) => [slice.id, slice]));
   const rolesById: ReadonlyMap<string, GanttRolePlace> = new Map(
@@ -2258,7 +2288,7 @@ export function startFloorByRow(
   plan: GanttPlan,
   calendar: FloorCalendar | null,
 ): ReadonlyMap<string, string> {
-  const rowNames = new Map(plan.rows.map((row) => [row.id, row.name]));
+  const rowNames = new Map(plan.rows.map((row) => [row.id, spokenNameOf(row)]));
   const sliceById = new Map(plan.slices.map((slice) => [slice.id, slice]));
   const rolesById: ReadonlyMap<string, GanttRolePlace> = new Map(
     plan.roles.map((role, place) => [role.id, { place, name: role.name }]),

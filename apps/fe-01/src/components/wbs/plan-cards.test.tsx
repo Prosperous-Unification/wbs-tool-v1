@@ -1450,7 +1450,14 @@ describe('what a card says about the schedule', () => {
         rows[1].dependsOn = [rows[0].id];
       }, 2);
 
-      expect(floorOnCard('w2')?.textContent).toBe('Waits for a dependency’s first estimated role');
+      // **`010` and not a name, because this fixture's rows have none** —
+      // `api.create` takes a name optionally, like be-01's own route, so every
+      // row here is one a planner added and has not yet named. That is what
+      // reddened this case on chunk 8's gate: the sentence resolved the anchor
+      // and printed `Waits for  (Dev)`, and `spokenNameOf` is the fix.
+      // The day is absent because this plan has no start date, which is the
+      // no-calendar arm rather than a missing date.
+      expect(floorOnCard('w2')?.textContent).toBe('Waits for 010 (Dev)');
       // The first row is untouched by its dependant, so one card's sentence is
       // not the whole plan's.
       expect(floorOnCard('w1')?.textContent).toBe('Starts with the project');

@@ -2635,6 +2635,29 @@ describe('what holds a row’s start, for the table', () => {
     expect(floors.get('020')).toBe('Waits for Strip — finishes 3 Sep');
   });
 
+  it('calls an unnamed dependency by its number, which is what the rest of the plan calls it', () => {
+    // A work item is created with no name and named later — be-01's `create`
+    // takes one optionally and the column's input is labelled `Name of 010` —
+    // so the empty name is a real plan and not a fixture's invention. Found by
+    // the full gate on chunk 8: `plan-cards.test.tsx` builds its rows through
+    // `api.create` and read `Waits for  (Dev)`, a hole where the referent goes.
+    // `010` is the token the card's own `waits for 010` line prints two lines
+    // above this sentence, so the reader can find the row being blamed.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('030', 0, 3, { number: '010', name: '' }), rowAt('020', 3, 6)],
+        slices: [
+          sliceAt('030-dev', '030', 0, 3),
+          sliceAt('020-dev', '020', 3, 6, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [{ predecessorId: '030', successorId: '020' }],
+      }),
+      calendarOf(),
+    );
+
+    expect(floors.get('020')).toBe('Waits for 010 (Dev) — finishes 3 Sep');
+  });
+
   it('gives up the whole naming when one predecessor has no slice to read', () => {
     // `040` carries no slice at all — a broken payload rather than a hidden
     // row, since a collapsed branch keeps its slices. The one that could not be
