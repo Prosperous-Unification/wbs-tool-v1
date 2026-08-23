@@ -1,6 +1,7 @@
 import type { Logger } from '@wbs/observability';
 
 import { buildApp } from './app';
+import type { OidcRouteOptions } from './controller/auth.controller';
 import { readDeployedCommit } from './deployed-commit';
 import { openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
@@ -14,6 +15,7 @@ export interface BootOptions {
   jwtKey: string;
   gwUrl: string;
   internalAuthSecret: string;
+  oidc?: OidcRouteOptions;
   version?: string;
   /**
    * Local dev only, and off by default.
@@ -71,6 +73,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
       return state.migrationsApplied;
     },
     auth: services.auth,
+    oidc: opts.oidc,
     projects: services.projects,
     roles: services.roles,
     workItems: services.workItems,

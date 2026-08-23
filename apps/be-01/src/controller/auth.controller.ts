@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import type { OidcTransactionStore, TokenStore } from '@wbs/auth';
+import {
+  browserOidcClientFromEnv,
+  InMemoryOidcTransactionStore,
+  InMemoryTokenStore,
+  type OidcTransactionStore,
+  type TokenStore,
+} from '@wbs/auth';
 import { Elysia, t } from 'elysia';
 
 import { tokenFromHeaders } from '../middleware/authenticated';
@@ -8,7 +14,7 @@ import type { AuthService } from '../service/auth.service';
 
 export interface OidcRouteOptions {
   appOrigin: string;
-  client: OidcBrowserClient;
+  client: ReturnType<typeof browserOidcClientFromEnv>;
   mode: 'oidc';
   now?: () => number;
   random?: () => string;
@@ -17,25 +23,36 @@ export interface OidcRouteOptions {
   transactions: OidcTransactionStore;
 }
 
-interface OidcTokenSet {
-  accessToken: string;
-  expiresIn: number;
-  refreshToken?: string;
-}
-
-export interface OidcBrowserClient {
-  authorizationUrl(input: {
-    nonce: string;
-    redirectUri: string;
-    state: string;
-    verifier: string;
-  }): Promise<URL>;
-  exchange(
-    request: Request,
-    checks: { nonce: string; state: string; verifier: string },
-  ): Promise<OidcTokenSet>;
-  refresh(refreshToken: string): Promise<OidcTokenSet>;
-  revoke(refreshToken: string): Promise<void>;
+export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>): OidcRouteOptions {
+  for (const key of [
+    'AUTH_ISSUER_DISCOVERY_URL',
+    'AUTH_CLIENT_ID',
+    'AUTH_CLIENT_SECRET',
+    'AUTH_REDIRECT_URI',
+  ]) {
+    if (env[key] === undefined || env[key] === '')
+      throw new Error(`${key} is required in AUTH_MODE=oidc`);
+  }
+  const redirectUriValue = env['AUTH_REDIRECT_URI'];
+  if (redirectUriValue === undefined)
+    throw new Error('AUTH_REDIRECT_URI is required in AUTH_MODE=oidc');
+  const redirectUri = new URL(redirectUriValue);
+  if (
+    redirectUri.pathname !== '/api/auth/okta/callback' ||
+    redirectUri.search !== '' ||
+    redirectUri.hash !== ''
+  ) {
+    throw new Error('AUTH_REDIRECT_URI must use the mounted /api/auth/okta/callback route');
+  }
+  return {
+    appOrigin: redirectUri.origin,
+    client: browserOidcClientFromEnv(env),
+    mode: 'oidc',
+    random: () => randomBytes(32).toString('base64url'),
+    redirectUri: redirectUri.href,
+    tokens: new InMemoryTokenStore(),
+    transactions: new InMemoryOidcTransactionStore({ ttlMs: 300_000 }),
+  };
 }
 
 /**

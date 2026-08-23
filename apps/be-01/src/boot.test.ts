@@ -2,10 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
 import { createLogger } from '@wbs/observability';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { bootBe01, type RunningBe } from './boot';
+import type { OidcRouteOptions } from './controller/auth.controller';
 import { runMigrations } from './repository/migrate';
 
 const FOLDER = new URL('../drizzle', import.meta.url).pathname;
@@ -33,7 +35,7 @@ function tempDir(prefix: string): string {
  * whatever commit the checkout running the suite happens to be at, and an
  * assertion on that is an assertion on the developer's afternoon.
  */
-function boot(commitDir: string = tempDir('wbs-boot-nogit-')): RunningBe {
+function boot(commitDir: string = tempDir('wbs-boot-nogit-'), oidc?: OidcRouteOptions): RunningBe {
   const dir = tempDir('wbs-boot-');
   const dbPath = join(dir, 'test.db');
   runMigrations(dbPath, FOLDER);
@@ -44,6 +46,7 @@ function boot(commitDir: string = tempDir('wbs-boot-nogit-')): RunningBe {
     jwtKey: 'k'.repeat(32),
     gwUrl: 'http://gw.invalid',
     internalAuthSecret: 's'.repeat(32),
+    oidc,
     commitDir,
   });
   return running;
@@ -115,5 +118,30 @@ describe('bootBe01', () => {
     expect((await res.json()) as unknown).toEqual({
       'project:unknown': { status: 'denied', reason: 'out_of_range' },
     });
+  });
+});
+
+describe('OIDC boot wiring', () => {
+  it('mounts the configured browser login route', async () => {
+    const oidc = {
+      appOrigin: 'https://dev.wbs.test',
+      mode: 'oidc' as const,
+      now: () => 1,
+      random: () => 'r'.repeat(43),
+      redirectUri: 'https://dev.wbs.test/api/auth/okta/callback',
+      transactions: new InMemoryOidcTransactionStore({ ttlMs: 300_000 }),
+      tokens: new InMemoryTokenStore(),
+      client: {
+        authorizationUrl: () => Promise.resolve(new URL('https://idp.test/authorize')),
+        exchange: () => Promise.resolve({ accessToken: 'a', expiresIn: 60 }),
+        refresh: () => Promise.resolve({ accessToken: 'a', expiresIn: 60 }),
+        revoke: () => Promise.resolve(),
+      },
+    };
+    const be = boot(undefined, oidc);
+    const res = await fetch(`http://localhost:${String(be.port)}/api/auth/login`, {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
   });
 });

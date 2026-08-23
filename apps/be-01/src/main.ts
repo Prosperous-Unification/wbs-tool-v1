@@ -2,6 +2,7 @@ import { createLogger } from '@wbs/observability';
 
 import { bootBe01 } from './boot';
 import { loadConfig } from './config';
+import { oidcRouteOptionsFromEnv } from './controller/auth.controller';
 
 const cfg = loadConfig();
 const logger = createLogger({ service: 'be-01', level: cfg.LOG_LEVEL });
@@ -23,6 +24,7 @@ try {
     jwtKey: cfg.JWT_SIGNING_KEY_CURRENT,
     gwUrl: cfg.GW_URL,
     internalAuthSecret: cfg.INTERNAL_AUTH_SECRET,
+    oidc: cfg.AUTH_MODE === 'oidc' ? oidcRouteOptionsFromEnv(process.env) : undefined,
     version: process.env['VERSION'],
     migrateOnStartup: process.env['MIGRATE_ON_STARTUP'] === 'true',
   });

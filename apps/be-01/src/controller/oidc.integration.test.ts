@@ -11,6 +11,7 @@ import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import * as authModule from './auth.controller';
 
 const now = Date.UTC(2026, 7, 23);
 
@@ -189,5 +190,40 @@ describe('OIDC browser routes', () => {
     expect(f.calls.revoke).toEqual(['refresh-1']);
     expect(f.tokens.read('session-1')).toBeNull();
     expect(res.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+});
+
+describe('OIDC startup configuration', () => {
+  it('refuses a redirect URI whose callback path is not mounted', () => {
+    const factory = (
+      authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
+    ).oidcRouteOptionsFromEnv;
+    expect(() =>
+      factory({
+        AUTH_CLIENT_ID: 'client',
+        AUTH_CLIENT_SECRET: 'secret',
+        AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
+        AUTH_REDIRECT_URI: 'https://dev.wbs.test/auth/callback',
+      }),
+    ).toThrow('/api/auth/okta/callback');
+  });
+
+  it('builds a lazy provider client for the fixed callback route', () => {
+    const factory = (
+      authModule as unknown as {
+        oidcRouteOptionsFromEnv: (env: Record<string, string>) => {
+          appOrigin: string;
+          mode: string;
+        };
+      }
+    ).oidcRouteOptionsFromEnv;
+    expect(
+      factory({
+        AUTH_CLIENT_ID: 'client',
+        AUTH_CLIENT_SECRET: 'secret',
+        AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
+        AUTH_REDIRECT_URI: 'https://dev.wbs.test/api/auth/okta/callback',
+      }),
+    ).toMatchObject({ appOrigin: 'https://dev.wbs.test', mode: 'oidc' });
   });
 });
