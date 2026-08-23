@@ -8011,6 +8011,16 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                             // Narrow on purpose: these hold a number of days, and a box
                             // sized for a sentence reads as if it wants one. Which is
                             // the column's width to say now, not this box's.
+                            //
+                            // `decimal` and not `numeric` because half-days are typed
+                            // here (`0.5`), and not `type="number"` for the folded
+                            // cell's reason one column back — spinners a thumb cannot
+                            // use. These three boxes had **no** `inputMode` at all
+                            // until `wbs-mobile-orp-input`, so a touch device offered
+                            // a letters keyboard for a box that only ever holds a
+                            // number: the one three-box path a tablet can reach was
+                            // the one path with no keypad on it.
+                            inputMode="decimal"
                             aria-invalid={wrong}
                             title={problem?.message}
                             onKeyDown={(e) => {

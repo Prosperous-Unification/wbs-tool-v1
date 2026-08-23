@@ -389,7 +389,23 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       rows.splice(at, 1);
       return Promise.resolve();
     },
-    clearEstimate: () => notImplemented('clearEstimate'),
+    // Real since `wbs-mobile-orp-input`: the trio sheet's `Clear` is the one
+    // control on a card that reaches it, and a fake that refused would have let
+    // "taking an estimate back off" pass untested on the only face that can do
+    // it with a thumb. Removes the role's key rather than storing zeros —
+    // `0/0/0` is an estimate somebody made, and no estimate is not.
+    clearEstimate: (id: string, roleId: string) => {
+      const row = rows.find((each) => each.id === id);
+      if (row === undefined) return Promise.reject(new Error('not_found'));
+      const { [roleId]: goneDays, ...keptDays } = row.estimates;
+      const { [roleId]: goneFinal, ...keptFinal } = row.finalDays;
+      void goneDays;
+      void goneFinal;
+      row.estimates = keptDays;
+      row.finalDays = keptFinal;
+      row.finalTotal = Object.values(keptFinal).reduce((total, each) => total + each, 0);
+      return Promise.resolve();
+    },
     freeze: () => notImplemented('freeze'),
     unfreezeProject: () => notImplemented('unfreezeProject'),
     unfreeze: (id: string) => {
@@ -1648,6 +1664,122 @@ describe('the trio behind a phase’s figure, on a card', () => {
     fireEvent.click(summary);
 
     expect(detail?.open).toBe(true);
+  });
+});
+
+/**
+ * The three points, one box each — Dany, 2026-08-23: *"I cannot input o/r/p on
+ * WBS from mobile."*
+ *
+ * **jsdom cannot press a soft key, so none of these claims that it can.** What
+ * they hold is the half a unit test can hold: the sheet exists, its three boxes
+ * are three boxes with no separator between them, each asks for the decimal
+ * keypad, and what they compose goes through the shorthand's own rules rather
+ * than a second estimate path. The claim that a *finger* can do it is the e2e's
+ * to make, at the cards viewport, against a real browser.
+ */
+describe('typing a trio on a card, where the keypad has no slash', () => {
+  const openTheTrioSheet = async (roleName: string, number: string): Promise<HTMLElement> => {
+    fireEvent.click(screen.getByRole('button', { name: `${roleName} o, r and p for ${number}` }));
+    return screen.findByRole('dialog', { name: `${roleName} estimate for ${number}` });
+  };
+
+  /**
+   * A one-row phone plan, estimated before the render rather than after it: a
+   * write landing behind a mounted table is a refetch this fake does not push,
+   * and a sheet seeded from a row the component never saw would test the fake.
+   */
+  const aPhonePlan = async (days: Days | null = null): Promise<ReturnType<typeof fakeApi>> => {
+    const api = fakeApi();
+    const created = await api.create('p1', { parentId: null });
+    if (days !== null) await api.setEstimate(created.id, DEV.id, days);
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    return api;
+  };
+
+  itDom('gives each point its own box, each asking for a keypad', async () => {
+    // The whole bug in one assertion. `inputmode="decimal"` is specified as
+    // "Numeric keys and the format separator for the locale" — no `/` — so the
+    // fix cannot be a separator, it has to be the absence of one.
+    const api = await aPhonePlan();
+    await openTheTrioSheet('Dev', '010');
+
+    for (const point of ['optimistic', 'realistic', 'pessimistic']) {
+      const box = screen.getByLabelText<HTMLInputElement>(`Dev ${point} for 010`);
+      expect(box.getAttribute('inputmode')).toBe('decimal');
+      // The table's own cell id for that point, so the three boxes on a phone
+      // are the three boxes an unfolded role shows — one cell, two faces.
+      expect(box.getAttribute('data-cell')).toBe(`${api.rows[0]?.id ?? ''}::role-dev-${point}`);
+    }
+  });
+
+  itDom('stores what three boxes compose, exactly as `2/3/8` in one box would', async () => {
+    const api = await aPhonePlan();
+    await openTheTrioSheet('Dev', '010');
+
+    fireEvent.change(screen.getByLabelText('Dev optimistic for 010'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Dev realistic for 010'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Dev pessimistic for 010'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(api.rows[0]?.estimates[DEV.id]).toEqual({
+        optimistic: 2,
+        realistic: 3,
+        pessimistic: 8,
+      });
+    });
+    // The words the card prints at rest, which is the round trip the reader
+    // sees rather than the write the fake recorded.
+    await waitFor(() => {
+      expect(document.querySelector(`[data-phase-trio="${DEV.id}"]`)?.textContent).toBe(
+        'optimistic 2 · realistic 3 · pessimistic 8',
+      );
+    });
+  });
+
+  itDom('refuses a trio that runs backwards, in the shorthand’s own sentence', async () => {
+    // Not a second rule: the sheet composes `8/3/2` and hands it to
+    // `parseTrioShorthand`, which complains rather than sorting — Dany,
+    // 2026-08-06, "when inputing estimates they must not autoedit".
+    const api = await aPhonePlan();
+    await openTheTrioSheet('Dev', '010');
+
+    fireEvent.change(screen.getByLabelText('Dev optimistic for 010'), { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('Dev realistic for 010'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Dev pessimistic for 010'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Dev estimate for 010').value).toBe('8/3/2');
+    });
+    expect(api.rows[0]?.estimates[DEV.id]).toBeUndefined();
+  });
+
+  itDom('takes an estimate back off with its own control', async () => {
+    const api = await aPhonePlan({ optimistic: 2, realistic: 3, pessimistic: 8 });
+    await openTheTrioSheet('Dev', '010');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+    await waitFor(() => {
+      expect(api.rows[0]?.estimates[DEV.id]).toBeUndefined();
+    });
+  });
+
+  itDom('is reachable on a phase nobody has estimated, and Clear is not', async () => {
+    // The departure this file has now made five times: the words are the claim
+    // and say "No estimate yet", so the control around them has to be drawn
+    // anyway. `Clear` is the opposite case — there is nothing to take off.
+    await aPhonePlan();
+    const sheet = await openTheTrioSheet('Dev', '010');
+
+    expect(document.querySelector(`[data-phase-trio="${DEV.id}"]`)?.textContent).toBe(
+      'No estimate yet',
+    );
+    expect(sheet.querySelector('[data-card-trio-clear]')).toBeNull();
   });
 });
 

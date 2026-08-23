@@ -1311,6 +1311,171 @@ function CardDependsField({
 }
 
 /**
+ * The three points of one phase, each in its own box — the fifth card field,
+ * and the only one filed as a bug rather than a hole.
+ *
+ * Dany, 2026-08-23: *"I cannot input o/r/p on WBS from mobile."* The figure box
+ * beside the phase name takes the trio as `2/3/8`, and **a phone keypad has no
+ * `/` key to type it with**. That is the HTML standard, not a browser's
+ * accident: `inputmode="decimal"` is specified as "Numeric keys and the format
+ * separator for the locale", `numeric` as digits for PIN entry, and `url` is
+ * the only keyword whose keyboard is specified to carry a `/` at all. The one
+ * separator a decimal pad is promised to show is the *decimal* separator, and
+ * that character is already load-bearing inside each part — `0.5/1/2` is a
+ * legal trio — so it cannot double as the separator between them. Accepting
+ * "whatever the keypad has" and tolerant single-box parsing both die on that
+ * fact rather than on taste.
+ *
+ * So: three boxes, nothing to separate, each `inputMode="decimal"` and each
+ * getting its own keypad. **The shorthand cell is untouched** — a hardware
+ * keyboard still types `6/8/14` into it, and a single number still works on a
+ * phone, which is why the box above stays exactly as it was.
+ *
+ * **It composes `o/r/p` and sends it through {@link parseTrioShorthand}'s own
+ * path** rather than sending three numbers: the count, order and days rules
+ * live in one place, and a trio typed on a phone is refused by the same
+ * sentence a trio typed on the table is. Out-of-order is still a complaint and
+ * still never sorted — `estimate-draft.ts`'s whole point.
+ *
+ * **The trigger is drawn on an unestimated phase**, the fifth time this file
+ * makes that departure and for the same reason: `data-phase-trio` stays the
+ * claim — the words `folded-role-card.tsx` prints — while
+ * `data-card-trio-field` is always there, because a control that appears only
+ * once a value exists cannot set the first one.
+ */
+function CardTrioField({
+  row,
+  roleId,
+  roleName,
+  line,
+  baseline,
+  commit,
+}: {
+  row: TreeRow;
+  roleId: string;
+  roleName: string;
+  /** The trio in words, as the card prints it at rest. */
+  line: string;
+  /** What the figure box shows, which is what a commit is measured against. */
+  baseline: string;
+  commit: (typed: string, baseline: string) => Promise<CommitOutcome>;
+}) {
+  const [open, setOpen] = useState(false);
+  // Seeded from the row on every open through the `key` below — the bargain
+  // `CardPriorityField` and `CardNotBeforeField` make, and its reason: a
+  // controlled box fed from the row would be overwritten by a refetch
+  // mid-keystroke, and an uncontrolled one would still hold the previous
+  // phase's digits on the next open. Nothing is sent until Save.
+  const seed = (): Record<string, string> =>
+    Object.fromEntries(POINTS.map((point) => [point, trioPoint(row.estimates[roleId], point)]));
+  const [draft, setDraft] = useState<Record<string, string>>(seed);
+  const estimated = POINTS.some((point) => trioPoint(row.estimates[roleId], point) !== '');
+  const send = (typed: string): void => {
+    void commit(typed, baseline);
+    setOpen(false);
+  };
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setDraft(seed());
+        setOpen(next);
+      }}
+    >
+      <ModalTrigger asChild>
+        <button
+          type="button"
+          data-card-trio-field={roleId}
+          // The three boxes' own accessible names one sentence up: this opens
+          // the phase's trio, and the phase is what a reader is looking for.
+          aria-label={`${roleName} o, r and p for ${row.number}`}
+          title="Optimistic, realistic and pessimistic days — a keypad has no slash, so each gets its own box."
+          className={`${TAP} flex w-full items-center justify-between gap-2 text-left`}
+        >
+          <span data-phase-trio={roleId}>{line}</span>
+          <span aria-hidden="true">✎</span>
+        </button>
+      </ModalTrigger>
+      <ModalContent side="bottom">
+        <ModalHeader>
+          <ModalTitle>
+            {roleName} estimate for {row.number}
+          </ModalTitle>
+          <ModalDescription>
+            Three days, each in its own box — optimistic first, then realistic, then pessimistic.
+            One box filled and the others empty is not an estimate; leave all three empty to take
+            the estimate back off.
+          </ModalDescription>
+        </ModalHeader>
+        <div className="flex flex-col gap-3" key={open ? 'open' : 'shut'}>
+          {POINTS.map((point) => (
+            <label key={`${row.id}-${roleId}-${point}`} className="flex flex-col gap-1 text-sm">
+              {/* The word, not the letter: the table's column heading clips to
+                  `o` because 44px of column is all there is, and a sheet has
+                  the width the column did not. */}
+              <span className="capitalize">{point}</span>
+              <input
+                type="text"
+                // The whole point of the field. `decimal` and not `numeric`
+                // because half-days are typed here (`0.5`), and `decimal` is
+                // the keyword whose keypad is specified to carry the locale's
+                // separator.
+                inputMode="decimal"
+                aria-label={`${roleName} ${point} for ${row.number}`}
+                data-cell={cellKey(row.id, `${roleId}-${point}`)}
+                data-card-trio-input={point}
+                className={`${TAP} box-border w-full rounded-md border p-2 text-base`}
+                value={draft[point] ?? ''}
+                onChange={(event) => {
+                  const typed = event.target.value;
+                  setDraft((current) => ({ ...current, [point]: typed }));
+                }}
+              />
+            </label>
+          ))}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-card-trio-save
+              className={`${TAP} inline-flex flex-1 items-center justify-center rounded-md border px-3 font-semibold`}
+              onClick={() => {
+                // Composed into the shorthand the cell above takes, so the
+                // three boxes are a keypad-shaped way of typing one string and
+                // not a second estimate path. All three empty composes `//`,
+                // which is not what "clear it" says — `Clear` sends the empty
+                // string the combined cell reads as taking an estimate off.
+                const parts = POINTS.map((each) => draft[each] ?? '');
+                send(parts.every((each) => each.trim() === '') ? '' : parts.join('/'));
+              }}
+            >
+              Save
+            </button>
+            {/*
+              `CardPriorityField`'s control and its reason: "nobody has
+              estimated this" is a state an estimator has to be able to get back
+              to, and emptying three boxes and finding Save is four gestures for
+              one decision.
+            */}
+            {estimated && (
+              <button
+                type="button"
+                data-card-trio-clear
+                className={`${TAP} inline-flex items-center justify-center rounded-md border px-3`}
+                onClick={() => {
+                  send('');
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+/**
  * The plan as a list of outline cards: what a phone gets instead of the table.
  *
  * **The same plan, not a summary of it.** Every card is a work item of the same
@@ -1326,11 +1491,13 @@ function CardDependsField({
  * still there when a phone is turned. That is the whole of what
  * `X live-editing-extraction` was for.
  *
- * **Three things are editable and nothing else is**: the name-and-notes box,
- * each phase's `o/r/p` figure, and — through the `@` list inside that figure's
- * box — who is on that phase. The dependencies, the team, the not-before date
- * and the three separate points are printed and not typed into: each is a
- * picker or a date field, and each is its own touch design.
+ * **What a card can change**, as of `wbs-mobile-orp-input`: the name-and-notes
+ * box, each phase's `o/r/p` figure, who is on that phase (the `@` list inside
+ * that figure's box), the three points of that figure one box each
+ * ({@link CardTrioField}), and the four fields `card-field-pickers` gave sheets
+ * to — team, earliest start, priority and what the row waits for. Each of the
+ * five sheets is its own touch design; none of them is a second way of storing
+ * the same value, only a keypad-shaped way of typing it.
  *
  * **No drag handle and no keyboard grid.** A phone has no pointer to drag a row
  * with and no Tab key to walk a grid with, so none of `onTabKey`, `onArrowKey`,
@@ -1635,7 +1802,20 @@ export function PlanCards({
                     className="text-muted-foreground -mt-1 ml-20 text-xs"
                   >
                     <summary className="w-fit cursor-pointer py-1 select-none">o·r·p</summary>
-                    <div data-phase-trio={role.id}>{trio.line}</div>
+                    {/*
+                      The words are still the words — `data-phase-trio` has not
+                      moved and still says what the row holds — but they are now
+                      the face of a control, because reading the trio was never
+                      the missing half. See {@link CardTrioField}.
+                    */}
+                    <CardTrioField
+                      row={row}
+                      roleId={role.id}
+                      roleName={role.name}
+                      line={trio.line}
+                      baseline={estimateValue(row, role.id)}
+                      commit={(typed, baseline) => commitEstimate(row, role.id, typed, baseline)}
+                    />
                     {trio.final !== '' && (
                       <div data-phase-final={role.id}>Final {trio.final} days</div>
                     )}
