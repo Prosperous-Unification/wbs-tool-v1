@@ -2049,9 +2049,7 @@ describe('the plan on a calendar', () => {
 
     const box = screen.getByLabelText<HTMLInputElement>('Project start date');
     box.focus();
-    for (const partial of ['0002-08-17', '0020-08-17', '0202-08-17', '2026-08-17']) {
-      fireEvent.change(box, { target: { value: partial } });
-    }
+    typeYearInto(box);
 
     expect(sent).toEqual([]);
 
@@ -2084,9 +2082,7 @@ describe('the plan on a calendar', () => {
 
     const box = openNotBefore('010');
     box.focus();
-    for (const partial of ['0002-08-17', '0020-08-17', '0202-08-17', '2026-08-17']) {
-      fireEvent.change(box, { target: { value: partial } });
-    }
+    typeYearInto(box);
 
     expect(patched).toEqual([]);
 
@@ -5038,6 +5034,26 @@ const headerTitled = (text: string): string => {
  * saved a plan starting in year 0002. A test that fires the `change` alone is
  * asserting the browser's fault, not the field's behaviour.
  */
+/**
+ * Types the year `2026` into an open date box the way Chrome delivers it: a
+ * `keydown` for the digit, then the `change` that digit completed — four dates,
+ * in years 2, 20, 202 and 2026.
+ *
+ * The keydowns are not decoration. Since 2026-08-23 `DateField` sends a `change`
+ * with **no key behind it** at once, because that is a day picked from the
+ * calendar popup (`wbs-gantt-stale-on-start-date`) — so a version of this helper
+ * that fired the four changes alone would be asking this table about a gesture
+ * nobody performs, and would report the year-`0002` guard broken when it is
+ * intact. Which gesture really produces a key is a browser's answer and
+ * `e2e/keyboard.spec.ts` holds both halves of it.
+ */
+const typeYearInto = (box: HTMLInputElement): void => {
+  for (const partial of ['0002-08-17', '0020-08-17', '0202-08-17', '2026-08-17']) {
+    fireEvent.keyDown(box, { key: partial.slice(3, 4) });
+    fireEvent.change(box, { target: { value: partial } });
+  }
+};
+
 const typeIntoDate = (label: string, day: string): void => {
   const box = screen.getByLabelText(label);
   fireEvent.change(box, { target: { value: day } });
