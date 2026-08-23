@@ -1220,28 +1220,44 @@ test.describe('the chart on a phone', () => {
     expect(inFullScreen).toBeGreaterThan(inThePage);
     expect(inFullScreen).toBeGreaterThanOrEqual(91);
 
-    // **The hover surface still paints over the chart.** The layer is `z-20`
-    // and the card is `zIndex: 20` portalled to `document.body`, so the card
-    // wins on tree order alone — an ordering worth a hit test rather than a
-    // `toBeVisible`, which is equally true of a card painted underneath.
+    // **The hover surface still opens over the chart in here**, which is the
+    // one thing a layer covering the app could take away.
     //
     // `hover` and not `click`, which is what the first run of this case got
     // wrong: on this face a **click** on a bar takes the plan to that row (the
-    // case below asserts exactly that), so the card never opened and the hit
-    // test had nothing to stand on — `expect(locator).toBeVisible() failed /
-    // element(s) not found` at 390×844. A card opens on the pointer, after the
-    // panel's own opening delay, which is what `toBeVisible` waits through.
+    // case below asserts exactly that), so the card never opened at all —
+    // `expect(locator).toBeVisible() failed / element(s) not found` at 390×844.
     await page.locator('[data-gantt-bar]').first().hover();
     const card = page.getByRole('tooltip');
     await expect(card).toBeVisible();
-    const cardOnTop = await page.evaluate(() => {
+
+    // And the ordering that keeps it readable, asserted as the two facts that
+    // decide it rather than by a hit test — which was this case's *second* red:
+    // `elementFromPoint` at the card's own centre came back as something else
+    // and it always will, because a fixed card is `pointer-events: none` on
+    // purpose (`hover-card.tsx`: "A card does not take the pointer"). The
+    // pointer passes through it by design, so no hit test can ever see it, and
+    // the one that "failed" was measuring the design.
+    //
+    // What actually decides the paint: same `z-index`, and the card is
+    // portalled to `document.body` **after** the app root, so tree order puts
+    // it on top. Both halves are needed — raise this layer to `z-30` and the
+    // first fails; portal the card into the panel and the second does.
+    const layering = await page.evaluate(() => {
       const tooltip = document.querySelector('[role="tooltip"]');
-      if (tooltip === null) throw new Error('no card open');
-      const box = tooltip.getBoundingClientRect();
-      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-      return hit !== null && tooltip.contains(hit);
+      const layer = document.querySelector('[data-gantt-fullscreen]');
+      if (tooltip === null || layer === null) throw new Error('no card, or no full-screen layer');
+      return {
+        card: Number(getComputedStyle(tooltip).zIndex),
+        layer: Number(getComputedStyle(layer).zIndex),
+        cardIsAfter:
+          (tooltip.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_PRECEDING) !== 0,
+      };
     });
-    expect(cardOnTop, 'the full-screen layer paints over the card a tapped bar opens').toBe(true);
+    expect(layering.layer, 'the full-screen layer outranks the card a bar opens').toBeLessThanOrEqual(
+      layering.card,
+    );
+    expect(layering.cardIsAfter, 'the card is drawn before the layer that covers it').toBe(true);
 
     // Escape leaves, and leaves a chart behind rather than a closed panel.
     await page.keyboard.press('Escape');
