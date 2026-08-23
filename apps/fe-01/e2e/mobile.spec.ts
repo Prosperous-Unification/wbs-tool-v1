@@ -315,6 +315,13 @@ test.describe('the plan on a phone, measured by a browser', () => {
       // visible, therefore it was hittable" is easiest to believe and wrong: a
       // `text-xs` chip with `py-0.5` is about 20px.
       page.getByRole('button', { name: 'Priority for 010' }),
+      // The dependencies field, `card-field-pickers` chunk 7 and the last of
+      // the four, in this list on the way in for the reason above. Like the
+      // priority it was already *drawn* before it was a control — `waits for
+      // 010, 030` has been on the card since `M mobile-cards` — and unlike the
+      // priority it is a bare `<span>` of body text, so what it measured before
+      // `TAP` is the line-height of the meta row.
+      page.getByRole('button', { name: 'Depends on for 020' }),
     ];
     for (const control of controls) {
       const box = await control.boundingBox();
@@ -632,6 +639,71 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await expect(
       page.getByRole('button', { name: 'Priority for 010' }).locator('[data-card-priority]'),
     ).toHaveText('Medium 42');
+  });
+
+  /**
+   * The last of `card-field-pickers`' four fields, and the only one that edits a
+   * **set** — so the round trip has to cover both directions: an edge taken on
+   * and the same edge taken off, each surviving a reload.
+   *
+   * **No Save is pressed anywhere in it, and that is the claim.** Chunk 6 closed
+   * predicting this sheet would need the date field's explicit Save, on the
+   * grounds that a set has no equivalent of the single tap that finished the
+   * team and the priority. It does not, and be-01 is the reason rather than the
+   * gesture: an edge is complete on its own, judged against the graph including
+   * the edges just added, so there is nothing to batch and nothing a half-sent
+   * request could break. Each tap is its own write, and the reload after each is
+   * what proves it was a write and not React state.
+   *
+   * **The sheet stays open between the two taps**, which is the table's
+   * `pickDependency` bargain and the second thing this case measures: 030 waits
+   * for two rows after one visit, not two.
+   *
+   * Non-vacuous at both ends: `data-card-waits` is the *claim* and a row waiting
+   * for nothing does not draw it, so `toHaveCount(0)` before the first tap stops
+   * a selector typo passing, and the same assertion after the Remove stops the
+   * removal passing on a card that never redrew.
+   */
+  test('makes and unmakes a dependency from a card by touch, and still says so after a reload', async ({
+    page,
+  }) => {
+    // 020, not 010: the fixture's second row is the one with a predecessor to
+    // choose. A row cannot wait for itself, and `pickerEntries` does not offer
+    // it — so on a two-row plan 010's only candidate is 020.
+    const field = page.getByRole('button', { name: 'Depends on for 020' });
+    await expect(field).toBeEnabled();
+    await expect(field.locator('[data-card-waits]')).toHaveCount(0);
+
+    await field.click();
+    await expect(page.getByRole('dialog', { name: 'Depends on for 020' })).toBeVisible();
+    // The offered row, by its number. One tap and no Save, and the sheet is
+    // still open afterwards — the line it just wrote appears above the box.
+    await page.locator('[data-card-depends-option="010"]').click();
+    await expect(page.locator('[data-card-wait="010"]')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Depends on for 020' })).toBeVisible();
+    // Escape and not a tap outside: `closingControlIn` closes the sheet on any
+    // `<button>` taken inside it, and this sheet's controls are all buttons — a
+    // stray tap would land on the card list the case is about to read.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Depends on for 020' })).toBeHidden();
+
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Depends on for 020' }).locator('[data-card-waits]'),
+    ).toHaveText('waits for 010');
+
+    // The other direction, through the control the table spells as a 12px `✕`
+    // inside a pill. Its name says which edge goes, because a row waiting for
+    // four things would otherwise offer four buttons all called Remove.
+    await page.getByRole('button', { name: 'Depends on for 020' }).click();
+    await page.getByRole('button', { name: 'Stop 020 waiting for 010' }).click();
+    await expect(page.locator('[data-card-wait="010"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Depends on for 020' }).locator('[data-card-waits]'),
+    ).toHaveCount(0);
   });
 
   /**

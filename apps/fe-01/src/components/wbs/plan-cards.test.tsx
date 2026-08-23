@@ -2500,8 +2500,8 @@ describe('setting a card’s priority', () => {
 
 describe('setting what a card waits for', () => {
   /**
-   * A phone plan of `howMany` rows, the priority sheet's own shape — what a tap
-   * *sent* is the subject, and `edges` is where the fake records it.
+   * A phone plan of `howMany` rows, the priority sheet's own shape: the request
+   * a tap made is the subject, and `edges` is where the fake records it.
    */
   async function aPhonePlan(
     howMany = 2,
@@ -2518,13 +2518,18 @@ describe('setting what a card waits for', () => {
     return api;
   }
 
-  /** The control the line now sits inside, drawn on every card with or without one. */
-  const waitFields = (): HTMLElement[] => [
-    ...document.querySelectorAll<HTMLElement>('[data-card-waits-field]'),
-  ];
-
-  const openTheSheetOn = async (number: '010' | '020'): Promise<HTMLElement> => {
-    fireEvent.click(waitFields()[number === '010' ? 0 : 1]);
+  /**
+   * Opens one card's sheet, found **by the row's number** rather than by
+   * position in the card list.
+   *
+   * The first draft indexed `[data-card-waits-field]` and mapped `'030'` onto
+   * the second card, which is how two of these six went red on the gate: they
+   * clicked 020's trigger and waited for 030's dialog. The trigger and the
+   * dialog now come from the one name, so a case naming a row that is not on
+   * screen fails saying so instead of opening the wrong card.
+   */
+  const openTheSheetOn = async (number: string): Promise<HTMLElement> => {
+    fireEvent.click(screen.getByRole('button', { name: `Depends on for ${number}` }));
     return screen.findByRole('dialog', { name: `Depends on for ${number}` });
   };
 
