@@ -49,6 +49,7 @@ import {
 import { ActionsMenu } from './actions-menu';
 import { CellInput } from './cell-input';
 import { type Caret, type CellRef, commandMove, type Direction, nextCell } from './cell-navigation';
+import { type ColumnHintState, hintFor, ROLE_FINAL_HINT } from './column-hints';
 import { CreatablePicker, pickableLabel, PickerList, type PickerOption } from './creatable-picker';
 import { DateField } from './date-field';
 import { pickerEntries, REFUSAL_SUFFIX } from './dep-picker';
@@ -5895,23 +5896,6 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     [assignTo, createPersonFor, mention, people, takeMentionOut, teams],
   );
 
-  /**
-   * What a schedule column's heading says about itself, in a `title`.
-   *
-   * The headings are one word each — the columns are 52px — so the fact that
-   * decides how to read the figures under them cannot be in the heading text:
-   * without a project start date these are day numbers counted from day zero,
-   * and with one they are calendar dates. A bare `2.5` under "Start" reads as
-   * a date that failed to load, and this sentence is where that is answered.
-   */
-  const startDateHint = useCallback(
-    (what: string): string =>
-      startDate === null
-        ? `This work item's ${what}, in days from the start of the plan. Set a project start date to see real dates.`
-        : `This work item's ${what}.`,
-    [startDate],
-  );
-
   const hasSchedule = useCallback(() => scheduleError === null, [scheduleError]);
   const showSchedule = useCallback(
     (days: number) => (scheduleError === null ? showDay(days) : '—'),
@@ -6112,7 +6096,6 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     dependOn,
     hasSchedule,
     showSchedule,
-    startDateHint,
     depPicker,
     setDepPicker,
     depHover,
@@ -6188,7 +6171,6 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     dependOn,
     hasSchedule,
     showSchedule,
-    startDateHint,
     depPicker,
     setDepPicker,
     depHover,
@@ -7271,14 +7253,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           id: 'priority',
           // `Prio`, not `Priority` and not `PRIORITY`: the column is 48px and the
           // header row is 10px all-caps, in which the full word wraps to two
-          // lines and takes the whole header row with it. The sentence moves into
-          // the `title`, which is the bargain Days, Not bef., Start, End and
-          // Slack already make.
-          header: () => (
-            <span title="How important this work is: 1 upward, smaller first. It decides who gets a shared person first — never who skips their dependencies.">
-              Prio
-            </span>
-          ),
+          // lines and takes the whole header row with it. The sentence is on the
+          // `<th>` (`column-hints.ts`), which is the bargain Days, Not bef.,
+          // Start, End and Slack already make.
+          header: () => <span>Prio</span>,
           cell: ({ row }) => (
             /*
             The box, the band list under it, and the colour the number is drawn
@@ -7602,12 +7580,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // all-caps header, in which even three letters wrap. The mathematical
           // parallel-to sign is the shortest thing that reads as "at once", and
           // the sentence moves into the `title` — the bargain Prio, Days, Not
-          // bef., Start, End and Slack already make.
-          header: () => (
-            <span title="How many people may work on this item at once. Blank means one at a time. It compresses the item's own effort across that many of its team's people — never past the team's size, and never where somebody is named on the work.">
-              ∥
-            </span>
-          ),
+          // bef., Start, End and Slack already make. That sentence is on the
+          // `<th>` since `wbs-column-hints`, where every column's is, and this
+          // one is the shape the rest were written to.
+          header: () => <span>∥</span>,
           cell: ({ row }) => {
             const own = row.original.maxParallel;
             const hasChildren = row.subRows.length > 0;
@@ -7736,10 +7712,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   // other role folds now; what the reader is owed instead is
                   // that the table may become wider than the window, which is
                   // the one thing unfolding can do that it could not before.
-                  title={`${role.name} — ${
+                  // The column's own sentence first, then the toggle's: this
+                  // button covers most of its `<th>`, so a title naming only the
+                  // fold would be the one heading in the table where hovering
+                  // teaches nothing about the column (`column-hints.ts`).
+                  title={`${ROLE_FINAL_HINT} ${
                     unfolded
-                      ? 'fold the three points back into the figure'
-                      : 'show the three points behind the figure; the table may scroll sideways'
+                      ? 'Click to fold the three points back into the figure.'
+                      : 'Click to show the three points; the table may scroll sideways.'
                   }`}
                   onClick={() => {
                     live.current.toggleRole(role.id);
@@ -8141,9 +8121,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       // typed as `2/3/8`. A clipped word said less than its own
                       // first letter does — `optimi` is not a word — and the
                       // letter is what let the column drop to 44px. The word is
-                      // still the heading's accessible name and its `title`.
+                      // still the heading's accessible name, and it is the first
+                      // word of the `<th>`'s hint — which is why that one hint
+                      // opens with the column's name and the other fourteen open
+                      // with the effect (`column-hints.ts`).
                       meta: { spokenHeading: point },
-                      header: () => <span title={point}>{point.slice(0, 1)}</span>,
+                      header: () => <span>{point.slice(0, 1)}</span>,
                       cell: ({ row }) => {
                         const problem = live.current.trioProblemFor(row.original, role.id);
                         const wrong = problem?.points.includes(point) ?? false;
@@ -8318,11 +8301,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         column.display({
           id: 'final-total',
           // One word, because the column is 52px wide: it holds a number of days
-          // and the roles beside it hold days too. The sentence it used to be
-          // moved into the `title`, where a reader who wants it can still get it.
-          header: () => (
-            <span title="Every role's final figure for this work item, added up">Days</span>
-          ),
+          // and the roles beside it hold days too. The sentence it used to be is
+          // on the `<th>` (`column-hints.ts`), where every column's is.
+          header: () => <span>Days</span>,
           cell: ({ row }) => (
             <span data-final-total style={{ fontWeight: 600 }}>
               {showDay(row.original.finalTotal)}
@@ -8332,14 +8313,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         column.display({
           id: 'not-before',
           // Abbreviated, because the column is 84px at its widest and 56 at its
-          // narrowest. The sentence it used to be is in the `title`, where the
-          // one reader who wants it can still get it — the same bargain Days,
-          // Start, End and Slack already make.
-          header: () => (
-            <span title="The earliest day this work item may start. Its dependencies can still push it later.">
-              Not bef.
-            </span>
-          ),
+          // narrowest. The sentence it used to be is on the `<th>`
+          // (`column-hints.ts`) — the same bargain Days, Start, End and Slack
+          // already make.
+          header: () => <span>Not bef.</span>,
           cell: ({ row }) => {
             const day = row.original.startNoEarlierThan;
             // The words about that day, or null where nobody has said. Straight
@@ -8610,7 +8587,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // the header used to say which of the two it was — in 52px it cannot,
           // so the distinction moved into the `title`. The column is a figure
           // either way and the cell shows which kind it is.
-          header: () => <span title={live.current.startDateHint('earliest start')}>Start</span>,
+          header: () => <span>Start</span>,
           cell: ({ row }) => {
             const start = live.current.spanOf(row.original).start;
             // Both facts in one `title`, the `End` cell's own shape one column
@@ -8636,7 +8613,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         }),
         column.display({
           id: 'finish',
-          header: () => <span title={live.current.startDateHint('earliest finish')}>End</span>,
+          header: () => <span>End</span>,
           cell: ({ row }) => {
             const finish = live.current.spanOf(row.original).finish;
             // Both facts in one `title`, because a cell has one: the day in full,
@@ -8654,11 +8631,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         }),
         column.display({
           id: 'float',
-          header: () => (
-            <span title="Days this work item can slip before the plan's end moves. A row marked critical has none: it is what sets the plan's finish.">
-              Slack
-            </span>
-          ),
+          header: () => <span>Slack</span>,
           cell: ({ row }) => {
             // A critical row has no slack to print, and the word that replaces
             // the figure is not a figure: the attribute is what lets `styles.css`
@@ -9179,6 +9152,16 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * #1).
    */
   const layout = frameLayout(leafColumnIds, frameState);
+
+  /**
+   * What the headings' hints may bend for, in one object beside the layout's.
+   *
+   * Read in the `<thead>` render and nowhere else, and deliberately **not**
+   * inside a column definition — landmine #1 again: the schedule columns'
+   * sentence changes the day the project gets a start date, and a definition
+   * that changed with it would remount every cell in the table on that edit.
+   */
+  const hintState: ColumnHintState = { hasProjectStartDate: startDate !== null };
 
   /**
    * The resize handle for one heading — every leaf column carries one since
@@ -10142,6 +10125,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                         // {@link ColumnMeta.spokenHeading}. Undefined for every
                         // other column, which renders no attribute at all.
                         aria-label={header.column.columnDef.meta?.spokenHeading}
+                        // What this column does to the plan (`column-hints.ts`).
+                        // On the `<th>` and not on the heading inside it, for
+                        // the reason the `aria-label` is: the cell is what the
+                        // reader is resting on, and a `title` on an inner
+                        // `<span>` covers the word and none of the padding
+                        // around it. The two headings that carry their own
+                        // `title` after this — the role's fold button and the
+                        // resize handle — describe a *control*, not a column,
+                        // and the fold button opens with this same sentence so
+                        // that hovering it still teaches the column.
+                        title={hintFor(header.column.id, hintState)}
                         style={{
                           ...CELL,
                           ...STICKY_HEADER_CELL,
