@@ -1786,21 +1786,35 @@ describe('the plan on a calendar', () => {
     // names is neither the plan's start date nor a count of calendar days: the
     // fifth working day from Tuesday 1 Sep is Monday 7 Sep.
     await api.setEstimate(strip.id, DEV.id, { optimistic: 5, realistic: 5, pessimistic: 5 });
+    // `020` gets an estimate of its own too, and that is fixture realism rather
+    // than decoration: a row nobody estimated has no slice to place, so it sits
+    // on the project's first day no matter what it waits for, and a case built
+    // on one would assert a Start of `1 Sep` beside a sentence saying the thing
+    // it waits for finishes on the 7th — the contradiction this task was filed
+    // on, pinned as if it were the fix.
+    await api.setEstimate(paint.id, DEV.id, { optimistic: 2, realistic: 2, pessimistic: 2 });
     await api.setStartDate('p1', '2026-09-01');
     render(<WbsTable projectId="p1" api={api} />);
     await screen.findByLabelText('Name of 020');
 
-    // The whole sentence through the real call site, and the date is why it is
-    // asserted here rather than only in `gantt-geometry.test.ts`: `<WbsTable>`
-    // is the only thing that hands `startFloorByRow` a calendar, so a stubbed
-    // or forgotten second argument is invisible to every unit test of it.
+    // The whole title through the real call site, day and sentence, and the date
+    // is why it is asserted here rather than only in `gantt-geometry.test.ts`:
+    // `<WbsTable>` is the only thing that hands `startFloorByRow` a calendar, so
+    // a stubbed or forgotten second argument is invisible to every unit test of
+    // it. Spelled out whole, dash and all, for the same reason the calendar case
+    // above is: this cell now joins ` — ` twice, and `e2e/gantt.spec.ts:218`
+    // splits on it.
     expect(rowFor('020').querySelector('[data-start]')?.getAttribute('title')).toBe(
-      'Waits for Strip (Dev) — finishes 7 Sep',
+      '2026-09-08 — Waits for Strip (Dev) — finishes 7 Sep',
     );
+    // And this is the fault the task was filed on, readable at last: `020`
+    // starts 8 Sep, one working day after the Dev anchor it waits for, while
+    // `010`'s own End column runs to the end of its QA. Two correct numbers that
+    // look like a contradiction until the row says which one holds it.
     // Not the successor's own sentence on the row it waits for: the two cells
     // answer for themselves, which a single shared string would hide.
     expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
-      'Starts with the project',
+      '2026-09-01 — Starts with the project',
     );
   });
 
