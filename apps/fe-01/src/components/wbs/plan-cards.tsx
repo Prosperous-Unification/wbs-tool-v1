@@ -213,6 +213,23 @@ export interface PlanCardsProps {
    */
   setNotBefore: (row: TreeRow, day: string | null, reason: string | null) => void;
   /**
+   * Sets or clears how important this work item is, **from what was typed or
+   * from the line that was tapped** — both as a string, both through here.
+   *
+   * The table's own `setPriority`, handed to the other face rather than copied,
+   * and the string signature is the point of it. Three rules could drift
+   * between two faces over this one field, and all three live behind this call:
+   * a band's *name* resolves to the number it writes before anything is parsed
+   * (`priorityTyped`); a number that is not a whole one from 1 upward is
+   * refused **out loud**, with the toast the Prio column has raised since
+   * `priority-column`; and an emptied box is `null` and never `0`. A card that
+   * sent a parsed number would keep its own copy of all three, and the copies
+   * would agree until one was edited.
+   *
+   * `''` clears, which is the table's own reading of an emptied cell.
+   */
+  setPriority: (row: TreeRow, typed: string) => void;
+  /**
    * What kind of thing this row is: its own tags, the ones it inherits, or
    * neither.
    *
@@ -827,6 +844,229 @@ function CardNotBeforeField({
 }
 
 /**
+ * The priority on a card — the chip the header has always drawn, now the
+ * control that sets it.
+ *
+ * `card-field-pickers`' third field. The chip landed with `priority-bands` and
+ * says the band, the number and the colour; what a phone could not do was
+ * change any of them, because the only box in the app that writes a priority is
+ * a 48px column in a table no phone renders.
+ *
+ * **Five tapped lines and a typed number, which is Dany's own pair** (2026-08-13:
+ * _"I want to be able to easily select priority by labels or input a number
+ * manually"_) — the two languages the table's Prio cell speaks, in the two
+ * gestures a finger has.
+ *
+ * **The card does NOT mount {@link import('./priority-cell').PriorityCell}, and
+ * that is the opposite call from the team field's — deliberately.** The team
+ * sheet mounts the table's *own* `CreatablePicker` because the thing that could
+ * drift there is the list itself: an unbounded directory with a ranking rule, an
+ * `Add "…"` line and a first-line highlight that had already drifted once
+ * (`team-picker-substitutes`), so two implementations would be that bug twice.
+ * Nothing of the sort is true here. A ladder is five fixed lines — no filter, no
+ * creation, no ranking — and the three rules that *could* drift are already
+ * extracted and are reused verbatim by both faces: `priorityTyped` (which of the
+ * two languages a string is), `priorityBandStyleOf` (what colour a rank is) and
+ * {@link PlanCardsProps.setPriority} (what a refused number does). What is left
+ * of `PriorityCell` after those is grid machinery a card has none of — a
+ * `CellInput`/`LiveField` draft, an `onEnter` flush, eight chords through
+ * `onGridKey` — plus geometry measured for a 48px cell and wrong twice over in a
+ * sheet: `PickerList` is `position: absolute; top: 100%` of a box that is not the
+ * sheet, and its lines are padded `2px 6px`, which is a third of the 44px floor
+ * chunk 3 had CI measure. Reusing it would mean overriding both and sharing no
+ * rule that is not already shared.
+ *
+ * **A tapped line closes the sheet; the typed number needs Save.** The team
+ * field's rule and the date field's rule, each where it belongs, in one sheet:
+ * choosing a band *is* the whole gesture, and digits have no keystroke that
+ * means "and I am done" now that Enter belongs to a keyboard this face does not
+ * have.
+ *
+ * **The control is drawn on an unprioritised row**, the third time this file
+ * makes that departure and for the same reason: `data-card-priority` is still
+ * the *claim* and is still absent where nobody has ranked the row, so a card
+ * says nothing where every other face says nothing. The button around it is
+ * `data-card-priority-field` and is always there, because a control that
+ * appears only once a value exists cannot set the first one.
+ */
+function CardPriorityField({
+  row,
+  bands,
+  setPriority,
+}: {
+  row: TreeRow;
+  bands: readonly PriorityBandView[];
+  setPriority: (row: TreeRow, typed: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // The draft, seeded from the row on every open through the `key` below —
+  // `CardNotBeforeField`'s bargain and its reason: a controlled box fed from
+  // the row would be overwritten by a refetch mid-keystroke, and an
+  // uncontrolled one would still hold the previous row's digits on the next
+  // open. Nothing is sent until Save, so no refetch can land under the caret.
+  const [draft, setDraft] = useState(row.priority === null ? '' : String(row.priority));
+  const paint = priorityBandStyleOf(bands, row.priority);
+  const send = (typed: string): void => {
+    setPriority(row, typed);
+    setOpen(false);
+  };
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setDraft(row.priority === null ? '' : String(row.priority));
+        setOpen(next);
+      }}
+    >
+      <ModalTrigger asChild>
+        <button
+          type="button"
+          data-card-priority-field
+          // The table cell's own accessible name, so one plan read on two faces
+          // answers to one name.
+          aria-label={`Priority for ${row.number}`}
+          title={
+            paint === null
+              ? 'How important this work is: 1 upward, smaller first. Nobody has said yet.'
+              : `${paint.words}. Smaller is more important; it decides who gets a shared person first.`
+          }
+          // `TAP` from the first line, which is chunk 3's 21px lesson applied
+          // rather than re-learned: the 44px floor in `styles.css` is scoped to
+          // `[data-modal-surface]` and `[data-account-menu]`, and a card is
+          // neither.
+          className={`${TAP} inline-flex shrink-0 items-center`}
+        >
+          {paint === null ? (
+            // No `data-card-priority`: nobody has ranked this row, and the
+            // attribute is the ranking. What is drawn is the invitation.
+            <span className="text-muted-foreground rounded-full px-2 py-0.5 text-xs opacity-70">
+              priority…
+            </span>
+          ) : (
+            <span
+              data-card-priority={row.id}
+              data-priority-rank={paint.rank}
+              title={paint.words}
+              className="rounded-full px-2 py-0.5 text-xs font-semibold"
+              style={{ color: paint.ink, background: paint.tint }}
+            >
+              {paint.label} {row.priority}
+            </span>
+          )}
+        </button>
+      </ModalTrigger>
+      <ModalContent side="bottom">
+        <ModalHeader>
+          <ModalTitle>Priority for {row.number}</ModalTitle>
+          <ModalDescription>
+            Smaller is more important. It decides who gets a shared person first — it is not a date
+            and not a constraint.
+          </ModalDescription>
+        </ModalHeader>
+        <div className="flex flex-col gap-3" key={open ? 'open' : 'shut'}>
+          {/*
+            The ladder, most important first, each line saying the number it
+            writes — the Prio cell's `bandLine` bargain, in a button a thumb can
+            hit: a picker that hid the digits it was about to store would leave
+            the reader unable to predict what appears on the chip.
+          */}
+          <ul aria-label={`Priority bands for ${row.number}`} className="flex flex-col gap-1">
+            {bands.map((band, rank) => {
+              const line = priorityBandStyleOf(bands, band.defaultValue);
+              return (
+                <li key={`${row.id}-band-${String(rank)}`}>
+                  <button
+                    type="button"
+                    data-card-priority-band={rank}
+                    // `aria-pressed` and not `aria-selected`: these are buttons
+                    // in a list, not options in a listbox — nothing here owns a
+                    // focus the way a combobox owns its list's.
+                    aria-pressed={paint !== null && paint.rank === rank}
+                    className={`${TAP} flex w-full items-center justify-between rounded-md border px-3 text-left`}
+                    style={
+                      paint !== null && paint.rank === rank
+                        ? { background: line?.tint }
+                        : undefined
+                    }
+                    onClick={() => {
+                      // The band's own name, not its number: `priorityTyped`
+                      // resolves it behind `setPriority`, so a tapped line and a
+                      // typed name take the identical path and one of them
+                      // cannot start writing a different number from the other.
+                      send(band.label);
+                    }}
+                  >
+                    <span style={{ color: line?.ink, fontWeight: 600 }}>{band.label}</span>
+                    <span className="text-muted-foreground text-sm">{band.defaultValue}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Or a number</span>
+            {/*
+              `inputMode="numeric"` rather than `type="number"`, the Prio cell's
+              own call: a number input brings spinners a thumb cannot use and a
+              phone keyboard already has a letters key for the band names this
+              box also takes.
+
+              The cell id the table's own box carries — `rowId::priority`, one
+              string out of `cellKey` — so the two faces are the same cell
+              rather than two boxes over one field.
+            */}
+            <input
+              type="text"
+              inputMode="numeric"
+              aria-label={`Priority for ${row.number}, as a number`}
+              data-cell={cellKey(row.id, 'priority')}
+              data-card-priority-input
+              className={`${TAP} box-border w-full rounded-md border p-2 text-base`}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+            />
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-card-priority-save
+              className={`${TAP} inline-flex flex-1 items-center justify-center rounded-md border px-3 font-semibold`}
+              onClick={() => {
+                send(draft);
+              }}
+            >
+              Save
+            </button>
+            {/*
+              Its own control, `CardNotBeforeField`'s reason one field over:
+              "nobody has said" is a state a planner has to be able to get back
+              to, and emptying a box and finding Save is two gestures for what
+              is one decision. It sends the empty string, which is the table's
+              own reading of a cleared cell and becomes `null` — never `0` — at
+              the one place that rule is written down.
+            */}
+            {row.priority !== null && (
+              <button
+                type="button"
+                data-card-priority-clear
+                className={`${TAP} inline-flex items-center justify-center rounded-md border px-3`}
+                onClick={() => {
+                  send('');
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+/**
  * The plan as a list of outline cards: what a phone gets instead of the table.
  *
  * **The same plan, not a summary of it.** Every card is a work item of the same
@@ -885,6 +1125,7 @@ export function PlanCards({
   createTeam,
   hasCalendar,
   setNotBefore,
+  setPriority,
   tagLabel,
   serviceLabel,
   nonOwner,
@@ -971,22 +1212,13 @@ export function PlanCards({
                 carries the number as well as the name because the number is what
                 the table and the export show, and a phone reader comparing two
                 screens must not have to work out which `High` is 30.
+
+                Inside a button since `card-field-pickers` chunk 6: the chip is
+                still exactly the chip, and the control around it is always
+                drawn — see {@link CardPriorityField} for why the two are
+                separate attributes.
               */}
-              {(() => {
-                const paint = priorityBandStyleOf(priorityBands, row.priority);
-                if (paint === null) return null;
-                return (
-                  <span
-                    data-card-priority={row.id}
-                    data-priority-rank={paint.rank}
-                    title={paint.words}
-                    className="shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
-                    style={{ color: paint.ink, background: paint.tint }}
-                  >
-                    {paint.label} {row.priority}
-                  </span>
-                );
-              })()}
+              <CardPriorityField row={row} bands={priorityBands} setPriority={setPriority} />
               <span data-final-total className="text-muted-foreground ml-auto text-sm">
                 {showDay(row.finalTotal)} d
               </span>

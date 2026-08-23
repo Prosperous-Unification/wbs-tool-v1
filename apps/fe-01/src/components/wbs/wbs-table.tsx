@@ -9835,6 +9835,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           setNotBefore={(row, day, reason) => {
             setNotBefore(row.id, day, reason);
           }}
+          // The Prio cell's own writer, handed to the face that had none — and
+          // the string, not a parsed number, because `setPriority` is where
+          // three rules live that a card must not keep a second copy of: a
+          // band's name resolving to its number, the refusal toast for
+          // anything that is not a whole number from 1 upward, and an emptied
+          // box meaning `null` rather than `0`.
+          setPriority={(row, typed) => {
+            void setPriority(row.id, typed);
+          }}
           tagLabel={effectiveTagLabelOf}
           serviceLabel={effectiveServiceLabelOf}
           // The same sentence the Services cell's `△` carries, handed to the

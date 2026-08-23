@@ -91,7 +91,7 @@ const fixtureFloorOf = (row: WorkItemView): 'notBefore' | 'predecessor' | 'proje
 };
 
 function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): ProjectApi & {
-  patched: { id: string; name?: string; notes?: string }[];
+  patched: { id: string; name?: string; notes?: string; priority?: number | null }[];
   assignments: string[];
   /**
    * The plan itself, so a test can arrange one before the first render.
@@ -144,7 +144,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
   const services: ServiceView[] = [];
   const tags: TagView[] = [];
   const assigned = new Map<string, string>();
-  const patched: { id: string; name?: string; notes?: string }[] = [];
+  const patched: { id: string; name?: string; notes?: string; priority?: number | null }[] = [];
   const assignments: string[] = [];
   let next = 0;
 
@@ -272,6 +272,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         serviceTeamId?: string | null;
         startNoEarlierThan?: string | null;
         startNoEarlierThanReason?: string | null;
+        priority?: number | null;
       },
     ) => {
       if (options.refusePatch === true) return Promise.reject(new Error('forbidden'));
@@ -299,6 +300,11 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         }
         row.startNoEarlierThanReason = patch.startNoEarlierThanReason;
       }
+      // Moved on the row and not only recorded, because half of what the
+      // priority sheet's cases assert is what the *chip* says afterwards — a
+      // fake that took the patch and left the row alone would let a write that
+      // never reached the row read as green.
+      if (patch.priority !== undefined) row.priority = patch.priority;
       return Promise.resolve();
     },
     setEstimate: (id: string, roleId: string, days: Days) => {
@@ -1811,6 +1817,7 @@ function renderCards(
       // exactly what these row-actions tests want it doing.
       hasCalendar={false}
       setNotBefore={() => undefined}
+      setPriority={() => undefined}
       tagLabel={() => ({ state: 'none' })}
       serviceLabel={() => ({ state: 'none' })}
       nonOwner={() => null}
@@ -2294,5 +2301,157 @@ describe('setting a card’s earliest start', () => {
         selector: 'input[type=date]',
       }).value,
     ).toBe(DATED_PLAN.startsOn);
+  });
+});
+
+describe('setting a card’s priority', () => {
+  /**
+   * A phone plan with the fake kept, the team's and the date's shape: what a
+   * tap *sent* is the subject, and `patched` is where the fake records it.
+   */
+  async function aPhonePlan(
+    arrange: (rows: WorkItemView[]) => void = () => {
+      // The plan every project starts as: nobody has ranked anything.
+    },
+    howMany = 1,
+  ): Promise<ReturnType<typeof fakeApi>> {
+    const api = fakeApi();
+    for (let at = 0; at < howMany; at += 1) await api.create('p1', { parentId: null });
+    arrange(api.rows);
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  /** The control the chip now sits inside, drawn on every card with or without one. */
+  const priorityFields = (): HTMLElement[] => [
+    ...document.querySelectorAll<HTMLElement>('[data-card-priority-field]'),
+  ];
+  /** The ranking, which is a different thing from the control around it. */
+  const chipOnCard = (): HTMLElement | null => document.querySelector('[data-card-priority]');
+
+  const openTheSheet = async (): Promise<HTMLElement> => {
+    fireEvent.click(priorityFields()[0]);
+    return screen.findByRole('dialog', { name: 'Priority for 010' });
+  };
+
+  itDom('opens a sheet over the same cell the table’s Prio box edits', async () => {
+    // `plan-cards.tsx`'s opening contract and this field's third
+    // done-criterion: the box a card mounts is the box the table mounted.
+    const api = await aPhonePlan();
+
+    await openTheSheet();
+
+    expect(
+      screen.getByLabelText('Priority for 010, as a number').getAttribute('data-cell'),
+    ).toBe(`${api.rows[0]?.id ?? ''}::priority`);
+  });
+
+  itDom('is reachable on a row nobody has prioritised, and ranks it from a tapped band', async () => {
+    // The departure this file has now made three times: the chip is the claim
+    // and is absent here, so the control around it has to be drawn anyway — a
+    // control that appears once a value exists cannot set the first one.
+    const api = await aPhonePlan();
+    expect(chipOnCard()).toBeNull();
+    const before = api.patched.length;
+
+    await openTheSheet();
+    fireEvent.click(screen.getByRole('button', { name: /^High/ }));
+
+    // 30 and not the label: `priorityTyped` resolves the name behind
+    // `setPriority`, so a tapped line writes the band's own default value —
+    // the same number the table's picked line writes.
+    await waitFor(() => {
+      expect(api.patched.slice(before)).toEqual([{ id: api.rows[0]?.id, priority: 30 }]);
+    });
+    await waitFor(() => {
+      expect(chipOnCard()?.textContent).toBe('High 30');
+    });
+  });
+
+  itDom('takes a number typed into the box, which is Dany’s other language', async () => {
+    // "select priority by labels or input a number manually" (2026-08-13). The
+    // ladder is five rungs and a priority is any whole number from 1 up, so a
+    // sheet offering only the five would be the face that cannot say 42.
+    const api = await aPhonePlan();
+    const before = api.patched.length;
+    await openTheSheet();
+
+    fireEvent.change(screen.getByLabelText('Priority for 010, as a number'), {
+      target: { value: '42' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(api.patched.slice(before)).toEqual([{ id: api.rows[0]?.id, priority: 42 }]);
+    });
+    // 42 is in `Medium`'s range (41–60), which is the resolution being shared
+    // rather than the number being echoed.
+    await waitFor(() => {
+      expect(chipOnCard()?.textContent).toBe('Medium 42');
+    });
+  });
+
+  itDom('refuses what is not a whole number, in the table’s own words', async () => {
+    // The refusal path is the reason `setPriority` takes a string. A card that
+    // parsed the box itself would keep a second copy of this rule, and `null`
+    // on the wire is the *clear* — so a typo would silently unrank the row.
+    const api = await aPhonePlan();
+    const before = api.patched.length;
+    await openTheSheet();
+
+    fireEvent.change(screen.getByLabelText('Priority for 010, as a number'), {
+      target: { value: '1.5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('A priority is a whole number from 1 upward.')).toBeInTheDocument();
+    expect(api.patched.slice(before)).toEqual([]);
+  });
+
+  itDom('clears a ranking with its own control, and sends null rather than zero', async () => {
+    // "Nobody has said" is a state a planner has to be able to get back to, and
+    // emptying a box then finding Save is two gestures for one decision. The
+    // empty string is the table's own reading of a cleared cell; `Number('')`
+    // is 0, which is the trap the one shared writer exists to keep away from
+    // both faces.
+    const api = await aPhonePlan((rows) => {
+      rows[0].priority = 5;
+    });
+    const before = api.patched.length;
+    await openTheSheet();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+    await waitFor(() => {
+      expect(api.patched.slice(before)).toEqual([{ id: api.rows[0]?.id, priority: null }]);
+    });
+    await waitFor(() => {
+      expect(chipOnCard()).toBeNull();
+    });
+  });
+
+  itDom('seeds the box from the row again on the second open', async () => {
+    // What the `key` on the panel buys, `CardNotBeforeField`'s case one field
+    // over. Without it the sheet re-opens holding a draft the reader backed out
+    // of and offers to save it.
+    await aPhonePlan((rows) => {
+      rows[0].priority = 5;
+    });
+    const sheet = await openTheSheet();
+
+    fireEvent.change(screen.getByLabelText('Priority for 010, as a number'), {
+      target: { value: '77' },
+    });
+    fireEvent.keyDown(sheet, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Priority for 010' })).toBeNull();
+    });
+
+    await openTheSheet();
+    expect(
+      screen.getByLabelText<HTMLInputElement>('Priority for 010, as a number').value,
+    ).toBe('5');
   });
 });
