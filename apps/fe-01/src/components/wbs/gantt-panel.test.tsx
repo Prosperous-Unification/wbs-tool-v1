@@ -16,11 +16,14 @@ import type {
 import type { GanttPlan, GanttRow, GanttSlice } from './gantt-geometry';
 import { PERSON_BAR_COLORS, UNASSIGNED_BAR_COLOR } from './gantt-geometry';
 import {
+  axisNumberShown,
   barLabelFor,
   barText,
   CHART_PAD_PX,
   clampedGanttHeight,
   DAY_PX,
+  DAY_SCALES,
+  isDayPx,
   FALLBACK_GANTT_THEME,
   GANTT_CEILING_PX,
   GANTT_MIN_PX,
@@ -2428,11 +2431,11 @@ describe('the words on the bars are HTML over the chart', () => {
     // The composition, taken directly: the assignee part the width already
     // decided, then ` · `, then the row words — which are never dropped for
     // room, because the label box crops them with an ellipsis instead.
-    expect(barText('Kat', '010 - Strip', 4)).toBe('Kat · 010 - Strip');
-    expect(barText(null, '010 - Strip', 4)).toBe('010 - Strip');
+    expect(barText('Kat', '010 - Strip', 4, DAY_PX)).toBe('Kat · 010 - Strip');
+    expect(barText(null, '010 - Strip', 4, DAY_PX)).toBe('010 - Strip');
     // The one refusal: a bar without room for a single character.
-    expect(barText(null, '010 - Strip', 0.2)).toBeNull();
-    expect(barText('Kat', '010 - Strip', 0.2)).toBeNull();
+    expect(barText(null, '010 - Strip', 0.2, DAY_PX)).toBeNull();
+    expect(barText('Kat', '010 - Strip', 0.2, DAY_PX)).toBeNull();
   });
 
   itDom('carries the row words whole even where the box must crop them', () => {
@@ -2520,10 +2523,10 @@ describe('the words on the bars are HTML over the chart', () => {
     // The three answers of one measurement, taken directly: 4 workdays is
     // 112px and holds `Kat Bloom`; 1 workday is 28 and holds `KB`; a fifth of
     // one holds nothing.
-    expect(barLabelFor('Kat Bloom', 4)).toBe('Kat Bloom');
-    expect(barLabelFor('Kat Bloom', 1)).toBe('KB');
-    expect(barLabelFor('Kat Bloom', 0.2)).toBeNull();
-    expect(barLabelFor(null, 4)).toBeNull();
+    expect(barLabelFor('Kat Bloom', 4, DAY_PX)).toBe('Kat Bloom');
+    expect(barLabelFor('Kat Bloom', 1, DAY_PX)).toBe('KB');
+    expect(barLabelFor('Kat Bloom', 0.2, DAY_PX)).toBeNull();
+    expect(barLabelFor(null, 4, DAY_PX)).toBeNull();
   });
 
   itDom('takes initials from the first and last names, and never doubles one', () => {
@@ -5006,5 +5009,133 @@ describe('the exported chart is named after the reader’s own day', () => {
     // See verify.md.
     expect(ganttSvgFileName(new Date(2026, 7, 19, 0, 30))).toBe('gantt-chart-2026-08-19.svg');
     expect(ganttSvgFileName(new Date(2026, 7, 19, 23, 30))).toBe('gantt-chart-2026-08-19.svg');
+  });
+});
+
+describe('the day scale', () => {
+  itDom('draws the axis and the canvas at the rung it is handed, not at the default', () => {
+    // The defect this whole change exists for, stated as arithmetic: at 28px a
+    // day a 390px phone sees six days of a quarter. Both numbers that turn user
+    // space into pixels are checked together, because the fault a threaded
+    // scale can have is that only one of them moved — an axis at 28 over a
+    // canvas at 4 is a calendar that lies about every bar under it.
+    const { rerender } = render(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+
+    const cellAt = (offset: number): HTMLElement => {
+      const cell = document.querySelector<HTMLElement>(`[data-axis-day="${String(offset)}"]`);
+      if (cell === null) throw new Error(`no axis cell at ${String(offset)}`);
+      return cell;
+    };
+    const canvas = (): SVGSVGElement => {
+      const svg = document.querySelector('[data-gantt-panel] svg');
+      if (svg === null) throw new Error('no chart canvas');
+      return svg as SVGSVGElement;
+    };
+
+    // The default, unchanged: this is the chart every pixel assertion above is
+    // written against, asserted here so the rungs below are read as departures
+    // from a measured baseline rather than from a remembered one.
+    expect(cellAt(0).style.width).toBe(`${String(DAY_PX)}px`);
+    const wideCanvas = Number(canvas().getAttribute('width'));
+    const wideCells = document.querySelectorAll('[data-axis-day]').length;
+
+    rerender(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={4}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+
+    expect(cellAt(0).style.width).toBe('4px');
+    // The canvas is `horizon × dayPx + 2 × CHART_PAD_PX`, so the pad survives
+    // the rung and the schedule shrinks by exactly seven: subtracting the two
+    // pads from each end is what says the band outside the schedule stayed a
+    // pixel band rather than being scaled with the days.
+    const narrowCanvas = Number(canvas().getAttribute('width'));
+    expect(narrowCanvas - 2 * CHART_PAD_PX).toBeCloseTo((wideCanvas - 2 * CHART_PAD_PX) / 7, 6);
+    // Every cell is still there — the compressed axis loses glyphs, never days.
+    // A cell that vanished would take its weekend band, its today marker and
+    // its hover card with it. Counted against the **wide** axis taken before
+    // the rerender rather than against a written-out number, so a plan edited
+    // above cannot make this pass by agreeing with itself.
+    expect(document.querySelectorAll('[data-axis-day]').length).toBe(wideCells);
+    expect(wideCells).toBeGreaterThan(1);
+  });
+
+  itDom('keeps the week boundaries printed when the numbers stop fitting', () => {
+    // The axis rule, taken directly rather than through a render: two digits at
+    // 10px need about 11, so below AXIS_NUMBER_PX only the heavy cells print.
+    // The heavy one prints at **every** rung, because the week boundary is the
+    // rhythm a compressed axis is read by — an axis with nothing printed on it
+    // anywhere is a grey band, not a calendar.
+    expect(axisNumberShown({ shown: '17', heavy: true }, DAY_PX)).toBe('17');
+    expect(axisNumberShown({ shown: '18', heavy: false }, DAY_PX)).toBe('18');
+    expect(axisNumberShown({ shown: '17', heavy: true }, 4)).toBe('17');
+    expect(axisNumberShown({ shown: '18', heavy: false }, 4)).toBe('');
+    // 12 is under the threshold too: the middle rung is a month on a phone, and
+    // 30 two-digit numbers in 366px is the same smear 91 of them would be.
+    expect(axisNumberShown({ shown: '18', heavy: false }, 12)).toBe('');
+  });
+
+  itDom('offers every rung, and reports the one that was picked', () => {
+    const picked: number[] = [];
+    render(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={DAY_PX}
+        onPickDayPx={(rung) => picked.push(rung)}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+
+    const control = document.querySelector<HTMLSelectElement>('[data-gantt-day-scale]');
+    if (control === null) throw new Error('no day-scale control');
+    // The control offers the ladder itself, not a copy of it: a hand-written
+    // list here would go on passing after a rung was added or dropped.
+    expect([...control.options].map((option) => Number(option.value))).toEqual([...DAY_SCALES]);
+    expect(control.value).toBe(String(DAY_PX));
+
+    fireEvent.change(control, { target: { value: '4' } });
+    // Reported and **not** applied here: the panel draws what it is handed and
+    // remembers nothing, which is what lets the scale be a per-project answer
+    // the table stores. A panel that moved its own scale would show one thing
+    // while storage held another.
+    expect(picked).toEqual([4]);
+    expect(control.value).toBe(String(DAY_PX));
+  });
+
+  itDom('refuses a scale that is not one of the rungs', () => {
+    // The guard the storage boundary shares. Discrete and not a range: a stored
+    // 9 is a width no control can get back to, so a chart opened at it would be
+    // one nothing could return to a rung.
+    expect(isDayPx(28)).toBe(true);
+    expect(isDayPx(4)).toBe(true);
+    expect(isDayPx(9)).toBe(false);
+    expect(isDayPx('28')).toBe(false);
+    expect(isDayPx(null)).toBe(false);
   });
 });

@@ -38,18 +38,118 @@ import { shortIsoDate } from './short-date';
 import { hierarchyIndentFor } from './table-frame';
 
 /**
- * How wide one workday is on screen, in CSS pixels.
+ * How wide one workday may be drawn, in CSS pixels — the rungs a reader picks
+ * between, **widest first**.
  *
- * The one number that turns the chart's user space into pixels, and it is used
- * in exactly two places: the SVG's CSS width (`horizon × DAY_PX`) and the width
- * of one cell of the HTML axis above it. Nothing inside the SVG multiplies by
- * it — that is the whole of the coordinate contract (design §1), and a bar
- * whose `x` were computed here would be pixels asserted against pixels.
+ * The one number that turns the chart's user space into pixels. It used to be a
+ * constant, and on a phone that made the chart unreadable rather than merely
+ * cramped: `wbs-mobile-sweep` measured a 390×844 viewport showing **6 days of a
+ * 74-day plan** — 343px of panel, 176 of it the label column, 168px left for the
+ * chart at 28px a day, about twelve swipes end to end with nothing to zoom with.
+ *
+ * A ladder and not a continuous zoom, because every rung has to be a scale the
+ * chart is honest at: the axis has to stay legible ({@link axisNumberShown}) and
+ * the on-bar labels have to keep the same fitting rule ({@link barText}). Three
+ * discrete answers can each be judged; a slider's every intermediate value
+ * cannot.
+ *
+ * The rungs, and what each buys on a 390px phone with the label column out of
+ * the way (`390 − 2 × {@link CHART_PAD_PX}` = 366px of chart):
+ *
+ * - **28** — 13 days. The scale every chart opens at, unchanged, and the one
+ *   every existing pixel assertion is written against.
+ * - **12** — 30 days, a month.
+ * - **4** — 91 days, which is a quarter to within a day.
+ *
+ * 4 is below the 8px/day the mobile-parity plan proposed (§2.2), and the
+ * arithmetic is why: 8px/day buys 45 days on that same 366px, so a note asking
+ * for "a quarter fits" and offering 8px/day asked for two things that cannot
+ * both be true. The rung is picked from the criterion, not from the note.
+ *
+ * **91 and not 92.** A calendar quarter is 90–92 days depending which one; at
+ * the widest rung the last day of the longest quarter is two pixels past the
+ * edge. Said rather than rounded off — what the gate pins is the measured
+ * day-count at each rung, not the word "quarter".
+ */
+export const DAY_SCALES = [28, 12, 4] as const;
+
+/** One of {@link DAY_SCALES} — the only widths a chart is ever drawn at. */
+export type DayPx = (typeof DAY_SCALES)[number];
+
+/**
+ * What each rung is called on the control.
+ *
+ * The vocabulary every scheduling tool uses for its zoom, and it names the unit
+ * a reader is *reading in* rather than the unit the axis is printed in — the
+ * axis is days at every rung. The exact width is in the control's own title,
+ * where a number belongs.
+ */
+export const DAY_SCALE_NAMES: Record<DayPx, string> = {
+  28: 'Days',
+  12: 'Weeks',
+  4: 'Months',
+};
+
+/**
+ * Whether a claim off a boundary is one of the rungs.
+ *
+ * Beside the ladder rather than beside the storage read that needs it, so there
+ * is exactly one list of the widths this chart may be drawn at: a stored `9`
+ * has to be refused by the same array the control offers, or the two drift and
+ * a browser ends up holding a scale no control can get back to.
+ */
+export function isDayPx(claimed: unknown): claimed is DayPx {
+  return DAY_SCALES.some((rung) => rung === claimed);
+}
+
+/**
+ * The width a chart opens at, and the scale every pixel assertion written
+ * before the ladder existed is written against.
+ *
+ * Still used in exactly the two places the coordinate contract allows — the
+ * SVG's CSS width and one cell of the HTML axis — except that both now read the
+ * rung in force rather than this. Nothing inside the SVG multiplies by either;
+ * that is the whole of the contract (design §1), and a bar whose `x` were
+ * computed here would be pixels asserted against pixels.
  *
  * 28 is the narrowest a two-digit day-of-month reads at, measured against
  * nothing but the eye; the browser gate is what judges it after scaling.
  */
-export const DAY_PX = 28;
+export const DAY_PX: DayPx = 28;
+
+/**
+ * The room a printed axis number needs before it can stand in every cell, in
+ * CSS pixels.
+ *
+ * Two digits at `text-[10px]` come to about 11px, and 14 leaves the pair either
+ * side of it a hair of clear space. Below it the numbers would run into each
+ * other and the axis would be a grey smear rather than a calendar — so at the
+ * compressed rungs only the **heavy** cells print, and the rest keep their
+ * gridline, their weekend band, their `data-` attributes and their hover card
+ * while saying nothing.
+ *
+ * At 28 every cell prints, which is the axis exactly as it was.
+ */
+const AXIS_NUMBER_PX = 14;
+
+/**
+ * What one axis cell prints at `dayPx` — its number, or nothing.
+ *
+ * The gate is on the **cell**, not on the axis: a heavy cell prints at every
+ * rung, because the week boundary is the rhythm a compressed axis is read by
+ * and losing it would leave a band of days with no date anywhere on it. At
+ * 4px/day a Monday's neighbours are blank, so its two digits have 28px of
+ * room to overflow into and read clean.
+ *
+ * The one place this is tight is the **workday** axis of an undated plan, where
+ * the heavy cell is every fifth rather than every seventh and the number can
+ * reach three digits: 20px of room for 16px of glyph at the widest rung. Said
+ * rather than special-cased — it is legible, and a second rule for a second
+ * axis is a rule that can disagree with the first.
+ */
+export function axisNumberShown(day: { shown: string; heavy: boolean }, dayPx: number): string {
+  return dayPx >= AXIS_NUMBER_PX || day.heavy ? day.shown : '';
+}
 
 /**
  * How tall one row of the chart is, in CSS pixels.
@@ -300,14 +400,20 @@ export const CHART_PAD_PX = Math.max(ARROW_APPROACH_PX, NOT_BEFORE_LENGTH_PX) + 
 function arrowRoute(
   arrow: PlacedArrow,
   bars: readonly PlacedBar[],
+  dayPx: number,
 ): { elbow: string; head: string } {
   const at = (x: number, y: number): string => `${String(x)} ${String(y)}`;
   const toY = arrow.toRowIndex + ROW_MIDDLE;
+  // Both of these turn a **pixel** length into the user space's own unit, so
+  // the rung has to be the one in force: at 4px/day an approach of ten pixels
+  // is two and a half days of user space, not the third of a day it is at 28.
+  // Held constant, the head would shrink to a speck and the elbow would leave
+  // no clear band at all.
   const route = routeArrow(arrow, bars, {
-    approach: ARROW_APPROACH_PX / DAY_PX,
+    approach: ARROW_APPROACH_PX / dayPx,
     barInset: BAR_INSET,
   });
-  const headX = ARROW_HEAD_PX / DAY_PX;
+  const headX = ARROW_HEAD_PX / dayPx;
   const headY = ARROW_HEAD_HALF_PX / ROW_PX;
   return {
     elbow: route
@@ -640,9 +746,13 @@ export function initialsOf(personName: string): string {
  * Null rather than an empty string, so a caller cannot render a label that is
  * there and blank.
  */
-export function barLabelFor(personName: string | null, drawnSpan: number): string | null {
+export function barLabelFor(
+  personName: string | null,
+  drawnSpan: number,
+  dayPx: number,
+): string | null {
   if (personName === null || personName.trim() === '') return null;
-  const room = drawnSpan * DAY_PX - 2 * LABEL_PAD_PX;
+  const room = drawnSpan * dayPx - 2 * LABEL_PAD_PX;
   if (room >= personName.length * LABEL_CHAR_PX) return personName;
   const initials = initialsOf(personName);
   if (initials !== '' && room >= initials.length * LABEL_CHAR_PX) return initials;
@@ -671,10 +781,11 @@ export function poolLabelFor(
   team: ServiceTeamLabel,
   width: number,
   drawnSpan: number,
+  dayPx: number,
 ): string | null {
   const name = team.state === 'named' || team.state === 'inherited' ? team.name : null;
   if (name === null) return null;
-  const room = drawnSpan * DAY_PX - 2 * LABEL_PAD_PX;
+  const room = drawnSpan * dayPx - 2 * LABEL_PAD_PX;
   const candidates = width > 1 ? [`${name} ×${String(width)}`, `×${String(width)}`, name] : [name];
   return candidates.find((label) => room >= label.length * LABEL_CHAR_PX) ?? null;
 }
@@ -699,8 +810,13 @@ export function poolLabelFor(
  * crop them` on `expected 'Kat' to be 'Kat · strip - strip'` and the three
  * narrow-bar cases with it, every wide bar green. Watched 2026-08-09.
  */
-export function barText(who: string | null, words: string, drawnSpan: number): string | null {
-  if (drawnSpan * DAY_PX - 2 * LABEL_PAD_PX < LABEL_CHAR_PX) return null;
+export function barText(
+  who: string | null,
+  words: string,
+  drawnSpan: number,
+  dayPx: number,
+): string | null {
+  if (drawnSpan * dayPx - 2 * LABEL_PAD_PX < LABEL_CHAR_PX) return null;
   return who === null ? words : `${who} · ${words}`;
 }
 
@@ -724,8 +840,12 @@ export function barText(who: string | null, words: string, drawnSpan: number): s
  * failed, `1 failed | 90 passed`, on `expected 'Kat · sand - sand' to contain
  * '?'`. Watched 2026-08-12.
  */
-export function assumedLabelFor(personName: string | null, drawnSpan: number): string | null {
-  const room = drawnSpan * DAY_PX - 2 * LABEL_PAD_PX;
+export function assumedLabelFor(
+  personName: string | null,
+  drawnSpan: number,
+  dayPx: number,
+): string | null {
+  const room = drawnSpan * dayPx - 2 * LABEL_PAD_PX;
   const who = personName === null ? '' : personName.trim();
   const candidates = who === '' ? ['?'] : [`${who} · ?`, `${initialsOf(who)} · ?`, '?'];
   return candidates.find((label) => room >= label.length * LABEL_CHAR_PX) ?? null;
@@ -1342,6 +1462,18 @@ function monthCaptionFor(axis: readonly AxisDay[], startDate: IsoDate | null): s
 /** What {@link buildStandaloneGanttSvg} needs — every input already computed for the live render, nothing re-derived. */
 interface StandaloneGanttSvgInput {
   chartSvg: SVGSVGElement;
+  /**
+   * The rung the live chart is drawn at, carried across rather than assumed.
+   *
+   * The one field here that is not merely "already computed": the nested
+   * `<svg>` brings its own geometry over at whatever width the live panel sized
+   * it to, while the label column, the axis and the on-bar words are rebuilt
+   * from pixel arithmetic in this function. A constant here would let the two
+   * halves of one file disagree — bars laid out at 4px a day under an axis
+   * printed at 28 — which is precisely the drift a downloaded file cannot be
+   * checked for after the fact.
+   */
+  dayPx: number;
   labels: readonly GanttRowLabel[];
   axis: readonly AxisDay[];
   drawnBars: readonly PlacedBar[];
@@ -1366,7 +1498,7 @@ interface StandaloneGanttSvgInput {
  * arithmetic.
  */
 function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement {
-  const { chartSvg, labels, axis, drawnBars, monthCaption, theme } = input;
+  const { chartSvg, labels, axis, drawnBars, monthCaption, theme, dayPx } = input;
   const innerWidth = Number(chartSvg.getAttribute('width') ?? '0');
   const innerHeight = Number(chartSvg.getAttribute('height') ?? '0');
   const totalWidth = LABEL_COLUMN_PX + innerWidth;
@@ -1407,14 +1539,17 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
   root.appendChild(svgLine(0, ROW_PX, totalWidth, ROW_PX, theme.border));
 
   for (const day of axis) {
-    const cellX = LABEL_COLUMN_PX + CHART_PAD_PX + day.offset * DAY_PX;
+    const cellX = LABEL_COLUMN_PX + CHART_PAD_PX + day.offset * dayPx;
     if (day.weekend) {
-      const band = svgRect(cellX, 0, DAY_PX, ROW_PX, theme.mutedForeground);
+      const band = svgRect(cellX, 0, dayPx, ROW_PX, theme.mutedForeground);
       band.setAttribute('fill-opacity', '0.1');
       root.appendChild(band);
     }
+    // The same gate the live axis prints under: a downloaded chart of a
+    // compressed plan is a picture somebody looks at, and 91 two-digit numbers
+    // in 366px is a grey smear there for exactly the reason it is one on screen.
     root.appendChild(
-      svgText(cellX + DAY_PX / 2, ROW_PX / 2 + 3, day.shown, {
+      svgText(cellX + dayPx / 2, ROW_PX / 2 + 3, axisNumberShown(day, dayPx), {
         fontSize: 9,
         fontWeight: day.heavy ? '600' : undefined,
         fill: day.heavy ? theme.foreground : theme.mutedForeground,
@@ -1431,12 +1566,12 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
   for (const { bar, x, width } of drawnBars) {
     const who = bar.estimated
       ? bar.personName === null
-        ? poolLabelFor(bar.team, bar.width, width)
-        : barLabelFor(bar.personName, width)
-      : assumedLabelFor(bar.personName, width);
-    const shown = barText(who, rowWords(bar.workItemNumber, bar.workItemName), width);
+        ? poolLabelFor(bar.team, bar.width, width, dayPx)
+        : barLabelFor(bar.personName, width, dayPx)
+      : assumedLabelFor(bar.personName, width, dayPx);
+    const shown = barText(who, rowWords(bar.workItemNumber, bar.workItemName), width, dayPx);
     if (shown === null) continue;
-    const left = LABEL_COLUMN_PX + x * DAY_PX + CHART_PAD_PX + LABEL_PAD_PX;
+    const left = LABEL_COLUMN_PX + x * dayPx + CHART_PAD_PX + LABEL_PAD_PX;
     const top = ROW_PX + (bar.rowIndex + BAR_INSET) * ROW_PX + (BAR_HEIGHT * ROW_PX) / 2 + 3;
     root.appendChild(
       svgText(left, top, shown, {
@@ -1542,6 +1677,11 @@ export function GanttPanel({
   scheduleError,
   generation,
   heightPx,
+  // Resolved **here** and passed on explicitly, so {@link GanttChart} below
+  // takes both as required: optional at the panel's boundary, decided once, and
+  // never defaulted a second time somewhere that could disagree.
+  dayPx = DAY_PX,
+  onPickDayPx = () => undefined,
   onPickRow,
   onPointRow,
   pointedRow,
@@ -1566,6 +1706,8 @@ export function GanttPanel({
       startDate={startDate}
       generation={generation}
       heightPx={heightPx}
+      dayPx={dayPx}
+      onPickDayPx={onPickDayPx}
       onPickRow={onPickRow}
       onPointRow={onPointRow}
       pointedRow={pointedRow}
@@ -1598,6 +1740,33 @@ interface GanttProps {
    * {@link GANTT_VIEWPORT_SHARE} cap.
    */
   heightPx: number | null;
+  /**
+   * How wide one day is drawn — one of {@link DAY_SCALES}.
+   *
+   * A prop and not this panel's own state, which is where it parts from the
+   * detail switch beside it: the scale is **one plan's fit against one screen**,
+   * so it is remembered per project, and the caller is the only place that
+   * knows which project this is. The same bargain `heightPx` makes, for the
+   * same reason.
+   *
+   * **Optional, defaulting to {@link DAY_PX}** — the one prop pair here that is.
+   * There is exactly one production mount of this panel (`wbs-table.tsx`), so
+   * a required prop would buy no compiler pressure worth having, while the
+   * seventy-odd renders in `gantt-panel.test.tsx` are about bars, arrows and
+   * carets and have no opinion about the zoom. A case that *does* have one says
+   * so by passing a rung, which is also how it reads.
+   */
+  dayPx?: DayPx;
+  /**
+   * Says which rung the reader picked. The caller decides what remembering it
+   * means — this panel draws what it is handed and stores nothing.
+   *
+   * Optional for `dayPx`'s reason and defaulting to a no-op. The hazard that
+   * buys — a case that works the control and asserts nothing happened, and
+   * passes — is real and narrow: it bites only a case that goes looking for
+   * `[data-gantt-day-scale]`, and such a case is one that meant to pass a spy.
+   */
+  onPickDayPx?: (dayPx: DayPx) => void;
   /** Takes the plan to a row — the caller decides what "takes" means. */
   onPickRow: (rowId: string) => void;
   /**
@@ -1654,10 +1823,15 @@ function GanttChart({
   startDate,
   generation,
   heightPx,
+  dayPx,
+  onPickDayPx,
   onPickRow,
   onPointRow,
   pointedRow,
-}: Omit<GanttProps, 'scheduleError'>) {
+}: Omit<GanttProps, 'scheduleError' | 'dayPx' | 'onPickDayPx'> & {
+  dayPx: DayPx;
+  onPickDayPx: (dayPx: DayPx) => void;
+}) {
   // How far the chart is scrolled, in CSS pixels. Held only so the caption can
   // name the month actually on screen.
   const [scrolledPx, setScrolledPx] = useState(0);
@@ -1889,8 +2063,8 @@ function GanttChart({
   // The band outside the schedule, in the user space's own unit: a day is
   // {@link DAY_PX} across, so this is what {@link CHART_PAD_PX} is worth in
   // them. See there for why the canvas is wider than the horizon.
-  const pad = CHART_PAD_PX / DAY_PX;
-  const chartWidth = days * DAY_PX + 2 * CHART_PAD_PX;
+  const pad = CHART_PAD_PX / dayPx;
+  const chartWidth = days * dayPx + 2 * CHART_PAD_PX;
   const rowIdAt = (rowIndex: number): string | undefined => chart.labels[rowIndex]?.id;
   /**
    * Reports the row at `rowIndex` as the pointed one.
@@ -1920,7 +2094,7 @@ function GanttChart({
    * green. Watched, 2026-08-09.
    */
   const firstVisibleCell = Math.min(
-    Math.max(0, Math.floor((scrolledPx - CHART_PAD_PX) / DAY_PX)),
+    Math.max(0, Math.floor((scrolledPx - CHART_PAD_PX) / dayPx)),
     Math.max(0, days - 1),
   );
 
@@ -1961,6 +2135,9 @@ function GanttChart({
       drawnBars,
       monthCaption: monthCaptionFor(axis, startDate),
       theme: resolvedGanttTheme(),
+      // The rung this chart is on screen at, so the file is the chart as
+      // drawn — which is the whole promise the download makes.
+      dayPx,
     });
     const blob = new Blob([serializeStandaloneGanttSvg(standalone)], {
       type: 'image/svg+xml;charset=utf-8',
@@ -2097,6 +2274,47 @@ function GanttChart({
               >
                 Detail
               </button>
+              {/*
+              The day scale. A `<select>` and not a cycling button, which is the
+              obvious thing to reach for in 176px of corner: three rungs in one
+              native control that a finger, a keyboard and a screen reader all
+              already know, and a reader who wants `Days` back gets there in one
+              gesture rather than two. A cycler also has to say what pressing it
+              does next, which costs more words than naming the three.
+
+              It sits in the corner beside `Detail` because that corner is the
+              one place sticky in **both** directions — the scale has to be
+              reachable from wherever a 60-row chart has been scrolled to, and
+              the reader who most needs it is the one lost 2000px along it.
+              **Chunk 2 owns what becomes of this corner** when the label column
+              can be collapsed away: a control that lives inside a column that
+              can vanish is a control that can vanish with it.
+
+              `aria-label` and not a visible label: the corner has no room for
+              the word `Scale` beside the value, and a select whose accessible
+              name is the month caption above it would be no name at all.
+            */}
+              <select
+                data-gantt-day-scale
+                aria-label="Day scale — how wide one day is drawn"
+                title={`One day is ${String(dayPx)}px wide. Narrower rungs fit more of the plan on screen at once.`}
+                className="border-border hover:bg-accent ml-1 rounded border bg-transparent px-1 normal-case"
+                value={dayPx}
+                onChange={(pick) => {
+                  const asked = Number(pick.currentTarget.value);
+                  // Checked rather than cast, though every option here is a rung
+                  // by construction: `value` off a DOM node is a string from the
+                  // page, and the same guard the storage boundary uses is the
+                  // one that keeps this a `DayPx` without an assertion.
+                  if (isDayPx(asked)) onPickDayPx(asked);
+                }}
+              >
+                {DAY_SCALES.map((rung) => (
+                  <option key={rung} value={rung}>
+                    {DAY_SCALE_NAMES[rung]}
+                  </option>
+                ))}
+              </select>
               {/*
               The whole capability M4 owes: a standalone `.svg` of the chart
               as drawn — every bar, arrow, hand-off and colour, in a file that
@@ -2247,9 +2465,9 @@ function GanttChart({
                   ]
                     .filter((part) => part !== '')
                     .join(' ')}
-                  style={{ width: DAY_PX }}
+                  style={{ width: dayPx }}
                 >
-                  {day.shown}
+                  {axisNumberShown(day, dayPx)}
                 </span>
               ))}
             </div>
@@ -2270,7 +2488,7 @@ function GanttChart({
                 // fractional the last day is.
                 viewBox={`${String(-pad)} 0 ${String(placed.horizon + 2 * pad)} ${String(rowCount)}`}
                 preserveAspectRatio="none"
-                width={placed.horizon * DAY_PX + 2 * CHART_PAD_PX}
+                width={placed.horizon * dayPx + 2 * CHART_PAD_PX}
                 height={rowCount * ROW_PX}
                 style={{ display: 'block' }}
               >
@@ -2353,7 +2571,7 @@ function GanttChart({
                 same kind of fact: a property of the calendar rather than of any
                 row. A **column and not a hairline**: the axis cell is a whole
                 day wide, a 1px rule at its left edge would say "this instant"
-                when what is known is "this day", and at DAY_PX = 28 a tinted
+                when what is known is "this day", and at the widest rung a tinted
                 column is easier to find while scrolling than a line the width
                 of a gridline. The line down its leading edge is what makes the
                 boundary between done and not-yet legible when a bar covers the
@@ -2479,7 +2697,7 @@ function GanttChart({
                         width={bracket.to - bracket.from}
                         y={bracket.rowIndex + BAR_INSET}
                         height={BAR_HEIGHT}
-                        rx={BAR_RADIUS_PX / DAY_PX}
+                        rx={BAR_RADIUS_PX / dayPx}
                         ry={BAR_RADIUS_PX / ROW_PX}
                         className="fill-foreground/15"
                       />
@@ -2539,7 +2757,7 @@ function GanttChart({
               */}
                 {detailShown &&
                   placed.arrows.map((arrow) => {
-                    const route = arrowRoute(arrow, drawnBars);
+                    const route = arrowRoute(arrow, drawnBars, dayPx);
                     const id = `${arrow.predecessorId}->${arrow.successorId}`;
                     return (
                       <g key={id}>
@@ -2620,7 +2838,7 @@ function GanttChart({
                     data-gantt-not-before={flag.rowIndex}
                     d={
                       `M ${String(flag.x)} ${String(flag.rowIndex + NOT_BEFORE_CLEARANCE)} ` +
-                      `L ${String(flag.x + NOT_BEFORE_LENGTH_PX / DAY_PX)} ` +
+                      `L ${String(flag.x + NOT_BEFORE_LENGTH_PX / dayPx)} ` +
                       `${String(flag.rowIndex + BAR_INSET / 2)} ` +
                       `L ${String(flag.x)} ` +
                       `${String(flag.rowIndex + BAR_INSET - NOT_BEFORE_CLEARANCE)} Z`
@@ -2679,7 +2897,7 @@ function GanttChart({
                     width={width}
                     y={bar.rowIndex + BAR_INSET}
                     height={BAR_HEIGHT}
-                    rx={BAR_RADIUS_PX / DAY_PX}
+                    rx={BAR_RADIUS_PX / dayPx}
                     ry={BAR_RADIUS_PX / ROW_PX}
                     // Who is on it — an unestimated slice included, at 35% through
                     // {@link ASSUMED_BAR_CLASSES}. It used to be hollow, which was
@@ -2791,7 +3009,7 @@ function GanttChart({
                       data-priority-rank={paint.rank}
                       x={x}
                       y={bar.rowIndex + BAR_INSET}
-                      width={Math.min(PRIORITY_CAP_PX / DAY_PX, width)}
+                      width={Math.min(PRIORITY_CAP_PX / dayPx, width)}
                       height={BAR_HEIGHT}
                       fill={paint.ink}
                       pointerEvents="none"
@@ -2856,10 +3074,15 @@ function GanttChart({
                 // name: one label, and the person is the more specific fact.
                 const who = bar.estimated
                   ? bar.personName === null
-                    ? poolLabelFor(bar.team, bar.width, width)
-                    : barLabelFor(bar.personName, width)
-                  : assumedLabelFor(bar.personName, width);
-                const shown = barText(who, rowWords(bar.workItemNumber, bar.workItemName), width);
+                    ? poolLabelFor(bar.team, bar.width, width, dayPx)
+                    : barLabelFor(bar.personName, width, dayPx)
+                  : assumedLabelFor(bar.personName, width, dayPx);
+                const shown = barText(
+                  who,
+                  rowWords(bar.workItemNumber, bar.workItemName),
+                  width,
+                  dayPx,
+                );
                 if (shown === null) return null;
                 return (
                   <span
@@ -2882,9 +3105,9 @@ function GanttChart({
                       // Over the SVG, which now begins one band left of the
                       // schedule: the label's pixel is the bar's pixel only with
                       // the same band added. See {@link CHART_PAD_PX}.
-                      left: x * DAY_PX + CHART_PAD_PX,
+                      left: x * dayPx + CHART_PAD_PX,
                       top: (bar.rowIndex + BAR_INSET) * ROW_PX,
-                      width: width * DAY_PX,
+                      width: width * dayPx,
                       height: BAR_HEIGHT * ROW_PX,
                       lineHeight: `${String(BAR_HEIGHT * ROW_PX)}px`,
                       paddingLeft: LABEL_PAD_PX,

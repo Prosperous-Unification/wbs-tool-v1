@@ -83,7 +83,15 @@ import {
   startFloorByRow,
   type TagLabel,
 } from './gantt-geometry';
-import { clampedGanttHeight, GANTT_CEILING_PX, GANTT_MIN_PX, GanttPanel } from './gantt-panel';
+import {
+  clampedGanttHeight,
+  DAY_PX,
+  type DayPx,
+  GANTT_CEILING_PX,
+  GANTT_MIN_PX,
+  GanttPanel,
+  isDayPx,
+} from './gantt-panel';
 import { HoverPreview } from './hover-preview';
 import { initialsOf } from './initials';
 import {
@@ -748,6 +756,60 @@ function rememberedGanttHeight(projectId: string): number | null {
  */
 function rememberGanttHeight(projectId: string, heightPx: number): void {
   localStorage.setItem(ganttHeightKey(projectId), JSON.stringify(heightPx));
+}
+
+/**
+ * Where this browser remembers how wide one day of one project's chart is drawn.
+ *
+ * Per project for {@link ganttHeightKey}'s reason, and it is the same reason
+ * rather than a similar one: a scale is **this plan's span against this
+ * screen**, so a 74-day plan and a fortnight's worth of work want different
+ * answers and neither is a preference about the feature. That is where it parts
+ * from `wbs.ganttDetail`, which is one answer for the browser because turning
+ * sixty elbows off is a statement about elbows.
+ */
+const ganttDayPxKey = (projectId: string): string => `wbs.ganttDayPx.${projectId}`;
+
+/**
+ * The day scale this browser last picked for `projectId`, or none where it has
+ * never picked one — which opens the chart at {@link DAY_PX}.
+ *
+ * The stored value is a claim, not a fact: user-editable storage read at a
+ * boundary. Checked with {@link isDayPx} against the same `DAY_SCALES` array
+ * the control offers — **not** against a range — because the rungs are discrete
+ * and a stored `9` is a width no control can get back to, so a chart opened at
+ * it would be one nothing could return to a rung. Anything else takes the key
+ * with it.
+ *
+ * Deliberately not the "unknown is not OK" throw, for
+ * {@link rememberedGanttHeight}'s reason: the alternative is a chart nobody can
+ * open until they clear storage by hand, over a preference about its zoom.
+ */
+function rememberedGanttDayPx(projectId: string): DayPx | null {
+  const stored = localStorage.getItem(ganttDayPxKey(projectId));
+  if (stored === null) return null;
+  const claimed = parsedOrNothing(stored);
+  if (!isDayPx(claimed)) {
+    localStorage.removeItem(ganttDayPxKey(projectId));
+    return null;
+  }
+  return claimed;
+}
+
+/**
+ * Writes the day scale in force for `projectId`.
+ *
+ * Called when the control is used and at no other time, for
+ * {@link rememberGanttHeight}'s reason: opening a project must not change what
+ * is remembered about it.
+ */
+function rememberGanttDayPx(projectId: string, dayPx: DayPx): void {
+  localStorage.setItem(ganttDayPxKey(projectId), JSON.stringify(dayPx));
+}
+
+/** Forgets the remembered day scale for `projectId` — the third part of a {@link Layout reset}. */
+function forgetGanttDayPx(projectId: string): void {
+  localStorage.removeItem(ganttDayPxKey(projectId));
 }
 
 /**
@@ -2176,6 +2238,19 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     rememberedGanttHeight(projectId),
   );
   /**
+   * The day scale in force, and {@link DAY_PX} where this browser has never
+   * picked one for this project.
+   *
+   * A resolved rung rather than `DayPx | null`, which is where it parts from
+   * {@link ganttHeightPx} beside it: a height of `null` is a real state — the
+   * bounded default share, which is CSS and not a number — while there is no
+   * such thing as a chart drawn at no scale. What "never picked" buys is
+   * {@link resetLayout}'s answer, and that is `DAY_PX` either way.
+   */
+  const [ganttDayPx, setGanttDayPx] = useState<DayPx>(
+    () => rememberedGanttDayPx(projectId) ?? DAY_PX,
+  );
+  /**
    * Swaps the widths and the panel height whole when the project does.
    *
    * Not the expansion's effect, and not paired with a save: nothing is written
@@ -2189,6 +2264,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     widthProject.current = projectId;
     setWidthOverrides(rememberedWidthOverrides(projectId));
     setGanttHeightPx(rememberedGanttHeight(projectId));
+    setGanttDayPx(rememberedGanttDayPx(projectId) ?? DAY_PX);
   }, [projectId]);
   /**
    * What has been typed into the Find box.
@@ -3923,6 +3999,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     forgetWidthOverrides(projectId);
     setGanttHeightPx(null);
     forgetGanttHeight(projectId);
+    setGanttDayPx(DAY_PX);
+    forgetGanttDayPx(projectId);
   }
 
   /**
@@ -9681,12 +9759,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             card has no columns` failed on `expected <button …(2)></button> to
             be null` — the control on the sheet at 390px. Watched, 2026-08-09.
           */}
-          {(widthOverrides.size > 0 || ganttHeightPx !== null) && (
+          {(widthOverrides.size > 0 || ganttHeightPx !== null || ganttDayPx !== DAY_PX) && (
             <Button
               variant="outline"
               size="sm"
               type="button"
-              title="Forget the widths and the chart height dragged here, and lay the layout out at its own again"
+              title="Forget the widths, the chart height and the day scale set here, and lay the layout out at its own again"
               onClick={resetLayout}
             >
               Reset layout
@@ -10212,6 +10290,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             scheduleError={scheduleError}
             generation={chartRead.generation}
             heightPx={ganttHeightPx}
+            dayPx={ganttDayPx}
+            // Stored where it is set and nowhere else, exactly as a let-go drag
+            // is: opening a project must not write to it.
+            onPickDayPx={(picked) => {
+              setGanttDayPx(picked);
+              rememberGanttDayPx(projectId, picked);
+            }}
             onPickRow={goToRow}
             // The panel reports which row the pointer or a bar's focus is on,
             // and is handed back the answer both faces light. The two halves go

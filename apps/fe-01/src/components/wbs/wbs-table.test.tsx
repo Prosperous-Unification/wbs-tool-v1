@@ -21,6 +21,7 @@ import type {
 } from '@/lib/wbs-api';
 
 import { cellKey } from './editable-grid';
+import { DAY_PX } from './gantt-panel';
 import { initialsOf } from './initials';
 import { refusedDraftFor } from './live-editing';
 import {
@@ -9691,6 +9692,61 @@ describe('the widths this browser has dragged', () => {
       expect(laidOut().number).toBe('300px');
     });
     expect(localStorage.getItem(KEY)).toBe(JSON.stringify({ number: 240 }));
+  });
+});
+
+describe('the day scale this browser picked for this project', () => {
+  /** Where the key lives for the project every test in here opens. */
+  const KEY = 'wbs.ganttDayPx.p1';
+
+  const openTheChart = async (): Promise<HTMLSelectElement> => {
+    await threeRoots();
+    fireEvent.click(screen.getByRole('button', { name: 'Gantt' }));
+    const control = document.querySelector<HTMLSelectElement>('[data-gantt-day-scale]');
+    if (control === null) throw new Error('no day-scale control rendered');
+    return control;
+  };
+
+  itDom('opens the chart at the remembered rung, and the axis with it', async () => {
+    localStorage.setItem(KEY, '4');
+    const control = await openTheChart();
+    expect(control.value).toBe('4');
+    // The stored rung reaches the drawing and not merely the control: a scale
+    // the select agrees with while the chart stays at 28 is the whole feature
+    // failing quietly.
+    const cell = document.querySelector<HTMLElement>('[data-axis-day="0"]');
+    expect(cell?.style.width).toBe('4px');
+  });
+
+  itDom('opening a project does not change what is remembered about it', async () => {
+    localStorage.setItem(KEY, '12');
+    await openTheChart();
+    expect(localStorage.getItem(KEY)).toBe('12');
+  });
+
+  itDom('writes the rung that was picked', async () => {
+    const control = await openTheChart();
+    expect(localStorage.getItem(KEY)).toBeNull();
+    fireEvent.change(control, { target: { value: '12' } });
+    expect(localStorage.getItem(KEY)).toBe('12');
+    expect(document.querySelector<HTMLElement>('[data-axis-day="0"]')?.style.width).toBe('12px');
+  });
+
+  itDom('refuses a width that is not one of the rungs, and drops the key', async () => {
+    // Discrete and not a range, which is where this parts from the height
+    // beside it: 9 is between two rungs and inside every plausible bound, and a
+    // chart opened at it is one no control can return to a rung.
+    localStorage.setItem(KEY, '9');
+    const control = await openTheChart();
+    expect(control.value).toBe(String(DAY_PX));
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  itDom('refuses storage that is not a number at all, and drops the key', async () => {
+    localStorage.setItem(KEY, 'wide please');
+    const control = await openTheChart();
+    expect(control.value).toBe(String(DAY_PX));
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });
 
