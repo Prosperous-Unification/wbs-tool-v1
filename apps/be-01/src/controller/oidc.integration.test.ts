@@ -134,6 +134,27 @@ describe('OIDC browser routes', () => {
     expect(f.tokens.read('binding-1')?.refreshToken).toBe('refresh-1');
   });
 
+  it('exchanges with the configured HTTPS callback behind an HTTP reverse proxy', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+    const res = await f.app.handle(
+      new Request('http://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1', 'x-forwarded-proto': 'https' },
+      }),
+    );
+
+    expect(res.status).toBe(302);
+    const exchange = f.calls.exchange[0] as { request: Request };
+    expect(exchange.request.url).toBe(
+      'https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1',
+    );
+  });
+
   it('rejects cross-origin refresh before reading the stored token', async () => {
     const f = fixture();
     f.tokens.save({

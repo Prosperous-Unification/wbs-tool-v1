@@ -145,7 +145,13 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
       const transaction = oidc.transactions.consume(binding, state);
       if (transaction === null) return emptyResponse(400, [clear('__Host-wbs_oidc')]);
 
-      const tokenSet = await oidc.client.exchange(request, {
+      const callbackUrl = new URL(oidc.redirectUri);
+      callbackUrl.search = new URL(request.url).search;
+      const providerCallback = new Request(callbackUrl, {
+        headers: request.headers,
+        method: request.method,
+      });
+      const tokenSet = await oidc.client.exchange(providerCallback, {
         nonce: transaction.nonce,
         state,
         verifier: transaction.verifier,
