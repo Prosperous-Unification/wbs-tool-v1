@@ -308,6 +308,13 @@ test.describe('the plan on a phone, measured by a browser', () => {
       // Measured whether or not the plan has a start date — a disabled trigger
       // is still the thing a thumb lands on.
       page.getByRole('button', { name: 'Earliest start for 010' }),
+      // The priority field, `card-field-pickers` chunk 6, in this list on the
+      // way in for the same reason. It is the one trigger of the four that was
+      // already drawn before it was a control — the chip has been in the card
+      // header since `priority-bands` — so it is also the one where "it was
+      // visible, therefore it was hittable" is easiest to believe and wrong: a
+      // `text-xs` chip with `py-0.5` is about 20px.
+      page.getByRole('button', { name: 'Priority for 010' }),
     ];
     for (const control of controls) {
       const box = await control.boundingBox();
@@ -555,6 +562,76 @@ test.describe('the plan on a phone, measured by a browser', () => {
       .locator('[data-card-not-before]');
     await expect(saved).toContainText('not before 15 Jul');
     await expect(saved).toHaveAttribute('title', new RegExp(`Why: ${reason}`));
+  });
+
+  /**
+   * The third field's round trip: a priority set on a phone, by both of the two
+   * languages the sheet speaks, surviving a reload.
+   *
+   * `card-field-pickers`' fifth done-criterion for `priority`, and the one no
+   * jsdom case can make — those answer a fake api, and "it committed" is a
+   * claim about be-01.
+   *
+   * **Both gestures in one case, and deliberately so.** Dany asked for two
+   * (2026-08-13: _"select priority by labels or input a number manually"_), and
+   * they are not two skins on one path — a tapped band sends the band's *name*
+   * and a typed number sends digits, and it is `priorityTyped`, behind
+   * `setPriority`, that turns the first into the second. Splitting them into two
+   * cases would leave the interesting half untested: that the tapped line and
+   * the typed number agree about what lands on the row. So the case taps `High`,
+   * checks the row reads `High 30`, then types `42` over it and checks the row
+   * reads `Medium 42` — a number nothing in the ladder would ever have written,
+   * resolved to a band by the same one function the table's cell reads.
+   *
+   * The reload is between them rather than only at the end, because a chip
+   * re-rendered from React state and a chip re-rendered from the server look
+   * identical and are not the same claim.
+   *
+   * Non-vacuous at the start: `data-card-priority` is the *ranking*, and a row
+   * nobody has prioritised does not draw it — so `toHaveCount(0)` before the
+   * first tap is what stops a selector typo passing as a pass.
+   */
+  test('sets a priority from a card by touch, both ways, and still says so after a reload', async ({
+    page,
+  }) => {
+    const field = page.getByRole('button', { name: 'Priority for 010' });
+
+    // Unlike the earliest start, this field needs nothing arranged first: a
+    // priority is a number on a row, not a constraint against a calendar, so
+    // there is no day zero to give the plan and no disabled state to clear.
+    await expect(field).toBeEnabled();
+    await expect(field.locator('[data-card-priority]')).toHaveCount(0);
+
+    await field.click();
+    await expect(page.getByRole('dialog', { name: 'Priority for 010' })).toBeVisible();
+    // A band is one tap and no Save — the team sheet's rule, because choosing
+    // *is* the whole gesture. `data-card-priority-band` is keyed on the rung
+    // and never on the label: a project may rename `High`, and the rung is what
+    // "more important" means.
+    await page.locator('[data-card-priority-band="1"]').click();
+    await expect(page.getByRole('dialog', { name: 'Priority for 010' })).toBeHidden();
+
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Priority for 010' }).locator('[data-card-priority]'),
+    ).toHaveText('High 30');
+
+    // The other language, over the top of the first. The box takes digits and
+    // needs a Save, because there is no keystroke on this face that means "and
+    // I am done" — the date field's rule, for the date field's reason.
+    await page.getByRole('button', { name: 'Priority for 010' }).click();
+    await page.locator('[data-card-priority-input]').fill('42');
+    await page.locator('[data-card-priority-save]').click();
+    await expect(page.getByRole('dialog', { name: 'Priority for 010' })).toBeHidden();
+
+    await page.reload();
+    // `Medium 42`: the number is what was typed and the word is what the ladder
+    // makes of it — 42 falls in Medium's range (41–60) and no band would have
+    // written it, so this line is the shared resolution being read back rather
+    // than the input being echoed.
+    await expect(
+      page.getByRole('button', { name: 'Priority for 010' }).locator('[data-card-priority]'),
+    ).toHaveText('Medium 42');
   });
 
   /**

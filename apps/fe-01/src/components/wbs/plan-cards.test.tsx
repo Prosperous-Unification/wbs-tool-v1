@@ -2393,20 +2393,33 @@ describe('setting a card’s priority', () => {
     });
   });
 
-  itDom('refuses what is not a whole number, in the table’s own words', async () => {
-    // The refusal path is the reason `setPriority` takes a string. A card that
-    // parsed the box itself would keep a second copy of this rule, and `null`
-    // on the wire is the *clear* — so a typo would silently unrank the row.
+  itDom('refuses a word, out loud, and sends nothing — because null is the clear', async () => {
+    // The refusal path is the reason {@link PlanCardsProps.setPriority} takes a
+    // string, and the rule it keeps is narrower than its own sentence sounds.
+    // `setPriority` refuses exactly what **JSON cannot carry**: `Number('urgent')`
+    // is `NaN`, `Number('1e999')` is `Infinity`, and both arrive on the wire as
+    // `null` — which is the request that *clears* a priority. So a typo left to
+    // the server would silently unrank the row somebody was ranking.
+    //
+    // Everything finite goes out and is answered on, `1.5` and `0` and `-1`
+    // included, because what a priority may *be* is be-01's rule and a second
+    // copy here is one that can quietly disagree. This case was first written
+    // with `1.5` on the assumption the word "whole" in the toast described the
+    // guard; the fake recorded `{ priority: 1.5 }` and no toast appeared. Kept
+    // as a comment because a card that grew its own parse would make exactly
+    // that mistake in code.
     const api = await aPhonePlan();
     const before = api.patched.length;
     await openTheSheet();
 
     fireEvent.change(screen.getByLabelText('Priority for 010, as a number'), {
-      target: { value: '1.5' },
+      target: { value: 'urgent' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText('A priority is a whole number from 1 upward.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('A priority is a whole number from 1 upward.'),
+    ).toBeInTheDocument();
     expect(api.patched.slice(before)).toEqual([]);
   });
 
