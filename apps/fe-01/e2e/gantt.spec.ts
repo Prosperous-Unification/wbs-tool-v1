@@ -1047,6 +1047,57 @@ test.describe('the chart under a plan being edited', () => {
     await setDate(page, 'Earliest start for 010.2', '2026-09-07');
     await expect(page.locator('[data-gantt-bar][data-start="20"][data-finish="24"]')).toBeVisible();
   });
+
+  test('moves the axis onto the day picked for the plan, with the box never left', async ({
+    page,
+  }) => {
+    // **The bug Dany reported, and the one gesture that shows it**
+    // (`wbs-gantt-stale-on-start-date`): *"changing the start date in WBS does
+    // not automatically re-render the gantt chart."* It was never the chart —
+    // `gantt-panel.tsx` memoises nothing and places the calendar in its render
+    // body — it was that nothing had been **sent**. A day picked from Chrome's
+    // popup lands in the box with the focus still in it, and `DateField` used
+    // to hold every value until the box was left, so the axis, the table and
+    // the server all still held the old day while the screen showed the new one.
+    //
+    // So this test leaves nothing and reloads nothing. The pick is delivered
+    // the way the browser delivers one — the element's own `change`, focus kept,
+    // no key — and then the axis has to move on its own.
+    //
+    // Proof: the `onChange` handler removed from `date-field.tsx`, this fails
+    // on the axis still reading `2026-08-10` after the pick.
+    await seedPlan(page, nextAccount());
+    await openTheChart(page);
+
+    // Day zero as seeded: the axis starts on the plan's own start date.
+    await expect(page.locator('[data-axis-day="0"]')).toHaveAttribute('data-axis-date', PLAN_START);
+
+    const starts = page.getByLabel('Project start date');
+    const saved = page.waitForResponse((response) => response.request().method() === 'PATCH');
+    await starts.evaluate((node) => {
+      if (!(node instanceof HTMLInputElement)) throw new Error('the start date is not an input');
+      node.focus();
+      node.value = '2026-09-07';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await saved;
+
+    // The axis is drawn against the new day zero — with nothing in this test
+    // having left the box, tabbed out of it or reloaded the page, which is the
+    // whole claim.
+    await expect(page.locator('[data-axis-day="0"]')).toHaveAttribute(
+      'data-axis-date',
+      '2026-09-07',
+    );
+    await expect(starts).toHaveValue('2026-09-07');
+    // The write's own window, said out loud, is also the one thing the pick
+    // costs the reader: the toolbar disables its controls while the refetch is
+    // in flight (`busyAffordance`), and disabling a focused input drops the
+    // focus out of it. The day is saved either way; the box is simply no longer
+    // the one holding the caret afterwards.
+    await expect(page.locator('[data-toolbar]')).toHaveAttribute('aria-busy', 'false');
+  });
 });
 
 /**

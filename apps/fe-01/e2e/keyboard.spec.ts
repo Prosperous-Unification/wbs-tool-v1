@@ -547,6 +547,43 @@ test.describe('the command chords, in a browser', () => {
     await expect(page.getByLabel('Earliest start for 010', { exact: true })).toHaveValue('5 Jul');
   });
 
+  test('saves only the year that was typed, digit by digit, in a real Chrome', async ({ page }) => {
+    // **The other half of the keydown rule, and the half jsdom cannot own.**
+    // Since 2026-08-23 a `change` with no key behind it is a picked day and is
+    // sent at once (`date-field.tsx`); the guard that keeps the year-`0002`
+    // fault dead is that real typing fires a `keydown` per digit *before* the
+    // `change` that digit completes. `date-field.test.tsx` can be told there
+    // was a key. Only a browser can say there really is one, and only a browser
+    // types `2026` as `0002`, `0020`, `0202`, `2026` in the first place.
+    //
+    // Proof: `typedSinceFocus.current = true` removed from `onKeyDown`, this
+    // fails on `Expected: "20 May" / Received: "17 Aug"` — the year committed
+    // as `0002`, the refetch answering over the caret, and the rest of the
+    // digits landing in a box that had already moved on. Watched, 2026-08-23.
+    await seedRows(page, `e2e-keys-${String(Date.now())}-${String(account)}`, 1);
+    await setProjectStart(page);
+
+    await page.getByLabel('Earliest start for 010', { exact: true }).click();
+    const editor = page.locator('tbody input[type="date"]');
+    await expect(editor).toHaveAttribute('type', 'date');
+    await editor.click();
+    // Typed as a person types it: the segments in the order Chrome puts the
+    // caret through them, one keystroke at a time.
+    await editor.pressSequentially('05202026', { delay: 30 });
+
+    // The whole year is in the box, which is also this test saying out loud
+    // what it assumes about the browser: Chrome's date input takes the segments
+    // in `MM DD YYYY` order under the `en-US` locale Playwright runs in, so
+    // `05202026` is 20 May 2026 and a locale change would fail here rather than
+    // somewhere further down.
+    await expect(editor).toHaveValue('2026-05-20');
+
+    await page.getByLabel('Name of 010').click();
+    await expect(page.getByLabel('Earliest start for 010', { exact: true })).toHaveValue('20 May');
+    await page.reload();
+    await expect(page.getByLabel('Earliest start for 010', { exact: true })).toHaveValue('20 May');
+  });
+
   test('a held Ctrl+D arms once and never deletes', async ({ page }) => {
     await seedRows(page, `e2e-keys-${String(Date.now())}-${String(account)}`, 3);
 

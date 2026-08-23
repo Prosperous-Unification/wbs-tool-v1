@@ -48,25 +48,47 @@ export interface DateFieldProps extends PassedThrough {
  * on 2026-08-09 was saved starting in **year 0002**, and one intermediate year
  * (`82026`) was refused with a raw `http_422`. Observed live, in Chrome.
  *
- * **The rule, and it is one rule: the box is left, then it is sent.** Nothing
- * is committed while the field has the focus, however many `change` events the
- * browser fires into it — Enter is the one way to send without leaving. That is
- * deliberately the *same* rule in jsdom and in a browser, which is what makes a
- * jsdom test an honest oracle for it: a rule that tried to tell segment typing
- * apart from a calendar pick would be judged by an environment that performs
- * neither.
+ * **The rule, and it is one rule with one exception: the box is left, then it
+ * is sent — unless nobody typed.** Nothing is committed while the field has the
+ * focus and keys are landing in it, however many `change` events the browser
+ * fires; Enter is the one way to send without leaving.
  *
- * The cost, stated twice over. A date chosen from the native calendar popup is
- * saved when the reader moves on rather than the instant they click a day —
- * Chrome returns the focus to the input when that popup closes, so there is no
- * earlier moment this component can see, and "saved when you leave the field"
- * is what every other box on this page already does. And **Tab does not leave a
- * date input in Chrome**: it steps between the day, month and year segments, so
- * a keyboard leaves this box on the third Tab or on Enter. Measured on
- * 2026-08-09 rather than assumed — `document.activeElement` was still the box
- * after a Tab, which is why `e2e/gantt.spec.ts` blurs rather than tabbing and
- * why Enter is here at all. A row's `Not before` is unaffected: the table's own
- * `onTabKey` takes Tab from that cell and moves the caret itself.
+ * **The exception, and what tells the two apart.** A day arriving from the
+ * native calendar popup fires exactly one `change` with **no `keydown` in this
+ * box since the focus arrived** — Chrome's picker is browser UI and delivers no
+ * keys to the page — while segment typing is nothing *but* keydowns, one per
+ * digit, each fired before the `change` it completes. So a `change` with no key
+ * behind it is a pick, and a pick is sent at once. The year-`0002` fault is
+ * untouched by that: every one of its four dates arrives behind a keystroke.
+ *
+ * That exception was bought on 2026-08-23, against `wbs-gantt-stale-on-start-date`
+ * — Dany: *"changing the start date in WBS does not automatically re-render the
+ * gantt chart."* It was never the chart: a Browser Use run against dev read the
+ * table, the axis and the network around a picked day and **nothing had been
+ * sent** (`queue/tasks/2026-08-23-wbs-gantt-stale-on-start-date.md`, chunk 2).
+ * On the one control whose value is the whole screen's calendar, "saved when
+ * you move on" reads as a screen that ignores you.
+ *
+ * The remaining cost, and it is real: **Escape after a pick is an undo, not a
+ * cancel** — the day is already at the server by then, so Escape puts the box
+ * back *and sends the day the box held when the focus arrived*. `heldAtFocus`
+ * is what makes that possible, and it is why Escape no longer restores from
+ * `agreed`: after a pick, `agreed` is the abandoned day.
+ *
+ * And **Tab does not leave a date input in Chrome**: it steps between the day,
+ * month and year segments, so a keyboard leaves this box on the third Tab or on
+ * Enter. Measured on 2026-08-09 rather than assumed — `document.activeElement`
+ * was still the box after a Tab, which is why `e2e/gantt.spec.ts` blurs rather
+ * than tabbing and why Enter is here at all. A row's `Not before` is
+ * unaffected: the table's own `onTabKey` takes Tab from that cell and moves the
+ * caret itself.
+ *
+ * **jsdom is no longer the whole oracle, and the tests say where each half
+ * lives.** jsdom can be *told* there was a keydown, so it can check that the
+ * rule branches on one; only a browser can say which gesture really produces
+ * one. Both halves are in `e2e/keyboard.spec.ts`: a day picked with a `change`
+ * the element fires itself, and a year typed digit by digit with
+ * `pressSequentially`.
  *
  * **Uncontrolled while it is on screen**, which is the other half of the fault:
  * a `value` prop is React re-asserting the server's answer on every render, and
@@ -83,8 +105,22 @@ export interface DateFieldProps extends PassedThrough {
  * over a reader who is in the box` failed on `expected '2026-09-01' to be
  * '2026-08-17'`. All watched, 2026-08-09.
  */
-export function DateField({ value, commit, onExit, onKeyDown, ...rest }: DateFieldProps) {
+export function DateField({ value, commit, onExit, onKeyDown, onFocus, ...rest }: DateFieldProps) {
   const box = useRef<HTMLInputElement | null>(null);
+  /**
+   * Whether a key has landed in this box since the focus arrived — the one
+   * thing that tells a typed segment from a picked day.
+   *
+   * `false` while it holds, so the next `change` is a pick and is sent at once.
+   */
+  const typedSinceFocus = useRef(false);
+  /**
+   * The day the box held when the focus arrived — what Escape puts back.
+   *
+   * Not `agreed`: a picked day is already sent and already agreed, so restoring
+   * from `agreed` after a pick would restore the day being abandoned.
+   */
+  const heldAtFocus = useRef(value);
   /**
    * The day this box last agreed with the server about — what a commit is
    * compared against.
@@ -132,7 +168,25 @@ export function DateField({ value, commit, onExit, onKeyDown, ...rest }: DateFie
       // Uncontrolled: see the note above. `defaultValue` seeds the box, the
       // effect keeps it in step, and neither of them writes over typing.
       defaultValue={value}
+      onFocus={(event) => {
+        typedSinceFocus.current = false;
+        heldAtFocus.current = event.currentTarget.value;
+        onFocus?.(event);
+      }}
+      onChange={() => {
+        // Typing lands here too — once per completed segment, which is the
+        // whole fault above — and typing is exactly what this returns for.
+        if (typedSinceFocus.current) return;
+        // No key since the focus arrived: the browser put this day in the box
+        // itself, which is a pick, and a pick is a finished gesture. Sending it
+        // now is the difference between a chart that follows the reader and one
+        // that waits for them to click somewhere else first.
+        commitIfChanged();
+      }}
       onKeyDown={(event) => {
+        // Before every branch below, including the ones that commit: from here
+        // on this edit is typing, and typing is sent on the way out.
+        typedSinceFocus.current = true;
         // Before the caller's handler, because the caller's is what moves the
         // caret on: `Ctrl/⌘ + Enter` from a row's date cell lands in the next
         // row, and the date has to have been sent by then.
@@ -165,7 +219,20 @@ export function DateField({ value, commit, onExit, onKeyDown, ...rest }: DateFie
           // project start date back, and leaving it does not send the abandoned
           // day` failed on `expected "2026-09-09" to be "2026-06-01"`.
           // Watched in Chromium, 2026-08-09.
-          node.value = agreed.current;
+          node.value = heldAtFocus.current;
+          // **After a pick, Escape has something to take back rather than
+          // something to withhold.** A picked day is sent the moment it lands,
+          // so by the time Escape arrives the server is holding the day being
+          // abandoned and putting the box back would leave the two disagreeing
+          // — the box saying one day, the chart drawing another. This is the
+          // one commit in this component that is not "what is in the box now".
+          //
+          // Nothing is sent for the typing path, where `agreed` and
+          // `heldAtFocus` are the same day: that is the old behaviour exactly.
+          if (agreed.current !== heldAtFocus.current) {
+            agreed.current = heldAtFocus.current;
+            commit(heldAtFocus.current);
+          }
           onExit?.('cancel');
         }
         onKeyDown?.(event);
