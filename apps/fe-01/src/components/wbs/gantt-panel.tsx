@@ -2183,192 +2183,6 @@ function GanttChart({
 
   return (
     <>
-      {/*
-        The chart's controls, and they are **outside** the scroll box on
-        purpose. Chunk 1 left them `sticky left-0 top-0` in the label column's
-        corner and named the hazard it was leaving: a control living inside a
-        column that can vanish is a control that can vanish with it. Chunk 2 is
-        that column becoming collapsible, so this is the debt falling due.
-
-        A sibling of the scroll box is visible at every scroll offset by
-        construction — nothing to stack against, no z-index to hold, and no
-        share of the `isolate` contest the section below has already lost once.
-        Sticky bought the same reachability with a stacking argument that has to
-        keep being won.
-
-        It also settles the question chunk 1 handed forward unmeasured —
-        whether four controls fit in 176px of corner. They no longer have to:
-        this row is as wide as the panel, which on the 390px phone this task is
-        about is 343px rather than 176, and that is what makes the 44px floor in
-        `styles.css` affordable here at all. That floor now reaches
-        `[data-gantt-controls]`, which is the fourth time this panel's controls
-        have been measured under it and the first time they pass.
-
-        `border-t` and not `border-b`: the height handle is the strip's own top
-        edge, and two lines 6px apart read as a mistake.
-      */}
-      <div
-        data-gantt-controls
-        className="border-border text-muted-foreground flex flex-wrap items-center gap-1 border-t px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
-      >
-        <span data-gantt-month>
-          {(() => {
-            if (startDate === null) return 'Workday';
-            // The nullish arm is the workday axis's cells, which a dated
-            // plan never builds — but the index above is clamped, not
-            // proven, and 'Workday' is the honest fallback either way.
-            const visibleDate = axis[firstVisibleCell]?.date ?? null;
-            return visibleDate === null ? 'Workday' : monthWords(visibleDate);
-          })()}
-        </span>
-        {/*
-          The label column's own switch. First control after the caption
-          because it is the one that changes how much chart there is to read —
-          on a 390px phone the column is 176 of 343, so collapsing it is worth
-          more than any rung of the scale below 28px is.
-
-          `aria-pressed` on "are the labels shown", not on "is the column
-          collapsed": the pressed state of a control has to be the state of the
-          thing it is named after, and `Names` is named after what it shows.
-          Same reason `Detail` beside it is pressed when there is detail.
-
-          It is **not** offered a third state. A rail wide enough for the row
-          numbers alone was the obvious middle, and it is a worse deal than it
-          looks: `hierarchyIndentFor` puts a depth-6 row's number 48px in on its
-          own, so the rail that fits every number is most of the column, and one
-          that clips is a column of numbers that lie about depth.
-        */}
-        <button
-          type="button"
-          data-gantt-labels-toggle
-          aria-pressed={labelsShown}
-          title={
-            labelsShown
-              ? 'Hide the row names and give their 176px to the chart'
-              : 'Show the row names beside the chart again'
-          }
-          className={
-            labelsShown
-              ? 'border-border hover:bg-accent ml-1 rounded border px-1 normal-case'
-              : 'border-border hover:bg-accent text-muted-foreground/60 ml-1 rounded border border-dashed px-1 normal-case line-through'
-          }
-          onClick={() => {
-            onPickLabelsShown(!labelsShown);
-          }}
-        >
-          Names
-        </button>
-        {/*
-        The detail switch. It was `sticky left-0 top-0` in the label
-        column's corner until chunk 2, and it is in this strip for the
-        strip's own reason above — the column it stood in can be collapsed
-        away now. Reachability is unchanged and cheaper: this row is
-        outside the scroll box, so a 60-row chart scrolled 2000px along
-        cannot take it anywhere.
-        `aria-pressed` is the state — a toggle, not two buttons.
-
-        `Detail` and no longer `Arrows`: it draws three families of mark
-        and naming one of them was a label that lied about the other two.
-        Six characters — chosen when the corner was 176px wide and kept
-        now that it is not, because the `title` is still where the three
-        are named and a longer word here would buy nothing.
-      */}
-        <button
-          type="button"
-          data-gantt-detail-toggle
-          aria-pressed={detailShown}
-          title={
-            detailShown
-              ? 'Hide the arrows, the parent bars and the unestimated slices'
-              : 'Show the arrows, the parent bars and the unestimated slices'
-          }
-          className={
-            detailShown
-              ? 'border-border hover:bg-accent rounded border px-1 normal-case'
-              : 'border-border hover:bg-accent text-muted-foreground/60 rounded border border-dashed px-1 normal-case line-through'
-          }
-          onClick={() => {
-            // The next answer worked out here, beside the write, and the
-            // setter given a value rather than a function: a state updater
-            // React may call twice is no place for a side effect, and the
-            // rendered `detailShown` is the only answer a click on this
-            // switch can be flipping.
-            const asked = !detailShown;
-            // Written here and nowhere else, so opening a chart never
-            // changes what is remembered about it — the same bargain
-            // `rememberGanttHeight` makes with a drag that is let go of.
-            //
-            // Proof: this line deleted, so the answer lived in the hook
-            // alone. `opens with the detail a fresh panel is remounted
-            // onto` alone failed, `1 failed | 90 passed`, on `expected
-            // 'false' to be 'true'` — the switch back off on the next
-            // mount. Watched 2026-08-11 over the arrows key, and again
-            // 2026-08-12 over this one.
-            localStorage.setItem(DETAIL_KEY, JSON.stringify(asked));
-            setDetailShown(asked);
-          }}
-        >
-          Detail
-        </button>
-        {/*
-        The day scale. A `<select>` and not a cycling button: three rungs
-        stated at once in one native control that a finger, a keyboard and
-        a screen reader all already know, and a reader who wants `Days`
-        back gets there in one gesture rather than two. A cycler also has
-        to say what pressing it does next, which costs more words than
-        naming the three.
-
-        Chunk 1 put this in the label column's corner and wrote down that
-        **chunk 2 owned what became of it** once that column could be
-        collapsed away. This is that answer, and it is the strip rather
-        than a narrower corner: the collapsed column is **zero** pixels
-        wide, so there is no corner left to shrink into.
-
-        `aria-label` and not a visible label: the corner has no room for
-        the word `Scale` beside the value, and a select whose accessible
-        name is the month caption above it would be no name at all.
-      */}
-        <select
-          data-gantt-day-scale
-          aria-label="Day scale — how wide one day is drawn"
-          title={`One day is ${String(dayPx)}px wide. Narrower rungs fit more of the plan on screen at once.`}
-          className="border-border hover:bg-accent ml-1 rounded border bg-transparent px-1 normal-case"
-          value={dayPx}
-          onChange={(pick) => {
-            const asked = Number(pick.currentTarget.value);
-            // Checked rather than cast, though every option here is a rung
-            // by construction: `value` off a DOM node is a string from the
-            // page, and the same guard the storage boundary uses is the
-            // one that keeps this a `DayPx` without an assertion.
-            if (isDayPx(asked)) onPickDayPx(asked);
-          }}
-        >
-          {DAY_SCALES.map((rung) => (
-            <option key={rung} value={rung}>
-              {DAY_SCALE_NAMES[rung]}
-            </option>
-          ))}
-        </select>
-        {/*
-        The whole capability M4 owes: a standalone `.svg` of the chart
-        as drawn — every bar, arrow, hand-off and colour, in a file that
-        renders correctly with no app around it (`buildStandaloneGanttSvg`).
-        It sits here, in the panel's own control strip, rather than beside
-        **Copy as Mermaid** / **Download CSV** / **Download .md** in
-        `wbs-table.tsx`'s toolbar, because this file may not touch that
-        one — see the PR proposal for the control still owed there.
-      */}
-        <button
-          type="button"
-          data-gantt-svg-download
-          aria-label="Download this chart as a standalone SVG"
-          title="Download this chart as a standalone .svg — every bar, arrow, hand-off and colour, openable with no app around it"
-          className="border-border hover:bg-accent ml-1 rounded border px-1 normal-case"
-          onClick={downloadGanttSvg}
-        >
-          ⇩
-        </button>
-      </div>
       <section
         data-gantt-panel
         aria-label="Gantt chart"
@@ -3277,6 +3091,204 @@ function GanttChart({
             );
           })()}
       </section>
+      {/*
+        The chart's controls, and they are **outside** the scroll box on
+        purpose. Chunk 1 left them `sticky left-0 top-0` in the label column's
+        corner and named the hazard it was leaving: a control living inside a
+        column that can vanish is a control that can vanish with it. Chunk 2 is
+        that column becoming collapsible, so this is the debt falling due.
+
+        A sibling of the scroll box is visible at every scroll offset by
+        construction — nothing to stack against, no z-index to hold, and no
+        share of the `isolate` contest the section below has already lost once.
+        Sticky bought the same reachability with a stacking argument that has to
+        keep being won.
+
+        It also settles the question chunk 1 handed forward unmeasured —
+        whether four controls fit in 176px of corner. They no longer have to:
+        this row is as wide as the panel, which on the 390px phone this task is
+        about is 343px rather than 176, and that is what makes the 44px floor in
+        `styles.css` affordable here at all. That floor now reaches
+        `[data-gantt-controls]`, which is the fourth time this panel's controls
+        have been measured under it and the first time they pass.
+
+        **Below the chart and not above it, and CI is why.** Above, it sat
+        between the height handle and the box that handle resizes, and five
+        `pixels` cases said so at once — `gives the chart the screen the
+        pointer asks for` and `stops at the floor` off by **93px** and **64px**,
+        which is this strip's own height once its controls have wrapped to two
+        lines, plus both `plan-surface.spec.ts` docking cases. The handle drags
+        the panel's top edge; a 93px band welded between the two makes the grab
+        point and the thing grabbed different objects. Below, the handle is
+        adjacent to the panel again and every existing height assertion holds
+        untouched.
+
+        The reachability argument is unchanged — a sibling of the scroll box is
+        outside it in either direction — and on a phone the controls land in
+        the thumb's half of the screen rather than under the plan above.
+      */}
+      <div
+        data-gantt-controls
+        className="border-border text-muted-foreground flex flex-wrap items-center gap-1 border-t px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+      >
+        <span data-gantt-month>
+          {(() => {
+            if (startDate === null) return 'Workday';
+            // The nullish arm is the workday axis's cells, which a dated
+            // plan never builds — but the index above is clamped, not
+            // proven, and 'Workday' is the honest fallback either way.
+            const visibleDate = axis[firstVisibleCell]?.date ?? null;
+            return visibleDate === null ? 'Workday' : monthWords(visibleDate);
+          })()}
+        </span>
+        {/*
+          The label column's own switch. First control after the caption
+          because it is the one that changes how much chart there is to read —
+          on a 390px phone the column is 176 of 343, so collapsing it is worth
+          more than any rung of the scale below 28px is.
+
+          `aria-pressed` on "are the labels shown", not on "is the column
+          collapsed": the pressed state of a control has to be the state of the
+          thing it is named after, and `Names` is named after what it shows.
+          Same reason `Detail` beside it is pressed when there is detail.
+
+          It is **not** offered a third state. A rail wide enough for the row
+          numbers alone was the obvious middle, and it is a worse deal than it
+          looks: `hierarchyIndentFor` puts a depth-6 row's number 48px in on its
+          own, so the rail that fits every number is most of the column, and one
+          that clips is a column of numbers that lie about depth.
+        */}
+        <button
+          type="button"
+          data-gantt-labels-toggle
+          aria-pressed={labelsShown}
+          title={
+            labelsShown
+              ? 'Hide the row names and give their 176px to the chart'
+              : 'Show the row names beside the chart again'
+          }
+          className={
+            labelsShown
+              ? 'border-border hover:bg-accent ml-1 rounded border px-1 normal-case'
+              : 'border-border hover:bg-accent text-muted-foreground/60 ml-1 rounded border border-dashed px-1 normal-case line-through'
+          }
+          onClick={() => {
+            onPickLabelsShown(!labelsShown);
+          }}
+        >
+          Names
+        </button>
+        {/*
+        The detail switch. It was `sticky left-0 top-0` in the label
+        column's corner until chunk 2, and it is in this strip for the
+        strip's own reason above — the column it stood in can be collapsed
+        away now. Reachability is unchanged and cheaper: this row is
+        outside the scroll box, so a 60-row chart scrolled 2000px along
+        cannot take it anywhere.
+        `aria-pressed` is the state — a toggle, not two buttons.
+
+        `Detail` and no longer `Arrows`: it draws three families of mark
+        and naming one of them was a label that lied about the other two.
+        Six characters — chosen when the corner was 176px wide and kept
+        now that it is not, because the `title` is still where the three
+        are named and a longer word here would buy nothing.
+      */}
+        <button
+          type="button"
+          data-gantt-detail-toggle
+          aria-pressed={detailShown}
+          title={
+            detailShown
+              ? 'Hide the arrows, the parent bars and the unestimated slices'
+              : 'Show the arrows, the parent bars and the unestimated slices'
+          }
+          className={
+            detailShown
+              ? 'border-border hover:bg-accent rounded border px-1 normal-case'
+              : 'border-border hover:bg-accent text-muted-foreground/60 rounded border border-dashed px-1 normal-case line-through'
+          }
+          onClick={() => {
+            // The next answer worked out here, beside the write, and the
+            // setter given a value rather than a function: a state updater
+            // React may call twice is no place for a side effect, and the
+            // rendered `detailShown` is the only answer a click on this
+            // switch can be flipping.
+            const asked = !detailShown;
+            // Written here and nowhere else, so opening a chart never
+            // changes what is remembered about it — the same bargain
+            // `rememberGanttHeight` makes with a drag that is let go of.
+            //
+            // Proof: this line deleted, so the answer lived in the hook
+            // alone. `opens with the detail a fresh panel is remounted
+            // onto` alone failed, `1 failed | 90 passed`, on `expected
+            // 'false' to be 'true'` — the switch back off on the next
+            // mount. Watched 2026-08-11 over the arrows key, and again
+            // 2026-08-12 over this one.
+            localStorage.setItem(DETAIL_KEY, JSON.stringify(asked));
+            setDetailShown(asked);
+          }}
+        >
+          Detail
+        </button>
+        {/*
+        The day scale. A `<select>` and not a cycling button: three rungs
+        stated at once in one native control that a finger, a keyboard and
+        a screen reader all already know, and a reader who wants `Days`
+        back gets there in one gesture rather than two. A cycler also has
+        to say what pressing it does next, which costs more words than
+        naming the three.
+
+        Chunk 1 put this in the label column's corner and wrote down that
+        **chunk 2 owned what became of it** once that column could be
+        collapsed away. This is that answer, and it is the strip rather
+        than a narrower corner: the collapsed column is **zero** pixels
+        wide, so there is no corner left to shrink into.
+
+        `aria-label` and not a visible label: the corner has no room for
+        the word `Scale` beside the value, and a select whose accessible
+        name is the month caption above it would be no name at all.
+      */}
+        <select
+          data-gantt-day-scale
+          aria-label="Day scale — how wide one day is drawn"
+          title={`One day is ${String(dayPx)}px wide. Narrower rungs fit more of the plan on screen at once.`}
+          className="border-border hover:bg-accent ml-1 rounded border bg-transparent px-1 normal-case"
+          value={dayPx}
+          onChange={(pick) => {
+            const asked = Number(pick.currentTarget.value);
+            // Checked rather than cast, though every option here is a rung
+            // by construction: `value` off a DOM node is a string from the
+            // page, and the same guard the storage boundary uses is the
+            // one that keeps this a `DayPx` without an assertion.
+            if (isDayPx(asked)) onPickDayPx(asked);
+          }}
+        >
+          {DAY_SCALES.map((rung) => (
+            <option key={rung} value={rung}>
+              {DAY_SCALE_NAMES[rung]}
+            </option>
+          ))}
+        </select>
+        {/*
+        The whole capability M4 owes: a standalone `.svg` of the chart
+        as drawn — every bar, arrow, hand-off and colour, in a file that
+        renders correctly with no app around it (`buildStandaloneGanttSvg`).
+        It sits here, in the panel's own control strip, rather than beside
+        **Copy as Mermaid** / **Download CSV** / **Download .md** in
+        `wbs-table.tsx`'s toolbar, because this file may not touch that
+        one — see the PR proposal for the control still owed there.
+      */}
+        <button
+          type="button"
+          data-gantt-svg-download
+          aria-label="Download this chart as a standalone SVG"
+          title="Download this chart as a standalone .svg — every bar, arrow, hand-off and colour, openable with no app around it"
+          className="border-border hover:bg-accent ml-1 rounded border px-1 normal-case"
+          onClick={downloadGanttSvg}
+        >
+          ⇩
+        </button>
+      </div>
       {/*
         What the chart did not draw, under the chart it did not draw it on.
 
