@@ -4665,14 +4665,20 @@ describe('downloading the chart as a standalone .svg', () => {
     const bands = [...doc.querySelectorAll('rect')].filter(
       (rect) => rect.getAttribute('fill-opacity') === '0.1',
     );
-    expect(bands.length).toBeGreaterThan(0);
-    for (const band of bands) {
-      expect(Number(band.getAttribute('width'))).toBe(4);
-      // Cell `k` stands at `LABEL_COLUMN_PX + CHART_PAD_PX + 4k`, so every band
-      // is on the 4px grid off that origin — at 28 not one of them would be.
-      const offGrid = (Number(band.getAttribute('x')) - 176 - CHART_PAD_PX) % 4;
-      expect(offGrid).toBe(0);
-    }
+    expect(bands.length).toBeGreaterThan(1);
+    for (const band of bands) expect(Number(band.getAttribute('width'))).toBe(4);
+    // **The gap between two of them**, and not each one's own coordinate on a
+    // grid: the first spelling of this assertion checked `(x − origin) % 4`,
+    // which 28 satisfies too — 28 is a multiple of 4, so the injected constant
+    // stayed green through it. A Saturday and its Sunday are adjacent cells, so
+    // the step between them is one day, which is the number under test.
+    const xs = bands.map((band) => Number(band.getAttribute('x'))).sort((a, b) => a - b);
+    const steps = xs.slice(1).map((x, index) => x - (xs[index] ?? 0));
+    expect(Math.min(...steps)).toBe(4);
+    // Where the first one stands, off the origin the label column and the pad
+    // put it at: the step alone would pass on an axis drawn at the right pitch
+    // in the wrong place.
+    expect((xs[0] ?? 0) - 176 - CHART_PAD_PX).toBe(5 * 4);
     // And the nested live geometry is the same width the axis was drawn for, so
     // the two halves of the file are one chart: the outer `<svg>`'s width is
     // the label column plus the nested one's.
