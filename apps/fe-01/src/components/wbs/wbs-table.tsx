@@ -813,6 +813,56 @@ function forgetGanttDayPx(projectId: string): void {
 }
 
 /**
+ * Where this browser remembers whether one project's chart draws its row-name
+ * column.
+ *
+ * Per project for {@link ganttDayPxKey}'s reason and the same one: the column
+ * costs a fixed 176px whatever is in it, so whether that is worth paying is
+ * **this plan's names against this screen** — a 74-day plan on a phone and a
+ * fortnight on a monitor give opposite answers, and neither is a preference
+ * about names. It parts from `wbs.ganttDetail` where the scale does.
+ */
+const ganttLabelsKey = (projectId: string): string => `wbs.ganttLabels.${projectId}`;
+
+/**
+ * Whether this browser last left `projectId`'s row names shown, or none where
+ * it has never said — which opens the chart with them shown.
+ *
+ * A boolean is the whole domain, so the guard is `typeof` and there is nothing
+ * else to check: unlike a height there is no range and unlike a rung there is
+ * no ladder, and `false` is a real stored answer that `??` would eat. Anything
+ * that is not a boolean takes the key with it.
+ *
+ * Deliberately not the "unknown is not OK" throw, for
+ * {@link rememberedGanttHeight}'s reason.
+ */
+function rememberedGanttLabels(projectId: string): boolean | null {
+  const stored = localStorage.getItem(ganttLabelsKey(projectId));
+  if (stored === null) return null;
+  const claimed = parsedOrNothing(stored);
+  if (typeof claimed !== 'boolean') {
+    localStorage.removeItem(ganttLabelsKey(projectId));
+    return null;
+  }
+  return claimed;
+}
+
+/**
+ * Writes whether `projectId`'s row names are shown.
+ *
+ * Called when the control is used and at no other time, for
+ * {@link rememberGanttDayPx}'s reason.
+ */
+function rememberGanttLabels(projectId: string, labelsShown: boolean): void {
+  localStorage.setItem(ganttLabelsKey(projectId), JSON.stringify(labelsShown));
+}
+
+/** Forgets the remembered name column for `projectId` — the fourth part of a {@link Layout reset}. */
+function forgetGanttLabels(projectId: string): void {
+  localStorage.removeItem(ganttLabelsKey(projectId));
+}
+
+/**
  * Forgets the remembered panel height for `projectId` — the chart half of a
  * {@link Layout reset}.
  *
@@ -2251,6 +2301,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     () => rememberedGanttDayPx(projectId) ?? DAY_PX,
   );
   /**
+   * Whether the chart draws its row-name column, and `true` where this browser
+   * has never said for this project.
+   *
+   * Resolved rather than `boolean | null` for {@link ganttDayPx}'s reason:
+   * there is no such thing as a chart drawn with the names in neither state,
+   * and what "never said" buys is {@link resetLayout}'s answer, which is `true`
+   * either way.
+   */
+  const [ganttLabelsShown, setGanttLabelsShown] = useState<boolean>(
+    () => rememberedGanttLabels(projectId) ?? true,
+  );
+  /**
    * Swaps the widths and the panel height whole when the project does.
    *
    * Not the expansion's effect, and not paired with a save: nothing is written
@@ -2265,6 +2327,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setWidthOverrides(rememberedWidthOverrides(projectId));
     setGanttHeightPx(rememberedGanttHeight(projectId));
     setGanttDayPx(rememberedGanttDayPx(projectId) ?? DAY_PX);
+    setGanttLabelsShown(rememberedGanttLabels(projectId) ?? true);
   }, [projectId]);
   /**
    * What has been typed into the Find box.
@@ -4001,6 +4064,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     forgetGanttHeight(projectId);
     setGanttDayPx(DAY_PX);
     forgetGanttDayPx(projectId);
+    setGanttLabelsShown(true);
+    forgetGanttLabels(projectId);
   }
 
   /**
@@ -9759,12 +9824,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             card has no columns` failed on `expected <button …(2)></button> to
             be null` — the control on the sheet at 390px. Watched, 2026-08-09.
           */}
-          {(widthOverrides.size > 0 || ganttHeightPx !== null || ganttDayPx !== DAY_PX) && (
+          {(widthOverrides.size > 0 ||
+            ganttHeightPx !== null ||
+            ganttDayPx !== DAY_PX ||
+            !ganttLabelsShown) && (
             <Button
               variant="outline"
               size="sm"
               type="button"
-              title="Forget the widths, the chart height and the day scale set here, and lay the layout out at its own again"
+              title="Forget the widths, the chart height, the day scale and the hidden row names set here, and lay the layout out at its own again"
               onClick={resetLayout}
             >
               Reset layout
@@ -10296,6 +10364,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             onPickDayPx={(picked) => {
               setGanttDayPx(picked);
               rememberGanttDayPx(projectId, picked);
+            }}
+            labelsShown={ganttLabelsShown}
+            // Stored where it is set and nowhere else, as the rung beside it is.
+            onPickLabelsShown={(shown) => {
+              setGanttLabelsShown(shown);
+              rememberGanttLabels(projectId, shown);
             }}
             onPickRow={goToRow}
             // The panel reports which row the pointer or a bar's focus is on,

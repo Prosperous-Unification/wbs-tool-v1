@@ -31,6 +31,7 @@ import {
   initialsOf,
   isDayPx,
   isoToday,
+  LABEL_COLUMN_PX,
   monthWords,
   ROW_PX,
   rowWords,
@@ -5184,6 +5185,144 @@ describe('the day scale', () => {
     // while storage held another.
     expect(picked).toEqual([4]);
     expect(control.value).toBe(String(DAY_PX));
+  });
+
+  itDom('collapses the name column away, and the chart keeps every day it had', () => {
+    // The chunk's whole arithmetic: the column is a fixed 176px whatever the
+    // rung is, so on the 343px a 390px phone gives this panel it is more than
+    // half the width and worth more than any rung below 28px. What is asserted
+    // is that collapsing it costs the chart **nothing** — same cells, same
+    // canvas width — because the column is a sibling of the chart and not a
+    // slice out of it. A collapse that reflowed the chart would be a second
+    // scale with nothing checking it against the first.
+    const { rerender } = render(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={4}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+    const canvasWidth = (): string | null =>
+      document.querySelector('[data-gantt-panel] svg')?.getAttribute('width') ?? null;
+
+    const column = document.querySelector('[data-gantt-labels]');
+    if (column === null) throw new Error('no label column');
+    expect((column as HTMLElement).style.width).toBe(`${String(LABEL_COLUMN_PX)}px`);
+    const shownCells = document.querySelectorAll('[data-axis-day]').length;
+    const shownCanvas = canvasWidth();
+    const shownNames = document.querySelectorAll('[data-gantt-label]').length;
+    expect(shownNames).toBeGreaterThan(0);
+
+    rerender(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={4}
+        labelsShown={false}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+
+    // Absent, not zero-width and not `hidden`: the names are buttons, and a
+    // box of focusable controls nobody can see is a tab order into nowhere.
+    expect(document.querySelectorAll('[data-gantt-labels]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-gantt-label]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-axis-day]')).toHaveLength(shownCells);
+    expect(canvasWidth()).toBe(shownCanvas);
+  });
+
+  itDom('keeps the chart controls when the column they used to live in is gone', () => {
+    // Chunk 1 left the scale, the detail switch and the download inside the
+    // label column's sticky corner and wrote down the hazard. This is the case
+    // that would have caught it: the same four controls are found with the
+    // column collapsed, so the strip is outside it in fact rather than in the
+    // comment. Injecting the old placement — the controls put back inside
+    // `[data-gantt-labels]` — turns this red and nothing else in the file.
+    const controls = (): string[] =>
+      [
+        '[data-gantt-labels-toggle]',
+        '[data-gantt-detail-toggle]',
+        '[data-gantt-day-scale]',
+        '[data-gantt-svg-download]',
+      ].filter((selector) => document.querySelector(selector) !== null);
+
+    const { rerender } = render(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        labelsShown={false}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+    expect(controls()).toHaveLength(4);
+    // And the month caption with them — it names the month the chart is
+    // scrolled to, which is a fact about the calendar rather than about the
+    // names beside it, so losing the column must not take it.
+    expect(document.querySelector('[data-gantt-month]')?.textContent ?? '').not.toBe('');
+
+    rerender(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+    expect(controls()).toHaveLength(4);
+  });
+
+  itDom('reports the names switch and does not act on it', () => {
+    // The same bargain the rung makes, for the same reason: the panel draws
+    // what it is handed and stores nothing, because the answer is remembered
+    // per project and the table is the only place that knows which project this
+    // is. `aria-pressed` is asserted against **shown**, not against collapsed —
+    // the pressed state of a control has to be the state of the thing it is
+    // named after.
+    const picked: boolean[] = [];
+    render(
+      <GanttPanel
+        plan={everyMarkOnOneDay()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        labelsShown
+        onPickLabelsShown={(shown) => picked.push(shown)}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+
+    const control = document.querySelector<HTMLButtonElement>('[data-gantt-labels-toggle]');
+    if (control === null) throw new Error('no names control');
+    expect(control.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(control);
+    expect(picked).toEqual([false]);
+    // Unmoved: the column is still drawn, because nothing here decided.
+    expect(control.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelectorAll('[data-gantt-labels]')).toHaveLength(1);
   });
 
   itDom('refuses a scale that is not one of the rungs', () => {

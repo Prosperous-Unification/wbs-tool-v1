@@ -9750,6 +9750,68 @@ describe('the day scale this browser picked for this project', () => {
   });
 });
 
+describe('the row names this browser left shown for this project', () => {
+  /** Where the key lives for the project every test in here opens. */
+  const KEY = 'wbs.ganttLabels.p1';
+
+  const openTheChart = async (): Promise<HTMLButtonElement> => {
+    await threeRoots();
+    fireEvent.click(screen.getByRole('button', { name: 'Gantt' }));
+    const control = document.querySelector<HTMLButtonElement>('[data-gantt-labels-toggle]');
+    if (control === null) throw new Error('no names control rendered');
+    return control;
+  };
+
+  itDom('opens the chart with the column collapsed where it was left that way', async () => {
+    localStorage.setItem(KEY, 'false');
+    const control = await openTheChart();
+    expect(control.getAttribute('aria-pressed')).toBe('false');
+    // The stored answer reaches the drawing and not merely the control, for the
+    // rung's reason one describe up.
+    expect(document.querySelectorAll('[data-gantt-labels]')).toHaveLength(0);
+  });
+
+  itDom('opening a project does not change what is remembered about it', async () => {
+    localStorage.setItem(KEY, 'false');
+    await openTheChart();
+    expect(localStorage.getItem(KEY)).toBe('false');
+  });
+
+  itDom('writes the answer that was picked, and it is the false one', async () => {
+    // `false` is the interesting write and the reason the read is a `typeof`
+    // test rather than a `??`: the collapsed state is the one somebody bothers
+    // to ask for, and a nullish default would eat it on every reopen.
+    const control = await openTheChart();
+    expect(localStorage.getItem(KEY)).toBeNull();
+    fireEvent.click(control);
+    expect(localStorage.getItem(KEY)).toBe('false');
+    expect(document.querySelectorAll('[data-gantt-labels]')).toHaveLength(0);
+  });
+
+  itDom('refuses storage that is not a boolean, and drops the key', async () => {
+    localStorage.setItem(KEY, '"no thanks"');
+    const control = await openTheChart();
+    expect(control.getAttribute('aria-pressed')).toBe('true');
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  itDom('a collapsed column alone offers the reset, and the reset brings it back', async () => {
+    // The fourth clause of the reset's condition, measured the way the height
+    // half was: with nothing else touched, so the offer can only be coming from
+    // this. A reset that forgot three of four would leave the chart looking
+    // reset while the names stayed gone.
+    const control = await openTheChart();
+    expect(screen.queryByRole('button', { name: 'Reset layout' })).toBeNull();
+
+    fireEvent.click(control);
+    const reset = screen.getByRole('button', { name: 'Reset layout' });
+    fireEvent.click(reset);
+
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(document.querySelectorAll('[data-gantt-labels]')).toHaveLength(1);
+  });
+});
+
 describe('the chart height this browser has dragged', () => {
   /** Where the key lives for the project every test in here opens. */
   const KEY = 'wbs.ganttHeight.p1';

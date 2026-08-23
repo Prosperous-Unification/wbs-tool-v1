@@ -1082,6 +1082,84 @@ test.describe('the chart on a phone', () => {
     );
   });
 
+  test('shows more of the plan at every rung, and more again with the names put away', async ({
+    page,
+  }) => {
+    // The task's own measurement, and the only one that answers it: **how many
+    // days are on screen at once**. Everything the last two chunks changed —
+    // the ladder, and now the 176px column — is worth exactly what this counts,
+    // and jsdom cannot count it at all (no layout, so every cell is 0px wide
+    // and every one of them is "visible").
+    await seedOnALaptop(page, nextAccount(), { estimate: '40/40/40' });
+    await openTheChart(page, { throughTheSheet: true });
+
+    /**
+     * Cells wholly on screen, measured from the label column's **right** edge
+     * rather than the panel's left.
+     *
+     * That is the difference between counting days and counting cells: the
+     * column is `sticky left-0` and paints over the chart's first 176px, so a
+     * cell scrolled under it has a rectangle inside the panel and is not on
+     * screen. Counting from the panel's edge would have reported the collapse
+     * as buying nothing — the same cells, still there, still hidden.
+     */
+    const visibleDays = async (): Promise<number> =>
+      page.evaluate(() => {
+        const panel = document.querySelector('[data-gantt-panel]');
+        if (panel === null) throw new Error('no chart panel');
+        const box = panel.getBoundingClientRect();
+        const column = document.querySelector('[data-gantt-labels]');
+        const leftEdge = column === null ? box.left : column.getBoundingClientRect().right;
+        return [...document.querySelectorAll('[data-axis-day]')].filter((cell) => {
+          const cellBox = cell.getBoundingClientRect();
+          return cellBox.left >= leftEdge - 0.5 && cellBox.right <= box.right + 0.5;
+        }).length;
+      });
+
+    const atEachRung = async (): Promise<Record<string, number>> => {
+      const counted: Record<string, number> = {};
+      for (const rung of [28, 12, 4]) {
+        await page.locator('[data-gantt-day-scale]').selectOption(String(rung));
+        // The cells are re-sized by React, so the count is taken after the
+        // width the rung asks for has actually landed on one.
+        await expect(page.locator('[data-axis-day="0"]')).toHaveCSS('width', `${String(rung)}px`);
+        counted[String(rung)] = await visibleDays();
+      }
+      return counted;
+    };
+
+    const withNames = await atEachRung();
+    await page.locator('[data-gantt-labels-toggle]').click();
+    await expect(page.locator('[data-gantt-labels]')).toHaveCount(0);
+    const withoutNames = await atEachRung();
+    // Printed rather than only asserted: the bounds below are brackets, and the
+    // numbers this prints are what the next chunk tightens them to. A full-screen
+    // mode (chunk 3) moves every one of them.
+    console.log('visible days — names shown', withNames, '| names away', withoutNames);
+
+    // A rung is worth something at every step, and the whole ladder is worth
+    // several times its narrowest step. Ratios rather than pixels: the panel's
+    // width is the page's business and has moved twice already.
+    expect(withNames['28']).toBeLessThan(withNames['12']);
+    expect(withNames['12']).toBeLessThan(withNames['4']);
+
+    // The chunk's own claim. The column is 176px whatever the rung is, so what
+    // it costs in **days** grows as the days get narrower: at 28px it is about
+    // six days, at 4px about forty-four. Bracketed low, because these are the
+    // first numbers this suite has ever had for it — the assertion that matters
+    // is that the gain is real at the widest rung and large at the narrowest.
+    expect(withoutNames['28']).toBeGreaterThan(withNames['28']);
+    expect(withoutNames['4'] - withNames['4']).toBeGreaterThanOrEqual(30);
+
+    // And the defect, in the numbers the sweep stated it in: a phone saw six
+    // days of a 74-day plan. Upper bounds as well as lower, so a chart that
+    // stopped drawing an axis at all cannot pass this by counting nothing.
+    expect(withNames['28']).toBeGreaterThanOrEqual(3);
+    expect(withNames['28']).toBeLessThanOrEqual(9);
+    expect(withoutNames['4']).toBeGreaterThanOrEqual(60);
+    expect(withoutNames['4']).toBeLessThanOrEqual(91);
+  });
+
   test('takes the cards face to a row when its bar is clicked', async ({ page }) => {
     // Enough cards that the list is taller than the phone: with three rows the
     // card is on screen wherever the list is, and every assertion below would

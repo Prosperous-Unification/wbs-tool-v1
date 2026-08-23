@@ -161,7 +161,7 @@ export function axisNumberShown(day: { shown: string; heavy: boolean }, dayPx: n
 export const ROW_PX = 28;
 
 /** How wide the sticky-left column of row labels is, in CSS pixels. */
-const LABEL_COLUMN_PX = 176;
+export const LABEL_COLUMN_PX = 176;
 
 /**
  * The least height a drag may leave the panel at: the axis row and two chart
@@ -1682,6 +1682,8 @@ export function GanttPanel({
   // never defaulted a second time somewhere that could disagree.
   dayPx = DAY_PX,
   onPickDayPx = () => undefined,
+  labelsShown = true,
+  onPickLabelsShown = () => undefined,
   onPickRow,
   onPointRow,
   pointedRow,
@@ -1708,6 +1710,8 @@ export function GanttPanel({
       heightPx={heightPx}
       dayPx={dayPx}
       onPickDayPx={onPickDayPx}
+      labelsShown={labelsShown}
+      onPickLabelsShown={onPickLabelsShown}
       onPickRow={onPickRow}
       onPointRow={onPointRow}
       pointedRow={pointedRow}
@@ -1767,6 +1771,26 @@ interface GanttProps {
    * `[data-gantt-day-scale]`, and such a case is one that meant to pass a spy.
    */
   onPickDayPx?: (dayPx: DayPx) => void;
+  /**
+   * Whether the row-name column is drawn beside the chart.
+   *
+   * Remembered per project by the caller for `dayPx`'s reason and not a
+   * similar one: what the column costs is **this plan's names against this
+   * screen**, and a 74-day plan on a 390px phone and a fortnight on a monitor
+   * want different answers. That is the same argument the scale makes, one
+   * axis over.
+   *
+   * Optional and defaulting to shown, exactly as `dayPx` defaults to
+   * {@link DAY_PX}: one production mount, seventy-odd renders here that have no
+   * opinion about the column, and a case that does have one says so by passing
+   * `false`.
+   */
+  labelsShown?: boolean;
+  /**
+   * Says the reader asked for the names to be shown or hidden. The caller
+   * decides what remembering it means — this panel draws what it is handed.
+   */
+  onPickLabelsShown?: (labelsShown: boolean) => void;
   /** Takes the plan to a row — the caller decides what "takes" means. */
   onPickRow: (rowId: string) => void;
   /**
@@ -1825,12 +1849,19 @@ function GanttChart({
   heightPx,
   dayPx,
   onPickDayPx,
+  labelsShown,
+  onPickLabelsShown,
   onPickRow,
   onPointRow,
   pointedRow,
-}: Omit<GanttProps, 'scheduleError' | 'dayPx' | 'onPickDayPx'> & {
+}: Omit<
+  GanttProps,
+  'scheduleError' | 'dayPx' | 'onPickDayPx' | 'labelsShown' | 'onPickLabelsShown'
+> & {
   dayPx: DayPx;
   onPickDayPx: (dayPx: DayPx) => void;
+  labelsShown: boolean;
+  onPickLabelsShown: (labelsShown: boolean) => void;
 }) {
   // How far the chart is scrolled, in CSS pixels. Held only so the caption can
   // name the month actually on screen.
@@ -2152,6 +2183,192 @@ function GanttChart({
 
   return (
     <>
+      {/*
+        The chart's controls, and they are **outside** the scroll box on
+        purpose. Chunk 1 left them `sticky left-0 top-0` in the label column's
+        corner and named the hazard it was leaving: a control living inside a
+        column that can vanish is a control that can vanish with it. Chunk 2 is
+        that column becoming collapsible, so this is the debt falling due.
+
+        A sibling of the scroll box is visible at every scroll offset by
+        construction — nothing to stack against, no z-index to hold, and no
+        share of the `isolate` contest the section below has already lost once.
+        Sticky bought the same reachability with a stacking argument that has to
+        keep being won.
+
+        It also settles the question chunk 1 handed forward unmeasured —
+        whether four controls fit in 176px of corner. They no longer have to:
+        this row is as wide as the panel, which on the 390px phone this task is
+        about is 343px rather than 176, and that is what makes the 44px floor in
+        `styles.css` affordable here at all. That floor now reaches
+        `[data-gantt-controls]`, which is the fourth time this panel's controls
+        have been measured under it and the first time they pass.
+
+        `border-t` and not `border-b`: the height handle is the strip's own top
+        edge, and two lines 6px apart read as a mistake.
+      */}
+      <div
+        data-gantt-controls
+        className="border-border text-muted-foreground flex flex-wrap items-center gap-1 border-t px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+      >
+        <span data-gantt-month>
+          {(() => {
+            if (startDate === null) return 'Workday';
+            // The nullish arm is the workday axis's cells, which a dated
+            // plan never builds — but the index above is clamped, not
+            // proven, and 'Workday' is the honest fallback either way.
+            const visibleDate = axis[firstVisibleCell]?.date ?? null;
+            return visibleDate === null ? 'Workday' : monthWords(visibleDate);
+          })()}
+        </span>
+        {/*
+          The label column's own switch. First control after the caption
+          because it is the one that changes how much chart there is to read —
+          on a 390px phone the column is 176 of 343, so collapsing it is worth
+          more than any rung of the scale below 28px is.
+
+          `aria-pressed` on "are the labels shown", not on "is the column
+          collapsed": the pressed state of a control has to be the state of the
+          thing it is named after, and `Names` is named after what it shows.
+          Same reason `Detail` beside it is pressed when there is detail.
+
+          It is **not** offered a third state. A rail wide enough for the row
+          numbers alone was the obvious middle, and it is a worse deal than it
+          looks: `hierarchyIndentFor` puts a depth-6 row's number 48px in on its
+          own, so the rail that fits every number is most of the column, and one
+          that clips is a column of numbers that lie about depth.
+        */}
+        <button
+          type="button"
+          data-gantt-labels-toggle
+          aria-pressed={labelsShown}
+          title={
+            labelsShown
+              ? 'Hide the row names and give their 176px to the chart'
+              : 'Show the row names beside the chart again'
+          }
+          className={
+            labelsShown
+              ? 'border-border hover:bg-accent ml-1 rounded border px-1 normal-case'
+              : 'border-border hover:bg-accent text-muted-foreground/60 ml-1 rounded border border-dashed px-1 normal-case line-through'
+          }
+          onClick={() => {
+            onPickLabelsShown(!labelsShown);
+          }}
+        >
+          Names
+        </button>
+        {/*
+        The detail switch. It was `sticky left-0 top-0` in the label
+        column's corner until chunk 2, and it is in this strip for the
+        strip's own reason above — the column it stood in can be collapsed
+        away now. Reachability is unchanged and cheaper: this row is
+        outside the scroll box, so a 60-row chart scrolled 2000px along
+        cannot take it anywhere.
+        `aria-pressed` is the state — a toggle, not two buttons.
+
+        `Detail` and no longer `Arrows`: it draws three families of mark
+        and naming one of them was a label that lied about the other two.
+        Six characters — chosen when the corner was 176px wide and kept
+        now that it is not, because the `title` is still where the three
+        are named and a longer word here would buy nothing.
+      */}
+        <button
+          type="button"
+          data-gantt-detail-toggle
+          aria-pressed={detailShown}
+          title={
+            detailShown
+              ? 'Hide the arrows, the parent bars and the unestimated slices'
+              : 'Show the arrows, the parent bars and the unestimated slices'
+          }
+          className={
+            detailShown
+              ? 'border-border hover:bg-accent rounded border px-1 normal-case'
+              : 'border-border hover:bg-accent text-muted-foreground/60 rounded border border-dashed px-1 normal-case line-through'
+          }
+          onClick={() => {
+            // The next answer worked out here, beside the write, and the
+            // setter given a value rather than a function: a state updater
+            // React may call twice is no place for a side effect, and the
+            // rendered `detailShown` is the only answer a click on this
+            // switch can be flipping.
+            const asked = !detailShown;
+            // Written here and nowhere else, so opening a chart never
+            // changes what is remembered about it — the same bargain
+            // `rememberGanttHeight` makes with a drag that is let go of.
+            //
+            // Proof: this line deleted, so the answer lived in the hook
+            // alone. `opens with the detail a fresh panel is remounted
+            // onto` alone failed, `1 failed | 90 passed`, on `expected
+            // 'false' to be 'true'` — the switch back off on the next
+            // mount. Watched 2026-08-11 over the arrows key, and again
+            // 2026-08-12 over this one.
+            localStorage.setItem(DETAIL_KEY, JSON.stringify(asked));
+            setDetailShown(asked);
+          }}
+        >
+          Detail
+        </button>
+        {/*
+        The day scale. A `<select>` and not a cycling button: three rungs
+        stated at once in one native control that a finger, a keyboard and
+        a screen reader all already know, and a reader who wants `Days`
+        back gets there in one gesture rather than two. A cycler also has
+        to say what pressing it does next, which costs more words than
+        naming the three.
+
+        Chunk 1 put this in the label column's corner and wrote down that
+        **chunk 2 owned what became of it** once that column could be
+        collapsed away. This is that answer, and it is the strip rather
+        than a narrower corner: the collapsed column is **zero** pixels
+        wide, so there is no corner left to shrink into.
+
+        `aria-label` and not a visible label: the corner has no room for
+        the word `Scale` beside the value, and a select whose accessible
+        name is the month caption above it would be no name at all.
+      */}
+        <select
+          data-gantt-day-scale
+          aria-label="Day scale — how wide one day is drawn"
+          title={`One day is ${String(dayPx)}px wide. Narrower rungs fit more of the plan on screen at once.`}
+          className="border-border hover:bg-accent ml-1 rounded border bg-transparent px-1 normal-case"
+          value={dayPx}
+          onChange={(pick) => {
+            const asked = Number(pick.currentTarget.value);
+            // Checked rather than cast, though every option here is a rung
+            // by construction: `value` off a DOM node is a string from the
+            // page, and the same guard the storage boundary uses is the
+            // one that keeps this a `DayPx` without an assertion.
+            if (isDayPx(asked)) onPickDayPx(asked);
+          }}
+        >
+          {DAY_SCALES.map((rung) => (
+            <option key={rung} value={rung}>
+              {DAY_SCALE_NAMES[rung]}
+            </option>
+          ))}
+        </select>
+        {/*
+        The whole capability M4 owes: a standalone `.svg` of the chart
+        as drawn — every bar, arrow, hand-off and colour, in a file that
+        renders correctly with no app around it (`buildStandaloneGanttSvg`).
+        It sits here, in the panel's own control strip, rather than beside
+        **Copy as Mermaid** / **Download CSV** / **Download .md** in
+        `wbs-table.tsx`'s toolbar, because this file may not touch that
+        one — see the PR proposal for the control still owed there.
+      */}
+        <button
+          type="button"
+          data-gantt-svg-download
+          aria-label="Download this chart as a standalone SVG"
+          title="Download this chart as a standalone .svg — every bar, arrow, hand-off and colour, openable with no app around it"
+          className="border-border hover:bg-accent ml-1 rounded border px-1 normal-case"
+          onClick={downloadGanttSvg}
+        >
+          ⇩
+        </button>
+      </div>
       <section
         data-gantt-panel
         aria-label="Gantt chart"
@@ -2202,204 +2419,108 @@ function GanttChart({
       >
         <div className="flex w-max">
           {/*
-          Holds the left edge while the chart scrolls under it. `sticky left-0`
-          inside this scroll container, with a background of its own — a
-          transparent one would have the bars painted through the names.
-        */}
-          <div
-            data-gantt-labels
-            className="bg-background border-border sticky left-0 z-10 shrink-0 border-r"
-            style={{ width: LABEL_COLUMN_PX }}
-          >
+            Holds the left edge while the chart scrolls under it. `sticky
+            left-0` inside this scroll container, with a background of its own —
+            a transparent one would have the bars painted through the names.
+
+            **Not rendered at all when it is collapsed**, rather than drawn at
+            `width: 0` or hidden: the names are `<button>`s, and a zero-width
+            box full of focusable controls is a tab order that goes somewhere
+            nobody can see. `hidden` would fix the focus and keep 176px of
+            layout arguing with `w-max`; absent settles both, and it is what
+            `layout.spec.ts` already asserts about the panel as a whole
+            (`toHaveCount(0)`) when the chart is shut.
+          */}
+          {labelsShown && (
+            {/*
+            Holds the left edge while the chart scrolls under it. `sticky left-0`
+            inside this scroll container, with a background of its own — a
+            transparent one would have the bars painted through the names.
+          */}
             <div
-              className="text-muted-foreground border-border bg-background sticky top-0 z-20 flex items-center justify-between border-b px-2 text-[10px] font-semibold tracking-wide uppercase"
-              style={{ height: ROW_PX }}
+              data-gantt-labels
+              className="bg-background border-border sticky left-0 z-10 shrink-0 border-r"
+              style={{ width: LABEL_COLUMN_PX }}
             >
-              <span>
-                {(() => {
-                  if (startDate === null) return 'Workday';
-                  // The nullish arm is the workday axis's cells, which a dated
-                  // plan never builds — but the index above is clamped, not
-                  // proven, and 'Workday' is the honest fallback either way.
-                  const visibleDate = axis[firstVisibleCell]?.date ?? null;
-                  return visibleDate === null ? 'Workday' : monthWords(visibleDate);
-                })()}
-              </span>
               {/*
-              The detail switch, in the one corner that is sticky both ways —
-              `left-0` from the label column, `top-0` of its own, like the axis
-              beside it: it has to stay reachable however far a 60-row chart
-              has scrolled, in either direction.
-              `aria-pressed` is the state — a toggle, not two buttons.
-
-              `Detail` and no longer `Arrows`: it draws three families of mark
-              and naming one of them was a label that lied about the other two.
-              Six characters, which is what the corner beside the month caption
-              has room for — the `title` is where the three are named.
-            */}
-              <button
-                type="button"
-                data-gantt-detail-toggle
-                aria-pressed={detailShown}
-                title={
-                  detailShown
-                    ? 'Hide the arrows, the parent bars and the unestimated slices'
-                    : 'Show the arrows, the parent bars and the unestimated slices'
-                }
-                className={
-                  detailShown
-                    ? 'border-border hover:bg-accent rounded border px-1 normal-case'
-                    : 'border-border hover:bg-accent text-muted-foreground/60 rounded border border-dashed px-1 normal-case line-through'
-                }
-                onClick={() => {
-                  // The next answer worked out here, beside the write, and the
-                  // setter given a value rather than a function: a state updater
-                  // React may call twice is no place for a side effect, and the
-                  // rendered `detailShown` is the only answer a click on this
-                  // switch can be flipping.
-                  const asked = !detailShown;
-                  // Written here and nowhere else, so opening a chart never
-                  // changes what is remembered about it — the same bargain
-                  // `rememberGanttHeight` makes with a drag that is let go of.
+                The row that lines this column's names up with the calendar
+                beside them, and since chunk 2 nothing else: the caption and the
+                three controls that shared it are in `[data-gantt-controls]`
+                above. Kept rather than deleted, and kept **opaque** — it is one
+                row of height that has to exist for the first name to sit beside
+                the first cell rather than under the axis, and a transparent one
+                would have the axis painted through it while the chart scrolls.
+              */}
+              <div
+                className="border-border bg-background sticky top-0 z-20 border-b"
+                style={{ height: ROW_PX }}
+              />
+              {chart.labels.map((label: GanttRowLabel) => (
+                <button
+                  key={label.id}
+                  type="button"
+                  data-gantt-label={label.id}
+                  // Lit because this is the **pointed row**, wherever the pointer
+                  // is: on this label, on a bar of its row, or on the row in the
+                  // table above. The attribute is what the browser gate selects
+                  // on; the tint is the class below.
+                  data-gantt-label-lit={pointedRow === label.id ? 'true' : undefined}
+                  // The same words the button shows, so a label the column has
+                  // truncated can still be read whole on hover.
                   //
-                  // Proof: this line deleted, so the answer lived in the hook
-                  // alone. `opens with the detail a fresh panel is remounted
-                  // onto` alone failed, `1 failed | 90 passed`, on `expected
-                  // 'false' to be 'true'` — the switch back off on the next
-                  // mount. Watched 2026-08-11 over the arrows key, and again
-                  // 2026-08-12 over this one.
-                  localStorage.setItem(DETAIL_KEY, JSON.stringify(asked));
-                  setDetailShown(asked);
-                }}
-              >
-                Detail
-              </button>
-              {/*
-              The day scale. A `<select>` and not a cycling button, which is the
-              obvious thing to reach for in 176px of corner: three rungs in one
-              native control that a finger, a keyboard and a screen reader all
-              already know, and a reader who wants `Days` back gets there in one
-              gesture rather than two. A cycler also has to say what pressing it
-              does next, which costs more words than naming the three.
-
-              It sits in the corner beside `Detail` because that corner is the
-              one place sticky in **both** directions — the scale has to be
-              reachable from wherever a 60-row chart has been scrolled to, and
-              the reader who most needs it is the one lost 2000px along it.
-              **Chunk 2 owns what becomes of this corner** when the label column
-              can be collapsed away: a control that lives inside a column that
-              can vanish is a control that can vanish with it.
-
-              `aria-label` and not a visible label: the corner has no room for
-              the word `Scale` beside the value, and a select whose accessible
-              name is the month caption above it would be no name at all.
-            */}
-              <select
-                data-gantt-day-scale
-                aria-label="Day scale — how wide one day is drawn"
-                title={`One day is ${String(dayPx)}px wide. Narrower rungs fit more of the plan on screen at once.`}
-                className="border-border hover:bg-accent ml-1 rounded border bg-transparent px-1 normal-case"
-                value={dayPx}
-                onChange={(pick) => {
-                  const asked = Number(pick.currentTarget.value);
-                  // Checked rather than cast, though every option here is a rung
-                  // by construction: `value` off a DOM node is a string from the
-                  // page, and the same guard the storage boundary uses is the
-                  // one that keeps this a `DayPx` without an assertion.
-                  if (isDayPx(asked)) onPickDayPx(asked);
-                }}
-              >
-                {DAY_SCALES.map((rung) => (
-                  <option key={rung} value={rung}>
-                    {DAY_SCALE_NAMES[rung]}
-                  </option>
-                ))}
-              </select>
-              {/*
-              The whole capability M4 owes: a standalone `.svg` of the chart
-              as drawn — every bar, arrow, hand-off and colour, in a file that
-              renders correctly with no app around it (`buildStandaloneGanttSvg`).
-              It sits here, in the panel's own corner, rather than beside
-              **Copy as Mermaid** / **Download CSV** / **Download .md** in
-              `wbs-table.tsx`'s toolbar, because this file may not touch that
-              one — see the PR proposal for the control still owed there.
-            */}
-              <button
-                type="button"
-                data-gantt-svg-download
-                aria-label="Download this chart as a standalone SVG"
-                title="Download this chart as a standalone .svg — every bar, arrow, hand-off and colour, openable with no app around it"
-                className="border-border hover:bg-accent ml-1 rounded border px-1 normal-case"
-                onClick={downloadGanttSvg}
-              >
-                ⇩
-              </button>
+                  // Proof: the button's text put back to `label.name === '' ?
+                  // '(unnamed)' : label.name` — the chart labelled by name alone.
+                  // **Four** tests failed, `4 failed | 39 passed`: `leaves a
+                  // collapsed branch's children off the chart`, `draws exactly the
+                  // rows a search narrowed the plan to` and `draws under the roles
+                  // the payload carried…` on `expected [ 'Hull', 'Sanding',
+                  // 'Sealing', …(1) ] to deeply equal [ '010 - Hull', '011 -
+                  // Sanding', …(2) ]`, and `takes the plan to a row when its label
+                  // is clicked` on the button no longer being findable by its
+                  // number. Watched, 2026-08-09.
+                  title={rowWords(label.number, label.name)}
+                  // The house indent, so the chart's outline is the plan's outline
+                  // — `hierarchyIndentFor`, the uncapped half of the pair: this
+                  // rail has no declared column width to protect, so a depth-6
+                  // label stands two steps deeper than a depth-4 one, where the
+                  // Number cell's capped indent would draw them flush.
+                  style={{ height: ROW_PX, paddingLeft: hierarchyIndentFor(label.depth) + 8 }}
+                  // The lit tint after `hover:bg-accent` so it wins where both
+                  // apply, which is every time the pointer is on the label
+                  // itself. `data-[…]` rather than a ternary on the class string:
+                  // the attribute above is already the condition, and two
+                  // spellings of one condition can disagree.
+                  className="hover:bg-accent block w-full truncate pr-2 text-left text-xs data-[gantt-label-lit]:bg-(--grid-dep-lit)"
+                  onClick={() => {
+                    onPickRow(label.id);
+                  }}
+                  // The label is a pointable row in its own right, which is what
+                  // makes a row with **no bar** reachable: nobody has estimated
+                  // it, so the chart draws nothing on its row, and this column is
+                  // the only mark it has.
+                  onPointerEnter={(pointer) => {
+                    // The touch seam, as on the bars and on the table's rows: a
+                    // tap synthesizes a mouse sequence and has no departure
+                    // behind it, so a light set here would be stuck.
+                    if (pointer.pointerType !== 'mouse') return;
+                    onPointRow(label.id, 'pointer');
+                  }}
+                  onPointerLeave={(pointer) => {
+                    if (pointer.pointerType !== 'mouse') return;
+                    onPointRow(null, 'pointer');
+                  }}
+                  onFocus={() => {
+                    onPointRow(label.id, 'focus');
+                  }}
+                  onBlur={() => {
+                    onPointRow(null, 'focus');
+                  }}
+                >
+                  {rowWords(label.number, label.name)}
+                </button>
+              ))}
             </div>
-            {chart.labels.map((label: GanttRowLabel) => (
-              <button
-                key={label.id}
-                type="button"
-                data-gantt-label={label.id}
-                // Lit because this is the **pointed row**, wherever the pointer
-                // is: on this label, on a bar of its row, or on the row in the
-                // table above. The attribute is what the browser gate selects
-                // on; the tint is the class below.
-                data-gantt-label-lit={pointedRow === label.id ? 'true' : undefined}
-                // The same words the button shows, so a label the column has
-                // truncated can still be read whole on hover.
-                //
-                // Proof: the button's text put back to `label.name === '' ?
-                // '(unnamed)' : label.name` — the chart labelled by name alone.
-                // **Four** tests failed, `4 failed | 39 passed`: `leaves a
-                // collapsed branch's children off the chart`, `draws exactly the
-                // rows a search narrowed the plan to` and `draws under the roles
-                // the payload carried…` on `expected [ 'Hull', 'Sanding',
-                // 'Sealing', …(1) ] to deeply equal [ '010 - Hull', '011 -
-                // Sanding', …(2) ]`, and `takes the plan to a row when its label
-                // is clicked` on the button no longer being findable by its
-                // number. Watched, 2026-08-09.
-                title={rowWords(label.number, label.name)}
-                // The house indent, so the chart's outline is the plan's outline
-                // — `hierarchyIndentFor`, the uncapped half of the pair: this
-                // rail has no declared column width to protect, so a depth-6
-                // label stands two steps deeper than a depth-4 one, where the
-                // Number cell's capped indent would draw them flush.
-                style={{ height: ROW_PX, paddingLeft: hierarchyIndentFor(label.depth) + 8 }}
-                // The lit tint after `hover:bg-accent` so it wins where both
-                // apply, which is every time the pointer is on the label
-                // itself. `data-[…]` rather than a ternary on the class string:
-                // the attribute above is already the condition, and two
-                // spellings of one condition can disagree.
-                className="hover:bg-accent block w-full truncate pr-2 text-left text-xs data-[gantt-label-lit]:bg-(--grid-dep-lit)"
-                onClick={() => {
-                  onPickRow(label.id);
-                }}
-                // The label is a pointable row in its own right, which is what
-                // makes a row with **no bar** reachable: nobody has estimated
-                // it, so the chart draws nothing on its row, and this column is
-                // the only mark it has.
-                onPointerEnter={(pointer) => {
-                  // The touch seam, as on the bars and on the table's rows: a
-                  // tap synthesizes a mouse sequence and has no departure
-                  // behind it, so a light set here would be stuck.
-                  if (pointer.pointerType !== 'mouse') return;
-                  onPointRow(label.id, 'pointer');
-                }}
-                onPointerLeave={(pointer) => {
-                  if (pointer.pointerType !== 'mouse') return;
-                  onPointRow(null, 'pointer');
-                }}
-                onFocus={() => {
-                  onPointRow(label.id, 'focus');
-                }}
-                onBlur={() => {
-                  onPointRow(null, 'focus');
-                }}
-              >
-                {rowWords(label.number, label.name)}
-              </button>
-            ))}
-          </div>
+          )}
 
           <div className="shrink-0" style={{ width: chartWidth }}>
             {/*
