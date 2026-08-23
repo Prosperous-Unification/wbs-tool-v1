@@ -2432,11 +2432,6 @@ function GanttChart({
             (`toHaveCount(0)`) when the chart is shut.
           */}
           {labelsShown && (
-            {/*
-            Holds the left edge while the chart scrolls under it. `sticky left-0`
-            inside this scroll container, with a background of its own — a
-            transparent one would have the bars painted through the names.
-          */}
             <div
               data-gantt-labels
               className="bg-background border-border sticky left-0 z-10 shrink-0 border-r"
