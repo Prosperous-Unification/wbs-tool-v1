@@ -1224,7 +1224,14 @@ test.describe('the chart on a phone', () => {
     // and the card is `zIndex: 20` portalled to `document.body`, so the card
     // wins on tree order alone — an ordering worth a hit test rather than a
     // `toBeVisible`, which is equally true of a card painted underneath.
-    await page.locator('[data-gantt-bar]').first().click();
+    //
+    // `hover` and not `click`, which is what the first run of this case got
+    // wrong: on this face a **click** on a bar takes the plan to that row (the
+    // case below asserts exactly that), so the card never opened and the hit
+    // test had nothing to stand on — `expect(locator).toBeVisible() failed /
+    // element(s) not found` at 390×844. A card opens on the pointer, after the
+    // panel's own opening delay, which is what `toBeVisible` waits through.
+    await page.locator('[data-gantt-bar]').first().hover();
     const card = page.getByRole('tooltip');
     await expect(card).toBeVisible();
     const cardOnTop = await page.evaluate(() => {
