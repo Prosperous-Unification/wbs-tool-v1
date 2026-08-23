@@ -10536,13 +10536,14 @@ describe('failures you can see', () => {
 
 describe('a click made while a save is in flight', () => {
   itDom('says the toolbar is busy, and marks the controls the wait holds back', async () => {
-    // The drop is real and stays real: `Add work item` is `disabled={busy}` for
-    // the whole of a write *and* the refetch after it, and a click that lands
-    // in that window goes nowhere. Reproduced on demand in Chrome on
-    // 2026-08-09 — a ⌘+Enter and an immediate click produced a PATCH, two GETs
-    // and **no POST at all**, with no cursor change and no message. Queuing the
-    // click is a design decision nobody has made; making the drop *visible* is
-    // this.
+    // What the wait looks like, now that it no longer eats what arrives during
+    // it. The drop *was* real — reproduced in Chrome on 2026-08-09, a ⌘+Enter
+    // and an immediate click producing a PATCH, two GETs and **no POST at
+    // all** — and this test was written to make it visible because "queuing
+    // the click is a design decision nobody has made". It has been made, on
+    // 2026-08-23, after dev measured 6 clicks at 350ms producing 3 rows: `Add
+    // work item` queues, so it is the one toolbar write that is **not**
+    // `disabled={busy}`. The affordance is what stayed.
     //
     // Proof: `aria-busy={busy}` pinned to `false` on the toolbar, this failed
     // on `expected 'false' to be 'true'`; and `busyAffordance(busy)` dropped
@@ -10563,7 +10564,10 @@ describe('a click made while a save is in flight', () => {
     await waitFor(() => {
       expect(toolbar.getAttribute('aria-busy')).toBe('true');
     });
-    expect(add).toHaveProperty('disabled', true);
+    // Takeable throughout, unlike `Freeze all` beside it: the click is queued
+    // rather than refused, which is the whole of `add-item-drops-clicks`.
+    expect(add).toHaveProperty('disabled', false);
+    expect(screen.getByRole('button', { name: 'Freeze all' })).toHaveProperty('disabled', true);
     expect(add.style.cursor).toBe('progress');
     expect(add.hasAttribute('data-busy')).toBe(true);
 
