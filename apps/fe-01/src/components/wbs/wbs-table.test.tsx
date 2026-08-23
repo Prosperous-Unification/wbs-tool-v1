@@ -1782,11 +1782,20 @@ describe('the plan on a calendar', () => {
     const strip = await api.create('p1', { parentId: null, afterId: null, name: 'Strip' });
     const paint = await api.create('p1', { parentId: null, afterId: strip.id, name: 'Paint' });
     await api.addDependency(paint.id, strip.id);
+    // Five days on `Strip`'s Dev and a **Tuesday** start, so the day this cell
+    // names is neither the plan's start date nor a count of calendar days: the
+    // fifth working day from Tuesday 1 Sep is Monday 7 Sep.
+    await api.setEstimate(strip.id, DEV.id, { optimistic: 5, realistic: 5, pessimistic: 5 });
+    await api.setStartDate('p1', '2026-09-01');
     render(<WbsTable projectId="p1" api={api} />);
     await screen.findByLabelText('Name of 020');
 
+    // The whole sentence through the real call site, and the date is why it is
+    // asserted here rather than only in `gantt-geometry.test.ts`: `<WbsTable>`
+    // is the only thing that hands `startFloorByRow` a calendar, so a stubbed
+    // or forgotten second argument is invisible to every unit test of it.
     expect(rowFor('020').querySelector('[data-start]')?.getAttribute('title')).toBe(
-      'Waits for a dependency’s first estimated role',
+      'Waits for Strip (Dev) — finishes 7 Sep',
     );
     // Not the successor's own sentence on the row it waits for: the two cells
     // answer for themselves, which a single shared string would hide.

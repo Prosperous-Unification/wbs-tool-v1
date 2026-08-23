@@ -6,6 +6,7 @@ import {
   type BindingFloor,
   calendarScale,
   droppedLinkWords,
+  type FloorCalendar,
   GanttDataError,
   type GanttGeometry,
   type GanttPlan,
@@ -115,6 +116,20 @@ const planOf = (parts: Partial<GanttPlan>): GanttPlan => ({
   ],
   personNames: new Map([['kat', 'Kat']]),
   ...parts,
+});
+
+/**
+ * The calendar the floor sentences below say their dates on.
+ *
+ * The start is a **Tuesday** on purpose: every date these tests expect is
+ * counted in working days, so a fixture starting on a Monday would let an
+ * off-by-a-weekend arithmetic pass. `today` is in the plan's own year, which is
+ * the year {@link shortIsoDate} drops — so the expectations read `7 Sep` and a
+ * plan running into another year would say so.
+ */
+const calendarOf = (startDate = '2026-09-01'): FloorCalendar => ({
+  startDate,
+  today: new Date('2026-09-15T00:00:00Z'),
 });
 
 describe('bars', () => {
@@ -2533,24 +2548,170 @@ describe('what holds a row’s start, for the table', () => {
           sliceAt('020-qa', '020', 2, 5, { roleId: 'qa', boundBy: 'roleOrder' }),
         ],
       }),
+      calendarOf(),
     );
 
     expect(floors.get('020')).toBe('Starts with the project');
   });
 
-  it('says a dependency floor in the chart’s words, not the End column’s', () => {
+  it('names which of several dependencies binds, and the day it stops holding', () => {
+    // `020` waits on both, and only one of them is the reason it cannot start:
+    // `Sand` clears on workday 2 and `Strip` on workday 4, so `Strip` is the
+    // floor. `Sand` is stored **first**, so naming the first edge found would
+    // pass every other assertion here and still name the wrong row.
+    //
+    // The anchor inside `Strip` is its Dev, not its QA: a dependency binds to
+    // the predecessor's first estimated role (design.md D6, Dany 2026-08-11),
+    // which is the whole reason `020` may start before `Strip`'s `End` column.
+    //
+    // Proof of the date, watched 2026-08-23 — `lastWorkdayOf(start, finish)`
+    // in `startFloorByRow`'s `clearsOnOf` replaced by:
+    // - a bare `Math.ceil(anchor.earliestFinish)` — **1 failed**, here, on
+    //   `expected 'Waits for Strip (Dev) — finishes 8 Sep' to be '… 7 Sep'`;
+    // - `anchor.earliestFinish` itself — the same failure, the same day.
+    // Both name the workday *after* the one the anchor last works, which is the
+    // successor's own start — the figure already in the cell beside this one.
     const floors = startFloorByRow(
       planOf({
-        rows: [rowAt('030', 0, 6), rowAt('020', 3, 8)],
+        rows: [
+          rowAt('030', 0, 8, { name: 'Strip' }),
+          rowAt('040', 0, 2, { name: 'Sand' }),
+          rowAt('020', 5, 9),
+        ],
         slices: [
-          sliceAt('030-dev', '030', 0, 3),
-          sliceAt('020-dev', '020', 3, 8, { boundBy: 'predecessor' }),
+          sliceAt('030-dev', '030', 0, 5),
+          sliceAt('030-qa', '030', 5, 8, { roleId: 'qa' }),
+          sliceAt('040-dev', '040', 0, 2),
+          sliceAt('020-dev', '020', 5, 9, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [
+          { predecessorId: '040', successorId: '020' },
+          { predecessorId: '030', successorId: '020' },
+        ],
+      }),
+      calendarOf(),
+    );
+
+    // Workday 4 counted from a Tuesday start is the Monday after: the date is
+    // the plan's calendar, not four days added to a number.
+    expect(floors.get('020')).toBe('Waits for Strip (Dev) — finishes 7 Sep');
+  });
+
+  it('names the wait and says no day on a plan with no start date', () => {
+    // The one caller state that is not a fallback: a plan drawn on the workday
+    // axis has no calendar to say a date on, and inventing one would be worse
+    // than the half-sentence.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('030', 0, 5, { name: 'Strip' }), rowAt('020', 5, 9)],
+        slices: [
+          sliceAt('030-dev', '030', 0, 5),
+          sliceAt('020-dev', '020', 5, 9, { boundBy: 'predecessor' }),
         ],
         dependencies: [{ predecessorId: '030', successorId: '020' }],
       }),
+      null,
+    );
+
+    expect(floors.get('020')).toBe('Waits for Strip (Dev)');
+  });
+
+  it('names the work item alone when the slice it waits for is under no role', () => {
+    // A slice belonging to no role is a real state on this wire, and
+    // `Waits for Strip (null)` would be the sentence saying the tool is broken
+    // in the one place a planner would believe it.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('030', 0, 3, { name: 'Strip' }), rowAt('020', 3, 6)],
+        slices: [
+          sliceAt('030-loose', '030', 0, 3, { roleId: null }),
+          sliceAt('020-dev', '020', 3, 6, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [{ predecessorId: '030', successorId: '020' }],
+      }),
+      calendarOf(),
+    );
+
+    expect(floors.get('020')).toBe('Waits for Strip — finishes 3 Sep');
+  });
+
+  it('gives up the whole naming when one predecessor has no slice to read', () => {
+    // `040` carries no slice at all — a broken payload rather than a hidden
+    // row, since a collapsed branch keeps its slices. The one that could not be
+    // read may be the one that finishes last, so naming `Strip` here would be a
+    // confident sentence about the wrong dependency. The row keeps the general
+    // one instead, which is what it read before any of this existed.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [
+          rowAt('030', 0, 5, { name: 'Strip' }),
+          rowAt('040', 0, 2, { name: 'Sand' }),
+          rowAt('020', 5, 9),
+        ],
+        slices: [
+          sliceAt('030-dev', '030', 0, 5),
+          sliceAt('020-dev', '020', 5, 9, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [
+          { predecessorId: '030', successorId: '020' },
+          { predecessorId: '040', successorId: '020' },
+        ],
+      }),
+      calendarOf(),
     );
 
     expect(floors.get('020')).toBe('Waits for a dependency’s first estimated role');
+    // The unreadable row loses its own sentence and nothing else does.
+    expect(floors.has('040')).toBe(false);
+    expect(floors.get('030')).toBe('Starts with the project');
+  });
+
+  it('keeps the general sentence for a predecessor this view is not showing', () => {
+    // The filter's own case: the edge is real and its slices are on the wire,
+    // but the row it leaves is not among the rows on screen, so there is no
+    // name to print. `plan.rows` is the filtered list; `plan.tree` is not.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('020', 5, 9)],
+        tree: [
+          { id: '030', parentId: null },
+          { id: '020', parentId: null },
+        ],
+        slices: [
+          sliceAt('030-dev', '030', 0, 5),
+          sliceAt('020-dev', '020', 5, 9, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [{ predecessorId: '030', successorId: '020' }],
+      }),
+      calendarOf(),
+    );
+
+    expect(floors.get('020')).toBe('Waits for a dependency’s first estimated role');
+  });
+
+  it('names the leaf under a parent dependency that actually finishes last', () => {
+    // An edge stored against a parent binds to the latest-finishing anchor
+    // among its leaves (D6) — the same walk the chart's arrows leave from,
+    // which is why chunk 5 moved it to module level rather than copying it.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [
+          rowAt('000', 0, 6, { leaf: false, name: 'Platform' }),
+          rowAt('010', 0, 3, { depth: 1, name: 'Strip' }),
+          rowAt('011', 0, 6, { depth: 1, name: 'Sand' }),
+          rowAt('020', 6, 9),
+        ],
+        slices: [
+          sliceAt('010-dev', '010', 0, 3),
+          sliceAt('011-dev', '011', 0, 6),
+          sliceAt('020-dev', '020', 6, 9, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [{ predecessorId: '000', successorId: '020' }],
+      }),
+      calendarOf(),
+    );
+
+    expect(floors.get('020')).toBe('Waits for Sand (Dev) — finishes 8 Sep');
   });
 
   it('names the person a row is queued behind, and what they were finishing', () => {
@@ -2566,6 +2727,7 @@ describe('what holds a row’s start, for the table', () => {
           }),
         ],
       }),
+      calendarOf(),
     );
 
     expect(floors.get('020')).toBe('Kat — after Strip (Dev)');
@@ -2587,6 +2749,7 @@ describe('what holds a row’s start, for the table', () => {
           }),
         ],
       }),
+      calendarOf(),
     );
 
     expect(floors.get('020')).toBe('Waits for Growth squad to free a person — after Strip (Dev)');
@@ -2598,6 +2761,7 @@ describe('what holds a row’s start, for the table', () => {
         rows: [rowAt('000', 0, 5, { leaf: false }), rowAt('010', 0, 5, { depth: 1 })],
         slices: [sliceAt('010-dev', '010', 0, 5)],
       }),
+      calendarOf(),
     );
 
     expect(floors.has('000')).toBe(false);
@@ -2621,7 +2785,7 @@ describe('what holds a row’s start, for the table', () => {
     });
 
     expect(() => layOutGantt(plan)).toThrow(GanttDataError);
-    const floors = startFloorByRow(plan);
+    const floors = startFloorByRow(plan, calendarOf());
     expect(floors.has('020')).toBe(false);
     expect(floors.get('010')).toBe('Starts with the project');
   });
@@ -2635,6 +2799,7 @@ describe('what holds a row’s start, for the table', () => {
           sliceAt('020-ops', '020', 0, 2, { roleId: 'ops' }),
         ],
       }),
+      calendarOf(),
     );
 
     expect(floors.has('020')).toBe(false);
