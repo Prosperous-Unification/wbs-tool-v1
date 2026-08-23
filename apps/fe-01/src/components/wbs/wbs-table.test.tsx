@@ -728,6 +728,57 @@ describe('the WBS table', () => {
     });
   });
 
+  /**
+   * A planner typing out a backlog clicks faster than the round trip, and every
+   * click has to become a row.
+   *
+   * Measured on dev by `wbs-e2e-planning-qa`, with trusted mouse events and the
+   * button re-measured before every click: **6 clicks at 350ms produced 3 rows,
+   * 4 clicks at 1500ms produced 4** — counted as `tbody tr` after a four-second
+   * settle, so not a render race in the counter. The lost clicks are silent:
+   * no toast, nothing queued, and the rows the planner thinks they made are
+   * simply not there.
+   *
+   * **be-01 is not the one refusing.** `create` sends `{parentId, afterId,
+   * name}` and carries no revision at all, so there is no stale-revision
+   * conflict to lose the second write to — the drop happens on this client,
+   * which is why this test lives here rather than on the route.
+   *
+   * The write is held open on purpose rather than left to timing. That is the
+   * whole window under test: what a click does while the last one is still
+   * being answered.
+   */
+  itDom('makes a row for every click on Add work item, including the ones mid-write', async () => {
+    const api = fakeApi();
+    const inFlight: (() => void)[] = [];
+    // Everything else answers at once; only the create waits, so the busy
+    // window is exactly one call wide and nothing else in the table is slowed.
+    const slow: ProjectApi = {
+      ...api,
+      create: async (projectId, input) => {
+        await new Promise<void>((resolve) => {
+          inFlight.push(resolve);
+        });
+        return api.create(projectId, input);
+      },
+    };
+    render(<WbsTable projectId="p1" api={slow} />);
+    await screen.findByRole('button', { name: 'Add work item' });
+
+    for (let i = 0; i < 6; i += 1) click('Add work item');
+    // The network answers all of them, in the order they were sent. Inside
+    // `act` with a turn of the microtask queue after it, so the state each
+    // answer sets is flushed before the assertion reads the table.
+    await act(async () => {
+      for (const release of inFlight.splice(0)) release();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010', '020', '030', '040', '050', '060']);
+    });
+  });
+
   itDom('outdents with shift-tab', async () => {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);
