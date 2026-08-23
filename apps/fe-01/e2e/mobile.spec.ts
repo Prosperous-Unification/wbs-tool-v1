@@ -264,6 +264,13 @@ test.describe('the plan on a phone, measured by a browser', () => {
       page.getByRole('button', { name: 'Plan actions' }),
       page.getByLabel('Name of 010'),
       page.getByLabel('Dev estimate for 010'),
+      // The team field, added with the sheet that made it a control
+      // (`card-field-pickers` chunk 1). It belongs in this list and not in the
+      // sweep below for a reason worth stating: the 44px floor in `styles.css`
+      // is scoped to `[data-modal-surface]` and `[data-account-menu]`, and a
+      // card is neither — so every control a card grows has to carry its own
+      // height, and this list is the only thing that checks that it did.
+      page.getByRole('button', { name: 'Service or team for 010' }),
     ];
     for (const control of controls) {
       const box = await control.boundingBox();
@@ -378,6 +385,68 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await page.reload();
 
     await expect(page.getByLabel('Name of 010')).toHaveValue(A_LONG_NAME);
+  });
+
+  /**
+   * The team field's round trip, by touch alone — the criterion `card-field-pickers`
+   * lists for every one of its four fields and the one jsdom structurally cannot
+   * make.
+   *
+   * `plan-cards.test.tsx` has three cases over this sheet and all three answer a
+   * **fake** api: they prove the box is `rowId::team`, that Enter binds the name
+   * typed rather than the one it sits inside, and that a row with no team can
+   * still make one. What none of them can prove is that anything left the
+   * browser. "Commits and survives a reload" is a claim about be-01, so it is
+   * made here or nowhere — chunk 2 of that task retracted it for exactly this
+   * reason.
+   *
+   * **No key is pressed.** `Add “…”` is *tapped*, not taken with Enter, because
+   * the whole subject is a face with no keyboard: the tap has to survive
+   * `PickerList`'s `mousedown` `preventDefault` (without which the blur closes
+   * the list before the click can land) and the sheet's focus scope. Enter would
+   * pass through a broken list.
+   *
+   * The name carries `username` because `service_team` has **no owner column**
+   * and that is deliberate (Dany, 2026-08-06) — the directory is shared across
+   * every plan in the deployment, so a fixed name would be found by the second
+   * run of this file and ranked ahead of the `Add` line it is here to tap.
+   */
+  test('makes a team from a card by tapping alone, and still says so after a reload', async ({
+    page,
+  }) => {
+    const team = `Racking crew ${username}`;
+    const field = page.getByRole('button', { name: 'Service or team for 010' });
+
+    // Nothing is claimed yet, which is what stops the assertion at the end
+    // passing vacuously: `data-card-team` is the claim, and a row that inherits
+    // or carries nothing does not draw it at all.
+    await expect(field.locator('[data-card-team]')).toHaveCount(0);
+
+    await field.click();
+    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeVisible();
+
+    const box = page.getByRole('combobox', { name: 'Service or team for 010' });
+    await box.click();
+    await box.fill(team);
+
+    // `data-picker-take` is the first line and therefore the one the ranking
+    // says is about to be taken. Asserting its text before tapping it is what
+    // makes this a test of the *offer* as well as of the write: a directory
+    // entry ranked above the `Add` line would fail here rather than quietly
+    // labelling the row with somebody else's team.
+    const add = page.locator('[data-picker-take]');
+    await expect(add).toHaveText(`Add “${team}”`);
+    await add.click();
+
+    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeHidden();
+    await expect(field.locator('[data-card-team]')).toHaveText(team);
+
+    // The plan, not the card: the line above proves only that React heard the
+    // choice. This is the one that asks be-01.
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Service or team for 010' }).locator('[data-card-team]'),
+    ).toHaveText(team);
   });
 
   /**
