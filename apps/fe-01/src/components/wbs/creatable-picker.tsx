@@ -45,6 +45,19 @@ export function pickableLabel(entry: PickableEntry): ReactNode {
  * The caller owns the wrapper and the keyboard. This owns the box and the
  * lines in it.
  */
+/**
+ * The DOM id of one line, so a box above the list can point at it.
+ *
+ * Only the first line is ever pointed at today — every list here is taken with
+ * Enter and Enter takes the top — but the ids are per-line rather than one id
+ * moved onto whichever line is first, because `aria-activedescendant` is how
+ * arrow-key navigation will say where it is, and a scheme that only has a name
+ * for line zero would have to be rewritten to get one.
+ */
+export function pickerOptionId(listId: string, index: number): string {
+  return `${listId}-option-${String(index)}`;
+}
+
 export function PickerList({
   id,
   label,
@@ -83,16 +96,30 @@ export function PickerList({
         minWidth: '100%',
       }}
     >
-      {options.map((option) => (
+      {options.map((option, index) => (
         // The ARIA combobox pattern is the boundary that makes this safe:
         // options are not focusable and the keyboard drives them from the
         // box above.
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events
         <li
           key={option.key}
+          id={pickerOptionId(id, index)}
           role="option"
           aria-selected={option.selected}
-          style={{ padding: '2px 6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          // The line Enter takes, said in ink as well as in ARIA. Without it
+          // the ordering fix is invisible: a reader typing a name that already
+          // exists somewhere in the directory has no way to tell whether
+          // Enter is about to make their team or join the other one.
+          //
+          // `--accent` and not a border, because a border on one line moves
+          // the lines under it by a pixel as the typing narrows the list.
+          data-picker-take={index === 0 ? '' : undefined}
+          style={{
+            padding: '2px 6px',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            background: index === 0 ? 'var(--accent)' : undefined,
+          }}
           onClick={option.take}
         >
           {option.label}
@@ -183,7 +210,30 @@ export interface CreatablePickerProps {
  *
  * Filtering is a case-insensitive substring, the same rule the dependency and
  * project pickers use; three pickers side by side that filter differently is a
- * surprise with nothing to gain from it. Order is the order given, always.
+ * surprise with nothing to gain from it.
+ *
+ * **Order is not the order given, and that is the whole of
+ * `team-picker-substitutes`.** Typing `QA` into a new plan's team cell and
+ * pressing Enter used to bind `claire qa billing`, because the list was the
+ * directory's own order and Enter took the first line of it. The directory
+ * being global is not the fault — `service_team`'s own comment says every
+ * project draws from one list on purpose — the fault is that a name typed in
+ * full lost to a name it merely sits inside, silently, on a control whose
+ * choice levels the plan against that team's capacity.
+ *
+ * So the list is ranked by how much of it the typing accounts for, and Enter
+ * takes the first line, whatever it is:
+ *
+ * 1. the entry spelled exactly that way (case aside),
+ * 2. the entries it is the beginning of — autocomplete, which is why `plat`
+ *    still binds `Platform` rather than making a team called `plat`,
+ * 3. `Add "…"`, a new entry by the name as typed,
+ * 4. the entries that merely contain it.
+ *
+ * The rule and the display are one thing rather than two that can disagree:
+ * `options` below is both what is drawn and what Enter reads, and the input's
+ * `aria-activedescendant` names its first line, so the option about to be
+ * taken is the option shown as such.
  *
  * "Add" appears only when what has been typed matches no entry **exactly**.
  * Offering it beside an exact match is how a list grows a second `Platform`
@@ -215,7 +265,48 @@ export function CreatablePicker({
   const exact = entries.some((entry) => entry.name.toLowerCase() === wanted);
   // `onCreate` absent means this surface cannot make one — see the prop.
   const canCreate = onCreate !== undefined && typed !== null && wanted !== '' && !exact;
-  const open = typed !== null && (offered.length > 0 || canCreate);
+
+  // The three tiers of the doc comment's ranking, over the entries that matched
+  // at all. `leads` is true of everything while nothing has been typed, so a
+  // freshly focused box is the directory in the order it arrived — the ranking
+  // only has an opinion once there is something to rank against.
+  const leads = (entry: PickableEntry) => entry.name.toLowerCase().startsWith(wanted);
+  const isExact = (entry: PickableEntry) => entry.name.toLowerCase() === wanted;
+  const ahead = [...offered.filter(isExact), ...offered.filter((e) => !isExact(e) && leads(e))];
+  const behind = offered.filter((entry) => !leads(entry));
+
+  const choose = (entry: PickableEntry): PickerOption => ({
+    key: entry.id,
+    label: pickableLabel(entry),
+    selected: entry.id === value,
+    take: () => {
+      onChoose(entry.id);
+      setTyped(null);
+    },
+  });
+  /** What is drawn, and — first line first — what Enter takes. One array. */
+  const options: PickerOption[] = [
+    ...ahead.map(choose),
+    // No `?.` and no re-test of `typed`: `canCreate` is
+    // `onCreate !== undefined && typed !== null && …`, and TypeScript narrows
+    // through an aliased condition, so either would be dead syntax the linter
+    // is right to refuse. (It refused them, 2026-08-23.)
+    ...(canCreate
+      ? [
+          {
+            key: '(add)',
+            label: `Add “${typed.trim()}”`,
+            selected: false,
+            take: () => {
+              onCreate(typed.trim());
+              setTyped(null);
+            },
+          },
+        ]
+      : []),
+    ...behind.map(choose),
+  ];
+  const open = typed !== null && options.length > 0;
 
   return (
     // A flex row so the box and its ✕ share one cell's width instead of adding
@@ -234,6 +325,8 @@ export function CreatablePicker({
         role="combobox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
+        // Which line Enter takes, for a reader who cannot see the highlight.
+        aria-activedescendant={open ? pickerOptionId(listId, 0) : undefined}
         aria-autocomplete="list"
         placeholder={placeholder}
         title={title}
@@ -311,20 +404,12 @@ export function CreatablePicker({
           if (e.key !== 'Enter') return;
           e.preventDefault();
           if (typed === null) return;
-          const first = offered.at(0);
-          if (first !== undefined) {
-            onChoose(first.id);
-            setTyped(null);
-            return;
-          }
-          if (canCreate) {
-            // No `?.`: `canCreate` is `onCreate !== undefined && …`, and
-            // TypeScript narrows through an aliased condition — so an optional
-            // chain here is not defensive, it is dead syntax the linter is
-            // right to refuse.
-            onCreate(typed.trim());
-            setTyped(null);
-          }
+          // One line, and it is the same line the reader is looking at. The
+          // branch that used to stand here — first filtered entry, else create
+          // — was a second copy of the ordering rule, and the two disagreed:
+          // the list showed `claire qa billing` under an `Add “QA”` nobody
+          // could reach from the keyboard, and Enter took the one above it.
+          options.at(0)?.take();
         }}
       />
       {chosen !== undefined && typed === null && (
@@ -338,36 +423,7 @@ export function CreatablePicker({
           ✕
         </button>
       )}
-      {open && (
-        <PickerList
-          id={listId}
-          label={label}
-          options={[
-            ...offered.map((entry) => ({
-              key: entry.id,
-              label: pickableLabel(entry),
-              selected: entry.id === value,
-              take: () => {
-                onChoose(entry.id);
-                setTyped(null);
-              },
-            })),
-            ...(canCreate
-              ? [
-                  {
-                    key: '(add)',
-                    label: `Add “${typed.trim()}”`,
-                    selected: false,
-                    take: () => {
-                      onCreate(typed.trim());
-                      setTyped(null);
-                    },
-                  },
-                ]
-              : []),
-          ]}
-        />
-      )}
+      {open && <PickerList id={listId} label={label} options={options} />}
     </span>
   );
 }

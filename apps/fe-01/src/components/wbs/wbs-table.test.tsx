@@ -1696,6 +1696,103 @@ describe('teams and assignees', () => {
     expect(offeredIn(label)).toEqual(['Platform']);
   });
 
+  /**
+   * `wbs-team-picker-substitutes`, finding 2 of the 2026-08-22 planning QA:
+   * typed `QA` into a new plan's team cell, pressed Enter, got
+   * `claire qa billing`.
+   *
+   * The shared directory is not the fault — `service_team`'s own comment says
+   * every project draws from one list on purpose, so a team somebody else made
+   * belongs on offer. The fault is that Enter took it: a name typed in full
+   * lost to a name it merely sits inside, with nothing on screen distinguishing
+   * "made the team I named" from "joined one that is already carrying four
+   * other plans' load". The knock-on is a schedule levelled against capacity
+   * the planner never chose.
+   */
+  itDom('creates the name typed rather than joining one that merely contains it', async () => {
+    const api = await oneRow();
+    await api.addTeam('claire qa billing');
+    // Added behind the component's back, so a refresh has to bring it in.
+    click('Add work item');
+    await screen.findByLabelText('Name of 020');
+    const label = 'Service or team for 010';
+
+    const picker = screen.getByLabelText(label);
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: 'QA' } });
+
+    // The order *is* the fix: the first line is the line Enter takes, so the
+    // new team stands above the name that happens to contain those letters —
+    // which is still offered, because joining it is a thing somebody might
+    // mean, just not the thing they said.
+    expect(offeredIn(label)).toEqual(['Add “QA”', 'claire qa billing']);
+    // And the box says which line that is, for a reader who cannot see it.
+    expect(picker.getAttribute('aria-activedescendant')).toBe(
+      screen.getByText('Add “QA”').getAttribute('id'),
+    );
+
+    fireEvent.keyDown(picker, { key: 'Enter' });
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>(label).value).toBe('QA');
+    });
+    // The stranger's team is untouched and still there: nothing was renamed
+    // and nothing was joined.
+    expect((await api.listTeams()).map((team) => team.name)).toEqual(['claire qa billing', 'QA']);
+  });
+
+  /**
+   * The case that makes the reorder a rule rather than "Enter always creates".
+   *
+   * A leading match is autocomplete and has to keep winning, or every planner
+   * half-way through spelling `Platform` gets a second team called `plat` —
+   * which is the exact duplicate-directory harm the `Add` line is guarded
+   * against in the first place.
+   */
+  itDom('still takes the team it is half-way through spelling', async () => {
+    const api = await oneRow();
+    const platform = await api.addTeam('Platform');
+    click('Add work item');
+    await screen.findByLabelText('Name of 020');
+    const label = 'Service or team for 010';
+
+    const picker = screen.getByLabelText(label);
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: 'plat' } });
+    expect(offeredIn(label)).toEqual(['Platform', 'Add “plat”']);
+    fireEvent.keyDown(picker, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.rows[0]?.serviceTeamId).toBe(platform.id);
+    });
+    expect((await api.listTeams()).map((team) => team.name)).toEqual(['Platform']);
+  });
+
+  /**
+   * The other half of the QA report — typed `Backend`, got `backend` — and it
+   * is the one thing in that finding which is right. An exact match case aside
+   * is the team, and joining it is what stops the directory growing a second
+   * spelling of one name. Pinned because the ranking above sorts on the same
+   * comparison and could lose it.
+   */
+  itDom('joins the team already spelled that way in another case', async () => {
+    const api = await oneRow();
+    const backend = await api.addTeam('backend');
+    click('Add work item');
+    await screen.findByLabelText('Name of 020');
+    const label = 'Service or team for 010';
+
+    const picker = screen.getByLabelText(label);
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: 'Backend' } });
+    expect(offeredIn(label)).toEqual(['backend']);
+    fireEvent.keyDown(picker, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.rows[0]?.serviceTeamId).toBe(backend.id);
+    });
+    expect((await api.listTeams()).map((team) => team.name)).toEqual(['backend']);
+  });
+
   itDom('assigns a person who is in no team as a free agent', async () => {
     const api = await oneRow();
     const label = 'Dev assignee for 010';
