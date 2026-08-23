@@ -2205,6 +2205,16 @@ function SavedViews({
  * which would be a second implementation of the derivation as well.
  */
 export function WbsTable({ projectId, projectName, api, subscribe }: WbsTableProps) {
+  /**
+   * The project this render belongs to, readable by work that outlives the
+   * render which started it.
+   *
+   * Updated during render rather than in an effect: a click can land on the
+   * newly rendered project before effects run, and stale work must already
+   * know it no longer owns this table by then.
+   */
+  const activeProject = useRef(projectId);
+  activeProject.current = projectId;
   const [workItems, setWorkItems] = useState<TreeRow[]>([]);
   /**
    * Everything the chart is drawn from, as **one** read delivered it.
@@ -2931,6 +2941,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   }, []);
 
   const refresh = useCallback(async () => {
+    // An action from the project shown before the latest render can finish
+    // afterwards. It may finish its server request, but it no longer gets a
+    // read generation or a write into this project's screen.
+    if (projectId !== activeProject.current) return;
     // Every mutation and every socket event starts a refresh, and they can
     // finish out of order — an earlier one landing last would replace the table
     // with a tree older than what is on screen, with nothing guaranteed to
@@ -2951,6 +2965,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         api.listServices(),
         api.listPeople(),
       ]);
+    if (projectId !== activeProject.current) return;
     if (generation !== latestRefresh.current) return;
     // This read landed, so whatever the last failed one left behind is over.
     // After the generation check, not before: a superseded read must not
@@ -3178,6 +3193,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    */
   const run = useCallback(
     async (action: () => Promise<void>): Promise<CommitOutcome> => {
+      const issuedFor = projectId;
       // Read here, synchronously, because this is the moment the gesture
       // happened. The intent compares it against where the focus is when the
       // refetch lands, and everything between the two is the window in which
@@ -3188,6 +3204,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         try {
           await action();
         } catch (thrown: unknown) {
+          // A refusal from a project the reader has left is not a refusal of
+          // anything on the screen now. The old burst stops without putting
+          // its toast or refetch into the next project.
+          if (activeProject.current !== issuedFor) return 'refused';
           // Proof, two faults, both watched 2026-08-09. `refusalSentence`
           // replaced by `failureText`, `says a row that has gone is gone, and
           // rereads the tree that proves it` failed on `expected [ 'not_found' ]
@@ -3204,13 +3224,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           if (refusal === GONE || INVALID_REQUEST.has(refusal)) await refreshOrMarkStale();
           return 'refused';
         }
-        await refreshOrMarkStale();
+        if (activeProject.current === issuedFor) await refreshOrMarkStale();
         return 'landed';
       } finally {
-        setBusy(false);
+        // The next project's write owns its busy state. An older completion
+        // cannot clear the affordance while that write is still in flight.
+        if (activeProject.current === issuedFor) setBusy(false);
       }
     },
-    [pushToast, refreshOrMarkStale],
+    [projectId, pushToast, refreshOrMarkStale],
   );
 
   /**
@@ -3958,17 +3980,23 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * this loop runs, so a re-read could hand be-01 the same `afterId` twice and
    * stack the burst in reverse.
    */
-  const queuedAdds = useRef(0);
-  const drainingAdds = useRef(false);
+  const addQueue = useRef({ projectId, queued: 0, draining: false });
+  if (addQueue.current.projectId !== projectId) {
+    // Orphan the old project's queue. Its in-flight request may finish, but
+    // pending clicks do not become writes after the reader has left it, and a
+    // click here receives a fresh drain immediately.
+    addQueue.current = { projectId, queued: 0, draining: false };
+  }
   const addWorkItem = useCallback(() => {
-    queuedAdds.current += 1;
-    if (drainingAdds.current) return;
-    drainingAdds.current = true;
+    const queue = addQueue.current;
+    queue.queued += 1;
+    if (queue.draining) return;
+    queue.draining = true;
     void (async () => {
       try {
         let afterId = siblingsOf(null).at(-1)?.id ?? null;
-        while (queuedAdds.current > 0) {
-          queuedAdds.current -= 1;
+        while (queue.queued > 0 && activeProject.current === queue.projectId) {
+          queue.queued -= 1;
           const outcome = await run(async () => {
             const created = await api.create(projectId, { parentId: null, afterId, name: '' });
             afterId = created.id;
@@ -3977,10 +4005,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // A refused create ends the burst. The rows after it would be built
           // on an `afterId` that was never written, and be-01 has already said
           // why it said no — six more of the same toast is not more information.
-          if (outcome === 'refused') queuedAdds.current = 0;
+          if (outcome === 'refused') queue.queued = 0;
         }
       } finally {
-        drainingAdds.current = false;
+        queue.draining = false;
       }
     })();
   }, [api, projectId, run, siblingsOf]);

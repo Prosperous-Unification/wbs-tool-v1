@@ -791,6 +791,47 @@ describe('the WBS table', () => {
     });
   });
 
+  itDom('keeps an add burst and its refetch inside the project where it started', async () => {
+    const first = fakeApi();
+    const second = fakeApi();
+    const calls: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const heldFirst = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const forProject = (projectId: string) => (projectId === 'p1' ? first : second);
+    const api: ProjectApi = {
+      ...first,
+      tree: (projectId) => forProject(projectId).tree(projectId),
+      roles: (projectId) => forProject(projectId).roles(projectId),
+      create: async (projectId, input) => {
+        calls.push(projectId);
+        if (projectId === 'p1') await heldFirst;
+        return forProject(projectId).create(projectId, input);
+      },
+    };
+    const { rerender } = render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByRole('button', { name: 'Add work item' });
+
+    click('Add work item');
+    await waitFor(() => {
+      expect(calls).toEqual(['p1']);
+    });
+
+    rerender(<WbsTable projectId="p2" api={api} />);
+    click('Add work item');
+    releaseFirst?.();
+
+    await waitFor(() => {
+      expect(calls).toEqual(['p1', 'p2']);
+    });
+    await waitFor(() => {
+      expect(numbersOnScreen()).toEqual(['010']);
+    });
+    expect(first.rows).toHaveLength(1);
+    expect(second.rows).toHaveLength(1);
+  });
+
   itDom('outdents with shift-tab', async () => {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);
