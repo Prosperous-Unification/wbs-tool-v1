@@ -5903,10 +5903,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * name the row a removal is keyed by. `dependenciesOf` already builds exactly
    * this, so widening it is dropping a `.map` rather than adding a second pass.
    */
-  const waitsFor = useCallback(
-    (row: TreeRow) => dependenciesOf(row.dependsOn),
-    [dependenciesOf],
-  );
+  const waitsFor = useCallback((row: TreeRow) => dependenciesOf(row.dependsOn), [dependenciesOf]);
 
   /**
    * Takes the plan to one row: its name cell gets the caret and is scrolled to.
