@@ -984,9 +984,7 @@ function CardPriorityField({
                     aria-pressed={paint !== null && paint.rank === rank}
                     className={`${TAP} flex w-full items-center justify-between rounded-md border px-3 text-left`}
                     style={
-                      paint !== null && paint.rank === rank
-                        ? { background: line?.tint }
-                        : undefined
+                      paint !== null && paint.rank === rank ? { background: line?.tint } : undefined
                     }
                     onClick={() => {
                       // The band's own name, not its number: `priorityTyped`

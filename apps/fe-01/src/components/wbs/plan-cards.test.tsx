@@ -2343,32 +2343,35 @@ describe('setting a card’s priority', () => {
 
     await openTheSheet();
 
-    expect(
-      screen.getByLabelText('Priority for 010, as a number').getAttribute('data-cell'),
-    ).toBe(`${api.rows[0]?.id ?? ''}::priority`);
+    expect(screen.getByLabelText('Priority for 010, as a number').getAttribute('data-cell')).toBe(
+      `${api.rows[0]?.id ?? ''}::priority`,
+    );
   });
 
-  itDom('is reachable on a row nobody has prioritised, and ranks it from a tapped band', async () => {
-    // The departure this file has now made three times: the chip is the claim
-    // and is absent here, so the control around it has to be drawn anyway — a
-    // control that appears once a value exists cannot set the first one.
-    const api = await aPhonePlan();
-    expect(chipOnCard()).toBeNull();
-    const before = api.patched.length;
+  itDom(
+    'is reachable on a row nobody has prioritised, and ranks it from a tapped band',
+    async () => {
+      // The departure this file has now made three times: the chip is the claim
+      // and is absent here, so the control around it has to be drawn anyway — a
+      // control that appears once a value exists cannot set the first one.
+      const api = await aPhonePlan();
+      expect(chipOnCard()).toBeNull();
+      const before = api.patched.length;
 
-    await openTheSheet();
-    fireEvent.click(screen.getByRole('button', { name: /^High/ }));
+      await openTheSheet();
+      fireEvent.click(screen.getByRole('button', { name: /^High/ }));
 
-    // 30 and not the label: `priorityTyped` resolves the name behind
-    // `setPriority`, so a tapped line writes the band's own default value —
-    // the same number the table's picked line writes.
-    await waitFor(() => {
-      expect(api.patched.slice(before)).toEqual([{ id: api.rows[0]?.id, priority: 30 }]);
-    });
-    await waitFor(() => {
-      expect(chipOnCard()?.textContent).toBe('High 30');
-    });
-  });
+      // 30 and not the label: `priorityTyped` resolves the name behind
+      // `setPriority`, so a tapped line writes the band's own default value —
+      // the same number the table's picked line writes.
+      await waitFor(() => {
+        expect(api.patched.slice(before)).toEqual([{ id: api.rows[0]?.id, priority: 30 }]);
+      });
+      await waitFor(() => {
+        expect(chipOnCard()?.textContent).toBe('High 30');
+      });
+    },
+  );
 
   itDom('takes a number typed into the box, which is Dany’s other language', async () => {
     // "select priority by labels or input a number manually" (2026-08-13). The
@@ -2463,8 +2466,8 @@ describe('setting a card’s priority', () => {
     });
 
     await openTheSheet();
-    expect(
-      screen.getByLabelText<HTMLInputElement>('Priority for 010, as a number').value,
-    ).toBe('5');
+    expect(screen.getByLabelText<HTMLInputElement>('Priority for 010, as a number').value).toBe(
+      '5',
+    );
   });
 });
