@@ -1254,9 +1254,10 @@ test.describe('the chart on a phone', () => {
           (tooltip.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_PRECEDING) !== 0,
       };
     });
-    expect(layering.layer, 'the full-screen layer outranks the card a bar opens').toBeLessThanOrEqual(
-      layering.card,
-    );
+    expect(
+      layering.layer,
+      'the full-screen layer outranks the card a bar opens',
+    ).toBeLessThanOrEqual(layering.card);
     expect(layering.cardIsAfter, 'the card is drawn before the layer that covers it').toBe(true);
 
     // Escape leaves, and leaves a chart behind rather than a closed panel.
