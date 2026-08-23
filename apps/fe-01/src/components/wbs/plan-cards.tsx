@@ -660,6 +660,7 @@ function CardTeamField({
           title={inheritedNote}
           entries={teams}
           value={row.teamIds.at(0) ?? null}
+          clearVisibleWhileFocused
           // The cell the table's Team box carries, on the box that edits it
           // here — `rowId::team`, one string out of `cellKey`, so the two faces
           // are the same cell rather than two boxes over one field.

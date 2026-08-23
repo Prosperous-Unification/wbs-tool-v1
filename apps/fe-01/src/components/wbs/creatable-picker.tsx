@@ -150,6 +150,16 @@ export interface CreatablePickerProps {
   onCreate?: (name: string) => void;
   /** Absent where there is nothing a clear could take off. */
   onClear?: () => void;
+  /**
+   * Whether a chosen entry's clear action remains visible while the input has
+   * focus.
+   *
+   * Absent preserves the table cell's compact contract: focus gives the
+   * directory and the typed search the whole row. The phone card's modal sheet
+   * opts in because its focus scope autofocuses this input as the sheet opens;
+   * without this, the closed state that normally exposes Clear is unreachable.
+   */
+  clearVisibleWhileFocused?: boolean;
   placeholder?: string;
   /**
    * The box's own hover text, where the caller has something to say about a
@@ -263,6 +273,7 @@ export function CreatablePicker({
   onChoose,
   onCreate,
   onClear,
+  clearVisibleWhileFocused,
   placeholder,
   title,
   dataCell,
@@ -429,7 +440,7 @@ export function CreatablePicker({
           options.at(0)?.take();
         }}
       />
-      {chosen !== undefined && typed === null && (
+      {chosen !== undefined && (typed === null || clearVisibleWhileFocused === true) && (
         <button
           type="button"
           aria-label={`Clear ${label}`}

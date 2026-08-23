@@ -2301,6 +2301,38 @@ describe('setting a card’s team', () => {
       });
     },
   );
+
+  itDom('clears only the row’s own team and reveals the one it inherits', async () => {
+    // Proof: without the card sheet's focused-clear opt-in, this failed at
+    // `getByRole('button', { name: 'Clear Service or team for 020' })` after
+    // focusing the combobox. Watched in jsdom, 2026-08-23.
+    const api = await aPhonePlan((rows, teams) => {
+      teams.push({ id: 't-parent', name: 'Billing' }, { id: 't-child', name: 'Platform' });
+      const [parent, child] = rows;
+      parent.serviceTeamId = 't-parent';
+      parent.teamIds = ['t-parent'];
+      parent.rolledUp = true;
+      child.parentId = parent.id;
+      child.serviceTeamId = 't-child';
+      child.teamIds = ['t-child'];
+    }, 2);
+
+    fireEvent.click(teamFields()[1]);
+    const box = await screen.findByRole('combobox', { name: 'Service or team for 020' });
+    fireEvent.focus(box);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Service or team for 020' }));
+
+    await waitFor(() => {
+      expect(api.patched.at(-1)).toEqual({ id: api.rows[1]?.id, serviceTeamId: null });
+    });
+    await waitFor(() => {
+      const cards = [...document.querySelectorAll<HTMLElement>('[data-card-team]')];
+      expect(cards[0]?.textContent).toBe('Billing');
+      expect(cards[0]?.getAttribute('data-inherited')).toBeNull();
+      expect(cards[1]?.textContent).toBe('↳ Billing');
+      expect(cards[1]?.getAttribute('data-inherited')).toBe('true');
+    });
+  });
 });
 
 describe('setting a card’s earliest start', () => {

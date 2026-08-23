@@ -498,6 +498,23 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await expect(
       page.getByRole('button', { name: 'Service or team for 010' }).locator('[data-card-team]'),
     ).toHaveText(team);
+
+    // A chosen team must expose its clear action as soon as the phone sheet
+    // opens. The sheet autofocuses the combobox, so this also guards the exact
+    // focus transition that used to hide the only way to clear the row.
+    //
+    // Proof: with the clear action still gated on `typed === null`, Chromium
+    // timed out waiting for `Clear Service or team for 010` after the sheet's
+    // autofocus changed `typed` to `''`. Watched at 390×844, 2026-08-23.
+    await field.click();
+    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeVisible();
+    await page.getByRole('button', { name: 'Clear Service or team for 010' }).click();
+
+    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeHidden();
+    await expect(field.locator('[data-card-team]')).toHaveCount(0);
+
+    await page.reload();
+    await expect(field.locator('[data-card-team]')).toHaveCount(0);
   });
 
   /**
