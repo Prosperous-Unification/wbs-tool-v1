@@ -10567,7 +10567,10 @@ describe('a click made while a save is in flight', () => {
     // Takeable throughout, unlike `Freeze all` beside it: the click is queued
     // rather than refused, which is the whole of `add-item-drops-clicks`.
     expect(add).toHaveProperty('disabled', false);
-    expect(screen.getByRole('button', { name: 'Freeze all' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Freeze numbering' })).toHaveProperty(
+      'disabled',
+      true,
+    );
     expect(add.style.cursor).toBe('progress');
     expect(add.hasAttribute('data-busy')).toBe(true);
 
