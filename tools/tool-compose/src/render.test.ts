@@ -47,6 +47,9 @@ describe('renderAll', () => {
     expect(tier).toMatch(/image: registry.infra.bulletpoints.club\/wbs-be-01:abc1234/);
     expect(tier).toMatch(/be-01-green:/);
     expect(tier).toMatch(/- \/home\/puni1\/wbs\/be-01\.secrets\.env/);
+    expect(tier).toContain("driver: json-file");
+    expect(tier).toContain("max-size: '20m'");
+    expect(tier).toContain("max-file: '3'");
     const site = await readFile(join(outDir, 'site.caddy'), 'utf8');
     expect(site).toMatch(/reverse_proxy be-01-green:3100/);
   });

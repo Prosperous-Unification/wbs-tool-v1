@@ -44,6 +44,11 @@ services:
       - caddy_config:/config
       - /home/puni1/wbs/caddy:/etc/caddy:ro
       - /home/puni1/wbs/logs:/var/log/caddy
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '3'
 
   registry:
     image: registry:2
@@ -71,3 +76,8 @@ services:
     volumes:
       - registry_data:/var/lib/registry
       - /home/puni1/wbs/registry.htpasswd:/auth/htpasswd:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '3'
