@@ -51,7 +51,7 @@ import { CellInput } from './cell-input';
 import { type Caret, type CellRef, commandMove, type Direction, nextCell } from './cell-navigation';
 import { CreatablePicker, pickableLabel, PickerList, type PickerOption } from './creatable-picker';
 import { DateField } from './date-field';
-import { pickerEntries, type PickerEntry } from './dep-picker';
+import { pickerEntries, REFUSAL_SUFFIX } from './dep-picker';
 import { DependsCard, dependsLine } from './depends-card';
 import { parseDependencies, unknownMessage } from './depends-input';
 import { type DropRefusal, type DropZone, planMove, zoneFor } from './drag-drop';
@@ -595,24 +595,6 @@ const REFUSAL_MESSAGES: Partial<Record<DropRefusal, string>> = {
   frozen: FROZEN_REFUSAL,
   cycle: 'A row cannot be moved inside itself.',
   not_found: 'That row is no longer here — the table has been refreshed.',
-};
-
-/**
- * What a greyed entry in the Depends on list says about itself.
- *
- * The refusal be-01 would answer with, in the words of the table it is being
- * read in: the reader is looking at rows and asking why this one is out, not
- * reading an API's vocabulary. `— would loop` is the whole of the cycle
- * explanation on purpose; the loop can run through any number of rows and
- * naming them in a dropdown entry is a paragraph nobody reads.
- *
- * Exhaustive rather than `Partial`: a new refusal must not reach the list as a
- * silently unexplained grey row.
- */
-const REFUSAL_SUFFIX: Record<NonNullable<PickerEntry['refusal']>, string> = {
-  ancestor: 'contains this row',
-  descendant: 'inside this row',
-  cycle: 'would loop',
 };
 
 /**
@@ -5913,9 +5895,16 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     [people, mismatchByRow, teamNamesOn],
   );
 
-  /** The numbers of the work items one waits for, in the order it holds them. */
+  /**
+   * The work items one waits for, in the order it holds them.
+   *
+   * The entries and not just their numbers, since `card-field-pickers` chunk 7:
+   * the card's line became a control, and a wait that can be taken off has to
+   * name the row a removal is keyed by. `dependenciesOf` already builds exactly
+   * this, so widening it is dropping a `.map` rather than adding a second pass.
+   */
   const waitsFor = useCallback(
-    (row: TreeRow) => dependenciesOf(row.dependsOn).map((each) => each.number),
+    (row: TreeRow) => dependenciesOf(row.dependsOn),
     [dependenciesOf],
   );
 
@@ -9797,6 +9786,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           mentionOptions={mentionOptions}
           assigneeOn={assigneeOn}
           waitsFor={waitsFor}
+          // The Depends cell's own picker rule and its own two writers, handed
+          // to the face that had neither. `depEntriesFor` is `pickerEntries`,
+          // which is a *ported copy of be-01's judgement* about which edges are
+          // refusable — the one rule in this dimension that two implementations
+          // would quietly disagree about — so the card asks the same question of
+          // the same function and greys the same rows. `pickDependency` and
+          // `removeDependency` are the paths the table's list and its chip `✕`
+          // take, for `rowActions`' bargain, a fifth dimension over.
+          dependencyOptions={(row, typed) => depEntriesFor(row, typed)}
+          addDependency={(row, predecessorId) => {
+            pickDependency(row.id, predecessorId);
+          }}
+          dropDependency={(row, predecessorId) => {
+            void run(() => api.removeDependency(row.id, predecessorId));
+          }}
           // The `Start` cell's own sentence, off the one map, handed to the
           // face that has no hover to give it. `startFloor.current` is filled
           // two hundred lines above this JSX, from the same `ganttPlan` the

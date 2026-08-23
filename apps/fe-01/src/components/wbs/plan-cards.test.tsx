@@ -135,9 +135,19 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
    * `card-row-actions-unwired` is about.
    */
   rowActionCalls: string[];
+  /**
+   * Every edge write, in order: `add:<successor>:<predecessor>`.
+   *
+   * Recorded **and** applied below, for the reason chunk 6's `priority` learned:
+   * half of what a dependency case asserts is what the card says *afterwards*,
+   * and a fake that took the request and left the row alone would let a write
+   * that never landed read as green.
+   */
+  edges: string[];
 } {
   const rows: WorkItemView[] = [];
   const rowActionCalls: string[] = [];
+  const edges: string[] = [];
   const roleList: RoleView[] = [{ ...DEV }, { ...QA }];
   const people: PersonView[] = [{ id: 'p1', name: 'Kat', kind: 'person', teamIds: [] }];
   const teams: TeamView[] = [];
@@ -173,6 +183,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
     tags,
     people,
     rowActionCalls,
+    edges,
     tree: () =>
       Promise.resolve({
         workItems: rows.map(view),
@@ -388,8 +399,23 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       row.frozenNumber = null;
       return Promise.resolve();
     },
-    addDependency: () => notImplemented('addDependency'),
-    removeDependency: () => notImplemented('removeDependency'),
+    addDependency: (id: string, predecessorId: string) => {
+      edges.push(`add:${id}:${predecessorId}`);
+      const row = rows.find((each) => each.id === id);
+      if (row === undefined) return Promise.reject(new Error('not_found'));
+      // Idempotent by pair, which is be-01's own unique constraint: the picker
+      // never offers a predecessor a row already holds, so a duplicate here
+      // would be modelling a request the app cannot make.
+      if (!row.dependsOn.includes(predecessorId)) row.dependsOn = [...row.dependsOn, predecessorId];
+      return Promise.resolve();
+    },
+    removeDependency: (id: string, predecessorId: string) => {
+      edges.push(`drop:${id}:${predecessorId}`);
+      const row = rows.find((each) => each.id === id);
+      if (row === undefined) return Promise.reject(new Error('not_found'));
+      row.dependsOn = row.dependsOn.filter((each) => each !== predecessorId);
+      return Promise.resolve();
+    },
   };
 }
 
@@ -2469,5 +2495,144 @@ describe('setting a card’s priority', () => {
     expect(screen.getByLabelText<HTMLInputElement>('Priority for 010, as a number').value).toBe(
       '5',
     );
+  });
+});
+
+describe('setting what a card waits for', () => {
+  /**
+   * A phone plan of `howMany` rows, the priority sheet's own shape — what a tap
+   * *sent* is the subject, and `edges` is where the fake records it.
+   */
+  async function aPhonePlan(
+    howMany = 2,
+    arrange: (rows: WorkItemView[]) => void = () => {
+      // A plan whose rows wait for nothing, which is what a new one is.
+    },
+  ): Promise<ReturnType<typeof fakeApi>> {
+    const api = fakeApi();
+    for (let at = 0; at < howMany; at += 1) await api.create('p1', { parentId: null });
+    arrange(api.rows);
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  /** The control the line now sits inside, drawn on every card with or without one. */
+  const waitFields = (): HTMLElement[] => [
+    ...document.querySelectorAll<HTMLElement>('[data-card-waits-field]'),
+  ];
+
+  const openTheSheetOn = async (number: '010' | '020'): Promise<HTMLElement> => {
+    fireEvent.click(waitFields()[number === '010' ? 0 : 1]);
+    return screen.findByRole('dialog', { name: `Depends on for ${number}` });
+  };
+
+  itDom('opens a sheet over the same cell the table’s Depends box edits', async () => {
+    // `plan-cards.tsx`'s opening contract and this field's third
+    // done-criterion, for the fourth and last time.
+    const api = await aPhonePlan();
+
+    await openTheSheetOn('020');
+
+    expect(screen.getByLabelText('Add a dependency to 020').getAttribute('data-cell')).toBe(
+      `${api.rows[1]?.id ?? ''}::depends`,
+    );
+  });
+
+  itDom('is reachable on a row that waits for nothing, and makes the first edge', async () => {
+    // The departure this file has now made four times: `data-card-waits` is the
+    // claim and is absent here, so the button around it has to be drawn anyway.
+    const api = await aPhonePlan();
+    expect(document.querySelector('[data-card-waits]')).toBeNull();
+
+    await openTheSheetOn('020');
+    fireEvent.click(screen.getByRole('button', { name: /^010/ }));
+
+    await waitFor(() => {
+      expect(api.edges).toEqual([`add:${api.rows[1]?.id ?? ''}:${api.rows[0]?.id ?? ''}`]);
+    });
+    // The line the tap wrote, read back off the card — the half a fake that
+    // only recorded the request could not show.
+    await waitFor(() => {
+      expect(document.querySelector('[data-card-waits]')?.textContent).toBe('waits for 010');
+    });
+  });
+
+  itDom('stays open after a pick, so three predecessors are one visit', async () => {
+    // The table's `pickDependency` bargain, and the reason this sheet has no
+    // Save: an edge is complete on its own, each is its own request judged
+    // against the graph including the ones just added, so there is nothing to
+    // batch and nothing to hold back. What landed shows as a line above the box.
+    const api = await aPhonePlan(3);
+
+    await openTheSheetOn('030');
+    fireEvent.click(screen.getByRole('button', { name: /^010/ }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^010/ })).toBeNull();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^020/ }));
+
+    await waitFor(() => {
+      expect(api.edges).toEqual([
+        `add:${api.rows[2]?.id ?? ''}:${api.rows[0]?.id ?? ''}`,
+        `add:${api.rows[2]?.id ?? ''}:${api.rows[1]?.id ?? ''}`,
+      ]);
+    });
+    // Still the same sheet, never re-opened.
+    expect(screen.getByRole('dialog', { name: 'Depends on for 030' })).toBeInTheDocument();
+  });
+
+  itDom('takes a wait off again with a control a finger can hit', async () => {
+    // The table says this with a `✕` inside a pill about twelve pixels across.
+    // A card's is a full-width line with its own named button, because chunk 3
+    // had CI measure what a 21px target is worth on a phone.
+    const api = await aPhonePlan(2, (rows) => {
+      rows[1].dependsOn = [rows[0]?.id ?? ''];
+    });
+
+    await openTheSheetOn('020');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop 020 waiting for 010' }));
+
+    await waitFor(() => {
+      expect(api.edges).toEqual([`drop:${api.rows[1]?.id ?? ''}:${api.rows[0]?.id ?? ''}`]);
+    });
+    await waitFor(() => {
+      expect(document.querySelector('[data-card-waits]')).toBeNull();
+    });
+  });
+
+  itDom('narrows the list by what is typed, over the number and the name', async () => {
+    // `pickerEntries`' filter, asked of the face that had no picker at all —
+    // and asked *through* the table's own `depEntriesFor`, which is the whole
+    // of what these two faces share in this dimension.
+    await aPhonePlan(3);
+
+    await openTheSheetOn('030');
+    fireEvent.change(screen.getByLabelText('Add a dependency to 030'), {
+      target: { value: '020' },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^010/ })).toBeNull();
+    });
+    expect(screen.getByRole('button', { name: /^020/ })).toBeInTheDocument();
+  });
+
+  itDom('shows a row it cannot wait for, greyed, and says why', async () => {
+    // `pickerEntries` relays be-01's judgement instead of dropping the row, and
+    // `REFUSAL_SUFFIX` is now beside it rather than inside `wbs-table.tsx` —
+    // two spellings of one refusal is how two faces drift. 020 already waits
+    // for 010, so 010 waiting for 020 would loop.
+    const api = await aPhonePlan(2, (rows) => {
+      rows[1].dependsOn = [rows[0]?.id ?? ''];
+    });
+    expect(api.rows[1]?.dependsOn).toHaveLength(1);
+
+    await openTheSheetOn('010');
+
+    const refused = screen.getByRole('button', { name: /^020/ });
+    expect(refused).toBeDisabled();
+    expect(refused.textContent).toContain('would loop');
   });
 });

@@ -19,6 +19,7 @@ import {
   PickerList,
   type PickerOption,
 } from './creatable-picker';
+import { type PickerEntry, REFUSAL_SUFFIX } from './dep-picker';
 import { type CellElement, cellKey } from './editable-grid';
 import { POINTS } from './estimate-draft';
 import type { ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry';
@@ -75,6 +76,21 @@ export interface CardAssignee {
   outside: string | null;
 }
 
+/**
+ * One work item a row waits for: what a reader calls it, and what a removal
+ * names.
+ *
+ * The name rides along with the number for the table's own reason
+ * (`dependenciesOf`): a chip reading `010` is a question, and on a card there is
+ * no hover card to answer it — so the sheet prints the name and the strip does
+ * not, which is the same fact shown at the two densities each face has room for.
+ */
+export interface DependencyEntry {
+  id: string;
+  number: string;
+  name: string;
+}
+
 export interface PlanCardsProps {
   /** The rows on screen, in the order and the expansion the table model gives them. */
   rows: readonly CardRow[];
@@ -125,8 +141,37 @@ export interface PlanCardsProps {
   /** What the `@` list in one box is offering, or nothing while it is closed. */
   mentionOptions: (row: TreeRow, roleId: string) => PickerOption[];
   assigneeOn: (row: TreeRow, roleId: string) => CardAssignee | null;
-  /** The numbers of the work items this one waits for. */
-  waitsFor: (row: TreeRow) => string[];
+  /**
+   * The work items this one waits for, in the order it holds them.
+   *
+   * The whole entry and not just the number, since `card-field-pickers` chunk 7
+   * made this line a control: a chip that can be *taken off* has to name the row
+   * it would remove, and an id is what `removeDependency` is keyed by. Widened
+   * rather than joined by a second prop, because the printed line and the
+   * removable list are one fact and two props over one fact is two answers to
+   * "what does this row wait for" as soon as one of them is edited.
+   */
+  waitsFor: (row: TreeRow) => readonly DependencyEntry[];
+  /**
+   * The rows this one may be made to wait for, narrowed by what was typed, each
+   * carrying the refusal be-01 would answer with.
+   *
+   * The table's own `depEntriesFor` — `pickerEntries` behind it — and **that is
+   * the whole of what these two faces share**, deliberately. Which rows are
+   * offered, which are greyed and why is the one rule here that could drift, and
+   * it is a ported copy of be-01's judgement (`dep-graph.ts`) rather than an
+   * obvious one; a second implementation would grey a different set of rows on a
+   * phone than on a laptop and nobody would notice until a planner compared
+   * them. Everything the table's Depends cell has *around* that rule — the chip
+   * strip's hover and focus lighting, `aria-activedescendant`, the eight chords
+   * through `onGridKey`, the comma-separated number list — belongs to a grid and
+   * to a keyboard, and this face has neither. See {@link CardDependsField}.
+   */
+  dependencyOptions: (row: TreeRow, typed: string) => readonly PickerEntry[];
+  /** Makes this work item wait for one more, by the table's own writer. */
+  addDependency: (row: TreeRow, predecessorId: string) => void;
+  /** Takes one of those waits off again — the table's chip `✕`, in a sheet. */
+  dropDependency: (row: TreeRow, predecessorId: string) => void;
   /**
    * What is holding this row's start where it is — the chart's own sentence,
    * or `null` for a row the geometry cannot explain.
@@ -1065,6 +1110,207 @@ function CardPriorityField({
 }
 
 /**
+ * What a work item waits for, printed on the card — and **settable there**.
+ *
+ * `card-field-pickers`' fourth field and the largest: the only one of the four
+ * whose options are the plan itself rather than a fixed ladder or a shared
+ * directory, and the only one that edits a **set**. `wbs-mobile-sweep` measured
+ * the line as the best-read fact on the card (`waits for 010, 030, 050, 070` in
+ * full, where the table clips to two chips) and the least editable — a phone had
+ * no route to the graph at all.
+ *
+ * **No Save, and chunk 6 guessed the other way.** Its closing paragraph reasoned
+ * that a set has no equivalent of the single tap that finished the team and the
+ * priority, so this sheet would need the date field's explicit Save. Writing it
+ * settles the question the other way, and the reason is be-01's rather than the
+ * gesture's: **an edge is complete on its own.** The date field needs a Save
+ * because a day and the words about it are one row-level patch with a pair rule
+ * checked inside one transaction (`not_before_reason_needs_a_date`) — send half
+ * and be-01 refuses. Nothing here pairs with anything. Each edge is judged
+ * against the graph *including the edges just added*, so a batched Save could
+ * only ever be N sequential requests with partial success — which is the table's
+ * `dependOn` list, whose refusal reporting would then need a second
+ * implementation in this file. Instead each tap is its own write, the sheet
+ * **stays open** (the table's `pickDependency` bargain: picking three
+ * predecessors is one visit, not three), and what landed is visible as a line
+ * appearing above the search box.
+ *
+ * **The chips become lines.** The table's strip is a `✕` inside a pill roughly
+ * twelve pixels across, which is chunk 3's 21px lesson with a smaller target: a
+ * finger cannot aim at it and there is nothing to hover for a `title` saying
+ * what it does. Each wait gets a full-width row — number, name, and its own
+ * `TAP`-tall Remove — so both halves of the set, the taking on and the taking
+ * off, are a thumb's work.
+ *
+ * **The trigger is drawn on a row that waits for nothing**, the fourth time this
+ * file makes that departure and for the fourth time the same reason:
+ * `data-card-waits` is still the *claim* and is still absent where the row holds
+ * no edges, so a card says nothing where every other face says nothing, and
+ * `data-card-waits-field` is always there because a control that appears only
+ * once a value exists cannot set the first one.
+ */
+function CardDependsField({
+  row,
+  waits,
+  options,
+  addDependency,
+  dropDependency,
+}: {
+  row: TreeRow;
+  waits: readonly DependencyEntry[];
+  options: (row: TreeRow, typed: string) => readonly PickerEntry[];
+  addDependency: (row: TreeRow, predecessorId: string) => void;
+  dropDependency: (row: TreeRow, predecessorId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // What has been typed into the search box, cleared on every open and after
+  // every pick. Not a draft of a value — nothing here is held back and sent
+  // later — so unlike the date and priority sheets there is no `key` re-seed to
+  // make: the list of waits is read from the row on every render, which is what
+  // lets a landed edge appear under the reader's own thumb.
+  const [typed, setTyped] = useState('');
+  const offered = open ? options(row, typed) : [];
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setTyped('');
+        setOpen(next);
+      }}
+    >
+      <ModalTrigger asChild>
+        <button
+          type="button"
+          data-card-waits-field
+          aria-label={`Depends on for ${row.number}`}
+          title="What this work item waits for. It cannot start until these have finished."
+          className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
+        >
+          {waits.length === 0 ? (
+            // No `data-card-waits`: this row waits for nothing, and the
+            // attribute is the waiting. What is drawn is the invitation.
+            <span className="opacity-70">waits for…</span>
+          ) : (
+            <span data-card-waits>waits for {waits.map((each) => each.number).join(', ')}</span>
+          )}
+        </button>
+      </ModalTrigger>
+      {/*
+        `min-h` for `CardTeamField`'s reason: the offered list is as long as the
+        plan, and a sheet sized to its two lines of chrome would open at the
+        height of an empty box and jump.
+      */}
+      <ModalContent side="bottom" className="min-h-[60vh]">
+        <ModalHeader>
+          <ModalTitle>Depends on for {row.number}</ModalTitle>
+          <ModalDescription>
+            {row.number} cannot start until these have finished. Tap a row to add it; each is saved
+            as you tap.
+          </ModalDescription>
+        </ModalHeader>
+        <div className="flex flex-col gap-3">
+          {waits.length > 0 && (
+            <ul aria-label={`Waits for, on ${row.number}`} className="flex flex-col gap-1">
+              {waits.map((each) => (
+                <li
+                  key={each.id}
+                  data-card-wait={each.number}
+                  className="flex items-center justify-between gap-2 rounded-md border px-3"
+                >
+                  <span className="min-w-0 truncate">
+                    <span className="font-semibold">{each.number}</span> {each.name}
+                  </span>
+                  <button
+                    type="button"
+                    data-card-wait-remove={each.number}
+                    // The name says which edge goes, because a sheet listing
+                    // four rows would otherwise offer four buttons all called
+                    // Remove — the table's `✕` has the same problem and answers
+                    // it with a `title` no finger can reach.
+                    aria-label={`Stop ${row.number} waiting for ${each.number}`}
+                    className={`${TAP} inline-flex shrink-0 items-center justify-center rounded-md border px-3`}
+                    onClick={() => {
+                      dropDependency(row, each.id);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Add another</span>
+            {/*
+              The cell id the table's own box carries — `rowId::depends`, one
+              string out of `cellKey` — so the two faces are the same cell rather
+              than two boxes over one field.
+
+              `search, or a name` and not the table's `search, or 010, 020`: the
+              comma-separated list of numbers is a keyboard's shorthand, and this
+              box takes one row at a time because tapping one line is already
+              shorter than typing four numbers with a thumb.
+            */}
+            <input
+              type="text"
+              aria-label={`Add a dependency to ${row.number}`}
+              placeholder="search by number or name"
+              data-cell={cellKey(row.id, 'depends')}
+              data-card-depends-input
+              className={`${TAP} box-border w-full rounded-md border p-2 text-base`}
+              value={typed}
+              onChange={(event) => {
+                setTyped(event.target.value);
+              }}
+            />
+          </label>
+          {offered.length === 0 ? (
+            <p data-card-depends-empty className="text-muted-foreground m-0 text-sm">
+              {typed.trim() === ''
+                ? 'There is nothing else in this plan to wait for.'
+                : `No other row matches “${typed}”.`}
+            </p>
+          ) : (
+            <ul aria-label={`Rows ${row.number} could wait for`} className="flex flex-col gap-1">
+              {offered.map((entry) => (
+                <li key={entry.id}>
+                  <button
+                    type="button"
+                    data-card-depends-option={entry.number}
+                    {...(entry.refusal === undefined ? {} : { 'data-refusal': entry.refusal })}
+                    // Shown and refused rather than dropped, which is
+                    // `pickerEntries`' own decision relayed: a row that says,
+                    // before it is tapped, that it contains this one teaches
+                    // more than a row that is simply missing from the list.
+                    disabled={entry.refusal !== undefined}
+                    className={`${TAP} flex w-full items-center gap-2 rounded-md border px-3 text-left disabled:opacity-50`}
+                    onClick={() => {
+                      addDependency(row, entry.id);
+                      // Cleared, not closed: the table's picker makes the same
+                      // bargain for the same reason, and the line the tap just
+                      // wrote appears in the list above this box.
+                      setTyped('');
+                    }}
+                  >
+                    <span className="font-semibold">{entry.number}</span>
+                    <span className="min-w-0 truncate">{entry.name}</span>
+                    {entry.refusal !== undefined && (
+                      <span className="text-muted-foreground ml-auto shrink-0 text-sm">
+                        — {REFUSAL_SUFFIX[entry.refusal]}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+/**
  * The plan as a list of outline cards: what a phone gets instead of the table.
  *
  * **The same plan, not a summary of it.** Every card is a work item of the same
@@ -1116,6 +1362,9 @@ export function PlanCards({
   mentionOptions,
   assigneeOn,
   waitsFor,
+  dependencyOptions,
+  addDependency,
+  dropDependency,
   startFloor,
   teamLabel,
   teams,
@@ -1439,7 +1688,20 @@ export function PlanCards({
               >
                 {slack.text}
               </span>
-              {waits.length > 0 && <span data-card-waits>waits for {waits.join(', ')}</span>}
+              {/*
+                What it waits for, and — since `card-field-pickers` chunk 7 — a
+                way to change it. The sheet behind this line is the one field of
+                the four whose options are the plan itself; see
+                {@link CardDependsField} for why it saves on every tap and the
+                other three do not.
+              */}
+              <CardDependsField
+                row={row}
+                waits={waits}
+                options={dependencyOptions}
+                addDependency={addDependency}
+                dropDependency={dropDependency}
+              />
               {/*
                 The team, and `↳` where the row carries no label of its own —
                 the table's Team cell uses the same one glyph for the same one
