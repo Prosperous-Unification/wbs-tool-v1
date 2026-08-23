@@ -727,13 +727,23 @@ test.describe('the plan on a phone, measured by a browser', () => {
   test('types a whole estimate on a card without a slash, and it survives a reload', async ({
     page,
   }) => {
-    // The disclosure by what is **inside** it, never by `data-phase-detail`:
-    // that attribute carries the role's id, and a real deployment's roles are
-    // rows in be-01 with generated ids — `role-dev` is `plan-cards.test.tsx`'s
-    // fixture and nothing else. The first draft of this case used it and timed
-    // out waiting for an element that has never existed outside jsdom.
+    // **The ids are read off the page, not written into this file.** Two drafts
+    // died here first: `data-phase-detail="role-dev"` is `plan-cards.test.tsx`'s
+    // fixture id and a real deployment's roles are rows in be-01 with generated
+    // ones; and filtering the `<details>` by `has:` a `getByRole` inside it
+    // cannot work either, because a shut `<details>` hides its contents from the
+    // accessibility tree and a role query looks nowhere else. `data-cell` is the
+    // one string that carries both ids — `rowId::roleId-final`, the same cell
+    // the table's own box for this estimate carries.
+    const cell = await page.getByLabel('Dev estimate for 010').getAttribute('data-cell');
+    expect(cell, 'no cell id on the estimate box').toMatch(/^.+::.+-final$/);
+    const [rowId, roleFinal] = (cell ?? '').split('::');
+    const roleId = roleFinal.replace(/-final$/, '');
+
+    // Scoped to 010's card, because the plan has two of them and both carry a
+    // Dev phase.
+    const detail = page.locator(`[data-card="${rowId}"] details[data-phase-detail="${roleId}"]`);
     const field = page.getByRole('button', { name: 'Dev o, r and p for 010' });
-    const detail = page.locator('details', { has: field });
 
     // The trio lives behind the `o·r·p` disclosure the card already had — the
     // read view is where the edit belongs, and a `<details>` that is shut hides
@@ -765,14 +775,11 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await expect(page.getByRole('dialog', { name: 'Dev estimate for 010' })).toBeHidden();
 
     await page.reload();
-    const after = page.locator('details', {
-      has: page.getByRole('button', { name: 'Dev o, r and p for 010' }),
-    });
-    await after.locator('summary').click();
-    await expect(after.locator('[data-phase-trio]')).toHaveText(
+    await detail.locator('summary').click();
+    await expect(detail.locator('[data-phase-trio]')).toHaveText(
       'optimistic 2 · realistic 3 · pessimistic 8',
     );
-    await expect(after.locator('[data-phase-final]')).toHaveText('Final 3.7 days');
+    await expect(detail.locator('[data-phase-final]')).toHaveText('Final 3.7 days');
   });
 
   /**
