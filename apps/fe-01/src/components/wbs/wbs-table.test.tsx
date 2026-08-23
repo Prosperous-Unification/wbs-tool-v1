@@ -766,13 +766,23 @@ describe('the WBS table', () => {
     await screen.findByRole('button', { name: 'Add work item' });
 
     for (let i = 0; i < 6; i += 1) click('Add work item');
-    // The network answers all of them, in the order they were sent. Inside
-    // `act` with a turn of the microtask queue after it, so the state each
-    // answer sets is flushed before the assertion reads the table.
-    await act(async () => {
+
+    // Answering is a loop rather than one release, because a serialised burst
+    // sends its next write only once the last is answered — so waiting for a
+    // write to appear, answering it, and waiting again is what a network doing
+    // its job looks like from here. A client that dropped the other five runs
+    // out of writes to answer and leaves the loop early, which is the shape of
+    // the failure rather than a timeout.
+    for (let answered = 0; answered < 6; answered += 1) {
+      try {
+        await waitFor(() => {
+          expect(inFlight.length).toBeGreaterThan(0);
+        });
+      } catch {
+        break;
+      }
       for (const release of inFlight.splice(0)) release();
-      await Promise.resolve();
-    });
+    }
 
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010', '020', '030', '040', '050', '060']);
