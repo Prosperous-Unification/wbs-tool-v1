@@ -8885,7 +8885,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   // Assigned here rather than where the ref is declared because this is the
   // first line at which `ganttPlan` exists, and it is read out of the returned
   // tree — every cell renders after this statement has run.
-  startFloor.current = startFloorByRow(ganttPlan);
+  // The calendar is the second argument and not an optional one: a
+  // dependency-floored row says *when* its wait clears, and a plan with no
+  // start date has no day to say — `null` is that plan, stated rather than
+  // defaulted into silence. `today` is the browser's, and it decides only
+  // whether the year is printed (`shortIsoDate`).
+  startFloor.current = startFloorByRow(
+    ganttPlan,
+    startDate === null ? null : { startDate, today: new Date() },
+  );
 
   /**
    * The plan as one reader has it on screen: the rows the filter and the

@@ -3,10 +3,13 @@ import {
   calendarDaysBetween,
   firstWorkdayOf,
   type IsoDate,
+  lastWorkdayOf,
   snapWorkdays,
 } from '@wbs/domain/workday';
 
 import type { PriorityBandView } from '@/lib/wbs-api';
+
+import { shortIsoDate } from './short-date';
 
 /**
  * The payload promised something the drawing needs and did not keep it.
@@ -1417,6 +1420,51 @@ const FLOOR_SENTENCE: Record<Exclude<BindingFloor, 'person' | 'capacity'>, strin
  * existed, which is what makes this change invisible on every plan nobody has
  * explained.
  */
+/**
+ * The sentence a dependency-floored row shows: which dependency, and the day it
+ * stops holding this one.
+ *
+ * Reads _"Waits for Strip (Dev) — finishes 25 Sep"_. The em-dash and the
+ * lower-case continuation are {@link personFloorWords}' and
+ * {@link capacityFloorWords}' shape, for their reason: four floors that explain
+ * themselves should explain themselves in one voice.
+ *
+ * **The generic sentence is the floor of this one, not a fallback beside it.**
+ * `Waits for a dependency’s first estimated role` is what every predecessor-
+ * floored surface said before this existed, and it is still what a caller that
+ * cannot resolve the anchor gets — the chart, which does not yet ask, and any
+ * row whose predecessor left the payload with its rows. So a surface never
+ * loses the fact; it gains the name, and then the day.
+ *
+ * **The day is the anchor's last working day**, `lastWorkdayOf` over the same
+ * span be-01's `datesOf` prints the `End` column from, so the date in this
+ * sentence is a date the plan already shows somewhere else. It is *not* the
+ * successor's own start: the successor stands on the workday **after** the
+ * anchor stops, and a sentence repeating the figure in the cell beside it
+ * answers nothing. A caller with no calendar — a plan with no start date, drawn
+ * on the workday axis — names the wait and says no day, rather than inventing
+ * one.
+ */
+function predecessorFloorWords(
+  anchor: PlacedSlice | undefined,
+  clearsOn: string | null,
+  rowNames: ReadonlyMap<string, string>,
+): string {
+  if (anchor === undefined) return FLOOR_SENTENCE.predecessor;
+  const workItemName = rowNames.get(anchor.slice.workItemId);
+  if (workItemName === undefined) return FLOOR_SENTENCE.predecessor;
+  // The role in brackets where the anchor has one, and the work item alone
+  // where it does not — {@link personFloorWords}' own two arms, for its reason:
+  // a slice belonging to no role is a real state on this wire, and `(null)`
+  // beside a name is the sentence saying so in the one place a reader will read
+  // as a fault in the tool.
+  const named =
+    anchor.roleName === null
+      ? `Waits for ${workItemName}`
+      : `Waits for ${workItemName} (${anchor.roleName})`;
+  return clearsOn === null ? named : `${named} — finishes ${clearsOn}`;
+}
+
 function notBeforeFloorWords(reason: string | null): string {
   // Proof: this arm replaced by an unconditional
   // `${FLOOR_SENTENCE.notBefore} — ${String(reason)}` — **3 failed, 101
@@ -1749,6 +1797,14 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
           row.notBeforeReason ?? null,
           rowNames,
           rolesById,
+          // The chart does not yet ask which dependency holds this bar, and
+          // asking costs it a per-bar walk of every stored edge; its arrow
+          // already draws the answer from the anchor this would name. So the
+          // hover keeps the words it has always had, and the table — which has
+          // no arrow — is the surface that spends the walk. Deliberate and
+          // dated: `row-floor-names-the-dep`, 2026-08-23.
+          undefined,
+          null,
         ),
         team: row.team,
         // Straight off the row and into words. Deliberately **not** passed to
@@ -1856,29 +1912,7 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
     });
   }
 
-  // The leaves beneath every work item of the **full** tree — a leaf maps to
-  // itself. The tree and not the shown rows, because the anchor of a collapsed
-  // predecessor branch lives on leaves `plan.rows` has dropped.
-  const leavesUnder = (() => {
-    const childrenOf = new Map<string, GanttTreeRow[]>();
-    for (const treeRow of plan.tree) {
-      if (treeRow.parentId === null) continue;
-      const group = childrenOf.get(treeRow.parentId);
-      if (group === undefined) childrenOf.set(treeRow.parentId, [treeRow]);
-      else group.push(treeRow);
-    }
-    const found = new Map<string, string[]>();
-    const walk = (id: string): string[] => {
-      const already = found.get(id);
-      if (already !== undefined) return already;
-      const children = childrenOf.get(id);
-      const leaves = children === undefined ? [id] : children.flatMap((child) => walk(child.id));
-      found.set(id, leaves);
-      return leaves;
-    };
-    for (const treeRow of plan.tree) walk(treeRow.id);
-    return found;
-  })();
+  const leavesUnder = leavesUnderOf(plan.tree);
 
   /**
    * The predecessor's anchor span, **selected** from the payload's slices and
@@ -1912,25 +1946,16 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
     predecessorId: string,
     successorId: string,
   ): { start: number; finish: number } => {
-    const leafIds = leavesUnder.get(predecessorId) ?? [predecessorId];
-    const anchors = leafIds.map((leafId) => {
-      const own = inRoleOrder(slicesByWorkItem.get(leafId) ?? [], rolesById);
-      const anchor = own.find((each) => each.slice.estimated) ?? own.at(-1);
-      if (anchor === undefined) {
-        throw new GanttDataError(
-          `dependency ${predecessorId} → ${successorId}: ${leafId} has no slice in this ` +
-            `payload, so the arrow has no anchor to leave from`,
-        );
-      }
-      return { start: anchor.slice.earliestStart, finish: anchor.slice.earliestFinish };
-    });
-    // Never empty, so the pick below has a seed: the walk maps a childless id
-    // to itself, a parent to its children's leaves, and the `??` arm is one id.
-    let latest = anchors[0];
-    for (const anchor of anchors) {
-      if (anchor.finish > latest.finish) latest = anchor;
-    }
-    return latest;
+    const anchor = anchorSliceOf(
+      predecessorId,
+      leavesUnder,
+      slicesByWorkItem,
+      rolesById,
+      (leafId) =>
+        `dependency ${predecessorId} → ${successorId}: ${leafId} has no slice in this ` +
+        `payload, so the arrow has no anchor to leave from`,
+    );
+    return { start: anchor.slice.earliestStart, finish: anchor.slice.earliestFinish };
   };
 
   const arrows: GanttDependencyArrow[] = [];
@@ -2084,12 +2109,19 @@ function floorWordsOf(
   notBeforeReason: string | null,
   rowNames: ReadonlyMap<string, string>,
   rolesById: ReadonlyMap<string, GanttRolePlace>,
+  dependencyAnchor: PlacedSlice | undefined,
+  clearsOn: string | null,
 ): string {
   switch (slice.boundBy) {
     case 'projectStart':
-    case 'predecessor':
     case 'roleOrder':
       return FLOOR_SENTENCE[slice.boundBy];
+    // The one arm whose words depend on facts this function is not handed by
+    // every caller. `dependencyAnchor` is the binding edge's anchor where the
+    // caller resolved one and `undefined` where it did not ask, and the
+    // sentence degrades to what it has always been rather than to silence.
+    case 'predecessor':
+      return predecessorFloorWords(dependencyAnchor, clearsOn, rowNames);
     // The one floor of the four that has words of its own. It is here and not
     // beside the other three because the reason belongs to the **row** rather
     // than to the slice: a work item's not-before holds every one of its roles,
@@ -2222,7 +2254,10 @@ function floorWordsOf(
  * Parents are skipped: a parent holds no slices, its span is a projection of
  * what is underneath, and nothing floors it.
  */
-export function startFloorByRow(plan: GanttPlan): ReadonlyMap<string, string> {
+export function startFloorByRow(
+  plan: GanttPlan,
+  calendar: FloorCalendar | null,
+): ReadonlyMap<string, string> {
   const rowNames = new Map(plan.rows.map((row) => [row.id, row.name]));
   const sliceById = new Map(plan.slices.map((slice) => [slice.id, slice]));
   const rolesById: ReadonlyMap<string, GanttRolePlace> = new Map(
@@ -2234,6 +2269,38 @@ export function startFloorByRow(plan: GanttPlan): ReadonlyMap<string, string> {
     if (own === undefined) slicesByWorkItem.set(slice.workItemId, [slice]);
     else own.push(slice);
   }
+
+  const leavesUnder = leavesUnderOf(plan.tree);
+  const predecessorsOf = new Map<string, string[]>();
+  for (const edge of plan.dependencies) {
+    const own = predecessorsOf.get(edge.successorId);
+    if (own === undefined) predecessorsOf.set(edge.successorId, [edge.predecessorId]);
+    else own.push(edge.predecessorId);
+  }
+
+  /**
+   * The day an anchor stops, or null on a plan with no calendar to say it on.
+   *
+   * Built once and refused once. `addWorkdays` and `shortIsoDate` each throw on
+   * a start date that is not a calendar day, and a plan carrying one would
+   * otherwise throw on **every** row here — past the `GanttDataError` catch
+   * below, which is narrow on purpose — and take the whole table with it. One
+   * probe at the origin turns that into the state this function already models:
+   * a wait named with no day beside it.
+   */
+  const clearsOnOf = ((): ((anchor: GanttSlice) => string | null) => {
+    if (calendar === null) return () => null;
+    try {
+      shortIsoDate(addWorkdays(calendar.startDate, 0), calendar.today);
+    } catch {
+      return () => null;
+    }
+    return (anchor) =>
+      shortIsoDate(
+        addWorkdays(calendar.startDate, lastWorkdayOf(anchor.earliestStart, anchor.earliestFinish)),
+        calendar.today,
+      );
+  })();
 
   const words = new Map<string, string>();
   for (const row of plan.rows) {
@@ -2248,6 +2315,22 @@ export function startFloorByRow(plan: GanttPlan): ReadonlyMap<string, string> {
       if (each.slice.earliestStart < anchor.slice.earliestStart) anchor = each;
     }
     try {
+      // Which stored dependency is the one holding this row: the latest-
+      // finishing anchor among its predecessors, which is the floor be-01 took
+      // when it wrote `boundBy: 'predecessor'`. Resolved only for that floor —
+      // a row held by a person, a pool or its own earlier role has a sentence
+      // that names something else, and walking every edge to say nothing is a
+      // walk per row of every plan.
+      const dependencyAnchor =
+        anchor.slice.boundBy !== 'predecessor'
+          ? undefined
+          : latestAnchorAmong(
+              predecessorsOf.get(row.id) ?? [],
+              leavesUnder,
+              slicesByWorkItem,
+              rolesById,
+              row.id,
+            );
       words.set(
         row.id,
         floorWordsOf(
@@ -2260,6 +2343,8 @@ export function startFloorByRow(plan: GanttPlan): ReadonlyMap<string, string> {
           row.notBeforeReason ?? null,
           rowNames,
           rolesById,
+          dependencyAnchor,
+          dependencyAnchor === undefined ? null : clearsOnOf(dependencyAnchor.slice),
         ),
       );
     } catch (error) {
@@ -2284,6 +2369,147 @@ export function startFloorByRow(plan: GanttPlan): ReadonlyMap<string, string> {
  * every place *before* comparing, so the throw fires while the list is being
  * built and not while the sentence is being written.
  */
+/**
+ * The plan's calendar, for the surfaces that say a floor's date in words.
+ *
+ * `today` rides along because {@link shortIsoDate} drops the year only when it
+ * matches the reader's own — the omission is never ambiguous, and a module that
+ * reached for a clock of its own would make one sentence on the page unpinnable
+ * in a test.
+ */
+export interface FloorCalendar {
+  /** The plan's start date, as be-01 holds it; the origin every offset counts from. */
+  startDate: IsoDate;
+  /** The reader's own today, which is the year {@link shortIsoDate} measures its omission against. */
+  today: Date;
+}
+
+/**
+ * The latest-finishing anchor among a row's stored predecessors, or `undefined`
+ * where it has none the payload can name.
+ *
+ * That is be-01's own floor: a `predecessor`-bound slice stands on the last of
+ * its dependencies' anchors to finish, so the one this picks is the one whose
+ * date the row is actually waiting on. A tie keeps the first stored, which is
+ * the order the deps cell lists them in.
+ *
+ * **One unresolvable predecessor gives up the whole naming**, and that is the
+ * only real judgement here. `anchorSliceOf` throws when a leaf has no slice in
+ * the payload *at all* — a collapsed branch keeps its slices, so this is
+ * malformed data rather than a hidden row — and the one it could not read may
+ * be the one that finishes last. Naming the latest of the rest would then print
+ * a confident sentence about the wrong dependency, which is worse than the
+ * general sentence this row read yesterday. So the row keeps that instead.
+ */
+function latestAnchorAmong(
+  predecessorIds: readonly string[],
+  leavesUnder: ReadonlyMap<string, string[]>,
+  slicesByWorkItem: ReadonlyMap<string, GanttSlice[]>,
+  rolesById: ReadonlyMap<string, GanttRolePlace>,
+  successorId: string,
+): PlacedSlice | undefined {
+  let latest: PlacedSlice | undefined;
+  for (const predecessorId of predecessorIds) {
+    let anchor: PlacedSlice;
+    try {
+      anchor = anchorSliceOf(
+        predecessorId,
+        leavesUnder,
+        slicesByWorkItem,
+        rolesById,
+        (leafId) =>
+          `dependency ${predecessorId} → ${successorId}: ${leafId} has no slice in this ` +
+          `payload, so the wait has no anchor to name`,
+      );
+    } catch (error) {
+      if (!(error instanceof GanttDataError)) throw error;
+      return undefined;
+    }
+    if (latest === undefined || anchor.slice.earliestFinish > latest.slice.earliestFinish) {
+      latest = anchor;
+    }
+  }
+  return latest;
+}
+
+/**
+ * The leaves beneath every work item of the **full** tree — a leaf maps to
+ * itself.
+ *
+ * The tree and not the shown rows, because the anchor of a collapsed
+ * predecessor branch lives on leaves `plan.rows` has dropped.
+ *
+ * Module-level since `row-floor-names-the-dep`: {@link startFloorByRow} needs
+ * the same walk {@link layOutGantt} does, and a second copy of it is a second
+ * answer to "which slice does this edge leave from" — the exact fault the
+ * `dep-waits-on-first-role` rule was written once to prevent.
+ */
+function leavesUnderOf(tree: readonly GanttTreeRow[]): ReadonlyMap<string, string[]> {
+  const childrenOf = new Map<string, GanttTreeRow[]>();
+  for (const treeRow of tree) {
+    if (treeRow.parentId === null) continue;
+    const group = childrenOf.get(treeRow.parentId);
+    if (group === undefined) childrenOf.set(treeRow.parentId, [treeRow]);
+    else group.push(treeRow);
+  }
+  const found = new Map<string, string[]>();
+  const walk = (id: string): string[] => {
+    const already = found.get(id);
+    if (already !== undefined) return already;
+    const children = childrenOf.get(id);
+    const leaves = children === undefined ? [id] : children.flatMap((child) => walk(child.id));
+    found.set(id, leaves);
+    return leaves;
+  };
+  for (const treeRow of tree) walk(treeRow.id);
+  return found;
+}
+
+/**
+ * The slice a dependency on `predecessorId` actually waits for: a leaf's first
+ * slice in role order **that somebody estimated**, its last slice when nobody
+ * estimated any of them, and for a parent the latest-finishing anchor among its
+ * leaves (design.md D6).
+ *
+ * Selected from the payload and never recomputed from estimates: the walk is
+ * be-01's, read off the `estimated` flag the wire carries, so the slice named
+ * here is the slice the engine joined the edge to.
+ *
+ * The whole {@link PlacedSlice} rather than its span, which is the difference
+ * from what {@link layOutGantt} used to keep privately: an arrow needs two
+ * numbers, and a sentence naming the wait needs the work item and the role.
+ *
+ * `saying` is the caller's own wording for the failure, since the same walk
+ * serves an arrow with no anchor to leave from and a row with no wait to name.
+ *
+ * @throws GanttDataError when a leaf under the predecessor has no slice in the
+ * payload at all. be-01 emits at least one slice per leaf, so that is a broken
+ * promise rather than a hidden row — and a link silently dropped would hide
+ * exactly the wait these surfaces exist to show.
+ */
+function anchorSliceOf(
+  predecessorId: string,
+  leavesUnder: ReadonlyMap<string, string[]>,
+  slicesByWorkItem: ReadonlyMap<string, GanttSlice[]>,
+  rolesById: ReadonlyMap<string, GanttRolePlace>,
+  saying: (leafId: string) => string,
+): PlacedSlice {
+  const leafIds = leavesUnder.get(predecessorId) ?? [predecessorId];
+  const anchors = leafIds.map((leafId) => {
+    const own = inRoleOrder(slicesByWorkItem.get(leafId) ?? [], rolesById);
+    const anchor = own.find((each) => each.slice.estimated) ?? own.at(-1);
+    if (anchor === undefined) throw new GanttDataError(saying(leafId));
+    return anchor;
+  });
+  // Never empty, so the pick below has a seed: the walk maps a childless id
+  // to itself, a parent to its children's leaves, and the `??` arm is one id.
+  let latest = anchors[0];
+  for (const anchor of anchors) {
+    if (anchor.slice.earliestFinish > latest.slice.earliestFinish) latest = anchor;
+  }
+  return latest;
+}
+
 function inRoleOrderSafely(
   slices: readonly GanttSlice[],
   rolesById: ReadonlyMap<string, GanttRolePlace>,
