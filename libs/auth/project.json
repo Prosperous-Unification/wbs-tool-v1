@@ -1,0 +1,27 @@
+{
+  "name": "auth",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/auth/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:auth", "runtime:bun"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": { "command": "bunx eslint libs/auth/src" }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/auth"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/auth/tsconfig.lib.json && bunx tsc --noEmit -p libs/auth/tsconfig.spec.json"
+      }
+    }
+  }
+}

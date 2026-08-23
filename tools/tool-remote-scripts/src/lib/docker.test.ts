@@ -342,13 +342,16 @@ describe('envKeysOf', () => {
 describe('assertTierEnvAllowed', () => {
   it('passes be-01.env carrying only its allowed keys', () => {
     expect(() => {
-      assertTierEnvAllowed('be', 'PORT=3100\nLOG_LEVEL=info\nGW_URL=x\nDB_PATH=/data/wbs.db\n');
+      assertTierEnvAllowed(
+        'be',
+        'PORT=3100\nLOG_LEVEL=info\nGW_URL=x\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\n',
+      );
     }).not.toThrow();
   });
 
   it('passes gw-01.env carrying only its allowed keys', () => {
     expect(() => {
-      assertTierEnvAllowed('gw', 'PORT=3200\nLOG_LEVEL=info\nBE_URL=x\n');
+      assertTierEnvAllowed('gw', 'PORT=3200\nLOG_LEVEL=info\nBE_URL=x\nAUTH_MODE=oidc\n');
     }).not.toThrow();
   });
 

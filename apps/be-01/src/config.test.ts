@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { BeConfig } from './config';
+import { BeConfig, loadConfig } from './config';
 
 const VALID = {
   PORT: '3100',
@@ -9,6 +9,7 @@ const VALID = {
   GW_URL: 'http://localhost:3200',
   DB_PATH: '/srv/wbs/data/wbs.db',
   JWT_SIGNING_KEY_CURRENT: 'b'.repeat(32),
+  AUTH_MODE: 'local',
 };
 
 describe('BeConfig', () => {
@@ -33,5 +34,11 @@ describe('BeConfig', () => {
 
   it('rejects a short INTERNAL_AUTH_SECRET', () => {
     expect(BeConfig({ ...VALID, INTERNAL_AUTH_SECRET: 'too-short' })).toHaveProperty('summary');
+  });
+
+  it('refuses local auth on the production boot path', () => {
+    expect(() => loadConfig({ ...VALID, NODE_ENV: 'production' })).toThrow(
+      /AUTH_MODE=local.*production/,
+    );
   });
 });

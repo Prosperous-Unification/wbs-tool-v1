@@ -58,6 +58,7 @@ export const RESTART_PATHS: readonly string[] = [
   // Listed per library rather than as `libs`, which would restart on every
   // source edit and defeat the watchers. `sync.test.ts` fails if a library on
   // disk is missing from this list, so adding one cannot silently skip it.
+  'libs/auth/project.json',
   'libs/config/project.json',
   'libs/contracts/project.json',
   'libs/domain/project.json',

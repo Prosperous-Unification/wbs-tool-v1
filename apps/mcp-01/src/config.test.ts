@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { loadConfig } from './config';
 
 const FULL = {
+  MCP_AUTH_MODE: 'standalone',
   WBS_API_URL: 'https://dev.wbs.bulletpoints.club',
   WBS_TOKEN: 'token-abc',
   WBS_BASIC_AUTH: 'dany:hunter2',
@@ -48,6 +49,10 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...FULL, WBS_BASIC_AUTH: 'danyhunter2' })).toThrow(
       /WBS_BASIC_AUTH is set but invalid/,
     );
+  });
+
+  it('refuses an unknown MCP authentication mode', () => {
+    expect(() => loadConfig({ ...FULL, MCP_AUTH_MODE: 'anything' })).toThrow(/MCP_AUTH_MODE/);
   });
 
   // The boot failure is the most likely thing anyone ever pastes into a chat

@@ -1,13 +1,10 @@
+import type { JwtClaims, TokenVerifier } from '@wbs/auth';
 import { errors as joseErrors, jwtVerify } from 'jose';
+export type { JwtClaims, TokenVerifier } from '@wbs/auth';
 
 export interface JwtVerifierOptions {
   current: Uint8Array;
   previous?: Uint8Array;
-}
-
-export interface JwtClaims {
-  sub: string;
-  [k: string]: unknown;
 }
 
 /**
@@ -19,10 +16,6 @@ export interface JwtClaims {
  *
  * @throws When the token does not verify.
  */
-export interface TokenVerifier {
-  verify(token: string): Promise<JwtClaims>;
-}
-
 export class JwtVerifier implements TokenVerifier {
   constructor(private readonly opts: JwtVerifierOptions) {}
 

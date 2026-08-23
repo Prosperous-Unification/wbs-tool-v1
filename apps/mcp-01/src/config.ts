@@ -1,3 +1,4 @@
+import { mcpAuthModeOf } from '@wbs/auth';
 import { type } from '@wbs/validation';
 
 /**
@@ -11,6 +12,7 @@ import { type } from '@wbs/validation';
  * See design.md D3 and D6.
  */
 export const McpConfig = type({
+  MCP_AUTH_MODE: "'standalone'|'gateway'",
   WBS_API_URL: 'string.url',
   WBS_TOKEN: 'string>0',
   // `user:pass`. The password may contain colons, the user may not — which is
@@ -19,9 +21,10 @@ export const McpConfig = type({
 });
 export type McpConfig = typeof McpConfig.infer;
 
-const NAMES = ['WBS_API_URL', 'WBS_TOKEN', 'WBS_BASIC_AUTH'] as const;
+const NAMES = ['MCP_AUTH_MODE', 'WBS_API_URL', 'WBS_TOKEN', 'WBS_BASIC_AUTH'] as const;
 
 const EXPECTATIONS: Record<(typeof NAMES)[number], string> = {
+  MCP_AUTH_MODE: 'standalone or gateway authentication',
   WBS_API_URL: 'the base URL of a be-01 deployment, e.g. https://dev.wbs.bulletpoints.club',
   WBS_TOKEN: 'a be-01 account token (12-hour lifetime, no scope — design.md D6)',
   WBS_BASIC_AUTH: 'user:pass for the deployment’s basic auth, or unset',
@@ -37,6 +40,7 @@ const EXPECTATIONS: Record<(typeof NAMES)[number], string> = {
  * credentials. So the message here names variables and never values.
  */
 export const loadConfig = (env: Record<string, string | undefined> = process.env): McpConfig => {
+  mcpAuthModeOf(env);
   const picked: Record<string, string> = {};
   for (const name of NAMES) {
     const value = env[name];

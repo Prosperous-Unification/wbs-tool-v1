@@ -65,4 +65,25 @@ describe('the seeded env files must agree where two tiers share a secret', () =>
     // this test must also pass startup validation.
     expect(be.length).toBeGreaterThanOrEqual(32);
   });
+
+  it('seeds be-01 and gw-01 into local auth with an explicit development signal', async () => {
+    const root = new URL('../../', import.meta.url).pathname;
+    const read = async (app: string): Promise<Map<string, string>> => {
+      const text = await Bun.file(`${root}apps/${app}/.env.example`).text();
+      return new Map(
+        text
+          .split('\n')
+          .filter((line) => line !== '' && !line.startsWith('#'))
+          .map((line) => {
+            const splitAt = line.indexOf('=');
+            return [line.slice(0, splitAt), line.slice(splitAt + 1)];
+          }),
+      );
+    };
+
+    for (const env of await Promise.all([read('be-01'), read('gw-01')])) {
+      expect(env.get('AUTH_MODE')).toBe('local');
+      expect(env.get('NODE_ENV')).toBe('development');
+    }
+  });
 });

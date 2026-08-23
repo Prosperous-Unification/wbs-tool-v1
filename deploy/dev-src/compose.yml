@@ -35,6 +35,8 @@ services:
       # one's locks and sat at "Waiting for gw-01:serve in another nx process"
       # with only be-01 running -- a half-up dev environment whose logs looked
       # like a slow start rather than a deadlock.
+      NODE_ENV: 'development'
+      AUTH_MODE: 'local'
       NX_DAEMON: 'false'
     # Dev shares a host with prod, so it gets hard ceilings. Measured
     # 2026-08-04: 278 MiB and 60 PIDs steady-state, on a 7.5 GiB host where
