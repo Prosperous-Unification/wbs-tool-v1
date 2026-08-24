@@ -55,7 +55,7 @@ describe('the signed-out screen', () => {
 
   itDom('enters the returned cookie session after a password sign-in', async () => {
     const session: Session = { token: '', user: { id: 'u1', username: 'ada' } };
-    vi.stubGlobal('fetch', vi.fn(async () => response(200, session)));
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(200, session))));
     const onSignedIn = vi.fn();
     render(<AuthForm onSignedIn={onSignedIn} />);
 
@@ -71,7 +71,7 @@ describe('the signed-out screen', () => {
   itDom('keeps a failed password sign-in inline without removing its error slot', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => response(401, { error: 'invalid_credentials' })),
+      vi.fn(() => Promise.resolve(response(401, { error: 'invalid_credentials' }))),
     );
     render(<AuthForm onSignedIn={() => undefined} />);
 
@@ -84,6 +84,6 @@ describe('the signed-out screen', () => {
     await waitFor(() => {
       expect(error.textContent).toBe('Username or password is incorrect.');
     });
-    expect((screen.getByLabelText('Username') as HTMLInputElement).value).toBe('ada');
+    expect(screen.getByLabelText<HTMLInputElement>('Username').value).toBe('ada');
   });
 });

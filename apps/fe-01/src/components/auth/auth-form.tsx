@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { type FormEvent, useState } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,10 +18,15 @@ export function AuthForm({ onSignedIn }: AuthFormProps) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const username = values.get('username');
+    const password = values.get('password');
     setBusy(true);
     setError('');
     try {
-      const session = await login(String(values.get('username') ?? ''), String(values.get('password') ?? ''));
+      const session = await login(
+        typeof username === 'string' ? username : '',
+        typeof password === 'string' ? password : '',
+      );
       onSignedIn(session);
     } catch {
       setError('Username or password is incorrect.');
