@@ -43,7 +43,7 @@ function fakeProjects(
       // what let the page believe otherwise.
       projects = [
         ...projects,
-        { id, name, restricted: false, lastOpenedAt: null, ownerName: 'kat', createdAt: MADE_ON },
+        { id, name, restricted: false, startDate: null, lastOpenedAt: null, ownerName: 'kat', createdAt: MADE_ON },
       ];
       const created: CreatedProject = { id, name, restricted: false };
       return Promise.resolve(created);
@@ -125,6 +125,7 @@ const TWO: ProjectListEntry[] = [
     id: 'p1',
     name: 'Rewire the shed',
     restricted: false,
+    startDate: null,
     lastOpenedAt: null,
     ownerName: 'kat',
     createdAt: MADE_ON,
@@ -133,6 +134,7 @@ const TWO: ProjectListEntry[] = [
     id: 'p2',
     name: 'Paint the fence',
     restricted: false,
+    startDate: null,
     lastOpenedAt: null,
     ownerName: 'strip',
     createdAt: MADE_ON,
@@ -461,6 +463,7 @@ describe('the picker searches', () => {
           id: 'p2',
           name: 'Paint the fence',
           restricted: false,
+          startDate: null,
           lastOpenedAt: 900,
           ownerName: 'strip',
           createdAt: MADE_ON,
@@ -469,6 +472,7 @@ describe('the picker searches', () => {
           id: 'p1',
           name: 'Rewire the shed',
           restricted: false,
+          startDate: null,
           lastOpenedAt: null,
           ownerName: 'kat',
           createdAt: MADE_ON,

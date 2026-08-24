@@ -786,11 +786,14 @@ export type UndoResult =
  * One project as the picker offers it — what fe-01 **reads** of a list entry.
  *
  * A subset, deliberately: `GET /api/projects` sends the whole project row plus
- * the owner's name, and the owner id, estimate method, start date and revision
- * are all on the wire and none of them are on this screen. Naming only what is
- * read is the honest version, and it is not a description of the wire —
+ * the owner's name, and the owner id, estimate method and revision are all on
+ * the wire and none of them are on this screen. Naming only what is read is
+ * the honest version, and it is not a description of the wire —
  * nobody should later read this as be-01's contract and delete a field from
- * the query to make the two match.
+ * the query to make the two match. `startDate` is the one wire field this now
+ * reads beyond the entry's own meta: the hover card prints it, and it is the
+ * only project field cheap enough to be worth it — everything else the card
+ * might show (phase counts, last *modified*) is not on this wire at all.
  *
  * Separate from {@link CreatedProject} because the two routes answer different
  * things: one type standing for both is how `createProject` came to declare a
@@ -804,6 +807,13 @@ export interface ProjectListEntry {
   lastOpenedAt: number | null;
   /** The username of the account that owns it — the first half of the entry meta. */
   ownerName: string;
+  /**
+   * The calendar day the plan begins, or null while it is not on a calendar.
+   *
+   * On the wire already (see the type's head comment) and read here for the
+   * hover card alone: the picker entry itself never prints it, only the card.
+   */
+  startDate: string | null;
   /**
    * When the project was made, as an **epoch millisecond**.
    *

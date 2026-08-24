@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { entryMeta, matchingProjects } from './project-picker';
+import { entryMeta, matchingProjects, projectCardMeta } from './project-picker';
 
 /**
  * The entries as the page really hands them over — meta and all.
@@ -52,6 +52,46 @@ describe('matchingProjects', () => {
     // And the name still matches, which is what stops the check above being
     // satisfied by a filter that has stopped matching anything at all.
     expect(matchingProjects(projects, 'shed').map((p) => p.id)).toEqual(['p1']);
+  });
+});
+
+describe('projectCardMeta', () => {
+  // The card reads a fixed calendar day `startDate` and two instants
+  // (`createdAt`, `lastOpenedAt`); the dates are built rather than pinned so
+  // the assertions hold in any zone the suite runs in.
+  const reading = new Date(2026, 0, 15);
+  const entry = {
+    ownerName: 'kat',
+    createdAt: new Date(2025, 11, 1, 12).getTime(),
+    startDate: '2026-03-12',
+    lastOpenedAt: new Date(2026, 0, 10, 9).getTime(),
+  };
+
+  it('prints ownership, the start day and the last open', () => {
+    expect(projectCardMeta(entry, reading)).toEqual({
+      ownership: '(kat · 1 Dec 2025)',
+      start: 'Start 12 Mar',
+      lastOpened: 'Last opened 10 Jan',
+    });
+  });
+
+  it('says so rather than printing nothing for a plan with no start day', () => {
+    expect(projectCardMeta({ ...entry, startDate: null }, reading).start).toBe('Not scheduled');
+  });
+
+  it('says so rather than printing nothing for a project never opened', () => {
+    expect(projectCardMeta({ ...entry, lastOpenedAt: null }, reading).lastOpened).toBe(
+      'Never opened',
+    );
+  });
+
+  it('reads the start day as a calendar day, not as a moment', () => {
+    // A `startDate` parsed as a moment lands on midnight UTC and prints a day
+    // early west of Greenwich — the fault `shortIsoDate` exists to refuse. The
+    // card goes through it, so a zone-free day stays the same day everywhere.
+    expect(projectCardMeta({ ...entry, startDate: '2026-03-01' }, reading).start).toBe(
+      'Start 1 Mar',
+    );
   });
 });
 

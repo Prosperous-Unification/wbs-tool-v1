@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 
 import { AppHeader } from '@/components/chrome/app-header';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,8 @@ import { subscribeToProject } from '@/lib/project-stream';
 import { cn } from '@/lib/utils';
 import { httpProjectApi, type ProjectApi, type ProjectListEntry } from '@/lib/wbs-api';
 
-import { entryMeta, matchingProjects } from './project-picker';
+import { entryMeta, matchingProjects, projectCardMeta } from './project-picker';
+import { type AnchorRect, HoverCard } from './hover-card';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 export interface ProjectPageProps {
@@ -103,6 +104,16 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
    * index — the same reason the Depends on picker holds one (cross review #6).
    */
   const [search, setSearch] = useState<{ typed: string; highlightId: string | null } | null>(null);
+  /**
+   * Which entry the pointer is resting on, or null.
+   *
+   * Separate from the keyboard's `highlightId` because they are two different
+   * facts about the same list: the pointer can rest on one entry while the
+   * keyboard (or the initial highlight) points at another. The card and its
+   * anchor are resolved from whichever of the two is active,
+   * pointer-first.
+   */
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const found = await api.listProjects();
@@ -218,6 +229,36 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
       ? undefined
       : entries.find((entry) => entry.id === search.highlightId);
   const listOpen = search !== null && entries.length > 0;
+  /**
+   * The entry whose hover card is open, and the rectangle it is placed
+   * against.
+   *
+   * The pointer wins over the keyboard highlight: resting on an entry shows
+   * that entry even while the arrows hold another. The card id is an entry's
+   * id, resolved against `entries` so an entry scrolled out of the narrowed
+   * list simply has no card rather than somebody else's. The anchor is read
+   * from the option element by its `id` in a layout effect below, because the
+   * mouseenter handler that first sets `hoveredId` fires before React has
+   * re-rendered, and the element that will carry the `id` is the one thing
+   * that can be asked where the card is meant to open.
+   */
+  const cardId = listOpen ? (hoveredId ?? highlighted?.id ?? null) : null;
+  const cardEntry = cardId === null ? undefined : entries.find((entry) => entry.id === cardId);
+  const cardMeta = cardEntry === undefined ? null : projectCardMeta(cardEntry, now);
+  const [cardAnchor, setCardAnchor] = useState<AnchorRect | null>(null);
+  useLayoutEffect(() => {
+    if (cardId === null) {
+      setCardAnchor(null);
+      return;
+    }
+    const node = document.getElementById(`project-option-${cardId}`);
+    if (node === null) {
+      setCardAnchor(null);
+      return;
+    }
+    const box = node.getBoundingClientRect();
+    setCardAnchor({ left: box.left, top: box.top, bottom: box.bottom });
+  }, [cardId]);
 
   /** Takes a project: selects it, remembers it, and closes the picker. */
   const choose = (id: string) => {
@@ -344,21 +385,16 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
                     key={entry.id}
                     id={`project-option-${entry.id}`}
                     role="option"
-                    // The whole entry, unclipped. The spans below are
-                    // `truncate`, so what is on screen can be less than what is
-                    // there — and a name cut short with no way to read it is
-                    // the picker offering choices nobody can tell apart, which
-                    // is the fault this change exists to fix. The meta belongs
-                    // in here too: it is the half that is cut first and the
-                    // half that says which `Rewire the shed` this one is.
-                    //
-                    // Proof: narrowed to `title={entry.name}`, `the entry is
-                    // clipped and its full text is still readable` in
-                    // `e2e/header.spec.ts` failed on `Expected substring:
-                    // "w1786301985729WWWWWWWWWWWWWWWWWW"` against a title
-                    // holding the project name alone. Watched in Chromium,
-                    // 2026-08-09.
-                    title={`${entry.name} ${entryMeta(entry, now)}`}
+                    // The native `title` is gone: its delay is exactly the
+                    // "immediately" this change rejects, and the hover card
+                    // below shows the same full name and meta with none. The
+                    // option's accessible name already carries the whole text,
+                    // so nothing a screen reader overhears is lost.
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+                    onMouseEnter={() => setHoveredId(entry.id)}
+                    onMouseLeave={() =>
+                      setHoveredId((current) => (current === entry.id ? null : current))
+                    }
                     aria-selected={entry.id === highlighted?.id}
                     ref={(element) => {
                       // jsdom has no scrollIntoView; that boundary is the
@@ -387,7 +423,7 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
                       project …` to `New pr…` and the picker offered choices
                       nobody could tell apart — Dany, 2026-08-10. A name wider
                       than the listbox itself still clips at the box's edge
-                      (the viewport is the physical bound, and the `title`
+                      (the viewport is the physical bound, and the hover card
                       carries the full text); the meta never causes it.
                       `whitespace-nowrap` above stays — the entry is one line
                       whether it fits or not, and wrapping instead would make a
@@ -409,11 +445,11 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
                       nothing to anybody listening.
 
                       Proof: with `aria-hidden="true"` on this span — the meta
-                      still on screen and still in the title, out of the
-                      accessibility tree — `tells two projects of one name
-                      apart by their owners` failed on `Unable to find an
-                      accessible element with the role "option" and name
-                      "Rewire the shed (kat · 1 Jun)"`. Watched, 2026-08-09.
+                      still on screen, out of the accessibility tree — `tells
+                      two projects of one name apart by their owners` failed on
+                      `Unable to find an accessible element with the role
+                      "option" and name "Rewire the shed (kat · 1 Jun)"`.
+                      Watched, 2026-08-09.
                     */}
                     <span className="text-muted-foreground min-w-0 truncate">
                       {entryMeta(entry, now)}
@@ -421,6 +457,17 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
                   </li>
                 ))}
               </ul>
+            )}
+            {cardEntry !== undefined && cardAnchor !== null && cardMeta !== null && (
+              <HoverCard anchor={cardAnchor} label={cardEntry.name}>
+                <div className="font-medium break-words">{cardEntry.name}</div>
+                <div className="text-muted-foreground">
+                  {cardMeta.ownership}
+                  {cardEntry.restricted ? ' · Restricted' : ''}
+                </div>
+                <div className="text-muted-foreground">{cardMeta.start}</div>
+                <div className="text-muted-foreground">{cardMeta.lastOpened}</div>
+              </HoverCard>
             )}
           </span>
           {selectedProject !== undefined && (

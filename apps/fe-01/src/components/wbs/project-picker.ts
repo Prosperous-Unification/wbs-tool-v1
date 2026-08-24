@@ -1,4 +1,4 @@
-import { shortInstant } from './short-date';
+import { shortInstant, shortIsoDate } from './short-date';
 
 /**
  * A project as the picker **matches** it: a name, and the id it selects.
@@ -35,6 +35,60 @@ export function entryMeta(
   now: Date = new Date(),
 ): string {
   return `(${entry.ownerName} · ${shortInstant(entry.createdAt, now)})`;
+}
+
+/**
+ * The moments a hover card needs from an entry to print its meta rows.
+ *
+ * Structural rather than {@link PickableProject} on purpose: the card is
+ * placed by the page that owns the full {@link ProjectListEntry}, and naming
+ * only the fields it reads is the same honesty the list type already applies
+ * to be-01's wire. Every field is already on the wire — `startDate` included —
+ * so the card costs no new request, which is the whole of the "immediately"
+ * requirement.
+ */
+export interface ProjectCardSource {
+  ownerName: string;
+  /** An epoch millisecond, chosen because it is a moment and not a calendar day. */
+  createdAt: number;
+  /** `YYYY-MM-DD`, or null while the plan is not on a calendar. */
+  startDate: string | null;
+  /** An epoch millisecond, or null for a project the account has never opened. */
+  lastOpenedAt: number | null;
+}
+
+/**
+ * The rows a hover card prints for a project: ownership, start day, and when
+ * the account last opened it.
+ *
+ * One function so the card and its test cannot drift, and so the two formatter
+ * choices stay in one place: `createdAt` and `lastOpenedAt` are moments
+ * ({@link shortInstant}), `startDate` is a zone-free calendar day
+ * ({@link shortIsoDate}). The labels live here rather than in the card's
+ * markup so the unit test is the card's content, not its chrome.
+ */
+export interface ProjectCardMeta {
+  /** `(kat · 1 Jun)` — the entry meta, never truncated on the card. */
+  ownership: string;
+  /** `Start 12 Mar`, or `Not scheduled` while the project is off the calendar. */
+  start: string;
+  /** `Last opened 20 Aug`, or `Never opened`. */
+  lastOpened: string;
+}
+
+/**
+ * The card's meta rows from one entry, in this account's own "today".
+ */
+export function projectCardMeta(entry: ProjectCardSource, now: Date): ProjectCardMeta {
+  return {
+    ownership: entryMeta(entry, now),
+    start:
+      entry.startDate === null ? 'Not scheduled' : `Start ${shortIsoDate(entry.startDate, now)}`,
+    lastOpened:
+      entry.lastOpenedAt === null
+        ? 'Never opened'
+        : `Last opened ${shortInstant(entry.lastOpenedAt, now)}`,
+  };
 }
 
 /**

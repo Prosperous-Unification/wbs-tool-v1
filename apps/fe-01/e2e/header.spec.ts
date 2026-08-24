@@ -83,15 +83,12 @@ function measureOpenListbox(page: Page): Promise<{
   pageOverflowX: number;
   entryOverflow: number;
   nameOverflow: number;
-  entryTitle: string;
 }> {
   return page.evaluate(() => {
     const list = document.querySelector('[role="listbox"]');
     if (list === null) throw new Error('the picker is not open');
     const entry = list.querySelector('[role="option"]');
     if (entry === null) throw new Error('the open picker is offering nothing');
-    const title = entry.getAttribute('title');
-    if (title === null) throw new Error('the entry carries no title');
     // The clipped span, not the row: `truncate` is on the meta span, and the
     // `<li>` itself is a flex container that fits whatever its items come to.
     const clipped = [...entry.querySelectorAll('span')];
@@ -109,9 +106,24 @@ function measureOpenListbox(page: Page): Promise<{
       pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       entryOverflow: overflow,
       nameOverflow: nameSpan.scrollWidth - nameSpan.clientWidth,
-      entryTitle: title,
     };
   });
+}
+
+/**
+ * Hovers the first offered entry and reads the hover card back.
+ *
+ * The card is `role="tooltip"`, the same role the Name-cell and Gantt cards
+ * use, so it is scoped by that rather than by a class. The hover is the whole
+ * of the trigger: the change this test protects removes the native `title`
+ * and its delay, so `hover()` followed by an immediate read is the claim —
+ * the card is up with no delay a test can smuggle through.
+ */
+async function readHoverCard(page: Page): Promise<string> {
+  await page.locator('[role="option"]').first().hover();
+  const card = page.locator('[role="tooltip"]').first();
+  await expect(card).toBeVisible();
+  return (await card.textContent()) ?? '';
 }
 
 /** Registers a throwaway account and opens a project. Nothing in it yet. */
@@ -419,11 +431,11 @@ test.describe('the open project picker, measured by a browser', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await openPicker(page);
 
-    const { entryOverflow, nameOverflow, entryTitle } = await measureOpenListbox(page);
+    const { entryOverflow, nameOverflow } = await measureOpenListbox(page);
 
     expect(
       entryOverflow,
-      'the entry was not clipped, so its title is not standing in for anything',
+      'the entry was not clipped, so the card is not standing in for anything',
     ).toBeGreaterThan(0);
     // The half that clipped is the meta, never the name: a long owner used to
     // squeeze every name to `New pr…` and the picker offered choices nobody
@@ -434,9 +446,10 @@ test.describe('the open project picker, measured by a browser', () => {
     expect(nameOverflow, 'the name is the half that clipped; it must show whole').toBe(0);
     // The whole name and the whole meta, which is what makes the clipping
     // survivable: the owner is how two projects of one name are told apart, so
-    // a title carrying the name alone would lose exactly the part that was cut.
-    expect(entryTitle).toContain(LONG_PROJECT_NAME);
-    expect(entryTitle).toContain(owner);
+    // a card carrying the name alone would lose exactly the part that was cut.
+    const card = await readHoverCard(page);
+    expect(card).toContain(LONG_PROJECT_NAME);
+    expect(card).toContain(owner);
   });
 
   test('a short entry is shown whole', async ({ page }) => {
