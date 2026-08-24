@@ -17,12 +17,10 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
  */
 
 /** Signs up a throwaway account and makes a plan two rows deep. */
-async function seedPlan(page: Page, account: string): Promise<void> {
+async function seedPlan(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('hover-cards-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
   const addRow = page.getByRole('button', { name: 'Add work item' });

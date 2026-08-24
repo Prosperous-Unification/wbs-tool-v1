@@ -53,6 +53,32 @@ function boot(commitDir: string = tempDir('wbs-boot-nogit-'), oidc?: OidcRouteOp
 }
 
 describe('bootBe01', () => {
+  it('persists the fixed local identity after migrating an empty development database', async () => {
+    const dir = tempDir('wbs-local-boot-');
+    running = bootBe01({
+      dbPath: join(dir, 'test.db'),
+      port: 0,
+      logger: createLogger({ service: 'test' }),
+      jwtKey: 'k'.repeat(32),
+      gwUrl: 'http://gw.invalid',
+      internalAuthSecret: 's'.repeat(32),
+      localIdentity: { id: 'local-dev', username: 'local-dev', scopes: ['read', 'write'] },
+      migrateOnStartup: true,
+      migrationsFolder: FOLDER,
+    });
+    let health: Response | undefined;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      health = await fetch(`http://localhost:${String(running.port)}/health`);
+      if (health.status === 200) break;
+      await Bun.sleep(10);
+    }
+    expect(health?.status).toBe(200);
+
+    const created = await running.services.projects.create('Local plan', 'local-dev');
+
+    expect(created.project.ownerId).toBe('local-dev');
+  });
+
   it('starts the retention timer', async () => {
     // The gap a reviewer named: every `RetentionTimer` test passed against a
     // process that never called `start()`, which is the same failure as the

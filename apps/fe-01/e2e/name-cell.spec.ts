@@ -49,12 +49,10 @@ const TEN_LINES = [
  * Through the UI, like the other browser gates: the box being measured is one
  * somebody has typed into, sized by the same render path a real session takes.
  */
-async function seedRows(page: Page, account: string, rows: number): Promise<void> {
+async function seedRows(page: Page, _account: string, rows: number): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('name-cell-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
   const addRow = page.getByRole('button', { name: 'Add work item' });

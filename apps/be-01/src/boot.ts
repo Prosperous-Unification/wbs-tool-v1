@@ -6,6 +6,7 @@ import { readDeployedCommit } from './deployed-commit';
 import { openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
 import { runMigrations } from './repository/migrate';
+import { UserRepository } from './repository/user';
 import type { AuthenticatedUser } from './service/auth.service';
 import { type BeServices, buildServices } from './services';
 
@@ -106,17 +107,25 @@ export function bootBe01(opts: BootOptions): RunningBe {
   // deployment that had a problem.
   services.retention.start();
 
+  const ensureLocalIdentity = (): void => {
+    if (opts.localIdentity !== undefined) {
+      new UserRepository(db).ensureLocalIdentity(opts.localIdentity);
+    }
+  };
+
   app.listen(opts.port, () => {
     if (opts.migrateOnStartup !== true) {
       opts.logger.info(
         { port: opts.port },
         'be-01 listening (schema managed by the deploy pipeline)',
       );
+      ensureLocalIdentity();
       state.migrationsApplied = true;
       return;
     }
     opts.logger.info({ port: opts.port }, 'be-01 listening (migrating)');
     runMigrations(opts.dbPath, opts.migrationsFolder ?? './drizzle');
+    ensureLocalIdentity();
     state.migrationsApplied = true;
     opts.logger.info('migrations applied');
   });

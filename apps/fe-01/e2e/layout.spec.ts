@@ -190,13 +190,11 @@ async function dragColumnEdge(page: Page, columnId: string, travel: number): Pro
  * that clips, a textarea that grew to fit its name — and none of that exists
  * in a plan seeded behind the table's back.
  */
-async function seedPlan(page: Page, account: string): Promise<void> {
+async function seedPlan(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
 
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('layout-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
   const addRow = page.getByRole('button', { name: 'Add work item' });

@@ -16,6 +16,35 @@ import { users } from './schema';
 export class UserRepository implements UserStore {
   constructor(private readonly db: SQLiteBunDatabase) {}
 
+  /** Makes the fixed local-mode identity a real owner before any project write can use it. */
+  ensureLocalIdentity(identity: Pick<User, 'id' | 'username'>): void {
+    const byId = this.db.select().from(users).where(eq(users.id, identity.id)).limit(1).all().at(0);
+    const byUsername = this.db
+      .select()
+      .from(users)
+      .where(eq(users.username, identity.username))
+      .limit(1)
+      .all()
+      .at(0);
+    if (byId === undefined && byUsername === undefined) {
+      this.db
+        .insert(users)
+        .values({
+          ...identity,
+          passwordHash: null,
+          email: null,
+          idpIssuer: null,
+          idpSub: null,
+          createdAt: Date.now(),
+        })
+        .run();
+      return;
+    }
+    if (byId?.username !== identity.username || byUsername?.id !== identity.id) {
+      throw new Error('local identity conflicts with an existing account');
+    }
+  }
+
   async create(user: User): Promise<User | null> {
     try {
       await this.db.insert(users).values(user);
