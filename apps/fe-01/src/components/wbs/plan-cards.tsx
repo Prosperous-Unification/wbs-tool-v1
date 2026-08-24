@@ -1287,10 +1287,12 @@ function CardDependsField({
             // out of the clipped surface — past `max-h-56` the waits scroll
             // inside their own region. 56 = 14rem fits the four-wait shape
             // the fault was found in (4 × the 44px tap floor + gaps) without
-            // clipping it.
+            // clipping it. `shrink-0` because `overflow-y-auto` zeroes the
+            // flex minimum — without it the column splits the squeeze between
+            // this list and the candidates and clips the waits to a row.
             <ul
               aria-label={`Waits for, on ${row.number}`}
-              className="flex max-h-56 flex-col gap-1 overflow-y-auto"
+              className="flex max-h-56 shrink-0 flex-col gap-1 overflow-y-auto"
             >
               {waits.map((each) => (
                 <li
