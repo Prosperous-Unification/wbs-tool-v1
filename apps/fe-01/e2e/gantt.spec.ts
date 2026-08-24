@@ -447,7 +447,7 @@ async function expectPhoneTargets(strip: Locator, where: string): Promise<void> 
     controls.map((control) => {
       const box = control.getBoundingClientRect();
       return {
-        name: control.getAttribute('aria-label') ?? control.textContent?.trim() ?? control.tagName,
+        name: control.getAttribute('aria-label') ?? control.textContent.trim(),
         width: box.width,
         height: box.height,
       };
