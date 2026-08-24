@@ -455,8 +455,12 @@ async function expectPhoneTargets(strip: Locator, where: string): Promise<void> 
   );
   expect(targets, `${where} has no Gantt controls to measure`).not.toHaveLength(0);
   for (const target of targets) {
-    expect(target.width, `${where} ${target.name} is narrower than 44px`).toBeGreaterThanOrEqual(44);
-    expect(target.height, `${where} ${target.name} is shorter than 44px`).toBeGreaterThanOrEqual(44);
+    expect(target.width, `${where} ${target.name} is narrower than 44px`).toBeGreaterThanOrEqual(
+      44,
+    );
+    expect(target.height, `${where} ${target.name} is shorter than 44px`).toBeGreaterThanOrEqual(
+      44,
+    );
   }
 }
 
