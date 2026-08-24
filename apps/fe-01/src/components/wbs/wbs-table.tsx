@@ -8676,6 +8676,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           header: () => <span>Start</span>,
           cell: ({ row }) => {
             const start = live.current.spanOf(row.original).start;
+            const hasExplanation = start.iso !== null || startFloor.current.has(row.original.id);
             // The sentence that explains this day has moved to the `<td>` — see
             // {@link startCellProps} — so the whole cell (not a 34×13px span
             // inside it) is the target, and a keyboard can reach it. The span
@@ -8683,7 +8684,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // that there is more to read, where a bare `title` shows nothing
             // until a pointer happens to stop on it.
             return (
-              <span data-start style={{ textDecoration: 'underline dotted' }}>
+              <span
+                data-start
+                style={hasExplanation ? { textDecoration: 'underline dotted' } : undefined}
+              >
                 {start.text}
               </span>
             );
@@ -10401,7 +10405,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                           ...(opensAPopover(cell.column.id)
                             ? { overflow: 'visible' as const }
                             : {}),
-                          ...(cell.column.id === 'start' ? { cursor: 'help' as const } : {}),
+                          ...(cell.column.id === 'start' &&
+                          startCellProps(row.original).title !== undefined
+                            ? { cursor: 'help' as const }
+                            : {}),
                           ...flexibleCellStyle(cell.column.id, frameState),
                           ...pinnedCellStyle(layout, cell.column.id, 'body'),
                           // Last, so it wins over the pinned layer it is raising.

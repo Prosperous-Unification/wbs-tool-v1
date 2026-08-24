@@ -1999,6 +1999,29 @@ describe('the plan on a calendar', () => {
     },
   );
 
+  itDom('does not mark a Start cell that has no explanation', async () => {
+    // A parent has no floor sentence of its own. Without a project calendar it
+    // also has no full date, so there is nothing for hover or focus to reveal.
+    // The affordance must follow the explanation rather than the column name:
+    // making either style unconditional falsely advertises hidden help.
+    const api = fakeApi();
+    const parent = await api.create('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'Parent',
+    });
+    await api.create('p1', { parentId: parent.id, afterId: null, name: 'Child' });
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+
+    const cell = rowFor('010').querySelector<HTMLElement>('td[data-column="start"]');
+    const day = cell?.querySelector<HTMLElement>('[data-start]');
+    expect(cell?.getAttribute('title')).toBeNull();
+    expect(cell?.getAttribute('tabindex')).toBeNull();
+    expect(cell?.style.cursor).toBe('');
+    expect(day?.style.textDecoration).toBe('');
+  });
+
   itDom('says a row is waiting on a dependency where its Start does not look like it', async () => {
     // The fault this whole task is about, in one row pair: `020` waits for
     // `010`, and a reader who compares `020`'s Start against `010`'s End
