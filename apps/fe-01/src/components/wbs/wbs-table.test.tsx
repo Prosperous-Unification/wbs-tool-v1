@@ -1930,7 +1930,7 @@ describe('the plan on a calendar', () => {
     // put the floor sentence beside it, and the change is why it is spelled out
     // rather than loosened to `toContain`: what a reader is shown on hover is
     // exactly this, dash and all.
-    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
+    expect(rowFor('010').querySelector('td[data-column="start"]')?.getAttribute('title')).toBe(
       '2026-08-06 — Starts with the project',
     );
     expect(rowFor('010').querySelector('[data-finish]')?.textContent).toContain('6 Aug');
@@ -1967,10 +1967,38 @@ describe('the plan on a calendar', () => {
     await oneRow();
 
     expect(rowFor('010').querySelector('[data-start]')?.textContent).toBe('0');
-    expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
+    expect(rowFor('010').querySelector('td[data-column="start"]')?.getAttribute('title')).toBe(
       'Starts with the project',
     );
   });
+
+  itDom(
+    'makes the Start cell itself the surface: focusable, marked, and the span no longer holds the title',
+    async () => {
+      // `wbs-waiting-sentence-hover-target`: the sentence explaining a row's
+      // start used to hang off a 34×13px `title` on `span[data-start]` inside the
+      // cell — pointer-only, invisible until hover, and unreachable from a
+      // keyboard. It now lives on the whole `td[data-column="start"]`, which is
+      // focusable (the keyboard path) and carries `cursor: help`; the span that
+      // was the only target keeps just the visible day under a dotted underline.
+      await oneRow();
+
+      const cell = rowFor('010').querySelector('td[data-column="start"]');
+      // The sentence is on the cell, so the pointer target is the whole cell.
+      expect(cell?.getAttribute('title')).toBe('Starts with the project');
+      // And the cell is on the keyboard.
+      expect(cell?.getAttribute('tabindex')).toBe('0');
+      // The span no longer carries the title — if it came back, the pointer
+      // would be hunting a 34×13px target again, and this is the case that
+      // reddens.
+      expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBeNull();
+      // And something on screen says "there is more to read here", all the time,
+      // not only while a pointer is over the cell.
+      expect(rowFor('010').querySelector('[data-start]')?.getAttribute('style')).toContain(
+        'underline dotted',
+      );
+    },
+  );
 
   itDom('says a row is waiting on a dependency where its Start does not look like it', async () => {
     // The fault this whole task is about, in one row pair: `020` waits for
@@ -2023,12 +2051,12 @@ describe('the plan on a calendar', () => {
       // start is Monday the 7th, not the 5th — and `<WbsTable>` is the only thing
       // that hands `startFloorByRow` a calendar, so a stubbed or forgotten second
       // argument is invisible to every unit test of the function itself.
-      expect(rowFor('020').querySelector('[data-start]')?.getAttribute('title')).toBe(
+      expect(rowFor('020').querySelector('td[data-column="start"]')?.getAttribute('title')).toBe(
         '2026-09-01 — Waits for Strip (Dev) — finishes 7 Sep',
       );
       // Not the successor's own sentence on the row it waits for: the two cells
       // answer for themselves, which a single shared string would hide.
-      expect(rowFor('010').querySelector('[data-start]')?.getAttribute('title')).toBe(
+      expect(rowFor('010').querySelector('td[data-column="start"]')?.getAttribute('title')).toBe(
         '2026-09-01 — Starts with the project',
       );
     } finally {

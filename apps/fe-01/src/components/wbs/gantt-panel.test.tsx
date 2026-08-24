@@ -3033,7 +3033,11 @@ function columnText(columnId: string, at: number): string {
 function columnDay(columnId: string, at: number): string {
   const cell = [...document.querySelectorAll(`td[data-column="${columnId}"]`)].at(at);
   if (cell === undefined) throw new Error(`the table has no ${columnId} cell at row ${String(at)}`);
-  const day = cell.querySelector('[title]')?.getAttribute('title');
+  // The `Start` cell carries its `title` on the `<td>` itself (the whole cell
+  // is the target since `wbs-waiting-sentence-hover-target`); the `End` cell
+  // still carries it on the `[data-finish]` span inside. Read the cell first,
+  // then fall back to its child.
+  const day = cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title');
   if (day === undefined || day === null) {
     throw new Error(`the ${columnId} cell at row ${String(at)} is not showing a date at all`);
   }

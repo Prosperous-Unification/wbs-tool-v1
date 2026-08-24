@@ -266,7 +266,7 @@ async function seedPlan(
   // kept rather than loosened to a prefix match — it is what turned that change
   // into 26 named failures instead of a fixture quietly holding the wrong row
   // at the wrong date.
-  const title = await rowOf(page, '010.2').locator('[data-start]').getAttribute('title');
+  const title = await rowOf(page, '010.2').locator('[data-column="start"]').getAttribute('title');
   const startsOn = title?.split(' — ')[0] ?? null;
   if (startsOn === null || !/^\d{4}-\d{2}-\d{2}$/.test(startsOn)) {
     throw new Error(`010.2's Start cell reads ${String(title)}, which has no date to hold it at`);

@@ -8641,22 +8641,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           header: () => <span>Start</span>,
           cell: ({ row }) => {
             const start = live.current.spanOf(row.original).start;
-            // Both facts in one `title`, the `End` cell's own shape one column
-            // over: the whole day, so the shortening costs nothing — a cell
-            // reading `1 Jun` still answers "which 1 Jun" on hover — and then
-            // what is holding that day where it is.
-            //
-            // The floor sentence is the **chart's**, word for word
-            // (`startFloorByRow`), and that is the whole of why this is a seam
-            // rather than a feature: the hover card over the bar has said
-            // `Waits for a dependency’s first estimated role` all along, which
-            // is the answer to the question this column has been provoking —
-            // why a row starts before the `End` of the thing it waits for.
-            const said = [start.iso, startFloor.current.get(row.original.id)]
-              .filter((part) => part !== null && part !== undefined)
-              .join(' — ');
+            // The sentence that explains this day has moved to the `<td>` — see
+            // {@link startCellProps} — so the whole cell (not a 34×13px span
+            // inside it) is the target, and a keyboard can reach it. The span
+            // keeps the visible day; its dotted underline is the on-screen mark
+            // that there is more to read, where a bare `title` shows nothing
+            // until a pointer happens to stop on it.
             return (
-              <span data-start title={said === '' ? undefined : said}>
+              <span data-start style={{ textDecoration: 'underline dotted' }}>
                 {start.text}
               </span>
             );
@@ -9006,6 +8998,37 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         // leave lands after the next cell's enter.
         setHoveredCell((current) => (current === dependsCell ? null : current));
       },
+    };
+  };
+
+  /**
+   * What one row's Start `<td>` carries so the sentence that explains its day
+   * is reachable without a pointer resting on the right 34×13px of it.
+   *
+   * The two facts are the same `title` the `Start` cell has always joined —
+   * the whole day, so the shortening costs nothing, then what is holding that
+   * day where it is, the floor sentence word for word from the chart's
+   * `startFloorByRow`. It moved here for `wbs-waiting-sentence-hover-target`:
+   * the `title` used to sit on `span[data-start]` *inside* the cell — a 442px²
+   * surface in a 4116px² cell, `cursor: auto`, no keyboard path, no on-screen
+   * mark that there was anything to read. On the `<td>` the whole cell is the
+   * surface, the `cursor: help` set where the row renders says it is there
+   * while a pointer is over it, the span's dotted underline says it all the
+   * time, and `tabIndex` puts it on the keyboard — a focused cell reads its
+   * day, then this sentence as its accessible description.
+   *
+   * Built outside the column definitions for the same reason as
+   * {@link dependsCellHoverProps}: `columns` depends on `roles` alone, while
+   * this sentence depends on `startFloor`, which is filled after the first
+   * render.
+   */
+  const startCellProps = (row: TreeRow): Pick<ComponentProps<'td'>, 'title' | 'tabIndex'> => {
+    const said = [live.current.spanOf(row).start.iso, startFloor.current.get(row.id)]
+      .filter((part) => part !== null && part !== undefined)
+      .join(' — ');
+    return {
+      title: said === '' ? undefined : said,
+      tabIndex: said === '' ? undefined : 0,
     };
   };
 
@@ -10333,6 +10356,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                         {...(cell.column.id === 'depends'
                           ? dependsCellHoverProps(row.original)
                           : {})}
+                        {...(cell.column.id === 'start' ? startCellProps(row.original) : {})}
                         style={{
                           ...CELL,
                           // The exception to the cell clip. See
@@ -10342,6 +10366,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                           ...(opensAPopover(cell.column.id)
                             ? { overflow: 'visible' as const }
                             : {}),
+                          ...(cell.column.id === 'start' ? { cursor: 'help' as const } : {}),
                           ...flexibleCellStyle(cell.column.id, frameState),
                           ...pinnedCellStyle(layout, cell.column.id, 'body'),
                           // Last, so it wins over the pinned layer it is raising.
