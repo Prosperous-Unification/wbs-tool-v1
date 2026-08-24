@@ -1,11 +1,11 @@
 import type { JwtClaims, TokenVerifier } from '@wbs/auth';
-import { errors as joseErrors, jwtVerify } from 'jose';
+import { decodeProtectedHeader, errors as joseErrors, jwtVerify } from 'jose';
 export type { JwtClaims, TokenVerifier } from '@wbs/auth';
 
 export interface JwtVerifierOptions {
   current: Uint8Array;
   previous?: Uint8Array;
-  /** OIDC verifier tried before the local password-session keys. */
+  /** OIDC verifier used for every token not explicitly marked HS256. */
   primary?: TokenVerifier;
 }
 
@@ -22,12 +22,10 @@ export class JwtVerifier implements TokenVerifier {
   constructor(private readonly opts: JwtVerifierOptions) {}
 
   async verify(token: string): Promise<JwtClaims> {
-    if (this.opts.primary !== undefined) {
-      try {
-        return await this.opts.primary.verify(token);
-      } catch {
-        // Password sessions are HS256 and intentionally fail OIDC verification.
-      }
+    if (this.opts.primary !== undefined && !isPasswordSession(token)) {
+      // Do not catch this. A provider/JWKS outage must remain distinguishable
+      // from a bad local token instead of silently degrading to HS256.
+      return await this.opts.primary.verify(token);
     }
     try {
       const { payload } = await jwtVerify(token, this.opts.current);
@@ -39,5 +37,15 @@ export class JwtVerifier implements TokenVerifier {
       }
       throw err;
     }
+  }
+}
+
+function isPasswordSession(token: string): boolean {
+  try {
+    return decodeProtectedHeader(token).alg === 'HS256';
+  } catch {
+    // Opaque access tokens are valid provider input even though they have no
+    // JOSE header. Let the configured OIDC verifier decide their validity.
+    return false;
   }
 }
