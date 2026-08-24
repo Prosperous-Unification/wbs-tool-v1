@@ -64,6 +64,40 @@ On h2puni with the Nx cache skipped:
 - [ ] All tasks complete
 - [x] Transaction and refresh-token stores implemented on `change/okta-auth-transaction`
 
+## 8. MCP OAuth spike — 2026-08-24
+
+## Verdict: VALIDATED
+
+**Question:** Can Claude authenticate to mcp-01 with zero manual token steps
+while be-01 keeps its single Okta issuer/audience verifier and no OBO/token
+exchange is introduced?
+
+**Registration evidence:** Anthropic's current official connector guidance
+supports DCR and, when DCR is absent, a custom client ID/secret entered in the
+UI with callback `https://claude.ai/api/mcp/auth_callback`. The custom-client
+path is therefore technically available but not zero-manual. Okta's official
+DCR API requires an administrative credential; exposing that path is rejected.
+
+**Runnable trace:** throwaway spike run on h2puni from the task branch with
+`/home/puni1/wbs-dark/.bun-1314/bin/bun ./.tmp-wbs-mcp-oauth-spike.ts`.
+It generated independent RS256 signing keys and proved:
+
+1. Claude's local token: issuer
+   `https://dev.wbs.bulletpoints.club/mcp/oauth`, audience
+   `https://dev.wbs.bulletpoints.club/mcp`.
+2. mcp-01 verified it and resolved `local jti -> upstream token` only from
+   server-side state; no browser token was forwarded.
+3. be-01 accepted only the upstream token: issuer
+   `https://example.okta.com/oauth2/default`, audience `api://wbs-dev`.
+4. Subject `00u-dany` and scopes `wbs:read wbs:write` survived the trace.
+
+**Stress evidence:** all three negative paths were observed rejected: local MCP
+token at be-01, upstream Okta token at mcp-01, and a valid local token whose
+server-side upstream mapping had been removed.
+
+**Recommendation:** implement 4.4–4.6 as the fronting-AS path. Keep the custom
+client-ID UI route only as a documented manual fallback, not acceptance.
+
 ## Decision
 
 - [ ] PASS — archive

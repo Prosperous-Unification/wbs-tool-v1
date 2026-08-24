@@ -65,11 +65,33 @@ and audience. Health has separate liveness, readiness, and ALB-readiness paths.
 
 ### D7. Claude OAuth needs a measured fronting-AS trace
 
-Okta does not offer open dynamic client registration. Before implementation, a
-spike checks whether Claude accepts a pre-registered client. If it does not,
-mcp-01 exposes RFC 9728/8414 metadata, DCR, PKCE, and its own short-lived tokens.
-The MCP-scoped token stays local; the upstream Okta token acquired during login
-is stored server-side and is the only token forwarded to be-01. This is not OBO.
+Claude supports both DCR and a custom OAuth client ID/secret entered in its
+connector UI; the latter uses the fixed redirect URI
+`https://claude.ai/api/mcp/auth_callback`. It is still a manual registration and
+credential-entry path, so it fails this deployment's zero-manual requirement.
+Okta's DCR endpoint requires an administrative credential and therefore must not
+be exposed to arbitrary connector registration. The selected shape is a local
+fronting authorization server in mcp-01: RFC 9728 resource metadata points to
+mcp-01's RFC 8414 metadata; Claude registers there, uses PKCE, and receives a
+short-lived token with issuer `https://dev.wbs.bulletpoints.club/mcp/oauth` and
+audience `https://dev.wbs.bulletpoints.club/mcp`.
+
+The local token never reaches be-01. During the same browser authorization,
+mcp-01 completes the upstream Okta code flow and stores the resulting access
+token against the local MCP session `jti`. For each tool call, mcp-01 verifies
+the local token, loads that server-side upstream token, and sends only the Okta
+token to be-01. be-01 remains a single-issuer verifier for the configured Okta
+issuer and `api://wbs-dev` audience. This is neither OBO nor token exchange: the
+downstream credential is the original token acquired interactively for the WBS
+API, and the MCP token is a distinct resource credential.
+
+The 2026-08-24 spike signed both token classes with independent RS256 keys and
+ran the whole mapping on h2puni. The valid trace preserved subject and scopes;
+be-01 rejected the local MCP token, mcp-01 rejected the upstream Okta token, and
+mcp-01 rejected a valid local token after its server-side session mapping was
+removed. Verdict: **VALIDATED**. Sources: Anthropic's official “Building custom
+connectors via remote MCP servers” help article; MCP authorization specification
+2025-06-18; Okta Dynamic Client Registration API reference.
 
 ## Risks / Trade-offs
 
