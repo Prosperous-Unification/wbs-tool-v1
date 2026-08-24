@@ -102,3 +102,23 @@ client-ID UI route only as a documented manual fallback, not acceptance.
 
 - [ ] PASS — archive
 - [x] IN PROGRESS — continue with OIDC login, callback, refresh, and logout routes.
+
+## 9. MCP OAuth discovery metadata — 2026-08-24
+
+The watched red returned no `MCP_PUBLIC_URL`, accepted its absence, and could
+not import either metadata handler. A second production-path red could not
+import `mcpHttpResponse`; this pins the MCP-required `WWW-Authenticate`
+challenge rather than only testing a detached metadata builder.
+
+Fresh h2puni gate after implementation:
+
+- mcp-01: 73 tests passed, 0 failed; lint and typecheck clean
+- global format clean
+- strict OpenSpec validation: 73 passed, 0 failed
+
+MCP Inspector CLI connected to a temporary gateway-mode server at
+`http://127.0.0.1:3339/mcp`. Without interactive auth it returned
+`auth_required`; with auto-open enabled it followed the RFC 9728 challenge,
+loaded RFC 8414 metadata, and reached the advertised DCR endpoint, where it
+received the expected `404 Not found`. DCR belongs to task 4.5, so discovery
+has reached the exact boundary of this slice.

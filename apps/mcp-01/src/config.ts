@@ -13,6 +13,7 @@ import { type } from '@wbs/validation';
 export const McpConfig = type({
   MCP_AUTH_MODE: "'standalone'|'gateway'",
   WBS_API_URL: 'string.url',
+  MCP_PUBLIC_URL: 'string.url',
   'MCP_TRUSTED_GATEWAY?': "'true'",
   // `user:pass`. The password may contain colons, the user may not — which is
   // also how an `Authorization: Basic` credential splits.
@@ -20,11 +21,19 @@ export const McpConfig = type({
 });
 export type McpConfig = typeof McpConfig.infer;
 
-const NAMES = ['MCP_AUTH_MODE', 'WBS_API_URL', 'MCP_TRUSTED_GATEWAY', 'WBS_BASIC_AUTH'] as const;
+const NAMES = [
+  'MCP_AUTH_MODE',
+  'WBS_API_URL',
+  'MCP_PUBLIC_URL',
+  'MCP_TRUSTED_GATEWAY',
+  'WBS_BASIC_AUTH',
+] as const;
 
 const EXPECTATIONS: Record<(typeof NAMES)[number], string> = {
   MCP_AUTH_MODE: 'standalone or gateway authentication',
   WBS_API_URL: 'the base URL of a be-01 deployment, e.g. https://dev.wbs.bulletpoints.club',
+  MCP_PUBLIC_URL:
+    'the canonical public MCP resource URL, e.g. https://dev.wbs.bulletpoints.club/mcp',
   MCP_TRUSTED_GATEWAY: 'the exact value true when gateway mode terminates token verification',
   WBS_BASIC_AUTH: 'user:pass for the deployment’s basic auth, or unset',
 };
