@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { SignJWT } from 'jose';
 
 import { buildApp } from './app';
-import { JwtVerifier } from './service/jwt-auth';
+import { loadConfig } from './config';
 
 const JWT_KEY = 'k'.repeat(32);
 const INTERNAL_SECRET = 's'.repeat(32);
@@ -13,12 +13,33 @@ let port: number;
 let stop: () => void;
 
 beforeAll(() => {
+  const cfg = (
+    loadConfig as unknown as (
+      env: Record<string, string>,
+      oidcVerifierFromEnv: () => { verify(token: string): Promise<{ sub: string }> },
+    ) => ReturnType<typeof loadConfig>
+  )(
+    {
+      AUTH_AUDIENCE: 'wbs-api',
+      AUTH_CLIENT_ID: 'client',
+      AUTH_CLIENT_SECRET: 'secret',
+      AUTH_ISSUER_DISCOVERY_URL: 'https://idp.invalid',
+      AUTH_MODE: 'oidc',
+      AUTH_REDIRECT_URI: `${APP_ORIGIN}/api/auth/okta/callback`,
+      BE_URL: 'http://be.invalid',
+      INTERNAL_AUTH_SECRET: INTERNAL_SECRET,
+      JWT_SIGNING_KEY_CURRENT: JWT_KEY,
+      LOG_LEVEL: 'info',
+      PORT: '0',
+    },
+    () => ({ verify: () => Promise.reject(new Error('not an OIDC token')) }),
+  );
   const app = buildApp({
-    beUrl: 'http://be.invalid',
-    internalAuthSecret: INTERNAL_SECRET,
-    jwtKey: JWT_KEY,
-    verifier: new JwtVerifier({ current: key }),
-    appOrigin: APP_ORIGIN,
+    beUrl: cfg.BE_URL,
+    internalAuthSecret: cfg.INTERNAL_AUTH_SECRET,
+    jwtKey: cfg.JWT_SIGNING_KEY_CURRENT,
+    previousJwtKey: cfg.JWT_SIGNING_KEY_PREVIOUS,
+    ...cfg.wsAuth,
   });
   app.listen(0);
   port = app.server?.port ?? 0;
