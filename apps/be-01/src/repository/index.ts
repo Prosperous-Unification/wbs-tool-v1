@@ -66,6 +66,8 @@ export interface Project {
   estimateMethod: EstimateMethod;
   /** The calendar day the plan begins, or null for a plan not yet on a calendar. */
   startDate: IsoDate | null;
+  /** The external solution this plan implements, or null when it is standalone. */
+  solutionRef: { slug: string; url: string } | null;
   /**
    * How many times this project has been written to. Moves on its own stored
    * fields and on its roles; never on a work item beneath it, and never on
@@ -254,6 +256,8 @@ export interface ProjectPatch {
   estimateMethod?: EstimateMethod;
   /** `null` takes the plan back off the calendar. */
   startDate?: IsoDate | null;
+  /** `null` detaches the plan from its external solution. */
+  solutionRef?: { slug: string; url: string } | null;
 }
 
 export interface WorkItem {
@@ -1705,6 +1709,7 @@ export interface ProjectStore {
    */
   create(project: Project, roles: readonly Role[]): Promise<Project>;
   findById(id: string): Promise<Project | null>;
+  findBySolutionSlug(slug: string): Promise<Project | null>;
   /** Every project, newest first. Readable by any account, so it is not filtered by owner. */
   list(): Promise<Project[]>;
   /**

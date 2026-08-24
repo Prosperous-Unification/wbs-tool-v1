@@ -8,6 +8,7 @@ import { openDatabase, openDrizzle } from './db';
 import type { Project, Role } from './index';
 import { ROLE_POSITION_STEP } from './index';
 import { runMigrations } from './migrate';
+import { rollbackTo } from './migrate-down';
 import { ProjectRepository } from './project';
 import { UserRepository } from './user';
 
@@ -44,6 +45,7 @@ function project(name: string, createdAt: number): Project {
     restricted: false,
     estimateMethod: 'pert',
     startDate: null,
+    solutionRef: null,
     revision: 0,
     createdAt,
   };
@@ -75,6 +77,65 @@ async function rejection(promise: Promise<unknown>): Promise<string> {
 }
 
 describe('ProjectRepository', () => {
+  it('migrates a nullable solution reference onto existing projects', () => {
+    const db = openDatabase(join(dir, 'test.db'));
+    try {
+      const columns = db
+        .query('PRAGMA table_info(project)')
+        .all()
+        .map((column) => (column as { name: string }).name);
+
+      expect(columns).toContain('solution_slug');
+      expect(columns).toContain('solution_url');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rolls the solution reference back and forward without losing a project', async () => {
+    const shed = project('Rewire the shed', 100);
+    await repo.create(shed, roles(shed.id, 'Dev'));
+
+    expect(rollbackTo(join(dir, 'test.db'), FOLDER, '20260824010000_add_oidc_identity')).toEqual([
+      '20260824020000_add_solution_ref',
+    ]);
+    const rolledBack = openDatabase(join(dir, 'test.db'));
+    try {
+      const columns = rolledBack
+        .query('PRAGMA table_info(project)')
+        .all()
+        .map((column) => (column as { name: string }).name);
+      expect(columns).not.toContain('solution_slug');
+      expect(columns).not.toContain('solution_url');
+    } finally {
+      rolledBack.close();
+    }
+
+    runMigrations(join(dir, 'test.db'), FOLDER);
+    expect(await repo.findById(shed.id)).toMatchObject({
+      name: 'Rewire the shed',
+      solutionRef: null,
+    });
+  });
+
+  it('refuses one solution slug naming two projects', async () => {
+    const shed = project('Rewire the shed', 100);
+    const fence = project('Paint the fence', 200);
+    await repo.create(shed, roles(shed.id, 'Dev'));
+    await repo.create(fence, roles(fence.id, 'Dev'));
+    await repo.update(shed.id, {
+      solutionRef: { slug: 'site-refresh', url: 'https://solutions.example/site-refresh' },
+    });
+
+    expect(
+      await rejection(
+        repo.update(fence.id, {
+          solutionRef: { slug: 'site-refresh', url: 'https://solutions.example/other' },
+        }),
+      ),
+    ).toMatch(/UNIQUE/);
+  });
+
   it('writes a project and its starting roles together', async () => {
     const shed = project('Rewire the shed', 100);
     await repo.create(shed, roles(shed.id, 'Dev', 'QA'));

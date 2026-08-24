@@ -15,6 +15,7 @@ import { priorityBandController } from './controller/priority-band.controller';
 import { projectController } from './controller/project.controller';
 import { roleController } from './controller/role.controller';
 import { smokeController } from './controller/smoke.controller';
+import { solutionController } from './controller/solution.controller';
 import { workItemController } from './controller/work-item.controller';
 import { userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
@@ -156,6 +157,7 @@ export function buildApp(opts: AppOptions) {
       }))
       .use(smokeController)
       .use(authController(opts.auth, opts.oidc))
+      .use(solutionController(opts.auth, opts.projects))
       .use(projectController(opts.auth, opts.projects))
       .use(roleController(opts.auth, opts.roles))
       .use(workItemController(opts.auth, opts.workItems))
