@@ -13,7 +13,7 @@ const CONFIG: McpConfig = {
 };
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 
-function fixture() {
+function fixture(limits: { clientLimit?: number; clientTtlMs?: number } = {}) {
   let now = 1_700_000_000_000;
   const values = Array.from({ length: 20 }, (_, index) => `random-${String(index + 1)}`);
   const authorizationCalls: unknown[] = [];
@@ -44,6 +44,7 @@ function fixture() {
               wbs_groups: ['dev:wbs:read', 'dev:wbs:write'],
             })
           : Promise.reject(new Error('not an upstream token')),
+      ...limits,
     }),
     advance: (milliseconds: number) => {
       now += milliseconds;
@@ -63,6 +64,21 @@ async function register(oauth: InMemoryMcpOAuth): Promise<string> {
   if (response === undefined) throw new Error('DCR endpoint did not handle the request');
   const body = (await response.json()) as { client_id: string };
   return body.client_id;
+}
+
+async function registrationResponse(
+  oauth: InMemoryMcpOAuth,
+  redirectUris: readonly string[],
+): Promise<Response> {
+  const response = await oauth.response(
+    new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/register', {
+      body: JSON.stringify({ redirect_uris: redirectUris, token_endpoint_auth_method: 'none' }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }),
+  );
+  if (response === undefined) throw new Error('DCR endpoint did not handle the request');
+  return response;
 }
 
 function authorizeUrl(clientId: string, redirectUri = CALLBACK): URL {
@@ -102,6 +118,36 @@ async function authorizationCode(oauth: InMemoryMcpOAuth, verifier: string): Pro
 }
 
 describe('InMemoryMcpOAuth', () => {
+  // Break caught: accepting an arbitrary HTTPS callback lets an attacker
+  // register their origin and exfiltrate a signed-in user's authorization code.
+  it('limits dynamic registration to the real connector and loopback clients', async () => {
+    const { oauth } = fixture();
+
+    expect((await registrationResponse(oauth, ['https://evil.example/callback'])).status).toBe(400);
+    expect(
+      (await registrationResponse(oauth, ['https://claude.ai/api/mcp/auth_callback'])).status,
+    ).toBe(201);
+    expect(
+      (await registrationResponse(oauth, ['http://127.0.0.1:6274/oauth/callback'])).status,
+    ).toBe(201);
+  });
+
+  // Break caught: an unbounded registration map lets anonymous callers retain
+  // arbitrary client metadata until the process runs out of memory.
+  it('expires dynamic clients and evicts the oldest client at the configured bound', async () => {
+    const bounded = fixture({ clientLimit: 2, clientTtlMs: 1_000 });
+    const first = await register(bounded.oauth);
+    await register(bounded.oauth);
+    await register(bounded.oauth);
+
+    expect((await bounded.oauth.response(new Request(authorizeUrl(first))))?.status).toBe(400);
+
+    const expiring = fixture({ clientTtlMs: 1_000 });
+    const clientId = await register(expiring.oauth);
+    expiring.advance(1_001);
+    expect((await expiring.oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(400);
+  });
+
   // Proof: weakening exact membership to same-origin lets this unregistered
   // path become an authorization-code exfiltration redirect.
   it('registers a public client and refuses an unregistered redirect URI', async () => {

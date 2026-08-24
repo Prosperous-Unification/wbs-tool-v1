@@ -19,6 +19,7 @@ const TTL_MS = 300_000;
 
 interface ClientRecord {
   redirectUris: readonly string[];
+  expiresAt: number;
 }
 
 interface Transaction {
@@ -57,6 +58,8 @@ interface Options {
   random?: () => string;
   signingKeys?: { privateKey: KeyObject; publicKey: KeyObject };
   verifyUpstream?: TokenVerifier['verify'];
+  clientLimit?: number;
+  clientTtlMs?: number;
 }
 
 type UpstreamClient = Pick<BrowserOidcClient, 'authorizationUrl' | 'exchange'>;
@@ -78,6 +81,8 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
   private readonly publicKey: KeyObject;
   private readonly verifyUpstream: TokenVerifier['verify'];
 
+  private readonly clientLimit: number;
+  private readonly clientTtlMs: number;
   constructor(
     config: Pick<McpConfig, 'MCP_PUBLIC_URL'>,
     private readonly upstream: UpstreamClient,
@@ -96,6 +101,8 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     this.publicKey = keys.publicKey;
     this.verifyUpstream =
       options.verifyUpstream ?? (() => Promise.reject(new Error('upstream verifier is required')));
+    this.clientLimit = Math.max(1, options.clientLimit ?? 1_000);
+    this.clientTtlMs = Math.max(1, options.clientTtlMs ?? 86_400_000);
   }
 
   async response(request: Request): Promise<Response | undefined> {
@@ -187,8 +194,13 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     ) {
       return oauthError('invalid_redirect_uri');
     }
+    this.cleanup();
+    if (this.clients.size >= this.clientLimit) {
+      const oldest = this.clients.keys().next().value;
+      if (oldest !== undefined) this.clients.delete(oldest);
+    }
     const clientId = this.random();
-    this.clients.set(clientId, { redirectUris });
+    this.clients.set(clientId, { redirectUris, expiresAt: this.now() + this.clientTtlMs });
     return Response.json(
       {
         client_id: clientId,
@@ -205,6 +217,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const clientId = params.get('client_id') ?? '';
     const redirectUri = params.get('redirect_uri') ?? '';
     const challenge = params.get('code_challenge') ?? '';
+    this.cleanup();
     const scope = params.get('scope') ?? 'wbs:read';
     const scopes = scope.split(' ').filter(Boolean);
     if (
@@ -218,7 +231,6 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       return oauthError('invalid_request');
     }
 
-    this.cleanup();
     const browserBinding = this.random();
     const upstreamState = this.random();
     const nonce = this.random();
@@ -376,6 +388,9 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     for (const [binding, transaction] of this.transactions) {
       if (transaction.expiresAt <= now) this.transactions.delete(binding);
     }
+    for (const [clientId, client] of this.clients) {
+      if (client.expiresAt <= now) this.clients.delete(clientId);
+    }
     for (const [code, grant] of this.grants) {
       if (grant.expiresAt <= now) this.grants.delete(code);
     }
@@ -425,9 +440,16 @@ function isRedirect(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   try {
     const url = new URL(value);
-    return (
-      url.protocol === 'https:' && url.username === '' && url.password === '' && url.hash === ''
-    );
+    if (url.username !== '' || url.password !== '' || url.hash !== '') return false;
+    const isClaudeConnector =
+      url.protocol === 'https:' &&
+      url.port === '' &&
+      (url.hostname === 'claude.ai' || url.hostname === 'claude.com') &&
+      url.pathname === '/api/mcp/auth_callback';
+    const isLoopback =
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]');
+    return isClaudeConnector || isLoopback;
   } catch {
     return false;
   }
