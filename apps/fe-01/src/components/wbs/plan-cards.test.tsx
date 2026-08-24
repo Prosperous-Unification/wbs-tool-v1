@@ -887,6 +887,31 @@ describe('a picker open on a card', () => {
     expect(api.assignments).toEqual([]);
   });
 
+  itDom('points the figure box’s combobox at the line its Enter takes', async () => {
+    // The table's folded cell carries the same two pointers; the card must
+    // not disagree. Enter takes the first line, so that is the line
+    // `aria-activedescendant` names — and both pointers go when the list goes.
+    const api = fakeApi();
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await addAWorkItem();
+
+    const figure = screen.getByLabelText<HTMLInputElement>('Dev estimate for 010');
+    fireEvent.focus(figure);
+    fireEvent.change(figure, { target: { value: '4@ka' } });
+
+    const list = screen.getByRole('listbox');
+    const first = list.querySelector('[role="option"]') as HTMLElement;
+    expect(figure.getAttribute('aria-controls')).toBe(list.id);
+    expect(figure.getAttribute('aria-activedescendant')).toBe(first.id);
+
+    // Escape closes the list and takes both pointers with it.
+    fireEvent.keyDown(figure, { key: 'Escape' });
+    expect(figure.getAttribute('aria-controls')).toBeNull();
+    expect(figure.getAttribute('aria-activedescendant')).toBeNull();
+    expect(api.assignments).toEqual([]);
+  });
+
   itDom('sends the trio on Enter where no list is open', async () => {
     // The table's fix on the face that has the most reason to want it: a phone
     // has no convenient elsewhere to tap, so blur-only commit means a figure is

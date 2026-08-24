@@ -50,7 +50,13 @@ import { ActionsMenu } from './actions-menu';
 import { CellInput } from './cell-input';
 import { type Caret, type CellRef, commandMove, type Direction, nextCell } from './cell-navigation';
 import { type ColumnHintState, hintFor, ROLE_FINAL_HINT } from './column-hints';
-import { CreatablePicker, pickableLabel, PickerList, type PickerOption } from './creatable-picker';
+import {
+  CreatablePicker,
+  pickableLabel,
+  pickerOptionId,
+  PickerList,
+  type PickerOption,
+} from './creatable-picker';
 import { DateField } from './date-field';
 import { pickerEntries, REFUSAL_SUFFIX } from './dep-picker';
 import { DependsCard, dependsLine } from './depends-card';
@@ -7938,6 +7944,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                         role="combobox"
                         aria-expanded={options.length > 0}
                         aria-controls={options.length > 0 ? listId : undefined}
+                        // Which line Enter takes, for a reader who cannot see
+                        // the highlight — `CreatablePicker`'s rule, carried to
+                        // the one list it does not render. Cleared with
+                        // `aria-controls` the moment the list closes, because
+                        // both read the same `options.length > 0`.
+                        aria-activedescendant={
+                          options.length > 0 ? pickerOptionId(listId, 0) : undefined
+                        }
                         aria-autocomplete="list"
                         placeholder="o/r/p"
                         aria-invalid={problem !== null}

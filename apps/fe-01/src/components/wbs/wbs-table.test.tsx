@@ -4040,6 +4040,31 @@ describe('assigning from a folded role’s cell with @', () => {
     expect(offered()).toEqual(['Ada — free agent', 'Add “ad”']);
   });
 
+  itDom('points the folded cell’s combobox at the line its Enter takes', async () => {
+    // The screen-reader face of the first-line highlight: an open list whose
+    // box names no option reads as a choice the keyboard cannot see. Enter
+    // takes the first line (`CreatablePicker`'s rule), so that is the line
+    // `aria-activedescendant` must name — and both pointers go when the list
+    // goes.
+    await oneRow();
+
+    const cell = typeInto(foldedCell(), '@Grace');
+    const list = screen.getByRole('listbox', { name: 'Dev assignee for 010' });
+    const first = list.querySelector('[role="option"]') as HTMLElement;
+    expect(cell.getAttribute('aria-controls')).toBe(list.id);
+    expect(cell.getAttribute('aria-activedescendant')).toBe(first.id);
+
+    // Enter takes that exact option, and the pick closes the list and takes
+    // both pointers with it.
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    await waitFor(() => {
+      expect(assigneeShown('role-dev')).toBe('· GR');
+    });
+    expect(cell.getAttribute('aria-controls')).toBeNull();
+    expect(cell.getAttribute('aria-activedescendant')).toBeNull();
+    fireEvent.blur(cell);
+  });
+
   itDom('assigns on Enter and takes the @ back out, leaving the trio alone', async () => {
     // Dany's one gesture: `2/3/8@ka⏎` — trio typed, Kateryna assigned. The box
     // is left holding the trio and nothing else, and the blur that follows
