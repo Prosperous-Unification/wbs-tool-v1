@@ -72,6 +72,15 @@ printf '%s' "$authorization" | ORIGIN="$ORIGIN" bun -e '
   for (const [key, value] of Object.entries(expected)) {
     if (body[key] !== value) throw new Error(`unexpected MCP ${key}: ${String(body[key])}`);
   }
+  const expectedArrays = {
+    token_endpoint_auth_methods_supported: ["none"],
+    code_challenge_methods_supported: ["S256"],
+  };
+  for (const [key, value] of Object.entries(expectedArrays)) {
+    if (JSON.stringify(body[key]) !== JSON.stringify(value)) {
+      throw new Error(`unexpected MCP ${key}: ${JSON.stringify(body[key])}`);
+    }
+  }
 '
 
 challenge=$(curl -sS --max-time 15 -o /dev/null \

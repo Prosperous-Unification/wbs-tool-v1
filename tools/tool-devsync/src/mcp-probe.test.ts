@@ -13,6 +13,7 @@ function metadataServer(
   challengeResource = 'correct',
   nestedResource = 'correct',
   rootFailures = 0,
+  authorizationCapabilities = 'correct',
 ): Bun.Server<undefined> {
   const server = Bun.serve({
     port: 0,
@@ -42,6 +43,10 @@ function metadataServer(
           token_endpoint: `${origin}/mcp/oauth/token`,
           registration_endpoint: `${origin}/mcp/oauth/register`,
           jwks_uri: `${origin}/mcp/oauth/jwks`,
+          token_endpoint_auth_methods_supported:
+            authorizationCapabilities === 'wrong' ? ['client_secret_basic'] : ['none'],
+          code_challenge_methods_supported:
+            authorizationCapabilities === 'wrong' ? ['plain'] : ['S256'],
         });
       }
       if (url.pathname === '/mcp' && request.method === 'POST') {
@@ -118,5 +123,12 @@ describe('dev MCP deployment probe', () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('MCP discovery and challenge');
+  });
+
+  it('rejects authorization metadata that weakens public-client PKCE', async () => {
+    const server = metadataServer('correct', 'correct', 0, 'wrong');
+    const result = await runProbe(`http://127.0.0.1:${String(server.port)}`);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('token_endpoint_auth_methods_supported');
   });
 });
