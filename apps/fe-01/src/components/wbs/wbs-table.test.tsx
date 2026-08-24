@@ -4050,7 +4050,7 @@ describe('assigning from a folded role’s cell with @', () => {
 
     const cell = typeInto(foldedCell(), '@Grace');
     const list = screen.getByRole('listbox', { name: 'Dev assignee for 010' });
-    const first = list.querySelector('[role="option"]') as HTMLElement;
+    const first = list.querySelector('[role="option"]')!;
     expect(cell.getAttribute('aria-controls')).toBe(list.id);
     expect(cell.getAttribute('aria-activedescendant')).toBe(first.id);
 

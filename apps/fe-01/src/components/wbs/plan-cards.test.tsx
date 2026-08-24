@@ -901,7 +901,7 @@ describe('a picker open on a card', () => {
     fireEvent.change(figure, { target: { value: '4@ka' } });
 
     const list = screen.getByRole('listbox');
-    const first = list.querySelector('[role="option"]') as HTMLElement;
+    const first = list.querySelector('[role="option"]')!;
     expect(figure.getAttribute('aria-controls')).toBe(list.id);
     expect(figure.getAttribute('aria-activedescendant')).toBe(first.id);
 

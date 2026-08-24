@@ -53,9 +53,9 @@ import { type ColumnHintState, hintFor, ROLE_FINAL_HINT } from './column-hints';
 import {
   CreatablePicker,
   pickableLabel,
-  pickerOptionId,
   PickerList,
   type PickerOption,
+  pickerOptionId,
 } from './creatable-picker';
 import { DateField } from './date-field';
 import { pickerEntries, REFUSAL_SUFFIX } from './dep-picker';

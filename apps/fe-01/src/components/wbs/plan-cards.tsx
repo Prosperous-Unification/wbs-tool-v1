@@ -16,9 +16,9 @@ import type { CellRef } from './cell-navigation';
 import {
   CreatablePicker,
   type PickableEntry,
-  pickerOptionId,
   PickerList,
   type PickerOption,
+  pickerOptionId,
 } from './creatable-picker';
 import { type PickerEntry, REFUSAL_SUFFIX } from './dep-picker';
 import { type CellElement, cellKey } from './editable-grid';
