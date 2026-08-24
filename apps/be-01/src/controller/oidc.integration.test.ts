@@ -231,7 +231,10 @@ describe('OIDC browser routes', () => {
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       const failed = await f.app.handle(
         new Request('https://dev.wbs.test/api/auth/login', {
-          body: JSON.stringify({ username: `missing-${String(attempt)}`, password: 'wrong-password' }),
+          body: JSON.stringify({
+            username: `missing-${String(attempt)}`,
+            password: 'wrong-password',
+          }),
           headers: { 'content-type': 'application/json', 'x-forwarded-for': '192.0.2.50' },
           method: 'POST',
         }),

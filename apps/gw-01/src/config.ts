@@ -1,9 +1,4 @@
-import {
-  authModeOf,
-  booleanFlagOf,
-  oidcTokenVerifierFromEnv,
-  type TokenVerifier,
-} from '@wbs/auth';
+import { authModeOf, booleanFlagOf, oidcTokenVerifierFromEnv, type TokenVerifier } from '@wbs/auth';
 import { defineConfig } from '@wbs/config';
 import { type } from '@wbs/validation';
 

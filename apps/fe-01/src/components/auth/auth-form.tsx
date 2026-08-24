@@ -70,7 +70,7 @@ export function AuthForm({ onSignedIn }: AuthFormProps) {
             href="/api/auth/login"
           >
             Continue with SSO
-        </a>
+          </a>
         </div>
       </CardContent>
     </Card>

@@ -43,25 +43,32 @@ describe('the signed-out screen', () => {
     const link = screen.getByRole('link', { name: 'Continue with SSO' });
     expect(link.getAttribute('href')).toBe('/api/auth/login');
     expect(screen.getByLabelText('Username').getAttribute('autocomplete')).toBe('username');
-    expect(screen.getByLabelText('Password').getAttribute('autocomplete')).toBe(
-      'current-password',
-    );
+    expect(screen.getByLabelText('Password').getAttribute('autocomplete')).toBe('current-password');
     expect(screen.getByRole('button', { name: 'Sign in with password' })).toBeDefined();
 
-    for (const control of [link, screen.getByLabelText('Username'), screen.getByLabelText('Password')]) {
+    for (const control of [
+      link,
+      screen.getByLabelText('Username'),
+      screen.getByLabelText('Password'),
+    ]) {
       expect(control.className).toContain('h-11');
     }
   });
 
   itDom('enters the returned cookie session after a password sign-in', async () => {
     const session: Session = { token: '', user: { id: 'u1', username: 'ada' } };
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(200, session))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, session))),
+    );
     const onSignedIn = vi.fn();
     render(<AuthForm onSignedIn={onSignedIn} />);
 
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'ada' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'lovelace99' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!);
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!,
+    );
 
     await waitFor(() => {
       expect(onSignedIn).toHaveBeenCalledWith(session);
@@ -79,7 +86,9 @@ describe('the signed-out screen', () => {
     expect(error.className).toContain('min-h-5');
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'ada' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!);
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!,
+    );
 
     await waitFor(() => {
       expect(error.textContent).toBe('Username or password is incorrect.');
