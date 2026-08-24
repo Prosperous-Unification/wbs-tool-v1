@@ -48,11 +48,10 @@ export function pickableLabel(entry: PickableEntry): ReactNode {
 /**
  * The DOM id of one line, so a box above the list can point at it.
  *
- * Only the first line is ever pointed at today — every list here is taken with
- * Enter and Enter takes the top — but the ids are per-line rather than one id
- * moved onto whichever line is first, because `aria-activedescendant` is how
- * arrow-key navigation will say where it is, and a scheme that only has a name
- * for line zero would have to be rewritten to get one.
+ * The ids are per-line rather than one id moved onto whichever line is first
+ * because `aria-activedescendant` is how arrow-key navigation says where it is:
+ * the combobox points the attribute at whichever line is active, and every line
+ * needs a name of its own for that to be a move rather than a rewrite.
  */
 export function pickerOptionId(listId: string, index: number): string {
   return `${listId}-option-${String(index)}`;
@@ -62,16 +61,39 @@ export function PickerList({
   id,
   label,
   options,
+  activeIndex = 0,
 }: {
   id: string;
   label: string;
   options: readonly PickerOption[];
+  /**
+   * The line Enter takes, drawn and read as one. Defaults to the top because
+   * the callers with no arrow-key path of their own (`@` mention lists, the
+   * priority cell) take the top and always will; `CreatablePicker` passes the
+   * index its arrows have walked to.
+   */
+  activeIndex?: number;
 }) {
+  // A list longer than its 200px box scrolls; the active line must be where
+  // the eye is. jsdom has no scrollIntoView, hence the typeof — that boundary
+  // is the test environment, not a browser this will meet. (Same guard the
+  // depends list uses in `wbs-table.tsx`.)
+  const scrollToActive = (element: HTMLLIElement | null, active: boolean) => {
+    if (active && element !== null && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ block: 'nearest' });
+    }
+  };
   return (
     <ul
       role="listbox"
       id={id}
       aria-label={label}
+      // `styles.css` reads this to tell a CreatablePicker's list from the
+      // depends list: the two share `role='option'` under `[data-grid]`, but
+      // this one carries its active line inline and must not inherit the
+      // accent a hover or an `aria-selected` would otherwise paint there —
+      // two lines looking active at once was the defect it exists to stop.
+      data-picker-list=""
       // One preventDefault for the whole list, options included, by
       // bubbling: a mousedown here must not blur the input, or the list
       // would close before the click could land.
@@ -96,35 +118,44 @@ export function PickerList({
         minWidth: '100%',
       }}
     >
-      {options.map((option, index) => (
-        // The ARIA combobox pattern is the boundary that makes this safe:
-        // options are not focusable and the keyboard drives them from the
-        // box above.
-        // eslint-disable-next-line jsx-a11y/click-events-have-key-events
-        <li
-          key={option.key}
-          id={pickerOptionId(id, index)}
-          role="option"
-          aria-selected={option.selected}
-          // The line Enter takes, said in ink as well as in ARIA. Without it
-          // the ordering fix is invisible: a reader typing a name that already
-          // exists somewhere in the directory has no way to tell whether
-          // Enter is about to make their team or join the other one.
-          //
-          // `--accent` and not a border, because a border on one line moves
-          // the lines under it by a pixel as the typing narrows the list.
-          data-picker-take={index === 0 ? '' : undefined}
-          style={{
-            padding: '2px 6px',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            background: index === 0 ? 'var(--accent)' : undefined,
-          }}
-          onClick={option.take}
-        >
-          {option.label}
-        </li>
-      ))}
+      {options.map((option, index) => {
+        const active = index === activeIndex;
+        return (
+          // The ARIA combobox pattern is the boundary that makes this safe:
+          // options are not focusable and the keyboard drives them from the
+          // box above.
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+          <li
+            key={option.key}
+            id={pickerOptionId(id, index)}
+            role="option"
+            aria-selected={option.selected}
+            ref={(element) => {
+              scrollToActive(element, active);
+            }}
+            // The line Enter takes, said in ink as well as in ARIA. Without it
+            // the ordering fix is invisible: a reader typing a name that already
+            // exists somewhere in the directory has no way to tell whether
+            // Enter is about to make their team or join the other one. Exactly
+            // one line wears it — the active one — because a second line
+            // painted the same way is the defect this component was reworked
+            // to end (TASK-104).
+            //
+            // `--accent` and not a border, because a border on one line moves
+            // the lines under it by a pixel as the typing narrows the list.
+            data-picker-take={active ? '' : undefined}
+            style={{
+              padding: '2px 6px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              background: active ? 'var(--accent)' : undefined,
+            }}
+            onClick={option.take}
+          >
+            {option.label}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -271,9 +302,12 @@ export interface CreatablePickerProps {
  * 4. the entries that merely contain it.
  *
  * The rule and the display are one thing rather than two that can disagree:
- * `options` below is both what is drawn and what Enter reads, and the input's
- * `aria-activedescendant` names its first line, so the option about to be
- * taken is the option shown as such.
+ * `options` below is both what is drawn and what Enter reads, and one
+ * `activeIndex` state drives the highlight, Enter, and the input's
+ * `aria-activedescendant` together — the option about to be taken is the
+ * option shown as such. The arrows walk that index through the ranking;
+ * typing puts it back on top, because a new search is a new question and the
+ * top line is the answer.
  *
  * "Add" appears only when what has been typed matches no entry **exactly**.
  * Offering it beside an exact match is how a list grows a second `Platform`
@@ -296,6 +330,15 @@ export function CreatablePicker({
 }: CreatablePickerProps) {
   /** What has been typed, or null while the picker is closed. */
   const [typed, setTyped] = useState<string | null>(null);
+  /**
+   * Which line Enter takes, shared by the highlight, Enter and
+   * `aria-activedescendant` — one state rather than three that could disagree.
+   * Every keystroke re-ranks the list and puts it back on top; the arrows walk
+   * it. Clamped on the way to the render rather than trusted, because a list
+   * the typing narrowed between the last move and this frame has fewer lines
+   * than the index remembers.
+   */
+  const [activeIndex, setActiveIndex] = useState(0);
 
   // Derived from the label so two pickers in one row do not share an id.
   const listId = `creatable-${label.replace(/\W+/g, '-').toLowerCase()}`;
@@ -350,6 +393,7 @@ export function CreatablePicker({
     ...behind.map(choose),
   ];
   const open = typed !== null && options.length > 0;
+  const active = options.length === 0 ? 0 : Math.min(activeIndex, options.length - 1);
 
   return (
     // A flex row so the box and its ✕ share one cell's width instead of adding
@@ -390,7 +434,7 @@ export function CreatablePicker({
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         // Which line Enter takes, for a reader who cannot see the highlight.
-        aria-activedescendant={open ? pickerOptionId(listId, 0) : undefined}
+        aria-activedescendant={open ? pickerOptionId(listId, active) : undefined}
         aria-autocomplete="list"
         placeholder={placeholder}
         title={title}
@@ -401,6 +445,7 @@ export function CreatablePicker({
         value={typed ?? chosen?.name ?? ''}
         onFocus={() => {
           setTyped('');
+          setActiveIndex(0);
         }}
         // A blur discards the typing and shows the choice again. It does not
         // create anything: leaving a field is not a decision to add a team to
@@ -410,6 +455,8 @@ export function CreatablePicker({
         }}
         onChange={(e) => {
           setTyped(e.target.value);
+          // New typing, new ranking: the top line is the one that answers it.
+          setActiveIndex(0);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Tab') {
@@ -425,6 +472,7 @@ export function CreatablePicker({
           }
           if (e.key === 'Escape') {
             setTyped(null);
+            setActiveIndex(0);
             return;
           }
           if (gridCell !== undefined && escapesAnOpenList(e)) {
@@ -457,6 +505,26 @@ export function CreatablePicker({
               e.preventDefault();
               return;
             }
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              // An open list owns the bare arrows: they walk the options and
+              // nothing else. The grid's own moves arrive as Alt+arrow or a
+              // chord and left through `escapesAnOpenList` above — before this
+              // branch on purpose, so an Alt+↑ aimed at the row moves the row,
+              // not the highlight (the depends list's ordering, same reason).
+              // Clamped, not wrapped: pressing past the last line is more often
+              // a miscount than a request to start over.
+              e.preventDefault();
+              setActiveIndex((current) =>
+                Math.max(
+                  0,
+                  Math.min(
+                    options.length - 1,
+                    Math.min(current, options.length - 1) + (e.key === 'ArrowDown' ? 1 : -1),
+                  ),
+                ),
+              );
+              return;
+            }
           } else {
             // Proof: the `!open` guard dropped so the chords fired through an
             // open list, `every chord is inert while a team picker’s list is
@@ -468,12 +536,13 @@ export function CreatablePicker({
           if (e.key !== 'Enter') return;
           e.preventDefault();
           if (typed === null) return;
-          // One line, and it is the same line the reader is looking at. The
+          // One line, and it is the same line the reader is looking at: the
+          // line the arrows walked to, or the top where they left it. The
           // branch that used to stand here — first filtered entry, else create
           // — was a second copy of the ordering rule, and the two disagreed:
           // the list showed `claire qa billing` under an `Add “QA”` nobody
           // could reach from the keyboard, and Enter took the one above it.
-          options.at(0)?.take();
+          options.at(active)?.take();
         }}
       />
       {chosen !== undefined && (typed === null || clearVisibleWhileFocused === true) && (
@@ -487,7 +556,7 @@ export function CreatablePicker({
           ✕
         </button>
       )}
-      {open && <PickerList id={listId} label={label} options={options} />}
+      {open && <PickerList id={listId} label={label} options={options} activeIndex={active} />}
     </span>
   );
 }

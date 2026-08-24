@@ -1099,10 +1099,33 @@
     color: var(--foreground);
   }
 
-  /* An option under an open picker, hovered or already chosen. */
+  /* An option under an open picker, hovered or already chosen.
+     The depends list's own: it has no active line of its own to paint inline,
+     so the stylesheet answers both its pointer and its keyboard highlight. */
   [data-grid] [role='option']:hover,
   [data-grid] [role='option'][aria-selected='true'] {
     background: var(--accent);
+  }
+
+  /* A CreatablePicker's list is the exception the rule above must not reach.
+     It carries its active line inline — the one Enter takes, walked to with
+     the arrows — and a second line painted the same solid accent reads as a
+     second active line: hovering below the top used to do exactly that
+     (TASK-104). Both selectors outrank the shared rule by one attribute,
+     which is what keeps the depends list on it. Hover gets a faded read of the
+     same hue — feedback, not a claim; and the entry already in force is said
+     in weight rather than background, because a chosen line that is not the
+     active one wearing the accent would be the same two-active-lines defect
+     by another route. Where the two meet — the chosen line, hovered — the
+     fade wins over the weight's transparency, which is the right read of a
+     pointer resting on what is already picked. */
+  [data-grid] [data-picker-list] [role='option'][aria-selected='true'] {
+    background: transparent;
+    font-weight: 600;
+  }
+
+  [data-grid] [data-picker-list] [role='option']:hover {
+    background: color-mix(in oklab, var(--accent) 60%, transparent);
   }
 
   [data-grid] [role='menu'] button:hover {
