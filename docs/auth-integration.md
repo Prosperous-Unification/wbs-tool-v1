@@ -2,7 +2,8 @@
 
 WBS uses standard OIDC discovery, Authorization Code + PKCE, RS256/JWKS token
 verification, and provider-neutral claims. The provider is configuration, not
-code: Keycloak is the local acceptance provider and Okta uses the same contract.
+code: Keycloak is the local acceptance provider, Auth0 is the dev provider, and
+the historical Okta setup uses the same contract.
 
 ## Shared provider contract
 
@@ -119,6 +120,48 @@ Drive the flow through fe-01, not directly through the callback:
 Verified on h2puni, 2026-08-24, against Keycloak 26.3 and branch
 `change/okta-auth-identity` at `649cc3a`: fe-01 signed in, cookie API 200,
 WebSocket open, and standalone MCP initialize 200.
+
+## Auth0 mapping
+
+No provider-specific code is required. The dev tenant is
+`dev-fzwagvg246jhid6a.us.auth0.com`; configure discovery from that tenant and
+preserve the exact issuer, including its trailing slash:
+`https://dev-fzwagvg246jhid6a.us.auth0.com/`.
+
+```dotenv
+AUTH_MODE=oidc
+AUTH_ISSUER_DISCOVERY_URL=https://dev-fzwagvg246jhid6a.us.auth0.com/.well-known/openid-configuration
+AUTH_REDIRECT_URI=https://dev.wbs.bulletpoints.club/api/auth/okta/callback
+AUTH_SCOPE=openid profile email offline_access
+AUTH_AUDIENCE=https://wbs.bulletpoints.club/api
+AUTH_GROUPS_CLAIM=wbs_groups
+```
+
+The Auth0 application is a Regular Web Application with Authorization Code +
+PKCE and rotating refresh-token grants. Its callback remains
+`https://dev.wbs.bulletpoints.club/api/auth/okta/callback`; `okta` is a
+historical route name, not a provider dependency. Request `offline_access` and
+the audience `https://wbs.bulletpoints.club/api`. Without that audience Auth0
+returns an opaque user-info token instead of the RS256 JWT that WBS verifies.
+
+The post-login Action maps Auth0 roles into the environment-prefixed group
+claims WBS consumes. For example, `wbs-editor` becomes `dev:wbs:editor`:
+
+```js
+exports.onExecutePostLogin = async (event, api) => {
+  const groups = (event.authorization?.roles ?? []).map((r) => 'dev:' + r.replace(/-/g, ':'));
+  api.idToken.setCustomClaim('wbs_groups', groups);
+  api.accessToken.setCustomClaim('wbs_groups', groups);
+  api.idToken.setCustomClaim('studio_groups', groups);
+  api.accessToken.setCustomClaim('studio_groups', groups);
+};
+```
+
+Assign the WBS roles to each user and require `email_verified=true` before
+first-login linking. Real dev credentials live only in
+`/home/puni1/wbs-dev/oidc-dev.env` on the deployment host (mode 600). The prior
+Okta values are retained only in `oidc-dev.env.okta.bak` until the trial expires
+on 2026-09-22; delete that backup after the expiry.
 
 ## Okta mapping
 
