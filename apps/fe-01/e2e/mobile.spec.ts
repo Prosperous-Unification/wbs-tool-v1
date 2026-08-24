@@ -771,6 +771,111 @@ test.describe('the plan on a phone, measured by a browser', () => {
   });
 
   /**
+   * The dependency sheet's scroll, on a plan longer than the phone —
+   * `wbs-dependency-sheet-search-scrolls-away`.
+   *
+   * Found by `wbs-card-depends-qa` on dev at `5d53948`, Browser Use Cloud at
+   * this exact viewport: a forty-row plan offered thirty-nine candidates, the
+   * whole sheet was one scroll container (`scrollHeight` 2108 against a
+   * `clientHeight` of 716), and by the bottom of the list the search box sat at
+   * top=-1136px. Narrowing a second search meant scrolling the whole way back.
+   *
+   * The fix makes the surface a fixed column — header, the waits already
+   * taken, the box — and gives the long scroll to the candidate list alone.
+   * This case is the measurement, and every assertion in it is a line the old
+   * layout failed:
+   *
+   * - `scrollHeight > clientHeight` on the candidate `<ul>`: before the fix the
+   *   list simply grew and the two were equal, the surface doing the scrolling.
+   * - The last candidate in view after the list is walked to its end: before,
+   *   it lived below the surface's fold.
+   * - The search box still in view at that depth: the fault itself.
+   * - All four waits in view with no scrolling at all: the fixed region holds
+   *   them.
+   *
+   * The fixture is seeded through the API — thirty-eight rows plus four edges
+   * is forty-one round trips no thumb should make — and reloaded before a
+   * measurement is taken, for `aPeerRenames`'s reason: what is measured is
+   * what be-01 holds, not what React remembers.
+   */
+  test('keeps the dependency search and the waits in view at the bottom of a long sheet', async ({
+    page,
+  }) => {
+    const seeded = await page.evaluate(async () => {
+      const { projects } = (await (await fetch('/api/projects')).json()) as {
+        projects: { id: string }[];
+      };
+      // One project exactly: this run's database is fresh (`tmp/e2e-<ts>.db`)
+      // and `seedPlan` made it. Destructured rather than guarded, the lint's
+      // `no-unnecessary-condition` reading an empty-list check as dead.
+      const [{ id: projectId }] = projects;
+      const tree = (await (await fetch(`/api/projects/${projectId}/work-items`)).json()) as {
+        workItems: { id: string; number: string }[];
+      };
+      let after = tree.workItems[tree.workItems.length - 1]?.id ?? null;
+      const made: { id: string; number: string }[] = [];
+      for (let i = 0; i < 38; i += 1) {
+        const res = await fetch(`/api/projects/${projectId}/work-items`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            parentId: null,
+            afterId: after,
+            name: `Fixture row ${String(i)}`,
+          }),
+        });
+        if (res.status !== 200)
+          throw new Error(`seeding row ${String(i)} failed: ${String(res.status)}`);
+        const { id } = (await res.json()) as { id: string };
+        after = id;
+        made.push({ id, number: '' });
+      }
+      // Four waits on 020, the shape the fault was found in: a header, four
+      // rows already taken, then the long list.
+      const successor = tree.workItems.find((each) => each.number === '020');
+      if (successor === undefined) throw new Error('no 020 in the seeded plan');
+      for (const predecessor of made.slice(0, 4)) {
+        const res = await fetch(`/api/work-items/${successor.id}/dependencies`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ predecessorId: predecessor.id }),
+        });
+        if (res.status !== 200) throw new Error(`seeding a wait failed: ${String(res.status)}`);
+      }
+      return { rows: tree.workItems.length + made.length };
+    });
+    expect(seeded.rows, 'the plan did not take the forty rows').toBe(40);
+    await page.reload();
+
+    await page.getByRole('button', { name: 'Depends on for 020' }).click();
+    await expect(page.getByRole('dialog', { name: 'Depends on for 020' })).toBeVisible();
+
+    const candidates = page.getByRole('list', { name: 'Rows 020 could wait for' });
+    await expect(candidates).toBeVisible();
+    const scrollable = await candidates.evaluate((list) => ({
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight,
+    }));
+    expect(
+      scrollable.scrollHeight > scrollable.clientHeight,
+      'the candidate list is not the scroll region — it grew instead of scrolling',
+    ).toBe(true);
+
+    // To the bottom of the list, the depth the fault was measured at.
+    await candidates.evaluate((list) => {
+      list.scrollTop = list.scrollHeight;
+    });
+    await expect(page.locator('[data-card-depends-option]').last()).toBeInViewport();
+    // The box the whole fix is for: still on screen at the bottom of the list.
+    await expect(page.locator('[data-card-depends-input]')).toBeInViewport();
+    // And the four waits, which the fixed region holds with no scrolling.
+    await expect(page.locator('[data-card-wait]')).toHaveCount(4);
+    for (const wait of await page.locator('[data-card-wait]').all()) {
+      await expect(wait).toBeInViewport();
+    }
+  });
+
+  /**
    * The whole trio, entered the way a thumb enters it — `wbs-mobile-orp-input`.
    *
    * Dany, 2026-08-23: *"I cannot input o/r/p on WBS from mobile."* The card's

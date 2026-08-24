@@ -1258,7 +1258,21 @@ function CardDependsField({
         plan, and a sheet sized to its two lines of chrome would open at the
         height of an empty box and jump.
       */}
-      <ModalContent side="bottom" className="min-h-[60vh]">
+      {/*
+        `overflow-y-hidden` where every other sheet lets the surface scroll: on
+        a forty-row plan the offered list alone is taller than the phone, and a
+        scrolling surface takes the search box with it — measured on dev at
+        390×844, the input sat at top=-1136px once the reader reached the last
+        candidate, so narrowing a second search meant scrolling the whole way
+        back. Here the surface is a fixed column — header, the waits, the box —
+        and only the candidate list below scrolls (`min-h-0 flex-1
+        overflow-y-auto` on the `<ul>`), so the box and the waits already taken
+        stay under the reader's thumb at any depth.
+
+        The twMerge conflict with the surface's own `overflow-y-auto` resolves
+        this way because `className` is `cn`'s last argument.
+      */}
+      <ModalContent side="bottom" className="min-h-[60vh] overflow-y-hidden">
         <ModalHeader>
           <ModalTitle>Depends on for {row.number}</ModalTitle>
           <ModalDescription>
@@ -1266,7 +1280,7 @@ function CardDependsField({
             as you tap.
           </ModalDescription>
         </ModalHeader>
-        <div className="flex flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           {waits.length > 0 && (
             <ul aria-label={`Waits for, on ${row.number}`} className="flex flex-col gap-1">
               {waits.map((each) => (
@@ -1330,7 +1344,15 @@ function CardDependsField({
                 : `No other row matches “${typed}”.`}
             </p>
           ) : (
-            <ul aria-label={`Rows ${row.number} could wait for`} className="flex flex-col gap-1">
+            <ul
+              aria-label={`Rows ${row.number} could wait for`}
+              // The sheet's one scroll region — the comment on `ModalContent`
+              // above. `min-h-0` is what lets a flex child shrink below its
+              // content height; without it the list still outgrows the surface
+              // and the surface's hidden overflow clips the last rows with no
+              // scroll to reach them.
+              className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
+            >
               {offered.map((entry) => (
                 <li key={entry.id}>
                   <button
