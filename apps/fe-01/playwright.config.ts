@@ -86,11 +86,10 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4200',
     screenshot: 'only-on-failure',
-    // On, not on-failure: the first runs of this gate are the ones nobody can
-    // reproduce locally — there is no browser on the machine it was written on
-    // — so a trace with DOM snapshots is the difference between one CI round
-    // trip and five.
-    trace: 'on',
+    // Keep the diagnostic trace when a check fails, but do not archive a trace
+    // for every passing layout assertion. With 194 passing checks, `on` made
+    // the CI artifact about 540 MB and its upload dominated the job runtime.
+    trace: 'retain-on-failure',
     video: 'off',
   },
   // Chromium only. One engine that can lay a table out is the whole ask; three

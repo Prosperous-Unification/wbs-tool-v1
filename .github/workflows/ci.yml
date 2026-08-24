@@ -201,6 +201,8 @@ jobs:
         if: always()
         with:
           name: wbs-table-screenshot
+          # Successful runs keep the deliberate geometry screenshot and HTML
+          # report; failed runs additionally keep Playwright's retained trace.
           path: |
             apps/fe-01/test-results/
             apps/fe-01/playwright-report/
