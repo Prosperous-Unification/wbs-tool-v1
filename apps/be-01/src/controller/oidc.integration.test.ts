@@ -655,6 +655,24 @@ describe('OIDC startup configuration', () => {
     );
   });
 
+  it('refuses registration when password sessions are disabled', () => {
+    const factory = (
+      authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
+    ).oidcRouteOptionsFromEnv;
+
+    expect(() =>
+      factory({
+        AUTH_CLIENT_ID: 'client',
+        AUTH_CLIENT_SECRET: 'secret',
+        AUTH_AUDIENCE: 'wbs-api',
+        AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
+        AUTH_REDIRECT_URI: 'https://dev.wbs.test/api/auth/okta/callback',
+        AUTH_PASSWORD_LOGIN: 'false',
+        AUTH_PASSWORD_REGISTER: 'true',
+      }),
+    ).toThrow(/AUTH_PASSWORD_REGISTER=true.*AUTH_PASSWORD_LOGIN=true/);
+  });
+
   it('refuses a redirect URI whose callback path is not mounted', () => {
     const factory = (
       authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
