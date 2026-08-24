@@ -86,4 +86,22 @@ describe('mcpHttpResponse', () => {
     );
     expect(await response.json()).toEqual({ error: 'unauthorized' });
   });
+
+  // Proof: omitting OAuth endpoint dispatch leaves DCR at the old 404 boundary.
+  it('dispatches fronting authorization-server requests before MCP auth', async () => {
+    const response = await mcpHttpResponse(
+      new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/register', { method: 'POST' }),
+      CONFIG,
+      { verify: () => Promise.reject(new Error('must not verify a DCR request')) },
+      { handleRequest: () => Promise.reject(new Error('must not reach the transport')) },
+      process.env,
+      {
+        response: () =>
+          Promise.resolve(Response.json({ client_id: 'dynamic-client' }, { status: 201 })),
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ client_id: 'dynamic-client' });
+  });
 });
