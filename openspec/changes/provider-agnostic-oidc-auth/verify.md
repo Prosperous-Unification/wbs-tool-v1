@@ -161,6 +161,8 @@ Bearer inputs remain supported.
 Fresh h2puni candidate gate:
 
 - be-01: 1,101 tests passed, 0 failed; lint and typecheck clean
+- mcp-01: 80 tests passed, 0 failed; the 51-tool drift guard records both new
+  solution routes as plan surface
 - tool-devsync affected targets green
 - global format and plaintext-secret scan clean
 - strict OpenSpec validation: 73 passed, 0 failed

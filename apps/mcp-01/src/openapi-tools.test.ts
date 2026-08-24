@@ -219,7 +219,7 @@ describe('toolsFromDocument, on the committed document', () => {
   /**
    * A count, deliberately. A new be-01 route arrives here as a red test rather
    * than as a tool nobody decided about — the reader has to say whether it is
-   * plan surface or a new exclusion. 55 operations in the document, 8 excluded
+   * plan surface or a new exclusion. 59 operations in the document, 8 excluded
    * (3 auth, 2 internal, health, metrics, smoke echo).
    *
    * It went from 43 to 47 when `service-split` added the directory's four
@@ -237,13 +237,17 @@ describe('toolsFromDocument, on the committed document', () => {
    * exclusion class, so "free" turned out to be true — but this line is what
    * checked it rather than assuming it.
    *
+   * **49 to 51 with the OIDC solution contract.** Both reads are plan surface:
+   * an agent needs the slug lookup to resolve the plan for a solution and the
+   * export route to retrieve that plan as JSON or Markdown.
+   *
    * It arrived as a **red four chunks late**, because those chunks gated
    * `-p be-01` and this drift test lives in `mcp-01`. A count that only one
    * project's gate can see is a count that drifts silently; the routes landed at
    * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
    */
-  it('is 49 tools, so a route that appears must be decided about', () => {
-    expect(tools).toHaveLength(49);
+  it('is 51 tools, so a route that appears must be decided about', () => {
+    expect(tools).toHaveLength(51);
     expect(EXCLUDED_PATHS).toHaveLength(5);
   });
 
