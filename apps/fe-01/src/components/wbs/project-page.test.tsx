@@ -750,7 +750,7 @@ describe('the selection is a claim too', () => {
 });
 
 describe('the hover card follows the list, not a stale pointer', () => {
-  itDom('dismisses the fixed card when its scrolling list moves away underneath it', async () => {
+  itDom('remeasures the fixed card when its scrolling list moves the option underneath it', async () => {
     pageWith(fakeProjects(TWO));
     await waitFor(() => {
       expect(screen.getByLabelText('Project')).toBeDefined();
@@ -761,12 +761,21 @@ describe('the hover card follows the list, not a stale pointer', () => {
       expect(within(list).queryAllByRole('option').length).toBe(2);
     });
 
-    fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
-    expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
+    const option = document.getElementById('project-option-p2');
+    if (option === null) throw new Error('the second project is not offered');
+    let optionTop = 20;
+    option.getBoundingClientRect = () => new DOMRect(10, optionTop, 120, 10);
+    fireEvent.mouseEnter(option);
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('36px');
+    });
 
+    optionTop = 100;
     fireEvent.scroll(list);
 
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('116px');
+    });
   });
 
   itDom(
