@@ -259,9 +259,9 @@ const COLUMN_WIDTHS = new Map<string, number>([
   // the most this budget can hold, and a fourth dimension would have to take a
   // column away rather than add one.
   ['service', 120],
-  // People at once, and this is the tightest column in the table: `∥` for a
-  // heading and three digits of value, right-aligned. 32px is 24px of glyph
-  // room plus the 8px of padding the declared width includes — enough for
+  // People at once, and this is the tightest column in the table: a two-person
+  // icon for a heading and three digits of value, right-aligned. 32px is 24px of
+  // mark room plus the 8px of padding the declared width includes — enough for
   // `999` at the grid's 13px type. The ceiling is 1000, and a four-digit
   // parallelism is a number nobody plans with: it renders clipped and its
   // `title` says it whole, which is the same bargain the Number column makes

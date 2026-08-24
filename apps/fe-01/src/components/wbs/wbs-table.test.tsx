@@ -8742,6 +8742,20 @@ describe('the order of the columns', () => {
     expect(headers.slice(-5)).toEqual(['Not bef.', 'Start', 'End', 'Slack', '']);
     expect(headers).not.toContain('Notes');
   });
+
+  itDom('heads the people-at-once column with a mark, and names it for readers', async () => {
+    // The in-parallel column's heading is a two-person SVG, not a word: 32px
+    // at a 10px all-caps header holds no word, and the `∥` it replaced read as
+    // "parallel" rather than "at once" to anyone not already told. A mark with
+    // no text is a column with no name, so the word lives in `spokenHeading`
+    // and is announced as the column's accessible name — the same seam the `#`
+    // and `o`/`r`/`p` marks already use.
+    // Proof: `meta.spokenHeading` removed from the `in-parallel` column, the
+    // query below finds no `columnheader` named "People at once".
+    await threeRoots();
+
+    expect(screen.getByRole('columnheader', { name: 'People at once' })).toBeDefined();
+  });
 });
 
 describe('the frame the table scrolls inside', () => {

@@ -2414,7 +2414,8 @@ test.describe('the table, measured by a browser', () => {
   });
 
   test('the In-parallel column holds three digits at the grid’s own type', async ({ page }) => {
-    // The tightest column in the table — 32px for `∥` and up to three digits —
+    // The tightest column in the table — 32px for the people icon and up to
+    // three digits —
     // and the only thing that can judge it is the browser drawing the glyphs.
     // `capacity-write-paths` refuses `value > 1000`, so `1000` is storable and
     // three digits is not the whole range — this measures the widest value the

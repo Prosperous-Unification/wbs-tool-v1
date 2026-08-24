@@ -7604,14 +7604,37 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         }),
         column.display({
           id: 'in-parallel',
-          // `∥`, not `In parallel` and not `PAR`: the column is 32px at a 10px
-          // all-caps header, in which even three letters wrap. The mathematical
-          // parallel-to sign is the shortest thing that reads as "at once", and
-          // the sentence moves into the `title` — the bargain Prio, Days, Not
-          // bef., Start, End and Slack already make. That sentence is on the
-          // `<th>` since `wbs-column-hints`, where every column's is, and this
-          // one is the shape the rest were written to.
-          header: () => <span>∥</span>,
+          meta: { spokenHeading: 'People at once' },
+          // A two-person mark, not `In parallel` and not `PAR`: the column is
+          // 32px at a 10px all-caps header, in which even three letters wrap.
+          // The `∥` it replaced read as "parallel" to a reader who had not
+          // already been told — two people is the shortest thing that reads as
+          // "at once" unprompted, and it is not a font glyph, so no platform
+          // renders it as a box. The sentence is the accessible name
+          // (`meta.spokenHeading`, announced by screen readers) and the
+          // `title` — the bargain Prio, Days, Not bef., Start, End and Slack
+          // already make. The `title` is on the `<th>` since `wbs-column-hints`,
+          // where every column's is, and this one is the shape the rest were
+          // written to.
+          header: () => (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          ),
           cell: ({ row }) => {
             const own = row.original.maxParallel;
             const hasChildren = row.subRows.length > 0;

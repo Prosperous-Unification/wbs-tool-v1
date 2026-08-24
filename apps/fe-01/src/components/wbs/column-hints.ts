@@ -7,8 +7,9 @@ import { POINTS } from './estimate-draft';
  * hints; keep hints as short as possible, but make sure to explain their effect
  * on the plan in general."* So a hint here is **not** a definition of the cell:
  * it answers *what happens to the plan if I change this*, because a reader who
- * can already see the values does not need them named a second time. The `∥`
- * column's own sentence — what it is, what it compresses, when it is ignored —
+ * can already see the values does not need them named a second time. The
+ * in-parallel column's own sentence — what it is, what it compresses, when it
+ * is ignored —
  * is the shape the rest were written to, and it is the ceiling on length rather
  * than a floor to beat.
  *
@@ -203,7 +204,7 @@ export function hintFor(columnId: string, state: ColumnHintState): string {
     if (columnId.endsWith('-assignee')) {
       return (
         'Who does this role. A named person does one thing at a time, so their next item waits ' +
-        'for their last — and naming somebody switches off this item’s ∥ compression.'
+        'for their last — and naming somebody switches off this item’s people-at-once compression.'
       );
     }
     const point = columnId.slice(columnId.lastIndexOf('-') + 1);

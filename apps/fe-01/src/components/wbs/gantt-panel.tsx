@@ -1114,7 +1114,7 @@ function parallelWords(bar: GanttBar): string | null {
  * never said: be-01's `widthFor` is `min(maxParallel, slots)` for work nobody is
  * named on, so a row asking for 3 people from a team of 2 runs at 2 and no
  * sentence on the chart says why. The export's `People at once` / `Ran at` pair
- * and the `∥` cell's `title` were the only places to learn it — neither of them
+ * and the in-parallel cell's `title` were the only places to learn it — neither of them
  * on the drawing whose dates it moved. C3 recorded it (2026-08-13, P3).
  *
  * `width` **is** the team's size whenever this line prints: the clamp is the
