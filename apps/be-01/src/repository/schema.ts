@@ -72,52 +72,58 @@ export type EventLogRow = typeof eventLog.$inferSelect;
  * account that created it and never changes, so a restricted project whose
  * owner is gone can be read by all and edited by none.
  */
-export const project = sqliteTable('project', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  ownerId: text('owner_id')
-    .notNull()
-    .references(() => users.id),
-  restricted: integer('restricted', { mode: 'boolean' }).notNull().default(false),
-  /**
-   * Which of the four {@link EstimateMethod}s this project plans with. Text
-   * rather than an integer so a database anyone opens says `pessimistic`
-   * instead of `3`, and defaulted so every existing project keeps the PERT
-   * behaviour it already had.
-   */
-  estimateMethod: text('estimate_method').notNull().default('pert'),
-  /**
-   * The calendar day the plan begins, as `YYYY-MM-DD`, or null for a project
-   * that has not been placed on a calendar.
-   *
-   * Nullable rather than defaulted to the day the project was made: a plan
-   * with no start date is an ordinary state — an estimate nobody has committed
-   * to a date yet — and inventing one would put dates on screen that nobody
-   * chose. Without it the schedule still answers in day offsets, as it always
-   * has.
-   */
-  startDate: text('start_date'),
-  /**
-   * How many times this project has been written to — see {@link workItem}'s
-   * `revision` for what a revision is and the rule that decides when one moves.
-   *
-   * The project's own stored fields (name, restriction, estimate method, start
-   * date) and its **satellites** move it. Its roles are a satellite: adding,
-   * renaming or removing one changes what every estimate in the project means,
-   * and each of the three moves this column inside the transaction that makes
-   * the change — see `RoleRepository`, asserted in `repository/role.test.ts`.
-   *
-   * A project's work items are **not** satellites of it. They are entities with
-   * revisions of their own, and folding them in here would make this counter
-   * move on every keystroke anybody types anywhere in the plan — a precondition
-   * on it would then fail for two people editing unrelated branches.
-   *
-   * `project_access.last_opened_at` does not move it either: whose screen a
-   * project is on is navigation history, not a change to the plan.
-   */
-  revision: integer('revision').notNull().default(0),
-  createdAt: integer('created_at').notNull(),
-});
+export const project = sqliteTable(
+  'project',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id),
+    restricted: integer('restricted', { mode: 'boolean' }).notNull().default(false),
+    solutionSlug: text('solution_slug'),
+    solutionUrl: text('solution_url'),
+    /**
+     * Which of the four {@link EstimateMethod}s this project plans with. Text
+     * rather than an integer so a database anyone opens says `pessimistic`
+     * instead of `3`, and defaulted so every existing project keeps the PERT
+     * behaviour it already had.
+     */
+    estimateMethod: text('estimate_method').notNull().default('pert'),
+    /**
+     * The calendar day the plan begins, as `YYYY-MM-DD`, or null for a project
+     * that has not been placed on a calendar.
+     *
+     * Nullable rather than defaulted to the day the project was made: a plan
+     * with no start date is an ordinary state — an estimate nobody has committed
+     * to a date yet — and inventing one would put dates on screen that nobody
+     * chose. Without it the schedule still answers in day offsets, as it always
+     * has.
+     */
+    startDate: text('start_date'),
+    /**
+     * How many times this project has been written to — see {@link workItem}'s
+     * `revision` for what a revision is and the rule that decides when one moves.
+     *
+     * The project's own stored fields (name, restriction, estimate method, start
+     * date) and its **satellites** move it. Its roles are a satellite: adding,
+     * renaming or removing one changes what every estimate in the project means,
+     * and each of the three moves this column inside the transaction that makes
+     * the change — see `RoleRepository`, asserted in `repository/role.test.ts`.
+     *
+     * A project's work items are **not** satellites of it. They are entities with
+     * revisions of their own, and folding them in here would make this counter
+     * move on every keystroke anybody types anywhere in the plan — a precondition
+     * on it would then fail for two people editing unrelated branches.
+     *
+     * `project_access.last_opened_at` does not move it either: whose screen a
+     * project is on is navigation history, not a change to the plan.
+     */
+    revision: integer('revision').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [uniqueIndex('project_solution_slug').on(t.solutionSlug)],
+);
 
 export type ProjectRow = typeof project.$inferSelect;
 

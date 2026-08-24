@@ -18,6 +18,12 @@ const projectPatch = t.Object({
   // shape only; `ProjectService.update` refuses a shape-valid non-day like
   // `2026-02-31`, which is a date this schema cannot express.
   startDate: t.Optional(t.Union([t.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), t.Null()])),
+  solutionRef: t.Optional(
+    t.Union([
+      t.Object({ slug: t.String({ minLength: 1 }), url: t.String({ minLength: 1 }) }),
+      t.Null(),
+    ]),
+  ),
 });
 
 /**

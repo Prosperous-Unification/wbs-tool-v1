@@ -60,6 +60,7 @@ export class ProjectService {
       // Not the day it was made: a plan with no start date is an ordinary
       // state, and inventing one would put dates on screen nobody chose.
       startDate: null,
+      solutionRef: null,
       // Never written to since it came into being. Its starting roles arrive
       // in the same transaction, so they are part of that beginning rather
       // than a first change to it.
@@ -114,6 +115,12 @@ export class ProjectService {
     const project = await this.opts.projects.findById(id);
     if (project === null) return null;
     return { project, roles: await this.opts.projects.rolesOf(id) };
+  }
+
+  async readBySolutionSlug(slug: string): Promise<ProjectWithRoles | null> {
+    const project = await this.opts.projects.findBySolutionSlug(slug);
+    if (project === null) return null;
+    return { project, roles: await this.opts.projects.rolesOf(project.id) };
   }
 
   async update(id: string, actorId: string, patch: ProjectPatch): Promise<UpdateOutcome> {

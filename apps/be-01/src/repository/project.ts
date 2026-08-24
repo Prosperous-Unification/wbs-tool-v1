@@ -15,14 +15,29 @@ import { project, projectAccess, role, users } from './schema';
  * falling back to PERT: a project silently planned by a method nobody chose is
  * a wrong answer delivered confidently, and R5 exists to stop exactly that.
  */
-function toProject<T extends { estimateMethod: string }>(
+function toProject<
+  T extends { estimateMethod: string; solutionSlug: string | null; solutionUrl: string | null },
+>(
   row: T,
-): Omit<T, 'estimateMethod'> & { estimateMethod: EstimateMethod } {
+): Omit<T, 'estimateMethod' | 'solutionSlug' | 'solutionUrl'> & {
+  estimateMethod: EstimateMethod;
+  solutionRef: { slug: string; url: string } | null;
+} {
   if (!isEstimateMethod(row.estimateMethod)) {
     throw new Error(`unknown estimate method in the database: ${row.estimateMethod}`);
   }
-  // Narrowed by the check above, which is the boundary this function exists to be.
-  return { ...row, estimateMethod: row.estimateMethod };
+  if ((row.solutionSlug === null) !== (row.solutionUrl === null)) {
+    throw new Error('project has a partial solution reference');
+  }
+  const { estimateMethod, solutionSlug, solutionUrl, ...rest } = row;
+  return {
+    ...rest,
+    estimateMethod,
+    solutionRef:
+      solutionSlug === null || solutionUrl === null
+        ? null
+        : { slug: solutionSlug, url: solutionUrl },
+  };
 }
 
 /**
@@ -70,7 +85,14 @@ export class ProjectRepository implements ProjectStore {
   async create(toCreate: Project, startingRoles: readonly Role[]): Promise<Project> {
     await Promise.resolve();
     this.db.transaction((tx) => {
-      tx.insert(project).values(toCreate).run();
+      const { solutionRef, ...fields } = toCreate;
+      tx.insert(project)
+        .values({
+          ...fields,
+          solutionSlug: solutionRef?.slug ?? null,
+          solutionUrl: solutionRef?.url ?? null,
+        })
+        .run();
       if (startingRoles.length > 0)
         tx.insert(role)
           .values([...startingRoles])
@@ -81,6 +103,16 @@ export class ProjectRepository implements ProjectStore {
 
   async findById(id: string): Promise<Project | null> {
     const rows = await this.db.select().from(project).where(eq(project.id, id)).limit(1);
+    const found = rows.at(0);
+    return found === undefined ? null : toProject(found);
+  }
+
+  async findBySolutionSlug(slug: string): Promise<Project | null> {
+    const rows = await this.db
+      .select()
+      .from(project)
+      .where(eq(project.solutionSlug, slug))
+      .limit(1);
     const found = rows.at(0);
     return found === undefined ? null : toProject(found);
   }
@@ -126,6 +158,8 @@ export class ProjectRepository implements ProjectStore {
         restricted: project.restricted,
         estimateMethod: project.estimateMethod,
         startDate: project.startDate,
+        solutionSlug: project.solutionSlug,
+        solutionUrl: project.solutionUrl,
         revision: project.revision,
         createdAt: project.createdAt,
         lastOpenedAt: projectAccess.lastOpenedAt,
@@ -170,15 +204,26 @@ export class ProjectRepository implements ProjectStore {
       patch.name === undefined &&
       patch.restricted === undefined &&
       patch.estimateMethod === undefined &&
-      patch.startDate === undefined
+      patch.startDate === undefined &&
+      patch.solutionRef === undefined
     ) {
       return this.findById(id);
     }
     // The bump rides in the same `SET` as the change it describes, so a patch
     // that lands without moving the revision is not a state this can reach.
+    const { solutionRef, ...fields } = patch;
     const rows = await this.db
       .update(project)
-      .set({ ...patch, revision: bumpedProject })
+      .set({
+        ...fields,
+        ...(solutionRef === undefined
+          ? {}
+          : {
+              solutionSlug: solutionRef?.slug ?? null,
+              solutionUrl: solutionRef?.url ?? null,
+            }),
+        revision: bumpedProject,
+      })
       .where(eq(project.id, id))
       .returning();
     const updated = rows.at(0);

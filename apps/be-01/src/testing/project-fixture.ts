@@ -37,6 +37,12 @@ export function inMemoryProjects(owners: UserStore = inMemoryUsers()): ProjectSt
     findById(id) {
       return Promise.resolve(projects.get(id) ?? null);
     },
+    findBySolutionSlug(slug) {
+      for (const project of projects.values()) {
+        if (project.solutionRef?.slug === slug) return Promise.resolve(project);
+      }
+      return Promise.resolve(null);
+    },
     list() {
       return Promise.resolve([...projects.values()].sort((a, b) => b.createdAt - a.createdAt));
     },
@@ -81,6 +87,7 @@ export function inMemoryProjects(owners: UserStore = inMemoryUsers()): ProjectSt
         restricted: patch.restricted ?? existing.restricted,
         estimateMethod: patch.estimateMethod ?? existing.estimateMethod,
         startDate: patch.startDate === undefined ? existing.startDate : patch.startDate,
+        solutionRef: patch.solutionRef === undefined ? existing.solutionRef : patch.solutionRef,
       };
       projects.set(id, updated);
       return Promise.resolve(updated);
