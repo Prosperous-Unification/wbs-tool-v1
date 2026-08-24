@@ -166,7 +166,8 @@ Fresh h2puni candidate gate:
 - tool-devsync affected targets green
 - global format and plaintext-secret scan clean
 - strict OpenSpec validation: 73 passed, 0 failed
-- `docker compose config --quiet`: valid with the off-repo env file
+- `docker compose config --quiet`: valid with the off-repo env present and with
+  the CI-only missing-file case; OIDC boot remains the absence guard on dev
 
 Real Okta browser acceptance is deliberately pending: changing the public auth
 mode before main-session review would violate the exposure gate this task names.
