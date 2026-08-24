@@ -132,3 +132,14 @@ keeps directly presented verified upstream tokens compatible. Authorization
 codes are one-use; expired or revoked mappings invalidate an otherwise valid
 local JWT. Fresh h2puni gate: mcp-01 80/0, lint, typecheck, global format, and
 strict OpenSpec validation clean.
+
+## 11. Browser cookie client — 2026-08-24
+
+The watched reds found the username/password form, the token-bearing WebSocket
+URL, and a missing-token 401 under local mode. fe-01 now starts the server-side
+OIDC flow, resolves the httpOnly cookie through `/api/auth/me`, stores no session
+credential in JavaScript, and opens `/ws` without a token query. Explicit local
+mode supplies the fixed `local-dev` identity without a cookie or IdP.
+
+Fresh h2puni gate: fe-01 1,714/0 and be-01 1,090/0; both lint and typecheck
+clean; global format clean; strict OpenSpec validation 73/73.

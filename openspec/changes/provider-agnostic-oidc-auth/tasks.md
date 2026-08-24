@@ -60,7 +60,7 @@ main-session review even when earlier slices merge to dev on green.
 
 ## 5. Client and solution integration
 
-- [ ] 5.1 Point fe-01 login at `/api/auth/login` and remove local token storage —
+- [x] 5.1 Point fe-01 login at `/api/auth/login` and remove local token storage —
       test: browser flow under local mode without an IdP.
 - [ ] 5.2 Add nullable `solutionRef` and solution-slug lookup — test: migration
       round trip, known slug, collision, unknown slug, and read scope.
