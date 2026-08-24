@@ -3,11 +3,11 @@ set -euo pipefail
 
 ORIGIN=${1:?usage: dev-mcp-probe.sh <origin>}
 RESOURCE="$ORIGIN/mcp"
-AUTHORIZATION_SERVER="$RESOURCE/oauth"
 RESOURCE_METADATA="$ORIGIN/.well-known/oauth-protected-resource"
 AUTHORIZATION_METADATA="$ORIGIN/.well-known/oauth-authorization-server/mcp/oauth"
 
 protected=$(curl -fsS --max-time 15 "$RESOURCE_METADATA")
+# shellcheck disable=SC2016 -- the embedded Bun program owns template interpolation.
 printf '%s' "$protected" | ORIGIN="$ORIGIN" bun -e '
   const body = await Bun.stdin.json();
   const resource = `${process.env.ORIGIN}/mcp`;
@@ -19,6 +19,7 @@ printf '%s' "$protected" | ORIGIN="$ORIGIN" bun -e '
 '
 
 authorization=$(curl -fsS --max-time 15 "$AUTHORIZATION_METADATA")
+# shellcheck disable=SC2016 -- the embedded Bun program owns template interpolation.
 printf '%s' "$authorization" | ORIGIN="$ORIGIN" bun -e '
   const body = await Bun.stdin.json();
   const issuer = `${process.env.ORIGIN}/mcp/oauth`;
