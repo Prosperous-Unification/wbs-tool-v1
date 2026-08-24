@@ -128,7 +128,8 @@ async function fingerprint(paths: readonly string[] = RESTART_PATHS): Promise<Fi
   return Object.fromEntries(entries);
 }
 
-export async function sync(sha: string): Promise<void> {
+export async function sync(sha: string, options: { mcpEnvPath?: string } = {}): Promise<void> {
+  await assertMcpEnv(options.mcpEnvPath);
   const before = await fingerprint();
   const containerBefore = await fingerprint(RECREATE_PATHS);
 
@@ -142,8 +143,6 @@ export async function sync(sha: string): Promise<void> {
   if (!head.startsWith(sha) && !sha.startsWith(head)) {
     throw new Error(`reset did not land: asked for ${sha}, HEAD is ${head}`);
   }
-
-  await assertMcpEnv();
 
   const after = await fingerprint();
 

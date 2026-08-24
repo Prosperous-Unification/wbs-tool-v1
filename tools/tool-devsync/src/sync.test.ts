@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'bun:test';
 
-import { assertMcpEnv, needsRestart, RECREATE_PATHS, RESTART_PATHS } from './sync';
+import { assertMcpEnv, needsRestart, RECREATE_PATHS, RESTART_PATHS, sync } from './sync';
 
 describe('needsRestart', () => {
   it('does not restart when nothing in the manifest changed', () => {
@@ -125,6 +125,15 @@ describe('MCP environment prerequisite', () => {
     const missing = join(directory, '.env');
 
     expect(assertMcpEnv(missing)).rejects.toThrow(
+      `missing ${missing}; seed the gitignored mcp-01 environment before deploying`,
+    );
+  });
+
+  it('checks the gitignored environment before fetch or reset can move the tree', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'wbs-mcp-env-order-'));
+    const missing = join(directory, '.env');
+
+    expect(sync('unreachable-sha', { mcpEnvPath: missing })).rejects.toThrow(
       `missing ${missing}; seed the gitignored mcp-01 environment before deploying`,
     );
   });
