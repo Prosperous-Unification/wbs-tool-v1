@@ -84,6 +84,6 @@ describe('the signed-out screen', () => {
     await waitFor(() => {
       expect(error.textContent).toBe('Username or password is incorrect.');
     });
-    expect(screen.getByLabelText('Username').getAttribute('value')).toBe('ada');
+    expect((screen.getByLabelText('Username') as HTMLInputElement).value).toBe('ada');
   });
 });
