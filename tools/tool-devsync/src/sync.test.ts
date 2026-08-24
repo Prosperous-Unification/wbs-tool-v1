@@ -81,9 +81,7 @@ describe('RESTART_PATHS coverage', () => {
 
   it('names every app project.json, whose serve target the supervisor reads once', async () => {
     const { readdir } = await import('node:fs/promises');
-    const apps = (
-      await readdir(new URL('../../../apps', import.meta.url), { withFileTypes: true })
-    )
+    const apps = (await readdir(new URL('../../../apps', import.meta.url), { withFileTypes: true }))
       .filter((e) => e.isDirectory())
       .map((e) => e.name);
     expect(apps).toContain('mcp-01');
