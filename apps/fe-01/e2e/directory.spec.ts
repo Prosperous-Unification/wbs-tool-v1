@@ -44,7 +44,7 @@ async function addPerson(page: Page, name: string): Promise<void> {
 
 /** Adds a service team through the page's own creation. */
 async function addTeam(page: Page, name: string): Promise<void> {
-  await page.getByLabel('New service team').fill(name);
+  await page.getByLabel('New team').fill(name);
   await page.getByRole('button', { name: 'Add team' }).click();
   await expect(nameField(page, name)).toBeVisible();
 }
@@ -170,7 +170,7 @@ test.describe('the directory, edited against be-01', () => {
     // both out of be-01's own payload.
     await expect(confirmation).toContainText('New project');
     await expect(confirmation).toContainText(`010 ${work}`);
-    await expect(confirmation).toContainText('service team label is cleared');
+    await expect(confirmation).toContainText('team label is cleared');
     // Nothing has gone: the first request carried no cascade.
     await expect(nameField(page, platform)).toBeVisible();
 
@@ -203,7 +203,7 @@ test.describe('the directory on a phone', () => {
 
     const stacked = await page.evaluate(() => {
       const boxes = [...document.querySelectorAll('h2')]
-        .filter((each) => ['People', 'Service teams'].includes(each.textContent))
+        .filter((each) => ['People', 'Teams'].includes(each.textContent))
         .map((each) => each.getBoundingClientRect());
       // Both, or the comparison below is between one box and nothing.
       if (boxes.length !== 2) throw new Error('the two panels are not both on the page');
@@ -278,7 +278,7 @@ test.describe('the directory on a laptop', () => {
 
     const rows = await page.evaluate(() => {
       const headings = [...document.querySelectorAll('h2')].filter((each) =>
-        ['People', 'Service teams'].includes(each.textContent),
+        ['People', 'Teams'].includes(each.textContent),
       );
       if (headings.length !== 2) throw new Error('the two panels are not both on the page');
       return headings.map((each) => Math.round(each.getBoundingClientRect().top));

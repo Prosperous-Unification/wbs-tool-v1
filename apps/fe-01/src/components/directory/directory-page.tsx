@@ -122,7 +122,7 @@ export function effectSentence(effect: DirectoryEffect, on: EffectContext): stri
     case 'assignment_dropped':
       return `The ${effect.role.name} assignment goes.`;
     case 'label_nulled':
-      return 'The service team label is cleared.';
+      return 'The team label is cleared.';
     case 'label_removed':
       // Its own sentence and not the team's, because nothing is *cleared*:
       // neither dimension has a column to null, so what goes is the labelling
@@ -842,12 +842,12 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
 
           <Card>
             <CardHeader>
-              <CardTitle>Service teams</CardTitle>
+              <CardTitle>Teams</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 pt-4">
               {teams.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
-                  No service teams yet. Add the first one below.
+                  No teams yet. Add the first one below.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3">
@@ -996,7 +996,7 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
               <form className="flex items-center gap-2" onSubmit={submitNewTeam}>
                 <Input
                   className={`${TAP} min-w-0 flex-1`}
-                  aria-label="New service team"
+                  aria-label="New team"
                   placeholder="Name"
                   value={newTeam}
                   disabled={busy}

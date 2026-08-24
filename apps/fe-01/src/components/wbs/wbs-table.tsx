@@ -5759,6 +5759,28 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     [api, run],
   );
 
+  /** Adds a service nobody had yet and labels the work item with it, in one go. */
+  const createServiceFor = useCallback(
+    (id: string, name: string, current: readonly string[]) => {
+      void run(async () => {
+        const service = await api.addService(name);
+        await api.patch(id, { serviceIds: [...current, service.id] });
+      });
+    },
+    [api, run],
+  );
+
+  /** Adds a tag nobody had yet and labels the work item with it, in one go. */
+  const createTagFor = useCallback(
+    (id: string, name: string, current: readonly string[]) => {
+      void run(async () => {
+        const tag = await api.addTag(name);
+        await api.patch(id, { tagIds: [...current, tag.id] });
+      });
+    },
+    [api, run],
+  );
+
   const assignTo = useCallback(
     (id: string, roleId: string, personId: string | null) => {
       void run(() => api.assign(id, roleId, personId));
@@ -6169,6 +6191,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setTagsOf,
     setServicesOf,
     createTeamFor,
+    createServiceFor,
+    createTagFor,
     assignTo,
     createPersonFor,
     toggleRole,
@@ -6244,6 +6268,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     setTagsOf,
     setServicesOf,
     createTeamFor,
+    createServiceFor,
+    createTagFor,
     assignTo,
     createPersonFor,
     toggleRole,
@@ -7325,7 +7351,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         }),
         column.display({
           id: 'team',
-          header: 'Service/team',
+          header: 'Teams',
           cell: ({ row }) => {
             // A row with no label of its own still belongs to a team, wherever an
             // ancestor named one — and the plan's dates were computed against
@@ -7359,6 +7385,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                 onCreate={(name) => {
                   live.current.createTeamFor(row.original.id, name);
                 }}
+                addButtonLabel={`Add a team to ${row.original.number}`}
                 onClear={() => {
                   live.current.setTeamOf(row.original.id, null);
                 }}
@@ -7441,11 +7468,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   onChoose={(id) => {
                     live.current.setTagsOf(row.original.id, [...own, id]);
                   }}
-                  // **No `onCreate`.** The proposal's own non-goal: a tag is made
-                  // on the directory page, where a typo can be seen and renamed,
-                  // rather than in a cell where it becomes a second spelling of
-                  // something that already exists. It is also why this column
-                  // only exists once a tag does — see `CONDITIONAL_COLUMNS`.
+                  onCreate={(name) => {
+                    live.current.createTagFor(row.original.id, name, own);
+                  }}
+                  // Dany, 2026-08-23: tag cells now search-or-add like Teams and
+                  // Services — `onCreate` above. The first tag still has to be
+                  // made on the directory page (CONDITIONAL_COLUMNS renders the
+                  // column only once a tag exists), so the column cannot
+                  // bootstrap itself; the cell's `onCreate` adds subsequent ones.
+                  addButtonLabel={`Add a tag to ${row.original.number}`}
                   onClear={
                     own.length === 0
                       ? undefined
@@ -7565,15 +7596,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   onChoose={(id) => {
                     live.current.setServicesOf(row.original.id, [...own, id]);
                   }}
-                  // **No `onCreate`**, where the Team cell beside it has one. The
-                  // task's own non-goal, and the tag cell's reason: a service is
-                  // made on the directory page, where a typo can be seen and
-                  // renamed, rather than in a cell where it becomes a second
-                  // spelling of something that already exists. It is also why
-                  // this column only exists once a service does — a service
-                  // cannot be made in a column that does not exist until the
-                  // first service is made, which is precisely why the Team cell,
-                  // whose column is always on screen, may keep its `onCreate`.
+                  onCreate={(name) => {
+                    live.current.createServiceFor(row.original.id, name, own);
+                  }}
+                  // Dany, 2026-08-23: service cells now search-or-add like Teams
+                  // and Tags — `onCreate` above. The first service still has to
+                  // be made on the directory page (CONDITIONAL_COLUMNS renders
+                  // the column only once a service exists), so the column cannot
+                  // bootstrap itself; the cell's `onCreate` adds subsequent ones.
+                  addButtonLabel={`Add a service to ${row.original.number}`}
                   // **No `onClear`, and that is a correction rather than an
                   // omission.** The tag cell beside this one passes one, and it
                   // is dead: `CreatablePicker` renders its ✕ only while

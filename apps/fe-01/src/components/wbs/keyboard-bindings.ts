@@ -115,7 +115,7 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   },
   {
     keys: 'Ctrl + H / J / K / L',
-    does: 'Left, down, up and right between cells — where the fingers are, and without the arrows’ rule that the text comes first. The way out of a long note in one press, and out of a cell whose list is open: Depends on, Service/team and the assignee boxes answer these even while they are offering something.',
+    does: 'Left, down, up and right between cells — where the fingers are, and without the arrows’ rule that the text comes first. The way out of a long note in one press, and out of a cell whose list is open: Depends on, Teams and the assignee boxes answer these even while they are offering something.',
     where: 'Editing',
     renderers: TABLE_ONLY,
   },
@@ -151,7 +151,7 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   },
   {
     keys: 'Alt + ↑ / Alt + ↓',
-    does: 'Moves the row up or down among its siblings: Depends on, Service/team and the assignee boxes answer it even while they are offering something. A half-typed @ mention in a folded role’s cell is the one list that holds it back, until Escape closes it. It never changes what the row sits under, and it stops at either end of the group.',
+    does: 'Moves the row up or down among its siblings: Depends on, Teams and the assignee boxes answer it even while they are offering something. A half-typed @ mention in a folded role’s cell is the one list that holds it back, until Escape closes it. It never changes what the row sits under, and it stops at either end of the group.',
     where: 'Moving rows',
     renderers: TABLE_ONLY,
   },

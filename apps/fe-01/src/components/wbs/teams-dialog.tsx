@@ -337,8 +337,8 @@ export function TeamsDialog({ teams, setCapacity, onChanged }: TeamsDialogProps)
             limit, and the sentence names the thing to do about it.
           */
           <p className="text-muted-foreground text-sm">
-            No work on this plan is labelled with a team yet. Label a row in its Service/team column
-            and it will appear here.
+            No work on this plan is labelled with a team yet. Label a row in its Teams column and it
+            will appear here.
           </p>
         ) : (
           <ul className="flex flex-col gap-3">

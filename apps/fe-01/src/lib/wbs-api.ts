@@ -704,9 +704,10 @@ export interface DirectoryApi {
    */
   removeTag(tagId: string, cascade: boolean): Promise<DirectoryRemoval>;
   /**
-   * Adds a service — `addTag`'s shape and its non-goal: the plan's own service
-   * cell deliberately cannot create one, so a typo made in a cell cannot become
-   * a second spelling of something the vocabulary already holds.
+   * Adds a service, idempotent by name at be-01.
+   *
+   * Read-only on the plan page until 2026-08-23, when Dany made the service
+   * cell search-or-add like Tags; the cell now creates through here.
    */
   addService(name: string): Promise<ServiceView>;
   renameService(serviceId: string, name: string): Promise<DirectoryWrite<ServiceView>>;
@@ -1068,12 +1069,17 @@ export interface ProjectApi {
   /** Every tag in the global directory, by name. */
   listTags(): Promise<TagView[]>;
   /**
-   * Every service in the global directory. **Read-only here on purpose**, which
-   * is not `DirectoryApi`'s state of affairs but this interface's rule: a plan
-   * page reads the vocabulary to fill its picker and its facet, and the
-   * directory page is the one surface that changes it.
+   * Every service in the global directory, by name.
+   *
+   * Add was read-only here between task 7.5 and 2026-08-23: the plan page read
+   * the vocabulary for its picker but only the directory page changed it. Dany
+   * reversed that ("services ... search or add"), so the plan cell creates
+   * through {@link addService} exactly as the tag cell creates through
+   * {@link addTag}.
    */
   listServices(): Promise<ServiceView[]>;
+  /** Adds a service — `addTag`'s shape. Idempotent by name at be-01. */
+  addService(name: string): Promise<ServiceView>;
   addTag(name: string): Promise<TagView>;
   renameTag(tagId: string, name: string): Promise<DirectoryWrite<TagView>>;
   /**
@@ -1769,6 +1775,7 @@ export function httpProjectApi(token: string): ProjectApi {
     addTeam: (name) => directory.addTeam(name),
     listTags: () => directory.listTags(),
     listServices: () => directory.listServices(),
+    addService: (name) => directory.addService(name),
     addTag: (name) => directory.addTag(name),
     renameTag: (tagId, name) => directory.renameTag(tagId, name),
     removeTag: (tagId, cascade) => directory.removeTag(tagId, cascade),

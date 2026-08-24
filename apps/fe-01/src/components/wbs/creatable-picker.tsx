@@ -148,6 +148,20 @@ export interface CreatablePickerProps {
    * honest answer for a picker that cannot make one.
    */
   onCreate?: (name: string) => void;
+  /**
+   * A visible `+` that opens the box's search list, on the leading edge —
+   * the Depends-on cell's add affordance, carried by the shared component so
+   * every surface that can create (Teams, Tags, Services, and the card faces)
+   * inherits one `+` instead of three lookalikes.
+   *
+   * Only meaningful where {@link onCreate} is present: the `+` promises "add
+   * here", so a surface that cannot make one must not pass it. The name is
+   * typed in the box and Enter creates through `onCreate`; the button itself
+   * only focuses the box, exactly as the deps `+` focuses its input. Not a
+   * tab stop, for the deps `+`'s reason: Tab into the cell already lands on
+   * the box, and a stop here would add one Tab per row to every walk.
+   */
+  addButtonLabel?: string;
   /** Absent where there is nothing a clear could take off. */
   onClear?: () => void;
   /**
@@ -272,6 +286,7 @@ export function CreatablePicker({
   value,
   onChoose,
   onCreate,
+  addButtonLabel,
   onClear,
   clearVisibleWhileFocused,
   placeholder,
@@ -348,6 +363,26 @@ export function CreatablePicker({
     // rendered in are exempted from that clip by `opensAPopover` in
     // `wbs-table.tsx`.
     <span style={{ position: 'relative', display: 'flex', maxWidth: '100%', minWidth: 0 }}>
+      {addButtonLabel !== undefined && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={addButtonLabel}
+          // The press must not move the focus, or the box's own blur discards
+          // what was typed — the deps `+`'s contract, and the Name cell's notes
+          // marker before it. `preventDefault` on mousedown suppresses focus,
+          // not the click below.
+          onMouseDown={(pressed) => {
+            pressed.preventDefault();
+          }}
+          onClick={(pressed) => {
+            pressed.currentTarget.parentElement?.querySelector<HTMLInputElement>('input')?.focus();
+          }}
+          style={{ flexShrink: 0, marginRight: 2 }}
+        >
+          +
+        </button>
+      )}
       <input
         aria-label={label}
         role="combobox"

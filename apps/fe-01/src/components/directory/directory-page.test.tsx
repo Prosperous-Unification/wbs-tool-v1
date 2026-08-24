@@ -351,10 +351,10 @@ describe('the directory page', () => {
     await waitFor(() => {
       expect(screen.getByText(/Nobody is in the directory yet/)).toBeDefined();
     });
-    expect(screen.getByText(/No service teams yet/)).toBeDefined();
+    expect(screen.getByText(/No teams yet/)).toBeDefined();
     // Empty is a state, not a blank: both creations are still on the page.
     expect(screen.getByLabelText('New person')).toBeDefined();
-    expect(screen.getByLabelText('New service team')).toBeDefined();
+    expect(screen.getByLabelText('New team')).toBeDefined();
   });
 
   /**
@@ -965,7 +965,7 @@ describe('creating on the directory page', () => {
       expect(screen.getByLabelText('Name of Kat')).toBeDefined();
     });
 
-    fireEvent.change(screen.getByLabelText('New service team'), { target: { value: 'Platform' } });
+    fireEvent.change(screen.getByLabelText('New team'), { target: { value: 'Platform' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add team' }));
     await waitFor(() => {
       expect(screen.getByLabelText('Name of Platform')).toBeDefined();
@@ -1050,7 +1050,7 @@ describe('what removing a sized team says it takes', () => {
     fireEvent.click(screen.getByLabelText('Remove Platform'));
 
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toContain('The service team label is cleared.');
+    expect(dialog.textContent).toContain('The team label is cleared.');
     // The labelled row says it plainly; the inheriting one names where the
     // limit it is losing was written.
     expect(dialog.textContent).toContain('No longer limited to 4 at a time. Dates may move');

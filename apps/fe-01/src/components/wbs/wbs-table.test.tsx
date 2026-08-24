@@ -71,15 +71,12 @@ function fakeApi(): ProjectApi & {
   stackCalls: ('undo' | 'redo')[];
   answerStackWith: (answer: UndoResult) => void;
   /**
-   * The three service writes this fake models directly rather than through
-   * {@link ProjectApi}.
-   *
-   * There is no service CRUD on this client yet — task 7.5. A fixture that needs
-   * a labelled row writes the set straight onto the view, which since task 10.2
-   * is what be-01 sends: `serviceIds` off the join, no column anywhere on the
-   * wire.
+   * The label/ownership writes this fake models directly rather than through
+   * {@link ProjectApi}. A fixture that needs a labelled row writes the set
+   * straight onto the view, which since task 10.2 is what be-01 sends:
+   * `serviceIds` off the join, no column anywhere on the wire. `addService`
+   * joined `ProjectApi` on 2026-08-23, so it is no longer listed here.
    */
-  addService: (name: string) => { id: string; name: string };
   labelWithService: (workItemId: string, serviceIds: readonly string[]) => void;
   ownService: (teamId: string, serviceId: string) => void;
   /** The same write undone, for the map emptying under a ticked signal. */
@@ -223,11 +220,13 @@ function fakeApi(): ProjectApi & {
       // Idempotent by name, as `addTeam` is and as be-01's unique
       // `service_name` makes it: two `Billing`s is not a state the directory
       // can be in, so it must not be one this fake can be in either.
+      // A Promise now, because the plan's service cell creates through
+      // `ProjectApi.addService` since 2026-08-23.
       const already = services.find((s) => s.name === name);
-      if (already !== undefined) return already;
+      if (already !== undefined) return Promise.resolve(already);
       const service = { id: `service${String(services.length + 1)}`, name };
       services.push(service);
-      return service;
+      return Promise.resolve(service);
     },
     labelWithService(workItemId: string, serviceIds: readonly string[]) {
       const row = rows.find((r) => r.id === workItemId);
@@ -13433,12 +13432,12 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     await api.patch(strip.id, { serviceTeamId: billing.id });
     await api.patch(back.id, { serviceTeamId: wiring.id });
 
-    const checkout = api.addService('Checkout');
+    const checkout = await api.addService('Checkout');
     // In the directory and on no row — what the facet must not offer. One case
     // below puts it on `Strip` as a **second** service, and does so itself
     // rather than here, so every other case keeps the unlabelled `Ledger` this
     // fixture exists to offer.
-    const ledger = api.addService('Ledger');
+    const ledger = await api.addService('Ledger');
     api.labelWithService(strip.id, [checkout.id]);
 
     const ada = await api.addPerson('Ada', [wiring.id]);
@@ -13651,7 +13650,7 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
     // Every other marker case here has one service, and one service reads
     // identically through either fault.
     const api = await aServicedPlan();
-    const search = api.addService('Search');
+    const search = await api.addService('Search');
     api.labelWithService(api.strip, [api.checkout, api.ledger, search.id]);
     api.ownService(api.billing, api.checkout);
     await shown(api);
@@ -14282,8 +14281,8 @@ describe('the service cell', () => {
       name: 'Strip the walls',
     });
     await api.create('p1', { parentId: strip.id, afterId: null, name: 'Sockets' });
-    const checkout = api.addService('Checkout');
-    api.addService('Ledger');
+    const checkout = await api.addService('Checkout');
+    await api.addService('Ledger');
     api.labelWithService(strip.id, [checkout.id]);
     return Object.assign(api, { checkout: checkout.id });
   }
@@ -14318,6 +14317,28 @@ describe('the service cell', () => {
     );
   });
 
+  itDom('adds a service by typing a name the list does not have, and shows the +', async () => {
+    const api = await aServicedPlan();
+    await drawn(api);
+
+    const picker = screen.getByLabelText('Services for 010');
+    // The shared add affordance is on the leading edge, like Depends on's.
+    expect(screen.getByRole('button', { name: 'Add a service to 010' })).toBeTruthy();
+
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: 'Painting' } });
+    // A name not in the directory offers the `+`-plus-search bargain the team
+    // cell has: the typed name as an `Add` line, not a silent no-op.
+    const list = await screen.findByRole('listbox', { name: 'Services for 010' });
+    expect(list.textContent).toContain('Add “Painting”');
+    fireEvent.keyDown(picker, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.rows[0]?.serviceIds.length).toBe(2);
+    });
+    expect((await api.listServices()).map((service) => service.name)).toContain('Painting');
+  });
+
   itDom('shows every service a row states, and takes one off without the rest', async () => {
     // **Task 10.4's own case, and the one a single-select could not pass.** The
     // store has been a set since 10.2 and the cell read `serviceIds[0]` until
@@ -14331,10 +14352,10 @@ describe('the service cell', () => {
       name: 'Strip the walls',
     });
     await api.create('p1', { parentId: strip.id, afterId: null, name: 'Sockets' });
-    const checkout = api.addService('Checkout');
+    const checkout = await api.addService('Checkout');
     // `addService` is idempotent by name, so this is the same `Ledger` the
     // shared fixture makes rather than a second one.
-    const ledger = api.addService('Ledger');
+    const ledger = await api.addService('Ledger');
     api.labelWithService(strip.id, [checkout.id, ledger.id]);
 
     const patches: unknown[] = [];
@@ -14425,7 +14446,7 @@ describe('the service cell', () => {
 
     const stocked = fakeApi();
     await stocked.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
-    stocked.addService('Checkout');
+    await stocked.addService('Checkout');
     render(<WbsTable projectId="p1" api={stocked} />);
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010']);
