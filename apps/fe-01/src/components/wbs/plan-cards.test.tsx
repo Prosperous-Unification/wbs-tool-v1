@@ -2837,4 +2837,108 @@ describe('setting what a card waits for', () => {
     expect(refused).toBeDisabled();
     expect(refused.textContent).toContain('would loop');
   });
+
+  itDom(
+    'locks a tapped option until its write settles, so a double tap sends one write',
+    async () => {
+      // The pending-option defect `wbs-dependency-sheet-pending-option-repeats`:
+      // a tap that has not landed must not be offered for a second tap, because
+      // two taps in that window sent two identical POSTs.
+      const api = await aPhonePlan(3);
+      let release!: () => void;
+      const realAdd = api.addDependency.bind(api);
+      const calls: string[] = [];
+      api.addDependency = (id, predecessorId) => {
+        calls.push(`add:${id}:${predecessorId}`);
+        return new Promise<void>((resolve) => {
+          release = () => {
+            resolve();
+          };
+        }).then(() => realAdd(id, predecessorId));
+      };
+
+      await openTheSheetOn('030');
+      const option = (): HTMLElement => screen.getByRole('button', { name: /^010/ });
+      fireEvent.click(option());
+
+      // Locked while the write travels — the face no longer offers it twice.
+      await waitFor(() => {
+        expect(option()).toBeDisabled();
+      });
+
+      // A second tap is turned away, not a second write.
+      fireEvent.click(option());
+      expect(calls).toHaveLength(1);
+
+      // The write settles and the edge lands as a wait.
+      release();
+      await waitFor(() => {
+        expect(document.querySelector('[data-card-waits]')?.textContent).toBe('waits for 010');
+      });
+      expect(calls).toHaveLength(1);
+    },
+  );
+
+  itDom('re-offers an option be-01 refuses, once the write settles', async () => {
+    // The refused peer-race arm: the tap looked valid, be-01 refused it, and
+    // the row must come back on offer — not stay locked under the reader's
+    // thumb. The toast is `run`'s own sentence, preserved not replaced.
+    const api = await aPhonePlan(2);
+    let rejectNow!: (error: unknown) => void;
+    api.addDependency = () =>
+      new Promise<void>((_, reject) => {
+        rejectNow = reject;
+      });
+
+    await openTheSheetOn('020');
+    const option = (): HTMLElement => screen.getByRole('button', { name: /^010/ });
+    fireEvent.click(option());
+
+    await waitFor(() => {
+      expect(option()).toBeDisabled();
+    });
+
+    // be-01 answers: the edge is refused and the option is offered again.
+    rejectNow(new Error('cycle'));
+    await waitFor(() => {
+      expect(option()).not.toBeDisabled();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/would make a loop/)).toBeInTheDocument();
+    });
+    // Still on offer — nothing landed, and no edge was recorded.
+    expect(screen.getByRole('button', { name: /^010/ })).toBeInTheDocument();
+    expect(api.edges).toEqual([]);
+  });
+
+  itDom('locks a wait being removed until its write settles', async () => {
+    // The remove arm: a wait whose Remove is in flight must not be tappable a
+    // second time.
+    const api = await aPhonePlan(2, (rows) => {
+      rows[1].dependsOn = [rows[0]?.id ?? ''];
+    });
+    let release!: () => void;
+    const realDrop = api.removeDependency.bind(api);
+    api.removeDependency = (id, predecessorId) =>
+      new Promise<void>((resolve) => {
+        release = () => {
+          resolve();
+        };
+      }).then(() => realDrop(id, predecessorId));
+
+    await openTheSheetOn('020');
+    const remove = (): HTMLElement =>
+      screen.getByRole('button', { name: 'Stop 020 waiting for 010' });
+    fireEvent.click(remove());
+
+    await waitFor(() => {
+      expect(remove()).toBeDisabled();
+    });
+
+    release();
+    await waitFor(() => {
+      expect(document.querySelector('[data-card-waits]')).toBeNull();
+    });
+    expect(api.edges).toEqual([`drop:${api.rows[1]?.id ?? ''}:${api.rows[0]?.id ?? ''}`]);
+  });
 });

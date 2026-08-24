@@ -5195,13 +5195,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   /**
    * Adds the picked dependency and keeps the picker open, cleared, for the
    * next one — picking three predecessors is one visit, not three.
+   *
+   * The `run` outcome is handed back rather than swallowed, so the card's
+   * sheet can model the in-flight edge: a second tap on the same option must
+   * not send the same write twice (the card locks it until this resolves).
    */
   const pickDependency = useCallback(
-    (successorId: string, predecessorId: string) => {
+    (successorId: string, predecessorId: string): Promise<CommitOutcome> => {
       setDepPicker((current) =>
         current === null ? null : { ...current, typed: '', highlightId: null },
       );
-      void run(() => api.addDependency(successorId, predecessorId));
+      return run(() => api.addDependency(successorId, predecessorId));
     },
     [api, run],
   );
@@ -7167,7 +7171,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       if (e.key !== 'Enter') return;
                       e.preventDefault();
                       if (activeOption !== undefined) {
-                        live.current.pickDependency(row.original.id, activeOption.id);
+                        void live.current.pickDependency(row.original.id, activeOption.id);
                         return;
                       }
                       // No highlight to take — the typed flow: one number or a
@@ -7267,7 +7271,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                         }}
                         onClick={() => {
                           if (entry.refusal !== undefined) return;
-                          live.current.pickDependency(row.original.id, entry.id);
+                          void live.current.pickDependency(row.original.id, entry.id);
                         }}
                       >
                         {/*
@@ -10037,10 +10041,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // take, for `rowActions`' bargain, a fifth dimension over.
           dependencyOptions={(row, typed) => depEntriesFor(row, typed)}
           addDependency={(row, predecessorId) => {
-            pickDependency(row.id, predecessorId);
+            return pickDependency(row.id, predecessorId);
           }}
           dropDependency={(row, predecessorId) => {
-            void run(() => api.removeDependency(row.id, predecessorId));
+            return run(() => api.removeDependency(row.id, predecessorId));
           }}
           // The `Start` cell's own sentence, off the one map, handed to the
           // face that has no hover to give it. `startFloor.current` is filled

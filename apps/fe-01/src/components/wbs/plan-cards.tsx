@@ -168,10 +168,22 @@ export interface PlanCardsProps {
    * to a keyboard, and this face has neither. See {@link CardDependsField}.
    */
   dependencyOptions: (row: TreeRow, typed: string) => readonly PickerEntry[];
-  /** Makes this work item wait for one more, by the table's own writer. */
-  addDependency: (row: TreeRow, predecessorId: string) => void;
-  /** Takes one of those waits off again — the table's chip `✕`, in a sheet. */
-  dropDependency: (row: TreeRow, predecessorId: string) => void;
+  /**
+   * Makes this work item wait for one more, by the table's own writer.
+   *
+   * The outcome is what the sheet uses to model an in-flight edge: a tap
+   * resolves to `landed` once the wait is written, or `refused` when be-01
+   * would not take it — and the option is locked out until one of those
+   * arrives, so a double tap cannot send the same write twice.
+   */
+  addDependency: (row: TreeRow, predecessorId: string) => Promise<CommitOutcome>;
+  /**
+   * Takes one of those waits off again — the table's chip `✕`, in a sheet.
+   *
+   * Same in-flight contract as {@link PlanCardsProps.addDependency}: a wait
+   * being removed is locked out until the write settles, landed or refused.
+   */
+  dropDependency: (row: TreeRow, predecessorId: string) => Promise<CommitOutcome>;
   /**
    * What is holding this row's start where it is — the chart's own sentence,
    * or `null` for a row the geometry cannot explain.
@@ -1162,8 +1174,8 @@ function CardDependsField({
   row: TreeRow;
   waits: readonly DependencyEntry[];
   options: (row: TreeRow, typed: string) => readonly PickerEntry[];
-  addDependency: (row: TreeRow, predecessorId: string) => void;
-  dropDependency: (row: TreeRow, predecessorId: string) => void;
+  addDependency: (row: TreeRow, predecessorId: string) => Promise<CommitOutcome>;
+  dropDependency: (row: TreeRow, predecessorId: string) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
   // What has been typed into the search box, cleared on every open and after
@@ -1172,7 +1184,49 @@ function CardDependsField({
   // make: the list of waits is read from the row on every render, which is what
   // lets a landed edge appear under the reader's own thumb.
   const [typed, setTyped] = useState('');
+  // The edges whose writes are still travelling, by predecessor id and by
+  // direction. An option whose add has not settled may not be tapped again —
+  // the first POST is still in flight, and a second tap would send a duplicate
+  // write the face had no business offering. A wait whose remove has not
+  // settled may not be removed again. Landed, the refetch moves it (option →
+  // wait, or wait → gone) and the id leaves its set with it; refused, the id
+  // leaves the set and the option is offered again, now with whatever word the
+  // re-read graph has for it.
+  const [adding, setAdding] = useState<ReadonlySet<string>>(() => new Set());
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(() => new Set());
   const offered = open ? options(row, typed) : [];
+
+  const withId = (set: ReadonlySet<string>, id: string): ReadonlySet<string> =>
+    new Set(set).add(id);
+  const withoutId = (set: ReadonlySet<string>, id: string): ReadonlySet<string> => {
+    const next = new Set(set);
+    next.delete(id);
+    return next;
+  };
+
+  /**
+   * Takes one offered row, locking it until be-01 answers, then leaves the
+   * search box cleared only when the write actually landed — a refused tap
+   * keeps the box as it was, so the refused row is still there to read.
+   */
+  const onAdd = (entry: PickerEntry): void => {
+    if (entry.refusal !== undefined || adding.has(entry.id)) return;
+    setAdding((current) => withId(current, entry.id));
+    void addDependency(row, entry.id).then((outcome) => {
+      setAdding((current) => withoutId(current, entry.id));
+      if (outcome === 'landed') setTyped('');
+    });
+  };
+
+  /** Takes one wait off, locking its Remove until the write settles. */
+  const onRemove = (entryId: string): void => {
+    if (removing.has(entryId)) return;
+    setRemoving((current) => withId(current, entryId));
+    void dropDependency(row, entryId).then(() => {
+      setRemoving((current) => withoutId(current, entryId));
+    });
+  };
+
   return (
     <Modal
       open={open}
@@ -1231,9 +1285,10 @@ function CardDependsField({
                     // Remove — the table's `✕` has the same problem and answers
                     // it with a `title` no finger can reach.
                     aria-label={`Stop ${row.number} waiting for ${each.number}`}
-                    className={`${TAP} inline-flex shrink-0 items-center justify-center rounded-md border px-3`}
+                    disabled={removing.has(each.id)}
+                    className={`${TAP} inline-flex shrink-0 items-center justify-center rounded-md border px-3 disabled:opacity-50`}
                     onClick={() => {
-                      dropDependency(row, each.id);
+                      onRemove(each.id);
                     }}
                   >
                     Remove
@@ -1285,14 +1340,13 @@ function CardDependsField({
                     // `pickerEntries`' own decision relayed: a row that says,
                     // before it is tapped, that it contains this one teaches
                     // more than a row that is simply missing from the list.
-                    disabled={entry.refusal !== undefined}
+                    // Locked while its own write is in flight, so a double tap
+                    // cannot send the same edge twice — `onAdd` is the guard
+                    // and the `disabled` is the thing a finger hits.
+                    disabled={entry.refusal !== undefined || adding.has(entry.id)}
                     className={`${TAP} flex w-full items-center gap-2 rounded-md border px-3 text-left disabled:opacity-50`}
                     onClick={() => {
-                      addDependency(row, entry.id);
-                      // Cleared, not closed: the table's picker makes the same
-                      // bargain for the same reason, and the line the tap just
-                      // wrote appears in the list above this box.
-                      setTyped('');
+                      onAdd(entry);
                     }}
                   >
                     <span className="font-semibold">{entry.number}</span>
