@@ -1944,6 +1944,8 @@ function GanttChart({
   const [openDay, setOpenDay] = useState<{ offset: number; anchor: AnchorRect } | null>(null);
   /** The opening that has been asked for and not yet happened. */
   const opening = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Whether the next click belongs to the touch pointer that pressed a bar. */
+  const pressedWithTouch = useRef(false);
   /** The live geometry `<svg>`, read by {@link downloadGanttSvg} and nothing else. */
   const chartSvgRef = useRef<SVGSVGElement | null>(null);
 
@@ -2914,11 +2916,25 @@ function GanttChart({
                     // is the one nothing can place or style. The same facts the
                     // surface shows, from the same derivation.
                     aria-label={barFacts(bar, startDate, today, plan.priorityBands).join('. ')}
-                    onClick={() => {
+                    onPointerDown={(pointer) => {
+                      pressedWithTouch.current = pointer.pointerType === 'touch';
+                    }}
+                    onClick={(click) => {
                       const rowId = rowIdAt(bar.rowIndex);
                       // A bar with no row is not a state this can be in — the bar
                       // was placed on that row by {@link layOutGantt} — so there is
                       // nothing to do about it but leave the click alone.
+                      const touchPress = pressedWithTouch.current;
+                      pressedWithTouch.current = false;
+                      if (fullScreen && touchPress) {
+                        cancelOpening();
+                        if (open?.sliceId !== bar.sliceId) {
+                          showSurface(bar.sliceId, click.currentTarget);
+                          return;
+                        }
+                        dismiss();
+                        setFullScreen(false);
+                      }
                       if (rowId !== undefined) onPickRow(rowId);
                     }}
                     onKeyDown={(key) => {
@@ -2955,11 +2971,19 @@ function GanttChart({
                     }}
                     onPointerOut={(pointer) => {
                       if (pointer.pointerType === 'mouse') onPointRow(null, 'pointer');
+                      // A touch leaves the mark before its synthesized click.
+                      // In full screen that click owns the surface: first tap
+                      // opens it, and a second tap on the same bar navigates.
+                      if (fullScreen && pointer.pointerType === 'touch') return;
                       dismiss();
                     }}
                     // No delay on the keyboard: focus is deliberate, and there is
                     // no crossing of the chart to protect a reader from.
                     onFocus={(focus) => {
+                      // A touch focuses before its click. Let that click decide
+                      // between opening the facts and deliberate navigation;
+                      // keyboard focus keeps the immediate surface below.
+                      if (fullScreen && pressedWithTouch.current) return;
                       pointRow(bar.rowIndex, 'focus');
                       cancelOpening();
                       showSurface(bar.sliceId, focus.currentTarget);
@@ -3441,6 +3465,15 @@ function GanttChart({
       role="dialog"
       aria-label="Gantt chart, full screen"
       className="bg-background fixed inset-0 z-20 flex flex-col"
+      onPointerDownCapture={(pointer) => {
+        if (pointer.pointerType !== 'touch' || open === null) return;
+        const target = pointer.target;
+        if (target instanceof Element) {
+          const bar = target.closest('[data-gantt-bar]');
+          if (bar?.getAttribute('data-gantt-bar') === open.sliceId) return;
+        }
+        dismiss();
+      }}
     >
       {chartAndItsControls}
     </div>
