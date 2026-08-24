@@ -9,7 +9,7 @@ async function makeToken(secret: Uint8Array, sub = 'user-1'): Promise<string> {
 
 describe('JwtVerifier', () => {
   it('tries the OIDC verifier before the local password-session keys', async () => {
-    const current = (await generateSecret('HS256')) as Uint8Array;
+    const current = await generateSecret('HS256');
     const verifier = new JwtVerifier({
       current,
       primary: {
