@@ -12,7 +12,7 @@ import {
 } from '@wbs/auth';
 import { Elysia, t } from 'elysia';
 
-import { tokenFromHeaders } from '../middleware/authenticated';
+import { userFromHeaders } from '../middleware/authenticated';
 import type { AuthService } from '../service/auth.service';
 
 export interface OidcRouteOptions {
@@ -114,12 +114,7 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
       { body: credentials },
     )
     .get('/me', async ({ headers, set }) => {
-      const token = tokenFromHeaders(headers);
-      if (token === null) {
-        set.status = 401;
-        return { error: 'missing_token' };
-      }
-      const user = await auth.authenticate(token);
+      const user = await userFromHeaders(auth, headers);
       if (user === null) {
         set.status = 401;
         return { error: 'invalid_token' };

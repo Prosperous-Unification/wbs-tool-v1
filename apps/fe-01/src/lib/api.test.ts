@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { EDGE_UNAUTHORIZED, login, me } from './api';
+import { EDGE_UNAUTHORIZED, login, me, websocketUrl } from './api';
 
 /** A Response as the edge or the app would really produce one. */
 function response(status: number, body: string, headers: Record<string, string> = {}): Response {
@@ -59,17 +59,17 @@ describe('login error codes', () => {
 });
 
 describe('me', () => {
-  it('sends x-wbs-token, never Authorization, so the edge credential survives', async () => {
+  it('uses the browser cookie and sends no application token header', async () => {
     const fetchMock = vi.fn(async () =>
       Promise.resolve(response(200, JSON.stringify({ user: { id: 'u', username: 'ada' } }))),
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await me('the-token');
+    await me();
 
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const headers = init.headers as Record<string, string>;
-    expect(headers['x-wbs-token']).toBe('the-token');
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    expect(headers['x-wbs-token']).toBeUndefined();
     expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain('authorization');
   });
 
@@ -78,6 +78,12 @@ describe('me', () => {
       'fetch',
       vi.fn(async () => Promise.resolve(response(401, '{}'))),
     );
-    await expect(me('stale')).resolves.toBeNull();
+    await expect(me()).resolves.toBeNull();
+  });
+});
+
+describe('websocketUrl', () => {
+  it('relies on the browser cookie and puts no token in the URL', () => {
+    expect(websocketUrl()).toBe('ws://localhost:3000/ws');
   });
 });

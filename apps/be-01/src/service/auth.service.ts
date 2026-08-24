@@ -26,6 +26,8 @@ export interface AuthServiceOptions {
   users: UserStore;
   identities?: OidcIdentityStore;
   oidc?: OidcIdentityOptions & { verifier: TokenVerifier };
+  /** Fixed cookie-free identity used only by explicit non-production local mode. */
+  localIdentity?: AuthenticatedUser;
   /**
    * The same string gw-01 loads as JWT_SIGNING_KEY_CURRENT. Both sides encode
    * it with TextEncoder, so a token signed here verifies there; if the two
@@ -94,7 +96,9 @@ export class AuthService {
   }
 
   /** Verifies a bearer token and resolves the user it names. */
-  async authenticate(token: string): Promise<AuthenticatedUser | null> {
+  async authenticate(token: string | null): Promise<AuthenticatedUser | null> {
+    if (this.opts.localIdentity !== undefined) return this.opts.localIdentity;
+    if (token === null) return null;
     try {
       const { payload } = await jwtVerify(token, this.key);
       const sub = payload.sub;

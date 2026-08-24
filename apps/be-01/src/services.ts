@@ -53,6 +53,7 @@ export interface ServicesOptions {
   gwUrl: string;
   internalAuthSecret: string;
   oidc?: AuthServiceOptions['oidc'];
+  localIdentity?: AuthServiceOptions['localIdentity'];
 }
 
 export interface BeServices {
@@ -120,6 +121,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
       identities: userStore,
       jwtKey: opts.jwtKey,
       oidc: opts.oidc,
+      localIdentity: opts.localIdentity,
     }),
     projects: new ProjectService({ projects: projectStore }),
     // The same broadcaster again: a capacity event takes its place in the
