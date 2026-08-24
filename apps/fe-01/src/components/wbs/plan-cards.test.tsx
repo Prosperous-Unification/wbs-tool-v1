@@ -1975,7 +1975,7 @@ function renderCards(
       // exactly what these row-actions tests want it doing.
       hasCalendar={false}
       setNotBefore={() => undefined}
-      setPriority={() => undefined}
+      setPriority={() => Promise.resolve('landed')}
       tagLabel={() => ({ state: 'none' })}
       serviceLabel={() => ({ state: 'none' })}
       nonOwner={() => null}
@@ -2560,6 +2560,9 @@ describe('setting a card’s priority', () => {
       await waitFor(() => {
         expect(chipOnCard()?.textContent).toBe('High 30');
       });
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'Priority for 010' })).toBeNull();
+      });
     },
   );
 
@@ -2584,40 +2587,64 @@ describe('setting a card’s priority', () => {
     await waitFor(() => {
       expect(chipOnCard()?.textContent).toBe('Medium 42');
     });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Priority for 010' })).toBeNull();
+    });
   });
 
-  itDom('keeps a refused word in the open sheet, out loud — because null is the clear', async () => {
-    // The refusal path is the reason {@link PlanCardsProps.setPriority} takes a
-    // string, and the rule it keeps is narrower than its own sentence sounds.
-    // `setPriority` refuses exactly what **JSON cannot carry**: `Number('urgent')`
-    // is `NaN`, `Number('1e999')` is `Infinity`, and both arrive on the wire as
-    // `null` — which is the request that *clears* a priority. So a typo left to
-    // the server would silently unrank the row somebody was ranking.
-    //
-    // Everything finite goes out and is answered on, `1.5` and `0` and `-1`
-    // included, because what a priority may *be* is be-01's rule and a second
-    // copy here is one that can quietly disagree. This case was first written
-    // with `1.5` on the assumption the word "whole" in the toast described the
-    // guard; the fake recorded `{ priority: 1.5 }` and no toast appeared. Kept
-    // as a comment because a card that grew its own parse would make exactly
-    // that mistake in code.
+  itDom('takes a typed band name and closes after that shared writer accepts it', async () => {
     const api = await aPhonePlan();
     const before = api.patched.length;
-    const sheet = await openTheSheet();
+    await openTheSheet();
 
-    const input = screen.getByLabelText('Priority for 010, as a number');
-    fireEvent.change(input, {
-      target: { value: 'urgent' },
+    fireEvent.change(screen.getByLabelText('Priority for 010, as a number'), {
+      target: { value: 'High' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(
-      await screen.findByText('A priority is a whole number from 1 upward.'),
-    ).toBeInTheDocument();
-    expect(sheet).toBeInTheDocument();
-    expect(input).toHaveValue('urgent');
-    expect(api.patched.slice(before)).toEqual([]);
+    await waitFor(() => {
+      expect(api.patched.slice(before)).toEqual([{ id: api.rows[0]?.id, priority: 30 }]);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Priority for 010' })).toBeNull();
+    });
   });
+
+  itDom(
+    'keeps a refused word in the open sheet, out loud — because null is the clear',
+    async () => {
+      // The refusal path is the reason {@link PlanCardsProps.setPriority} takes a
+      // string, and the rule it keeps is narrower than its own sentence sounds.
+      // `setPriority` refuses exactly what **JSON cannot carry**: `Number('urgent')`
+      // is `NaN`, `Number('1e999')` is `Infinity`, and both arrive on the wire as
+      // `null` — which is the request that *clears* a priority. So a typo left to
+      // the server would silently unrank the row somebody was ranking.
+      //
+      // Everything finite goes out and is answered on, `1.5` and `0` and `-1`
+      // included, because what a priority may *be* is be-01's rule and a second
+      // copy here is one that can quietly disagree. This case was first written
+      // with `1.5` on the assumption the word "whole" in the toast described the
+      // guard; the fake recorded `{ priority: 1.5 }` and no toast appeared. Kept
+      // as a comment because a card that grew its own parse would make exactly
+      // that mistake in code.
+      const api = await aPhonePlan();
+      const before = api.patched.length;
+      const sheet = await openTheSheet();
+
+      const input = screen.getByLabelText('Priority for 010, as a number');
+      fireEvent.change(input, {
+        target: { value: 'urgent' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(
+        await screen.findByText('A priority is a whole number from 1 upward.'),
+      ).toBeInTheDocument();
+      expect(sheet).toBeInTheDocument();
+      expect(input).toHaveValue('urgent');
+      expect(api.patched.slice(before)).toEqual([]);
+    },
+  );
 
   itDom('clears a ranking with its own control, and sends null rather than zero', async () => {
     // "Nobody has said" is a state a planner has to be able to get back to, and
@@ -2638,6 +2665,9 @@ describe('setting a card’s priority', () => {
     });
     await waitFor(() => {
       expect(chipOnCard()).toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Priority for 010' })).toBeNull();
     });
   });
 

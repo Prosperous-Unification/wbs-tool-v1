@@ -272,8 +272,10 @@ export interface PlanCardsProps {
    * would agree until one was edited.
    *
    * `''` clears, which is the table's own reading of an emptied cell.
+   * The outcome is the sheet's close signal: only a landed write closes it;
+   * refusal leaves the only copy of the typed draft visible for correction.
    */
-  setPriority: (row: TreeRow, typed: string) => void;
+  setPriority: (row: TreeRow, typed: string) => Promise<CommitOutcome>;
   /**
    * What kind of thing this row is: its own tags, the ones it inherits, or
    * neither.
@@ -942,7 +944,7 @@ function CardPriorityField({
 }: {
   row: TreeRow;
   bands: readonly PriorityBandView[];
-  setPriority: (row: TreeRow, typed: string) => void;
+  setPriority: (row: TreeRow, typed: string) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
   // The draft, seeded from the row on every open through the `key` below —
@@ -952,9 +954,9 @@ function CardPriorityField({
   // open. Nothing is sent until Save, so no refetch can land under the caret.
   const [draft, setDraft] = useState(row.priority === null ? '' : String(row.priority));
   const paint = priorityBandStyleOf(bands, row.priority);
-  const send = (typed: string): void => {
-    setPriority(row, typed);
-    setOpen(false);
+  const send = async (typed: string): Promise<void> => {
+    const outcome = await setPriority(row, typed);
+    if (outcome === 'landed') setOpen(false);
   };
   return (
     <Modal
@@ -1037,7 +1039,7 @@ function CardPriorityField({
                       // resolves it behind `setPriority`, so a tapped line and a
                       // typed name take the identical path and one of them
                       // cannot start writing a different number from the other.
-                      send(band.label);
+                      void send(band.label);
                     }}
                   >
                     <span style={{ color: line?.ink, fontWeight: 600 }}>{band.label}</span>
@@ -1078,7 +1080,7 @@ function CardPriorityField({
               data-card-priority-save
               className={`${TAP} inline-flex flex-1 items-center justify-center rounded-md border px-3 font-semibold`}
               onClick={() => {
-                send(draft);
+                void send(draft);
               }}
             >
               Save
@@ -1097,7 +1099,7 @@ function CardPriorityField({
                 data-card-priority-clear
                 className={`${TAP} inline-flex items-center justify-center rounded-md border px-3`}
                 onClick={() => {
-                  send('');
+                  void send('');
                 }}
               >
                 Clear

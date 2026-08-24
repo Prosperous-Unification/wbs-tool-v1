@@ -10010,7 +10010,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // anything that is not a whole number from 1 upward, and an emptied
           // box meaning `null` rather than `0`.
           setPriority={(row, typed) => {
-            void setPriority(row.id, typed);
+            return setPriority(row.id, typed);
           }}
           tagLabel={effectiveTagLabelOf}
           serviceLabel={effectiveServiceLabelOf}
