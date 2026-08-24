@@ -158,7 +158,7 @@ export function buildApp(opts: AppOptions) {
       .use(smokeController)
       .use(authController(opts.auth, opts.oidc))
       .use(solutionController(opts.auth, opts.projects))
-      .use(projectController(opts.auth, opts.projects))
+      .use(projectController(opts.auth, opts.projects, opts.workItems))
       .use(roleController(opts.auth, opts.roles))
       .use(workItemController(opts.auth, opts.workItems))
       .use(directoryController(opts.auth, opts.directory))
