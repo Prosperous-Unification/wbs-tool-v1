@@ -761,7 +761,7 @@ describe('the hover card follows the list, not a stale pointer', () => {
     });
 
     // Hover the second project.
-    fireEvent.mouseEnter(document.getElementById('project-option-p2') as HTMLElement);
+    fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
     expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
 
     // Close with Escape while the pointer remains over p2 — the options
@@ -793,11 +793,11 @@ describe('the hover card follows the list, not a stale pointer', () => {
       expect(optionNames().length).toBe(2);
     });
 
-    fireEvent.mouseEnter(document.getElementById('project-option-p2') as HTMLElement);
+    fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
     expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
 
     // Choosing unmounts the options without a mouseleave, then closes.
-    fireEvent.click(document.getElementById('project-option-p2') as HTMLElement);
+    fireEvent.click(document.getElementById('project-option-p2')!);
     await waitFor(() => {
       expect(picker().value).toBe('Paint the fence');
     });
