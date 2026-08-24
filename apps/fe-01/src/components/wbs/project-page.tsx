@@ -114,6 +114,20 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
    * pointer-first.
    */
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  /**
+   * Owns the hover at the list's lifecycle boundary.
+   *
+   * `hoveredId` is set on an option's `mouseenter` and cleared only on its
+   * `mouseleave`. Every close path — Escape, blur, and `choose` — unmounts the
+   * options without firing that `mouseleave`, so the pointer id it last held
+   * outlives the list it pointed into. A reopened list would then show the
+   * last-hovered project's card even while the keyboard highlights another (or
+   * nothing). Cleared here, whenever the picker closes, so a closed list owns
+   * no hover.
+   */
+  useEffect(() => {
+    if (search === null) setHoveredId(null);
+  }, [search]);
 
   const load = useCallback(async () => {
     const found = await api.listProjects();
