@@ -11,7 +11,7 @@ const FAILURE_LIMIT = 5;
 const WINDOW_MS = 60_000;
 const MAX_ENTRIES = 10_000;
 
-/** Fixed-window failure limits on both normalized usernames and client IPs. */
+/** Fixed-window failure limits that fail closed when their bounded map fills. */
 export class LoginThrottle {
   private readonly attempts = new Map<string, AttemptWindow>();
   private readonly now: () => number;
@@ -23,10 +23,14 @@ export class LoginThrottle {
   canAttempt(username: string, clientIp: string): boolean {
     const now = this.now();
     this.prune(now);
-    return this.keys(username, clientIp).every((key) => {
+    const keys = this.keys(username, clientIp);
+    const withinFailureLimit = keys.every((key) => {
       const window = this.attempts.get(key);
       return window === undefined || window.failures < FAILURE_LIMIT;
     });
+    if (!withinFailureLimit) return false;
+    const newEntries = keys.filter((key) => !this.attempts.has(key)).length;
+    return this.attempts.size + newEntries <= MAX_ENTRIES;
   }
 
   recordFailure(username: string, clientIp: string): void {
@@ -35,11 +39,7 @@ export class LoginThrottle {
     for (const key of this.keys(username, clientIp)) {
       const current = this.attempts.get(key);
       if (current === undefined) {
-        while (this.attempts.size >= MAX_ENTRIES) {
-          const oldest = this.attempts.keys().next().value;
-          if (oldest === undefined) break;
-          this.attempts.delete(oldest);
-        }
+        if (this.attempts.size >= MAX_ENTRIES) continue;
         this.attempts.set(key, { failures: 1, expiresAt: now + WINDOW_MS });
       } else {
         current.failures += 1;

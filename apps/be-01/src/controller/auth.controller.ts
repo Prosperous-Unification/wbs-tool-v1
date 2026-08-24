@@ -137,6 +137,7 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
             outcome.result.token,
             TOKEN_TTL_SECONDS,
           );
+          return { token: '', user: outcome.result.user };
         }
         return outcome.result;
       },
@@ -252,10 +253,15 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
 }
 
 function clientIpOf(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',', 1)[0]?.trim();
-  if (forwarded !== undefined && forwarded !== '') return forwarded;
-  const realIp = request.headers.get('x-real-ip');
-  return realIp === null || realIp === '' ? 'unknown' : realIp;
+  // The single trusted Caddy edge appends the network peer. Any left-side
+  // values may have been supplied by the client and cannot identify it.
+  const forwarded = request.headers
+    .get('x-forwarded-for')
+    ?.split(',')
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+    .at(-1);
+  return forwarded ?? 'unknown';
 }
 
 export function hasInvalidCookieOrigin(request: Request, appOrigin: string): boolean {

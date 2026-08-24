@@ -39,6 +39,7 @@ export interface AuthServiceOptions {
   jwtKey: string;
   now?: () => number;
   newId?: () => string;
+  verifyPassword?: (password: string, hash: string) => Promise<boolean>;
 }
 
 export interface AuthenticatedUser {
@@ -58,11 +59,14 @@ export class AuthService {
   private readonly key: Uint8Array;
   private readonly now: () => number;
   private readonly newId: () => string;
+  private readonly verifyPassword: (password: string, hash: string) => Promise<boolean>;
 
   constructor(private readonly opts: AuthServiceOptions) {
     this.key = new TextEncoder().encode(opts.jwtKey);
     this.now = opts.now ?? (() => Date.now());
     this.newId = opts.newId ?? (() => crypto.randomUUID());
+    this.verifyPassword =
+      opts.verifyPassword ?? ((password, hash) => Bun.password.verify(password, hash));
   }
 
   async register(username: string, password: string): Promise<RegisterOutcome> {
@@ -83,17 +87,15 @@ export class AuthService {
 
   async login(username: string, password: string): Promise<LoginOutcome> {
     const user = await this.opts.users.findByUsername(username);
-    if (user === null) {
-      // Hash a throwaway value so a missing user and a wrong password cost the
-      // same wall-clock time; skipping this turns login into a username oracle.
-      await Bun.password.verify(password, DUMMY_HASH).catch(() => false);
+    const hasUsableCredential =
+      user !== null && user.passwordHash !== null && password.length <= MAX_PASSWORD;
+    const hash = hasUsableCredential ? user.passwordHash : DUMMY_HASH;
+    const matches = await this.verifyPassword(password.slice(0, MAX_PASSWORD), hash).catch(
+      () => false,
+    );
+    if (!matches || user === null || user.passwordHash === null || password.length > MAX_PASSWORD) {
       return { ok: false, reason: 'invalid' };
     }
-    // OIDC-only accounts deliberately have no local credential. Treat them as
-    // an ordinary invalid login instead of passing null into Bun.password.
-    if (user.passwordHash === null) return { ok: false, reason: 'invalid' };
-    const matches = await Bun.password.verify(password, user.passwordHash);
-    if (!matches) return { ok: false, reason: 'invalid' };
     return { ok: true, result: await this.issue(user) };
   }
 
@@ -155,8 +157,8 @@ export class AuthService {
 }
 
 /**
- * A real argon2id digest of a value no one can supply, used only to spend the
- * same time on an unknown username as on a known one.
+ * A real argon2id digest of a value no one can supply. Unknown users,
+ * OIDC-only users, and oversized inputs all take this bounded verifier path.
  */
 const DUMMY_HASH =
   '$argon2id$v=19$m=65536,t=2,p=1$YWJjZGVmZ2hpamtsbW5vcA$0RTS8ZC+9Bfl7Bx4rvGIYYqEs0mfOB5+3H4mPa0BvXk';
