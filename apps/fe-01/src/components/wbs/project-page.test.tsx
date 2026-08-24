@@ -43,7 +43,15 @@ function fakeProjects(
       // what let the page believe otherwise.
       projects = [
         ...projects,
-        { id, name, restricted: false, startDate: null, lastOpenedAt: null, ownerName: 'kat', createdAt: MADE_ON },
+        {
+          id,
+          name,
+          restricted: false,
+          startDate: null,
+          lastOpenedAt: null,
+          ownerName: 'kat',
+          createdAt: MADE_ON,
+        },
       ];
       const created: CreatedProject = { id, name, restricted: false };
       return Promise.resolve(created);
