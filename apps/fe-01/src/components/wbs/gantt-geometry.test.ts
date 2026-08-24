@@ -2606,12 +2606,15 @@ describe('what holds a row’s start, for the table', () => {
     // arm says `finishes during 7 Sep` — the date kept, the handoff named as
     // within the day — while the whole-day arm above keeps `finishes 7 Sep`.
     //
-    // Proof of the part-day arm, watched LATER-INSERTED: `clearsOn ===
-    // startsOn` replaced by `false` so no handoff is ever read as same-day —
-    // **this test alone reddens** on
-    //   `expected 'Waits for Strip (Dev) — finishes during 7 Sep' to be
-    //   '… 7 Sep'` — and the same-day comparison is the only thing keeping
-    // the contradiction out of a fractional plan.
+    // Proof of the part-day arm, watched 2026-08-24 — `clearsOn === startsOn`
+    // in `predecessorFloorWords` replaced by `false &&` so no handoff is ever
+    // read as same-day: **this test alone reddens**,
+    //   `expected 'Waits for Strip (Dev) — finishes 7 Sep' to be
+    //   'Waits for Strip (Dev) — finishes during 7 Sep'`.
+    // The reverse injection (`true ||`, every wait read as same-day) reddens
+    // four whole-day arms — `finishes 7 Sep`, `finishes 3 Sep`, `finishes 3
+    // Sep` (unnamed), `finishes 8 Sep` — each moved to `finishes during`.
+    // Two arms, two watches, one comparison.
     const floors = startFloorByRow(
       planOf({
         rows: [rowAt('030', 0, 4.5, { name: 'Strip' }), rowAt('020', 4.5, 6)],
