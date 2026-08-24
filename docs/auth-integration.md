@@ -213,3 +213,35 @@ text.
 For ordinary local development without an IdP, use `AUTH_MODE=local` with
 `NODE_ENV=development`. It supplies the fixed local identity and issues no OIDC
 cookie. Startup refuses `AUTH_MODE=local` when `NODE_ENV=production`.
+
+## Password login
+
+Password login runs inside `AUTH_MODE=oidc`; it is a second route to the same
+session, not a separate identity mechanism. A successful `POST /api/auth/login`
+issues the same hardened `__Host-wbs_access` HttpOnly cookie as the OIDC
+callback. `/api/auth/me`, gw-01 WebSocket upgrades, and mcp-01 therefore see the
+same identity kind regardless of the sign-in route.
+
+Both flags parse strictly as literal `true` or `false`:
+
+```dotenv
+AUTH_PASSWORD_LOGIN=true
+AUTH_PASSWORD_REGISTER=false
+```
+
+`AUTH_PASSWORD_LOGIN` defaults to `true`; production may set it to `false`.
+`AUTH_PASSWORD_REGISTER` defaults to `false`, so `POST /api/auth/register`
+continues to return 404 in OIDC mode unless registration is explicitly enabled.
+
+The users table has no per-user role or scope column. Password identities
+therefore receive the same scopes as `AUTH_MODE=local`: `read`, `write`, and
+`editor`. No separate role system is implied.
+
+Failed logins use bounded fixed-window counters keyed separately by normalized
+username and client IP. Either key blocks after five failures for 60 seconds.
+Password verification is constant-time, and unknown users and wrong passwords
+return the same `invalid_credentials` response.
+
+QA credentials live only in `/home/puni1/wbs-dev/qa-accounts.env` on the
+deployment host, with mode 600, as `QA_USER` and `QA_PASS`. Never copy their
+values into the repository, logs, tests, or issue text.
