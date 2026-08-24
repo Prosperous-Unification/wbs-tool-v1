@@ -239,8 +239,16 @@ therefore receive the same scopes as `AUTH_MODE=local`: `read`, `write`, and
 
 Failed logins use bounded fixed-window counters keyed separately by normalized
 username and client IP. Either key blocks after five failures for 60 seconds.
-Password verification is constant-time, and unknown users and wrong passwords
-return the same `invalid_credentials` response.
+The bounded counter fails closed when it reaches capacity instead of evicting a
+live lock. Enabled registration counts every attempt against the same IP limit
+because password hashing is expensive even when registration succeeds.
+
+Password verification uses the same bounded Argon2 cost for unknown,
+OIDC-only, oversized, and wrong-password cases; they return the same
+`invalid_credentials` response. In OIDC mode, password session creation also
+requires the exact application `Origin` and the trusted edge's
+`X-Forwarded-For` value. Session JWTs stay only in the hardened HttpOnly cookie,
+including when registration is explicitly enabled.
 
 QA credentials live only in `/home/puni1/wbs-dev/qa-accounts.env` on the
 deployment host, with mode 600, as `QA_USER` and `QA_PASS`. Never copy their

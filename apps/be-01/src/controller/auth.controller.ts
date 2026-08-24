@@ -82,10 +82,9 @@ const credentials = t.Object({
 });
 
 /**
- * Registration and login both return the same token shape, so the front end
- * has one code path for "I am now signed in". The token is what gw-01 accepts
- * on the WebSocket, which is why login and the realtime connection cannot
- * drift apart: there is exactly one issuer.
+ * Registration and login return one session shape. OIDC mode keeps its JWT in
+ * the HttpOnly cookie and returns an empty token field so page JavaScript never
+ * receives the credential; local mode retains the bearer response for tools.
  */
 export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
   const passwordThrottle = new LoginThrottle({ now: oidc?.now });
