@@ -13,7 +13,7 @@ import {
 import { Elysia, t } from 'elysia';
 
 import { userFromHeaders } from '../middleware/authenticated';
-import type { AuthService } from '../service/auth.service';
+import { type AuthService, TOKEN_TTL_SECONDS } from '../service/auth.service';
 
 export interface OidcRouteOptions {
   appOrigin: string;
@@ -22,6 +22,8 @@ export interface OidcRouteOptions {
   groupsClaim: string;
   mode: 'oidc';
   now?: () => number;
+  passwordLoginEnabled?: boolean;
+  passwordRegisterEnabled?: boolean;
   random?: () => string;
   redirectUri: string;
   tokens: TokenStore;
@@ -56,6 +58,8 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
     groupPrefix: env['NODE_ENV'] === 'production' ? 'prod' : 'dev',
     groupsClaim: env['AUTH_GROUPS_CLAIM'] ?? 'wbs_groups',
     mode: 'oidc',
+    passwordLoginEnabled: env['AUTH_PASSWORD_LOGIN'] !== 'false',
+    passwordRegisterEnabled: env['AUTH_PASSWORD_REGISTER'] === 'true',
     random: () => randomBytes(32).toString('base64url'),
     redirectUri: redirectUri.href,
     tokens: new InMemoryTokenStore(),
@@ -89,7 +93,7 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
     .post(
       '/register',
       async ({ body, set }) => {
-        if (oidc !== undefined) {
+        if (oidc !== undefined && oidc.passwordRegisterEnabled !== true) {
           set.status = 404;
           return { error: 'not_found' };
         }
@@ -108,7 +112,7 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
     .post(
       '/login',
       async ({ body, set }) => {
-        if (oidc !== undefined) {
+        if (oidc !== undefined && oidc.passwordLoginEnabled === false) {
           set.status = 404;
           return { error: 'not_found' };
         }
@@ -116,6 +120,13 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
         if (!outcome.ok) {
           set.status = 401;
           return { error: 'invalid_credentials' };
+        }
+        if (oidc !== undefined) {
+          set.headers['set-cookie'] = cookie(
+            '__Host-wbs_access',
+            outcome.result.token,
+            TOKEN_TTL_SECONDS,
+          );
         }
         return outcome.result;
       },
