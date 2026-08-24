@@ -69,7 +69,7 @@ main-session review even when earlier slices merge to dev on green.
 
 ## 6. Acceptance and cutover
 
-- [ ] 6.1 Document and run Keycloak-in-Docker over the HTTPS dev origin: browser
+- [x] 6.1 Document and run Keycloak-in-Docker over the HTTPS dev origin: browser
       login, cookie API, WS, standalone MCP, and fe-01 all succeed.
 - [ ] 6.2 Wire the off-repo Okta env into dev, run real-Okta login, and remove
       `x-wbs-token` fallback — public-exposure review required before merge.
