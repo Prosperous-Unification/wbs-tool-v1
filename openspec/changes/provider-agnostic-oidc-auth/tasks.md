@@ -75,3 +75,17 @@ main-session review even when earlier slices merge to dev on green.
       `x-wbs-token` fallback — public-exposure review required before merge.
 - [ ] 6.3 Add the Claude connector to dev with zero manual token steps and drive
       one tool call under Dany's identity; file deployment QA.
+  - [ ] 6.3.1 Add mcp-01 to the root dev supervisor and devsync's restart
+        inventory — test first: the manifest test must fail while either the
+        serve target or mcp-01 project/tsconfig path is absent.
+  - [ ] 6.3.2 Version the same-origin dev Caddy candidate with path-preserving
+        `/mcp*` routing and only the three exact RFC well-known paths — negative:
+        a `handle_path` or blanket `/.well-known/*` candidate must fail its
+        contract test; validate the full candidate with Caddy on h2puni.
+  - [ ] 6.3.3 Add exact MCP metadata and 401-challenge assertions to
+        `bin/dev-deploy.sh`; seed the gitignored mcp-01 env by key name only and
+        verify its mode is 600. Existing mcp-01 tests remain the automated DCR,
+        PKCE, one-use grant, audience-bound token, and upstream-mapping proof.
+  - [ ] 6.3.4 After main-session exposure review and green CI, apply the Auth0
+        callback allowlist plus Caddy candidate, merge, and drive discovery →
+        DCR → Auth0 → token → `tools/list` with MCP Inspector or claude.ai.

@@ -201,3 +201,16 @@ Fresh h2puni review evidence on the rebased head:
 The branch may merge only after rebased `gate` and `pixels` checks pass. The
 merge then recreates dev under OIDC, followed by real Okta login/API/WS and one
 zero-manual Claude MCP tool call before this change is archived.
+
+## 14. Dev MCP exposure plan — 2026-08-24
+
+The deployment review restructured task 6.3 around two routing invariants:
+Caddy preserves `/mcp`, and it sends only the three exact RFC well-known paths
+to mcp-01. The existing automated MCP suite already covers DCR, PKCE, one-use
+authorization grants, audience-bound local tokens, and server-side upstream
+token mapping (80/80 baseline on h2puni); deployment adds metadata and challenge
+assertions rather than duplicating those protocol tests.
+
+The OpenAI drafting seat and Gemini review participated. The required Fable 5
+planning seat returned no verdict because its monthly usage window was
+exhausted; Opus was not substituted. Public exposure remains unapplied.

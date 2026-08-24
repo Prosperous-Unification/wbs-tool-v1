@@ -93,6 +93,31 @@ removed. Verdict: **VALIDATED**. Sources: Anthropic's official “Building custo
 connectors via remote MCP servers” help article; MCP authorization specification
 2025-06-18; Okta Dynamic Client Registration API reference.
 
+### D8. Dev exposes MCP on the existing origin without rewriting its path
+
+The public MCP resource is `https://dev.wbs.bulletpoints.club/mcp`. Caddy uses
+path-preserving `handle`, never `handle_path`, so mcp-01 receives `/mcp` and
+`/mcp/oauth/*` exactly as its HTTP router declares them. Three well-known
+locations route to mcp-01 explicitly:
+`/.well-known/oauth-protected-resource`,
+`/.well-known/oauth-protected-resource/mcp`, and
+`/.well-known/oauth-authorization-server/mcp/oauth`. A blanket
+`/.well-known/*` matcher is forbidden because it would claim unrelated origin
+metadata.
+
+The existing `wbs-dev-src` supervisor adds mcp-01 on port 3300. Its gitignored
+`apps/mcp-01/.env` contains only standalone mode, the localhost be-01 URL, the
+canonical public URL, and the port; the existing mode-600 shared OIDC env
+supplies the provider credential and audience. The Auth0 Regular Web
+Application must allow the byte-exact upstream callback
+`https://dev.wbs.bulletpoints.club/mcp/oauth/callback` before exposure.
+
+Deployment health does not accept an arbitrary 200. It asserts the protected
+resource and authorization-server JSON fields, then asserts an unauthenticated
+`POST /mcp` returns the RFC 9728 challenge naming the canonical resource
+metadata URL. The public Caddy candidate remains unapplied until the
+main-session exposure review.
+
 ## Risks / Trade-offs
 
 - In-memory stores lose sessions on restart; `TokenStore` keeps Redis possible.
@@ -101,3 +126,6 @@ connectors via remote MCP servers” help article; MCP authorization specificati
   Okta acceptance; that exposure diff receives main-session review.
 - MCP fronting-AS implementation is blocked until the token/audience trace is
   demonstrated, preventing two mutually untrusted token systems from shipping.
+- mcp-01 keeps OAuth grants and local-token mappings in memory. A dev process
+  restart therefore requires a fresh connector authorization; persistence is a
+  later availability feature, not part of this exposure slice.
