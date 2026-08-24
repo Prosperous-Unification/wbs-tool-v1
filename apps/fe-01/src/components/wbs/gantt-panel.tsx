@@ -1563,7 +1563,10 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
   nestedChart.setAttribute('y', String(ROW_PX));
   root.appendChild(nestedChart);
 
-  for (const { bar, x, width } of drawnBars) {
+  const labelClips = document.createElementNS(SVG_NS, 'defs');
+  root.appendChild(labelClips);
+
+  for (const [index, { bar, x, width }] of drawnBars.entries()) {
     const who = bar.estimated
       ? bar.personName === null
         ? poolLabelFor(bar.team, bar.width, width, dayPx)
@@ -1571,15 +1574,30 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
       : assumedLabelFor(bar.personName, width, dayPx);
     const shown = barText(who, rowWords(bar.workItemNumber, bar.workItemName), width, dayPx);
     if (shown === null) continue;
-    const left = LABEL_COLUMN_PX + x * dayPx + CHART_PAD_PX + LABEL_PAD_PX;
+    const barLeft = LABEL_COLUMN_PX + x * dayPx + CHART_PAD_PX;
+    const barTop = ROW_PX + (bar.rowIndex + BAR_INSET) * ROW_PX;
+    const clipId = `gantt-bar-label-clip-${String(index)}`;
+    const clip = document.createElementNS(SVG_NS, 'clipPath');
+    clip.setAttribute('id', clipId);
+    clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    clip.appendChild(svgRect(barLeft, barTop, width * dayPx, BAR_HEIGHT * ROW_PX, '#000'));
+    labelClips.appendChild(clip);
+
+    const left = barLeft + LABEL_PAD_PX;
     const top = ROW_PX + (bar.rowIndex + BAR_INSET) * ROW_PX + (BAR_HEIGHT * ROW_PX) / 2 + 3;
-    root.appendChild(
-      svgText(left, top, shown, {
-        fontSize: 9,
-        fontWeight: '600',
-        fill: bar.estimated ? inkOn(bar.personColor) : theme.foreground,
-      }),
-    );
+    const label = svgText(left, top, shown, {
+      fontSize: 9,
+      fontWeight: '600',
+      fill: bar.estimated ? inkOn(bar.personColor) : theme.foreground,
+    });
+    // SVG text has no dependable equivalent of the live HTML label's
+    // overflow-hidden box. Clip in the outer document's pixel space instead,
+    // so real font metrics cannot carry this label into its neighbour. The
+    // cloned bar retains the full barFacts aria-label; this visible copy is
+    // presentation-only and must not announce a shorter duplicate.
+    label.setAttribute('clip-path', `url(#${clipId})`);
+    label.setAttribute('aria-hidden', 'true');
+    root.appendChild(label);
   }
 
   return root;

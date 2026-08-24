@@ -4606,6 +4606,20 @@ describe('downloading the chart as a standalone .svg', () => {
       personNames: new Map([['kat', 'Kat']]),
     });
 
+  const twoWideRolePlan = (): GanttPlan =>
+    planOf({
+      rows: [rowAt('hull', 0, 14, { number: '010', name: 'Hull' })],
+      slices: [
+        sliceAt('hull-dev', 'hull', 0, 7, { personId: 'kat' }),
+        sliceAt('hull-qa', 'hull', 7, 14, { roleId: 'qa' }),
+      ],
+      roles: [
+        { id: 'dev', name: 'Dev' },
+        { id: 'qa', name: 'QA' },
+      ],
+      personNames: new Map([['kat', 'Kat']]),
+    });
+
   const clickDownload = (): void => {
     const button = document.querySelector('[data-gantt-svg-download]');
     if (!(button instanceof HTMLElement)) throw new Error('no download control on the panel');
@@ -4686,6 +4700,55 @@ describe('downloading the chart as a standalone .svg', () => {
     const nested = doc.querySelector('svg svg');
     const outer = Number(doc.documentElement.getAttribute('width'));
     expect(outer).toBe(176 + Number(nested?.getAttribute('width')));
+  });
+
+  itDom('clips every visible bar label to that bar at the Months rung', async () => {
+    render(
+      <GanttPanel
+        plan={twoWideRolePlan()}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={4}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointedRow={null}
+      />,
+    );
+    const { blobs } = captureDownloads();
+    clickDownload();
+
+    const doc = new DOMParser().parseFromString(await readBlobText(blobs[0]), 'image/svg+xml');
+    expect(doc.querySelector('parsererror')).toBeNull();
+    const bars = [...doc.querySelectorAll<SVGRectElement>('[data-gantt-bar]')];
+    const labels = [...doc.documentElement.children].filter(
+      (element): element is SVGTextElement =>
+        element.tagName === 'text' &&
+        element.getAttribute('font-weight') === '600' &&
+        element.textContent.includes('010 - Hull'),
+    );
+    expect(labels).toHaveLength(bars.length);
+
+    for (const [index, label] of labels.entries()) {
+      const bar = bars[index];
+      const clip = /^url\(#([^)]+)\)$/.exec(label.getAttribute('clip-path') ?? '');
+      if (clip === null) throw new Error('visible bar label is not clipped');
+      const clipRect = doc.querySelector<SVGRectElement>(`clipPath#${clip[1]} > rect`);
+      expect(clipRect).not.toBeNull();
+
+      const barLeft = 176 + CHART_PAD_PX + Number(bar.getAttribute('x')) * 4;
+      const barWidth = Number(bar.getAttribute('width')) * 4;
+      const clipLeft = Number(clipRect?.getAttribute('x'));
+      const clipWidth = Number(clipRect?.getAttribute('width'));
+      expect(clipLeft).toBe(barLeft);
+      expect(clipWidth).toBe(barWidth);
+      expect(clipLeft + clipWidth).toBeLessThanOrEqual(barLeft + barWidth);
+      // The visible copy is presentation-only; the cloned bar retains every
+      // fact in the same accessible label as the live chart.
+      expect(label.getAttribute('aria-hidden')).toBe('true');
+      expect(bar.getAttribute('aria-label')).toContain('010 - Hull');
+    }
   });
 
   itDom('downloads a well-formed, self-contained .svg carrying the chart’s own marks', async () => {
