@@ -5,8 +5,10 @@ import {
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
   oidcIdentityFromClaims,
+  oidcTokenVerifierFromEnv,
   type OidcTransactionStore,
   type TokenStore,
+  type TokenVerifier,
 } from '@wbs/auth';
 import { Elysia, t } from 'elysia';
 
@@ -24,6 +26,7 @@ export interface OidcRouteOptions {
   redirectUri: string;
   tokens: TokenStore;
   transactions: OidcTransactionStore;
+  verifier: TokenVerifier;
 }
 
 export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>): OidcRouteOptions {
@@ -57,6 +60,7 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
     redirectUri: redirectUri.href,
     tokens: new InMemoryTokenStore(),
     transactions: new InMemoryOidcTransactionStore({ ttlMs: 300_000 }),
+    verifier: oidcTokenVerifierFromEnv(env),
   };
 }
 

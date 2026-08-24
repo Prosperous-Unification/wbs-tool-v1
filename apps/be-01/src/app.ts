@@ -16,6 +16,7 @@ import { projectController } from './controller/project.controller';
 import { roleController } from './controller/role.controller';
 import { smokeController } from './controller/smoke.controller';
 import { workItemController } from './controller/work-item.controller';
+import { userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
@@ -126,13 +127,33 @@ export function buildApp(opts: AppOptions) {
       // this app by `openapi-document.test.ts`, so a route that goes missing
       // here is a red rather than a silent omission.
       .use(openApiPlugin())
-      .onBeforeHandle(({ request, set }) => {
+      .onRequest(async ({ request, set }) => {
         if (opts.oidc !== undefined && hasInvalidCookieOrigin(request, opts.oidc.appOrigin)) {
           set.status = 403;
           return { error: 'invalid_origin' };
         }
+        if (requiresWriteScope(request)) {
+          // `onRequest` deliberately runs before Elysia parses and validates a
+          // body. A reader gets the authorization answer without letting an
+          // invalid body route around the write-scope boundary as a 422.
+          const requestIdentity = await userFromHeaders(
+            opts.auth,
+            Object.fromEntries(request.headers.entries()),
+          );
+          if (requestIdentity === null) {
+            set.status = 401;
+            return { error: 'unauthenticated' };
+          }
+          if (!requestIdentity.scopes.includes('write')) {
+            set.status = 403;
+            return { error: 'insufficient_scope' };
+          }
+        }
         return undefined;
       })
+      .derive(async ({ headers }) => ({
+        requestIdentity: await userFromHeaders(opts.auth, headers),
+      }))
       .use(smokeController)
       .use(authController(opts.auth, opts.oidc))
       .use(projectController(opts.auth, opts.projects))
@@ -194,4 +215,13 @@ export function buildApp(opts: AppOptions) {
         return { status: 'ok' as const, commit };
       })
   );
+}
+
+const WRITE_METHODS = new Set(['DELETE', 'PATCH', 'POST', 'PUT']);
+
+/** User-facing domain writes; auth handshakes, internal RPC, and pure echo are not domain writes. */
+export function requiresWriteScope(request: Request): boolean {
+  if (!WRITE_METHODS.has(request.method)) return false;
+  const path = new URL(request.url).pathname;
+  return path.startsWith('/api/') && !path.startsWith('/api/auth/') && path !== '/api/smoke/echo';
 }
