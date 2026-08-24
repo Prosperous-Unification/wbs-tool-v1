@@ -1711,6 +1711,36 @@ test.describe('the surface a bar opens, as a browser places it', () => {
 test.describe('a bar on a touch screen', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
+  test('opens facts first in full screen, then dismisses or takes a deliberate second tap', async ({
+    page,
+  }) => {
+    await seedOnALaptop(page, nextAccount(), { extraRows: 12 });
+    await openTheChart(page, { throughTheSheet: true });
+    await page.locator('[data-gantt-fullscreen-toggle]').tap();
+    await expect(page.locator('[data-gantt-fullscreen]')).toHaveCount(1);
+
+    const bar = page.locator('[data-gantt-bar]').first();
+    await bar.tap();
+
+    await expect(surface(page)).toBeVisible();
+    await expect(surface(page)).toContainText('010.1');
+    await expect(page.getByLabel('Name of 010.1')).not.toBeFocused();
+
+    // A tap on the chart outside the open bar is the phone's dismissal route;
+    // it leaves the reader in full screen and does not substitute another card.
+    await page.locator('[data-axis-day="0"]').tap();
+    await expect(surface(page)).toHaveCount(0);
+    await expect(page.locator('[data-gantt-fullscreen]')).toHaveCount(1);
+
+    // The first tap asks for facts again. The second tap on that same bar is a
+    // deliberate navigation, so it leaves full screen and lands on the row.
+    await bar.tap();
+    await expect(surface(page)).toBeVisible();
+    await bar.tap();
+    await expect(page.locator('[data-gantt-fullscreen]')).toHaveCount(0);
+    await expect(page.getByLabel('Name of 010.1')).toBeFocused();
+  });
+
   test('takes the plan to the row and opens no surface at all', async ({ page }) => {
     await seedOnALaptop(page, nextAccount(), { extraRows: 12 });
     await openTheChart(page, { throughTheSheet: true });
