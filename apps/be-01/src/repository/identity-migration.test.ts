@@ -11,6 +11,7 @@ import { rollbackTo } from './migrate-down';
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const PERSON_KIND = '20260821150000_add_person_kind';
 const OIDC_IDENTITY = '20260824010000_add_oidc_identity';
+const SOLUTION_REF = '20260824020000_add_solution_ref';
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-identity-migrate-'));
@@ -24,7 +25,7 @@ function tempDb(): { path: string; cleanup: () => void } {
 
 function beforeIdentity(dbPath: string): void {
   runMigrations(dbPath, FOLDER);
-  expect(rollbackTo(dbPath, FOLDER, PERSON_KIND)).toEqual([OIDC_IDENTITY]);
+  expect(rollbackTo(dbPath, FOLDER, PERSON_KIND)).toEqual([SOLUTION_REF, OIDC_IDENTITY]);
 
   const db = openDatabase(dbPath);
   try {
@@ -107,7 +108,7 @@ describe('the OIDC identity migration', () => {
     try {
       beforeIdentity(db.path);
       runMigrations(db.path, FOLDER);
-      expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([OIDC_IDENTITY]);
+      expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([SOLUTION_REF, OIDC_IDENTITY]);
 
       const sqlite = openDatabase(db.path);
       try {
