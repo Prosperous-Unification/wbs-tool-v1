@@ -958,6 +958,27 @@
   }
 
   /*
+   * The create affordance on the team/tag/service cells, the same quiet shape
+   * as the deps `+` beside it: no border and no fill by default, so a column
+   * of them reads as a margin rather than a column of controls. `background:
+   * none` is what keeps it off the user-agent `ButtonFace` the dark-mode
+   * palette tests flag; the fill appears only under the pointer, at the deps
+   * `+`'s own dose.
+   */
+  [data-grid] button[data-creatable-add] {
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  [data-grid] button[data-creatable-add]:hover {
+    background: color-mix(in oklab, var(--foreground) 7%, var(--cell-bg));
+    color: var(--foreground);
+  }
+
+  /*
    * Hovered: the row's own ink at the row's own dose, into whatever surface
    * the row is currently painted — `--cell-bg`, which is the join every other
    * state in this file re-points (banded, hovered, dep-lit, drop target).

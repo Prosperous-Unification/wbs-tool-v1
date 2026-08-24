@@ -368,6 +368,7 @@ export function CreatablePicker({
           type="button"
           tabIndex={-1}
           aria-label={addButtonLabel}
+          data-creatable-add=""
           // The press must not move the focus, or the box's own blur discards
           // what was typed — the deps `+`'s contract, and the Name cell's notes
           // marker before it. `preventDefault` on mousedown suppresses focus,
