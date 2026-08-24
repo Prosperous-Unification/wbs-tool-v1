@@ -82,10 +82,13 @@ main-session review even when earlier slices merge to dev on green.
         `/mcp*` routing and only the three exact RFC well-known paths — negative:
         a `handle_path` or blanket `/.well-known/*` candidate must fail its
         contract test; validate the full candidate with Caddy on h2puni.
-  - [x] 6.3.3 Add exact MCP metadata and 401-challenge assertions to
-        `bin/dev-deploy.sh`; seed the gitignored mcp-01 env by key name only and
-        verify its mode is 600. Existing mcp-01 tests remain the automated DCR,
-        PKCE, one-use grant, audience-bound token, and upstream-mapping proof.
+  - [x] 6.3.3 Add exact MCP metadata and 401-challenge assertions behind the
+        explicit `MCP_EXPOSURE_EXPECTED=1` cutover signal; probe both RFC 9728
+        locations and fail devsync clearly when its gitignored mcp-01 env is
+        absent. Existing mcp-01 tests remain the automated DCR, PKCE, one-use
+        grant, audience-bound token, and upstream-mapping proof.
   - [ ] 6.3.4 After main-session exposure review and green CI, apply the Auth0
-        callback allowlist plus Caddy candidate, merge, and drive discovery →
-        DCR → Auth0 → token → `tools/list` with MCP Inspector or claude.ai.
+        callback only after merge starts mcp-01; back up, validate, then reload
+        Caddy and run the exposure probe; restore Caddy and remove the callback
+        on failure. Drive discovery → DCR → Auth0 → token → `tools/list` with
+        MCP Inspector or claude.ai.

@@ -106,6 +106,12 @@ export function needsRestart(before: Fingerprint, after: Fingerprint): boolean {
   return false;
 }
 
+export async function assertMcpEnv(path = `${SRC}/apps/mcp-01/.env`): Promise<void> {
+  if (!(await Bun.file(path).exists())) {
+    throw new Error(`missing ${path}; seed the gitignored mcp-01 environment before deploying`);
+  }
+}
+
 /** sha256 of a file, or of a directory's recursive listing plus contents. */
 async function hashPath(path: string): Promise<string> {
   try {
@@ -136,6 +142,8 @@ export async function sync(sha: string): Promise<void> {
   if (!head.startsWith(sha) && !sha.startsWith(head)) {
     throw new Error(`reset did not land: asked for ${sha}, HEAD is ${head}`);
   }
+
+  await assertMcpEnv();
 
   const after = await fingerprint();
 

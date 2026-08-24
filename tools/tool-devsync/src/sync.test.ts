@@ -1,6 +1,10 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'bun:test';
 
-import { needsRestart, RECREATE_PATHS, RESTART_PATHS } from './sync';
+import { assertMcpEnv, needsRestart, RECREATE_PATHS, RESTART_PATHS } from './sync';
 
 describe('needsRestart', () => {
   it('does not restart when nothing in the manifest changed', () => {
@@ -112,5 +116,16 @@ describe('RECREATE_PATHS', () => {
     for (const p of RECREATE_PATHS) {
       expect(RESTART_PATHS).not.toContain(p);
     }
+  });
+});
+
+describe('MCP environment prerequisite', () => {
+  it('fails clearly before restarting a supervisor that cannot start mcp-01', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'wbs-mcp-env-'));
+    const missing = join(directory, '.env');
+
+    expect(assertMcpEnv(missing)).rejects.toThrow(
+      `missing ${missing}; seed the gitignored mcp-01 environment before deploying`,
+    );
   });
 });

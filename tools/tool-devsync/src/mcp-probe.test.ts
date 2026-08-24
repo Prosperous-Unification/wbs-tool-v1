@@ -9,15 +9,29 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(async (server) => server.stop(true)));
 });
 
-function metadataServer(challengeResource = 'correct'): Bun.Server<undefined> {
+function metadataServer(
+  challengeResource = 'correct',
+  nestedResource = 'correct',
+  rootFailures = 0,
+): Bun.Server<undefined> {
   const server = Bun.serve({
     port: 0,
     fetch(request) {
       const url = new URL(request.url);
       const origin = url.origin;
-      if (url.pathname === '/.well-known/oauth-protected-resource') {
+      if (
+        url.pathname === '/.well-known/oauth-protected-resource' ||
+        url.pathname === '/.well-known/oauth-protected-resource/mcp'
+      ) {
+        if (url.pathname === '/.well-known/oauth-protected-resource' && rootFailures > 0) {
+          rootFailures -= 1;
+          return new Response('restarting', { status: 503 });
+        }
         return Response.json({
-          resource: `${origin}/mcp`,
+          resource:
+            url.pathname.endsWith('/mcp') && nestedResource === 'wrong'
+              ? `${origin}/wrong`
+              : `${origin}/mcp`,
           authorization_servers: [`${origin}/mcp/oauth`],
         });
       }
@@ -47,8 +61,20 @@ function metadataServer(challengeResource = 'correct'): Bun.Server<undefined> {
   return server;
 }
 
-async function runProbe(origin: string): Promise<{ exitCode: number; output: string }> {
-  const child = Bun.spawn(['bash', PROBE, origin], { stdout: 'pipe', stderr: 'pipe' });
+async function runProbe(
+  origin: string,
+  env: Record<string, string> = {},
+): Promise<{ exitCode: number; output: string }> {
+  const child = Bun.spawn(['bash', PROBE, origin], {
+    env: {
+      ...process.env,
+      MCP_EXPOSURE_EXPECTED: '1',
+      MCP_PROBE_DEADLINE_SECONDS: '0',
+      ...env,
+    },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -70,5 +96,27 @@ describe('dev MCP deployment probe', () => {
     const result = await runProbe(`http://127.0.0.1:${String(server.port)}`);
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toContain('unexpected MCP challenge');
+  });
+
+  it('rejects a wrong resource at the path-qualified RFC 9728 location', async () => {
+    const server = metadataServer('correct', 'wrong');
+    const result = await runProbe(`http://127.0.0.1:${String(server.port)}`);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('unexpected MCP resource');
+  });
+
+  it('skips MCP checks until public exposure is explicitly expected', async () => {
+    const result = await runProbe('http://127.0.0.1:1', { MCP_EXPOSURE_EXPECTED: '0' });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('MCP exposure not expected');
+  });
+
+  it('retries the semantic probe within the deployment restart deadline', async () => {
+    const server = metadataServer('correct', 'correct', 1);
+    const result = await runProbe(`http://127.0.0.1:${String(server.port)}`, {
+      MCP_PROBE_DEADLINE_SECONDS: '3',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('MCP discovery and challenge');
   });
 });
