@@ -510,6 +510,61 @@ test.describe('the plan on a phone, measured by a browser', () => {
   });
 
   /**
+   * The team picker's option rows, measured the way
+   * `wbs-team-picker-option-rows-20px` measured them on dev: an `li[role=option]`
+   * is 44px or it is a 20px stripe a finger cannot aim at, with no gap to the
+   * next row — so a miss lands on the neighbouring team, a silent wrong write.
+   *
+   * The card's *trigger* for this sheet is covered by
+   * `gives every control a finger has to hit at least 44px`, and the buttons
+   * and inputs the sheet itself draws by the `[data-modal-surface]` floor in
+   * `styles.css` — but that floor is a list of
+   * `button`/`summary`/`select`/`textarea`/`input` selectors, and a picker's
+   * options are `<li role="option">`, which none of them reach. The rows
+   * therefore sat at `padding: 2px 6px` — about 20px.
+   *
+   * Teams are seeded rather than taken for granted: the database behind this
+   * run is fresh (`tmp/e2e-<ts>.db`), and an empty directory renders no list
+   * for an empty search, so the measurement would pass vacuously. The seed goes
+   * through the API the page talks to and then a reload, because `addTeam`
+   * announces no `directory_changed` event — there is nothing to push a new
+   * team into a plan that has already loaded its directory.
+   */
+  test('sizes the team picker option rows to a finger', async ({ page }) => {
+    await page.evaluate(
+      async (names) => {
+        for (const name of names) {
+          const res = await fetch('/api/teams', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name }),
+          });
+          if (res.status !== 200)
+            throw new Error(`seeding "${name}" failed: ${String(res.status)}`);
+        }
+      },
+      ['Platform', 'Carpentry crew', 'Casting crew'],
+    );
+    await page.reload();
+
+    await page.getByRole('button', { name: 'Service or team for 010' }).click();
+    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeVisible();
+
+    // The sheet autofocuses the combobox and focus opens the list, so the whole
+    // directory is on screen with no key pressed.
+    const list = page.getByRole('listbox', { name: 'Service or team for 010' });
+    await expect(list).toBeVisible();
+
+    const shortRows = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-modal-surface] [role="option"]')]
+        .filter((option) => option.getClientRects().length > 0)
+        .map((option) => Math.round(option.getBoundingClientRect().height))
+        .filter((height) => height < 44),
+    );
+    expect(shortRows, 'the team picker shipped options under 44px').toEqual([]);
+  });
+
+  /**
    * The earliest start's round trip, by touch alone — `card-field-pickers`
    * chunk 4's fifth criterion, and the only one that chunk left unticked.
    *

@@ -1245,4 +1245,28 @@
     width: 22px;
     height: 22px;
   }
+
+  /*
+   * The option rows a combobox drops — the team picker's list, and the tag
+   * and service pickers beside it. The floor above sizes every *control* a
+   * modal sheet draws, but a picker's list is a stack of `<li role="option">`
+   * with `padding: 2px 6px` in `creatable-picker.tsx`, and none of the
+   * `button`, `summary`, `select`, `textarea` or `input` rules above selects a
+   * list item. A finger aiming at a team therefore met a 20px stripe with no
+   * gap to the next row, and a miss landed on the neighbouring team — a silent
+   * wrong write. `wbs-team-picker-option-rows-20px` measured exactly this: 12
+   * rows at `eff: 20` on both phone faces, while the Plan actions sheet in the
+   * same document was clean.
+   *
+   * `display: flex` + `align-items: center` is the same repair the close-box
+   * and the palette switch need above: a bare `min-height` on a line whose text
+   * is `padding: 2px 6px` off the top leaves the word at the top of the box it
+   * just grew. A `<li>` is block-level by default, so `flex` keeps it the full
+   * width of the list and therefore a full-width target.
+   */
+  [data-modal-surface] [role='option'] {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
 }
