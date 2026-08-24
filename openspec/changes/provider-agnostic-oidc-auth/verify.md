@@ -143,3 +143,28 @@ mode supplies the fixed `local-dev` identity without a cookie or IdP.
 
 Fresh h2puni gate: fe-01 1,714/0 and be-01 1,090/0; both lint and typecheck
 clean; global format clean; strict OpenSpec validation 73/73.
+
+## 12. Dev Okta cutover candidate — 2026-08-24
+
+The dev source compose file now reads only the shared OIDC provider settings
+from `/home/puni1/wbs-dev/oidc-dev.env` and starts every tier with
+`AUTH_MODE=oidc`. The file exists off-repo at mode 600; no provider value is in
+this change. Applying the compose change requires an explicit container
+recreation, so the public origin remains on local mode until the required
+public-exposure review passes.
+
+The legacy `x-wbs-token` branch is removed. Its production-path negative was
+watched red before implementation: the retired header authenticated and
+returned 200 when the test required 401. It now returns 401; cookie and standard
+Bearer inputs remain supported.
+
+Fresh h2puni candidate gate:
+
+- be-01: 1,101 tests passed, 0 failed; lint and typecheck clean
+- tool-devsync affected targets green
+- global format and plaintext-secret scan clean
+- strict OpenSpec validation: 73 passed, 0 failed
+- `docker compose config --quiet`: valid with the off-repo env file
+
+Real Okta browser acceptance is deliberately pending: changing the public auth
+mode before main-session review would violate the exposure gate this task names.
