@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { openDatabase } from './db';
 
+const FOREIGN_KEYS_OFF_MARKER = '-- foreign-keys-off-rebuild';
+
 /**
  * A row of drizzle's `__drizzle_migrations` bookkeeping table. `name` is the
  * migration folder and `hash` the sha256 of its `migration.sql`, both written
@@ -193,20 +195,27 @@ export function rollbackTo(dbPath: string, migrationsFolder: string, target: str
             'its down.sql cannot be trusted to reverse it',
         );
       }
+      const rebuild = folder.downSql.includes(FOREIGN_KEYS_OFF_MARKER);
+      if (rebuild) db.run('PRAGMA foreign_keys = OFF;');
       db.run('BEGIN');
       try {
         for (const statement of folder.downSql.split('--> statement-breakpoint')) {
           if (statement.trim() === '') continue;
-          db.run(statement);
+          // Bun 1.3.14 treats a bare `INSERT … SELECT;\n` as an empty final
+          // statement and reports zero changes. Trimming makes the statement
+          // that was hashed and reviewed the one SQLite actually executes.
+          db.run(statement.trim());
         }
         db.run('DELETE FROM __drizzle_migrations WHERE id = ?', [row.id]);
         db.run('COMMIT');
       } catch (e: unknown) {
         db.run('ROLLBACK');
+        if (rebuild) db.run('PRAGMA foreign_keys = ON;');
         throw new Error(
           `rolling back ${row.name} failed: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
+      if (rebuild) db.run('PRAGMA foreign_keys = ON;');
       reversed.push(row.name);
     }
     return reversed;

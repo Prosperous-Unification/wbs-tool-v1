@@ -51,4 +51,26 @@ describe('down script rules', () => {
     const issue = await lintMigration(file);
     expect(issue?.reason).toMatch(/DROP TABLE/);
   });
+
+  it('allows an explicitly guarded same-name compatibility rebuild', async () => {
+    const unguarded = migration(
+      '20260101000004_unguarded',
+      '-- migration-lint: compatible-table-rebuild\nDROP TABLE users;',
+      'SELECT 1;',
+    );
+    expect((await lintMigration(unguarded))?.reason).toMatch(/DROP TABLE/);
+
+    const file = migration(
+      '20260101000005_rebuild',
+      `-- migration-lint: compatible-table-rebuild
+       -- foreign-keys-off-rebuild
+       CREATE TABLE users_new (id text PRIMARY KEY);
+       DROP TABLE users;
+       ALTER TABLE users_new RENAME TO users;
+       CREATE TEMP TABLE fk_guard (violations integer CHECK (violations = 0));
+       INSERT INTO fk_guard SELECT COUNT(*) FROM pragma_foreign_key_check;`,
+      'SELECT 1;',
+    );
+    expect(await lintMigration(file)).toBeNull();
+  });
 });

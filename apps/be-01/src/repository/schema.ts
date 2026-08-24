@@ -30,10 +30,17 @@ export const users = sqliteTable(
   {
     id: text('id').primaryKey(),
     username: text('username').notNull(),
-    passwordHash: text('password_hash').notNull(),
+    passwordHash: text('password_hash'),
+    email: text('email'),
+    idpIssuer: text('idp_issuer'),
+    idpSub: text('idp_sub'),
     createdAt: integer('created_at').notNull(),
   },
-  (t) => [uniqueIndex('users_username').on(t.username)],
+  (t) => [
+    uniqueIndex('users_username').on(t.username),
+    uniqueIndex('users_email_normalized').on(sql`lower(${t.email})`),
+    uniqueIndex('users_idp_identity').on(t.idpIssuer, t.idpSub),
+  ],
 );
 
 export type UserRow = typeof users.$inferSelect;

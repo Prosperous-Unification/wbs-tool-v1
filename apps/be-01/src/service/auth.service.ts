@@ -70,6 +70,9 @@ export class AuthService {
       await Bun.password.verify(password, DUMMY_HASH).catch(() => false);
       return { ok: false, reason: 'invalid' };
     }
+    // OIDC-only accounts deliberately have no local credential. Treat them as
+    // an ordinary invalid login instead of passing null into Bun.password.
+    if (user.passwordHash === null) return { ok: false, reason: 'invalid' };
     const matches = await Bun.password.verify(password, user.passwordHash);
     if (!matches) return { ok: false, reason: 'invalid' };
     return { ok: true, result: await this.issue(user) };

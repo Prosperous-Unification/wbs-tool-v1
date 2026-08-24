@@ -165,6 +165,7 @@ const ROLE_MEASURE = '20260821140000_add_role_measure';
  * Stamped `20260821150000`, later than every folder on disk.
  */
 const PERSON_KIND = '20260821150000_add_person_kind';
+const OIDC_IDENTITY = '20260824010000_add_oidc_identity';
 
 function tempDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-migrate-down-'));
@@ -261,6 +262,7 @@ describe('readMigrationFolders', () => {
       WORK_ITEM_SERVICE,
       ROLE_MEASURE,
       PERSON_KIND,
+      OIDC_IDENTITY,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -360,11 +362,13 @@ describe('rollbackTo, against a real database', () => {
         WORK_ITEM_SERVICE,
         ROLE_MEASURE,
         PERSON_KIND,
+        OIDC_IDENTITY,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
@@ -439,6 +443,7 @@ describe('rollbackTo, against a real database', () => {
         WORK_ITEM_SERVICE,
         ROLE_MEASURE,
         PERSON_KIND,
+        OIDC_IDENTITY,
       ]);
     } finally {
       db.cleanup();
@@ -452,6 +457,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
         WORK_ITEM_SERVICE,
@@ -507,10 +513,10 @@ describe('rollbackTo, against a real database', () => {
       // *and* answers `[]` when there is genuinely something to reverse. Reading
       // `[]` as correct is only safe while every stamp is unique, which
       // `readMigrationFolders` now enforces.
-      expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([]);
+      expect(rollbackTo(db.path, FOLDER, OIDC_IDENTITY)).toEqual([]);
       // And the one before it still answers with exactly what is newer than it,
       // which is the half of this case a shared stamp would silently empty.
-      expect(rollbackTo(db.path, FOLDER, ROLE_MEASURE)).toEqual([PERSON_KIND]);
+      expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([OIDC_IDENTITY]);
       expect(tables(db.path)).toContain('users');
     } finally {
       db.cleanup();
