@@ -47,7 +47,10 @@ function registeredRoutes(value: unknown): RegisteredRoute[] {
   });
 }
 
-function fixture(idTokenClaims?: Record<string, unknown>) {
+function fixture(
+  idTokenClaims?: Record<string, unknown>,
+  routeOverrides: { passwordLoginEnabled?: boolean } = {},
+) {
   const exchangeClaims = arguments.length === 0 ? claims : idTokenClaims;
   const calls = {
     authorize: [] as unknown[],
@@ -102,6 +105,7 @@ function fixture(idTokenClaims?: Record<string, unknown>) {
     },
     tokens,
     transactions,
+    ...routeOverrides,
   };
   const users = inMemoryUsers();
   const app = buildApp({
@@ -162,6 +166,10 @@ describe('OIDC browser routes', () => {
     expect(login.status).toBe(200);
     expect(setCookie).toContain('HttpOnly; Secure; SameSite=Lax; Path=/');
     expect(token).toBeDefined();
+    expect(await login.json()).toEqual({
+      token: '',
+      user: { id: 'password-user', username: 'claire-qa' },
+    });
 
     const me = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/me', {
@@ -235,7 +243,10 @@ describe('OIDC browser routes', () => {
             username: `missing-${String(attempt)}`,
             password: 'wrong-password',
           }),
-          headers: { 'content-type': 'application/json', 'x-forwarded-for': '192.0.2.50' },
+          headers: {
+            'content-type': 'application/json',
+            'x-forwarded-for': `203.0.113.${String(attempt)}, 192.0.2.50`,
+          },
           method: 'POST',
         }),
       );
@@ -246,12 +257,30 @@ describe('OIDC browser routes', () => {
     const locked = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/login', {
         body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
-        headers: { 'content-type': 'application/json', 'x-forwarded-for': '192.0.2.50' },
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.99, 192.0.2.50',
+        },
         method: 'POST',
       }),
     );
     expect(locked.status).toBe(429);
     expect(await locked.json()).toEqual({ error: 'invalid_credentials' });
+  });
+
+  it('keeps the password login route hidden when its kill switch is false', async () => {
+    const f = fixture(undefined, { passwordLoginEnabled: false });
+
+    const login = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/login', {
+        body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }),
+    );
+
+    expect(login.status).toBe(404);
+    expect(await login.json()).toEqual({ error: 'not_found' });
   });
 
   it('refuses a read-only cookie before a domain mutation changes state', async () => {
