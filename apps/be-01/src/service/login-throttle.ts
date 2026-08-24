@@ -36,7 +36,7 @@ export class LoginThrottle {
       const current = this.attempts.get(key);
       if (current === undefined) {
         while (this.attempts.size >= MAX_ENTRIES) {
-          const oldest = this.attempts.keys().next().value as string | undefined;
+          const oldest = this.attempts.keys().next().value;
           if (oldest === undefined) break;
           this.attempts.delete(oldest);
         }

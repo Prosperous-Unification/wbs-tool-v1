@@ -253,7 +253,9 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
 
 function clientIpOf(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for')?.split(',', 1)[0]?.trim();
-  return forwarded || request.headers.get('x-real-ip') || 'unknown';
+  if (forwarded !== undefined && forwarded !== '') return forwarded;
+  const realIp = request.headers.get('x-real-ip');
+  return realIp === null || realIp === '' ? 'unknown' : realIp;
 }
 
 export function hasInvalidCookieOrigin(request: Request, appOrigin: string): boolean {
