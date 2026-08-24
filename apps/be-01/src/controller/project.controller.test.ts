@@ -138,6 +138,82 @@ const PROJECT_FIELDS = [
 ] as const;
 
 describe('projects', () => {
+  it('exports the project WBS and Gantt payload as JSON', async () => {
+    const { register, send } = buildHarness();
+    const token = await register('owner');
+    const create = await send('/api/projects', token, created('Export me'));
+    const { project } = (await create.json()) as { project: { id: string } };
+    await send(`/api/projects/${project.id}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Build the thing' }),
+    });
+
+    const res = await send(`/api/projects/${project.id}/export?format=json`, token);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const body = (await res.json()) as {
+      project: { id: string; name: string };
+      workItems: { name: string }[];
+      slices: unknown[];
+    };
+    expect(body.project).toMatchObject({ id: project.id, name: 'Export me' });
+    expect(body.workItems.map((item) => item.name)).toEqual(['Build the thing']);
+    expect(Array.isArray(body.slices)).toBe(true);
+  });
+
+  it('exports a readable Markdown WBS and Gantt table', async () => {
+    const { register, send } = buildHarness();
+    const token = await register('owner');
+    const create = await send('/api/projects', token, created('Export me'));
+    const { project } = (await create.json()) as { project: { id: string } };
+    await send(`/api/projects/${project.id}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Build | ship' }),
+    });
+
+    const res = await send(`/api/projects/${project.id}/export?format=markdown`, token);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/markdown');
+    const markdown = await res.text();
+    expect(markdown).toContain(
+      '# Export me\n\n| WBS | Work item | Start | Finish | Duration | Critical |\n',
+    );
+    expect(markdown).toContain('| 010 | Build \\| ship |');
+  });
+
+  it('refuses an unsupported export format', async () => {
+    const { register, send } = buildHarness();
+    const token = await register('owner');
+    const create = await send('/api/projects', token, created('Export me'));
+    const { project } = (await create.json()) as { project: { id: string } };
+
+    const res = await send(`/api/projects/${project.id}/export?format=xml`, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'unsupported_format' });
+  });
+
+  it('names an unknown project export as not found', async () => {
+    const { register, send } = buildHarness();
+    const token = await register('owner');
+
+    const res = await send('/api/projects/missing/export?format=json', token);
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('refuses project exports without read scope', async () => {
+    const { send } = buildHarness({ writeOnly: true });
+
+    const res = await send('/api/projects/anything/export?format=json', 'local-mode');
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'insufficient_scope' });
+  });
+
   it('resolves a project by its solution slug', async () => {
     const { register, send } = buildHarness();
     const token = await register('owner');

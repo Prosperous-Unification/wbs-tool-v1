@@ -64,7 +64,7 @@ main-session review even when earlier slices merge to dev on green.
       test: browser flow under local mode without an IdP.
 - [x] 5.2 Add nullable `solutionRef` and solution-slug lookup — test: migration
       round trip, known slug, collision, unknown slug, and read scope.
-- [ ] 5.3 Add JSON and Markdown project exports — test: both formats,
+- [x] 5.3 Add JSON and Markdown project exports — test: both formats,
       unsupported format, unknown project, and missing read scope.
 
 ## 6. Acceptance and cutover

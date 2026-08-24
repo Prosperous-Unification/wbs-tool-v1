@@ -225,6 +225,21 @@
         "operationId": "postApiProjectsByIdOpened"
       }
     },
+    "/api/projects/{id}/export": {
+      "get": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "getApiProjectsByIdExport"
+      }
+    },
     "/api/projects/{id}": {
       "get": {
         "parameters": [
