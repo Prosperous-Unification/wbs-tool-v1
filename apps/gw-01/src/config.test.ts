@@ -71,7 +71,13 @@ describe('loadConfig', () => {
     const disabled = loadConfig({ ...oidcEnv, AUTH_PASSWORD_LOGIN: 'false' }, oidcVerifier);
     const enabled = loadConfig({ ...oidcEnv, AUTH_PASSWORD_LOGIN: 'true' }, oidcVerifier);
 
-    await expect(disabled.wsAuth?.verifier?.verify(token)).rejects.toThrow(/not an OIDC token/);
+    let disabledError: unknown;
+    try {
+      await disabled.wsAuth?.verifier?.verify(token);
+    } catch (err) {
+      disabledError = err;
+    }
+    expect((disabledError as Error).message).toMatch(/not an OIDC token/);
     expect((await enabled.wsAuth?.verifier?.verify(token))?.sub).toBe('password-user');
   });
 });
