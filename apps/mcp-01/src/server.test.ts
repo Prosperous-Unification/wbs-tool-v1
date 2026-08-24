@@ -9,8 +9,8 @@ import { createServer, describeTool, resolveDocumentFile, SERVER_VERSION } from 
 import type { FetchLike } from './wbs-client';
 
 const CONFIG: McpConfig = {
+  MCP_AUTH_MODE: 'standalone',
   WBS_API_URL: 'https://dev.wbs.bulletpoints.club',
-  WBS_TOKEN: 'token-abc',
   WBS_BASIC_AUTH: undefined,
 };
 
@@ -70,7 +70,12 @@ async function connected(
   fetchImpl: FetchLike,
 ): Promise<{ client: Client }> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = createServer({ tools, config: CONFIG, fetchImpl });
+  const server = createServer({
+    tools,
+    config: CONFIG,
+    fetchImpl,
+    callerTokenOf: () => 'token-abc',
+  });
   const client = new Client({ name: 'test-client', version: '0.0.0' }, { capabilities: {} });
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
   return { client };
@@ -111,7 +116,7 @@ describe('the round trip over MCP', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.method).toBe('GET');
     expect(seen[0]?.url).toBe('https://dev.wbs.bulletpoints.club/api/projects/p-1/work-items');
-    expect(seen[0]?.headers['x-wbs-token']).toBe('token-abc');
+    expect(seen[0]?.headers['authorization']).toBe('Bearer token-abc');
     expect(seen[0]?.body).toBeUndefined();
     // be-01's body, passed through rather than re-serialised.
     expect(result.content).toEqual([{ type: 'text', text: '{"workItems":[]}' }]);
@@ -129,7 +134,7 @@ describe('the round trip over MCP', () => {
 
     expect(seen[0]?.method).toBe('PATCH');
     expect(seen[0]?.url).toBe('https://dev.wbs.bulletpoints.club/api/work-items/w-1');
-    expect(seen[0]?.headers['x-wbs-token']).toBe('token-abc');
+    expect(seen[0]?.headers['authorization']).toBe('Bearer token-abc');
     expect(seen[0]?.headers['content-type']).toBe('application/json');
     expect(JSON.parse(seen[0]?.body ?? 'null')).toEqual({ name: 'Renamed' });
   });

@@ -99,6 +99,7 @@ export interface ServerDeps {
   readonly config: McpConfig;
   /** Injectable for the round trip in `server.test.ts`; production passes none. */
   readonly fetchImpl?: FetchLike;
+  readonly callerTokenOf?: (authInfo: { readonly token: string } | undefined) => string;
 }
 
 const errorText = (message: string): ToolTextResult => ({
@@ -137,7 +138,7 @@ const asCallToolResult = (
  * has settled on typebox and arktype. See design.md D5.
  */
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- D5, see above.
-export function createServer({ tools, config, fetchImpl }: ServerDeps): Server {
+export function createServer({ tools, config, fetchImpl, callerTokenOf }: ServerDeps): Server {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- D5, see above.
@@ -156,7 +157,7 @@ export function createServer({ tools, config, fetchImpl }: ServerDeps): Server {
     })),
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const tool = byName.get(request.params.name);
 
     // A name that is not a tool is not a failed call, it is a call that was
@@ -174,7 +175,19 @@ export function createServer({ tools, config, fetchImpl }: ServerDeps): Server {
 
     try {
       return asCallToolResult(
-        await callTool(tool, request.params.arguments ?? {}, config, fetchImpl),
+        await callTool(
+          tool,
+          request.params.arguments ?? {},
+          config,
+          fetchImpl,
+          callerTokenOf === undefined
+            ? (() => {
+                if (extra.authInfo === undefined)
+                  throw new Error('authenticated caller is required');
+                return extra.authInfo.token;
+              })()
+            : callerTokenOf(extra.authInfo),
+        ),
       );
     } catch (cause) {
       // The opposite case, and deliberately not a throw. An undeclared input or

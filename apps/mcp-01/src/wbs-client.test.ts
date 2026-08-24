@@ -6,8 +6,8 @@ import type { FetchLike } from './wbs-client';
 import { buildRequest, callTool } from './wbs-client';
 
 const CONFIG: McpConfig = {
+  MCP_AUTH_MODE: 'standalone',
   WBS_API_URL: 'https://dev.wbs.bulletpoints.club',
-  WBS_TOKEN: 'token-abc',
   WBS_BASIC_AUTH: undefined,
 };
 
@@ -93,18 +93,19 @@ describe('buildRequest', () => {
     expect(request.headers['content-type']).toBe('application/json');
   });
 
-  it('sends the account token on every request', () => {
-    expect(buildRequest(READ, { id: 'p1' }, CONFIG).headers['x-wbs-token']).toBe('token-abc');
+  // Proof: omitting callerToken made this test observe no Authorization header.
+  it('forwards the caller token as Bearer authentication', () => {
+    expect(buildRequest(READ, { id: 'p1' }, CONFIG, 'caller-token').headers['authorization']).toBe(
+      'Bearer caller-token',
+    );
   });
 
   it('adds a basic-auth header only when WBS_BASIC_AUTH is set', () => {
     expect(buildRequest(READ, { id: 'p1' }, CONFIG).headers['authorization']).toBeUndefined();
     const gated = buildRequest(READ, { id: 'p1' }, { ...CONFIG, WBS_BASIC_AUTH: 'dany:hunter2' });
-    expect(gated.headers['authorization']).toBe(
+    expect(gated.headers['proxy-authorization']).toBe(
       `Basic ${Buffer.from('dany:hunter2', 'utf8').toString('base64')}`,
     );
-    // The gate credential must not displace the account one.
-    expect(gated.headers['x-wbs-token']).toBe('token-abc');
   });
 
   it('escapes a path parameter rather than letting it change the path', () => {
@@ -145,10 +146,10 @@ describe('buildRequest', () => {
 describe('callTool', () => {
   it('returns be-01’s JSON body unedited on success', async () => {
     const be01 = stub(json(200, { items: [{ id: 'w1', number: '1.1' }] }));
-    const result = await callTool(READ, { id: 'p1' }, CONFIG, be01.fetch);
+    const result = await callTool(READ, { id: 'p1' }, CONFIG, be01.fetch, 'caller-token');
     expect(result.isError).toBeUndefined();
     expect(JSON.parse(textOf(result))).toEqual({ items: [{ id: 'w1', number: '1.1' }] });
-    expect(be01.calls[0]?.headers['x-wbs-token']).toBe('token-abc');
+    expect(be01.calls[0]?.headers['authorization']).toBe('Bearer caller-token');
     expect(be01.calls[0]?.method).toBe('GET');
   });
 
@@ -180,14 +181,14 @@ describe('callTool', () => {
   // Watched red for D6 / task 3.3. A 401 must not read like a 400: the caller
   // cannot fix an expired token by sending different inputs. Drop the 401
   // branch and this goes red.
-  it('names the expired token and the restart on a 401 from be-01', async () => {
+  it('names the caller token and sign-in recovery on a 401 from be-01', async () => {
     const be01 = stub(json(401, { error: 'unauthorized' }));
     const result = await callTool(READ, { id: 'p1' }, CONFIG, be01.fetch);
     expect(result.isError).toBe(true);
     const message = textOf(result);
-    expect(message).toMatch(/WBS_TOKEN/);
-    expect(message).toMatch(/expired or invalid/);
-    expect(message).toMatch(/restart/i);
+    expect(message).toMatch(/caller access token/);
+    expect(message).toMatch(/expired, invalid/);
+    expect(message).toMatch(/sign in again/i);
     expect(message).toContain('unauthorized');
   });
 
@@ -204,7 +205,7 @@ describe('callTool', () => {
     const message = textOf(await callTool(READ, { id: 'p1' }, CONFIG, be01.fetch));
     expect(message).toContain('WBS_BASIC_AUTH');
     expect(message).toMatch(/never reached the API/);
-    expect(message).not.toContain('WBS_TOKEN');
+    expect(message).not.toContain('caller access token');
   });
 
   it('keeps the status when a refusal body is not JSON', async () => {
