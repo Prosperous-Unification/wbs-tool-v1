@@ -750,37 +750,40 @@ describe('the selection is a claim too', () => {
 });
 
 describe('the hover card follows the list, not a stale pointer', () => {
-  itDom('shows the card for the entry the pointer rests on, then nothing stale after Escape and reopen', async () => {
-    pageWith(fakeProjects(TWO));
-    await waitFor(() => {
-      expect(screen.getByLabelText('Project')).toBeDefined();
-    });
-    openPicker();
-    await waitFor(() => {
-      expect(optionNames().length).toBe(2);
-    });
+  itDom(
+    'shows the card for the entry the pointer rests on, then nothing stale after Escape and reopen',
+    async () => {
+      pageWith(fakeProjects(TWO));
+      await waitFor(() => {
+        expect(screen.getByLabelText('Project')).toBeDefined();
+      });
+      openPicker();
+      await waitFor(() => {
+        expect(optionNames().length).toBe(2);
+      });
 
-    // Hover the second project.
-    fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
-    expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
+      // Hover the second project.
+      fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
+      expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
 
-    // Close with Escape while the pointer remains over p2 — the options
-    // unmount, so no mouseleave fires and the pointer id would linger.
-    fireEvent.keyDown(picker(), { key: 'Escape' });
-    expect(optionNames()).toEqual([]);
+      // Close with Escape while the pointer remains over p2 — the options
+      // unmount, so no mouseleave fires and the pointer id would linger.
+      fireEvent.keyDown(picker(), { key: 'Escape' });
+      expect(optionNames()).toEqual([]);
 
-    // Reopen by keyboard: the card must not show the stale pointer's project.
-    openPicker();
-    await waitFor(() => {
-      expect(optionNames().length).toBe(2);
-    });
-    expect(screen.queryByRole('tooltip')).toBeNull();
+      // Reopen by keyboard: the card must not show the stale pointer's project.
+      openPicker();
+      await waitFor(() => {
+        expect(optionNames().length).toBe(2);
+      });
+      expect(screen.queryByRole('tooltip')).toBeNull();
 
-    // The card now follows the keyboard highlight, never the old pointer.
-    fireEvent.keyDown(picker(), { key: 'ArrowDown' });
-    expect(await screen.findByRole('tooltip', { name: 'Rewire the shed' })).toBeDefined();
-    expect(screen.queryByRole('tooltip', { name: 'Paint the fence' })).toBeNull();
-  });
+      // The card now follows the keyboard highlight, never the old pointer.
+      fireEvent.keyDown(picker(), { key: 'ArrowDown' });
+      expect(await screen.findByRole('tooltip', { name: 'Rewire the shed' })).toBeDefined();
+      expect(screen.queryByRole('tooltip', { name: 'Paint the fence' })).toBeNull();
+    },
+  );
 
   itDom('does not leave the just-chosen project’s card showing on the next open', async () => {
     const api = fakeProjects(TWO);
