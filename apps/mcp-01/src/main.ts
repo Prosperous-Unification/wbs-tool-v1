@@ -1,6 +1,7 @@
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { oidcTokenVerifierFromEnv } from '@wbs/auth';
 
 import { loadConfig } from './config';
+import { startHttpServer } from './http';
 import { readDocument, toolsFromDocument } from './openapi-tools';
 import { createServer, resolveDocumentFile } from './server';
 
@@ -15,9 +16,12 @@ import { createServer, resolveDocumentFile } from './server';
 const config = loadConfig();
 const tools = toolsFromDocument(readDocument(resolveDocumentFile()));
 const server = createServer({ tools, config });
-
-await server.connect(new StdioServerTransport());
+const verifier =
+  config.MCP_AUTH_MODE === 'standalone'
+    ? oidcTokenVerifierFromEnv(process.env)
+    : { verify: () => Promise.reject(new Error('gateway mode must not verify locally')) };
+const http = await startHttpServer(server, config, verifier);
 
 console.error(
-  `mcp-01: ${String(tools.length)} tools derived from the OpenAPI document, serving ${config.WBS_API_URL} on stdio.`,
+  `mcp-01: ${String(tools.length)} tools derived from the OpenAPI document, serving ${config.WBS_API_URL} on http://127.0.0.1:${String(http.port)}/mcp.`,
 );

@@ -69,6 +69,7 @@ export function buildRequest(
   tool: DerivedTool,
   input: Readonly<Record<string, unknown>>,
   config: McpConfig,
+  callerToken?: string,
 ): WbsRequest {
   const query = new URLSearchParams();
   const body: Record<string, unknown> = {};
@@ -105,12 +106,12 @@ export function buildRequest(
     return encodeURIComponent(value);
   });
 
-  const headers: Record<string, string> = { 'x-wbs-token': config.WBS_TOKEN };
+  const headers: Record<string, string> = {};
+  if (callerToken !== undefined) headers['authorization'] = `Bearer ${callerToken}`;
   if (config.WBS_BASIC_AUTH !== undefined) {
-    // The deployment gate, not the account: dev sits behind basic auth on every
-    // path but `/ws*`. be-01 reads `x-wbs-token` and never `Authorization`, so
-    // the two credentials do not collide.
-    headers['authorization'] =
+    // The deployment gate, not the caller. Bearer authentication owns the
+    // Authorization header, so an upstream proxy credential uses its own field.
+    headers['proxy-authorization'] =
       `Basic ${Buffer.from(config.WBS_BASIC_AUTH, 'utf8').toString('base64')}`;
   }
 
@@ -172,7 +173,7 @@ function refusal(tool: DerivedTool, response: Response, bodyText: string): ToolT
   } from ${where}.`;
   const token =
     response.status === 401
-      ? ' The account token in WBS_TOKEN is expired or invalid — a be-01 token lasts 12 hours, cannot be refreshed and cannot be revoked, so mcp-01 must be restarted with a fresh one (design.md D6).'
+      ? ' The caller access token is expired, invalid, or lacks the issuer/audience be-01 trusts; sign in again and retry.'
       : '';
   return text(`${head}${token}${trimmed === '' ? '' : `\n${trimmed}`}`, true);
 }
@@ -190,8 +191,9 @@ export async function callTool(
   input: Readonly<Record<string, unknown>>,
   config: McpConfig,
   fetchImpl: FetchLike = fetch,
+  callerToken?: string,
 ): Promise<ToolTextResult> {
-  const request = buildRequest(tool, input, config);
+  const request = buildRequest(tool, input, config, callerToken);
   const response = await fetchImpl(request.url, {
     method: request.method,
     headers: { ...request.headers },

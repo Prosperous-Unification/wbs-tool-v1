@@ -48,7 +48,7 @@ main-session review even when earlier slices merge to dev on green.
 
 - [x] 4.1 Authenticate WebSocket upgrades from the session cookie and enforce
       allowed Origin — test: expired cookie and cross-site upgrade failures.
-- [ ] 4.2 Implement MCP standalone and trusted-gateway modes, caller propagation,
+- [x] 4.2 Implement MCP standalone and trusted-gateway modes, caller propagation,
       and three health probes — test: both modes and false trusted-gateway boot.
 - [ ] 4.3 Spike Claude connector registration and record the proven token,
       audience, issuer, and forwarding trace before fronting-AS code starts.

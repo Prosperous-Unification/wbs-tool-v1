@@ -2,9 +2,8 @@ import { mcpAuthModeOf } from '@wbs/auth';
 import { type } from '@wbs/validation';
 
 /**
- * mcp-01's whole configuration: where be-01 is, the token to speak to it with,
- * and — for the dev deployment, which sits behind basic auth on every path but
- * `/ws*` — an optional `user:pass`.
+ * mcp-01's whole non-provider configuration: trust mode, be-01 endpoint, and
+ * an optional deployment-gate credential. Caller credentials never live here.
  *
  * Nothing here has a default. `WBS_API_URL=http://localhost:3100` would look
  * harmless and then silently edit whichever deployment happened to answer on
@@ -14,24 +13,24 @@ import { type } from '@wbs/validation';
 export const McpConfig = type({
   MCP_AUTH_MODE: "'standalone'|'gateway'",
   WBS_API_URL: 'string.url',
-  WBS_TOKEN: 'string>0',
+  'MCP_TRUSTED_GATEWAY?': "'true'",
   // `user:pass`. The password may contain colons, the user may not — which is
   // also how an `Authorization: Basic` credential splits.
   'WBS_BASIC_AUTH?': /^[^:\s]+:.+$/,
 });
 export type McpConfig = typeof McpConfig.infer;
 
-const NAMES = ['MCP_AUTH_MODE', 'WBS_API_URL', 'WBS_TOKEN', 'WBS_BASIC_AUTH'] as const;
+const NAMES = ['MCP_AUTH_MODE', 'WBS_API_URL', 'MCP_TRUSTED_GATEWAY', 'WBS_BASIC_AUTH'] as const;
 
 const EXPECTATIONS: Record<(typeof NAMES)[number], string> = {
   MCP_AUTH_MODE: 'standalone or gateway authentication',
   WBS_API_URL: 'the base URL of a be-01 deployment, e.g. https://dev.wbs.bulletpoints.club',
-  WBS_TOKEN: 'a be-01 account token (12-hour lifetime, no scope — design.md D6)',
+  MCP_TRUSTED_GATEWAY: 'the exact value true when gateway mode terminates token verification',
   WBS_BASIC_AUTH: 'user:pass for the deployment’s basic auth, or unset',
 };
 
 /**
- * Reads the three variables and nothing else.
+ * Reads the MCP variables and nothing else.
  *
  * The narrow read is the point: `defineConfig` hands its whole env source to
  * `parseOrThrow`, which puts `JSON.stringify(input)` in the thrown message. For
@@ -40,12 +39,15 @@ const EXPECTATIONS: Record<(typeof NAMES)[number], string> = {
  * credentials. So the message here names variables and never values.
  */
 export const loadConfig = (env: Record<string, string | undefined> = process.env): McpConfig => {
-  mcpAuthModeOf(env);
+  const mode = mcpAuthModeOf(env);
+  if (mode === 'gateway' && env['MCP_TRUSTED_GATEWAY'] !== 'true') {
+    throw new Error('mcp-01 cannot start: MCP_TRUSTED_GATEWAY=true is required in gateway mode');
+  }
   const picked: Record<string, string> = {};
   for (const name of NAMES) {
     const value = env[name];
     // An empty string is an unset variable that went through a shell, not a
-    // value: `WBS_TOKEN=` must read the same as no `WBS_TOKEN` at all.
+    // An empty shell variable is absent, not a usable configuration value.
     if (value !== undefined && value !== '') picked[name] = value;
   }
 
