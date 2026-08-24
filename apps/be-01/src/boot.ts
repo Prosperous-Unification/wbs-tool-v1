@@ -6,6 +6,7 @@ import { readDeployedCommit } from './deployed-commit';
 import { openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
 import { runMigrations } from './repository/migrate';
+import type { AuthenticatedUser } from './service/auth.service';
 import { type BeServices, buildServices } from './services';
 
 export interface BootOptions {
@@ -16,6 +17,7 @@ export interface BootOptions {
   gwUrl: string;
   internalAuthSecret: string;
   oidc?: OidcRouteOptions;
+  localIdentity?: AuthenticatedUser;
   version?: string;
   /**
    * Local dev only, and off by default.
@@ -73,6 +75,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
             groupsClaim: opts.oidc.groupsClaim,
             verifier: opts.oidc.verifier,
           },
+    localIdentity: opts.localIdentity,
   });
 
   const state = { migrationsApplied: false };

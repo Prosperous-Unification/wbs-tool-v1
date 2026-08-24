@@ -8,8 +8,6 @@ export interface Session {
   user: SessionUser;
 }
 
-const STORAGE_KEY = 'wbs.session';
-
 /** The site gate rejected us; the app was never reached. */
 export const EDGE_UNAUTHORIZED = 'edge_unauthorized';
 
@@ -66,30 +64,15 @@ export const register = (username: string, password: string): Promise<Session> =
 export const login = (username: string, password: string): Promise<Session> =>
   post<Session>('/api/auth/login', { username, password });
 
-/** Proves a stored token is still valid, and returns who it belongs to. */
-export async function me(token: string): Promise<SessionUser | null> {
+/** Resolves the httpOnly browser session without exposing its token to JavaScript. */
+export async function me(): Promise<SessionUser | null> {
   // `x-wbs-token`, never `Authorization`. Dev's edge requires an
   // `Authorization: Basic` credential on /api, and a Bearer header from here
   // would overwrite the one the browser attaches — turning every authenticated
   // request into a 401 from Caddy that looks like an expired app token.
-  const res = await fetch('/api/auth/me', { headers: { 'x-wbs-token': token } });
+  const res = await fetch('/api/auth/me');
   if (!res.ok) return null;
   return ((await res.json()) as { user: SessionUser }).user;
-}
-
-export function loadSession(): Session | null {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === null) return null;
-  try {
-    return JSON.parse(raw) as Session;
-  } catch {
-    return null;
-  }
-}
-
-export function saveSession(session: Session | null): void {
-  if (session === null) localStorage.removeItem(STORAGE_KEY);
-  else localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
 }
 
 /**
@@ -98,7 +81,8 @@ export function saveSession(session: Session | null): void {
  * edge exempts `/ws` from basic auth — gw-01 rejects a missing or invalid
  * token itself.
  */
-export function websocketUrl(token: string): string {
+export function websocketUrl(token?: string): string {
+  void token;
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
+  return `${scheme}://${location.host}/ws`;
 }

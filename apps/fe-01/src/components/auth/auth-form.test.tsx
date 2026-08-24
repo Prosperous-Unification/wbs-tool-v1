@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { AuthForm } from './auth-form';
@@ -27,39 +27,12 @@ const itDom = hasDom ? it : it.skip;
  * `openspec/changes/shadcn-foundation/verify.md`.
  */
 describe('the signed-out screen', () => {
-  const nothing = () => {
-    // The tests here never sign in; the callback is required and unused.
-  };
+  itDom('starts the server-side OIDC flow without collecting credentials', () => {
+    render(<AuthForm />);
 
-  itDom('names itself with a heading', () => {
-    render(<AuthForm onSignedIn={nothing} />);
-
-    expect(screen.getByRole('heading', { name: 'Log in' })).toBeDefined();
-  });
-
-  itDom('renames that heading when the mode changes', () => {
-    render(<AuthForm onSignedIn={nothing} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Need an account? Register' }));
-
-    expect(screen.getByRole('heading', { name: 'Register' })).toBeDefined();
-  });
-
-  // The labels wrap their controls rather than pointing at them with `htmlFor`,
-  // and this is the assertion that says so — the swap's whole aria claim rests
-  // on it, and it was made in `verify.md` before anything checked it here.
-  itDom('labels both fields, by nesting rather than by id', () => {
-    render(<AuthForm onSignedIn={nothing} />);
-
-    expect(screen.getByLabelText('Username')).toBeInstanceOf(HTMLInputElement);
-    expect(screen.getByLabelText('Password')).toBeInstanceOf(HTMLInputElement);
-  });
-
-  itDom('names its submit for the mode it is in', () => {
-    render(<AuthForm onSignedIn={nothing} />);
-
-    expect(screen.getByRole('button', { name: 'Log in' })).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: 'Need an account? Register' }));
-    expect(screen.getByRole('button', { name: 'Create account' })).toBeDefined();
+    const link = screen.getByRole('link', { name: 'Continue with Okta' });
+    expect(link.getAttribute('href')).toBe('/api/auth/login');
+    expect(screen.queryByLabelText('Username')).toBeNull();
+    expect(screen.queryByLabelText('Password')).toBeNull();
   });
 });

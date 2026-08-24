@@ -5,7 +5,7 @@ import { AuthForm } from '@/components/auth/auth-form';
 import { AccountMenu } from '@/components/chrome/account-menu';
 import { AppFaultBoundary } from '@/components/chrome/app-fault';
 import { PresencePanel } from '@/components/presence/presence-panel';
-import { loadSession, me as fetchMe, saveSession, type Session } from '@/lib/api';
+import { me as fetchMe, type Session } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
 
 /**
@@ -42,23 +42,15 @@ function AppContent() {
   // revoked token shows the login form instead of a UI that fails on every
   // request.
   useEffect(() => {
-    const stored = loadSession();
-    if (stored === null) {
-      setChecked(true);
-      return;
-    }
     // `.catch` is not optional here: a rejected fetch — the site gate refusing
     // the request, a dropped connection — would otherwise leave `checked` false
     // forever and the app stuck on "Loading…", with no way to reach the form
     // that could fix it. A failed check means "not signed in", never "wait".
-    void fetchMe(stored.token)
+    void fetchMe()
       .then((user) => {
-        if (user === null) saveSession(null);
-        else setSession({ token: stored.token, user });
+        if (user !== null) setSession({ token: '', user });
       })
-      .catch(() => {
-        saveSession(null);
-      })
+      .catch(() => undefined)
       .finally(() => {
         setChecked(true);
       });
@@ -89,7 +81,7 @@ function AppContent() {
          * keep in step.
          */}
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">WBS tool v2</h1>
-        <AuthForm onSignedIn={setSession} />
+        <AuthForm />
       </main>
     );
 
@@ -134,7 +126,6 @@ function AppContent() {
             theme={theme}
             onChooseTheme={chooseTheme}
             onSignOut={() => {
-              saveSession(null);
               setSession(null);
             }}
           />

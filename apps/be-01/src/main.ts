@@ -25,6 +25,10 @@ try {
     gwUrl: cfg.GW_URL,
     internalAuthSecret: cfg.INTERNAL_AUTH_SECRET,
     oidc: cfg.AUTH_MODE === 'oidc' ? oidcRouteOptionsFromEnv(process.env) : undefined,
+    localIdentity:
+      cfg.AUTH_MODE === 'local'
+        ? { id: 'local-dev', username: 'local-dev', scopes: ['read', 'write', 'editor'] }
+        : undefined,
     version: process.env['VERSION'],
     migrateOnStartup: process.env['MIGRATE_ON_STARTUP'] === 'true',
   });

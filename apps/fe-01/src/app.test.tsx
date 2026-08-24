@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as Api from '@/lib/api';
@@ -7,34 +7,11 @@ import type * as Api from '@/lib/api';
 const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
 
-/**
- * `loadSession`, replaceable per test.
- *
- * It is the first thing `App` touches and the only seam between the app and the
- * browser that does not need a server: a stored session that cannot be read is
- * a fault in `App`'s own effect, which is exactly the part of the tree a
- * boundary around only the signed-in branch would not have covered. The rest of
- * the module stays real — `AuthForm` imports from it too.
- */
-const loadSession = vi.hoisted(() => vi.fn<[], Api.Session | null>(() => null));
-
-/**
- * `login`, so a test can put an account in without a server.
- *
- * The rest of the sign-in stays real — the form, its submit, `saveSession` —
- * because what is being asserted is where the app lands **after** the session
- * arrives, and a stubbed `AuthForm` would decide that question by itself.
- */
-const login = vi.hoisted(() =>
-  vi.fn<[string, string], Promise<Api.Session>>(() =>
-    Promise.resolve({ token: 'tok', user: { id: 'u1', username: 'kat' } }),
-  ),
-);
+const me = vi.hoisted(() => vi.fn<[], Promise<Api.SessionUser | null>>());
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof Api>()),
-  loadSession,
-  login,
+  me,
 }));
 
 const { App } = await import('./app');
@@ -46,7 +23,7 @@ const muteConsoleError = () =>
 let logged: ReturnType<typeof muteConsoleError>;
 
 beforeEach(() => {
-  loadSession.mockReturnValue(null);
+  me.mockResolvedValue(null);
   logged = muteConsoleError();
   window.history.replaceState({}, '', '/');
 });
@@ -60,7 +37,7 @@ afterEach(() => {
 });
 
 describe('the app root', () => {
-  itDom('shows the sign-in form when there is no stored session', async () => {
+  itDom('shows the sign-in link when there is no browser session', async () => {
     render(<App />);
 
     // The boundary is transparent when nothing throws: the app it wraps is
@@ -71,29 +48,15 @@ describe('the app root', () => {
     expect(document.querySelector('[data-app-fault]')).toBeNull();
   });
 
-  itDom('renders the fault page instead of an empty document when the app throws', async () => {
-    // F7, observed live 2026-08-09: React logged "Consider adding an error
-    // boundary" and `innerHTML` went empty. This is that, through the real
-    // `App`: the session check throws, nothing nearer catches it, and what the
-    // reader gets is a sentence and a way out rather than a blank page.
-    //
-    // Proof: `<AppFaultBoundary>` struck from `app.tsx`, leaving `App` as
-    // `AppContent` alone. This test failed with the render itself throwing —
-    // `Error: the stored session could not be read` out of `render`, not as a
-    // failed expectation — and `document.body.innerHTML` empty behind it.
-    // Watched 2026-08-09.
-    loadSession.mockImplementation(() => {
-      throw new Error('the stored session could not be read');
-    });
+  itDom('offers sign-in when the session check fails', async () => {
+    me.mockRejectedValue(new Error('network down'));
 
     render(<App />);
 
     await waitFor(() => {
-      expect(document.querySelector('[data-app-fault]')).not.toBeNull();
+      expect(screen.getByRole('link', { name: 'Continue with Okta' })).toBeDefined();
     });
-    expect(screen.getByRole('alert').textContent).toContain('the stored session could not be read');
-    expect(screen.getByRole('button', { name: 'Reload' })).toBeDefined();
-    expect(document.body.innerHTML).not.toBe('');
+    expect(document.querySelector('[data-app-fault]')).toBeNull();
   });
 });
 
@@ -112,7 +75,7 @@ describe('a signed-in address asked for while signed out', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Log in' })).toBeDefined();
+      expect(screen.getByRole('link', { name: 'Continue with Okta' })).toBeDefined();
     });
     // The whole of the negative below: with the router hoisted above the gate,
     // this heading is on screen for somebody with no session at all.
@@ -131,27 +94,18 @@ describe('a signed-in address asked for while signed out', () => {
    */
   itDom('honours the address it was opened at, once the account is in', async () => {
     window.history.replaceState({}, '', '/directory');
+    me.mockResolvedValue({ id: 'u1', username: 'kat' });
     // The directory page reads on arrival; it is the page under the address
     // rather than the subject here, so its two reads answer empty.
     vi.stubGlobal(
       'fetch',
-      vi.fn((path: string) =>
-        Promise.resolve(
-          new Response(JSON.stringify(path.includes('/people') ? { people: [] } : { teams: [] }), {
-            status: 200,
-          }),
-        ),
-      ),
+      vi.fn((path: string) => {
+        const collection = path.split('/').at(-1) ?? 'unknown';
+        return Promise.resolve(new Response(JSON.stringify({ [collection]: [] }), { status: 200 }));
+      }),
     );
 
     render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Log in' })).toBeDefined();
-    });
-
-    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'kat' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-password' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
 
     // The page that was asked for, not the project — and the address it was
     // asked at, unrewritten.

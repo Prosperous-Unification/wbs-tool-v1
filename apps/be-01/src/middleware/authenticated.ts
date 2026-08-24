@@ -29,9 +29,7 @@ export async function userFromHeaders(
   auth: AuthService,
   headers: Record<string, string | undefined>,
 ): Promise<AuthenticatedUser | null> {
-  const token = tokenFromHeaders(headers);
-  if (token === null) return null;
-  return auth.authenticate(token);
+  return auth.authenticate(tokenFromHeaders(headers));
 }
 
 function cookieValue(raw: string | undefined, name: string): string | null {

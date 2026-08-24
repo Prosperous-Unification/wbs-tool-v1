@@ -2,7 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { jwtVerify, SignJWT } from 'jose';
 
 import { buildApp } from '../app';
-import { TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
+import { AuthService } from '../service/auth.service';
+import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -103,6 +104,37 @@ describe('POST /api/auth/login', () => {
 });
 
 describe('GET /api/auth/me', () => {
+  it('returns the fixed development identity without a token in local mode', async () => {
+    const users = inMemoryUsers();
+    const local = new AuthService({
+      users,
+      identities: users,
+      jwtKey: TEST_JWT_KEY,
+      localIdentity: {
+        id: 'local-dev',
+        username: 'local-dev',
+        scopes: ['read', 'write', 'editor'],
+      },
+    });
+    const res = await buildApp({
+      directory: testDirectoryService(),
+      capacity: testCapacityService(),
+      priorityBands: testPriorityBandService(),
+      history: testHistoryService(),
+      auth: local,
+      projects: testProjectService(),
+      workItems: testWorkItemService(),
+      roles: testRoleService(),
+      replay: testReplay().replay,
+      probeDatabase: () => 'ok',
+      internalAuthSecret: TEST_SECRET,
+      migrationsApplied: true,
+    }).handle(new Request('http://localhost/api/auth/me'));
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { user: { username: string } }).user.username).toBe('local-dev');
+  });
+
   it('resolves the caller from a bearer token', async () => {
     const a = app();
     const reg = await a.handle(
