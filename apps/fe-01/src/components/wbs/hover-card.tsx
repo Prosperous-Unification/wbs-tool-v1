@@ -242,8 +242,9 @@ export function HoverCard({ label, id, scrolls = false, anchor, children }: Hove
         { width: window.innerWidth, height: window.innerHeight },
       ),
     );
-    // The anchor is the rectangle read when the card was opened and does not
-    // change while it is open, so this runs once per opening.
+    // Most owners measure once per opening. A portalled card inside a
+    // scrollbox may hand over a fresh rectangle while it stays open, so each
+    // anchor identity places the card again.
   }, [anchor]);
 
   /**
