@@ -1,6 +1,7 @@
+import type { OidcIdentity } from '@wbs/auth';
 import { jwtVerify, SignJWT } from 'jose';
 
-import type { User, UserStore } from '../repository';
+import type { OidcIdentityStore, User, UserStore } from '../repository';
 
 export const TOKEN_TTL_SECONDS = 12 * 60 * 60;
 
@@ -17,6 +18,7 @@ export type LoginOutcome = { ok: true; result: AuthResult } | { ok: false; reaso
 
 export interface AuthServiceOptions {
   users: UserStore;
+  identities?: OidcIdentityStore;
   /**
    * The same string gw-01 loads as JWT_SIGNING_KEY_CURRENT. Both sides encode
    * it with TextEncoder, so a token signed here verifies there; if the two
@@ -92,6 +94,16 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  async resolveOidcIdentity(identity: OidcIdentity): Promise<User | null> {
+    if (this.opts.identities === undefined) {
+      throw new Error('OIDC identity store is not configured');
+    }
+    return this.opts.identities.resolveOidcIdentity(identity, {
+      id: this.newId(),
+      createdAt: this.now(),
+    });
   }
 
   private async issue(user: User): Promise<AuthResult> {
