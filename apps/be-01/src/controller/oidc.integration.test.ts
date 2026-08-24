@@ -2,7 +2,7 @@ import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
 import { describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
-import { testAuthService } from '../testing/auth-fixture';
+import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -15,7 +15,16 @@ import * as authModule from './auth.controller';
 
 const now = Date.UTC(2026, 7, 23);
 
-function fixture() {
+const claims = {
+  iss: 'https://idp.test',
+  sub: 'subject-1',
+  email: 'DANY@PUNI.SHOW',
+  email_verified: true,
+  wbs_groups: ['dev:wbs:read', 'dev:wbs:write'],
+};
+
+function fixture(idTokenClaims?: Record<string, unknown>) {
+  const exchangeClaims = arguments.length === 0 ? claims : idTokenClaims;
   const calls = {
     authorize: [] as unknown[],
     exchange: [] as unknown[],
@@ -33,6 +42,7 @@ function fixture() {
         accessToken: 'access-1',
         expiresIn: 900,
         refreshToken: 'refresh-1',
+        idTokenClaims: exchangeClaims,
       });
     },
     refresh: (token: string) => {
@@ -54,6 +64,8 @@ function fixture() {
   const oidc = {
     appOrigin: 'https://dev.wbs.test',
     client,
+    groupPrefix: 'dev',
+    groupsClaim: 'wbs_groups',
     mode: 'oidc' as const,
     now: () => now,
     random: () => random.shift() ?? 'extra-random',
@@ -61,8 +73,9 @@ function fixture() {
     tokens,
     transactions,
   };
+  const users = inMemoryUsers();
   const app = buildApp({
-    auth: testAuthService(),
+    auth: testAuthService(users),
     capacity: testCapacityService(),
     directory: testDirectoryService(),
     history: testHistoryService(),
@@ -76,7 +89,7 @@ function fixture() {
     roles: testRoleService(),
     workItems: testWorkItemService(),
   });
-  return { app, calls, tokens, transactions };
+  return { app, calls, tokens, transactions, users };
 }
 
 describe('OIDC browser routes', () => {
@@ -132,6 +145,55 @@ describe('OIDC browser routes', () => {
     expect(cookies).toContain('__Host-wbs_session=binding-1;');
     expect(cookies).toContain('HttpOnly; Secure; SameSite=Lax; Path=/');
     expect(f.tokens.read('binding-1')?.refreshToken).toBe('refresh-1');
+  });
+
+  it('links the verified first-login identity before establishing the browser session', async () => {
+    const f = fixture();
+    await f.users.create({
+      id: 'legacy',
+      username: 'dany@puni.show',
+      passwordHash: 'local-hash',
+      createdAt: 1,
+    });
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const res = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(await f.users.findById('legacy')).toMatchObject({
+      email: 'dany@puni.show',
+      idpIssuer: 'https://idp.test',
+      idpSub: 'subject-1',
+      passwordHash: 'local-hash',
+    });
+  });
+
+  it('refuses a callback whose exchange has no verified ID-token claims', async () => {
+    const f = fixture(undefined);
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const res = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get('set-cookie')).not.toContain('__Host-wbs_access=');
   });
 
   it('exchanges with the configured HTTPS callback behind an HTTP reverse proxy', async () => {
@@ -234,6 +296,8 @@ describe('OIDC startup configuration', () => {
       authModule as unknown as {
         oidcRouteOptionsFromEnv: (env: Record<string, string>) => {
           appOrigin: string;
+          groupPrefix: string;
+          groupsClaim: string;
           mode: string;
         };
       }
@@ -244,7 +308,14 @@ describe('OIDC startup configuration', () => {
         AUTH_CLIENT_SECRET: 'secret',
         AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
         AUTH_REDIRECT_URI: 'https://dev.wbs.test/api/auth/okta/callback',
+        AUTH_GROUPS_CLAIM: 'custom_groups',
+        NODE_ENV: 'production',
       }),
-    ).toMatchObject({ appOrigin: 'https://dev.wbs.test', mode: 'oidc' });
+    ).toMatchObject({
+      appOrigin: 'https://dev.wbs.test',
+      groupPrefix: 'prod',
+      groupsClaim: 'custom_groups',
+      mode: 'oidc',
+    });
   });
 });
