@@ -1284,11 +1284,13 @@ function CardDependsField({
           {waits.length > 0 && (
             // Bounded on purpose: the surface no longer scrolls, so a row
             // with many waits must not push the box or the candidate list
-            // out of the clipped surface — past `max-h-40` the waits scroll
-            // inside their own region.
+            // out of the clipped surface — past `max-h-56` the waits scroll
+            // inside their own region. 56 = 14rem fits the four-wait shape
+            // the fault was found in (4 × the 44px tap floor + gaps) without
+            // clipping it.
             <ul
               aria-label={`Waits for, on ${row.number}`}
-              className="flex max-h-40 flex-col gap-1 overflow-y-auto"
+              className="flex max-h-56 flex-col gap-1 overflow-y-auto"
             >
               {waits.map((each) => (
                 <li
