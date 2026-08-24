@@ -1,0 +1,49 @@
+# Candidate only: main-session exposure review must approve this file before it
+# replaces /home/puni1/wbs/caddy/site-dev.caddy on h2puni.
+dev.wbs.bulletpoints.club {
+	encode gzip
+
+	# Keep the public MCP resource and OAuth paths byte-exact. handle_path is
+	# forbidden because mcp-01 routes /mcp and /mcp/oauth/* itself.
+	handle /mcp* {
+		reverse_proxy wbs-dev-src:3300
+	}
+
+	# RFC 9728 protected-resource metadata supports both discovery forms used by
+	# clients. RFC 8414 authorization-server metadata includes the issuer path.
+	# Do not widen these matchers to /.well-known/*: this origin may own other
+	# discovery documents independently.
+	handle /.well-known/oauth-protected-resource {
+		reverse_proxy wbs-dev-src:3300
+	}
+
+	handle /.well-known/oauth-protected-resource/mcp {
+		reverse_proxy wbs-dev-src:3300
+	}
+
+	handle /.well-known/oauth-authorization-server/mcp/oauth {
+		reverse_proxy wbs-dev-src:3300
+	}
+
+	handle /ws* {
+		reverse_proxy wbs-dev-src:3200 {
+			# Without this, a config reload severs every live WebSocket
+			# immediately and the drain loop has nothing left to drain.
+			stream_close_delay 310s
+		}
+	}
+
+	# be-01 mounts its controllers under /api already, so the prefix is passed
+	# through with handle, not stripped with handle_path.
+	handle /api/* {
+		reverse_proxy wbs-dev-src:3100
+	}
+
+	handle {
+		reverse_proxy wbs-dev-src:4200
+	}
+
+	log {
+		output file /var/log/caddy/access.log
+	}
+}
