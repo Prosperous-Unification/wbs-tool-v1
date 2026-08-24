@@ -46,6 +46,24 @@ function normalizeSql(raw: string): string {
     .replace(/\s+/g, ' ');
 }
 
+function compatibleRebuildTarget(raw: string): string | null {
+  if (
+    !raw.includes('-- migration-lint: compatible-table-rebuild') ||
+    !raw.includes('-- foreign-keys-off-rebuild')
+  )
+    return null;
+  const sql = normalizeSql(raw).replace(/[`"]/g, '');
+  const created = /\bCREATE TABLE (\w+)_NEW\b/.exec(sql);
+  if (created === null) return null;
+  const target = created[1];
+  const drops = [...sql.matchAll(/\bDROP TABLE (\w+)\b/g)].map((hit) => hit[1]);
+  if (drops.length !== 1 || drops[0] !== target) return null;
+  if (!new RegExp(`\\bALTER TABLE ${target}_NEW RENAME TO ${target}\\b`).test(sql)) return null;
+  if (!/\bCHECK \(VIOLATIONS = 0\)/.test(sql)) return null;
+  if (!/\bSELECT COUNT\(\*\) FROM PRAGMA_FOREIGN_KEY_CHECK\b/.test(sql)) return null;
+  return target;
+}
+
 /**
  * A down script is destructive BY DEFINITION -- reversing an additive forward
  * migration means dropping what it added -- so the forbidden-statement rules
@@ -98,9 +116,17 @@ export async function lintMigration(file: string): Promise<MigrationIssue | null
         'so it could not be checked for destructive statements.',
     };
   }
+  const rebuildTarget = compatibleRebuildTarget(raw);
   for (const statement of normalizeSql(raw).split(';')) {
     for (const { label, pattern } of FORBIDDEN) {
       if (pattern.test(statement)) {
+        const unquoted = statement.replace(/[`"]/g, '');
+        if (
+          label === 'DROP TABLE' &&
+          rebuildTarget !== null &&
+          new RegExp(`\\bDROP TABLE ${rebuildTarget}\\b`).test(unquoted)
+        )
+          continue;
         return {
           file,
           reason:
