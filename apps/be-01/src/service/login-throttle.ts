@@ -56,7 +56,7 @@ export class LoginThrottle {
   }
 
   private usernameKey(username: string): string {
-    return `username:${username.trim().toLowerCase()}`;
+    return `username:${username.trim().toLowerCase().slice(0, 32)}`;
   }
 
   private prune(now: number): void {

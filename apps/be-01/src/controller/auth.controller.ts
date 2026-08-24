@@ -95,11 +95,28 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
   const controller = new Elysia({ prefix: '/api/auth' })
     .post(
       '/register',
-      async ({ body, set }) => {
+      async ({ body, request, set }) => {
         if (oidc !== undefined && oidc.passwordRegisterEnabled !== true) {
           set.status = 404;
           return { error: 'not_found' };
         }
+        if (oidc !== undefined && request.headers.get('origin') !== oidc.appOrigin) {
+          set.status = 403;
+          return { error: 'invalid_origin' };
+        }
+        const clientIp = clientIpOf(request);
+        if (oidc !== undefined && clientIp === null) {
+          set.status = 400;
+          return { error: 'invalid_client' };
+        }
+        const throttleIp = clientIp ?? 'local-direct';
+        if (!passwordThrottle.canAttempt(body.username, throttleIp)) {
+          set.status = 429;
+          return { error: 'rate_limited' };
+        }
+        // Registration is an expensive password hash even when it succeeds.
+        // Count every attempt so rotating usernames cannot turn it into a CPU sink.
+        passwordThrottle.recordFailure(body.username, throttleIp);
         const outcome = await auth.register(body.username, body.password);
         if (!outcome.ok) {
           // 409 for a taken name, 400 for a malformed one: the front end shows
@@ -107,6 +124,14 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
           // gone" indistinguishable from "your password is too short".
           set.status = outcome.reason === 'taken' ? 409 : 400;
           return { error: outcome.reason };
+        }
+        if (oidc !== undefined) {
+          set.headers['set-cookie'] = cookie(
+            '__Host-wbs_access',
+            outcome.result.token,
+            TOKEN_TTL_SECONDS,
+          );
+          return { token: '', user: outcome.result.user };
         }
         return outcome.result;
       },
@@ -119,14 +144,23 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
           set.status = 404;
           return { error: 'not_found' };
         }
+        if (oidc !== undefined && request.headers.get('origin') !== oidc.appOrigin) {
+          set.status = 403;
+          return { error: 'invalid_origin' };
+        }
         const clientIp = clientIpOf(request);
-        if (!passwordThrottle.canAttempt(body.username, clientIp)) {
+        if (oidc !== undefined && clientIp === null) {
+          set.status = 400;
+          return { error: 'invalid_client' };
+        }
+        const throttleIp = clientIp ?? 'local-direct';
+        if (!passwordThrottle.canAttempt(body.username, throttleIp)) {
           set.status = 429;
           return { error: 'invalid_credentials' };
         }
         const outcome = await auth.login(body.username, body.password);
         if (!outcome.ok) {
-          passwordThrottle.recordFailure(body.username, clientIp);
+          passwordThrottle.recordFailure(body.username, throttleIp);
           set.status = 401;
           return { error: 'invalid_credentials' };
         }
@@ -252,7 +286,7 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
     });
 }
 
-function clientIpOf(request: Request): string {
+function clientIpOf(request: Request): string | null {
   // The single trusted Caddy edge appends the network peer. Any left-side
   // values may have been supplied by the client and cannot identify it.
   const forwarded = request.headers
@@ -261,7 +295,7 @@ function clientIpOf(request: Request): string {
     .map((part) => part.trim())
     .filter((part) => part !== '')
     .at(-1);
-  return forwarded ?? 'unknown';
+  return forwarded ?? null;
 }
 
 export function hasInvalidCookieOrigin(request: Request, appOrigin: string): boolean {
