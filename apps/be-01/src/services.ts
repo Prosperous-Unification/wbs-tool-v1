@@ -53,6 +53,7 @@ export interface ServicesOptions {
   gwUrl: string;
   internalAuthSecret: string;
   oidc?: AuthServiceOptions['oidc'];
+  passwordSessions?: boolean;
   localIdentity?: AuthServiceOptions['localIdentity'];
 }
 
@@ -121,6 +122,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
       identities: userStore,
       jwtKey: opts.jwtKey,
       oidc: opts.oidc,
+      passwordSessions: opts.passwordSessions,
       localIdentity: opts.localIdentity,
     }),
     projects: new ProjectService({ projects: projectStore }),

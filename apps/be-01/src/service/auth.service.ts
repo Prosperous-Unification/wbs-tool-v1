@@ -26,6 +26,8 @@ export interface AuthServiceOptions {
   users: UserStore;
   identities?: OidcIdentityStore;
   oidc?: OidcIdentityOptions & { verifier: TokenVerifier };
+  /** Accept locally issued password sessions after OIDC verification fails. */
+  passwordSessions?: boolean;
   /** Fixed cookie-free identity used only by explicit non-production local mode. */
   localIdentity?: AuthenticatedUser;
   /**
@@ -109,7 +111,7 @@ export class AuthService {
         if (user === null) return null;
         return { id: user.id, username: user.username, scopes: identity.scopes };
       } catch {
-        return null;
+        if (this.opts.passwordSessions !== true) return null;
       }
     }
 

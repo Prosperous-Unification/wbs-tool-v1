@@ -76,6 +76,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
             groupsClaim: opts.oidc.groupsClaim,
             verifier: opts.oidc.verifier,
           },
+    passwordSessions: opts.oidc !== undefined && opts.oidc.passwordLoginEnabled !== false,
     localIdentity: opts.localIdentity,
   });
 

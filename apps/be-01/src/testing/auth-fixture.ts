@@ -78,5 +78,11 @@ export function testAuthService(
   users: UserStore & OidcIdentityStore = inMemoryUsers(),
   oidc?: TestOidcAuthentication,
 ): AuthService {
-  return new AuthService({ users, identities: users, jwtKey: TEST_JWT_KEY, oidc });
+  return new AuthService({
+    users,
+    identities: users,
+    jwtKey: TEST_JWT_KEY,
+    oidc,
+    passwordSessions: oidc !== undefined,
+  });
 }
