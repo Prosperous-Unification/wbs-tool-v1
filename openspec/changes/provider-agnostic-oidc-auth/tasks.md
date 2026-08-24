@@ -50,7 +50,7 @@ main-session review even when earlier slices merge to dev on green.
       allowed Origin — test: expired cookie and cross-site upgrade failures.
 - [x] 4.2 Implement MCP standalone and trusted-gateway modes, caller propagation,
       and three health probes — test: both modes and false trusted-gateway boot.
-- [ ] 4.3 Spike Claude connector registration and record the proven token,
+- [x] 4.3 Spike Claude connector registration and record the proven token,
       audience, issuer, and forwarding trace before fronting-AS code starts.
 - [ ] 4.4 Add RFC 9728/8414 metadata — test: discovery from the MCP inspector.
 - [ ] 4.5 Add exact-redirect DCR and PKCE with upstream Okta login — test:
