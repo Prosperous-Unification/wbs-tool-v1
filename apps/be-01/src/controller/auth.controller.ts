@@ -4,6 +4,7 @@ import {
   browserOidcClientFromEnv,
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
+  oidcIdentityFromClaims,
   type OidcTransactionStore,
   type TokenStore,
 } from '@wbs/auth';
@@ -15,6 +16,8 @@ import type { AuthService } from '../service/auth.service';
 export interface OidcRouteOptions {
   appOrigin: string;
   client: ReturnType<typeof browserOidcClientFromEnv>;
+  groupPrefix: string;
+  groupsClaim: string;
   mode: 'oidc';
   now?: () => number;
   random?: () => string;
@@ -47,6 +50,8 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
   return {
     appOrigin: redirectUri.origin,
     client: browserOidcClientFromEnv(env),
+    groupPrefix: env['NODE_ENV'] === 'production' ? 'prod' : 'dev',
+    groupsClaim: env['AUTH_GROUPS_CLAIM'] ?? 'wbs_groups',
     mode: 'oidc',
     random: () => randomBytes(32).toString('base64url'),
     redirectUri: redirectUri.href,
@@ -156,6 +161,20 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
         state,
         verifier: transaction.verifier,
       });
+      if (tokenSet.idTokenClaims === undefined) {
+        return emptyResponse(401, [clear('__Host-wbs_oidc')]);
+      }
+      let identity;
+      try {
+        identity = oidcIdentityFromClaims(tokenSet.idTokenClaims, {
+          groupPrefix: oidc.groupPrefix,
+          groupsClaim: oidc.groupsClaim,
+        });
+      } catch {
+        return emptyResponse(401, [clear('__Host-wbs_oidc')]);
+      }
+      const account = await auth.resolveOidcIdentity(identity);
+      if (account === null) return emptyResponse(409, [clear('__Host-wbs_oidc')]);
       const correlation = random();
       if (tokenSet.refreshToken !== undefined) {
         oidc.tokens.save({

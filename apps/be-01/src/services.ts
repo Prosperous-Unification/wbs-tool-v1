@@ -80,6 +80,7 @@ export interface BeServices {
  */
 export function buildServices(opts: ServicesOptions): BeServices {
   const projectStore = new ProjectRepository(opts.db);
+  const userStore = new UserRepository(opts.db);
   const directoryStore = new DirectoryRepository(opts.db);
   const capacityStore = new CapacityRepository(opts.db);
   const priorityBandStore = new PriorityBandRepository(opts.db);
@@ -114,7 +115,8 @@ export function buildServices(opts: ServicesOptions): BeServices {
 
   return {
     auth: new AuthService({
-      users: new UserRepository(opts.db),
+      users: userStore,
+      identities: userStore,
       jwtKey: opts.jwtKey,
     }),
     projects: new ProjectService({ projects: projectStore }),
