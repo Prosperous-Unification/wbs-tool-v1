@@ -750,6 +750,25 @@ describe('the selection is a claim too', () => {
 });
 
 describe('the hover card follows the list, not a stale pointer', () => {
+  itDom('dismisses the fixed card when its scrolling list moves away underneath it', async () => {
+    pageWith(fakeProjects(TWO));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Project')).toBeDefined();
+    });
+    openPicker();
+    const list = await screen.findByRole('listbox', { name: 'Projects' });
+    await waitFor(() => {
+      expect(within(list).queryAllByRole('option').length).toBe(2);
+    });
+
+    fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
+    expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
+
+    fireEvent.scroll(list);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
   itDom(
     'shows the card for the entry the pointer rests on, then nothing stale after Escape and reopen',
     async () => {
