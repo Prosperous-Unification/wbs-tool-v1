@@ -6,6 +6,11 @@ dev.wbs.bulletpoints.club {
 	# Keep the public MCP resource and OAuth paths byte-exact. handle_path is
 	# forbidden because mcp-01 routes /mcp and /mcp/oauth/* itself.
 	handle /mcp* {
+		# DCR and token endpoints are anonymous by protocol. Bound request memory
+		# before a body reaches Bun; normal MCP JSON requests are far smaller.
+		request_body {
+			max_size 64KB
+		}
 		reverse_proxy wbs-dev-src:3300
 	}
 

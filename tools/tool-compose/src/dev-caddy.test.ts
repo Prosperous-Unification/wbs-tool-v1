@@ -29,11 +29,15 @@ describe('dev MCP Caddy candidate', () => {
   it('routes the MCP resource plus exactly the three RFC discovery paths', () => {
     expect(mcpRouteBlocks(source)).toEqual(MCP_ROUTES);
     for (const route of MCP_ROUTES) {
+      if (route === '/mcp*') continue;
       const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       expect(source).toMatch(
         new RegExp(`handle\\s+${escaped}\\s*\\{\\s*reverse_proxy\\s+wbs-dev-src:3300`),
       );
     }
+    expect(source).toMatch(
+      /handle\s+\/mcp\*\s*\{[\s\S]*?request_body\s*\{\s*max_size\s+64KB\s*\}[\s\S]*?reverse_proxy\s+wbs-dev-src:3300/,
+    );
   });
 
   it('rejects path stripping and blanket well-known ownership', () => {
