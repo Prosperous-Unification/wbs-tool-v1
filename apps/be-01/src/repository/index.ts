@@ -42,21 +42,6 @@ export interface UserStore {
   findById(id: string): Promise<User | null>;
 }
 
-export interface OidcAccountIdentity {
-  issuer: string;
-  subject: string;
-  email: string | null;
-  emailVerified: boolean;
-}
-
-export interface OidcIdentityStore {
-  /** Returns null when an existing email belongs to a different federated identity. */
-  resolveOidcIdentity(
-    identity: OidcAccountIdentity,
-    create: { id: string; createdAt: number },
-  ): Promise<User | null>;
-}
-
 export interface Project {
   id: string;
   name: string;
