@@ -13,7 +13,9 @@ const CONFIG: McpConfig = {
 };
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 
-function fixture(limits: { clientLimit?: number; clientTtlMs?: number } = {}) {
+function fixture(
+  limits: { clientLimit?: number; clientTtlMs?: number; transactionLimit?: number } = {},
+) {
   let now = 1_700_000_000_000;
   const values = Array.from({ length: 20 }, (_, index) => `random-${String(index + 1)}`);
   const authorizationCalls: unknown[] = [];
@@ -146,6 +148,29 @@ describe('InMemoryMcpOAuth', () => {
     const clientId = await register(expiring.oauth);
     expiring.advance(1_001);
     expect((await expiring.oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(400);
+  });
+
+  it('evicts the oldest pending authorization at the transaction bound', async () => {
+    const { exchangeCalls, oauth } = fixture({ transactionLimit: 2 });
+    const clientId = await register(oauth);
+    const start = () => oauth.response(new Request(authorizeUrl(clientId)));
+    const first = await start();
+    await start();
+    await start();
+
+    const firstState = new URL(
+      first?.headers.get('location') ?? 'https://invalid',
+    ).searchParams.get('state');
+    const firstCookie = first?.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+    const callback = await oauth.response(
+      new Request(
+        `https://dev.wbs.bulletpoints.club/mcp/oauth/callback?code=upstream&state=${String(firstState)}`,
+        { headers: { cookie: firstCookie } },
+      ),
+    );
+
+    expect(callback?.status).toBe(400);
+    expect(exchangeCalls).toHaveLength(0);
   });
 
   // Proof: weakening exact membership to same-origin lets this unregistered

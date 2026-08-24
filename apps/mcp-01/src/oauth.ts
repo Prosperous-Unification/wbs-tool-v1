@@ -60,6 +60,7 @@ interface Options {
   verifyUpstream?: TokenVerifier['verify'];
   clientLimit?: number;
   clientTtlMs?: number;
+  transactionLimit?: number;
 }
 
 type UpstreamClient = Pick<BrowserOidcClient, 'authorizationUrl' | 'exchange'>;
@@ -83,6 +84,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
 
   private readonly clientLimit: number;
   private readonly clientTtlMs: number;
+  private readonly transactionLimit: number;
   constructor(
     config: Pick<McpConfig, 'MCP_PUBLIC_URL'>,
     private readonly upstream: UpstreamClient,
@@ -103,6 +105,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       options.verifyUpstream ?? (() => Promise.reject(new Error('upstream verifier is required')));
     this.clientLimit = Math.max(1, options.clientLimit ?? 1_000);
     this.clientTtlMs = Math.max(1, options.clientTtlMs ?? 86_400_000);
+    this.transactionLimit = Math.max(1, options.transactionLimit ?? 1_000);
   }
 
   async response(request: Request): Promise<Response | undefined> {
@@ -235,6 +238,10 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const upstreamState = this.random();
     const nonce = this.random();
     const verifier = this.random();
+    if (this.transactions.size >= this.transactionLimit) {
+      const oldest = this.transactions.keys().next().value;
+      if (oldest !== undefined) this.transactions.delete(oldest);
+    }
     this.transactions.set(browserBinding, {
       browserBinding,
       clientId,
