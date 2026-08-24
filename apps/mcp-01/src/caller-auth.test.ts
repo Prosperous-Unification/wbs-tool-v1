@@ -28,6 +28,27 @@ describe('authenticateCaller', () => {
     ).toMatchObject({ token: 'signed', clientId: 'person-1', scopes: ['read', 'write'] });
   });
 
+  // Break caught: returning the presented local token here leaks the wrong
+  // issuer/audience credential to be-01 instead of its server-held Okta token.
+  it('uses a verifier-provided downstream token without exposing it in the local JWT', async () => {
+    const verifier: TokenVerifier & { upstreamTokenFor(token: string): Promise<string> } = {
+      verify: () => Promise.resolve(claims),
+      upstreamTokenFor: (token) =>
+        token === 'local-mcp-token'
+          ? Promise.resolve('upstream-okta-token')
+          : Promise.reject(new Error('unexpected token')),
+    };
+    expect(
+      await authenticateCaller(
+        'Bearer local-mcp-token',
+        'standalone',
+        verifier,
+        'dev',
+        'wbs_groups',
+      ),
+    ).toMatchObject({ token: 'upstream-okta-token', clientId: 'person-1' });
+  });
+
   // Proof: attempting verification in gateway mode made this test throw from the verifier.
   it('decodes a trusted gateway token without signature verification', async () => {
     const { privateKey } = await generateKeyPair('RS256');

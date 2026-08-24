@@ -122,3 +122,13 @@ MCP Inspector CLI connected to a temporary gateway-mode server at
 loaded RFC 8414 metadata, and reached the advertised DCR endpoint, where it
 received the expected `404 Not found`. DCR belongs to task 4.5, so discovery
 has reached the exact boundary of this slice.
+
+## 10. MCP fronting tokens — 2026-08-24
+
+The watched reds had no token or revocation endpoint and forwarded the presented
+local token unchanged. The implementation now signs five-minute RS256 tokens
+for the MCP audience, binds each `jti` to the upstream token server-side, and
+keeps directly presented verified upstream tokens compatible. Authorization
+codes are one-use; expired or revoked mappings invalidate an otherwise valid
+local JWT. Fresh h2puni gate: mcp-01 80/0, lint, typecheck, global format, and
+strict OpenSpec validation clean.
