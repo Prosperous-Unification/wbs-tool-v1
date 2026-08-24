@@ -1,5 +1,7 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { Session } from '@/lib/api';
 
 import { AuthForm } from './auth-form';
 
@@ -26,13 +28,62 @@ const itDom = hasDom ? it : it.skip;
  * "Log in"`. Watched 2026-08-09; quoted in
  * `openspec/changes/shadcn-foundation/verify.md`.
  */
-describe('the signed-out screen', () => {
-  itDom('starts the server-side OIDC flow without collecting credentials', () => {
-    render(<AuthForm />);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
-    const link = screen.getByRole('link', { name: 'Continue with Okta' });
+const response = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+describe('the signed-out screen', () => {
+  itDom('offers password credentials beside the server-side SSO flow', () => {
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    const link = screen.getByRole('link', { name: 'Continue with SSO' });
     expect(link.getAttribute('href')).toBe('/api/auth/login');
-    expect(screen.queryByLabelText('Username')).toBeNull();
-    expect(screen.queryByLabelText('Password')).toBeNull();
+    expect(screen.getByLabelText('Username').getAttribute('autocomplete')).toBe('username');
+    expect(screen.getByLabelText('Password').getAttribute('autocomplete')).toBe(
+      'current-password',
+    );
+    expect(screen.getByRole('button', { name: 'Sign in with password' })).toBeDefined();
+
+    for (const control of [link, screen.getByLabelText('Username'), screen.getByLabelText('Password')]) {
+      expect(control.className).toContain('h-11');
+    }
+  });
+
+  itDom('enters the returned cookie session after a password sign-in', async () => {
+    const session: Session = { token: '', user: { id: 'u1', username: 'ada' } };
+    vi.stubGlobal('fetch', vi.fn(async () => response(200, session)));
+    const onSignedIn = vi.fn();
+    render(<AuthForm onSignedIn={onSignedIn} />);
+
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'ada' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'lovelace99' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!);
+
+    await waitFor(() => {
+      expect(onSignedIn).toHaveBeenCalledWith(session);
+    });
+  });
+
+  itDom('keeps a failed password sign-in inline without removing its error slot', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(401, { error: 'invalid_credentials' })),
+    );
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    const error = screen.getByRole('status');
+    expect(error.className).toContain('min-h-5');
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'ada' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!);
+
+    await waitFor(() => {
+      expect(error.textContent).toBe('Username or password is incorrect.');
+    });
+    expect(screen.getByLabelText('Username').getAttribute('value')).toBe('ada');
   });
 });
