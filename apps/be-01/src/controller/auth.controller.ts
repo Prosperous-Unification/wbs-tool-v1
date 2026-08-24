@@ -54,14 +54,19 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
   ) {
     throw new Error('AUTH_REDIRECT_URI must use the mounted /api/auth/okta/callback route');
   }
+  const passwordLoginEnabled = booleanFlagOf(env, 'AUTH_PASSWORD_LOGIN', true);
+  const passwordRegisterEnabled = booleanFlagOf(env, 'AUTH_PASSWORD_REGISTER', false);
+  if (passwordRegisterEnabled && !passwordLoginEnabled) {
+    throw new Error('AUTH_PASSWORD_REGISTER=true requires AUTH_PASSWORD_LOGIN=true');
+  }
   return {
     appOrigin: redirectUri.origin,
     client: browserOidcClientFromEnv(env),
     groupPrefix: env['NODE_ENV'] === 'production' ? 'prod' : 'dev',
     groupsClaim: env['AUTH_GROUPS_CLAIM'] ?? 'wbs_groups',
     mode: 'oidc',
-    passwordLoginEnabled: booleanFlagOf(env, 'AUTH_PASSWORD_LOGIN', true),
-    passwordRegisterEnabled: booleanFlagOf(env, 'AUTH_PASSWORD_REGISTER', false),
+    passwordLoginEnabled,
+    passwordRegisterEnabled,
     random: () => randomBytes(32).toString('base64url'),
     redirectUri: redirectUri.href,
     tokens: new InMemoryTokenStore(),

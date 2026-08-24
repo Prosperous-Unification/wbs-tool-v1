@@ -219,8 +219,8 @@ cookie. Startup refuses `AUTH_MODE=local` when `NODE_ENV=production`.
 Password login runs inside `AUTH_MODE=oidc`; it is a second route to the same
 session, not a separate identity mechanism. A successful `POST /api/auth/login`
 issues the same hardened `__Host-wbs_access` HttpOnly cookie as the OIDC
-callback. `/api/auth/me`, gw-01 WebSocket upgrades, and mcp-01 therefore see the
-same identity kind regardless of the sign-in route.
+callback. `/api/auth/me` and gw-01 WebSocket upgrades therefore see the same
+identity kind regardless of the sign-in route.
 
 Both flags parse strictly as literal `true` or `false`:
 
@@ -232,6 +232,8 @@ AUTH_PASSWORD_REGISTER=false
 `AUTH_PASSWORD_LOGIN` defaults to `true`; production may set it to `false`.
 `AUTH_PASSWORD_REGISTER` defaults to `false`, so `POST /api/auth/register`
 continues to return 404 in OIDC mode unless registration is explicitly enabled.
+Startup refuses registration enabled while password login is disabled, because
+that combination would create a session cookie the application then rejects.
 
 The users table has no per-user role or scope column. Password identities
 therefore receive the same scopes as `AUTH_MODE=local`: `read`, `write`, and
