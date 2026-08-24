@@ -128,9 +128,16 @@ No provider-specific code is required. The dev tenant is
 preserve the exact issuer, including its trailing slash:
 `https://dev-fzwagvg246jhid6a.us.auth0.com/`.
 
+Pass the issuer URL itself, not the literal
+`/.well-known/openid-configuration` endpoint. That keeps the discovery
+metadata's issuer-equality check enabled.
+
 ```dotenv
+NODE_ENV=development
 AUTH_MODE=oidc
-AUTH_ISSUER_DISCOVERY_URL=https://dev-fzwagvg246jhid6a.us.auth0.com/.well-known/openid-configuration
+AUTH_ISSUER_DISCOVERY_URL=https://dev-fzwagvg246jhid6a.us.auth0.com/
+AUTH_CLIENT_ID=<WBS Tool (dev) client ID>
+AUTH_CLIENT_SECRET=<WBS Tool (dev) client secret>
 AUTH_REDIRECT_URI=https://dev.wbs.bulletpoints.club/api/auth/okta/callback
 AUTH_SCOPE=openid profile email offline_access
 AUTH_AUDIENCE=https://wbs.bulletpoints.club/api
@@ -157,15 +164,25 @@ exports.onExecutePostLogin = async (event, api) => {
 };
 ```
 
+This is the dev tenant's deployed Action, so `dev:` is intentional. A production
+tenant must emit `prod:` instead; WBS matches the environment prefix exactly and
+would otherwise issue a session with no scopes. The Action writes the same role
+array to both claims; each app ignores values for the other app segment.
+
 Assign the WBS roles to each user and require `email_verified=true` before
 first-login linking. Real dev credentials live only in
 `/home/puni1/wbs-dev/oidc-dev.env` on the deployment host (mode 600). The prior
 Okta values are retained only in `oidc-dev.env.okta.bak` until the trial expires
 on 2026-09-22; delete that backup after the expiry.
 
-## Okta mapping
+As of 2026-08-24, discovery and the real Auth0 Universal Login page are verified.
+Credentialed callback acceptance (`/api/auth/me`, WebSocket, MCP, and the emitted
+editor scope) remains pending TASK-110's password-login path.
 
-No code change is needed. Put the real values in the off-repo deployment env:
+## Historical Okta mapping
+
+No code change is needed to reproduce the prior Okta configuration. Its mapping
+was:
 
 ```dotenv
 NODE_ENV=development
@@ -186,9 +203,10 @@ environment prefix; production uses `prod:wbs:*`, development uses
 `dev:wbs:*`. Do not use the org authorization server if it cannot mint the
 custom audience and groups claim required by WBS.
 
-Real dev credentials live only in `/home/puni1/wbs-dev/oidc-dev.env` on the
-deployment host (mode 600). Never copy them into the repository, logs, tests,
-or issue text.
+The archived dev values live only in
+`/home/puni1/wbs-dev/oidc-dev.env.okta.bak` on the deployment host (mode 600)
+until 2026-09-22. Never copy them into the repository, logs, tests, or issue
+text.
 
 ## Local bypass
 
