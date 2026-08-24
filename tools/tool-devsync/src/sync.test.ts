@@ -73,10 +73,36 @@ describe('RESTART_PATHS coverage', () => {
   });
 
   it('names every app tsconfig, which is read once at process start', () => {
-    for (const app of ['be-01', 'gw-01', 'fe-01']) {
+    for (const app of ['be-01', 'gw-01', 'fe-01', 'mcp-01']) {
       expect(RESTART_PATHS).toContain(`apps/${app}/tsconfig.json`);
     }
     expect(RESTART_PATHS).toContain('tsconfig.base.json');
+  });
+
+  it('names every app project.json, whose serve target the supervisor reads once', async () => {
+    const { readdir } = await import('node:fs/promises');
+    const apps = (
+      await readdir(new URL('../../../apps', import.meta.url), { withFileTypes: true })
+    )
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    expect(apps).toContain('mcp-01');
+    for (const app of apps) {
+      expect(RESTART_PATHS).toContain(`apps/${app}/project.json`);
+    }
+  });
+});
+
+describe('dev supervisor', () => {
+  // The root `dev` script feeds `nx run-many -t serve --projects=...`. A tier
+  // left out of that list has no watcher and no supervisor, so it never
+  // starts. mcp-01 must run beside be-01, gw-01 and fe-01.
+  it('names mcp-01 in the root serve target', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const pkg = JSON.parse(
+      await readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
+    ) as { scripts: Record<string, string> };
+    expect(pkg.scripts.dev).toContain('mcp-01');
   });
 });
 

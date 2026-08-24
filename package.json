@@ -12,7 +12,7 @@
     "format": "nx format:write",
     "format:check": "nx format:check",
     "typecheck": "nx run-many -t typecheck",
-    "dev": "nx run-many -t serve --projects=be-01,gw-01,fe-01",
+    "dev": "nx run-many -t serve --projects=be-01,gw-01,fe-01,mcp-01",
     "dev:be": "nx run be-01:serve",
     "dev:gw": "nx run gw-01:serve",
     "dev:fe": "nx run fe-01:serve",

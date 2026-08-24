@@ -44,6 +44,7 @@ export const RESTART_PATHS: readonly string[] = [
   'apps/be-01/project.json',
   'apps/gw-01/project.json',
   'apps/fe-01/project.json',
+  'apps/mcp-01/project.json',
   'apps/fe-01/vite.config.ts',
   // TypeScript config is read once, at process start. A moved path alias
   // resolves against the old mapping in three already-running processes while
@@ -53,6 +54,7 @@ export const RESTART_PATHS: readonly string[] = [
   'apps/be-01/tsconfig.json',
   'apps/gw-01/tsconfig.json',
   'apps/fe-01/tsconfig.json',
+  'apps/mcp-01/tsconfig.json',
   // A library's project.json can change what its serve-time build resolves to,
   // and the Nx supervisor read the project graph at startup like the rest.
   // Listed per library rather than as `libs`, which would restart on every
