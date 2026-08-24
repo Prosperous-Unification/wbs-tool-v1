@@ -1203,6 +1203,7 @@
    */
   [data-gantt-controls] button,
   [data-gantt-controls] select {
+    min-width: 44px;
     min-height: 44px;
   }
 
