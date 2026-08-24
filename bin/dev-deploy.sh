@@ -123,6 +123,13 @@ else
   fail=1
 fi
 
+# MCP health is semantic, not a status-code probe: discovery must name the
+# canonical resource and authorization server, and an anonymous tool request
+# must return the RFC 9728 challenge that sends the client back to metadata.
+if ! "$(dirname "${BASH_SOURCE[0]}")/dev-mcp-probe.sh" https://dev.wbs.bulletpoints.club; then
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "[dev-deploy] dev is NOT healthy at ${SHA:0:8} -- check: ssh h2puni 'docker logs --tail 50 wbs-dev-src'" >&2
   exit 1
