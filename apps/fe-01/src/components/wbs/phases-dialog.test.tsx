@@ -395,7 +395,9 @@ describe('how wide the phases make the table', () => {
     expect(document.body.textContent).toContain(
       '2 phases need ≥1231px of width to sit side by side',
     );
-    expect(document.body.textContent).toContain('under 768px the plan is drawn as cards instead');
+    expect(document.body.textContent).toContain(
+      'under 768px wide or 500px tall the plan is drawn as cards instead',
+    );
     expect(document.body.textContent).not.toContain('before the table scrolls sideways');
   });
 

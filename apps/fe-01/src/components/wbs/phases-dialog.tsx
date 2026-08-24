@@ -20,7 +20,7 @@ import {
 } from '@/lib/wbs-api';
 
 import { commandChordIn } from './keyboard-bindings';
-import { CARDS_BELOW } from './plan-renderer';
+import { CARDS_BELOW, TABLE_NEEDS_HEIGHT } from './plan-renderer';
 import { foldedTableMinWidth, type FrameLayoutState } from './table-frame';
 
 /** What a work item's number is, or null once it is no longer in the tree on screen. */
@@ -420,7 +420,8 @@ export function PhasesDialog({
               */}
               {count(roles.length, 'phase')} {roles.length === 1 ? 'needs' : 'need'} ≥
               {String(minWidth)}px of width to sit side by side; a narrower window scrolls sideways,
-              and under {String(CARDS_BELOW)}px the plan is drawn as cards instead.
+              and under {String(CARDS_BELOW)}px wide or {String(TABLE_NEEDS_HEIGHT)}px tall the plan
+              is drawn as cards instead.
             </p>
           </>
         ) : (
