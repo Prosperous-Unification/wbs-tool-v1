@@ -174,6 +174,7 @@ const ROLE_MEASURE = '20260821140000_add_role_measure';
  */
 const PERSON_KIND = '20260821150000_add_person_kind';
 const OIDC_IDENTITY = '20260824010000_add_oidc_identity';
+const SOLUTION_REF = '20260824020000_add_solution_ref';
 
 const WBS_TABLES = ['project', 'work_item', 'role', 'estimate'] as const;
 // Its own migration, reversed with the domain because it references `work_item`.
@@ -271,6 +272,7 @@ describe('the WBS domain migration', () => {
       // ahead of the column it was seeded from, which is the only order in
       // which its foreign keys still have something to point at.
       expect(reversed).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -593,6 +595,7 @@ describe('the capacity migrations', () => {
       const reversed = rollbackTo(db.path, FOLDER, PRIORITY);
 
       expect(reversed).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -1047,6 +1050,7 @@ describe('the work item team migration', () => {
       // migration's business, and named rather than filtered out so the list stays
       // the literal answer `rollbackTo` gave.
       expect(reversed).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -1276,6 +1280,7 @@ describe('the priority band migration', () => {
       // filtered, so the list is the literal answer `rollbackTo` gave and not a
       // subset somebody chose.
       expect(rollbackTo(db.path, FOLDER, PER_PROJECT_CAPACITY)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -1559,6 +1564,7 @@ describe('the plan event migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PRIORITY_BANDS)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -1778,6 +1784,7 @@ describe('the actual migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, PLAN_EVENT)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -2042,6 +2049,7 @@ describe('the role progress migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, ACTUAL)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -2288,6 +2296,7 @@ describe('the not-before reason migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, ROLE_PROGRESS)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -2521,6 +2530,7 @@ describe('the tag migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, NOT_BEFORE_REASON)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -2861,6 +2871,7 @@ describe('the service migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, TAG)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -2994,6 +3005,7 @@ describe('the work-item-service migration', () => {
   function atTheColumnOnly(dbPath: string): void {
     runMigrations(dbPath, FOLDER);
     expect(rollbackTo(dbPath, FOLDER, SERVICE)).toEqual([
+      SOLUTION_REF,
       OIDC_IDENTITY,
       PERSON_KIND,
       ROLE_MEASURE,
@@ -3138,6 +3150,7 @@ describe('the work-item-service migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, SERVICE)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -3416,6 +3429,7 @@ describe('the role measure migration', () => {
       seeded(db.path);
 
       expect(rollbackTo(db.path, FOLDER, WORK_ITEM_SERVICE)).toEqual([
+        SOLUTION_REF,
         OIDC_IDENTITY,
         PERSON_KIND,
         ROLE_MEASURE,
@@ -3495,7 +3509,11 @@ describe('the person kind migration', () => {
    */
   function beforeTheColumn(dbPath: string): void {
     runMigrations(dbPath, FOLDER);
-    expect(rollbackTo(dbPath, FOLDER, ROLE_MEASURE)).toEqual([OIDC_IDENTITY, PERSON_KIND]);
+    expect(rollbackTo(dbPath, FOLDER, ROLE_MEASURE)).toEqual([
+      SOLUTION_REF,
+      OIDC_IDENTITY,
+      PERSON_KIND,
+    ]);
 
     const db = openDatabase(dbPath);
     try {
@@ -3707,7 +3725,11 @@ describe('the person kind migration', () => {
         sqlite.close();
       }
 
-      expect(rollbackTo(db.path, FOLDER, ROLE_MEASURE)).toEqual([OIDC_IDENTITY, PERSON_KIND]);
+      expect(rollbackTo(db.path, FOLDER, ROLE_MEASURE)).toEqual([
+        SOLUTION_REF,
+        OIDC_IDENTITY,
+        PERSON_KIND,
+      ]);
 
       const after = openDatabase(db.path);
       try {

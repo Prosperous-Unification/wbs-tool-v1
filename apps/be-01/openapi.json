@@ -143,6 +143,21 @@
         "operationId": "getApiAuthMe"
       }
     },
+    "/plans/by-solution/{slug}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "getPlansBy-solutionBySlug"
+      }
+    },
     "/api/projects/": {
       "post": {
         "requestBody": {
@@ -267,6 +282,30 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "solutionRef": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "slug",
+                          "url"
+                        ],
+                        "properties": {
+                          "slug": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "url": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }
@@ -300,6 +339,30 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "solutionRef": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "slug",
+                          "url"
+                        ],
+                        "properties": {
+                          "slug": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "url": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }
@@ -328,6 +391,30 @@
                       {
                         "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "solutionRef": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "slug",
+                          "url"
+                        ],
+                        "properties": {
+                          "slug": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "url": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        }
                       },
                       {
                         "type": "null"

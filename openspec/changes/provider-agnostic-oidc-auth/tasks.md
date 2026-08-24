@@ -62,7 +62,7 @@ main-session review even when earlier slices merge to dev on green.
 
 - [x] 5.1 Point fe-01 login at `/api/auth/login` and remove local token storage —
       test: browser flow under local mode without an IdP.
-- [ ] 5.2 Add nullable `solutionRef` and solution-slug lookup — test: migration
+- [x] 5.2 Add nullable `solutionRef` and solution-slug lookup — test: migration
       round trip, known slug, collision, unknown slug, and read scope.
 - [ ] 5.3 Add JSON and Markdown project exports — test: both formats,
       unsupported format, unknown project, and missing read scope.
