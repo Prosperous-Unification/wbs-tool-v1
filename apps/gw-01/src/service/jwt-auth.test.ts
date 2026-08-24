@@ -8,6 +8,24 @@ async function makeToken(secret: Uint8Array, sub = 'user-1'): Promise<string> {
 }
 
 describe('JwtVerifier', () => {
+  it('tries the OIDC verifier before the local password-session keys', async () => {
+    const current = (await generateSecret('HS256')) as Uint8Array;
+    const verifier = new JwtVerifier({
+      current,
+      primary: {
+        verify: (token) =>
+          token === 'oidc-access-token'
+            ? Promise.resolve({ sub: 'oidc-user' })
+            : Promise.reject(new Error('not an OIDC token')),
+      },
+    } as ConstructorParameters<typeof JwtVerifier>[0]);
+
+    expect(await verifier.verify('oidc-access-token')).toEqual({ sub: 'oidc-user' });
+    expect((await verifier.verify(await makeToken(current, 'password-user'))).sub).toBe(
+      'password-user',
+    );
+  });
+
   it('accepts a CURRENT-signed token', async () => {
     const cur = (await generateSecret('HS256')) as Uint8Array;
     const verifier = new JwtVerifier({ current: cur });
