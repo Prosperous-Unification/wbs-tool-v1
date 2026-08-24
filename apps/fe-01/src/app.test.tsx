@@ -54,7 +54,7 @@ describe('the app root', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Continue with Okta' })).toBeDefined();
+      expect(screen.getByRole('link', { name: 'Continue with SSO' })).toBeDefined();
     });
     expect(document.querySelector('[data-app-fault]')).toBeNull();
   });
@@ -75,7 +75,7 @@ describe('a signed-in address asked for while signed out', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Continue with Okta' })).toBeDefined();
+      expect(screen.getByRole('link', { name: 'Continue with SSO' })).toBeDefined();
     });
     // The whole of the negative below: with the router hoisted above the gate,
     // this heading is on screen for somebody with no session at all.

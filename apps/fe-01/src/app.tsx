@@ -81,7 +81,7 @@ function AppContent() {
          * keep in step.
          */}
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">WBS tool v2</h1>
-        <AuthForm />
+        <AuthForm onSignedIn={setSession} />
       </main>
     );
 
