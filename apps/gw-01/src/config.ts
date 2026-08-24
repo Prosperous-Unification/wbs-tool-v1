@@ -14,8 +14,9 @@ export const GwConfig = type({
 export type GwConfig = typeof GwConfig.infer;
 
 export interface WsAuthOptions {
-  appOrigin: string;
-  verifier: TokenVerifier;
+  appOrigin?: string;
+  verifier?: TokenVerifier;
+  localIdentity?: string;
 }
 
 export function oidcAppOriginFromEnv(env: Readonly<Record<string, string | undefined>>): string {
@@ -31,7 +32,9 @@ export const loadConfig = (
 ): GwConfig & { wsAuth?: WsAuthOptions } => {
   const mode = authModeOf(envSource);
   const config = defineConfig(GwConfig, envSource);
-  if (mode === 'local') return config;
+  if (mode === 'local') {
+    return { ...config, wsAuth: { localIdentity: 'local-dev' } };
+  }
   return {
     ...config,
     wsAuth: {

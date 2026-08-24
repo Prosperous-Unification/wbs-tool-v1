@@ -55,7 +55,7 @@ interface WsConnection {
    * Never rejects: a token that fails here is already handled inside it.
    */
   joined: Promise<void>;
-  query?: { token?: string };
+  query?: { localIdentity?: string; token?: string };
 }
 
 export interface AppOptions {
@@ -72,6 +72,8 @@ export interface AppOptions {
    * short-lived token in the query string.
    */
   appOrigin?: string;
+  /** Fixed cookie-free identity accepted only by explicit local-mode boot. */
+  localIdentity?: string;
   /**
    * The token verifier, in place of the one built from `jwtKey`.
    *
@@ -140,7 +142,14 @@ export function buildApp(opts: AppOptions) {
       .get('/metrics/snapshot', () => metrics.counters)
       .ws('/ws', {
         async beforeHandle({ query, request, set }) {
-          const wsQuery = query as { token?: string };
+          const wsQuery = query as { localIdentity?: string; token?: string };
+          if (opts.localIdentity !== undefined) {
+            // Proof: without this production upgrade branch, the local-mode
+            // browser gate closes /ws as `missing token` and both peer-edit
+            // cases fail after their PATCH returns 200. Watched 2026-08-24.
+            wsQuery.localIdentity = opts.localIdentity;
+            return undefined;
+          }
           if (opts.appOrigin !== undefined && request.headers.get('origin') !== opts.appOrigin) {
             // Proof: delete this comparison and "refuses a valid cookie
             // presented by a foreign origin" opens a real socket. Watched
@@ -185,12 +194,15 @@ export function buildApp(opts: AppOptions) {
             // mean trusting a value this handler never saw. Same verifier, same
             // key, so a token that reached open cannot fail — but if it does,
             // the socket joins nobody and simply has no presence.
-            const token = conn.query?.token;
-            if (token === undefined) return;
             try {
-              const claims = await verifier.verify(token);
-              const username =
-                typeof claims['username'] === 'string' ? claims['username'] : claims.sub;
+              const localIdentity = conn.query?.localIdentity;
+              let username = localIdentity;
+              if (username === undefined) {
+                const token = conn.query?.token;
+                if (token === undefined) return;
+                const claims = await verifier.verify(token);
+                username = typeof claims['username'] === 'string' ? claims['username'] : claims.sub;
+              }
               // A join puts the connection in no project — it has not said which
               // one it is looking at yet, and until it subscribes it belongs to
               // nothing (see {@link Presence}). The broadcast is what hands the

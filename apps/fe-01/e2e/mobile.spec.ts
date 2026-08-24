@@ -120,22 +120,17 @@ async function seedPlan(page: Page, _account: string): Promise<void> {
  * One edit by somebody else, made the way somebody else makes it: a request to
  * be-01 from outside this page's own UI, which gw-01 then tells the page about.
  *
- * The session token is read out of the same `localStorage` the app keeps it in.
- * A second browser context signed into a second account would be the purer
- * fixture and is a change of its own — every project in this deployment is
- * readable by every account, but nothing in this spec's stack seeds a second
- * one, and what is being measured is what arrives at *this* page rather than
- * who sent it.
+ * The request uses the page's httpOnly session cookie. A second browser
+ * context signed into a second account would be the purer fixture and is a
+ * change of its own — what is being measured is what arrives at *this* page
+ * rather than who sent it.
  */
 async function aPeerRenames(page: Page, workItemId: string, name: string): Promise<void> {
   const status = await page.evaluate(
     async ([id, newName]) => {
-      const raw = localStorage.getItem('wbs.session');
-      if (raw === null) throw new Error('no session to borrow a token from');
-      const session = JSON.parse(raw) as { token: string };
       const res = await fetch(`/api/work-items/${id}`, {
         method: 'PATCH',
-        headers: { 'content-type': 'application/json', 'x-wbs-token': session.token },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: newName }),
       });
       return res.status;

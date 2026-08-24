@@ -12,6 +12,10 @@ const VALID = {
 };
 
 describe('loadConfig', () => {
+  it('supplies the fixed identity for cookie-free local WebSockets', () => {
+    expect(loadConfig(VALID).wsAuth?.localIdentity).toBe('local-dev');
+  });
+
   it('refuses local auth on the production boot path', () => {
     expect(() => loadConfig({ ...VALID, NODE_ENV: 'production' })).toThrow(
       /AUTH_MODE=local.*production/,
