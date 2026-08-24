@@ -436,6 +436,31 @@ async function rectOf(page: Page, selector: string): Promise<Rect> {
 }
 
 /**
+ * Requires every interactive control in one Gantt strip to expose a phone-sized
+ * target in both dimensions.
+ *
+ * Proof: with the strip's production rule setting only `min-height`, this fails
+ * on Detail at 39×44, Full/Close at 38×44, and the SVG download at 16×44.
+ */
+async function expectPhoneTargets(strip: Locator, where: string): Promise<void> {
+  const targets = await strip.locator('button, select').evaluateAll((controls) =>
+    controls.map((control) => {
+      const box = control.getBoundingClientRect();
+      return {
+        name: control.getAttribute('aria-label') ?? control.textContent?.trim() ?? control.tagName,
+        width: box.width,
+        height: box.height,
+      };
+    }),
+  );
+  expect(targets, `${where} has no Gantt controls to measure`).not.toHaveLength(0);
+  for (const target of targets) {
+    expect(target.width, `${where} ${target.name} is narrower than 44px`).toBeGreaterThanOrEqual(44);
+    expect(target.height, `${where} ${target.name} is shorter than 44px`).toBeGreaterThanOrEqual(44);
+  }
+}
+
+/**
  * What the browser actually paints at a point inside a mark's own box.
  *
  * The one question `getBoundingClientRect` cannot answer, and the reason this
@@ -1264,6 +1289,7 @@ test.describe('the chart on a phone', () => {
     await page.locator('[data-gantt-day-scale]').selectOption('4');
     await expect(page.locator('[data-axis-day="0"]')).toHaveCSS('width', '4px');
     const inThePage = await visibleDays(page);
+    await expectPhoneTargets(page.locator('[data-gantt-controls]'), 'in-page strip');
 
     await page.locator('[data-gantt-fullscreen-toggle]').click();
     await expect(page.locator('[data-gantt-fullscreen]')).toHaveCount(1);
@@ -1300,6 +1326,10 @@ test.describe('the chart on a phone', () => {
       await page.locator('[data-gantt-fullscreen] [data-gantt-controls]').count(),
       'the way out is outside the layer it is the way out of',
     ).toBe(1);
+    await expectPhoneTargets(
+      page.locator('[data-gantt-fullscreen] [data-gantt-controls]'),
+      'full-screen strip',
+    );
 
     // The claim, in the unit the task states it in. A quarter is 91 days; the
     // brackets are wide on purpose — what this pins is that the padding is
