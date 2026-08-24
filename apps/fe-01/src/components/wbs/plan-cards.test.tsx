@@ -2586,7 +2586,7 @@ describe('setting a card’s priority', () => {
     });
   });
 
-  itDom('refuses a word, out loud, and sends nothing — because null is the clear', async () => {
+  itDom('keeps a refused word in the open sheet, out loud — because null is the clear', async () => {
     // The refusal path is the reason {@link PlanCardsProps.setPriority} takes a
     // string, and the rule it keeps is narrower than its own sentence sounds.
     // `setPriority` refuses exactly what **JSON cannot carry**: `Number('urgent')`
@@ -2603,9 +2603,10 @@ describe('setting a card’s priority', () => {
     // that mistake in code.
     const api = await aPhonePlan();
     const before = api.patched.length;
-    await openTheSheet();
+    const sheet = await openTheSheet();
 
-    fireEvent.change(screen.getByLabelText('Priority for 010, as a number'), {
+    const input = screen.getByLabelText('Priority for 010, as a number');
+    fireEvent.change(input, {
       target: { value: 'urgent' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -2613,6 +2614,8 @@ describe('setting a card’s priority', () => {
     expect(
       await screen.findByText('A priority is a whole number from 1 upward.'),
     ).toBeInTheDocument();
+    expect(sheet).toBeInTheDocument();
+    expect(input).toHaveValue('urgent');
     expect(api.patched.slice(before)).toEqual([]);
   });
 
