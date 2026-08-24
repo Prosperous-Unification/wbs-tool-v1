@@ -112,7 +112,7 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
     .post(
       '/login',
       async ({ body, set }) => {
-        if (oidc !== undefined && oidc.passwordLoginEnabled === false) {
+        if (oidc?.passwordLoginEnabled === false) {
           set.status = 404;
           return { error: 'not_found' };
         }
