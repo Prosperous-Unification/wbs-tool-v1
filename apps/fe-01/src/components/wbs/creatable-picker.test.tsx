@@ -138,7 +138,7 @@ describe('the creatable picker’s active option', () => {
     expect(takeLine()).toBe(options()[0]);
   });
 
-  itDom('still lets Alt+arrow move the row and Ctrl+arrow out of the cell', () => {
+  itDom('still lets Alt+arrow move the row and Ctrl+H/J/K/L out of the cell', () => {
     const stub = gridStub();
     const { box } = picker({ gridCell: stub.gridCell });
     openAs(box, 'qa');
@@ -149,9 +149,16 @@ describe('the creatable picker’s active option', () => {
     expect(stub.calls).toContain('alt:ArrowDown');
     expect(takeLine()).toBe(options()[0]);
 
-    fireEvent.keyDown(box, { key: 'ArrowDown', ctrlKey: true });
-    expect(stub.calls).toContain('command:ArrowDown');
+    // The table's motion chords are Ctrl+H/J/K/L — vim keys, not arrows — and
+    // the list must let them through too.
+    fireEvent.keyDown(box, { key: 'l', ctrlKey: true });
+    expect(stub.calls).toContain('command:l');
     expect(takeLine()).toBe(options()[0]);
+
+    // A Ctrl+arrow, by contrast, is no chord of this table's: the list owns
+    // it exactly as it owns the bare arrow, the same as the depends picker.
+    fireEvent.keyDown(box, { key: 'ArrowDown', ctrlKey: true });
+    expect(takeLine()).toBe(options()[1]);
   });
 
   itDom('Enter takes the line the arrows walked to', () => {
