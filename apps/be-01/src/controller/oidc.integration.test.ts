@@ -511,6 +511,26 @@ describe('OIDC browser routes', () => {
 });
 
 describe('OIDC startup configuration', () => {
+  it('refuses misspelled password security flags instead of choosing a mode', () => {
+    const factory = (
+      authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
+    ).oidcRouteOptionsFromEnv;
+    const base = {
+      AUTH_CLIENT_ID: 'client',
+      AUTH_CLIENT_SECRET: 'secret',
+      AUTH_AUDIENCE: 'wbs-api',
+      AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
+      AUTH_REDIRECT_URI: 'https://dev.wbs.test/api/auth/okta/callback',
+    };
+
+    expect(() => factory({ ...base, AUTH_PASSWORD_LOGIN: 'TRUE' })).toThrow(
+      /AUTH_PASSWORD_LOGIN.*true.*false/,
+    );
+    expect(() => factory({ ...base, AUTH_PASSWORD_REGISTER: 'yes' })).toThrow(
+      /AUTH_PASSWORD_REGISTER.*true.*false/,
+    );
+  });
+
   it('refuses a redirect URI whose callback path is not mounted', () => {
     const factory = (
       authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
