@@ -2597,6 +2597,38 @@ describe('what holds a row’s start, for the table', () => {
     expect(floors.get('020')).toBe('Waits for Strip (Dev) — finishes 7 Sep');
   });
 
+  it('says a fractional anchor frees the row up *during* its own start day', () => {
+    // The defect `wbs-waiting-sentence-same-day` measured in a real browser:
+    // `Strip`'s Dev finishes at 4.5 and `020`'s Dev starts at 4.5 — one
+    // fractional workday, both landing on 7 Sep. `finishes 7 Sep` beside a
+    // `Start` cell reading `7 Sep` repeats the figure in the cell beside it,
+    // which is the reading the parent task was opened to remove. The same-day
+    // arm says `finishes during 7 Sep` — the date kept, the handoff named as
+    // within the day — while the whole-day arm above keeps `finishes 7 Sep`.
+    //
+    // Proof of the part-day arm, watched LATER-INSERTED: `clearsOn ===
+    // startsOn` replaced by `false` so no handoff is ever read as same-day —
+    // **this test alone reddens** on
+    //   `expected 'Waits for Strip (Dev) — finishes during 7 Sep' to be
+    //   '… 7 Sep'` — and the same-day comparison is the only thing keeping
+    // the contradiction out of a fractional plan.
+    const floors = startFloorByRow(
+      planOf({
+        rows: [rowAt('030', 0, 4.5, { name: 'Strip' }), rowAt('020', 4.5, 6)],
+        slices: [
+          sliceAt('030-dev', '030', 0, 4.5),
+          sliceAt('020-dev', '020', 4.5, 6, { boundBy: 'predecessor' }),
+        ],
+        dependencies: [{ predecessorId: '030', successorId: '020' }],
+      }),
+      calendarOf(),
+    );
+
+    // `Strip`'s Dev finishes mid-workday-4 (4.5) and `020` resumes that same
+    // workday, so both its last day and the successor's first are 7 Sep.
+    expect(floors.get('020')).toBe('Waits for Strip (Dev) — finishes during 7 Sep');
+  });
+
   it('names the wait and says no day on a plan with no start date', () => {
     // The one caller state that is not a fallback: a plan drawn on the workday
     // axis has no calendar to say a date on, and inventing one would be worse

@@ -1468,16 +1468,21 @@ function spokenNameOf(row: GanttRow): string {
  *
  * **The day is the anchor's last working day**, `lastWorkdayOf` over the same
  * span be-01's `datesOf` prints the `End` column from, so the date in this
- * sentence is a date the plan already shows somewhere else. It is *not* the
- * successor's own start: the successor stands on the workday **after** the
- * anchor stops, and a sentence repeating the figure in the cell beside it
- * answers nothing. A caller with no calendar — a plan with no start date, drawn
- * on the workday axis — names the wait and says no day, rather than inventing
- * one.
+ * sentence is a date the plan already shows somewhere else. For a whole-day
+ * anchor that day is the workday **before** the successor's own start, so the
+ * sentence names a date the cell beside it does not already carry. A
+ * fractional anchor finishes mid-day, the successor picks up on the *same*
+ * workday, and saying `finishes 3 Nov` beside a cell that reads `3 Nov` answers
+ * nothing — the exact reading the parent task was opened to remove — so that
+ * arm says `finishes **during** 3 Nov` instead: the date kept, the handoff
+ * named as within the day. A caller with no calendar — a plan with no start
+ * date, drawn on the workday axis — names the wait and says no day, rather
+ * than inventing one.
  */
 function predecessorFloorWords(
   anchor: PlacedSlice | undefined,
   clearsOn: string | null,
+  startsOn: string | null,
   rowNames: ReadonlyMap<string, string>,
 ): string {
   if (anchor === undefined) return FLOOR_SENTENCE.predecessor;
@@ -1492,7 +1497,14 @@ function predecessorFloorWords(
     anchor.roleName === null
       ? `Waits for ${workItemName}`
       : `Waits for ${workItemName} (${anchor.roleName})`;
-  return clearsOn === null ? named : `${named} — finishes ${clearsOn}`;
+  if (clearsOn === null) return named;
+  // A whole-day anchor stops the workday before the successor starts, so the
+  // date is new information. A fractional one stops on the successor's own
+  // start day, and `finishes <date>` would repeat the figure in the cell
+  // beside this one.
+  return clearsOn === startsOn
+    ? `${named} — finishes during ${clearsOn}`
+    : `${named} — finishes ${clearsOn}`;
 }
 
 function notBeforeFloorWords(reason: string | null): string {
@@ -1835,6 +1847,7 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
           // dated: `row-floor-names-the-dep`, 2026-08-23.
           undefined,
           null,
+          null,
         ),
         team: row.team,
         // Straight off the row and into words. Deliberately **not** passed to
@@ -2141,6 +2154,7 @@ function floorWordsOf(
   rolesById: ReadonlyMap<string, GanttRolePlace>,
   dependencyAnchor: PlacedSlice | undefined,
   clearsOn: string | null,
+  startsOn: string | null,
 ): string {
   switch (slice.boundBy) {
     case 'projectStart':
@@ -2151,7 +2165,7 @@ function floorWordsOf(
     // caller resolved one and `undefined` where it did not ask, and the
     // sentence degrades to what it has always been rather than to silence.
     case 'predecessor':
-      return predecessorFloorWords(dependencyAnchor, clearsOn, rowNames);
+      return predecessorFloorWords(dependencyAnchor, clearsOn, startsOn, rowNames);
     // The one floor of the four that has words of its own. It is here and not
     // beside the other three because the reason belongs to the **row** rather
     // than to the slice: a work item's not-before holds every one of its roles,
@@ -2309,28 +2323,34 @@ export function startFloorByRow(
   }
 
   /**
-   * The day an anchor stops, or null on a plan with no calendar to say it on.
+   * The calendar day a workday offset lands on, or null on a plan with no
+   * calendar to say it on.
    *
    * Built once and refused once. `addWorkdays` and `shortIsoDate` each throw on
    * a start date that is not a calendar day, and a plan carrying one would
    * otherwise throw on **every** row here — past the `GanttDataError` catch
    * below, which is narrow on purpose — and take the whole table with it. One
    * probe at the origin turns that into the state this function already models:
-   * a wait named with no day beside it.
+   * a wait named with no day beside it. `clearsOnOf` and `startsOnOf` both read
+   * their day through it, so the anchor's last day and the successor's own
+   * start day are one arithmetic and the same-day comparison is like for like.
    */
-  const clearsOnOf = ((): ((anchor: GanttSlice) => string | null) => {
+  const dayOf = ((): ((workdayOffset: number) => string | null) => {
     if (calendar === null) return () => null;
     try {
       shortIsoDate(addWorkdays(calendar.startDate, 0), calendar.today);
     } catch {
       return () => null;
     }
-    return (anchor) =>
-      shortIsoDate(
-        addWorkdays(calendar.startDate, lastWorkdayOf(anchor.earliestStart, anchor.earliestFinish)),
-        calendar.today,
-      );
+    return (workdayOffset) =>
+      shortIsoDate(addWorkdays(calendar.startDate, workdayOffset), calendar.today);
   })();
+
+  const clearsOnOf = (anchor: GanttSlice): string | null =>
+    dayOf(lastWorkdayOf(anchor.earliestStart, anchor.earliestFinish));
+
+  const startsOnOf = (slice: GanttSlice): string | null =>
+    dayOf(firstWorkdayOf(slice.earliestStart));
 
   const words = new Map<string, string>();
   for (const row of plan.rows) {
@@ -2375,6 +2395,7 @@ export function startFloorByRow(
           rolesById,
           dependencyAnchor,
           dependencyAnchor === undefined ? null : clearsOnOf(dependencyAnchor.slice),
+          startsOnOf(anchor.slice),
         ),
       );
     } catch (error) {
