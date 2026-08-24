@@ -1,6 +1,14 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, type KeyObject, randomBytes } from 'node:crypto';
 
-import { type BrowserOidcClient, browserOidcClientFromEnv } from '@wbs/auth';
+import {
+  type BrowserOidcClient,
+  browserOidcClientFromEnv,
+  type JwtClaims,
+  oidcIdentityFromClaims,
+  oidcTokenVerifierFromEnv,
+  type TokenVerifier,
+} from '@wbs/auth';
+import { type JWTPayload, jwtVerify, SignJWT } from 'jose';
 
 import type { McpConfig } from './config';
 import type { McpOAuthHandler } from './http';
@@ -32,12 +40,23 @@ export interface McpAuthorizationGrant {
   expiresAt: number;
   redirectUri: string;
   scope: string;
+  scopes: readonly string[];
+  subject: string;
+  upstreamAccessToken: string;
+}
+
+interface McpSession {
+  expiresAt: number;
   upstreamAccessToken: string;
 }
 
 interface Options {
+  groupsClaim?: string;
+  groupPrefix?: string;
   now?: () => number;
   random?: () => string;
+  signingKeys?: { privateKey: KeyObject; publicKey: KeyObject };
+  verifyUpstream?: TokenVerifier['verify'];
 }
 
 type UpstreamClient = Pick<BrowserOidcClient, 'authorizationUrl' | 'exchange'>;
@@ -46,11 +65,18 @@ type UpstreamClient = Pick<BrowserOidcClient, 'authorizationUrl' | 'exchange'>;
 export class InMemoryMcpOAuth implements McpOAuthHandler {
   private readonly clients = new Map<string, ClientRecord>();
   private readonly grants = new Map<string, McpAuthorizationGrant>();
+  private readonly sessions = new Map<string, McpSession>();
   private readonly transactions = new Map<string, Transaction>();
   private readonly now: () => number;
   private readonly random: () => string;
   private readonly issuer: string;
+  private readonly audience: string;
   private readonly callbackUrl: string;
+  private readonly groupsClaim: string;
+  private readonly groupPrefix: string;
+  private readonly privateKey: KeyObject;
+  private readonly publicKey: KeyObject;
+  private readonly verifyUpstream: TokenVerifier['verify'];
 
   constructor(
     config: Pick<McpConfig, 'MCP_PUBLIC_URL'>,
@@ -58,10 +84,18 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     options: Options = {},
   ) {
     const resource = new URL(config.MCP_PUBLIC_URL);
-    this.issuer = `${resource.origin}${resource.pathname.replace(/\/$/, '')}/oauth`;
+    this.audience = `${resource.origin}${resource.pathname.replace(/\/$/, '')}`;
+    this.issuer = `${this.audience}/oauth`;
     this.callbackUrl = `${this.issuer}/callback`;
+    this.groupsClaim = options.groupsClaim ?? 'wbs_groups';
+    this.groupPrefix = options.groupPrefix ?? 'dev';
     this.now = options.now ?? Date.now;
     this.random = options.random ?? (() => randomBytes(32).toString('base64url'));
+    const keys = options.signingKeys ?? generateKeyPairSync('rsa', { modulusLength: 2048 });
+    this.privateKey = keys.privateKey;
+    this.publicKey = keys.publicKey;
+    this.verifyUpstream =
+      options.verifyUpstream ?? (() => Promise.reject(new Error('upstream verifier is required')));
   }
 
   async response(request: Request): Promise<Response | undefined> {
@@ -75,7 +109,54 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     if (url.pathname === new URL(this.callbackUrl).pathname && request.method === 'GET') {
       return await this.callback(request, url);
     }
+    if (url.pathname === new URL(`${this.issuer}/token`).pathname && request.method === 'POST') {
+      return await this.token(request);
+    }
+    if (url.pathname === new URL(`${this.issuer}/revoke`).pathname && request.method === 'POST') {
+      return await this.revoke(request);
+    }
+    if (url.pathname === new URL(`${this.issuer}/jwks`).pathname && request.method === 'GET') {
+      return Response.json({ keys: [this.publicJwk()] });
+    }
     return undefined;
+  }
+
+  async verify(token: string): Promise<JwtClaims> {
+    try {
+      return await this.verifyLocal(token);
+    } catch {
+      return await this.verifyUpstream(token);
+    }
+  }
+
+  async upstreamTokenFor(token: string): Promise<string> {
+    try {
+      const payload = await this.verifyLocal(token);
+      const session = this.sessionOf(payload);
+      return session.upstreamAccessToken;
+    } catch {
+      await this.verifyUpstream(token);
+      return token;
+    }
+  }
+
+  private async verifyLocal(token: string): Promise<JwtClaims> {
+    const payload = await this.verifySignature(token);
+    this.sessionOf(payload);
+    if (typeof payload.sub !== 'string' || payload.sub === '') {
+      throw new Error('verified MCP token has no subject');
+    }
+    return { ...payload, sub: payload.sub };
+  }
+
+  private sessionOf(payload: JWTPayload): McpSession {
+    const jti = payload.jti;
+    const session = typeof jti === 'string' ? this.sessions.get(jti) : undefined;
+    if (session === undefined || session.expiresAt <= this.now()) {
+      if (typeof jti === 'string') this.sessions.delete(jti);
+      throw new Error('MCP OAuth session is missing, expired, or revoked');
+    }
+    return session;
   }
 
   readGrant(code: string): McpAuthorizationGrant | null {
@@ -186,19 +267,108 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
         verifier: transaction.verifier,
       },
     );
+    const upstreamClaims = await this.verifyUpstream(tokens.accessToken);
+    const identity = oidcIdentityFromClaims(upstreamClaims, {
+      groupPrefix: this.groupPrefix,
+      groupsClaim: this.groupsClaim,
+    });
+    const requested = new Set(transaction.scope.split(' ').filter(Boolean));
+    const scopes = [...identity.scopes]
+      .map((scope) => `wbs:${scope}`)
+      .filter((scope) => requested.has(scope));
+    if (!scopes.includes('wbs:read')) return oauthError('access_denied', clearCookie());
     const code = this.random();
     this.grants.set(code, {
       clientId: transaction.clientId,
       codeChallenge: transaction.codeChallenge,
       expiresAt: this.now() + TTL_MS,
       redirectUri: transaction.redirectUri,
-      scope: transaction.scope,
+      scope: scopes.join(' '),
+      scopes,
+      subject: identity.subject,
       upstreamAccessToken: tokens.accessToken,
     });
     const target = new URL(transaction.redirectUri);
     target.searchParams.set('code', code);
     if (transaction.state !== undefined) target.searchParams.set('state', transaction.state);
     return redirect(target.href, clearCookie());
+  }
+
+  private async token(request: Request): Promise<Response> {
+    const form = await request.formData();
+    const code = stringField(form, 'code');
+    const grant = code === undefined ? undefined : this.grants.get(code);
+    if (code !== undefined) this.grants.delete(code);
+    const verifier = stringField(form, 'code_verifier');
+    if (
+      grant === undefined ||
+      grant.expiresAt <= this.now() ||
+      form.get('grant_type') !== 'authorization_code' ||
+      stringField(form, 'client_id') !== grant.clientId ||
+      stringField(form, 'redirect_uri') !== grant.redirectUri ||
+      verifier === undefined ||
+      !/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) ||
+      challengeOf(verifier) !== grant.codeChallenge
+    ) {
+      return oauthError('invalid_grant');
+    }
+
+    const jti = this.random();
+    const expiresAt = this.now() + TTL_MS;
+    const token = await new SignJWT({
+      [this.groupsClaim]: grant.scopes.map((scope) => `${this.groupPrefix}:${scope}`),
+      scope: grant.scope,
+    })
+      .setProtectedHeader({ alg: 'RS256', kid: 'mcp-01-ephemeral', typ: 'JWT' })
+      .setIssuer(this.issuer)
+      .setAudience(this.audience)
+      .setSubject(grant.subject)
+      .setJti(jti)
+      .setIssuedAt(Math.floor(this.now() / 1000))
+      .setExpirationTime(Math.floor(expiresAt / 1000))
+      .sign(this.privateKey);
+    this.sessions.set(jti, {
+      expiresAt,
+      upstreamAccessToken: grant.upstreamAccessToken,
+    });
+    return Response.json({
+      access_token: token,
+      expires_in: TTL_MS / 1000,
+      scope: grant.scope,
+      token_type: 'Bearer',
+    });
+  }
+
+  private async revoke(request: Request): Promise<Response> {
+    const token = stringField(await request.formData(), 'token');
+    if (token !== undefined) {
+      try {
+        const payload = await this.verifySignature(token);
+        if (payload.jti !== undefined) this.sessions.delete(payload.jti);
+      } catch {
+        // RFC 7009 does not reveal whether the presented token was valid.
+      }
+    }
+    return new Response(null, { status: 200 });
+  }
+
+  private async verifySignature(token: string): Promise<JWTPayload> {
+    const result = await jwtVerify(token, this.publicKey, {
+      algorithms: ['RS256'],
+      audience: this.audience,
+      currentDate: new Date(this.now()),
+      issuer: this.issuer,
+    });
+    return result.payload;
+  }
+
+  private publicJwk(): JsonWebKey & { alg: string; kid: string; use: string } {
+    return {
+      ...(this.publicKey.export({ format: 'jwk' }) as JsonWebKey),
+      alg: 'RS256',
+      kid: 'mcp-01-ephemeral',
+      use: 'sig',
+    };
   }
 
   private cleanup(): void {
@@ -209,6 +379,9 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     for (const [code, grant] of this.grants) {
       if (grant.expiresAt <= now) this.grants.delete(code);
     }
+    for (const [jti, session] of this.sessions) {
+      if (session.expiresAt <= now) this.sessions.delete(jti);
+    }
   }
 }
 
@@ -218,10 +391,30 @@ export function mcpOAuthFromEnv(
 ): InMemoryMcpOAuth {
   let client: BrowserOidcClient | undefined;
   const get = () => (client ??= browserOidcClientFromEnv(env));
-  return new InMemoryMcpOAuth(config, {
-    authorizationUrl: (input) => get().authorizationUrl(input),
-    exchange: (request, checks) => get().exchange(request, checks),
-  });
+  let upstreamVerifier: TokenVerifier | undefined;
+  const verifyUpstream = (token: string) =>
+    (upstreamVerifier ??= oidcTokenVerifierFromEnv(env)).verify(token);
+  return new InMemoryMcpOAuth(
+    config,
+    {
+      authorizationUrl: (input) => get().authorizationUrl(input),
+      exchange: (request, checks) => get().exchange(request, checks),
+    },
+    {
+      groupsClaim: env['AUTH_GROUPS_CLAIM'] ?? 'wbs_groups',
+      groupPrefix: env['NODE_ENV'] === 'production' ? 'prod' : 'dev',
+      verifyUpstream,
+    },
+  );
+}
+
+function stringField(form: FormData, name: string): string | undefined {
+  const value = form.get(name);
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+function challengeOf(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url');
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

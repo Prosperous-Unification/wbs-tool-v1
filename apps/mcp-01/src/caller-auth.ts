@@ -1,8 +1,18 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { oidcIdentityFromClaims, type TokenVerifier } from '@wbs/auth';
+import { type JwtClaims, oidcIdentityFromClaims, type TokenVerifier } from '@wbs/auth';
 import { decodeJwt } from 'jose';
 
 import type { McpConfig } from './config';
+
+interface DownstreamTokenResolver {
+  upstreamTokenFor(token: string, verified?: JwtClaims): Promise<string>;
+}
+
+function resolvesDownstreamToken(
+  verifier: TokenVerifier,
+): verifier is TokenVerifier & DownstreamTokenResolver {
+  return 'upstreamTokenFor' in verifier && typeof verifier.upstreamTokenFor === 'function';
+}
 
 /** Authenticates one MCP HTTP request and preserves its caller token for be-01. */
 export async function authenticateCaller(
@@ -17,8 +27,12 @@ export async function authenticateCaller(
   const token = match[1];
   const claims = mode === 'standalone' ? await verifier.verify(token) : decodeJwt(token);
   const identity = oidcIdentityFromClaims(claims, { groupPrefix, groupsClaim });
+  const forwardedToken =
+    mode === 'standalone' && resolvesDownstreamToken(verifier)
+      ? await verifier.upstreamTokenFor(token, claims as JwtClaims)
+      : token;
   return {
-    token,
+    token: forwardedToken,
     clientId: identity.subject,
     scopes: [...identity.scopes],
     extra: { issuer: identity.issuer, subject: identity.subject },

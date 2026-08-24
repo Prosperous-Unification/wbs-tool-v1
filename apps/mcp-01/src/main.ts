@@ -1,5 +1,3 @@
-import { oidcTokenVerifierFromEnv } from '@wbs/auth';
-
 import { loadConfig } from './config';
 import { startHttpServer } from './http';
 import { mcpOAuthFromEnv } from './oauth';
@@ -17,11 +15,11 @@ import { createServer, resolveDocumentFile } from './server';
 const config = loadConfig();
 const tools = toolsFromDocument(readDocument(resolveDocumentFile()));
 const server = createServer({ tools, config });
+const oauth = mcpOAuthFromEnv(config, process.env);
 const verifier =
   config.MCP_AUTH_MODE === 'standalone'
-    ? oidcTokenVerifierFromEnv(process.env)
+    ? oauth
     : { verify: () => Promise.reject(new Error('gateway mode must not verify locally')) };
-const oauth = mcpOAuthFromEnv(config, process.env);
 const http = await startHttpServer(server, config, verifier, process.env, oauth);
 
 console.error(
