@@ -4079,18 +4079,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   };
 
   /**
-   * Forgets every width **and** the panel height for this project, so each
-   * returns to what is resolved for it **now** — the columns to the frame
-   * layout's answer, the panel to its default share.
+   * Forgets the Gantt's own settings for this project — the dragged panel
+   * height, the picked day scale and the hidden row-name labels — so each
+   * returns to what is resolved for it **now**: the panel to its default
+   * share, the scale back to {@link DAY_PX} (Days), the labels to shown.
    *
-   * Forgotten, never frozen. Storing either as it stands would turn a reset
-   * into a rename of today's defaults, and a column whose default had moved
-   * since — `not-before` is 56px or 84px — would come back to the wrong one.
+   * The width half of a layout reset stays in {@link resetLayout}, which
+   * delegates here: a phone card has a chart height, a scale and row names
+   * but no columns to widen, so this half is the one the Plan actions sheet
+   * carries, and a width override is nothing a card can forget.
    *
-   * Proof: the height half deleted, `one reset forgets the widths and the
-   * height together` (wbs-table.test.tsx) failed on `expected '500' to be
-   * null` — the widths forgotten, the chart still holding its dragged share.
-   * Watched, 2026-08-10.
+   * Forgotten, never frozen — storing any of the three as it stands would
+   * turn a reset into a rename of today's defaults.
    */
   function resetGanttSettings(): void {
     setGanttHeightPx(null);
@@ -4101,6 +4101,22 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     forgetGanttLabels(projectId);
   }
 
+  /**
+   * Forgets the column widths **and** the Gantt settings for this project, so
+   * each returns to what is resolved for it **now** — the columns to the frame
+   * layout's answer, the chart to its default share, the scale to Days, the
+   * labels to shown.
+   *
+   * Forgotten, never frozen. Storing either half as it stands would turn a
+   * reset into a rename of today's defaults, and a column whose default had
+   * moved since — `not-before` is 56px or 84px — would come back to the wrong
+   * one.
+   *
+   * Proof: the height half deleted, `one reset forgets the widths and the
+   * height together` (wbs-table.test.tsx) failed on `expected '500' to be
+   * null` — the widths forgotten, the chart still holding its dragged share.
+   * Watched, 2026-08-10.
+   */
   function resetLayout(): void {
     setWidthOverrides(new Map());
     forgetWidthOverrides(projectId);

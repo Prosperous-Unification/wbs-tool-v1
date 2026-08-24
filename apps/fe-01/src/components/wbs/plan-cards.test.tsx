@@ -1181,6 +1181,12 @@ describe('the toolbar sheet', () => {
       expect(localStorage.getItem('wbs.ganttHeight.p1')).toBeNull();
       expect(localStorage.getItem('wbs.ganttDayPx.p1')).toBeNull();
       expect(localStorage.getItem('wbs.ganttLabels.p1')).toBeNull();
+
+      // The click closed the sheet — every button inside it does — so the
+      // absence below would be vacuous without reopening it. Reopen, confirm
+      // the sheet is really up again, then assert the action is gone.
+      openTheSheet();
+      expect(await screen.findByRole('button', { name: 'Add work item' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Reset layout' })).toBeNull();
     },
   );

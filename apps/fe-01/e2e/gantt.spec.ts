@@ -1390,6 +1390,42 @@ test.describe('the chart on a phone', () => {
     );
   });
 
+  test('a picked scale reaches Reset layout on the phone, and Reset puts it back at Days', async ({
+    page,
+  }) => {
+    // The phone's only reset, and the defect the task opened for: a browser
+    // can pick a non-default scale, and the one Reset action reachable from
+    // Plan actions has to clear it. jsdom cannot answer this — no reload, no
+    // sheet round-trip — so it is measured here.
+    await seedOnALaptop(page, nextAccount(), { estimate: '40/40/40' });
+    await openTheChart(page, { throughTheSheet: true });
+
+    // Pick a non-default scale, and prove it landed on the axis.
+    await page.locator('[data-gantt-day-scale]').selectOption('4');
+    await expect(page.locator('[data-axis-day="0"]')).toHaveCSS('width', '4px');
+
+    // The scale survives a reload — remembered per project, which is what puts
+    // Reset layout on the sheet.
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Plan actions' })).toBeVisible();
+    await page.getByRole('button', { name: 'Plan actions' }).click();
+    await expect(page.getByRole('dialog', { name: 'Plan actions' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reset layout' })).toBeVisible();
+    await page.getByRole('button', { name: 'Reset layout' }).click();
+
+    // The tap cleared the scale and the action: after a reload the sheet no
+    // longer offers Reset, and the chart opens back at Days.
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Plan actions' })).toBeVisible();
+    await page.getByRole('button', { name: 'Plan actions' }).click();
+    await expect(page.getByRole('dialog', { name: 'Plan actions' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reset layout' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Plan actions' })).toBeHidden();
+    await openTheChart(page, { throughTheSheet: true });
+    await expect(page.locator('[data-gantt-day-scale]')).toHaveValue('28');
+  });
+
   test('takes the cards face to a row when its bar is clicked', async ({ page }) => {
     // Enough cards that the list is taller than the phone: with three rows the
     // card is on screen wherever the list is, and every assertion below would
