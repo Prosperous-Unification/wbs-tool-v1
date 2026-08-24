@@ -4,6 +4,15 @@ export type McpAuthMode = 'standalone' | 'gateway';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
+/** Reads a defaulted security flag without accepting misspellings as policy. */
+export function booleanFlagOf(env: Environment, key: string, fallback: boolean): boolean {
+  const value = env[key];
+  if (value === undefined) return fallback;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`${key} must be true or false`);
+}
+
 /**
  * Reads the application authentication mode without a permissive default.
  *
