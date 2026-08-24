@@ -115,6 +115,14 @@ cookie token plus allowed Origin.
 - **WHEN** the browser requests a WebSocket upgrade
 - **THEN** gw-01 SHALL refuse the upgrade
 
+#### Scenario: an expired WebSocket session reconnects
+
+- **GIVEN** the access cookie is expired and its server-side refresh record is valid
+- **WHEN** the browser needs to reconnect its WebSocket
+- **THEN** it SHALL call be-01's refresh preflight before opening the replacement socket
+- **AND** gw-01 SHALL refuse the expired cookie and never refresh it itself
+- **AND** the replacement socket SHALL use the renewed access cookie
+
 ### Requirement: MCP preserves an explicit caller trust chain
 
 Standalone MCP SHALL verify incoming Bearer tokens with the shared verifier.

@@ -1,4 +1,4 @@
-import { authModeOf } from '@wbs/auth';
+import { authModeOf, oidcTokenVerifierFromEnv, type TokenVerifier } from '@wbs/auth';
 import { defineConfig } from '@wbs/config';
 import { type } from '@wbs/validation';
 
@@ -13,9 +13,30 @@ export const GwConfig = type({
 });
 export type GwConfig = typeof GwConfig.infer;
 
+export interface WsAuthOptions {
+  appOrigin: string;
+  verifier: TokenVerifier;
+}
+
+export function oidcAppOriginFromEnv(env: Readonly<Record<string, string | undefined>>): string {
+  const redirectUri = env['AUTH_REDIRECT_URI'];
+  if (redirectUri === undefined || redirectUri === '') {
+    throw new Error('AUTH_REDIRECT_URI is required in AUTH_MODE=oidc');
+  }
+  return new URL(redirectUri).origin;
+}
+
 export const loadConfig = (
   envSource: Record<string, string | undefined> = process.env,
-): GwConfig => {
-  authModeOf(envSource);
-  return defineConfig(GwConfig, envSource);
+): GwConfig & { wsAuth?: WsAuthOptions } => {
+  const mode = authModeOf(envSource);
+  const config = defineConfig(GwConfig, envSource);
+  if (mode === 'local') return config;
+  return {
+    ...config,
+    wsAuth: {
+      appOrigin: oidcAppOriginFromEnv(envSource),
+      verifier: oidcTokenVerifierFromEnv(envSource),
+    },
+  };
 };

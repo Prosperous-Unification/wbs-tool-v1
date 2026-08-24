@@ -27,6 +27,8 @@ acceptance, and the public cutover remain separate worker chunks.
 | transaction expiry    | callback arrived exactly at expiry                    | `oidc-store.test.ts` expiry case        | refused           |
 | refresh replay        | rotated refresh token presented again                 | `oidc-store.test.ts` replay case        | session ended     |
 | refresh mismatch      | unrelated token attempted rotation                    | `oidc-store.test.ts` unknown-token case | refused           |
+| WebSocket Origin      | valid cookie arrived from a hostile Origin            | `ws-auth.integration.test.ts`           | upgrade refused   |
+| WebSocket expiry      | verifier bypassed for an expired cookie               | `ws-auth.integration.test.ts`           | test failed red   |
 
 The implementation run observed each row red before the production line was
 accepted. Future safety checks append their own faults here; no reasoning-only
@@ -46,7 +48,16 @@ At branch `9db0791` on h2puni, cache skipped:
 On h2puni with the Nx cache skipped: auth 19/0, lint clean, typecheck clean,
 `nx format:check --all` clean, and strict OpenSpec validation 73/73.
 
-## 6. Implementation Signal
+## 6. Gate Output — WebSocket cookie slice
+
+On h2puni with the Nx cache skipped:
+
+- auth 23/0 and gw-01 51/0
+- both projects lint and typecheck clean
+- global format clean
+- strict OpenSpec validation 73/73
+
+## 7. Implementation Signal
 
 - [x] Shared code committed and pushed on `change/okta-auth`
 - [x] OpenSpec artifacts committed and pushed
