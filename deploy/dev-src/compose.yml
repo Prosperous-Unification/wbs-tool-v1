@@ -18,7 +18,10 @@ services:
       - /home/puni1/wbs-dev/data:/data
     env_file:
       # Provider credentials stay off-repo and are mode 600 on the dev host.
-      - /home/puni1/wbs-dev/oidc-dev.env
+      # CI has no credential file; on dev its absence is still fatal because
+      # AUTH_MODE=oidc makes every server validate the required values at boot.
+      - path: /home/puni1/wbs-dev/oidc-dev.env
+        required: false
     # This is the only env_file. It carries shared provider settings only.
     # Adding the per-tier be-01.env or gw-01.env here would merge both PORT
     # values into one process namespace and make the tiers collide.
