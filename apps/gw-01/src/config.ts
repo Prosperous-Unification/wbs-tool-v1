@@ -1,6 +1,13 @@
-import { authModeOf, oidcTokenVerifierFromEnv, type TokenVerifier } from '@wbs/auth';
+import {
+  authModeOf,
+  booleanFlagOf,
+  oidcTokenVerifierFromEnv,
+  type TokenVerifier,
+} from '@wbs/auth';
 import { defineConfig } from '@wbs/config';
 import { type } from '@wbs/validation';
+
+import { JwtVerifier } from './service/jwt-auth';
 
 export const GwConfig = type({
   PORT: 'string.integer.parse',
@@ -29,17 +36,28 @@ export function oidcAppOriginFromEnv(env: Readonly<Record<string, string | undef
 
 export const loadConfig = (
   envSource: Record<string, string | undefined> = process.env,
+  oidcVerifierFromEnv: typeof oidcTokenVerifierFromEnv = oidcTokenVerifierFromEnv,
 ): GwConfig & { wsAuth?: WsAuthOptions } => {
   const mode = authModeOf(envSource);
   const config = defineConfig(GwConfig, envSource);
   if (mode === 'local') {
     return { ...config, wsAuth: { localIdentity: 'local-dev' } };
   }
+  const oidcVerifier = oidcVerifierFromEnv(envSource);
+  const passwordLoginEnabled = booleanFlagOf(envSource, 'AUTH_PASSWORD_LOGIN', true);
   return {
     ...config,
     wsAuth: {
       appOrigin: oidcAppOriginFromEnv(envSource),
-      verifier: oidcTokenVerifierFromEnv(envSource),
+      verifier: passwordLoginEnabled
+        ? new JwtVerifier({
+            current: new TextEncoder().encode(config.JWT_SIGNING_KEY_CURRENT),
+            previous: config.JWT_SIGNING_KEY_PREVIOUS
+              ? new TextEncoder().encode(config.JWT_SIGNING_KEY_PREVIOUS)
+              : undefined,
+            primary: oidcVerifier,
+          })
+        : oidcVerifier,
     },
   };
 };

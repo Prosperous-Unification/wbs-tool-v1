@@ -5,6 +5,8 @@ export type { JwtClaims, TokenVerifier } from '@wbs/auth';
 export interface JwtVerifierOptions {
   current: Uint8Array;
   previous?: Uint8Array;
+  /** OIDC verifier tried before the local password-session keys. */
+  primary?: TokenVerifier;
 }
 
 /**
@@ -20,6 +22,13 @@ export class JwtVerifier implements TokenVerifier {
   constructor(private readonly opts: JwtVerifierOptions) {}
 
   async verify(token: string): Promise<JwtClaims> {
+    if (this.opts.primary !== undefined) {
+      try {
+        return await this.opts.primary.verify(token);
+      } catch {
+        // Password sessions are HS256 and intentionally fail OIDC verification.
+      }
+    }
     try {
       const { payload } = await jwtVerify(token, this.opts.current);
       return payload as JwtClaims;

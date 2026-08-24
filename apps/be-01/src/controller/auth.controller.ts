@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import {
+  booleanFlagOf,
   browserOidcClientFromEnv,
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
@@ -14,6 +15,7 @@ import { Elysia, t } from 'elysia';
 
 import { userFromHeaders } from '../middleware/authenticated';
 import { type AuthService, TOKEN_TTL_SECONDS } from '../service/auth.service';
+import { LoginThrottle } from '../service/login-throttle';
 
 export interface OidcRouteOptions {
   appOrigin: string;
@@ -58,8 +60,8 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
     groupPrefix: env['NODE_ENV'] === 'production' ? 'prod' : 'dev',
     groupsClaim: env['AUTH_GROUPS_CLAIM'] ?? 'wbs_groups',
     mode: 'oidc',
-    passwordLoginEnabled: env['AUTH_PASSWORD_LOGIN'] !== 'false',
-    passwordRegisterEnabled: env['AUTH_PASSWORD_REGISTER'] === 'true',
+    passwordLoginEnabled: booleanFlagOf(env, 'AUTH_PASSWORD_LOGIN', true),
+    passwordRegisterEnabled: booleanFlagOf(env, 'AUTH_PASSWORD_REGISTER', false),
     random: () => randomBytes(32).toString('base64url'),
     redirectUri: redirectUri.href,
     tokens: new InMemoryTokenStore(),
@@ -86,6 +88,7 @@ const credentials = t.Object({
  * drift apart: there is exactly one issuer.
  */
 export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
+  const passwordThrottle = new LoginThrottle({ now: oidc?.now });
   // `/api` is part of the mount, not stripped by the edge: Caddy passes the
   // prefix through with `handle`, matching smokeController. A bare `/auth`
   // here answers in unit tests and 404s behind the proxy.
@@ -111,16 +114,23 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
     )
     .post(
       '/login',
-      async ({ body, set }) => {
+      async ({ body, request, set }) => {
         if (oidc?.passwordLoginEnabled === false) {
           set.status = 404;
           return { error: 'not_found' };
         }
+        const clientIp = clientIpOf(request);
+        if (!passwordThrottle.canAttempt(body.username, clientIp)) {
+          set.status = 429;
+          return { error: 'invalid_credentials' };
+        }
         const outcome = await auth.login(body.username, body.password);
         if (!outcome.ok) {
+          passwordThrottle.recordFailure(body.username, clientIp);
           set.status = 401;
           return { error: 'invalid_credentials' };
         }
+        passwordThrottle.recordSuccess(body.username);
         if (oidc !== undefined) {
           set.headers['set-cookie'] = cookie(
             '__Host-wbs_access',
@@ -239,6 +249,11 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
       if (record !== null) await oidc.client.revoke(record.refreshToken);
       return emptyResponse(204, clearSession());
     });
+}
+
+function clientIpOf(request: Request): string {
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',', 1)[0]?.trim();
+  return forwarded || request.headers.get('x-real-ip') || 'unknown';
 }
 
 export function hasInvalidCookieOrigin(request: Request, appOrigin: string): boolean {
