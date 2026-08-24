@@ -1137,11 +1137,12 @@ describe('the toolbar sheet', () => {
      * Proof: the reset moved into `toolbarControls`, this failed on `expected
      * <button …(2)></button> to be null` — the control on the sheet at 390px.
      * Watched, 2026-08-09.
+     *
+     * A width alone never offers the reset here either: the sheet's reset is
+     * the Gantt-only `resetGanttSettings`, and a card has no columns to widen,
+     * so a width override is nothing the card can forget.
      */
     localStorage.setItem('wbs.columnWidths.p1', JSON.stringify({ number: 240 }));
-    // And a dragged chart height, so the absence below is about the whole
-    // layout reset rather than the widths half of it.
-    localStorage.setItem('wbs.ganttHeight.p1', '500');
     const api = fakeApi();
     widthIs(PHONE);
     render(<WbsTable projectId="p1" api={api} />);
@@ -1158,6 +1159,31 @@ describe('the toolbar sheet', () => {
     // grab, and the table that does is not rendered at all.
     expect(document.querySelectorAll('[data-resize-handle]').length).toBe(0);
   });
+
+  itDom(
+    'offers a Gantt-only Reset layout on the sheet, and it clears the chart settings',
+    async () => {
+      // The phone's reset is the Gantt-only half: a card has a chart height, a
+      // day scale and row-name labels, but no columns to widen — so the sheet
+      // carries `resetGanttSettings`, never the width half.
+      localStorage.setItem('wbs.ganttHeight.p1', '500');
+      localStorage.setItem('wbs.ganttDayPx.p1', '12');
+      localStorage.setItem('wbs.ganttLabels.p1', JSON.stringify(false));
+      const api = fakeApi();
+      widthIs(PHONE);
+      render(<WbsTable projectId="p1" api={api} />);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Plan actions' })).toBeInTheDocument();
+      });
+      openTheSheet();
+      fireEvent.click(await screen.findByRole('button', { name: 'Reset layout' }));
+
+      expect(localStorage.getItem('wbs.ganttHeight.p1')).toBeNull();
+      expect(localStorage.getItem('wbs.ganttDayPx.p1')).toBeNull();
+      expect(localStorage.getItem('wbs.ganttLabels.p1')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Reset layout' })).toBeNull();
+    },
+  );
 
   itDom('holds the page’s own shortcuts back while it is open', async () => {
     const api = fakeApi();
