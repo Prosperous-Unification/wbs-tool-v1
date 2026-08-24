@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -803,8 +803,9 @@ describe('the hover card follows the list, not a stale pointer', () => {
     });
 
     openPicker();
+    const list = await screen.findByRole('listbox', { name: 'Projects' });
     await waitFor(() => {
-      expect(optionNames().length).toBe(2);
+      expect(within(list).queryAllByRole('option').length).toBe(2);
     });
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
