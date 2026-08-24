@@ -38,10 +38,10 @@ const DOCUMENT_DESCRIPTION = `The API behind wbs-tool: projects, work items, est
 directory of teams and people, and per-project capacity and priority bands.
 
 **Authentication.** Every route outside \`POST /api/auth/register\` and
-\`POST /api/auth/login\` needs an account token in \`x-wbs-token\`.
-\`Authorization: Bearer <token>\` is accepted as a fallback and is not what the
-front end sends. A token comes from register or login and lasts 12 hours; it
-cannot be revoked and carries no scope, so it is the account's whole reach.
+\`POST /api/auth/login\` needs the secure browser session cookie. Non-browser
+clients use \`Authorization: Bearer <token>\`; the retired \`x-wbs-token\`
+header is refused. OIDC tokens are issuer- and audience-bound, expire at the
+provider's limit, and carry environment-scoped read/write permissions.
 \`/internal/*\` is gw-01's own surface and takes a shared secret in
 \`x-internal-auth\` instead — no account token opens it.
 

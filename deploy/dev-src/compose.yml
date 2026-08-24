@@ -16,10 +16,12 @@ services:
     volumes:
       - /home/puni1/wbs-dev/src:/src
       - /home/puni1/wbs-dev/data:/data
-    # No env_file here, deliberately. Compose merges every env_file into one
-    # process namespace, so be-01.env and gw-01.env both setting PORT left both
-    # tiers reading 3200 -- be-01 announced "port 3200" and the collision was
-    # only visible in its startup log.
+    env_file:
+      # Provider credentials stay off-repo and are mode 600 on the dev host.
+      - /home/puni1/wbs-dev/oidc-dev.env
+    # This is the only env_file. It carries shared provider settings only.
+    # Adding the per-tier be-01.env or gw-01.env here would merge both PORT
+    # values into one process namespace and make the tiers collide.
     #
     # Each tier's serve target runs with cwd apps/<tier>, and Bun loads .env
     # from the working directory, so per-app .env files give each process its
@@ -36,7 +38,7 @@ services:
       # with only be-01 running -- a half-up dev environment whose logs looked
       # like a slow start rather than a deadlock.
       NODE_ENV: 'development'
-      AUTH_MODE: 'local'
+      AUTH_MODE: 'oidc'
       NX_DAEMON: 'false'
     # Dev shares a host with prod, so it gets hard ceilings. Measured
     # 2026-08-04: 278 MiB and 60 PIDs steady-state, on a 7.5 GiB host where

@@ -91,7 +91,7 @@ function buildHarness() {
     return app.handle(
       new Request(`http://localhost${path}`, {
         ...init,
-        headers: { 'content-type': 'application/json', 'x-wbs-token': token },
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       }),
     );
   }

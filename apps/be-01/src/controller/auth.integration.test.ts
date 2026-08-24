@@ -206,20 +206,18 @@ describe('GET /api/auth/me', () => {
     expect(res.status).toBe(401);
   });
 
-  it('accepts x-wbs-token, the header the edge cannot collide with', async () => {
+  it('rejects the retired x-wbs-token header', async () => {
     const a = app();
     const reg = await a.handle(
       json('/api/auth/register', { username: 'ada', password: 'lovelace99' }),
     );
     const { token } = (await reg.json()) as { token: string };
-    // Regression: dev's basic auth owns the Authorization header on every path
-    // but /ws, so a Bearer token sent there is a 401 from Caddy, not from
-    // be-01. Verified live on dev before this header existed.
+    // Proof: restoring the x-wbs-token branch in tokenFromHeaders makes this
+    // request authenticate and changes the expected 401 into 200.
     const res = await a.handle(
       new Request('http://localhost/api/auth/me', { headers: { 'x-wbs-token': token } }),
     );
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { user: { username: string } }).user.username).toBe('ada');
+    expect(res.status).toBe(401);
   });
 
   it('rejects a missing header', async () => {

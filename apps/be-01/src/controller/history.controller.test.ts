@@ -93,7 +93,7 @@ describe('one plan’s history, over HTTP', () => {
   async function get(query: string, withToken = token) {
     const response = await app.handle(
       new Request(`http://localhost/api/projects/${PROJECT}/history${query}`, {
-        headers: withToken === '' ? {} : { 'x-wbs-token': withToken },
+        headers: withToken === '' ? {} : { authorization: `Bearer ${withToken}` },
       }),
     );
     return { status: response.status, body: (await response.json()) as { events?: PlanEvent[] } };
@@ -150,7 +150,7 @@ describe('one plan’s history, over HTTP', () => {
 
     const response = await app.handle(
       new Request('http://localhost/api/projects/no-such-plan/history', {
-        headers: { 'x-wbs-token': token },
+        headers: { authorization: `Bearer ${token}` },
       }),
     );
     expect(response.status).toBe(404);
