@@ -1282,7 +1282,14 @@ function CardDependsField({
         </ModalHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           {waits.length > 0 && (
-            <ul aria-label={`Waits for, on ${row.number}`} className="flex flex-col gap-1">
+            // Bounded on purpose: the surface no longer scrolls, so a row
+            // with many waits must not push the box or the candidate list
+            // out of the clipped surface — past `max-h-40` the waits scroll
+            // inside their own region.
+            <ul
+              aria-label={`Waits for, on ${row.number}`}
+              className="flex max-h-40 flex-col gap-1 overflow-y-auto"
+            >
               {waits.map((each) => (
                 <li
                   key={each.id}
@@ -1312,7 +1319,9 @@ function CardDependsField({
               ))}
             </ul>
           )}
-          <label className="flex flex-col gap-1 text-sm">
+          {/* `shrink-0`: the box is the control the whole fix is for, so it
+              never gives height back to the flex column. */}
+          <label className="flex shrink-0 flex-col gap-1 text-sm">
             <span>Add another</span>
             {/*
               The cell id the table's own box carries — `rowId::depends`, one
@@ -1338,7 +1347,7 @@ function CardDependsField({
             />
           </label>
           {offered.length === 0 ? (
-            <p data-card-depends-empty className="text-muted-foreground m-0 text-sm">
+            <p data-card-depends-empty className="text-muted-foreground m-0 shrink-0 text-sm">
               {typed.trim() === ''
                 ? 'There is nothing else in this plan to wait for.'
                 : `No other row matches “${typed}”.`}

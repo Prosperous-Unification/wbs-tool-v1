@@ -794,7 +794,7 @@ test.describe('the plan on a phone, measured by a browser', () => {
    *   them.
    *
    * The fixture is seeded through the API — thirty-eight rows plus four edges
-   * is forty-one round trips no thumb should make — and reloaded before a
+   * is forty-two round trips no thumb should make — and reloaded before a
    * measurement is taken, for `aPeerRenames`'s reason: what is measured is
    * what be-01 holds, not what React remembers.
    */
@@ -848,7 +848,11 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await page.reload();
 
     await page.getByRole('button', { name: 'Depends on for 020' }).click();
-    await expect(page.getByRole('dialog', { name: 'Depends on for 020' })).toBeVisible();
+    // The dialog element IS the sheet surface (`data-modal-surface` on
+    // `ModalContent`), and every measurement below is scoped to it — a global
+    // attribute locator could just as well match a plan card behind the sheet.
+    const dialog = page.getByRole('dialog', { name: 'Depends on for 020' });
+    await expect(dialog).toBeVisible();
 
     const candidates = page.getByRole('list', { name: 'Rows 020 could wait for' });
     await expect(candidates).toBeVisible();
@@ -861,16 +865,29 @@ test.describe('the plan on a phone, measured by a browser', () => {
       'the candidate list is not the scroll region — it grew instead of scrolling',
     ).toBe(true);
 
+    // The other half of the fix: the surface itself no longer scrolls. Before,
+    // it was the scroll container (scrollHeight 2108 against clientHeight 716).
+    const surface = await dialog.evaluate((el) => ({
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      overflowY: getComputedStyle(el).overflowY,
+    }));
+    expect(surface.overflowY, 'the sheet surface is a scroll container again').toBe('hidden');
+    expect(
+      surface.scrollHeight <= surface.clientHeight,
+      `the sheet surface still outgrows itself (${String(surface.scrollHeight)} > ${String(surface.clientHeight)})`,
+    ).toBe(true);
+
     // To the bottom of the list, the depth the fault was measured at.
     await candidates.evaluate((list) => {
       list.scrollTop = list.scrollHeight;
     });
-    await expect(page.locator('[data-card-depends-option]').last()).toBeInViewport();
+    await expect(dialog.locator('[data-card-depends-option]').last()).toBeInViewport();
     // The box the whole fix is for: still on screen at the bottom of the list.
-    await expect(page.locator('[data-card-depends-input]')).toBeInViewport();
+    await expect(dialog.locator('[data-card-depends-input]')).toBeInViewport();
     // And the four waits, which the fixed region holds with no scrolling.
-    await expect(page.locator('[data-card-wait]')).toHaveCount(4);
-    for (const wait of await page.locator('[data-card-wait]').all()) {
+    await expect(dialog.locator('[data-card-wait]')).toHaveCount(4);
+    for (const wait of await dialog.locator('[data-card-wait]').all()) {
       await expect(wait).toBeInViewport();
     }
   });
