@@ -1,0 +1,154 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { SignJWT } from 'jose';
+
+import { buildApp } from './app';
+import { JwtVerifier } from './service/jwt-auth';
+
+const JWT_KEY = 'k'.repeat(32);
+const INTERNAL_SECRET = 's'.repeat(32);
+const APP_ORIGIN = 'https://dev.wbs.test';
+const key = new TextEncoder().encode(JWT_KEY);
+
+let port: number;
+let stop: () => void;
+
+beforeAll(() => {
+  const app = buildApp({
+    beUrl: 'http://be.invalid',
+    internalAuthSecret: INTERNAL_SECRET,
+    jwtKey: JWT_KEY,
+    verifier: new JwtVerifier({ current: key }),
+    appOrigin: APP_ORIGIN,
+  });
+  app.listen(0);
+  port = app.server?.port ?? 0;
+  stop = () => {
+    void app.stop();
+  };
+});
+
+afterAll(() => {
+  stop();
+});
+
+async function tokenFor(username: string, expiresAt?: number): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({ username })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(`user-${username}`)
+    .setIssuedAt(now)
+    .setExpirationTime(expiresAt ?? now + 3600)
+    .sign(key);
+}
+
+function openSocket(headers: Record<string, string>): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://localhost:${String(port)}/ws`, {
+      headers,
+    });
+    socket.addEventListener(
+      'open',
+      () => {
+        resolve(socket);
+      },
+      { once: true },
+    );
+    socket.addEventListener(
+      'error',
+      () => {
+        reject(new Error('WebSocket upgrade was refused'));
+      },
+      { once: true },
+    );
+  });
+}
+
+function expectRefused(headers: Record<string, string>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://localhost:${String(port)}/ws`, {
+      headers,
+    });
+    socket.addEventListener(
+      'open',
+      () => {
+        socket.close();
+        reject(new Error('WebSocket upgrade unexpectedly opened'));
+      },
+      { once: true },
+    );
+    socket.addEventListener(
+      'error',
+      () => {
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+/**
+ * The browser handshake boundary, not cookie parsing in isolation.
+ *
+ * A browser cannot set the old query token once the front end moves to an
+ * httpOnly cookie. This real upgrade proves the cookie reaches the verifier
+ * and produces a usable authenticated socket.
+ */
+describe('OIDC WebSocket authentication', () => {
+  it('accepts the hardened access cookie from the application origin', async () => {
+    // Proof: without the cookie token source in the production beforeHandle,
+    // this upgrade is refused as `missing token`. Watched 2026-08-24.
+    const token = await tokenFor('ada');
+    const socket = await openSocket({
+      cookie: `__Host-wbs_access=${token}`,
+      origin: APP_ORIGIN,
+    });
+
+    const received: unknown[] = [];
+    socket.addEventListener('message', (event: MessageEvent<string>) => {
+      received.push(JSON.parse(event.data));
+    });
+    socket.send(
+      JSON.stringify({ type: 'subscribe', subscription: `project:${crypto.randomUUID()}` }),
+    );
+    const deadline = Date.now() + 3_000;
+    for (;;) {
+      const roster = received
+        .filter((frame) => (frame as { type?: string }).type === 'presence')
+        .at(-1) as { users?: string[] } | undefined;
+      if (roster?.users?.includes('ada') === true) break;
+      if (Date.now() > deadline) {
+        throw new Error(`authenticated roster never named ada: ${JSON.stringify(received)}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    expect(
+      received.filter((frame) => (frame as { type?: string }).type === 'presence').at(-1),
+    ).toEqual({ type: 'presence', users: ['ada'] });
+    socket.close();
+  });
+
+  it('refuses a valid cookie presented by a foreign origin', async () => {
+    // Proof: with the Origin comparison removed from the production upgrade,
+    // this socket opens. Watched 2026-08-24.
+    const token = await tokenFor('mallory');
+
+    await expectRefused({
+      cookie: `__Host-wbs_access=${token}`,
+      origin: 'https://evil.test',
+    });
+  });
+
+  it('refuses an expired access cookie during the upgrade', async () => {
+    // Proof: bypassing `verifier.verify` in the production beforeHandle makes
+    // this real socket open. Watched 2026-08-24.
+    const now = Math.floor(Date.now() / 1000);
+    const token = await tokenFor('ada', now - 60);
+
+    await expectRefused({
+      cookie: `__Host-wbs_access=${token}`,
+      origin: APP_ORIGIN,
+    });
+  });
+});

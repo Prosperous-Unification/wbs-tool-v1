@@ -46,7 +46,7 @@ main-session review even when earlier slices merge to dev on green.
 
 ## 4. WebSocket and MCP trust
 
-- [ ] 4.1 Authenticate WebSocket upgrades from the session cookie and enforce
+- [x] 4.1 Authenticate WebSocket upgrades from the session cookie and enforce
       allowed Origin — test: expired cookie and cross-site upgrade failures.
 - [ ] 4.2 Implement MCP standalone and trusted-gateway modes, caller propagation,
       and three health probes — test: both modes and false trusted-gateway boot.
