@@ -49,7 +49,10 @@ function registeredRoutes(value: unknown): RegisteredRoute[] {
 
 function fixture(
   idTokenClaims?: Record<string, unknown>,
-  routeOverrides: { passwordLoginEnabled?: boolean } = {},
+  routeOverrides: {
+    passwordLoginEnabled?: boolean;
+    passwordRegisterEnabled?: boolean;
+  } = {},
 ) {
   const exchangeClaims = arguments.length === 0 ? claims : idTokenClaims;
   const calls = {
@@ -156,7 +159,11 @@ describe('OIDC browser routes', () => {
     const login = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/login', {
         body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://dev.wbs.test',
+          'x-forwarded-for': '192.0.2.10',
+        },
         method: 'POST',
       }),
     );
@@ -186,6 +193,84 @@ describe('OIDC browser routes', () => {
     });
   });
 
+  it('keeps an enabled registration token in the hardened cookie and throttles its IP', async () => {
+    const f = fixture(undefined, { passwordRegisterEnabled: true });
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const registered = await f.app.handle(
+        new Request('https://dev.wbs.test/api/auth/register', {
+          body: JSON.stringify({
+            username: `member-${String(attempt)}`,
+            password: 'correct-horse-2026',
+          }),
+          headers: {
+            'content-type': 'application/json',
+            origin: 'https://dev.wbs.test',
+            'x-forwarded-for': '192.0.2.20',
+          },
+          method: 'POST',
+        }),
+      );
+      expect(registered.status).toBe(200);
+      expect(registered.headers.get('set-cookie')).toContain('__Host-wbs_access=');
+      const body = (await registered.json()) as {
+        token: string;
+        user: { id: string; username: string };
+      };
+      expect(body.token).toBe('');
+      expect(body.user.username).toBe(`member-${String(attempt)}`);
+      expect(typeof body.user.id).toBe('string');
+    }
+
+    const throttled = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/register', {
+        body: JSON.stringify({ username: 'member-6', password: 'correct-horse-2026' }),
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://dev.wbs.test',
+          'x-forwarded-for': '192.0.2.20',
+        },
+        method: 'POST',
+      }),
+    );
+    expect(throttled.status).toBe(429);
+  });
+
+  it('rejects cross-origin password login before setting a session cookie', async () => {
+    const f = fixture();
+
+    const login = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/login', {
+        body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://evil.test',
+          'x-forwarded-for': '192.0.2.30',
+        },
+        method: 'POST',
+      }),
+    );
+
+    expect(login.status).toBe(403);
+    expect(await login.json()).toEqual({ error: 'invalid_origin' });
+    expect(login.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('rejects password login that bypasses the trusted proxy metadata', async () => {
+    const f = fixture();
+
+    const login = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/login', {
+        body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
+        headers: { 'content-type': 'application/json', origin: 'https://dev.wbs.test' },
+        method: 'POST',
+      }),
+    );
+
+    expect(login.status).toBe(400);
+    expect(await login.json()).toEqual({ error: 'invalid_client' });
+  });
+
   it('locks a normalized username after five failures even when IPs change', async () => {
     const f = fixture();
     await f.users.create({
@@ -204,6 +289,7 @@ describe('OIDC browser routes', () => {
           body: JSON.stringify({ username: 'CLAIRE-QA', password: 'wrong-password' }),
           headers: {
             'content-type': 'application/json',
+            origin: 'https://dev.wbs.test',
             'x-forwarded-for': `192.0.2.${String(attempt)}`,
           },
           method: 'POST',
@@ -216,7 +302,11 @@ describe('OIDC browser routes', () => {
     const locked = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/login', {
         body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
-        headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.1' },
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://dev.wbs.test',
+          'x-forwarded-for': '198.51.100.1',
+        },
         method: 'POST',
       }),
     );
@@ -245,6 +335,7 @@ describe('OIDC browser routes', () => {
           }),
           headers: {
             'content-type': 'application/json',
+            origin: 'https://dev.wbs.test',
             'x-forwarded-for': `203.0.113.${String(attempt)}, 192.0.2.50`,
           },
           method: 'POST',
@@ -259,6 +350,7 @@ describe('OIDC browser routes', () => {
         body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
         headers: {
           'content-type': 'application/json',
+          origin: 'https://dev.wbs.test',
           'x-forwarded-for': '203.0.113.99, 192.0.2.50',
         },
         method: 'POST',
