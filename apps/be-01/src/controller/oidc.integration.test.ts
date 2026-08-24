@@ -95,7 +95,10 @@ function fixture(idTokenClaims?: Record<string, unknown>) {
     random: () => random.shift() ?? 'extra-random',
     redirectUri: 'https://dev.wbs.test/api/auth/okta/callback',
     verifier: {
-      verify: () => Promise.resolve(exchangeClaims ?? claims),
+      verify: (token: string) =>
+        token.includes('.')
+          ? Promise.reject(new Error('HS256 is not an upstream OIDC token'))
+          : Promise.resolve(exchangeClaims ?? claims),
     },
     tokens,
     transactions,
