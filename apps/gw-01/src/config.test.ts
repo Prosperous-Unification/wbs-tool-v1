@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { SignJWT } from 'jose';
 
 import { loadConfig } from './config';
 
@@ -48,5 +49,29 @@ describe('loadConfig', () => {
 
     expect(config.wsAuth?.appOrigin).toBe('https://dev.wbs.test');
     expect(typeof config.wsAuth?.verifier.verify).toBe('function');
+  });
+
+  it('turns password-session verification off and back on with the kill switch', async () => {
+    const oidcEnv = {
+      ...VALID,
+      AUTH_MODE: 'oidc',
+      AUTH_AUDIENCE: 'wbs-api',
+      AUTH_CLIENT_ID: 'client',
+      AUTH_CLIENT_SECRET: 'secret',
+      AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
+      AUTH_REDIRECT_URI: 'https://dev.wbs.test/api/auth/okta/callback',
+    };
+    const oidcVerifier = () => ({
+      verify: () => Promise.reject(new Error('not an OIDC token')),
+    });
+    const token = await new SignJWT({ sub: 'password-user' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .sign(new TextEncoder().encode(VALID.JWT_SIGNING_KEY_CURRENT));
+
+    const disabled = loadConfig({ ...oidcEnv, AUTH_PASSWORD_LOGIN: 'false' }, oidcVerifier);
+    const enabled = loadConfig({ ...oidcEnv, AUTH_PASSWORD_LOGIN: 'true' }, oidcVerifier);
+
+    await expect(disabled.wsAuth?.verifier?.verify(token)).rejects.toThrow(/not an OIDC token/);
+    expect((await enabled.wsAuth?.verifier?.verify(token))?.sub).toBe('password-user');
   });
 });

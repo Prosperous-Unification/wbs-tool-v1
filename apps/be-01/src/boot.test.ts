@@ -52,6 +52,28 @@ function boot(commitDir: string = tempDir('wbs-boot-nogit-'), oidc?: OidcRouteOp
   return running;
 }
 
+function oidcOptions(passwordLoginEnabled: boolean): OidcRouteOptions {
+  return {
+    appOrigin: 'https://dev.wbs.test',
+    mode: 'oidc',
+    now: () => 1,
+    passwordLoginEnabled,
+    random: () => 'r'.repeat(43),
+    redirectUri: 'https://dev.wbs.test/api/auth/okta/callback',
+    transactions: new InMemoryOidcTransactionStore({ ttlMs: 300_000 }),
+    tokens: new InMemoryTokenStore(),
+    groupPrefix: 'dev',
+    groupsClaim: 'wbs_groups',
+    verifier: { verify: () => Promise.reject(new Error('not an OIDC token')) },
+    client: {
+      authorizationUrl: () => Promise.resolve(new URL('https://idp.test/authorize')),
+      exchange: () => Promise.resolve({ accessToken: 'a', expiresIn: 60 }),
+      refresh: () => Promise.resolve({ accessToken: 'a', expiresIn: 60 }),
+      revoke: () => Promise.resolve(),
+    },
+  };
+}
+
 describe('bootBe01', () => {
   it('persists the fixed local identity after migrating an empty development database', async () => {
     const dir = tempDir('wbs-local-boot-');
@@ -149,25 +171,34 @@ describe('bootBe01', () => {
 
 describe('OIDC boot wiring', () => {
   it('mounts the configured browser login route', async () => {
-    const oidc = {
-      appOrigin: 'https://dev.wbs.test',
-      mode: 'oidc' as const,
-      now: () => 1,
-      random: () => 'r'.repeat(43),
-      redirectUri: 'https://dev.wbs.test/api/auth/okta/callback',
-      transactions: new InMemoryOidcTransactionStore({ ttlMs: 300_000 }),
-      tokens: new InMemoryTokenStore(),
-      client: {
-        authorizationUrl: () => Promise.resolve(new URL('https://idp.test/authorize')),
-        exchange: () => Promise.resolve({ accessToken: 'a', expiresIn: 60 }),
-        refresh: () => Promise.resolve({ accessToken: 'a', expiresIn: 60 }),
-        revoke: () => Promise.resolve(),
-      },
-    };
-    const be = boot(undefined, oidc);
+    const be = boot(undefined, oidcOptions(true));
     const res = await fetch(`http://localhost:${String(be.port)}/api/auth/login`, {
       redirect: 'manual',
     });
     expect(res.status).toBe(302);
+  });
+
+  it('stops accepting an issued password session when the kill switch is false', async () => {
+    const be = boot(undefined, oidcOptions(false));
+    const registered = await be.services.auth.register('password-user', 'correct-horse-2026');
+    if (!registered.ok) throw new Error('password fixture was not registered');
+
+    const me = await fetch(`http://localhost:${String(be.port)}/api/auth/me`, {
+      headers: { cookie: `__Host-wbs_access=${registered.result.token}` },
+    });
+
+    expect(me.status).toBe(401);
+  });
+
+  it('accepts an issued password session when the kill switch is true', async () => {
+    const be = boot(undefined, oidcOptions(true));
+    const registered = await be.services.auth.register('password-user', 'correct-horse-2026');
+    if (!registered.ok) throw new Error('password fixture was not registered');
+
+    const me = await fetch(`http://localhost:${String(be.port)}/api/auth/me`, {
+      headers: { cookie: `__Host-wbs_access=${registered.result.token}` },
+    });
+
+    expect(me.status).toBe(200);
   });
 });
