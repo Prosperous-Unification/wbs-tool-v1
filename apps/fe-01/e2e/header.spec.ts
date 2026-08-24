@@ -375,7 +375,32 @@ test.describe('the header bar, measured by a browser', () => {
     // Logout is still a real exit in local mode; a reload can resolve the
     // fixed development identity again, but this navigation stays signed out.
     await page.getByRole('menuitem', { name: 'Log out' }).click();
-    await expect(page.getByRole('link', { name: 'Continue with Okta' })).toBeVisible();
+    const sso = page.getByRole('link', { name: 'Continue with SSO' });
+    await expect(sso).toBeVisible();
+    await expect(sso).toHaveAttribute('href', '/api/auth/login');
+    for (const control of [
+      sso,
+      page.getByLabel('Username'),
+      page.getByLabel('Password'),
+      page.getByRole('button', { name: 'Sign in with password' }),
+    ]) {
+      expect(await control.evaluate((element) => element.getBoundingClientRect().height)).toBe(44);
+    }
+
+    await page.route('**/api/auth/login', async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        username: 'password-qa',
+        password: 'correct-horse',
+      });
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ token: '', user: { id: 'password-qa', username: 'password-qa' } }),
+      });
+    });
+    await page.getByLabel('Username').fill('password-qa');
+    await page.getByLabel('Password').fill('correct-horse');
+    await page.getByRole('button', { name: 'Sign in with password' }).click();
+    await expect(page.getByRole('button', { name: 'password-qa' })).toBeVisible();
   });
 });
 
