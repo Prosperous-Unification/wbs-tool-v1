@@ -28,15 +28,21 @@ main-session review even when earlier slices merge to dev on green.
 
 ## 3. Identity and authorization
 
-- [ ] 3.1 Rebuild the SQLite account table with nullable password, normalized
+- [x] 3.1 Rebuild the SQLite account table with nullable password, normalized
       email, issuer, and subject — test: up/down on populated fixture preserves
       every legacy account and unique constraints.
-- [ ] 3.2 Link issuer-subject first and verified email second in one transaction
+- [x] 3.2 Link issuer-subject first and verified email second in one transaction
       — test: replay, collision, unverified email, and non-email legacy cases.
-- [ ] 3.3 Parse the configured groups claim into scopes — test: exact namespace,
+- [x] 3.3 Parse the configured groups claim into scopes — test: exact namespace,
       wrong environment, malformed claim, and empty groups.
-- [ ] 3.4 Inventory every mutating route and apply write scope above the existing
+- [x] 3.4 Inventory every mutating route and apply write scope above the existing
       owner rule — test: read-only identity cannot mutate any inventoried route.
+      Inventory: project create/open/update; role create/update/delete; work-item
+      create/update/move/duplicate/delete, undo/redo, freeze/unfreeze,
+      dependencies, estimates, actuals, progress, and measures; directory
+      people/teams/tags/services create/update/delete; capacity and priority-band
+      updates. Auth protocol routes, internal gateway RPC, and stateless smoke
+      echo are outside the user-domain write surface.
 
 ## 4. WebSocket and MCP trust
 

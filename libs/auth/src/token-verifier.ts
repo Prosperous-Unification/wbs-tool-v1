@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { discovery } from 'openid-client';
 
 export interface JwtClaims {
   sub: string;
@@ -41,4 +42,36 @@ export class JwksTokenVerifier implements TokenVerifier {
     }
     return { ...payload, sub: payload.sub };
   }
+}
+
+/** Builds a lazy verifier from the same discovery contract as the browser flow. */
+export function oidcTokenVerifierFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): TokenVerifier {
+  const issuerUrl = required(env, 'AUTH_ISSUER_DISCOVERY_URL');
+  const audience = required(env, 'AUTH_AUDIENCE');
+  const clientId = required(env, 'AUTH_CLIENT_ID');
+  const clientSecret = required(env, 'AUTH_CLIENT_SECRET');
+  let verifier: Promise<JwksTokenVerifier> | undefined;
+
+  return {
+    async verify(token) {
+      verifier ??= discovery(new URL(issuerUrl), clientId, clientSecret).then((configuration) => {
+        const metadata = configuration.serverMetadata();
+        if (metadata.jwks_uri === undefined) throw new Error('OIDC discovery has no jwks_uri');
+        return new JwksTokenVerifier({
+          audience,
+          issuer: metadata.issuer,
+          jwksUri: new URL(metadata.jwks_uri),
+        });
+      });
+      return (await verifier).verify(token);
+    },
+  };
+}
+
+function required(env: Readonly<Record<string, string | undefined>>, key: string): string {
+  const value = env[key];
+  if (value === undefined || value === '') throw new Error(`${key} is required in AUTH_MODE=oidc`);
+  return value;
 }

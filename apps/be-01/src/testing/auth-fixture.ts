@@ -1,3 +1,5 @@
+import type { OidcIdentityOptions, TokenVerifier } from '@wbs/auth';
+
 import type { OidcIdentityStore, User, UserStore } from '../repository';
 import { AuthService } from '../service/auth.service';
 
@@ -68,8 +70,13 @@ export function inMemoryUsers(): UserStore & OidcIdentityStore {
 
 export const TEST_JWT_KEY = 'test-jwt-signing-key-at-least-32-chars';
 
+export interface TestOidcAuthentication extends OidcIdentityOptions {
+  verifier: TokenVerifier;
+}
+
 export function testAuthService(
   users: UserStore & OidcIdentityStore = inMemoryUsers(),
+  oidc?: TestOidcAuthentication,
 ): AuthService {
-  return new AuthService({ users, identities: users, jwtKey: TEST_JWT_KEY });
+  return new AuthService({ users, identities: users, jwtKey: TEST_JWT_KEY, oidc });
 }

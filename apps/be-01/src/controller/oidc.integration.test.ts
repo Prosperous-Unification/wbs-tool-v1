@@ -23,6 +23,30 @@ const claims = {
   wbs_groups: ['dev:wbs:read', 'dev:wbs:write'],
 };
 
+interface RegisteredRoute {
+  method: string;
+  path: string;
+}
+
+function registeredRoutes(value: unknown): RegisteredRoute[] {
+  if (!Array.isArray(value)) throw new Error('Elysia route table is not an array');
+  const candidates: unknown[] = value;
+  return candidates.flatMap((candidate) => {
+    if (typeof candidate !== 'object' || candidate === null)
+      throw new Error('Elysia route entry is not an object');
+    const record = candidate as Record<string, unknown>;
+    const path = record['path'];
+    const rawMethods = record['method'];
+    if (typeof path !== 'string') throw new Error('Elysia route path is not a string');
+    const methods: string[] = [];
+    for (const method of Array.isArray(rawMethods) ? (rawMethods as unknown[]) : [rawMethods]) {
+      if (typeof method !== 'string') throw new Error('Elysia route method is not a string');
+      methods.push(method);
+    }
+    return methods.map((method) => ({ method, path }));
+  });
+}
+
 function fixture(idTokenClaims?: Record<string, unknown>) {
   const exchangeClaims = arguments.length === 0 ? claims : idTokenClaims;
   const calls = {
@@ -70,12 +94,15 @@ function fixture(idTokenClaims?: Record<string, unknown>) {
     now: () => now,
     random: () => random.shift() ?? 'extra-random',
     redirectUri: 'https://dev.wbs.test/api/auth/okta/callback',
+    verifier: {
+      verify: () => Promise.resolve(exchangeClaims ?? claims),
+    },
     tokens,
     transactions,
   };
   const users = inMemoryUsers();
   const app = buildApp({
-    auth: testAuthService(users),
+    auth: testAuthService(users, oidc),
     capacity: testCapacityService(),
     directory: testDirectoryService(),
     history: testHistoryService(),
@@ -93,6 +120,82 @@ function fixture(idTokenClaims?: Record<string, unknown>) {
 }
 
 describe('OIDC browser routes', () => {
+  it('refuses a read-only cookie before a domain mutation changes state', async () => {
+    const f = fixture({ ...claims, wbs_groups: ['dev:wbs:read'] });
+
+    const write = await f.app.handle(
+      new Request('https://dev.wbs.test/api/projects', {
+        body: JSON.stringify({ name: 'Must remain absent' }),
+        headers: {
+          'content-type': 'application/json',
+          cookie: '__Host-wbs_access=reader-token',
+          origin: 'https://dev.wbs.test',
+        },
+        method: 'POST',
+      }),
+    );
+    const read = await f.app.handle(
+      new Request('https://dev.wbs.test/api/projects', {
+        headers: { cookie: '__Host-wbs_access=reader-token' },
+      }),
+    );
+
+    expect(write.status).toBe(403);
+    expect(await write.json()).toEqual({ error: 'insufficient_scope' });
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual({ projects: [] });
+  });
+
+  it('guards every registered user-facing mutation with write scope', async () => {
+    const f = fixture({ ...claims, wbs_groups: ['dev:wbs:read'] });
+    const publicProtocolRoutes = new Set([
+      '/api/auth/login',
+      '/api/auth/logout',
+      '/api/auth/refresh',
+      '/api/auth/register',
+      '/api/smoke/echo',
+    ]);
+    const mutations = registeredRoutes(f.app.routes as unknown).filter(
+      ({ method, path }) =>
+        ['DELETE', 'PATCH', 'POST', 'PUT'].includes(method) &&
+        path.startsWith('/api/') &&
+        !publicProtocolRoutes.has(path),
+    );
+
+    expect(mutations.length).toBeGreaterThan(30);
+    for (const route of mutations) {
+      const path = route.path.replace(/:[^/]+/g, 'test-id');
+      const res = await f.app.handle(
+        new Request(`https://dev.wbs.test${path}`, {
+          body: route.method === 'DELETE' ? undefined : '{}',
+          headers: {
+            'content-type': 'application/json',
+            cookie: '__Host-wbs_access=reader-token',
+            origin: 'https://dev.wbs.test',
+          },
+          method: route.method,
+        }),
+      );
+      expect({ method: route.method, path: route.path, status: res.status }).toEqual({
+        method: route.method,
+        path: route.path,
+        status: 403,
+      });
+    }
+  });
+
+  it('treats a malformed access cookie as unauthenticated instead of crashing', async () => {
+    const f = fixture();
+    const res = await f.app.handle(
+      new Request('https://dev.wbs.test/api/projects', {
+        headers: { cookie: '__Host-wbs_access=%E0%A4%A' },
+      }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'unauthenticated' });
+  });
+
   it('binds login state, nonce, and PKCE verifier to the initiating browser', async () => {
     const f = fixture();
     const res = await f.app.handle(new Request('https://dev.wbs.test/api/auth/login'));
@@ -285,6 +388,7 @@ describe('OIDC startup configuration', () => {
       factory({
         AUTH_CLIENT_ID: 'client',
         AUTH_CLIENT_SECRET: 'secret',
+        AUTH_AUDIENCE: 'wbs-api',
         AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
         AUTH_REDIRECT_URI: 'https://dev.wbs.test/auth/callback',
       }),
@@ -306,6 +410,7 @@ describe('OIDC startup configuration', () => {
       factory({
         AUTH_CLIENT_ID: 'client',
         AUTH_CLIENT_SECRET: 'secret',
+        AUTH_AUDIENCE: 'wbs-api',
         AUTH_ISSUER_DISCOVERY_URL: 'https://idp.test',
         AUTH_REDIRECT_URI: 'https://dev.wbs.test/api/auth/okta/callback',
         AUTH_GROUPS_CLAIM: 'custom_groups',

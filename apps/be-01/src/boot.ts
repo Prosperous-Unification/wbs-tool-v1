@@ -65,6 +65,14 @@ export function bootBe01(opts: BootOptions): RunningBe {
     jwtKey: opts.jwtKey,
     gwUrl: opts.gwUrl,
     internalAuthSecret: opts.internalAuthSecret,
+    oidc:
+      opts.oidc === undefined
+        ? undefined
+        : {
+            groupPrefix: opts.oidc.groupPrefix,
+            groupsClaim: opts.oidc.groupsClaim,
+            verifier: opts.oidc.verifier,
+          },
   });
 
   const state = { migrationsApplied: false };

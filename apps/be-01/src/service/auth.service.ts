@@ -1,4 +1,10 @@
-import type { OidcIdentity } from '@wbs/auth';
+import {
+  type OidcIdentity,
+  oidcIdentityFromClaims,
+  type OidcIdentityOptions,
+  type TokenVerifier,
+  type WbsScope,
+} from '@wbs/auth';
 import { jwtVerify, SignJWT } from 'jose';
 
 import type { OidcIdentityStore, User, UserStore } from '../repository';
@@ -19,6 +25,7 @@ export type LoginOutcome = { ok: true; result: AuthResult } | { ok: false; reaso
 export interface AuthServiceOptions {
   users: UserStore;
   identities?: OidcIdentityStore;
+  oidc?: OidcIdentityOptions & { verifier: TokenVerifier };
   /**
    * The same string gw-01 loads as JWT_SIGNING_KEY_CURRENT. Both sides encode
    * it with TextEncoder, so a token signed here verifies there; if the two
@@ -28,6 +35,12 @@ export interface AuthServiceOptions {
   jwtKey: string;
   now?: () => number;
   newId?: () => string;
+}
+
+export interface AuthenticatedUser {
+  id: string;
+  username: string;
+  scopes: readonly WbsScope[];
 }
 
 /** Usernames are the WebSocket presence identity, so they are constrained here. */
@@ -81,7 +94,7 @@ export class AuthService {
   }
 
   /** Verifies a bearer token and resolves the user it names. */
-  async authenticate(token: string): Promise<{ id: string; username: string } | null> {
+  async authenticate(token: string): Promise<AuthenticatedUser | null> {
     try {
       const { payload } = await jwtVerify(token, this.key);
       const sub = payload.sub;
@@ -90,7 +103,21 @@ export class AuthService {
       // A token whose subject has been deleted must not authenticate: the
       // signature is still valid, so only the lookup can reject it.
       if (user === null) return null;
-      return { id: user.id, username: user.username };
+      return { id: user.id, username: user.username, scopes: ['read', 'write', 'editor'] };
+    } catch {
+      // A browser OIDC access token is RS256 and intentionally cannot pass the
+      // legacy HS256 verifier. Fall through only when OIDC is configured.
+    }
+
+    if (this.opts.oidc === undefined) return null;
+    try {
+      const identity = oidcIdentityFromClaims(
+        await this.opts.oidc.verifier.verify(token),
+        this.opts.oidc,
+      );
+      const user = await this.resolveOidcIdentity(identity);
+      if (user === null) return null;
+      return { id: user.id, username: user.username, scopes: identity.scopes };
     } catch {
       return null;
     }
