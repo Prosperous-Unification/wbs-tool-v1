@@ -7,8 +7,8 @@ import { subscribeToProject } from '@/lib/project-stream';
 import { cn } from '@/lib/utils';
 import { httpProjectApi, type ProjectApi, type ProjectListEntry } from '@/lib/wbs-api';
 
-import { entryMeta, matchingProjects, projectCardMeta } from './project-picker';
 import { type AnchorRect, HoverCard } from './hover-card';
+import { entryMeta, matchingProjects, projectCardMeta } from './project-picker';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 export interface ProjectPageProps {
@@ -390,11 +390,12 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
                     // below shows the same full name and meta with none. The
                     // option's accessible name already carries the whole text,
                     // so nothing a screen reader overhears is lost.
-                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-                    onMouseEnter={() => setHoveredId(entry.id)}
-                    onMouseLeave={() =>
-                      setHoveredId((current) => (current === entry.id ? null : current))
-                    }
+                    onMouseEnter={() => {
+                      setHoveredId(entry.id);
+                    }}
+                    onMouseLeave={() => {
+                      setHoveredId((current) => (current === entry.id ? null : current));
+                    }}
                     aria-selected={entry.id === highlighted?.id}
                     ref={(element) => {
                       // jsdom has no scrollIntoView; that boundary is the
