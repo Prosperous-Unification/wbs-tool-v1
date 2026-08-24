@@ -50,6 +50,15 @@ function rememberProject(id: string | null): void {
   else localStorage.setItem(PROJECT_KEY, id);
 }
 
+/** The current viewport rectangle of the option whose card is open. */
+function projectOptionAnchor(id: string | null): AnchorRect | null {
+  if (id === null) return null;
+  const option = document.getElementById(`project-option-${id}`);
+  if (option === null) return null;
+  const box = option.getBoundingClientRect();
+  return { left: box.left, top: box.top, bottom: box.bottom };
+}
+
 /**
  * Picks a project, remembers the pick, renames it, then hands it to the table.
  *
@@ -261,17 +270,7 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
   const cardMeta = cardEntry === undefined ? null : projectCardMeta(cardEntry, now);
   const [cardAnchor, setCardAnchor] = useState<AnchorRect | null>(null);
   useLayoutEffect(() => {
-    if (cardId === null) {
-      setCardAnchor(null);
-      return;
-    }
-    const node = document.getElementById(`project-option-${cardId}`);
-    if (node === null) {
-      setCardAnchor(null);
-      return;
-    }
-    const box = node.getBoundingClientRect();
-    setCardAnchor({ left: box.left, top: box.top, bottom: box.bottom });
+    setCardAnchor(projectOptionAnchor(cardId));
   }, [cardId]);
 
   /** Takes a project: selects it, remembers it, and closes the picker. */
@@ -374,13 +373,12 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
                 }}
                 // The card is portalled and fixed to a viewport rectangle.
                 // Scrolling moves its option without changing `cardId`, so the
-                // layout effect above cannot remeasure it; dismiss the transient
-                // peek rather than leave it detached from the row it describes.
-                // Proof: without this handler, `dismisses the fixed card when
-                // its scrolling list moves away underneath it` leaves the
-                // tooltip mounted after a real list scroll event.
+                // layout effect above cannot remeasure it by itself.
+                // Proof: without this handler, `remeasures the fixed card when
+                // its scrolling list moves the option underneath it` kept the
+                // old 36px top instead of moving to 116px. Watched 2026-08-24.
                 onScroll={() => {
-                  setCardAnchor(null);
+                  setCardAnchor(projectOptionAnchor(cardId));
                 }}
                 // `w-full`, not `min-w-full`. An absolutely positioned box with
                 // only a minimum is shrink-to-fit, so one long entry decides
