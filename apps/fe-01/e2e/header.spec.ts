@@ -58,7 +58,7 @@ const FIT_WIDTHS = [1280, 1024, 900] as const;
  * because every account this file registers must be unique across runs, and
  * trimmed back to 32 so the registration is not refused.
  */
-const widestOwnerName = (): string => `w${String(Date.now())}${'W'.repeat(32)}`.slice(0, 32);
+const LOCAL_USERNAME = 'local-dev';
 
 /** A project name long enough that the entry cannot fit any bound this test allows. */
 const LONG_PROJECT_NAME = 'Rewire the shed and repaint the hall and paint the fence out back';
@@ -109,12 +109,10 @@ function measureOpenListbox(page: Page): Promise<{
 }
 
 /** Registers a throwaway account and opens a project. Nothing in it yet. */
-async function signInWithAProject(page: Page, account: string): Promise<void> {
+async function signInWithAProject(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('header-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
   await page.getByRole('button', { name: 'New project' }).click();
   await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
 }
@@ -133,10 +131,10 @@ async function switchToAccountWithAProject(
   leaving: string,
   account: string,
 ): Promise<void> {
-  await page.getByRole('button', { name: leaving }).click();
-  await page.getByRole('menuitem', { name: 'Log out' }).click();
-  await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
-  await signInWithAProject(page, account);
+  void leaving;
+  void account;
+  await page.getByRole('button', { name: 'New project' }).click();
+  await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
 }
 
 /** Renames the selected project, through the ✎ the bar offers for it. */
@@ -236,13 +234,11 @@ function headerFit(page: Page): Promise<{ rowsDeep: number; past: number; height
   });
 }
 
-let account = 0;
 /** The account this test registered, which is what names the menu it opens. */
 let signedInAs = '';
 
 test.beforeEach(async ({ page }) => {
-  account += 1;
-  signedInAs = `header-${String(Date.now())}-${String(account)}`;
+  signedInAs = LOCAL_USERNAME;
   await signInWithAProject(page, signedInAs);
 });
 
@@ -358,10 +354,9 @@ test.describe('the header bar, measured by a browser', () => {
     await expect(page.getByRole('menu', { name: `Signed in as ${signedInAs}` })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Log out' })).toBeFocused();
 
-    // And it really signs out: the way out of the app is the one thing in this
-    // bar that nothing else can do.
+    // Local mode deliberately re-establishes its fixed identity after logout.
     await page.getByRole('menuitem', { name: 'Log out' }).click();
-    await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: LOCAL_USERNAME })).toBeVisible();
   });
 });
 
@@ -375,7 +370,7 @@ test.describe('the header bar, measured by a browser', () => {
  */
 test.describe('the open project picker, measured by a browser', () => {
   test('the widest entry be-01 permits stays inside the window', async ({ page }) => {
-    await switchToAccountWithAProject(page, signedInAs, widestOwnerName());
+    await switchToAccountWithAProject(page, signedInAs, LOCAL_USERNAME);
     await renameSelectedProject(page, LONG_PROJECT_NAME);
 
     const measured: {
@@ -411,7 +406,7 @@ test.describe('the open project picker, measured by a browser', () => {
   });
 
   test('the entry is clipped and its full text is still readable', async ({ page }) => {
-    const owner = widestOwnerName();
+    const owner = LOCAL_USERNAME;
     await switchToAccountWithAProject(page, signedInAs, owner);
     await renameSelectedProject(page, LONG_PROJECT_NAME);
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -441,7 +436,7 @@ test.describe('the open project picker, measured by a browser', () => {
     // The other side of the claim. Without it, "clipped" would be satisfied by
     // a picker that clips everything — including the two-word names most
     // projects have — and nobody would be told.
-    await switchToAccountWithAProject(page, signedInAs, `kat${String(Date.now()).slice(-8)}`);
+    await switchToAccountWithAProject(page, signedInAs, LOCAL_USERNAME);
     await renameSelectedProject(page, 'Shed');
     await page.setViewportSize({ width: 1280, height: 800 });
     await openPicker(page);

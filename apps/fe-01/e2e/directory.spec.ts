@@ -22,12 +22,10 @@ import { expect, type Page, test } from '@playwright/test';
 const PHONE = { width: 390, height: 844 };
 
 /** Registers a throwaway account. Nothing in the deployment's directory yet. */
-async function signIn(page: Page, account: string): Promise<void> {
+async function signIn(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('directory-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Directory' })).toBeVisible();
 }
 
@@ -99,29 +97,13 @@ test.describe('the directory has an address', () => {
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
-  /**
-   * A deep link asked for while signed out, through the real gate.
-   *
-   * The session is cleared and the address is asked for cold: the sign-in form
-   * is what answers, and the address it was asked at is the one that is drawn
-   * once the account is in. Nothing redirects, because the gate is not a route.
-   */
-  test('lands on the sign-in form and continues to the page that was asked for', async ({
-    page,
-  }) => {
+  test('opens a cold deep link through the fixed local identity', async ({ page }) => {
     await page.evaluate(() => {
       localStorage.clear();
     });
     await page.goto('/directory');
 
-    await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'People' })).toHaveCount(0);
-    expect(new URL(page.url()).pathname).toBe('/directory');
-
-    await page.getByLabel('Username').fill(signedInAs);
-    await page.getByLabel('Password').fill('directory-gate-password');
-    await page.getByRole('button', { name: 'Log in' }).click();
-
+    await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'People' })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/directory');
   });

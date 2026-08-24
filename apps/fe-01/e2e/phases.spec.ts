@@ -31,12 +31,10 @@ import { expect, type Page, test } from '@playwright/test';
 const SUBMIT_CHORD = 'Control+Enter';
 
 /** Registers a throwaway account and opens an empty project. */
-async function signInWithAProject(page: Page, account: string): Promise<void> {
+async function signInWithAProject(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('phases-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
   await page.getByRole('button', { name: 'New project' }).click();
   await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
 }

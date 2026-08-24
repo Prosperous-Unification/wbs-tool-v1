@@ -88,13 +88,11 @@ async function giveThePlanADayZero(page: Page, day: string): Promise<void> {
  * being typed in — the whole question is whether somebody else's change to
  * another card disturbs this one.
  */
-async function seedPlan(page: Page, account: string): Promise<void> {
+async function seedPlan(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
 
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('mobile-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
 
@@ -208,13 +206,12 @@ async function shortTargetsIn(page: Page, surface: string): Promise<TapTarget[]>
   );
 }
 
-let account = 0;
+const LOCAL_USERNAME = 'local-dev';
 /** The account this test's page is signed into, which is what names its menu. */
 let username = '';
 
 test.beforeEach(async ({ page }) => {
-  account += 1;
-  username = `e2e-mb-${String(Date.now())}-${String(account)}`;
+  username = LOCAL_USERNAME;
   await seedPlan(page, username);
 });
 

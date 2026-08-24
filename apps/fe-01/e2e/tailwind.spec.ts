@@ -38,8 +38,7 @@ import { expect, type Page, test } from '@playwright/test';
 const TRACKING_TIGHT_EM = -0.025;
 
 /**
- * Signs up a throwaway account and builds the smallest plan with a dependency
- * chip in it.
+ * Opens the fixed local identity and builds the smallest plan with a dependency chip in it.
  *
  * The chip is the point. Almost everything else inside the table carries an
  * inline style — `font: inherit`, `box-sizing: border-box` — and an inline
@@ -52,14 +51,12 @@ const TRACKING_TIGHT_EM = -0.025;
  * what the cascade gave it and nothing else.
  *
  * @param page The page to seed, which it also navigates.
- * @param account The username to register, unique per test.
+ * @param _account The legacy fixture label, retained to keep call sites descriptive.
  */
-async function seedChip(page: Page, account: string): Promise<void> {
+async function seedChip(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('scoped-reset-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
   const addRow = page.getByRole('button', { name: 'Add work item' });
@@ -76,12 +73,12 @@ async function seedChip(page: Page, account: string): Promise<void> {
 }
 
 /**
- * Waits until React has mounted the signed-out page, which `page.goto` does not.
+ * Waits until React has mounted authenticated chrome and opened its project-name control.
  *
  * `goto` resolves on the document's load event, and this app renders from
  * `main.tsx` after it — so a `document.querySelector` straight afterwards races
  * the first paint. Observed 2026-08-09: `leaves form controls the platform
- * font` failed on its own guard, `the signed-out page has no input to measure`,
+ * font` failed on its own guard, `the chrome has no input to measure`,
  * on one run of many. That throw is the guard doing exactly its job — refusing
  * rather than measuring an empty page — and the bug was here, not in it.
  *
@@ -89,8 +86,11 @@ async function seedChip(page: Page, account: string): Promise<void> {
  * the same pass: the field is what the second test measures, and the heading
  * would still be the weaker wait if that ever stopped being true.
  */
-async function openSignedOutPage(page: Page): Promise<void> {
-  await expect(page.getByLabel('Username')).toBeVisible();
+async function openChromeControl(page: Page): Promise<void> {
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
+  await page.getByRole('button', { name: 'New project' }).click();
+  await page.getByRole('button', { name: 'Rename' }).click();
+  await expect(page.getByLabel('Project name')).toBeVisible();
 }
 
 test.describe('Tailwind, in the browser', () => {
@@ -128,11 +128,11 @@ test.describe('Tailwind, in the browser', () => {
   // is about.
   test('takes the user agent’s margin off a chrome heading', async ({ page }) => {
     await page.goto('/');
-    await openSignedOutPage(page);
+    await openChromeControl(page);
 
     const margin = await page.evaluate(() => {
       const heading = document.querySelector('h1');
-      if (heading === null) throw new Error('the signed-out page has no brand heading');
+      if (heading === null) throw new Error('the chrome has no brand heading');
       return getComputedStyle(heading).marginBlockStart;
     });
 
@@ -145,13 +145,11 @@ test.describe('Tailwind, in the browser', () => {
 
   test('gives a chrome control the page’s own font', async ({ page }) => {
     await page.goto('/');
-    await openSignedOutPage(page);
+    await openChromeControl(page);
 
-    const families = await page.evaluate(() => {
-      const field = document.querySelector('form input');
-      if (field === null) throw new Error('the signed-out page has no input to measure');
+    const families = await page.getByLabel('Project name').evaluate((field) => {
       const around = field.parentElement;
-      if (around === null) throw new Error('the input is not in the form it was found through');
+      if (around === null) throw new Error('the input has no chrome surroundings to measure');
       return {
         field: getComputedStyle(field).fontFamily,
         // Its own surroundings, not `document.body`: nothing styles `body`, so

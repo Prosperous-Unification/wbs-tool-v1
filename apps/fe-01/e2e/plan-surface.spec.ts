@@ -65,12 +65,10 @@ const SHORT_PLAN = 3;
 const TALL_PLAN = 23;
 
 /** Signs up a throwaway account and opens a project with `rows` work items. */
-async function seedPlan(page: Page, account: string, rows: number): Promise<void> {
+async function seedPlan(page: Page, _account: string, rows: number): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('plan-surface-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
   await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
@@ -233,13 +231,11 @@ async function wheelOver(page: Page, selector: string, downBy: number): Promise<
   );
 }
 
-let account = 0;
 /** The account this test registered, unique per run and per case. */
 let signedInAs = '';
 
 test.beforeEach(() => {
-  account += 1;
-  signedInAs = `surface-${String(Date.now())}-${String(account)}`;
+  signedInAs = 'local-dev';
 });
 
 test.describe('the plan and its chart as one surface', () => {

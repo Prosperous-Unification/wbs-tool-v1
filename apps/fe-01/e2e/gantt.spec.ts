@@ -193,7 +193,7 @@ const rowOf = (page: Page, number: string): Locator =>
  * move the schedule — it names the day the row already starts on.
  *
  * @param page The page to seed, which it also navigates.
- * @param account The username to register, unique per test.
+ * @param _account The legacy fixture label, retained to keep call sites descriptive.
  * @param fixture What the two leaves are given beyond their shape.
  * @param fixture.estimate The three-point Dev estimate both leaves get. `2/4/6`
  * is four days by PERT, which is a small chart and stays inside the plan's
@@ -210,15 +210,13 @@ const rowOf = (page: Page, number: string): Locator =>
  */
 async function seedPlan(
   page: Page,
-  account: string,
+  _account: string,
   fixture: { estimate?: string; extraRows?: number; costedExtras?: boolean } = {},
 ): Promise<void> {
+  void _account;
   const { estimate = '2/4/6', extraRows = 0, costedExtras = false } = fixture;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('gantt-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
   await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
@@ -301,12 +299,10 @@ async function seedPlan(
  * every plan is in for its first few minutes, so the left-edge arrow is not an
  * edge case at all.
  */
-async function seedEdgeRoutes(page: Page, account: string): Promise<void> {
+async function seedEdgeRoutes(page: Page, _account: string): Promise<void> {
+  void _account;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Need an account? Register' }).click();
-  await page.getByLabel('Username').fill(account);
-  await page.getByLabel('Password').fill('gantt-gate-password');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
 
   await page.getByRole('button', { name: 'New project' }).click();
   await expect(page.getByRole('button', { name: 'Add work item' })).toBeVisible();
