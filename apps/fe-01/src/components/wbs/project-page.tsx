@@ -372,6 +372,16 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
                 onMouseDown={(e) => {
                   e.preventDefault();
                 }}
+                // The card is portalled and fixed to a viewport rectangle.
+                // Scrolling moves its option without changing `cardId`, so the
+                // layout effect above cannot remeasure it; dismiss the transient
+                // peek rather than leave it detached from the row it describes.
+                // Proof: without this handler, `dismisses the fixed card when
+                // its scrolling list moves away underneath it` leaves the
+                // tooltip mounted after a real list scroll event.
+                onScroll={() => {
+                  setCardAnchor(null);
+                }}
                 // `w-full`, not `min-w-full`. An absolutely positioned box with
                 // only a minimum is shrink-to-fit, so one long entry decides
                 // how wide the list is — and with `whitespace-nowrap` below,
