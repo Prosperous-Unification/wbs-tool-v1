@@ -762,6 +762,7 @@ describe('the hover card follows the list, not a stale pointer', () => {
       await waitFor(() => {
         expect(within(list).queryAllByRole('option').length).toBe(2);
       });
+      list.getBoundingClientRect = () => new DOMRect(0, 0, 200, 240);
 
       const option = document.getElementById('project-option-p2');
       if (option === null) throw new Error('the second project is not offered');
@@ -780,6 +781,64 @@ describe('the hover card follows the list, not a stale pointer', () => {
       });
     },
   );
+
+  itDom('hides the card when scrolling takes its option outside the visible listbox', async () => {
+    pageWith(fakeProjects(TWO));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Project')).toBeDefined();
+    });
+    openPicker();
+    const list = await screen.findByRole('listbox', { name: 'Projects' });
+    list.getBoundingClientRect = () => new DOMRect(0, 0, 200, 60);
+    const option = document.getElementById('project-option-p2');
+    if (option === null) throw new Error('the second project is not offered');
+    let optionTop = 20;
+    option.getBoundingClientRect = () => new DOMRect(10, optionTop, 120, 10);
+    fireEvent.mouseEnter(option);
+    expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
+
+    optionTop = 80;
+    fireEvent.scroll(list);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  itDom('remeasures during list scroll without rerendering the project page', async () => {
+    let pageRenders = 0;
+    render(
+      <ProjectPage
+        token="t"
+        api={fakeProjects(TWO)}
+        presence={() => {
+          pageRenders += 1;
+          return null;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText('Project')).toBeDefined();
+    });
+    openPicker();
+    const list = await screen.findByRole('listbox', { name: 'Projects' });
+    list.getBoundingClientRect = () => new DOMRect(0, 0, 200, 240);
+    const option = document.getElementById('project-option-p2');
+    if (option === null) throw new Error('the second project is not offered');
+    let optionTop = 20;
+    option.getBoundingClientRect = () => new DOMRect(10, optionTop, 120, 10);
+    fireEvent.mouseEnter(option);
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('36px');
+    });
+    const rendersBeforeScroll = pageRenders;
+
+    optionTop = 40;
+    fireEvent.scroll(list);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('56px');
+    });
+    expect(pageRenders).toBe(rendersBeforeScroll);
+  });
 
   itDom(
     'shows the card for the entry the pointer rests on, then nothing stale after Escape and reopen',
