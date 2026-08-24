@@ -1,7 +1,7 @@
 # Verification Report
 
 **Change**: `provider-agnostic-oidc-auth`
-**State**: partial — shared contract and transaction-store slices complete
+**State**: merge candidate — implementation reviewed; public cutover unapplied
 
 ## 1. Structural Validation
 
@@ -9,8 +9,8 @@
 
 ## 2. Task Completion
 
-Tasks 1.1–2.2 are complete. OIDC routes, identity, MCP OAuth, solution integration,
-acceptance, and the public cutover remain separate worker chunks.
+Tasks 1.1–6.1 are complete. The reviewed merge applies 6.2's cutover; real Okta
+and Claude connector acceptance remain post-deployment checks before archive.
 
 ## 3. Failure Proofs — shared contract slice
 
@@ -100,8 +100,8 @@ client-ID UI route only as a documented manual fallback, not acceptance.
 
 ## Decision
 
-- [ ] PASS — archive
-- [x] IN PROGRESS — continue with OIDC login, callback, refresh, and logout routes.
+- [x] PASS — merge candidate, gated by fresh CI and post-merge deployment acceptance
+- [ ] ARCHIVE — only after real Okta and Claude connector acceptance
 
 ## 9. MCP OAuth discovery metadata — 2026-08-24
 
@@ -171,3 +171,33 @@ Fresh h2puni candidate gate:
 
 Real Okta browser acceptance is deliberately pending: changing the public auth
 mode before main-session review would violate the exposure gate this task names.
+
+## 13. Main-session exposure review — 2026-08-24
+
+The review found one merge-blocking bypass: OIDC mode still mounted password
+registration/login and authenticated legacy HS256 sessions before trying the
+OIDC verifier. The watched red returned `200, 200` for the two password routes
+and authenticated a valid legacy token with full scopes. Commit `fe0e5db`
+makes password routes answer 404 under OIDC and makes the configured auth mode
+exclusive; the focused gate is 17/17.
+
+Fresh h2puni review evidence on the rebased head:
+
+- OIDC identity plus solution migrations: 34/34 on real SQLite databases,
+  including populated up/down, rollback refusal for passwordless identities,
+  re-apply, full unwind, and solution-reference round trip.
+- Watched mutations: legacy `x-wbs-token` restoration produced 1 intended red;
+  hostile WebSocket Origin bypass produced 1; weakened MCP redirect membership
+  produced 1; disabling the foreign-key rebuild marker produced 4.
+- be-01: 1,104/1,104; fe-01: 1,715/1,715; both lints clean when run
+  sequentially with Nx cache disabled. The first parallel run was discarded:
+  another concurrent full gate drove load to 48 and killed both linters plus
+  timed out four FE cases; the same targets passed after that run ended.
+- format, typecheck, secret scan, Compose validation, migration lint, doc caps,
+  and strict OpenSpec validation are clean. h2puni has no `shellcheck`, so the
+  two shell build targets cannot execute there; fresh GitHub CI is the build
+  and browser gate of record before merge.
+
+The branch may merge only after rebased `gate` and `pixels` checks pass. The
+merge then recreates dev under OIDC, followed by real Okta login/API/WS and one
+zero-manual Claude MCP tool call before this change is archived.

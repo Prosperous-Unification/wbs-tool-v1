@@ -21,9 +21,9 @@ main-session review even when earlier slices merge to dev on green.
       PKCE verifier, state, and nonce — test: consume/replay/expiry unit cases.
 - [x] 2.2 Implement rotating session records behind `TokenStore` — test:
       renewal, replay refusal, cleanup, and logout deletion.
-- [ ] 2.3 Mount login/callback/logout/refresh in be-01 and assert the callback
+- [x] 2.3 Mount login/callback/logout/refresh in be-01 and assert the callback
       path — test: route integration and wrong-path boot failure.
-- [ ] 2.4 Enforce hardened cookie attributes and Origin/CSRF on cookie writes —
+- [x] 2.4 Enforce hardened cookie attributes and Origin/CSRF on cookie writes —
       test: same-origin success and hostile/missing Origin failures.
 
 ## 3. Identity and authorization
