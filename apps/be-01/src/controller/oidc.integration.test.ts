@@ -120,7 +120,7 @@ function fixture(idTokenClaims?: Record<string, unknown>) {
 }
 
 describe('OIDC browser routes', () => {
-  it('does not expose legacy password endpoints in OIDC mode', async () => {
+  it('keeps password registration closed in OIDC mode', async () => {
     const f = fixture();
 
     const register = await f.app.handle(
@@ -130,15 +130,49 @@ describe('OIDC browser routes', () => {
         method: 'POST',
       }),
     );
+
+    expect(register.status).toBe(404);
+  });
+
+  it('issues the hardened browser cookie for a password account in OIDC mode', async () => {
+    const f = fixture();
+    await f.users.create({
+      id: 'password-user',
+      username: 'claire-qa',
+      passwordHash: await Bun.password.hash('correct-horse-2026'),
+      email: null,
+      idpIssuer: null,
+      idpSub: null,
+      createdAt: now,
+    });
+
     const login = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/login', {
-        body: JSON.stringify({ username: 'bypass', password: 'bypass-password' }),
+        body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       }),
     );
+    const setCookie = login.headers.get('set-cookie') ?? '';
+    const token = /__Host-wbs_access=([^;]+)/.exec(setCookie)?.[1];
 
-    expect([register.status, login.status]).toEqual([404, 404]);
+    expect(login.status).toBe(200);
+    expect(setCookie).toContain('HttpOnly; Secure; SameSite=Lax; Path=/');
+    expect(token).toBeDefined();
+
+    const me = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/me', {
+        headers: { cookie: `__Host-wbs_access=${token ?? ''}` },
+      }),
+    );
+    expect(me.status).toBe(200);
+    expect(await me.json()).toEqual({
+      user: {
+        id: 'password-user',
+        username: 'claire-qa',
+        scopes: ['read', 'write', 'editor'],
+      },
+    });
   });
 
   it('refuses a read-only cookie before a domain mutation changes state', async () => {
