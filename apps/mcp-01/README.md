@@ -8,6 +8,8 @@ issuer, identity, scope, journal, and owner rules govern MCP and browser calls.
 ## Endpoint and probes
 
 - MCP: `POST|GET|DELETE /mcp`
+- Protected-resource metadata: `GET /.well-known/oauth-protected-resource`
+- Authorization-server metadata: `GET /.well-known/oauth-authorization-server/mcp/oauth`
 - Liveness: `GET /health/liveness`
 - Readiness: `GET /health/readiness`
 - ALB readiness: `GET /health/alb-readiness`
@@ -26,7 +28,9 @@ verified the token. It refuses to boot unless `MCP_TRUSTED_GATEWAY=true` is
 also set. be-01 still verifies the forwarded token, so the gateway must pass
 the upstream token for the issuer and audience be-01 trusts.
 
-Both modes require `WBS_API_URL`. There is no `WBS_TOKEN`: caller authority is
+Both modes require `WBS_API_URL` and canonical `MCP_PUBLIC_URL`; OAuth metadata
+derives its resource, issuer, and endpoints from the latter rather than trusting
+the inbound Host. There is no `WBS_TOKEN`: caller authority is
 never replaced with a process-wide account. `WBS_BASIC_AUTH=user:pass` is an
 optional legacy proxy credential and is sent as `Proxy-Authorization` so it
 cannot displace the caller's Bearer header.

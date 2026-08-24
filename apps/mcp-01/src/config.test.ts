@@ -5,15 +5,15 @@ import { loadConfig } from './config';
 const FULL = {
   MCP_AUTH_MODE: 'standalone',
   WBS_API_URL: 'https://dev.wbs.bulletpoints.club',
+  MCP_PUBLIC_URL: 'https://dev.wbs.bulletpoints.club/mcp',
   MCP_TRUSTED_GATEWAY: undefined,
   WBS_BASIC_AUTH: 'dany:hunter2',
 };
 
 describe('loadConfig', () => {
-  it('returns the three variables when all are present', () => {
+  it('returns the public MCP resource URL when present', () => {
     const cfg = loadConfig(FULL);
-    expect(cfg.WBS_API_URL).toBe('https://dev.wbs.bulletpoints.club');
-    expect(cfg.WBS_BASIC_AUTH).toBe('dany:hunter2');
+    expect(cfg.MCP_PUBLIC_URL).toBe('https://dev.wbs.bulletpoints.club/mcp');
   });
 
   it('leaves WBS_BASIC_AUTH undefined when unset', () => {
@@ -38,6 +38,14 @@ describe('loadConfig', () => {
     expect(
       loadConfig({ ...FULL, MCP_AUTH_MODE: 'gateway', MCP_TRUSTED_GATEWAY: 'true' }),
     ).toMatchObject({ MCP_AUTH_MODE: 'gateway', MCP_TRUSTED_GATEWAY: 'true' });
+  });
+
+  // Proof: removing MCP_PUBLIC_URL from the configuration contract makes the
+  // authorization-server metadata derive from an attacker-controlled Host.
+  it('refuses to boot without the canonical public MCP resource URL', () => {
+    expect(() => loadConfig({ ...FULL, MCP_PUBLIC_URL: undefined })).toThrow(
+      /MCP_PUBLIC_URL is required/,
+    );
   });
 
   it('rejects a WBS_API_URL that is not a URL', () => {

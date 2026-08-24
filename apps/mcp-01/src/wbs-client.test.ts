@@ -8,6 +8,7 @@ import { buildRequest, callTool } from './wbs-client';
 const CONFIG: McpConfig = {
   MCP_AUTH_MODE: 'standalone',
   WBS_API_URL: 'https://dev.wbs.bulletpoints.club',
+  MCP_PUBLIC_URL: 'https://dev.wbs.bulletpoints.club/mcp',
   WBS_BASIC_AUTH: undefined,
 };
 
