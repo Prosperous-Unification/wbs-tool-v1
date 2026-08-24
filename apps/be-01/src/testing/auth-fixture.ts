@@ -1,4 +1,4 @@
-import type { OidcIdentityStore, User, UserStore } from '../repository';
+import type { User, UserStore } from '../repository';
 import { AuthService } from '../service/auth.service';
 
 /**
@@ -7,7 +7,7 @@ import { AuthService } from '../service/auth.service';
  * SQLite index does — a fixture that accepts duplicate usernames would let a
  * registration test pass against behaviour production does not have.
  */
-export function inMemoryUsers(): UserStore & OidcIdentityStore {
+export function inMemoryUsers(): UserStore {
   const byId = new Map<string, User>();
   return {
     create(user) {
@@ -26,50 +26,11 @@ export function inMemoryUsers(): UserStore & OidcIdentityStore {
     findById(id) {
       return Promise.resolve(byId.get(id) ?? null);
     },
-    resolveOidcIdentity(identity, create) {
-      for (const user of byId.values()) {
-        if (user.idpIssuer === identity.issuer && user.idpSub === identity.subject) {
-          return Promise.resolve(user);
-        }
-      }
-      const email = identity.emailVerified ? (identity.email?.toLowerCase() ?? null) : null;
-      if (email !== null) {
-        for (const user of byId.values()) {
-          if (user.email?.toLowerCase() === email) return Promise.resolve(null);
-          if (
-            user.username.toLowerCase() === email &&
-            user.username.includes('@') &&
-            user.idpIssuer == null &&
-            user.idpSub == null
-          ) {
-            Object.assign(user, {
-              email,
-              idpIssuer: identity.issuer,
-              idpSub: identity.subject,
-            });
-            return Promise.resolve(user);
-          }
-        }
-      }
-      const local = identity.email?.split('@', 1)[0]?.toLowerCase() ?? 'oidc';
-      const user: User = {
-        ...create,
-        username: `${local}-test`,
-        passwordHash: null,
-        email,
-        idpIssuer: identity.issuer,
-        idpSub: identity.subject,
-      };
-      byId.set(user.id, user);
-      return Promise.resolve(user);
-    },
   };
 }
 
 export const TEST_JWT_KEY = 'test-jwt-signing-key-at-least-32-chars';
 
-export function testAuthService(
-  users: UserStore & OidcIdentityStore = inMemoryUsers(),
-): AuthService {
-  return new AuthService({ users, identities: users, jwtKey: TEST_JWT_KEY });
+export function testAuthService(users: UserStore = inMemoryUsers()): AuthService {
+  return new AuthService({ users, jwtKey: TEST_JWT_KEY });
 }

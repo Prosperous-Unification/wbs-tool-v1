@@ -11,7 +11,6 @@ import {
 export interface BrowserOidcTokenSet {
   accessToken: string;
   expiresIn: number;
-  idTokenClaims?: Readonly<Record<string, unknown>>;
   refreshToken?: string;
 }
 
@@ -77,7 +76,6 @@ export function browserOidcClientFromEnv(env: Environment): BrowserOidcClient {
 
 function tokenSet(result: {
   access_token: string;
-  claims?: () => Readonly<Record<string, unknown>> | undefined;
   expires_in?: number;
   refresh_token?: string;
 }): BrowserOidcTokenSet {
@@ -86,7 +84,6 @@ function tokenSet(result: {
   return {
     accessToken: result.access_token,
     expiresIn: result.expires_in,
-    idTokenClaims: result.claims?.(),
     refreshToken: result.refresh_token,
   };
 }
