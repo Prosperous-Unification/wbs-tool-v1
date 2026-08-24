@@ -99,6 +99,20 @@ export class AuthService {
   async authenticate(token: string | null): Promise<AuthenticatedUser | null> {
     if (this.opts.localIdentity !== undefined) return this.opts.localIdentity;
     if (token === null) return null;
+    if (this.opts.oidc !== undefined) {
+      try {
+        const identity = oidcIdentityFromClaims(
+          await this.opts.oidc.verifier.verify(token),
+          this.opts.oidc,
+        );
+        const user = await this.resolveOidcIdentity(identity);
+        if (user === null) return null;
+        return { id: user.id, username: user.username, scopes: identity.scopes };
+      } catch {
+        return null;
+      }
+    }
+
     try {
       const { payload } = await jwtVerify(token, this.key);
       const sub = payload.sub;
@@ -113,18 +127,7 @@ export class AuthService {
       // legacy HS256 verifier. Fall through only when OIDC is configured.
     }
 
-    if (this.opts.oidc === undefined) return null;
-    try {
-      const identity = oidcIdentityFromClaims(
-        await this.opts.oidc.verifier.verify(token),
-        this.opts.oidc,
-      );
-      const user = await this.resolveOidcIdentity(identity);
-      if (user === null) return null;
-      return { id: user.id, username: user.username, scopes: identity.scopes };
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   async resolveOidcIdentity(identity: OidcIdentity): Promise<User | null> {

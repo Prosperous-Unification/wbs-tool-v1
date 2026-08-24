@@ -89,6 +89,10 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
     .post(
       '/register',
       async ({ body, set }) => {
+        if (oidc !== undefined) {
+          set.status = 404;
+          return { error: 'not_found' };
+        }
         const outcome = await auth.register(body.username, body.password);
         if (!outcome.ok) {
           // 409 for a taken name, 400 for a malformed one: the front end shows
@@ -104,6 +108,10 @@ export function authController(auth: AuthService, oidc?: OidcRouteOptions) {
     .post(
       '/login',
       async ({ body, set }) => {
+        if (oidc !== undefined) {
+          set.status = 404;
+          return { error: 'not_found' };
+        }
         const outcome = await auth.login(body.username, body.password);
         if (!outcome.ok) {
           set.status = 401;

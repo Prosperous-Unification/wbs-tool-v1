@@ -120,6 +120,27 @@ function fixture(idTokenClaims?: Record<string, unknown>) {
 }
 
 describe('OIDC browser routes', () => {
+  it('does not expose legacy password endpoints in OIDC mode', async () => {
+    const f = fixture();
+
+    const register = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/register', {
+        body: JSON.stringify({ username: 'bypass', password: 'bypass-password' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }),
+    );
+    const login = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/login', {
+        body: JSON.stringify({ username: 'bypass', password: 'bypass-password' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }),
+    );
+
+    expect([register.status, login.status]).toEqual([404, 404]);
+  });
+
   it('refuses a read-only cookie before a domain mutation changes state', async () => {
     const f = fixture({ ...claims, wbs_groups: ['dev:wbs:read'] });
 
