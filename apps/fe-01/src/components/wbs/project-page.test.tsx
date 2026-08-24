@@ -750,33 +750,36 @@ describe('the selection is a claim too', () => {
 });
 
 describe('the hover card follows the list, not a stale pointer', () => {
-  itDom('remeasures the fixed card when its scrolling list moves the option underneath it', async () => {
-    pageWith(fakeProjects(TWO));
-    await waitFor(() => {
-      expect(screen.getByLabelText('Project')).toBeDefined();
-    });
-    openPicker();
-    const list = await screen.findByRole('listbox', { name: 'Projects' });
-    await waitFor(() => {
-      expect(within(list).queryAllByRole('option').length).toBe(2);
-    });
+  itDom(
+    'remeasures the fixed card when its scrolling list moves the option underneath it',
+    async () => {
+      pageWith(fakeProjects(TWO));
+      await waitFor(() => {
+        expect(screen.getByLabelText('Project')).toBeDefined();
+      });
+      openPicker();
+      const list = await screen.findByRole('listbox', { name: 'Projects' });
+      await waitFor(() => {
+        expect(within(list).queryAllByRole('option').length).toBe(2);
+      });
 
-    const option = document.getElementById('project-option-p2');
-    if (option === null) throw new Error('the second project is not offered');
-    let optionTop = 20;
-    option.getBoundingClientRect = () => new DOMRect(10, optionTop, 120, 10);
-    fireEvent.mouseEnter(option);
-    await waitFor(() => {
-      expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('36px');
-    });
+      const option = document.getElementById('project-option-p2');
+      if (option === null) throw new Error('the second project is not offered');
+      let optionTop = 20;
+      option.getBoundingClientRect = () => new DOMRect(10, optionTop, 120, 10);
+      fireEvent.mouseEnter(option);
+      await waitFor(() => {
+        expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('36px');
+      });
 
-    optionTop = 100;
-    fireEvent.scroll(list);
+      optionTop = 100;
+      fireEvent.scroll(list);
 
-    await waitFor(() => {
-      expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('116px');
-    });
-  });
+      await waitFor(() => {
+        expect(screen.getByRole('tooltip', { name: 'Paint the fence' }).style.top).toBe('116px');
+      });
+    },
+  );
 
   itDom(
     'shows the card for the entry the pointer rests on, then nothing stale after Escape and reopen',
