@@ -87,13 +87,13 @@ export class AuthService {
 
   async login(username: string, password: string): Promise<LoginOutcome> {
     const user = await this.opts.users.findByUsername(username);
-    const hasUsableCredential =
-      user !== null && user.passwordHash !== null && password.length <= MAX_PASSWORD;
-    const hash = hasUsableCredential ? user.passwordHash : DUMMY_HASH;
+    const passwordHash = user?.passwordHash ?? null;
+    const hasUsableCredential = passwordHash !== null && password.length <= MAX_PASSWORD;
+    const hash = hasUsableCredential ? passwordHash : DUMMY_HASH;
     const matches = await this.verifyPassword(password.slice(0, MAX_PASSWORD), hash).catch(
       () => false,
     );
-    if (!matches || user === null || user.passwordHash === null || password.length > MAX_PASSWORD) {
+    if (!matches || user === null || passwordHash === null || password.length > MAX_PASSWORD) {
       return { ok: false, reason: 'invalid' };
     }
     return { ok: true, result: await this.issue(user) };

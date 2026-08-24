@@ -42,7 +42,7 @@ it('spends the same dummy password-verifier path for unknown and OIDC-only accou
     findByUsername: (username) => Promise.resolve(username === 'dany' ? oidcUser : null),
     findById: () => Promise.resolve(oidcUser),
   };
-  const verified: Array<{ password: string; hash: string }> = [];
+  const verified: { password: string; hash: string }[] = [];
   const auth = new AuthService({
     users,
     jwtKey: 'x'.repeat(32),
@@ -74,7 +74,7 @@ it('never feeds an unbounded login password into the expensive verifier', async 
     findByUsername: () => Promise.resolve(user),
     findById: () => Promise.resolve(user),
   };
-  const verified: Array<{ password: string; hash: string }> = [];
+  const verified: { password: string; hash: string }[] = [];
   const auth = new AuthService({
     users,
     jwtKey: 'x'.repeat(32),
