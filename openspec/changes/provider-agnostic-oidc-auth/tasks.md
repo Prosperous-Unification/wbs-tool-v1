@@ -53,7 +53,7 @@ main-session review even when earlier slices merge to dev on green.
 - [x] 4.3 Spike Claude connector registration and record the proven token,
       audience, issuer, and forwarding trace before fronting-AS code starts.
 - [x] 4.4 Add RFC 9728/8414 metadata — test: discovery from the MCP inspector.
-- [ ] 4.5 Add exact-redirect DCR and PKCE with upstream Okta login — test:
+- [x] 4.5 Add exact-redirect DCR and PKCE with upstream Okta login — test:
       invalid redirect, verifier replay, and browser round trip.
 - [ ] 4.6 Issue short-lived audience-bound MCP tokens, retain upstream tokens
       server-side, and enforce expiry/revocation — test: full trust trace.

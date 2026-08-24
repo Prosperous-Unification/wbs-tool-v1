@@ -61,6 +61,10 @@ interface HttpTransport {
   handleRequest(request: Request, options: { readonly authInfo: AuthInfo }): Promise<Response>;
 }
 
+export interface McpOAuthHandler {
+  response(request: Request): Promise<Response | undefined>;
+}
+
 /** Handles one public mcp-01 HTTP request before Bun owns the socket. */
 export async function mcpHttpResponse(
   request: Request,
@@ -68,12 +72,15 @@ export async function mcpHttpResponse(
   verifier: TokenVerifier,
   transport: HttpTransport,
   env: Readonly<Record<string, string | undefined>> = process.env,
+  oauth?: McpOAuthHandler,
 ): Promise<Response> {
   const url = new URL(request.url);
   const metadata = oauthMetadataResponse(url, config);
   if (metadata !== undefined) return metadata;
   const health = healthResponse(url);
   if (health !== undefined) return health;
+  const oauthResponse = await oauth?.response(request);
+  if (oauthResponse !== undefined) return oauthResponse;
   if (url.pathname !== '/mcp') return new Response('Not found', { status: 404 });
 
   const groupPrefix = env['NODE_ENV'] === 'production' ? 'prod' : 'dev';
@@ -110,6 +117,7 @@ export async function startHttpServer(
   config: McpConfig,
   verifier: TokenVerifier,
   env: Readonly<Record<string, string | undefined>> = process.env,
+  oauth?: McpOAuthHandler,
 ): Promise<ReturnType<typeof Bun.serve>> {
   const transport = new WebStandardStreamableHTTPServerTransport({
     enableJsonResponse: true,
@@ -122,6 +130,6 @@ export async function startHttpServer(
   }
   return Bun.serve({
     port,
-    fetch: (request) => mcpHttpResponse(request, config, verifier, transport, env),
+    fetch: (request) => mcpHttpResponse(request, config, verifier, transport, env, oauth),
   });
 }
