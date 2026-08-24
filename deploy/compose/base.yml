@@ -17,6 +17,11 @@ networks:
   wbs-dev-net:
     name: wbs-dev-net
     external: true
+  # The same edge also fronts the AIVN reader and studio. Their containers do
+  # not publish host ports, so Caddy must retain this attachment on recreate.
+  aivn-dev-net:
+    name: aivn-dev-net
+    external: true
 
 volumes:
   # Non-negotiable: without this, Caddy re-requests certificates on every
@@ -34,7 +39,7 @@ services:
     # publishes a host port (design decision 1). Adding a network here
     # recreates this container — a few seconds of ingress downtime for every
     # site it serves, so it is a deliberate, scheduled step, not a side effect.
-    networks: [wbs-net, wbs-dev-net]
+    networks: [wbs-net, wbs-dev-net, aivn-dev-net]
     ports:
       - '80:80'
       - '443:443'
