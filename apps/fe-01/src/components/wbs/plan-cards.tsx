@@ -971,9 +971,11 @@ function useTriggerAboveSheet(open: boolean) {
     engagedRef.current = true;
     /** The gap between the trigger's bottom and the sheet's top, in px. */
     const GAP = 8;
-    /** Two seconds of frames at 60fps: the retry budget for a sheet that
-     *  never appears. */
-    const MAX_FRAMES = 120;
+    /** Ten seconds of frames at 60fps: the retry budget for a sheet that
+     *  never appears. Headless CI under load mounts Radix's portal in
+     *  seconds, not frames — 120 frames was measured too small there (the
+     *  e2e poll timed out with the guard never landing). */
+    const MAX_FRAMES = 600;
     let frame = 0;
     let frames = 0;
     /** The restore this open owes -- a local, so a later open cannot see it. */

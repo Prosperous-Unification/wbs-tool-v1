@@ -786,7 +786,9 @@ test.describe('the plan on a phone, measured by a browser', () => {
             const { trig, sheet: sh } = await guardedBox();
             return sh.y - (trig.y + trig.height);
           },
-          { message: 'the guard has not landed' },
+          // The guard's own retry budget is ~10s; headless CI under load
+          // has made Radix's portal mount take most of it.
+          { timeout: 15000, message: 'the guard has not landed' },
         )
         .toBeGreaterThan(0);
 
