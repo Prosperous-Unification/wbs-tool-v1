@@ -927,7 +927,7 @@ function CardNotBeforeField({
  * lives in `e2e/mobile.spec.ts` (`the priority sheet keeps the card it edits
  * above it`), because that is the only place the answer is not a zero.
  */
-function useTriggerAboveSheet(open: boolean): React.RefObject<HTMLButtonElement | null> {
+function useTriggerAboveSheet(open: boolean) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
