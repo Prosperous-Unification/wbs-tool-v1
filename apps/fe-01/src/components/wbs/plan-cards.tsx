@@ -929,41 +929,51 @@ function CardNotBeforeField({
  */
 function useTriggerAboveSheet(open: boolean) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  /** The restore the applied guard owes, no-op until one was applied. */
+  const restoreRef = useRef<() => void>(() => {
+    /* replaced by the guard once it applies */
+  });
   useEffect(() => {
     if (!open) return;
-    const trigger = triggerRef.current;
-    if (trigger === null) return;
-    // The sheet the trigger just opened is the most recent one in the DOM --
-    // Radix appends each portal to `body`, and a focus trap means two are
-    // never open at once.
-    const sheets = document.querySelectorAll('[data-modal-surface="bottom"]');
-    const sheet = sheets.item(sheets.length - 1);
-    if (!(sheet instanceof HTMLElement)) return;
-    const container = trigger.closest('[data-plan-cards]');
-    if (!(container instanceof HTMLElement)) return;
+    // Radix mounts the portal **after** this effect runs -- its own mount is
+    // an internal effect, so measuring here would find no sheet at all. One
+    // animation frame later it is on the page; the cleanup cancels the frame
+    // when the sheet has already closed.
+    const frame = requestAnimationFrame(() => {
+      const trigger = triggerRef.current;
+      if (trigger === null) return;
+      const sheets = document.querySelectorAll('[data-modal-surface="bottom"]');
+      const sheet = sheets.item(sheets.length - 1);
+      if (!(sheet instanceof HTMLElement)) return;
+      const container = trigger.closest('[data-plan-cards]');
+      if (!(container instanceof HTMLElement)) return;
 
-    const sheetTop = sheet.getBoundingClientRect().top;
-    const sheetHeight = sheet.getBoundingClientRect().height;
-    const before = {
-      scrollTop: container.scrollTop,
-      paddingBottom: container.style.paddingBottom,
-    };
-    // The scroll room has to exist before the trigger can be moved into it.
-    container.style.paddingBottom = `${String(sheetHeight)}px`;
-    // A small gap, so the trigger reads as *above* the sheet rather than
-    // flush against it.
-    const overhang = trigger.getBoundingClientRect().bottom + 8 - sheetTop;
-    if (overhang > 0) container.scrollTop += overhang;
-
+      const sheetTop = sheet.getBoundingClientRect().top;
+      const sheetHeight = sheet.getBoundingClientRect().height;
+      const before = {
+        scrollTop: container.scrollTop,
+        paddingBottom: container.style.paddingBottom,
+      };
+      // The scroll room has to exist before the trigger can be moved into it.
+      container.style.paddingBottom = `${String(sheetHeight)}px`;
+      // A small gap, so the trigger reads as *above* the sheet rather than
+      // flush against it.
+      const overhang = trigger.getBoundingClientRect().bottom + 8 - sheetTop;
+      if (overhang > 0) container.scrollTop += overhang;
+      restoreRef.current = () => {
+        container.style.paddingBottom = before.paddingBottom;
+        // The position the reader had, clamped to what the list still holds --
+        // a shorter list after the padding comes off would otherwise leave the
+        // browser to clamp it, which is a jump rather than a place.
+        container.scrollTop = Math.min(
+          before.scrollTop,
+          Math.max(0, container.scrollHeight - container.clientHeight),
+        );
+      };
+    });
     return () => {
-      container.style.paddingBottom = before.paddingBottom;
-      // The position the reader had, but never below what the list still
-      // holds -- a shorter list after the padding comes off would otherwise
-      // leave the browser to clamp it, which is a jump rather than a place.
-      container.scrollTop = Math.min(
-        before.scrollTop,
-        Math.max(0, container.scrollHeight - container.clientHeight),
-      );
+      cancelAnimationFrame(frame);
+      restoreRef.current();
     };
   }, [open]);
   return triggerRef;
