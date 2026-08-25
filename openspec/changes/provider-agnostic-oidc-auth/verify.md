@@ -228,7 +228,7 @@ documentation-only successor. Public Caddy and the Auth0 callback remain unappli
 | authorize capacity     | second anonymous authorize evicted the in-flight login                  | new authorize returns 429; original callback still completes          |
 | query bounds           | 514-byte Unicode state and repeated scope both reached Auth0            | both return `invalid_request` before upstream authorization           |
 | retained redirects     | 11 loopback redirects and a query-bearing Claude callback registered    | both return `invalid_redirect_uri`                                    |
-| DCR-to-token lifetime  | unrelated cleanup removed a client after Auth0 issued its code           | active authorization extends the client through token exchange        |
+| DCR-to-token lifetime  | unrelated cleanup removed a client after Auth0 issued its code          | active authorization extends the client through token exchange        |
 | anonymous source cap   | one source could consume every short-lived client slot                  | source capped at 20 unproven clients; another source still registers  |
 | proven source cap      | scripted successful logins could consume all 1,000 client slots         | source capped at 100 proven clients; another source still registers   |
 | edge source trust      | partitions depended on Caddy's version-specific XFF default             | MCP proxy overwrites XFF with `{remote_host}`                         |
