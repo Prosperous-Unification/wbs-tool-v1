@@ -384,7 +384,9 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       return Promise.resolve({ ...tag });
     },
     addService: (name: string) => {
-      const existing = services.find((service) => service.name.toLowerCase() === name.toLowerCase());
+      const existing = services.find(
+        (service) => service.name.toLowerCase() === name.toLowerCase(),
+      );
       if (existing !== undefined) return Promise.resolve({ ...existing });
       const service = { id: `service-${name.toLowerCase()}`, name };
       services.push(service);

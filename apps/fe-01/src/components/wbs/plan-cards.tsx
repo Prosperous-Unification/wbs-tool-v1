@@ -762,8 +762,12 @@ function CardSetField({
       </ModalTrigger>
       <ModalContent side="bottom" className="min-h-[60vh]">
         <ModalHeader>
-          <ModalTitle>{plural} for {row.number}</ModalTitle>
-          <ModalDescription>Type to search the directory, or add a name nobody has used yet.</ModalDescription>
+          <ModalTitle>
+            {plural} for {row.number}
+          </ModalTitle>
+          <ModalDescription>
+            Type to search the directory, or add a name nobody has used yet.
+          </ModalDescription>
         </ModalHeader>
         <CreatablePicker
           label={`${plural} for ${row.number}`}
