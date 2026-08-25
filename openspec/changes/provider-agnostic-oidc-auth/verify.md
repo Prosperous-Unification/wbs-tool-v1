@@ -217,27 +217,31 @@ exhausted; Opus was not substituted. Public exposure remains unapplied.
 
 ## 15. Dev MCP exposure implementation — 2026-08-25
 
-**State:** implementation tree `551b26c7`; this verification section is its
-documentation-only successor. Public Caddy and the Auth0 callback remain unapplied.
+**State:** implementation through `bfac06c3` plus the late-window refusal in
+this documentation successor. Public Caddy and the Auth0 callback remain unapplied.
 
 ### Failure proofs
 
-| Check                  | Fault observed before implementation                                    | Final behavior                                                        |
-| ---------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| DCR capacity           | second anonymous registration evicted the live connector                | new registration returns 429; live connector still authorizes         |
-| authorize capacity     | second anonymous authorize evicted the in-flight login                  | new authorize returns 429; original callback still completes          |
-| query bounds           | 514-byte Unicode state and repeated scope both reached Auth0            | both return `invalid_request` before upstream authorization           |
-| retained redirects     | 11 loopback redirects and a query-bearing Claude callback registered    | both return `invalid_redirect_uri`                                    |
-| DCR-to-token lifetime  | unrelated cleanup removed a client after Auth0 issued its code          | active authorization extends the client through token exchange        |
-| anonymous source cap   | one source could consume every short-lived client slot                  | source capped at 20 unproven clients; another source still registers  |
-| proven source cap      | scripted successful logins could consume all 1,000 client slots         | source capped at 100 proven clients; another source still registers   |
-| edge source trust      | partitions depended on Caddy's version-specific XFF default             | MCP proxy overwrites XFF with `{remote_host}`                         |
-| first-deploy preflight | checker did not exist; three production-path cases failed with exit 127 | missing/incomplete/non-600 env fails before old `sync.ts` is copied   |
-| persistent health      | no checker existed; absent, enabled, and malformed state all failed     | absent prints 0 pre-cutover, enabled prints 1, malformed fails closed |
-| Caddy superset         | each isolated mutation removed WS, drain, API, SPA, or logging          | all five mutations are refused by the candidate contract              |
+| Check                  | Fault observed before implementation                                    | Final behavior                                                         |
+| ---------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| DCR capacity           | second anonymous registration evicted the live connector                | new registration returns 429; live connector still authorizes          |
+| authorize capacity     | second anonymous authorize evicted the in-flight login                  | new authorize returns 429; original callback still completes           |
+| query bounds           | 514-byte Unicode state and repeated scope both reached Auth0            | both return `invalid_request` before upstream authorization            |
+| retained redirects     | 11 loopback redirects and a query-bearing Claude callback registered    | both return `invalid_redirect_uri`                                     |
+| DCR-to-token lifetime  | unrelated cleanup removed a client after Auth0 issued its code          | active authorization extends the client through token exchange         |
+| absolute client life   | repeated authorize renewed an unproven client beyond 20 minutes         | cleanup removes it at the absolute ceiling                             |
+| late authorize window  | authorize started a flow whose client expired before token exchange     | returns 429 before sending the user to Auth0                           |
+| anonymous source cap   | one source could consume every short-lived client slot                  | source capped at 20 unproven clients; another source still registers   |
+| proven source cap      | scripted successful logins could consume all 1,000 client slots         | source capped at 100 proven clients; another source still registers    |
+| grant capacity         | completed callbacks retained grants past the configured limit           | callback returns 429; the existing grant still exchanges               |
+| session capacity       | token exchanges retained sessions past the configured limit             | returns 429; live session survives and blocked grant remains retryable |
+| edge source trust      | partitions depended on Caddy's version-specific XFF default             | MCP proxy overwrites XFF with `{remote_host}`                          |
+| first-deploy preflight | checker did not exist; three production-path cases failed with exit 127 | missing/incomplete/non-600 env fails before old `sync.ts` is copied    |
+| persistent health      | no checker existed; absent, enabled, and malformed state all failed     | absent prints 0 pre-cutover, enabled prints 1, malformed fails closed  |
+| Caddy superset         | each isolated mutation removed WS, drain, API, SPA, or logging          | all five mutations are refused by the candidate contract               |
 
 Across the OAuth capacity and lifecycle chunks, each new regression was watched
-red before its fix; the file now passes 18/18. The preflight file was watched at
+red before its fix; the file now passes 22/22. The preflight file was watched at
 0/3 before its script existed and 3/3 after. The Caddy contract performs five
 isolated in-test mutations; each makes the superset predicate false.
 

@@ -290,6 +290,10 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       return oauthError('invalid_request');
     }
 
+    if (!client.proven && this.now() + TTL_MS * 2 > client.unprovenExpiresAt) {
+      return oauthError('temporarily_unavailable', undefined, 429);
+    }
+
     const browserBinding = this.random();
     const upstreamState = this.random();
     const nonce = this.random();

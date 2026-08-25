@@ -195,14 +195,17 @@ Add this byte-exact Auth0 callback without replacing the browser callback:
 `https://dev.wbs.bulletpoints.club/mcp/oauth/callback`. Dynamic registration
 accepts only the Claude connector callback on `claude.ai`/`claude.com` or an
 HTTP(S) loopback callback for tools such as MCP Inspector. Unproven clients
-expire after 10 minutes of DCR inactivity; starting authorization keeps the
-client alive through the browser and token exchange, and a successful exchange
-promotes it to 24 hours. Registration is capped at 20 unproven and 100 proven
-clients per forwarding source plus 1,000 globally; pending authorization is
-capped at five per client and 1,000 globally. New requests at capacity return
-429 and never evict another connector's state. Claude users share Anthropic's
-forwarding egress, so a burst above the per-source limits can return 429 until
-the oldest registration expires.
+expire after 10 minutes of DCR inactivity. Starting authorization can extend an
+unproven client only to an absolute 20-minute lifetime, and a new flow is
+refused with 429 when that ceiling cannot cover the browser and code-exchange
+window; a successful exchange promotes the client to 24 hours. Registration is
+capped at 20 unproven and 100 proven clients per forwarding source plus 1,000
+globally; pending authorization is capped at five per client and 1,000 globally;
+unredeemed grants and live sessions are each capped at 1,000 globally. New
+requests at capacity return 429 and never evict another connector's state. A
+session-capacity refusal preserves the valid grant for retry until its five-
+minute expiry. Claude users share Anthropic's forwarding egress, so a burst
+above the per-source limits can return 429 until the oldest state expires.
 
 Before cutover, the absent `/home/puni1/wbs-dev/state/mcp-exposure` marker makes
 the MCP public probe skip. Cutover atomically writes `enabled` to that mode-600

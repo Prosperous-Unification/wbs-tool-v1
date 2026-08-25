@@ -312,10 +312,22 @@ describe('InMemoryMcpOAuth', () => {
 
     advance(400_000);
     expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(302);
+    advance(200_000);
+    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(302);
+    advance(600_001);
+    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(400);
+  });
+
+  // Proof: starting after the remaining absolute lifetime falls below the
+  // browser-plus-code window mints a grant whose client expires before token.
+  it('refuses an unproven authorization too late to complete token exchange', async () => {
+    const { advance, oauth } = fixture();
+    const clientId = await register(oauth);
+
     advance(400_000);
     expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(302);
-    advance(400_001);
-    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(400);
+    advance(200_001);
+    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(429);
   });
 
   // Proof: a global-only cap lets one source refill all expired anonymous
