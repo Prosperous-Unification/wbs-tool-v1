@@ -939,14 +939,14 @@ function useTriggerAboveSheet(open: boolean) {
     // an internal effect, so measuring here would find no sheet at all. One
     // animation frame later it is on the page; the cleanup cancels the frame
     // when the sheet has already closed.
-    const frame = requestAnimationFrame(() => {
+    const tryNow = (): boolean => {
       const trigger = triggerRef.current;
-      if (trigger === null) return;
+      if (trigger === null) return false;
       const sheets = document.querySelectorAll('[data-modal-surface="bottom"]');
       const sheet = sheets.item(sheets.length - 1);
-      if (!(sheet instanceof HTMLElement)) return;
+      if (!(sheet instanceof HTMLElement)) return false;
       const container = trigger.closest('[data-plan-cards]');
-      if (!(container instanceof HTMLElement)) return;
+      if (!(container instanceof HTMLElement)) return false;
 
       const sheetTop = sheet.getBoundingClientRect().top;
       const sheetHeight = sheet.getBoundingClientRect().height;
@@ -970,9 +970,16 @@ function useTriggerAboveSheet(open: boolean) {
           Math.max(0, container.scrollHeight - container.clientHeight),
         );
       };
-    });
+      return true;
+    };
+    let frame: number;
+    const spin = (): void => {
+      if (!tryNow()) frame = requestAnimationFrame(spin);
+    };
+    frame = requestAnimationFrame(spin);
     return () => {
       cancelAnimationFrame(frame);
+      frame = 0;
       restoreRef.current();
     };
   }, [open]);
