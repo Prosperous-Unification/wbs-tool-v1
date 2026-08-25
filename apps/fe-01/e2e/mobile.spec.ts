@@ -762,11 +762,37 @@ test.describe('the plan on a phone, measured by a browser', () => {
       await trigger.click();
       await expect(sheet).toBeVisible();
       await expect(sheet.locator('[data-card-priority-save]')).toBeVisible();
+      // The guard is async by design — it measures on animation frames,
+      // because Radix mounts its portal from an internal effect after the
+      // click and an open animation settles after that. Poll the geometry
+      // until the guard lands rather than racing it (measured from the
+      // layout gate: `toBeVisible` then one `boundingBox` snapshot caught
+      // the trigger 222px under the sheet on pass 1).
+      interface Box {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }
+      const guardedBox = async (): Promise<{ trig: Box; sheet: Box }> => {
+        const trig = await trigger.boundingBox();
+        const sh = await sheet.boundingBox();
+        if (trig === null || sh === null) throw new Error('no box to measure');
+        return { trig, sheet: sh };
+      };
+      await expect
+        .poll(
+          async () => {
+            const { trig, sheet: sh } = await guardedBox();
+            return sh.y - (trig.y + trig.height);
+          },
+          { message: 'the guard has not landed' },
+        )
+        .toBeGreaterThan(0);
 
-      const where = await trigger.boundingBox();
-      const sheetBox = await sheet.boundingBox();
-      if (where === null || sheetBox === null || viewport === null) {
-        throw new Error('trigger, sheet, or viewport has no box to measure');
+      const { trig: where, sheet: sheetBox } = await guardedBox();
+      if (viewport === null) {
+        throw new Error('the viewport has no size to measure against');
       }
       expect(
         where.y + where.height,

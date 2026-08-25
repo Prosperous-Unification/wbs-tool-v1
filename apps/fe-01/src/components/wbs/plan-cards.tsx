@@ -987,9 +987,11 @@ function useTriggerAboveSheet(open: boolean) {
         (node): node is HTMLElement => node instanceof HTMLElement,
       );
       for (let each = sheets.length - 1; each >= 0; each -= 1) {
-        const rect = sheets[each].getBoundingClientRect();
+        const candidate = sheets[each];
+        if (candidate.getAttribute('data-state') !== 'open') continue;
+        const rect = candidate.getBoundingClientRect();
         if (rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight) {
-          return sheets[each];
+          return candidate;
         }
       }
       return null;
@@ -1005,9 +1007,15 @@ function useTriggerAboveSheet(open: boolean) {
       // Direct `scrollTop` writes have to land now, not animate.
       container.style.scrollBehavior = 'auto';
       const place = (): void => {
-        // The close can start while this observer still has one tick owed,
-        // and re-placing then would fight the restore about to run below.
-        if (!engagedRef.current) return;
+        // Radix's close animation keeps the element mounted while it exits
+        // (Presence), and re-placing on a `data-state="closed"` sheet would
+        // fight the restore about to run below — measured as a 13089px jump
+        // to the bottom on the penultimate-card e2e pass. `data-state` is
+        // the close's observable sign; the blur guard below covers the cases
+        // where the state flip comes first.
+        if (sheet.getAttribute('data-state') !== 'open' || !engagedRef.current) {
+          return;
+        }
         const rect = sheet.getBoundingClientRect();
         if (rect.height <= 0) return;
         // The scroll room has to exist before the trigger can be moved into
