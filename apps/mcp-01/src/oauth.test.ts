@@ -145,6 +145,47 @@ describe('InMemoryMcpOAuth', () => {
     expect((await expiring.oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(400);
   });
 
+  // Proof: a 24-hour anonymous registration lifetime lets an attacker keep all
+  // slots occupied by refreshing the registry less than once per day.
+  it('discloses a short expiry for unproven dynamic clients', async () => {
+    const { advance, oauth } = fixture({ clientLimit: 1 });
+    const response = await registrationResponse(oauth, [CALLBACK]);
+    const body = (await response.json()) as {
+      client_id_expires_at: number;
+      client_id_issued_at: number;
+    };
+
+    expect(body.client_id_expires_at - body.client_id_issued_at).toBe(600);
+    advance(600_001);
+    expect((await registrationResponse(oauth, [CALLBACK])).status).toBe(201);
+  });
+
+  // Proof: leaving every registration short-lived makes a legitimate connector
+  // lose its client id soon after completing the authenticated token exchange.
+  it('promotes a client only after a successful token exchange', async () => {
+    const { advance, oauth } = fixture({ clientLimit: 1 });
+    const verifier = 'v'.repeat(43);
+    const code = await authorizationCode(oauth, verifier);
+    const response = await oauth.response(
+      new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/token', {
+        body: new URLSearchParams({
+          client_id: 'random-1',
+          code,
+          code_verifier: verifier,
+          grant_type: 'authorization_code',
+          redirect_uri: CALLBACK,
+        }),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        method: 'POST',
+      }),
+    );
+
+    expect(response?.status).toBe(200);
+    advance(600_001);
+    expect((await registrationResponse(oauth, [CALLBACK])).status).toBe(429);
+    expect((await oauth.response(new Request(authorizeUrl('random-1'))))?.status).toBe(302);
+  });
+
   // Proof: replacing capacity refusal with FIFO eviction makes the first
   // registered connector fail authorization after an anonymous registration.
   it('refuses registration at capacity without evicting a live connector', async () => {

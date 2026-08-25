@@ -16,6 +16,8 @@ import type { McpOAuthHandler } from './http';
 const SCOPES = new Set(['wbs:read', 'wbs:write', 'wbs:editor']);
 const COOKIE = '__Host-wbs_mcp_oauth';
 const TTL_MS = 300_000;
+const UNPROVEN_CLIENT_TTL_MS = 600_000;
+const ACTIVE_CLIENT_TTL_MS = 86_400_000;
 const MAX_AUTHORIZATION_QUERY_BYTES = 2_048;
 const MAX_STATE_BYTES = 512;
 const MAX_REDIRECT_URIS = 10;
@@ -64,6 +66,7 @@ interface Options {
   verifyUpstream?: TokenVerifier['verify'];
   clientLimit?: number;
   clientTtlMs?: number;
+  activeClientTtlMs?: number;
   transactionLimit?: number;
 }
 
@@ -88,6 +91,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
 
   private readonly clientLimit: number;
   private readonly clientTtlMs: number;
+  private readonly activeClientTtlMs: number;
   private readonly transactionLimit: number;
   constructor(
     config: Pick<McpConfig, 'MCP_PUBLIC_URL'>,
@@ -108,7 +112,8 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     this.verifyUpstream =
       options.verifyUpstream ?? (() => Promise.reject(new Error('upstream verifier is required')));
     this.clientLimit = Math.max(1, options.clientLimit ?? 1_000);
-    this.clientTtlMs = Math.max(1, options.clientTtlMs ?? 86_400_000);
+    this.clientTtlMs = Math.max(1, options.clientTtlMs ?? UNPROVEN_CLIENT_TTL_MS);
+    this.activeClientTtlMs = Math.max(1, options.activeClientTtlMs ?? ACTIVE_CLIENT_TTL_MS);
     this.transactionLimit = Math.max(1, options.transactionLimit ?? 1_000);
   }
 
@@ -209,12 +214,15 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     if (this.clients.size >= this.clientLimit) {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
+    const issuedAt = this.now();
+    const expiresAt = issuedAt + this.clientTtlMs;
     const clientId = this.random();
-    this.clients.set(clientId, { redirectUris, expiresAt: this.now() + this.clientTtlMs });
+    this.clients.set(clientId, { redirectUris, expiresAt });
     return Response.json(
       {
         client_id: clientId,
-        client_id_issued_at: Math.floor(this.now() / 1000),
+        client_id_expires_at: Math.floor(expiresAt / 1000),
+        client_id_issued_at: Math.floor(issuedAt / 1000),
         redirect_uris: redirectUris,
         token_endpoint_auth_method: 'none',
       },
@@ -329,9 +337,11 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const code = stringField(form, 'code');
     const grant = code === undefined ? undefined : this.grants.get(code);
     if (code !== undefined) this.grants.delete(code);
+    const client = grant === undefined ? undefined : this.clients.get(grant.clientId);
     const verifier = stringField(form, 'code_verifier');
     if (
       grant === undefined ||
+      client === undefined ||
       grant.expiresAt <= this.now() ||
       form.get('grant_type') !== 'authorization_code' ||
       stringField(form, 'client_id') !== grant.clientId ||
@@ -357,6 +367,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       .setIssuedAt(Math.floor(this.now() / 1000))
       .setExpirationTime(Math.floor(expiresAt / 1000))
       .sign(this.privateKey);
+    client.expiresAt = this.now() + this.activeClientTtlMs;
     this.sessions.set(jti, {
       expiresAt,
       upstreamAccessToken: grant.upstreamAccessToken,

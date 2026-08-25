@@ -119,12 +119,21 @@ describe('RECREATE_PATHS', () => {
   });
 });
 
+async function rejection(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+    return '(resolved without throwing)';
+  } catch (error) {
+    return String(error);
+  }
+}
+
 describe('MCP environment prerequisite', () => {
   it('fails clearly before restarting a supervisor that cannot start mcp-01', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'wbs-mcp-env-'));
     const missing = join(directory, '.env');
 
-    expect(assertMcpEnv(missing)).rejects.toThrow(
+    expect(await rejection(assertMcpEnv(missing))).toContain(
       `missing ${missing}; seed the gitignored mcp-01 environment before deploying`,
     );
   });
@@ -133,7 +142,7 @@ describe('MCP environment prerequisite', () => {
     const directory = await mkdtemp(join(tmpdir(), 'wbs-mcp-env-order-'));
     const missing = join(directory, '.env');
 
-    expect(sync('unreachable-sha', { mcpEnvPath: missing })).rejects.toThrow(
+    expect(await rejection(sync('unreachable-sha', { mcpEnvPath: missing }))).toContain(
       `missing ${missing}; seed the gitignored mcp-01 environment before deploying`,
     );
   });
