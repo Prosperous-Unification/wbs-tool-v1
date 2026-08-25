@@ -236,10 +236,10 @@ documentation-only successor. Public Caddy and the Auth0 callback remain unappli
 | persistent health      | no checker existed; absent, enabled, and malformed state all failed     | absent prints 0 pre-cutover, enabled prints 1, malformed fails closed |
 | Caddy superset         | each isolated mutation removed WS, drain, API, SPA, or logging          | all five mutations are refused by the candidate contract              |
 
-The OAuth test file was watched at 8 pass / 4 fail before implementation and
-11/11 after. The preflight file was watched at 0/3 before its script existed
-and 3/3 after. The Caddy contract performs five isolated in-test mutations;
-each makes the superset predicate false.
+Across the OAuth capacity and lifecycle chunks, each new regression was watched
+red before its fix; the file now passes 18/18. The preflight file was watched at
+0/3 before its script existed and 3/3 after. The Caddy contract performs five
+isolated in-test mutations; each makes the superset predicate false.
 
 ### Exact-head gate
 

@@ -200,7 +200,9 @@ client alive through the browser and token exchange, and a successful exchange
 promotes it to 24 hours. Registration is capped at 20 unproven and 100 proven
 clients per forwarding source plus 1,000 globally; pending authorization is
 capped at five per client and 1,000 globally. New requests at capacity return
-429 and never evict another connector's state.
+429 and never evict another connector's state. Claude users share Anthropic's
+forwarding egress, so a burst above the per-source limits can return 429 until
+the oldest registration expires.
 
 Before cutover, the absent `/home/puni1/wbs-dev/state/mcp-exposure` marker makes
 the MCP public probe skip. Cutover atomically writes `enabled` to that mode-600
