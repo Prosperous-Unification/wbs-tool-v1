@@ -18,6 +18,7 @@ function fixture(
     clientLimit?: number;
     clientSourceLimit?: number;
     clientTtlMs?: number;
+    activeClientTtlMs?: number;
     grantLimit?: number;
     provenClientSourceLimit?: number;
     sessionLimit?: number;
@@ -114,8 +115,9 @@ function challengeOf(verifier: string): string {
 async function completedAuthorization(
   oauth: InMemoryMcpOAuth,
   verifier: string,
+  registeredClientId?: string,
 ): Promise<{ clientId: string; response: Response }> {
-  const clientId = await register(oauth);
+  const clientId = registeredClientId ?? (await register(oauth));
   const url = authorizeUrl(clientId);
   url.searchParams.set('code_challenge', challengeOf(verifier));
   const started = await oauth.response(new Request(url));
@@ -378,6 +380,70 @@ describe('InMemoryMcpOAuth', () => {
 
     expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.1')).status).toBe(429);
     expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.2')).status).toBe(201);
+  });
+
+  // Proof: checking the proven-source cap only during registration admits two
+  // anonymous clients, then lets both promote and exceed the authenticated cap.
+  it('reserves proven-source capacity before consuming a token grant', async () => {
+    const { advance, oauth } = fixture({
+      activeClientTtlMs: 1_000,
+      clientLimit: 3,
+      clientSourceLimit: 2,
+      provenClientSourceLimit: 1,
+    });
+    const verifier = 'v'.repeat(43);
+    const firstRegistration = await registrationResponse(oauth, [CALLBACK], '203.0.113.1');
+    const secondRegistration = await registrationResponse(oauth, [CALLBACK], '203.0.113.1');
+    const firstClientId = ((await firstRegistration.json()) as { client_id: string }).client_id;
+    const secondClientId = ((await secondRegistration.json()) as { client_id: string }).client_id;
+    const firstAuthorization = await completedAuthorization(oauth, verifier, firstClientId);
+    const secondAuthorization = await completedAuthorization(oauth, verifier, secondClientId);
+    const firstCode = new URL(
+      firstAuthorization.response.headers.get('location') ?? '',
+    ).searchParams.get('code');
+    const secondCode = new URL(
+      secondAuthorization.response.headers.get('location') ?? '',
+    ).searchParams.get('code');
+
+    expect((await tokenResponse(oauth, firstClientId, firstCode ?? '', verifier)).status).toBe(200);
+    const refused = await tokenResponse(oauth, secondClientId, secondCode ?? '', verifier);
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toEqual({ error: 'temporarily_unavailable' });
+
+    advance(1_001);
+    expect((await tokenResponse(oauth, secondClientId, secondCode ?? '', verifier)).status).toBe(
+      200,
+    );
+  });
+
+  // Proof: checking only the already-proven count lets concurrent signing
+  // requests both observe a free slot and promote past the source cap.
+  it('reserves proven-source capacity across concurrent token signing', async () => {
+    const { oauth } = fixture({
+      clientLimit: 3,
+      clientSourceLimit: 2,
+      provenClientSourceLimit: 1,
+    });
+    const verifier = 'v'.repeat(43);
+    const firstRegistration = await registrationResponse(oauth, [CALLBACK], '203.0.113.1');
+    const secondRegistration = await registrationResponse(oauth, [CALLBACK], '203.0.113.1');
+    const firstClientId = ((await firstRegistration.json()) as { client_id: string }).client_id;
+    const secondClientId = ((await secondRegistration.json()) as { client_id: string }).client_id;
+    const firstAuthorization = await completedAuthorization(oauth, verifier, firstClientId);
+    const secondAuthorization = await completedAuthorization(oauth, verifier, secondClientId);
+    const firstCode = new URL(
+      firstAuthorization.response.headers.get('location') ?? '',
+    ).searchParams.get('code');
+    const secondCode = new URL(
+      secondAuthorization.response.headers.get('location') ?? '',
+    ).searchParams.get('code');
+
+    const responses = await Promise.all([
+      tokenResponse(oauth, firstClientId, firstCode ?? '', verifier),
+      tokenResponse(oauth, secondClientId, secondCode ?? '', verifier),
+    ]);
+
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 429]);
   });
 
   // Proof: replacing capacity refusal with FIFO eviction makes the first

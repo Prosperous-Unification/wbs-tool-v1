@@ -25,6 +25,7 @@ const MAX_REDIRECT_URI_BYTES = 512;
 
 interface ClientRecord {
   proven: boolean;
+  promotionReserved: boolean;
   redirectUris: readonly string[];
   source: string;
   expiresAt: number;
@@ -231,10 +232,10 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     this.cleanup();
     const source = sourceOf(request);
     const sourceClients = [...this.clients.values()].filter(
-      (client) => client.source === source && !client.proven,
+      (client) => client.source === source && !client.proven && !client.promotionReserved,
     );
     const provenSourceClients = [...this.clients.values()].filter(
-      (client) => client.source === source && client.proven,
+      (client) => client.source === source && (client.proven || client.promotionReserved),
     );
     if (
       this.clients.size >= this.clientLimit ||
@@ -248,6 +249,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const clientId = this.random();
     this.clients.set(clientId, {
       proven: false,
+      promotionReserved: false,
       redirectUris,
       source,
       expiresAt,
@@ -413,6 +415,19 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
 
+    let reservedPromotion = false;
+    if (!client.proven) {
+      const provenSourceClients = [...this.clients.values()].filter(
+        (candidate) =>
+          candidate.source === client.source && (candidate.proven || candidate.promotionReserved),
+      );
+      if (client.promotionReserved || provenSourceClients.length >= this.provenClientSourceLimit) {
+        return oauthError('temporarily_unavailable', undefined, 429);
+      }
+      client.promotionReserved = true;
+      reservedPromotion = true;
+    }
+
     const jti = this.random();
     const expiresAt = this.now() + TTL_MS;
     this.grants.delete(code);
@@ -437,9 +452,11 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     } catch (error) {
       this.sessions.delete(jti);
       this.grants.set(code, grant);
+      if (reservedPromotion) client.promotionReserved = false;
       throw error;
     }
     client.proven = true;
+    client.promotionReserved = false;
     client.expiresAt = this.now() + this.activeClientTtlMs;
     return Response.json({
       access_token: token,
