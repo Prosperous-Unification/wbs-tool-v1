@@ -1948,8 +1948,37 @@ function GanttChart({
     }
     wasFullScreen.current = true;
     requestAnimationFrame(() => fullScreenToggleRef.current?.focus());
-    const focusableSelector =
-      'button:not(:disabled), select:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])';
+    const focusableSelector = [
+      'button:not(:disabled)',
+      'select:not(:disabled)',
+      'input:not(:disabled)',
+      'textarea:not(:disabled)',
+      'a[href]',
+      'iframe',
+      '[contenteditable]:not([contenteditable="false"])',
+      'audio[controls]',
+      'video[controls]',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+    // The hover card and any dialog/toast are portalled above this layer
+    // (`z-20` card, `z-50` modals and toasts), so they are real surfaces the
+    // reader may be inside — focus that enters one must not be yanked back.
+    const overlayRoles = new Set(['tooltip', 'dialog', 'alertdialog', 'alert', 'status']);
+    const insideOverlay = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Element)) return false;
+      for (let el: Element | null = target; el; el = el.parentElement) {
+        const role = el.getAttribute('role');
+        if (role !== null && overlayRoles.has(role)) return true;
+      }
+      return false;
+    };
+    const visibleFocusables = (): HTMLElement[] => {
+      const layer = fullScreenRef.current;
+      if (layer === null) return [];
+      return [...layer.querySelectorAll<HTMLElement>(focusableSelector)].filter(
+        (element) => element.getClientRects().length > 0,
+      );
+    };
     const keepFocusInside = (event: FocusEvent) => {
       const layer = fullScreenRef.current;
       if (layer === null || layer.contains(event.target as Node)) return;
@@ -1957,7 +1986,8 @@ function GanttChart({
       // redirect here would yank focus back into a layer that is already
       // on its way out.
       if (leavingToRow.current) return;
-      layer.querySelector<HTMLElement>(focusableSelector)?.focus();
+      if (insideOverlay(event.target)) return;
+      visibleFocusables()[0]?.focus();
     };
     const containKeys = (key: KeyboardEvent) => {
       if (key.key === 'Escape') {
@@ -1967,9 +1997,7 @@ function GanttChart({
       if (key.key !== 'Tab') return;
       const layer = fullScreenRef.current;
       if (layer === null) return;
-      const focusable = [...layer.querySelectorAll<HTMLElement>(focusableSelector)].filter(
-        (element) => element.getClientRects().length > 0,
-      );
+      const focusable = visibleFocusables();
       const first = focusable.at(0);
       const last = focusable.at(-1);
       if (first === undefined || last === undefined) {
