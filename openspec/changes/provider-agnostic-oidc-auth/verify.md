@@ -217,8 +217,8 @@ exhausted; Opus was not substituted. Public exposure remains unapplied.
 
 ## 15. Dev MCP exposure implementation — 2026-08-25
 
-**State:** exact branch head `8789dc9`; public Caddy and the Auth0 callback are
-still unapplied.
+**State:** implementation tree `8789dc9`; this verification section is its
+documentation-only successor. Public Caddy and the Auth0 callback remain unapplied.
 
 ### Failure proofs
 
