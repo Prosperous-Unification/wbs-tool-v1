@@ -1390,6 +1390,32 @@ test.describe('the chart on a phone', () => {
     );
   });
 
+  test('keeps keyboard focus inside full screen and restores its trigger', async ({ page }) => {
+    await seedOnALaptop(page, nextAccount(), { estimate: '40/40/40' });
+    await openTheChart(page, { throughTheSheet: true });
+
+    const toggle = page.locator('[data-gantt-fullscreen-toggle]');
+    await toggle.click();
+    const layer = page.locator('[data-gantt-fullscreen]');
+    await expect(layer).toBeVisible();
+    await expect(toggle).toBeFocused();
+
+    const focusable = layer.locator(
+      'button:not(:disabled), select:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusable.first();
+    const last = focusable.last();
+    await last.focus();
+    await page.keyboard.press('Tab');
+    await expect(first).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(last).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(layer).toHaveCount(0);
+    await expect(page.locator('[data-gantt-fullscreen-toggle]')).toBeFocused();
+  });
+
   test('a picked scale reaches Reset layout on the phone, and Reset puts it back at Days', async ({
     page,
   }) => {

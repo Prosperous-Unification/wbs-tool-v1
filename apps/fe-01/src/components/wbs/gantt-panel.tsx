@@ -1915,6 +1915,9 @@ function GanttChart({
   // button between the reader and everything they came for — and the reader who
   // would meet it is the one who closed the tab *because* they were finished.
   const [fullScreen, setFullScreen] = useState(false);
+  const fullScreenRef = useRef<HTMLDivElement | null>(null);
+  const fullScreenToggleRef = useRef<HTMLButtonElement | null>(null);
+  const wasFullScreen = useRef(false);
   // Escape leaves, because a box that covers the whole app has to answer the
   // one key every reader already tries on one — and the button that opened it
   // is the only other way out, at the far end of a strip a finger may have
@@ -1927,14 +1930,51 @@ function GanttChart({
   // listener at all and nothing here can swallow an Escape the hover surface
   // (`dismiss`) or a dialog above it wanted.
   useEffect(() => {
-    if (!fullScreen) return undefined;
-    const leave = (key: KeyboardEvent) => {
-      if (key.key !== 'Escape') return;
-      setFullScreen(false);
+    if (!fullScreen) {
+      if (wasFullScreen.current) {
+        wasFullScreen.current = false;
+        requestAnimationFrame(() => fullScreenToggleRef.current?.focus());
+      }
+      return undefined;
+    }
+    wasFullScreen.current = true;
+    requestAnimationFrame(() => fullScreenToggleRef.current?.focus());
+    const focusableSelector =
+      'button:not(:disabled), select:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])';
+    const keepFocusInside = (event: FocusEvent) => {
+      const layer = fullScreenRef.current;
+      if (layer === null || layer.contains(event.target as Node)) return;
+      layer.querySelector<HTMLElement>(focusableSelector)?.focus();
     };
-    document.addEventListener('keydown', leave);
+    const containKeys = (key: KeyboardEvent) => {
+      if (key.key === 'Escape') {
+        setFullScreen(false);
+        return;
+      }
+      if (key.key !== 'Tab') return;
+      const layer = fullScreenRef.current;
+      if (layer === null) return;
+      const focusable = [...layer.querySelectorAll<HTMLElement>(focusableSelector)].filter(
+        (element) => element.getClientRects().length > 0,
+      );
+      const first = focusable.at(0);
+      const last = focusable.at(-1);
+      if (first === undefined || last === undefined) {
+        key.preventDefault();
+        layer.focus();
+      } else if (key.shiftKey && document.activeElement === first) {
+        key.preventDefault();
+        last.focus();
+      } else if (!key.shiftKey && document.activeElement === last) {
+        key.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('focusin', keepFocusInside);
+    document.addEventListener('keydown', containKeys);
     return () => {
-      document.removeEventListener('keydown', leave);
+      document.removeEventListener('focusin', keepFocusInside);
+      document.removeEventListener('keydown', containKeys);
     };
   }, [fullScreen]);
   const [open, setOpen] = useState<OpenSurface | null>(null);
@@ -3377,6 +3417,7 @@ function GanttChart({
         half that costs nothing.
       */}
         <button
+          ref={fullScreenToggleRef}
           type="button"
           data-gantt-fullscreen-toggle
           aria-pressed={fullScreen}
@@ -3457,13 +3498,12 @@ function GanttChart({
   */
   return fullScreen ? (
     <div
+      ref={fullScreenRef}
       data-gantt-fullscreen
-      // A dialog is what it behaves like — it covers the app, Escape leaves,
-      // and the reader is inside it until they say otherwise. Not `modal`:
-      // nothing under it is inert, focus is not trapped, and claiming a trap
-      // this does not build would be a label that lies to a screen reader.
       role="dialog"
+      aria-modal="true"
       aria-label="Gantt chart, full screen"
+      tabIndex={-1}
       className="bg-background fixed inset-0 z-20 flex flex-col"
       onPointerDownCapture={(pointer) => {
         if (pointer.pointerType !== 'touch' || open === null) return;
