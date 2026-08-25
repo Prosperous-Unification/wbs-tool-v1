@@ -217,8 +217,8 @@ exhausted; Opus was not substituted. Public exposure remains unapplied.
 
 ## 15. Dev MCP exposure implementation — 2026-08-25
 
-**State:** implementation through `bfac06c3` plus the late-window refusal in
-this documentation successor. Public Caddy and the Auth0 callback remain unapplied.
+**State:** exact implementation and review head `e168fbf5`. Public Caddy and
+the Auth0 callback remain unapplied pending main-session exposure approval.
 
 ### Failure proofs
 
@@ -247,15 +247,14 @@ isolated in-test mutations; each makes the superset predicate false.
 
 ### Exact-head gate
 
-h2puni, Bun 1.3.14, branch tree now committed as `551b26c7`:
+h2puni, Bun 1.3.14, exact head `e168fbf5`:
 
 - `bunx nx format:check --all`: clean.
 - `bunx nx run-many -t test lint typecheck build --parallel=2`: all targets
-  across 23 projects green; 1,809 Bun tests and 1,750 Vitest tests passed,
-  0 failed.
-- Nx marked `tool-devsync:build` flaky after retrying it inside the full gate;
-  its final result was green. A separate fresh run through the pinned
-  `koalaman/shellcheck:stable` container was clean for `dev-deploy.sh`,
+  across 23 projects green except the two shell build targets whose only h2puni
+  failure is the host's absent `shellcheck`; 1,813 Bun tests and 1,750 Vitest
+  tests passed, 0 failed. A separate fresh run through the pinned
+  `koalaman/shellcheck:stable` container passed `dev-deploy.sh`,
   `dev-mcp-preflight.sh`, and `dev-mcp-probe.sh`.
 - Targeted current behavior: mcp-01 93/93; tool-devsync 26/26; Caddy contract
   4/4; lint and typecheck clean.
@@ -266,9 +265,12 @@ h2puni, Bun 1.3.14, branch tree now committed as `551b26c7`:
 
 ### Review and deployment boundary
 
-The prior exact-patch Opus and Gemini reviews passed before the 2026-08-25
-exposure review. This revision addresses that review's four Important findings
-and both Minors. Fresh exact-head peer and Gemini reviews plus GitHub `gate` and
-`pixels` remain required before returning to main exposure review. Merge,
-Auth0 callback application, Caddy reload, persistent marker creation, and the
-real zero-manual connector acceptance remain deliberately unapplied.
+Opus 5 reviewed exact implementation head `e168fbf5` and returned PASS with
+0 Critical / 0 Important findings. Gemini via Antigravity CLI reviewed the same
+complete PR diff and returned PASS with 0 Critical / 0 Important / 0 Minor.
+GitHub `gate` and `pixels` both passed at that exact head. The main-session
+review independently re-ran the grant/session/query/late-window watched reds,
+the Caddy source-trust red, the full h2puni gate, ShellCheck, and Caddy
+validation. Merge, Auth0 callback application, Caddy reload, persistent marker
+creation, and real zero-manual connector acceptance remain deliberately
+unapplied until that review completes the cutover.
