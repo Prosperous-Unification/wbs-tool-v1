@@ -221,7 +221,16 @@ async function seedPlan(page: Page, _account: string): Promise<void> {
   const estimate = page.getByLabel('Dev estimate for 010');
   await estimate.fill('2/3/8');
   await estimate.blur();
-  await expect(estimate).not.toHaveValue('');
+  // `toHaveValue` reads the box's own value, which `fill` set synchronously —
+  // it says nothing about the blur-commit reaching be-01 or the plan coming
+  // back. The folded figure is drawn from the *fetched* plan, so block on the
+  // persisted estimate: the card the folded cell opens reads 'No estimate yet'
+  // until that round trip lands, and 'optimistic 2' once it has. (TASK-145,
+  // hover-card-estimate-race sibling seed)
+  await estimate.locator('..').hover();
+  await expect(page.locator('[role="tooltip"]').first()).toContainText('optimistic 2');
+  await page.mouse.move(0, 0);
+  await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
   // A project start date, because without one the earliest-start cells are a
   // rendered disabled state that never opens an editor — and the editor is
