@@ -91,7 +91,14 @@ const fixtureFloorOf = (row: WorkItemView): 'notBefore' | 'predecessor' | 'proje
 };
 
 function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): ProjectApi & {
-  patched: { id: string; name?: string; notes?: string; priority?: number | null }[];
+  patched: {
+    id: string;
+    name?: string;
+    notes?: string;
+    priority?: number | null;
+    tagIds?: string[];
+    serviceIds?: string[];
+  }[];
   assignments: string[];
   /**
    * The plan itself, so a test can arrange one before the first render.
@@ -154,7 +161,14 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
   const services: ServiceView[] = [];
   const tags: TagView[] = [];
   const assigned = new Map<string, string>();
-  const patched: { id: string; name?: string; notes?: string; priority?: number | null }[] = [];
+  const patched: {
+    id: string;
+    name?: string;
+    notes?: string;
+    priority?: number | null;
+    tagIds?: string[];
+    serviceIds?: string[];
+  }[] = [];
   const assignments: string[] = [];
   let next = 0;
 
@@ -281,6 +295,8 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         name?: string;
         notes?: string;
         serviceTeamId?: string | null;
+        tagIds?: string[];
+        serviceIds?: string[];
         startNoEarlierThan?: string | null;
         startNoEarlierThanReason?: string | null;
         priority?: number | null;
@@ -299,6 +315,8 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         row.serviceTeamId = patch.serviceTeamId;
         row.teamIds = patch.serviceTeamId === null ? [] : [patch.serviceTeamId];
       }
+      if (patch.tagIds !== undefined) row.tagIds = [...patch.tagIds];
+      if (patch.serviceIds !== undefined) row.serviceIds = [...patch.serviceIds];
       // be-01's pair rule, kept by the fake so a card cannot pass here what the
       // server would refuse: words about a date that is not there are a
       // `not_before_reason_needs_a_date` 400, checked inside the one
@@ -357,6 +375,20 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       const team = { id: `team-${name.toLowerCase()}`, name };
       teams.push(team);
       return Promise.resolve({ ...team });
+    },
+    addTag: (name: string) => {
+      const existing = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
+      if (existing !== undefined) return Promise.resolve({ ...existing });
+      const tag = { id: `tag-${name.toLowerCase()}`, name };
+      tags.push(tag);
+      return Promise.resolve({ ...tag });
+    },
+    addService: (name: string) => {
+      const existing = services.find((service) => service.name.toLowerCase() === name.toLowerCase());
+      if (existing !== undefined) return Promise.resolve({ ...existing });
+      const service = { id: `service-${name.toLowerCase()}`, name };
+      services.push(service);
+      return Promise.resolve({ ...service });
     },
     addPerson: () => notImplemented('addPerson'),
     move: () => notImplemented('move'),
@@ -2299,6 +2331,7 @@ describe('setting a card’s team', () => {
 
     const box = await screen.findByRole('combobox', { name: 'Service or team for 010' });
     expect(box.getAttribute('data-cell')).toBe(`${api.rows[0]?.id ?? ''}::team`);
+    expect(screen.getByRole('button', { name: 'Add a team to 010' })).toBeInTheDocument();
   });
 
   itDom(
@@ -2388,6 +2421,54 @@ describe('setting a card’s team', () => {
       expect(cards[0]?.getAttribute('data-inherited')).toBeNull();
       expect(cards[1]?.textContent).toBe('↳ Billing');
       expect(cards[1]?.getAttribute('data-inherited')).toBe('true');
+    });
+  });
+});
+
+describe('setting a card’s tags and services', () => {
+  async function aPhonePlan(): Promise<ReturnType<typeof fakeApi>> {
+    const api = fakeApi();
+    await api.create('p1', { parentId: null });
+    api.tags.push({ id: 'tag-seed', name: 'seed tag' });
+    api.services.push({ id: 'service-seed', name: 'seed service' });
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  itDom('creates and applies a tag from the card sheet', async () => {
+    const api = await aPhonePlan();
+
+    fireEvent.click(document.querySelector<HTMLElement>('[data-card-tags-field]')!);
+    const box = await screen.findByRole('combobox', { name: 'Tags for 010' });
+    expect(screen.getByRole('button', { name: 'Add a tag to 010' })).toBeInTheDocument();
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'regulatory' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.tags.map((tag) => tag.name)).toContain('regulatory');
+      expect(api.patched.at(-1)).toEqual({ id: api.rows[0]?.id, tagIds: ['tag-regulatory'] });
+    });
+  });
+
+  itDom('creates and applies a service from the card sheet', async () => {
+    const api = await aPhonePlan();
+
+    fireEvent.click(document.querySelector<HTMLElement>('[data-card-service-field]')!);
+    const box = await screen.findByRole('combobox', { name: 'Services for 010' });
+    expect(screen.getByRole('button', { name: 'Add a service to 010' })).toBeInTheDocument();
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'payments' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.services.map((service) => service.name)).toContain('payments');
+      expect(api.patched.at(-1)).toEqual({
+        id: api.rows[0]?.id,
+        serviceIds: ['service-payments'],
+      });
     });
   });
 });
