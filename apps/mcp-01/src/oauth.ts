@@ -68,6 +68,7 @@ interface Options {
   verifyUpstream?: TokenVerifier['verify'];
   clientLimit?: number;
   clientSourceLimit?: number;
+  provenClientSourceLimit?: number;
   clientTtlMs?: number;
   activeClientTtlMs?: number;
   transactionLimit?: number;
@@ -95,6 +96,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
 
   private readonly clientLimit: number;
   private readonly clientSourceLimit: number;
+  private readonly provenClientSourceLimit: number;
   private readonly clientTtlMs: number;
   private readonly activeClientTtlMs: number;
   private readonly transactionLimit: number;
@@ -119,6 +121,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       options.verifyUpstream ?? (() => Promise.reject(new Error('upstream verifier is required')));
     this.clientLimit = Math.max(1, options.clientLimit ?? 1_000);
     this.clientSourceLimit = Math.max(1, options.clientSourceLimit ?? 20);
+    this.provenClientSourceLimit = Math.max(1, options.provenClientSourceLimit ?? 100);
     this.clientTtlMs = Math.max(1, options.clientTtlMs ?? UNPROVEN_CLIENT_TTL_MS);
     this.activeClientTtlMs = Math.max(1, options.activeClientTtlMs ?? ACTIVE_CLIENT_TTL_MS);
     this.transactionLimit = Math.max(1, options.transactionLimit ?? 1_000);
@@ -223,7 +226,14 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const sourceClients = [...this.clients.values()].filter(
       (client) => client.source === source && !client.proven,
     );
-    if (this.clients.size >= this.clientLimit || sourceClients.length >= this.clientSourceLimit) {
+    const provenSourceClients = [...this.clients.values()].filter(
+      (client) => client.source === source && client.proven,
+    );
+    if (
+      this.clients.size >= this.clientLimit ||
+      sourceClients.length >= this.clientSourceLimit ||
+      provenSourceClients.length >= this.provenClientSourceLimit
+    ) {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
     const issuedAt = this.now();

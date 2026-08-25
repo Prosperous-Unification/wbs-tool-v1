@@ -18,6 +18,7 @@ function fixture(
     clientLimit?: number;
     clientSourceLimit?: number;
     clientTtlMs?: number;
+    provenClientSourceLimit?: number;
     transactionLimit?: number;
     transactionLimitPerClient?: number;
   } = {},
@@ -126,6 +127,42 @@ async function authorizationCode(oauth: InMemoryMcpOAuth, verifier: string): Pro
   );
 }
 
+async function promoteClient(oauth: InMemoryMcpOAuth, source: string): Promise<string> {
+  const registration = await registrationResponse(oauth, [CALLBACK], source);
+  expect(registration.status).toBe(201);
+  const clientId = ((await registration.json()) as { client_id: string }).client_id;
+  const verifier = 'v'.repeat(43);
+  const url = authorizeUrl(clientId);
+  url.searchParams.set('code_challenge', challengeOf(verifier));
+  const started = await oauth.response(new Request(url));
+  const binding = started?.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+  const upstream = new URL(started?.headers.get('location') ?? 'https://invalid');
+  const completed = await oauth.response(
+    new Request(
+      `https://dev.wbs.bulletpoints.club/mcp/oauth/callback?code=upstream&state=${String(upstream.searchParams.get('state'))}`,
+      { headers: { cookie: binding } },
+    ),
+  );
+  const code = new URL(completed?.headers.get('location') ?? 'https://invalid').searchParams.get(
+    'code',
+  );
+  const token = await oauth.response(
+    new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/token', {
+      body: new URLSearchParams({
+        client_id: clientId,
+        code: code ?? '',
+        code_verifier: verifier,
+        grant_type: 'authorization_code',
+        redirect_uri: CALLBACK,
+      }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      method: 'POST',
+    }),
+  );
+  expect(token?.status).toBe(200);
+  return clientId;
+}
+
 describe('InMemoryMcpOAuth', () => {
   // Break caught: accepting an arbitrary HTTPS callback lets an attacker
   // register their origin and exfiltrate a signed-in user's authorization code.
@@ -225,6 +262,22 @@ describe('InMemoryMcpOAuth', () => {
 
     expect(token?.status).toBe(200);
     expect((await registrationResponse(oauth, [CALLBACK], '')).status).toBe(201);
+  });
+
+  // Proof: leaving promoted clients under only the global cap lets one source
+  // complete scripted logins until every registration slot is unavailable.
+  it('partitions proven registration capacity by forwarding source', async () => {
+    const { oauth } = fixture({
+      clientLimit: 4,
+      clientSourceLimit: 1,
+      provenClientSourceLimit: 2,
+    });
+
+    await promoteClient(oauth, '203.0.113.1');
+    await promoteClient(oauth, '203.0.113.1');
+
+    expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.1')).status).toBe(429);
+    expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.2')).status).toBe(201);
   });
 
   // Proof: replacing capacity refusal with FIFO eviction makes the first
