@@ -483,8 +483,7 @@ test.describe('the open project picker, measured by a browser', () => {
       await Promise.all([
         page.waitForResponse(
           (response) =>
-            response.request().method() === 'POST' &&
-            response.url().endsWith('/api/projects'),
+            response.request().method() === 'POST' && response.url().endsWith('/api/projects'),
         ),
         page.getByRole('button', { name: 'New project' }).click(),
       ]);
