@@ -950,29 +950,23 @@ function CardNotBeforeField({
  * - **The restore belongs to this open only.** It lives in this effect
  *   invocation's own closure, not a ref, so a fast close-then-reopen can
  *   never re-apply the previous card's scroll position.
- * - **A blur that lands outside the sheet is the close's first sign — a
- *   blur that lands inside it is the open.** Radix's focus trap moves focus
- *   into the sheet while it opens, and that blur must not disengage the
- *   guard (measured: gate 4 pass 1, the trigger still 222px under the sheet
- *   with engaged false before the first measurement). The close needs the
- *   blur at all: Radix starts its close transition before the caller's
- *   `open` flips and this hook's cleanup runs; one ResizeObserver tick
- *   inside that window would re-pad and re-scroll the list an instant
- *   before the restore, sending the reader to the bottom (measured: 13089px
- *   of phantom scroll on the penultimate-card pass of the e2e). The dismiss
- *   focuses `document.body`, so only a blur whose new focus is NOT inside
- *   the open sheet disengages.
+ * - **`data-state` is the close's only trusted sign — focus is not.** Radix
+ *   flips the sheet's `data-state` to `closed` when the close starts and
+ *   keeps the element mounted through the exit animation (`Presence`), so a
+ *   `ResizeObserver` tick in that window finds `data-state !== 'open'` and
+ *   re-places nothing. Focus is unusable for the same job: the focus trap
+ *   moves focus INTO the sheet on open and back to the trigger on close —
+ *   an earlier version disengaged on the trigger's blur, which fired on
+ *   open and killed the guard outright (gate 4: the trigger 222px under the
+ *   sheet, measured), while the 13089px "close race" that had motivated it
+ *   turned out to be a test artifact (Playwright's click auto-scrolls the
+ *   trigger into view AFTER the spec captured its scroll offset — the guard
+ *   was restoring exactly what it had captured).
  */
 function useTriggerAboveSheet(open: boolean) {
   const triggerRef = useRef<HTMLButtonElement>(null);
-  /** Set false by the trigger blur that leaves the sheet — the close's sign. */
-  const engagedRef = useRef(true);
   useEffect(() => {
     if (!open) return;
-    // A fresh open re-engages. Both the blur and this effect run between
-    // opens, so whichever order they fire in, the flag is right by the time
-    // the sheet can be measured.
-    engagedRef.current = true;
     /** The gap between the trigger's bottom and the sheet's top, in px. */
     const GAP = 8;
     /** Ten seconds of frames at 60fps: the retry budget for a sheet that
@@ -1015,11 +1009,10 @@ function useTriggerAboveSheet(open: boolean) {
       const place = (): void => {
         // Radix's close animation keeps the element mounted while it exits
         // (Presence), and re-placing on a `data-state="closed"` sheet would
-        // fight the restore about to run below — measured as a 13089px jump
-        // to the bottom on the penultimate-card e2e pass. `data-state` is
-        // the close's observable sign; the blur guard below covers the cases
-        // where the state flip comes first.
-        if (sheet.getAttribute('data-state') !== 'open' || !engagedRef.current) {
+        // fight the restore about to run below. `data-state` flips with the
+        // close itself, ahead of this hook's `open=false` cleanup, so it is
+        // the close's observable sign.
+        if (sheet.getAttribute('data-state') !== 'open') {
           return;
         }
         const rect = sheet.getBoundingClientRect();
@@ -1088,7 +1081,7 @@ function useTriggerAboveSheet(open: boolean) {
       restore = null;
     };
   }, [open]);
-  return { triggerRef, engagedRef };
+  return triggerRef;
 }
 
 /**
@@ -1147,7 +1140,7 @@ function CardPriorityField({
   setPriority: (row: TreeRow, typed: string) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
-  const { triggerRef, engagedRef } = useTriggerAboveSheet(open);
+  const triggerRef = useTriggerAboveSheet(open);
   // The draft, seeded from the row on every open through the `key` below —
   // `CardNotBeforeField`'s bargain and its reason: a controlled box fed from
   // the row would be overwritten by a refetch mid-keystroke, and an
@@ -1170,17 +1163,6 @@ function CardPriorityField({
       <ModalTrigger asChild>
         <button
           ref={triggerRef}
-          onBlur={(event) => {
-            // The open's own focus trap blurs the trigger INTO the sheet;
-            // disengaging there killed the guard with the trigger 222px
-            // under the sheet (gate 4, pass 1). Only a blur that leaves
-            // the sheet entirely — Radix's dismiss focuses `document.body`
-            // — is a close.
-            const next = event.relatedTarget;
-            if (next instanceof Element && next.closest('[data-modal-surface="bottom"]') !== null)
-              return;
-            engagedRef.current = false;
-          }}
           type="button"
           data-card-priority-field
           // The table cell's own accessible name, so one plan read on two faces

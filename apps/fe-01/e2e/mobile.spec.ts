@@ -757,6 +757,16 @@ test.describe('the plan on a phone, measured by a browser', () => {
       const card = cards.nth(index);
       await expect(card).toBeVisible();
       const trigger = card.locator('[data-card-priority-field]');
+      // The reader has to be looking at the card to tap it, so scroll it
+      // into view BEFORE capturing the offset the close must hand back:
+      // Playwright's click scrolls an off-screen trigger into view itself,
+      // and an offset captured before that auto-scroll measures a position
+      // the card was never read from (measured as a 13089px phantom drift
+      // on the close assertion — the guard had restored its own capture
+      // exactly).
+      await trigger.evaluate((el) => {
+        el.scrollIntoView({ block: 'center' });
+      });
       const scrollBefore = await scroller.evaluate((el) => el.scrollTop);
 
       await trigger.click();
