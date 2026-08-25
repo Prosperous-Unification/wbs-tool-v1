@@ -25,6 +25,16 @@ function hasUnsafeMcpMatcher(candidate: string): boolean {
   );
 }
 
+function preservesExistingDevSurface(candidate: string): boolean {
+  return (
+    /handle\s+\/ws\*\s*\{[\s\S]*?reverse_proxy\s+wbs-dev-src:3200/.test(candidate) &&
+    /stream_close_delay\s+310s/.test(candidate) &&
+    /handle\s+\/api\/\*\s*\{[\s\S]*?reverse_proxy\s+wbs-dev-src:3100/.test(candidate) &&
+    /handle\s*\{\s*reverse_proxy\s+wbs-dev-src:4200/.test(candidate) &&
+    /log\s*\{\s*output file \/var\/log\/caddy\/access\.log/.test(candidate)
+  );
+}
+
 describe('dev MCP Caddy candidate', () => {
   it('routes the MCP resource plus exactly the three RFC discovery paths', () => {
     expect(mcpRouteBlocks(source)).toEqual(MCP_ROUTES);
@@ -48,5 +58,20 @@ describe('dev MCP Caddy candidate', () => {
         source.replace('handle /.well-known/oauth-protected-resource', 'handle /.well-known/*'),
       ),
     ).toBeTrue();
+  });
+
+  // Proof: replacing any existing upstream while adding MCP would cut off the
+  // app, API, WebSocket drain contract, or access log during public exposure.
+  it('preserves the existing app, API, WebSocket, and logging surface', () => {
+    expect(preservesExistingDevSurface(source)).toBeTrue();
+    for (const fault of [
+      source.replace('wbs-dev-src:3200', 'wbs-dev-src:3300'),
+      source.replace('stream_close_delay 310s', ''),
+      source.replace('wbs-dev-src:3100', 'wbs-dev-src:3300'),
+      source.replace('wbs-dev-src:4200', 'wbs-dev-src:3300'),
+      source.replace('output file /var/log/caddy/access.log', 'output stdout'),
+    ]) {
+      expect(preservesExistingDevSurface(fault)).toBeFalse();
+    }
   });
 });
