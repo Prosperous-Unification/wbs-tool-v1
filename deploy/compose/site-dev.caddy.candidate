@@ -11,7 +11,11 @@ dev.wbs.bulletpoints.club {
 		request_body {
 			max_size 64KB
 		}
-		reverse_proxy wbs-dev-src:3300
+		reverse_proxy wbs-dev-src:3300 {
+			# OAuth capacity partitions require an edge-authenticated source.
+			# Keep this explicit if trusted_proxies is introduced later.
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 
 	# RFC 9728 protected-resource metadata supports both discovery forms used by

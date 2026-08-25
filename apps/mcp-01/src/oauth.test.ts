@@ -230,6 +230,46 @@ describe('InMemoryMcpOAuth', () => {
     expect((await oauth.response(new Request(authorizeUrl('random-1'))))?.status).toBe(302);
   });
 
+  // Proof: leaving the client on its original DCR expiry lets unrelated
+  // cleanup delete it after Auth0 has issued a valid local authorization code.
+  it('keeps an unproven client alive through its active authorization flow', async () => {
+    const { advance, oauth } = fixture({ clientLimit: 3 });
+    const verifier = 'v'.repeat(43);
+    const clientId = await register(oauth);
+    advance(400_000);
+    const url = authorizeUrl(clientId);
+    url.searchParams.set('code_challenge', challengeOf(verifier));
+    const started = await oauth.response(new Request(url));
+    const binding = started?.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+    const upstream = new URL(started?.headers.get('location') ?? 'https://invalid');
+    advance(290_000);
+    const completed = await oauth.response(
+      new Request(
+        `https://dev.wbs.bulletpoints.club/mcp/oauth/callback?code=upstream&state=${String(upstream.searchParams.get('state'))}`,
+        { headers: { cookie: binding } },
+      ),
+    );
+    const code = new URL(completed?.headers.get('location') ?? 'https://invalid').searchParams.get(
+      'code',
+    );
+    expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.2')).status).toBe(201);
+
+    const token = await oauth.response(
+      new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/token', {
+        body: new URLSearchParams({
+          client_id: clientId,
+          code: code ?? '',
+          code_verifier: verifier,
+          grant_type: 'authorization_code',
+          redirect_uri: CALLBACK,
+        }),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        method: 'POST',
+      }),
+    );
+    expect(token?.status).toBe(200);
+  });
+
   // Proof: a global-only cap lets one source refill all expired anonymous
   // registrations forever and prevent a new connector from registering.
   it('partitions anonymous registration capacity by forwarding source', async () => {

@@ -258,6 +258,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const redirectUri = params.get('redirect_uri') ?? '';
     const challenge = params.get('code_challenge') ?? '';
     this.cleanup();
+    const client = this.clients.get(clientId);
     const scope = params.get('scope') ?? 'wbs:read';
     const scopes = scope.split(' ').filter(Boolean);
     const state = params.get('state');
@@ -271,7 +272,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       !/^[A-Za-z0-9_-]{43,128}$/.test(challenge) ||
       scopes.length === 0 ||
       scopes.some((value) => !SCOPES.has(value)) ||
-      !this.clients.get(clientId)?.redirectUris.includes(redirectUri)
+      !client?.redirectUris.includes(redirectUri)
     ) {
       return oauthError('invalid_request');
     }
@@ -289,6 +290,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     ) {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
+    client.expiresAt = Math.max(client.expiresAt, this.now() + TTL_MS * 2);
     this.transactions.set(browserBinding, {
       browserBinding,
       clientId,

@@ -60,6 +60,14 @@ describe('dev MCP Caddy candidate', () => {
     ).toBeTrue();
   });
 
+  // Proof: trusting a caller-supplied first X-Forwarded-For hop lets one
+  // source evade both OAuth registration partitions by inventing source IPs.
+  it('overwrites the MCP forwarding source at the public edge', () => {
+    expect(source).toMatch(
+      /handle\s+\/mcp\*\s*\{[\s\S]*?reverse_proxy\s+wbs-dev-src:3300\s*\{[\s\S]*?header_up\s+X-Forwarded-For\s+\{remote_host\}/,
+    );
+  });
+
   // Proof: replacing any existing upstream while adding MCP would cut off the
   // app, API, WebSocket drain contract, or access log during public exposure.
   it('preserves the existing app, API, WebSocket, and logging surface', () => {
