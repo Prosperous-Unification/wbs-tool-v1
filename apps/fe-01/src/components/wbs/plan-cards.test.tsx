@@ -2434,6 +2434,17 @@ describe('setting a card’s team', () => {
 });
 
 describe('setting a card’s tags and services', () => {
+  itDom('keeps the directory as the bootstrap surface for both vocabularies', async () => {
+    const api = fakeApi();
+    await api.create('p1', { parentId: null });
+    widthIs(PHONE);
+    render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+
+    expect(document.querySelector('[data-card-tags-field]')).toBeNull();
+    expect(document.querySelector('[data-card-service-field]')).toBeNull();
+  });
+
   async function aPhonePlan(): Promise<ReturnType<typeof fakeApi>> {
     const api = fakeApi();
     await api.create('p1', { parentId: null });
