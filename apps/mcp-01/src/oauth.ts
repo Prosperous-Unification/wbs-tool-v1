@@ -25,6 +25,7 @@ const MAX_REDIRECT_URI_BYTES = 512;
 
 interface ClientRecord {
   redirectUris: readonly string[];
+  source: string;
   expiresAt: number;
 }
 
@@ -65,9 +66,11 @@ interface Options {
   signingKeys?: { privateKey: KeyObject; publicKey: KeyObject };
   verifyUpstream?: TokenVerifier['verify'];
   clientLimit?: number;
+  clientSourceLimit?: number;
   clientTtlMs?: number;
   activeClientTtlMs?: number;
   transactionLimit?: number;
+  transactionLimitPerClient?: number;
 }
 
 type UpstreamClient = Pick<BrowserOidcClient, 'authorizationUrl' | 'exchange'>;
@@ -90,9 +93,11 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
   private readonly verifyUpstream: TokenVerifier['verify'];
 
   private readonly clientLimit: number;
+  private readonly clientSourceLimit: number;
   private readonly clientTtlMs: number;
   private readonly activeClientTtlMs: number;
   private readonly transactionLimit: number;
+  private readonly transactionLimitPerClient: number;
   constructor(
     config: Pick<McpConfig, 'MCP_PUBLIC_URL'>,
     private readonly upstream: UpstreamClient,
@@ -112,9 +117,11 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     this.verifyUpstream =
       options.verifyUpstream ?? (() => Promise.reject(new Error('upstream verifier is required')));
     this.clientLimit = Math.max(1, options.clientLimit ?? 1_000);
+    this.clientSourceLimit = Math.max(1, options.clientSourceLimit ?? 20);
     this.clientTtlMs = Math.max(1, options.clientTtlMs ?? UNPROVEN_CLIENT_TTL_MS);
     this.activeClientTtlMs = Math.max(1, options.activeClientTtlMs ?? ACTIVE_CLIENT_TTL_MS);
     this.transactionLimit = Math.max(1, options.transactionLimit ?? 1_000);
+    this.transactionLimitPerClient = Math.max(1, options.transactionLimitPerClient ?? 5);
   }
 
   async response(request: Request): Promise<Response | undefined> {
@@ -211,13 +218,15 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       return oauthError('invalid_redirect_uri');
     }
     this.cleanup();
-    if (this.clients.size >= this.clientLimit) {
+    const source = sourceOf(request);
+    const sourceClients = [...this.clients.values()].filter((client) => client.source === source);
+    if (this.clients.size >= this.clientLimit || sourceClients.length >= this.clientSourceLimit) {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
     const issuedAt = this.now();
     const expiresAt = issuedAt + this.clientTtlMs;
     const clientId = this.random();
-    this.clients.set(clientId, { redirectUris, expiresAt });
+    this.clients.set(clientId, { redirectUris, source, expiresAt });
     return Response.json(
       {
         client_id: clientId,
@@ -258,7 +267,13 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const upstreamState = this.random();
     const nonce = this.random();
     const verifier = this.random();
-    if (this.transactions.size >= this.transactionLimit) {
+    const clientTransactions = [...this.transactions.values()].filter(
+      (transaction) => transaction.clientId === clientId,
+    );
+    if (
+      this.transactions.size >= this.transactionLimit ||
+      clientTransactions.length >= this.transactionLimitPerClient
+    ) {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
     this.transactions.set(browserBinding, {
@@ -487,6 +502,11 @@ function isRedirect(value: unknown): value is string {
 
 function bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;
+}
+
+function sourceOf(request: Request): string {
+  const source = request.headers.get('x-forwarded-for')?.split(',', 1)[0]?.trim();
+  return source === undefined || source === '' ? 'unknown' : source;
 }
 
 function cookieOf(request: Request, name: string): string | undefined {

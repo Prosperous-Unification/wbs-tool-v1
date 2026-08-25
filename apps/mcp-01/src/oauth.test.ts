@@ -14,7 +14,13 @@ const CONFIG: McpConfig = {
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 
 function fixture(
-  limits: { clientLimit?: number; clientTtlMs?: number; transactionLimit?: number } = {},
+  limits: {
+    clientLimit?: number;
+    clientSourceLimit?: number;
+    clientTtlMs?: number;
+    transactionLimit?: number;
+    transactionLimitPerClient?: number;
+  } = {},
 ) {
   let now = 1_700_000_000_000;
   const values = Array.from({ length: 20 }, (_, index) => `random-${String(index + 1)}`);
@@ -71,11 +77,12 @@ async function register(oauth: InMemoryMcpOAuth): Promise<string> {
 async function registrationResponse(
   oauth: InMemoryMcpOAuth,
   redirectUris: readonly string[],
+  source = '203.0.113.1',
 ): Promise<Response> {
   const response = await oauth.response(
     new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/register', {
       body: JSON.stringify({ redirect_uris: redirectUris, token_endpoint_auth_method: 'none' }),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': source },
       method: 'POST',
     }),
   );
@@ -186,6 +193,16 @@ describe('InMemoryMcpOAuth', () => {
     expect((await oauth.response(new Request(authorizeUrl('random-1'))))?.status).toBe(302);
   });
 
+  // Proof: a global-only cap lets one source refill all expired anonymous
+  // registrations forever and prevent a new connector from registering.
+  it('partitions anonymous registration capacity by forwarding source', async () => {
+    const { oauth } = fixture({ clientLimit: 2, clientSourceLimit: 1 });
+
+    expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.1')).status).toBe(201);
+    expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.1')).status).toBe(429);
+    expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.2')).status).toBe(201);
+  });
+
   // Proof: replacing capacity refusal with FIFO eviction makes the first
   // registered connector fail authorization after an anonymous registration.
   it('refuses registration at capacity without evicting a live connector', async () => {
@@ -216,6 +233,18 @@ describe('InMemoryMcpOAuth', () => {
     );
     expect(callback?.status).toBe(302);
     expect(exchangeCalls).toHaveLength(1);
+  });
+
+  // Proof: a global-only transaction cap lets one registered client deny
+  // authorization to every other connector for the full transaction TTL.
+  it('partitions pending authorization capacity by client', async () => {
+    const { oauth } = fixture({ transactionLimit: 2, transactionLimitPerClient: 1 });
+    const first = await register(oauth);
+    const second = await register(oauth);
+
+    expect((await oauth.response(new Request(authorizeUrl(first))))?.status).toBe(302);
+    expect((await oauth.response(new Request(authorizeUrl(first))))?.status).toBe(429);
+    expect((await oauth.response(new Request(authorizeUrl(second))))?.status).toBe(302);
   });
 
   // Proof: removing the byte and multiplicity checks retains attacker-chosen
