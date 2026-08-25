@@ -194,9 +194,13 @@ MCP_PUBLIC_URL=https://dev.wbs.bulletpoints.club/mcp
 Add this byte-exact Auth0 callback without replacing the browser callback:
 `https://dev.wbs.bulletpoints.club/mcp/oauth/callback`. Dynamic registration
 accepts only the Claude connector callback on `claude.ai`/`claude.com` or an
-HTTP(S) loopback callback for tools such as MCP Inspector. Clients expire after
-24 hours. At 1,000 live clients or in-flight logins, new anonymous requests are
-refused with 429; they never evict another connector's state.
+HTTP(S) loopback callback for tools such as MCP Inspector. Unproven clients
+expire after 10 minutes of DCR inactivity; starting authorization keeps the
+client alive through the browser and token exchange, and a successful exchange
+promotes it to 24 hours. Registration is capped at 20 unproven and 100 proven
+clients per forwarding source plus 1,000 globally; pending authorization is
+capped at five per client and 1,000 globally. New requests at capacity return
+429 and never evict another connector's state.
 
 Before cutover, the absent `/home/puni1/wbs-dev/state/mcp-exposure` marker makes
 the MCP public probe skip. Cutover atomically writes `enabled` to that mode-600
@@ -207,16 +211,19 @@ the RFC 8414 authorization-server metadata, and the unauthenticated challenge.
 
 Cut over in this order:
 
-1. Merge the reviewed PR and let devsync start `mcp-01`; verify port 3300.
-2. Add the exact Auth0 callback above.
-3. Back up the live Caddy file, install the reviewed candidate, and validate it
+1. Before merging, seed `/home/puni1/wbs-dev/src/apps/mcp-01/.env` with the four
+   keys above and mode 600; the preflight deliberately blocks every dev deploy
+   until this exists.
+2. Merge the reviewed PR and let devsync start `mcp-01`; verify port 3300.
+3. Add the exact Auth0 callback above.
+4. Back up the live Caddy file, install the reviewed candidate, and validate it
    with the running Caddy version before reload.
-4. Reload, then persist the successful cutover before its health check:
+5. Reload, then persist the successful cutover before its health check:
    `printf 'enabled\n' | install -m 600 /dev/stdin /home/puni1/wbs-dev/state/mcp-exposure`.
-5. Run `bin/dev-deploy.sh` and verify the four MCP discovery/resource paths
+6. Run `bin/dev-deploy.sh` and verify the four MCP discovery/resource paths
    plus the existing app/API/WS probes. Do not pass a one-run environment flag;
    the persistent marker is the assertion.
-6. If validation, reload, or any probe fails, restore the Caddy backup, reload,
+7. If validation, reload, or any probe fails, restore the Caddy backup, reload,
    move the marker out of the state path, verify the original app/API/WS routes,
    and remove the added Auth0 callback.
 

@@ -217,7 +217,7 @@ exhausted; Opus was not substituted. Public exposure remains unapplied.
 
 ## 15. Dev MCP exposure implementation — 2026-08-25
 
-**State:** implementation tree `8789dc9`; this verification section is its
+**State:** implementation tree `551b26c7`; this verification section is its
 documentation-only successor. Public Caddy and the Auth0 callback remain unapplied.
 
 ### Failure proofs
@@ -228,6 +228,10 @@ documentation-only successor. Public Caddy and the Auth0 callback remain unappli
 | authorize capacity     | second anonymous authorize evicted the in-flight login                  | new authorize returns 429; original callback still completes          |
 | query bounds           | 514-byte Unicode state and repeated scope both reached Auth0            | both return `invalid_request` before upstream authorization           |
 | retained redirects     | 11 loopback redirects and a query-bearing Claude callback registered    | both return `invalid_redirect_uri`                                    |
+| DCR-to-token lifetime  | unrelated cleanup removed a client after Auth0 issued its code           | active authorization extends the client through token exchange        |
+| anonymous source cap   | one source could consume every short-lived client slot                  | source capped at 20 unproven clients; another source still registers  |
+| proven source cap      | scripted successful logins could consume all 1,000 client slots         | source capped at 100 proven clients; another source still registers   |
+| edge source trust      | partitions depended on Caddy's version-specific XFF default             | MCP proxy overwrites XFF with `{remote_host}`                         |
 | first-deploy preflight | checker did not exist; three production-path cases failed with exit 127 | missing/incomplete/non-600 env fails before old `sync.ts` is copied   |
 | persistent health      | no checker existed; absent, enabled, and malformed state all failed     | absent prints 0 pre-cutover, enabled prints 1, malformed fails closed |
 | Caddy superset         | each isolated mutation removed WS, drain, API, SPA, or logging          | all five mutations are refused by the candidate contract              |
@@ -239,18 +243,18 @@ each makes the superset predicate false.
 
 ### Exact-head gate
 
-h2puni, Bun 1.3.14, branch tree now committed as `8789dc9`:
+h2puni, Bun 1.3.14, branch tree now committed as `551b26c7`:
 
 - `bunx nx format:check --all`: clean.
-- `bunx nx run-many -t test lint typecheck build --parallel=2`: 79 targets
-  across 23 projects green; 1,801 tests passed, 0 failed. Six target results
-  came from the exact-input Nx cache.
+- `bunx nx run-many -t test lint typecheck build --parallel=2`: all targets
+  across 23 projects green; 1,809 Bun tests and 1,750 Vitest tests passed,
+  0 failed.
 - Nx marked `tool-devsync:build` flaky after retrying it inside the full gate;
   its final result was green. A separate fresh run through the pinned
   `koalaman/shellcheck:stable` container was clean for `dev-deploy.sh`,
   `dev-mcp-preflight.sh`, and `dev-mcp-probe.sh`.
-- Targeted current behavior: mcp-01 86/86; tool-devsync 26/26; Caddy contract
-  3/3; lint and typecheck clean.
+- Targeted current behavior: mcp-01 93/93; tool-devsync 26/26; Caddy contract
+  4/4; lint and typecheck clean.
 - `caddy:2-alpine` v2.11.4 reports `Valid configuration` for the candidate.
 - The production preflight against the live mode-600 MCP env and absent
   pre-cutover marker printed `0`; it read no secret value.
