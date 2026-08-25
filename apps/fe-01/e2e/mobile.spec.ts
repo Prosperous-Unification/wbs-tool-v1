@@ -107,6 +107,26 @@ async function seedPlan(page: Page, _account: string): Promise<void> {
     return;
   }
 
+  // The card fields follow the table's documented bootstrap rule: the first
+  // vocabulary entry is made on the Directory, then every row can search or
+  // add from its card sheet. Seed that prerequisite through the same API the
+  // Directory uses, so the 44px case below measures real, non-vacuous fields.
+  const vocabularyStatuses = await page.evaluate(async () => {
+    const make = async (path: string, name: string) =>
+      (
+        await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name }),
+        })
+      ).status;
+    return Promise.all([
+      make('/api/tags', 'mobile e2e tag'),
+      make('/api/services', 'mobile e2e service'),
+    ]);
+  });
+  expect(vocabularyStatuses, 'the card-label vocabularies were not seeded').toEqual([200, 200]);
+
   await expect(page.getByRole('button', { name: 'Plan actions' })).toBeVisible();
 
   for (const number of ['010', '020']) {
