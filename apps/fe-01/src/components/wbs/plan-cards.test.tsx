@@ -2066,7 +2066,13 @@ function renderCards(
       setNotBefore={() => undefined}
       setPriority={() => Promise.resolve('landed')}
       tagLabel={() => ({ state: 'none' })}
+      tags={[]}
+      setTags={() => undefined}
+      createTag={() => undefined}
       serviceLabel={() => ({ state: 'none' })}
+      services={[]}
+      setServices={() => undefined}
+      createService={() => undefined}
       nonOwner={() => null}
       spanOf={() => ({ start: { text: '', iso: null }, finish: { text: '', iso: null } })}
       showDay={(days) => String(days)}
