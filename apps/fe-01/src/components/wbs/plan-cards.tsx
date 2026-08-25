@@ -928,7 +928,7 @@ function CardNotBeforeField({
  * above it`), because that is the only place the answer is not a zero.
  */
 function useTriggerAboveSheet(open: boolean): React.RefObject<HTMLButtonElement | null> {
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const trigger = triggerRef.current;
