@@ -916,71 +916,145 @@ function CardNotBeforeField({
  * there is no room left to bring them up.
  *
  * So for as long as the sheet is open the list gets that much trailing room
- * (the sheet's own height, as padding at the bottom of the scroller) and the
- * trigger is scrolled to just above the sheet's top. On close -- Escape, a tap
- * away, a landed write -- the padding comes off and the scroll position the
- * reader had before the tap is put back, clamped to what the list still holds.
+ * (the sheet's own height plus the gap, as padding at the bottom of the
+ * scroller) and the trigger is scrolled to just above the sheet's top. On
+ * close -- Escape, a tap away, a landed write -- the padding comes off and
+ * the scroll position the reader had before the tap is put back, clamped to
+ * what the list still holds.
  *
- * All of it is geometry, so jsdom -- where every rect is zero -- takes the same
- * path and measures nothing: no sheet element, no container with a height, and
- * an `overhang` that comes out at most zero. The browser coverage for this
- * lives in `e2e/mobile.spec.ts` (`the priority sheet keeps the card it edits
- * above it`), because that is the only place the answer is not a zero.
+ * The mechanics, each one a measured fault rather than a mannerism:
+ *
+ * - **The sheet is found by polling frames, bounded.** Radix mounts its
+ *   portal from an internal effect *after* this one runs, so measuring in
+ *   the effect body finds no sheet at all. The loop stops after two
+ *   seconds' worth of frames: a sheet that never mounts (a broken portal,
+ *   jsdom's zero rects) is a stopped loop, not a hot one.
+ * - **Only a visible, laid-out sheet counts.** A closing sheet still in the
+ *   DOM, or one mounted but not yet laid out, measures a zero height and
+ *   would scroll the trigger by a nonsense amount. The last *visible*
+ *   candidate is this field's sheet, because one modal is open at a time.
+ * - **The measurement waits for the open animation to settle.** The rect
+ *   has to read identically on two consecutive frames before it is trusted
+ *   -- a sheet still sliding up would be measured too low, and the trigger
+ *   left underneath it.
+ * - **The padding is the sheet's height *plus the gap*.** Room of exactly
+ *   the sheet's height can move the trigger flush with the sheet's top and
+ *   no further; the gap has to be in the room for the gap to be in the
+ *   result.
+ * - **Scroll writes are forced instant.** An inherited `scroll-behavior:
+ *   smooth` would animate them, and the close would race the animation.
+ * - **The guard follows the sheet while it is open.** Rotation, browser
+ *   chrome, or the keyboard the number box raises all change the sheet's
+ *   geometry after the first measurement, so a `ResizeObserver` and the
+ *   viewport's resize re-run the placement until close.
+ * - **The restore belongs to this open only.** It lives in this effect
+ *   invocation's own closure, not a ref, so a fast close-then-reopen can
+ *   never re-apply the previous card's scroll position.
  */
 function useTriggerAboveSheet(open: boolean) {
   const triggerRef = useRef<HTMLButtonElement>(null);
-  /** The restore the applied guard owes, no-op until one was applied. */
-  const restoreRef = useRef<() => void>(() => {
-    /* replaced by the guard once it applies */
-  });
   useEffect(() => {
     if (!open) return;
-    // Radix mounts the portal **after** this effect runs -- its own mount is
-    // an internal effect, so measuring here would find no sheet at all. One
-    // animation frame later it is on the page; the cleanup cancels the frame
-    // when the sheet has already closed.
-    const tryNow = (): boolean => {
-      const trigger = triggerRef.current;
-      if (trigger === null) return false;
-      const sheets = document.querySelectorAll('[data-modal-surface="bottom"]');
-      const sheet = sheets.item(sheets.length - 1);
-      if (!(sheet instanceof HTMLElement)) return false;
-      const container = trigger.closest('[data-plan-cards]');
-      if (!(container instanceof HTMLElement)) return false;
+    /** The gap between the trigger's bottom and the sheet's top, in px. */
+    const GAP = 8;
+    /** Two seconds of frames at 60fps: the retry budget for a sheet that
+     *  never appears. */
+    const MAX_FRAMES = 120;
+    let frame = 0;
+    let frames = 0;
+    /** The restore this open owes -- a local, so a later open cannot see it. */
+    let restore: (() => void) | null = null;
+    /** The previous frame's sheet rect; the current one must match it. */
+    let settled: { top: number; height: number } | null = null;
 
-      const sheetTop = sheet.getBoundingClientRect().top;
-      const sheetHeight = sheet.getBoundingClientRect().height;
+    /** The most recently mounted bottom sheet that is actually on screen. */
+    const visibleSheet = (): HTMLElement | null => {
+      const sheets = Array.from(document.querySelectorAll('[data-modal-surface="bottom"]')).filter(
+        (node): node is HTMLElement => node instanceof HTMLElement,
+      );
+      for (let each = sheets.length - 1; each >= 0; each -= 1) {
+        const rect = sheets[each].getBoundingClientRect();
+        if (rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight) {
+          return sheets[each];
+        }
+      }
+      return null;
+    };
+
+    /** Pads the list, moves the trigger above the sheet, and owns the undo. */
+    const applyGuard = (trigger: HTMLElement, container: HTMLElement, sheet: HTMLElement): void => {
       const before = {
         scrollTop: container.scrollTop,
         paddingBottom: container.style.paddingBottom,
+        scrollBehavior: container.style.scrollBehavior,
       };
-      // The scroll room has to exist before the trigger can be moved into it.
-      container.style.paddingBottom = `${String(sheetHeight)}px`;
-      // A small gap, so the trigger reads as *above* the sheet rather than
-      // flush against it.
-      const overhang = trigger.getBoundingClientRect().bottom + 8 - sheetTop;
-      if (overhang > 0) container.scrollTop += overhang;
-      restoreRef.current = () => {
+      // Direct `scrollTop` writes have to land now, not animate.
+      container.style.scrollBehavior = 'auto';
+      const place = (): void => {
+        const rect = sheet.getBoundingClientRect();
+        if (rect.height <= 0) return;
+        // The scroll room has to exist before the trigger can be moved into
+        // it -- and the gap is part of the room, or the worst-case row ends
+        // flush against the sheet instead of above it.
+        container.style.paddingBottom = `${String(rect.height + GAP)}px`;
+        const overhang = trigger.getBoundingClientRect().bottom + GAP - rect.top;
+        if (overhang > 0) container.scrollTop += overhang;
+      };
+      place();
+      // The sheet's size can still change while it is open -- rotation,
+      // browser chrome, the keyboard the number box raises -- and the guard
+      // moves with it.
+      const observer = new ResizeObserver(place);
+      observer.observe(sheet);
+      window.addEventListener('resize', place);
+      window.visualViewport?.addEventListener('resize', place);
+      restore = () => {
+        observer.disconnect();
+        window.removeEventListener('resize', place);
+        window.visualViewport?.removeEventListener('resize', place);
         container.style.paddingBottom = before.paddingBottom;
-        // The position the reader had, clamped to what the list still holds --
-        // a shorter list after the padding comes off would otherwise leave the
-        // browser to clamp it, which is a jump rather than a place.
+        // The position the reader had, clamped to what the list still
+        // holds -- a shorter list after the padding comes off would
+        // otherwise leave the browser to clamp it, which is a jump rather
+        // than a place. Still under `scroll-behavior: auto`, so the write
+        // lands before the hand-back below it.
         container.scrollTop = Math.min(
           before.scrollTop,
           Math.max(0, container.scrollHeight - container.clientHeight),
         );
+        container.style.scrollBehavior = before.scrollBehavior;
       };
+    };
+
+    /** One measurement pass; true once the guard has been applied. */
+    const tryNow = (): boolean => {
+      const trigger = triggerRef.current;
+      if (trigger === null) return false;
+      const sheet = visibleSheet();
+      if (sheet === null) return false;
+      const container = trigger.closest('[data-plan-cards]');
+      if (!(container instanceof HTMLElement)) return false;
+      const rect = sheet.getBoundingClientRect();
+      if (settled?.top !== rect.top || settled.height !== rect.height) {
+        // The open animation is still moving the sheet (or has only just
+        // stopped): trust the rect once two frames agree on it.
+        settled = { top: rect.top, height: rect.height };
+        return false;
+      }
+      applyGuard(trigger, container, sheet);
       return true;
     };
-    let frame: number;
+
     const spin = (): void => {
-      if (!tryNow()) frame = requestAnimationFrame(spin);
+      frames += 1;
+      if (tryNow()) return;
+      if (frames < MAX_FRAMES) frame = requestAnimationFrame(spin);
     };
     frame = requestAnimationFrame(spin);
     return () => {
       cancelAnimationFrame(frame);
-      frame = 0;
-      restoreRef.current();
+      restore?.();
+      restore = null;
     };
   }, [open]);
   return triggerRef;
