@@ -1918,6 +1918,11 @@ function GanttChart({
   const fullScreenRef = useRef<HTMLDivElement | null>(null);
   const fullScreenToggleRef = useRef<HTMLButtonElement | null>(null);
   const wasFullScreen = useRef(false);
+  // A deliberate tap on the bar that navigates to a row leaves full screen,
+  // and focus belongs on that row, not back on the Full trigger or trapped in
+  // the layer. Escape and the Close/Full toggle still restore the trigger, so
+  // this flag is only set by the one navigation path that must opt out.
+  const leavingToRow = useRef(false);
   // Escape leaves, because a box that covers the whole app has to answer the
   // one key every reader already tries on one — and the button that opened it
   // is the only other way out, at the far end of a strip a finger may have
@@ -1933,7 +1938,11 @@ function GanttChart({
     if (!fullScreen) {
       if (wasFullScreen.current) {
         wasFullScreen.current = false;
-        requestAnimationFrame(() => fullScreenToggleRef.current?.focus());
+        const leaving = leavingToRow.current;
+        leavingToRow.current = false;
+        if (!leaving) {
+          requestAnimationFrame(() => fullScreenToggleRef.current?.focus());
+        }
       }
       return undefined;
     }
@@ -1944,6 +1953,10 @@ function GanttChart({
     const keepFocusInside = (event: FocusEvent) => {
       const layer = fullScreenRef.current;
       if (layer === null || layer.contains(event.target as Node)) return;
+      // Navigation focuses the row's cell before the layer unmounts, so a
+      // redirect here would yank focus back into a layer that is already
+      // on its way out.
+      if (leavingToRow.current) return;
       layer.querySelector<HTMLElement>(focusableSelector)?.focus();
     };
     const containKeys = (key: KeyboardEvent) => {
@@ -2973,6 +2986,10 @@ function GanttChart({
                           return;
                         }
                         dismiss();
+                        // A deliberate second tap navigates to the row, so focus
+                        // belongs on its name cell after leaving full screen, not
+                        // back inside the layer or on the Full trigger.
+                        leavingToRow.current = true;
                         setFullScreen(false);
                       }
                       if (rowId !== undefined) onPickRow(rowId);
