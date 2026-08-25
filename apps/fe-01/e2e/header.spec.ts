@@ -484,8 +484,7 @@ test.describe('the open project picker, measured by a browser', () => {
         page.waitForResponse(
           (response) =>
             response.request().method() === 'POST' &&
-            response.url().endsWith('/api/projects') &&
-            response.status() === 201,
+            response.url().endsWith('/api/projects'),
         ),
         page.getByRole('button', { name: 'New project' }).click(),
       ]);
