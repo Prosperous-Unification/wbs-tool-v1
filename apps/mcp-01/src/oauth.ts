@@ -16,6 +16,10 @@ import type { McpOAuthHandler } from './http';
 const SCOPES = new Set(['wbs:read', 'wbs:write', 'wbs:editor']);
 const COOKIE = '__Host-wbs_mcp_oauth';
 const TTL_MS = 300_000;
+const MAX_AUTHORIZATION_QUERY_BYTES = 2_048;
+const MAX_STATE_BYTES = 512;
+const MAX_REDIRECT_URIS = 10;
+const MAX_REDIRECT_URI_BYTES = 512;
 
 interface ClientRecord {
   redirectUris: readonly string[];
@@ -193,14 +197,17 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     if (
       !Array.isArray(redirectUris) ||
       redirectUris.length === 0 ||
+      redirectUris.length > MAX_REDIRECT_URIS ||
+      redirectUris.some(
+        (value) => typeof value !== 'string' || bytes(value) > MAX_REDIRECT_URI_BYTES,
+      ) ||
       !redirectUris.every(isRedirect)
     ) {
       return oauthError('invalid_redirect_uri');
     }
     this.cleanup();
     if (this.clients.size >= this.clientLimit) {
-      const oldest = this.clients.keys().next().value;
-      if (oldest !== undefined) this.clients.delete(oldest);
+      return oauthError('temporarily_unavailable', undefined, 429);
     }
     const clientId = this.random();
     this.clients.set(clientId, { redirectUris, expiresAt: this.now() + this.clientTtlMs });
@@ -223,7 +230,12 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     this.cleanup();
     const scope = params.get('scope') ?? 'wbs:read';
     const scopes = scope.split(' ').filter(Boolean);
+    const state = params.get('state');
     if (
+      bytes(url.search) > MAX_AUTHORIZATION_QUERY_BYTES ||
+      params.getAll('scope').length > 1 ||
+      params.getAll('state').length > 1 ||
+      (state !== null && bytes(state) > MAX_STATE_BYTES) ||
       params.get('response_type') !== 'code' ||
       params.get('code_challenge_method') !== 'S256' ||
       !/^[A-Za-z0-9_-]{43,128}$/.test(challenge) ||
@@ -239,8 +251,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const nonce = this.random();
     const verifier = this.random();
     if (this.transactions.size >= this.transactionLimit) {
-      const oldest = this.transactions.keys().next().value;
-      if (oldest !== undefined) this.transactions.delete(oldest);
+      return oauthError('temporarily_unavailable', undefined, 429);
     }
     this.transactions.set(browserBinding, {
       browserBinding,
@@ -250,7 +261,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       nonce,
       redirectUri,
       scope,
-      state: params.get('state') ?? undefined,
+      state: state ?? undefined,
       upstreamState,
       verifier,
     });
@@ -452,7 +463,8 @@ function isRedirect(value: unknown): value is string {
       url.protocol === 'https:' &&
       url.port === '' &&
       (url.hostname === 'claude.ai' || url.hostname === 'claude.com') &&
-      url.pathname === '/api/mcp/auth_callback';
+      url.pathname === '/api/mcp/auth_callback' &&
+      url.search === '';
     const isLoopback =
       (url.protocol === 'http:' || url.protocol === 'https:') &&
       (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]');
@@ -460,6 +472,10 @@ function isRedirect(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+function bytes(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 function cookieOf(request: Request, name: string): string | undefined {
@@ -482,9 +498,9 @@ function redirect(location: string, setCookie: string): Response {
   return new Response(null, { headers: { location, 'set-cookie': setCookie }, status: 302 });
 }
 
-function oauthError(error: string, setCookie?: string): Response {
+function oauthError(error: string, setCookie?: string, status = 400): Response {
   return Response.json(
     { error },
-    { headers: setCookie === undefined ? undefined : { 'set-cookie': setCookie }, status: 400 },
+    { headers: setCookie === undefined ? undefined : { 'set-cookie': setCookie }, status },
   );
 }

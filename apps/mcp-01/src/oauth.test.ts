@@ -134,43 +134,76 @@ describe('InMemoryMcpOAuth', () => {
     ).toBe(201);
   });
 
-  // Break caught: an unbounded registration map lets anonymous callers retain
-  // arbitrary client metadata until the process runs out of memory.
-  it('expires dynamic clients and evicts the oldest client at the configured bound', async () => {
-    const bounded = fixture({ clientLimit: 2, clientTtlMs: 1_000 });
-    const first = await register(bounded.oauth);
-    await register(bounded.oauth);
-    await register(bounded.oauth);
-
-    expect((await bounded.oauth.response(new Request(authorizeUrl(first))))?.status).toBe(400);
-
-    const expiring = fixture({ clientTtlMs: 1_000 });
+  // Proof: omitting cleanup before the capacity check leaves an expired client
+  // occupying the only slot and rejects a replacement connector forever.
+  it('expires dynamic clients and frees their capacity', async () => {
+    const expiring = fixture({ clientLimit: 1, clientTtlMs: 1_000 });
     const clientId = await register(expiring.oauth);
+    expect((await registrationResponse(expiring.oauth, [CALLBACK])).status).toBe(429);
     expiring.advance(1_001);
+    expect((await registrationResponse(expiring.oauth, [CALLBACK])).status).toBe(201);
     expect((await expiring.oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(400);
   });
 
-  it('evicts the oldest pending authorization at the transaction bound', async () => {
-    const { exchangeCalls, oauth } = fixture({ transactionLimit: 2 });
-    const clientId = await register(oauth);
-    const start = () => oauth.response(new Request(authorizeUrl(clientId)));
-    const first = await start();
-    await start();
-    await start();
+  // Proof: replacing capacity refusal with FIFO eviction makes the first
+  // registered connector fail authorization after an anonymous registration.
+  it('refuses registration at capacity without evicting a live connector', async () => {
+    const { oauth } = fixture({ clientLimit: 1 });
+    const first = await register(oauth);
 
+    expect((await registrationResponse(oauth, [CALLBACK])).status).toBe(429);
+    expect((await oauth.response(new Request(authorizeUrl(first))))?.status).toBe(302);
+  });
+
+  // Proof: evicting the oldest transaction lets anonymous authorize traffic
+  // cancel a signed-in connector's in-flight callback.
+  it('refuses authorization at capacity without evicting an in-flight login', async () => {
+    const { exchangeCalls, oauth } = fixture({ transactionLimit: 1 });
+    const clientId = await register(oauth);
+    const first = await oauth.response(new Request(authorizeUrl(clientId)));
     const firstState = new URL(
       first?.headers.get('location') ?? 'https://invalid',
     ).searchParams.get('state');
     const firstCookie = first?.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+
+    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(429);
     const callback = await oauth.response(
       new Request(
         `https://dev.wbs.bulletpoints.club/mcp/oauth/callback?code=upstream&state=${String(firstState)}`,
         { headers: { cookie: firstCookie } },
       ),
     );
+    expect(callback?.status).toBe(302);
+    expect(exchangeCalls).toHaveLength(1);
+  });
 
-    expect(callback?.status).toBe(400);
-    expect(exchangeCalls).toHaveLength(0);
+  // Proof: removing the byte and multiplicity checks retains attacker-chosen
+  // query material in a pending transaction.
+  it('rejects oversized or repeated authorization query fields', async () => {
+    const { oauth } = fixture();
+    const clientId = await register(oauth);
+    const oversizedState = authorizeUrl(clientId);
+    oversizedState.searchParams.set('state', 'Д'.repeat(257));
+    const repeatedScope = authorizeUrl(clientId);
+    repeatedScope.searchParams.append('scope', 'wbs:read');
+
+    expect((await oauth.response(new Request(oversizedState)))?.status).toBe(400);
+    expect((await oauth.response(new Request(repeatedScope)))?.status).toBe(400);
+  });
+
+  // Proof: allowing unbounded redirect metadata retains arbitrary query bytes
+  // for every dynamic client and broadens the exact Claude callback boundary.
+  it('bounds stored redirects and rejects query-bearing Claude callbacks', async () => {
+    const { oauth } = fixture();
+    const tooMany = Array.from(
+      { length: 11 },
+      (_, port) => `http://127.0.0.1:${String(6000 + port)}/oauth/callback`,
+    );
+
+    expect((await registrationResponse(oauth, tooMany)).status).toBe(400);
+    expect(
+      (await registrationResponse(oauth, [`${CALLBACK}?retained=${'x'.repeat(20)}`])).status,
+    ).toBe(400);
   });
 
   // Proof: weakening exact membership to same-origin lets this unregistered
