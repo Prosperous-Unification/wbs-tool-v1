@@ -2331,6 +2331,8 @@ describe('setting a card’s team', () => {
     // survive a rotation. A sheet whose picker carried no cell id would be a
     // second box over the same field, which is the divergence the cards were
     // written not to have.
+    // Proof: watched RED on h2puni at test-only 197da4f — the sheet opened but
+    // `Add a team to 010` was absent; 100/103 passed.
     const api = await aPhonePlan((_rows, teams) => {
       teams.push({ id: 't1', name: 'Billing' });
     });
@@ -2435,6 +2437,8 @@ describe('setting a card’s team', () => {
 
 describe('setting a card’s tags and services', () => {
   itDom('keeps the directory as the bootstrap surface for both vocabularies', async () => {
+    // Proof: with CardSetField rendered unconditionally, h2puni failed here on
+    // the first selector (received a button instead of null), 103/104 passed.
     const api = fakeApi();
     await api.create('p1', { parentId: null });
     widthIs(PHONE);
@@ -2445,11 +2449,14 @@ describe('setting a card’s tags and services', () => {
     expect(document.querySelector('[data-card-service-field]')).toBeNull();
   });
 
-  async function aPhonePlan(): Promise<ReturnType<typeof fakeApi>> {
+  async function aPhonePlan(
+    arrange: (rows: WorkItemView[]) => void = () => undefined,
+  ): Promise<ReturnType<typeof fakeApi>> {
     const api = fakeApi();
     await api.create('p1', { parentId: null });
     api.tags.push({ id: 'tag-seed', name: 'seed tag' });
     api.services.push({ id: 'service-seed', name: 'seed service' });
+    arrange(api.rows);
     widthIs(PHONE);
     render(<WbsTable projectId="p1" api={api} />);
     await screen.findByLabelText('Name of 010');
@@ -2457,6 +2464,8 @@ describe('setting a card’s tags and services', () => {
   }
 
   itDom('creates and applies a tag from the card sheet', async () => {
+    // Proof: watched RED on h2puni at test-only 197da4f — the card field was
+    // absent and fireEvent.click(null) failed; 100/103 passed.
     const api = await aPhonePlan();
 
     fireEvent.click(document.querySelector<HTMLElement>('[data-card-tags-field]')!);
@@ -2473,6 +2482,8 @@ describe('setting a card’s tags and services', () => {
   });
 
   itDom('creates and applies a service from the card sheet', async () => {
+    // Proof: watched RED beside the tag case at test-only 197da4f — the card
+    // field was absent and fireEvent.click(null) failed; 100/103 passed.
     const api = await aPhonePlan();
 
     fireEvent.click(document.querySelector<HTMLElement>('[data-card-service-field]')!);
@@ -2488,6 +2499,19 @@ describe('setting a card’s tags and services', () => {
         id: api.rows[0]?.id,
         serviceIds: ['service-payments'],
       });
+    });
+  });
+
+  itDom('shows and removes the row’s own service inside the card sheet', async () => {
+    const api = await aPhonePlan((rows) => {
+      rows[0].serviceIds = ['service-seed'];
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Services for 010' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove seed service from 010' }));
+
+    await waitFor(() => {
+      expect(api.patched.at(-1)).toEqual({ id: api.rows[0]?.id, serviceIds: [] });
     });
   });
 });

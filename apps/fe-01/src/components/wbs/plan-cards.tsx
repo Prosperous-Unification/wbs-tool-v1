@@ -2293,15 +2293,17 @@ export function PlanCards({
                 "what is regulatory here" should not have to read past a team
                 name to find out.
               */}
-              <CardSetField
-                row={row}
-                kind="tag"
-                label={tagging}
-                entries={tags}
-                ownIds={row.tagIds}
-                setValues={setTags}
-                createValue={createTag}
-              />
+              {tags.length > 0 && (
+                <CardSetField
+                  row={row}
+                  kind="tag"
+                  label={tagging}
+                  entries={tags}
+                  ownIds={row.tagIds}
+                  setValues={setTags}
+                  createValue={createTag}
+                />
+              )}
               {/*
                 The services, and `↳` where the row carries none of its own —
                 the team chip's glyph again, third dimension over, with the row
@@ -2323,15 +2325,17 @@ export function PlanCards({
                 narrowing what the store, the wire, the filter and the cell all
                 widened.
               */}
-              <CardSetField
-                row={row}
-                kind="service"
-                label={delivers}
-                entries={services}
-                ownIds={row.serviceIds}
-                setValues={setServices}
-                createValue={createService}
-              />
+              {services.length > 0 && (
+                <CardSetField
+                  row={row}
+                  kind="service"
+                  label={delivers}
+                  entries={services}
+                  ownIds={row.serviceIds}
+                  setValues={setServices}
+                  createValue={createService}
+                />
+              )}
               {/*
                 What the plan was asked to run this row at, where somebody asked
                 for more than one. Blank at 1, which is every row of every plan

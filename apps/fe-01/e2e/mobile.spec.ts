@@ -293,6 +293,8 @@ test.describe('the plan on a phone, measured by a browser', () => {
       // card is neither — so every control a card grows has to carry its own
       // height, and this list is the only thing that checks that it did.
       page.getByRole('button', { name: 'Service or team for 010' }),
+      page.getByRole('button', { name: 'Tags for 010' }),
+      page.getByRole('button', { name: 'Services for 010' }),
       // The earliest-start field, `card-field-pickers` chunk 4, in this list for
       // the reason the line above states: chunk 3 shipped the team trigger
       // without `TAP` and CI measured it at **21px**, so every control a card
