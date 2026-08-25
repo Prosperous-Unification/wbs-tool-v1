@@ -1637,7 +1637,9 @@ describe('the marks that had to be seen', () => {
    * while every coordinate below differs from its workday number: workday 8 is
    * Thursday 2026-08-20, ten calendar days in.
    */
-  const touchingPlan = (): GanttPlan =>
+  const touchingPlan = (
+    dependencies: GanttPlan['dependencies'] = [{ predecessorId: 'strip', successorId: 'sand' }],
+  ): GanttPlan =>
     planOf({
       rows: [
         rowAt('hull', 5, 10, { leaf: false }),
@@ -1645,16 +1647,19 @@ describe('the marks that had to be seen', () => {
         rowAt('sand', 8, 10, { depth: 1, notBeforeOffset: 8 }),
       ],
       slices: [sliceAt('strip-dev', 'strip', 5, 8), sliceAt('sand-dev', 'sand', 8, 10)],
-      dependencies: [{ predecessorId: 'strip', successorId: 'sand' }],
+      dependencies,
     });
 
   /** Where the two bars of {@link touchingPlan} meet, on the calendar. */
   const TOUCH_AT = 10;
 
-  const drawTouchingPlan = (startDate: IsoDate = MONDAY_START): void => {
+  const drawTouchingPlan = (
+    startDate: IsoDate = MONDAY_START,
+    dependencies?: GanttPlan['dependencies'],
+  ): void => {
     render(
       <GanttPanel
-        plan={touchingPlan()}
+        plan={touchingPlan(dependencies)}
         startDate={startDate}
         scheduleError={null}
         generation={0}
@@ -1894,7 +1899,10 @@ describe('the marks that had to be seen', () => {
   });
 
   itDom('draws no mark of its own on a parent’s row until the detail is asked for', () => {
-    drawTouchingPlan();
+    // A plan with **no** dependency edges, so the detail is off by default
+    // (TASK-38): the guard is about the parent's row, not about the arrows an
+    // edges plan would already be showing.
+    drawTouchingPlan(MONDAY_START, []);
 
     // At rest the ghost bar is gone whole — rect and tick both, so nothing is
     // left spanning the projection its children already draw.
