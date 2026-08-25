@@ -171,15 +171,15 @@ const labelOf = (bar: Element): string =>
 const noSurface = (): boolean => screen.queryByRole('tooltip') === null;
 
 /**
- * Presses the detail switch, which is what puts an arrow, a parent's bracket or
- * an unestimated slice's bar on the chart at all since `declutter-one-button`.
+ * Makes sure the detail is drawn, pressing the switch only when the mark is not
+ * already there.
  *
- * The chart opens with none of the three, so every assertion below about an
- * elbow, a head, a bracket, an assumed bar or the canvas one routes off has to
- * ask for them first. The throws are the point: a helper that quietly did
- * nothing would leave those assertions reading a chart with none of it drawn and
- * failing as arguments rather than as geometry, and the run before this one
- * would look the same as the run after.
+ * Since TASK-38 a plan with dependency edges opens with the detail on, so the
+ * switch is not pressed for those fixtures — only a chart with no edges (or a
+ * reader who turned the detail off) still needs the press. The throw is the
+ * point: a helper that quietly did nothing would leave the assertions below
+ * reading a chart with none of it drawn and failing as arguments rather than as
+ * geometry, and the run before this one would look the same as the run after.
  *
  * @param drew the mark this caller is asking for, as a selector — the arrows for
  * most of them, and the bracket or the assumed bar for a fixture that has no
@@ -188,7 +188,9 @@ const noSurface = (): boolean => screen.queryByRole('tooltip') === null;
 function askForTheDetail(drew = '[data-gantt-arrow]'): void {
   const toggle = document.querySelector('[data-gantt-detail-toggle]');
   if (!(toggle instanceof HTMLElement)) throw new Error('the detail switch is not on the panel');
-  fireEvent.click(toggle);
+  if (document.querySelector(drew) === null) {
+    fireEvent.click(toggle);
+  }
   if (document.querySelector(drew) === null) {
     throw new Error(`the detail switch was pressed and nothing arrived at ${drew}`);
   }
@@ -3646,7 +3648,9 @@ describe('the caption follows the scroll', () => {
  * tests measure that fixture's coordinates and its row count, and this one is
  * about how many of each mark there are.
  */
-const everyGatedMark = (): GanttPlan =>
+const everyGatedMark = (
+  dependencies: GanttPlan['dependencies'] = [{ predecessorId: 'strip', successorId: 'sand' }],
+): GanttPlan =>
   planOf({
     rows: [
       rowAt('hull', 0, 9, { leaf: false, notBeforeOffset: 0 }),
@@ -3668,15 +3672,15 @@ const everyGatedMark = (): GanttPlan =>
         resourcePredecessorId: 'sand-dev',
       }),
     ],
-    dependencies: [{ predecessorId: 'strip', successorId: 'sand' }],
+    dependencies,
     personNames: new Map([['kat', 'Kat']]),
   });
 
 describe('the detail switch', () => {
-  const drawEveryMark = () =>
+  const drawEveryMark = (plan: GanttPlan = everyGatedMark()) =>
     render(
       <GanttPanel
-        plan={everyGatedMark()}
+        plan={plan}
         startDate={MONDAY_START}
         scheduleError={null}
         generation={0}
@@ -3696,60 +3700,76 @@ describe('the detail switch', () => {
     return toggle;
   }
 
-  itDom('opens with none of the three families, and draws all of them when asked', () => {
+  itDom('opens with all three families on a plan with edges, and hides them when asked', () => {
     drawEveryMark();
     const toggle = theSwitch();
 
-    // Off on open, and the switch says so. This is the whole change: sixty
-    // elbows and forty ghosts bury the bars they stand among, so nobody gets
-    // any of them until they ask — and it is **one** answer over all three,
-    // which is what Dany asked for on 2026-08-12.
-    expect(toggle.getAttribute('aria-pressed')).toBe('false');
-    expect(countOf('[data-gantt-arrow]')).toBe(0);
-    expect(countOf('[data-gantt-arrow-head]')).toBe(0);
-    expect(countOf('[data-gantt-bracket]')).toBe(0);
-    expect(countOf('[data-assumed]')).toBe(0);
-    // Beside the absences, on the same render: the marks the switch does not
-    // touch. An absence assertion alone passes against a panel that drew
-    // nothing at all.
-    expect(countOf('[data-gantt-bar]')).toBe(2);
-    expect(countOf('[data-gantt-person-link]')).toBe(1);
-    expect(countOf('[data-gantt-not-before]')).toBe(1);
-    expect(countOf('[data-gantt-label]')).toBe(4);
-
-    fireEvent.click(toggle);
-
-    // All three families arrive on one press. Both marks of the stored
-    // dependency together — the elbow and the head are two paths of one mark,
-    // and a condition on one of them leaves a floating triangle pointing at
-    // nothing — the parent's bracket, and the uncosted slice's assumed bar with
-    // the hand-off onto it and the two carets that now have something to stand
-    // over.
+    // On by default since TASK-38: a plan that carries a stored dependency
+    // opens with the detail drawn, so a first-time reader sees the arrows a
+    // WBS Gantt exists to show without hunting for the toggle first.
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
     expect(countOf('[data-gantt-arrow]')).toBe(1);
     expect(countOf('[data-gantt-arrow-head]')).toBe(1);
     expect(countOf('[data-gantt-bracket]')).toBe(1);
     expect(countOf('[data-assumed]')).toBe(1);
+    // Beside the marks, on the same render: the ones the switch does not
+    // touch. A presence assertion alone passes against a panel that drew
+    // everything twice.
     expect(countOf('[data-gantt-bar]')).toBe(3);
     expect(countOf('[data-gantt-person-link]')).toBe(2);
     expect(countOf('[data-gantt-not-before]')).toBe(3);
-    // And the chart is the same shape: four rows, four labels, whichever way
-    // the switch is set.
     expect(countOf('[data-gantt-label]')).toBe(4);
 
     fireEvent.click(toggle);
+
+    // All three families leave on one press. Both marks of the stored
+    // dependency together — the elbow and the head are two paths of one mark,
+    // and a condition on one of them leaves a floating triangle pointing at
+    // nothing — the parent's bracket, and the uncosted slice's assumed bar with
+    // the hand-off onto it and the two carets that now have nothing to stand
+    // over.
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
     expect(countOf('[data-gantt-arrow]')).toBe(0);
     expect(countOf('[data-gantt-arrow-head]')).toBe(0);
     expect(countOf('[data-gantt-bracket]')).toBe(0);
     expect(countOf('[data-assumed]')).toBe(0);
     expect(countOf('[data-gantt-bar]')).toBe(2);
+    expect(countOf('[data-gantt-person-link]')).toBe(1);
     expect(countOf('[data-gantt-not-before]')).toBe(1);
+    // And the chart is the same shape: four rows, four labels, whichever way
+    // the switch is set.
+    expect(countOf('[data-gantt-label]')).toBe(4);
+
+    fireEvent.click(toggle);
+    expect(countOf('[data-gantt-arrow]')).toBe(1);
+    expect(countOf('[data-gantt-arrow-head]')).toBe(1);
+    expect(countOf('[data-gantt-bracket]')).toBe(1);
+    expect(countOf('[data-assumed]')).toBe(1);
+    expect(countOf('[data-gantt-bar]')).toBe(3);
+    expect(countOf('[data-gantt-not-before]')).toBe(3);
+  });
+
+  itDom('opens off for a plan with no edges, and draws the detail when asked', () => {
+    drawEveryMark(everyGatedMark([]));
+
+    // No stored dependency, so nothing to see first: the default stays off.
+    expect(theSwitch().getAttribute('aria-pressed')).toBe('false');
+    expect(countOf('[data-gantt-arrow]')).toBe(0);
+    expect(countOf('[data-gantt-bracket]')).toBe(0);
+    expect(countOf('[data-assumed]')).toBe(0);
+
+    askForTheDetail('[data-gantt-bracket]');
+
+    expect(countOf('[data-gantt-bracket]')).toBe(1);
+    expect(countOf('[data-assumed]')).toBe(1);
+    expect(countOf('[data-gantt-arrow]')).toBe(0);
   });
 
   itDom('opens with the detail a fresh panel is remounted onto', () => {
+    // Turn the detail off first, so there is a stored answer to survive.
     drawEveryMark();
     fireEvent.click(theSwitch());
-    expect(countOf('[data-gantt-arrow]')).toBe(1);
+    expect(countOf('[data-gantt-arrow]')).toBe(0);
 
     // A remount and not a rerender: the fault boundary throws this panel away
     // and builds another on the next whole read, and a preference held in a
@@ -3757,12 +3777,12 @@ describe('the detail switch', () => {
     cleanup();
     drawEveryMark();
 
-    expect(theSwitch().getAttribute('aria-pressed')).toBe('true');
-    expect(countOf('[data-gantt-arrow]')).toBe(1);
-    expect(countOf('[data-gantt-arrow-head]')).toBe(1);
-    expect(countOf('[data-gantt-bracket]')).toBe(1);
-    expect(countOf('[data-assumed]')).toBe(1);
-    expect(localStorage.getItem('wbs.ganttDetail')).toBe('true');
+    expect(theSwitch().getAttribute('aria-pressed')).toBe('false');
+    expect(countOf('[data-gantt-arrow]')).toBe(0);
+    expect(countOf('[data-gantt-arrow-head]')).toBe(0);
+    expect(countOf('[data-gantt-bracket]')).toBe(0);
+    expect(countOf('[data-assumed]')).toBe(0);
+    expect(localStorage.getItem('wbs.ganttDetail')).toBe('false');
   });
 
   itDom('refuses a stored answer that is not a boolean, and drops the key', () => {
@@ -3801,9 +3821,11 @@ describe('the detail switch', () => {
     // a reader who asked for sixty elbows did not ask for the parent bars and
     // the uncosted ones as well, and opening their next chart with all three on
     // is the clutter they were promised the end of. So the answer is discarded
-    // and the key is removed rather than left to accumulate.
+    // and the key is removed rather than left to accumulate. The plan is drawn
+    // **without** edges, so the off default is what a carried `true` would have
+    // overwritten — an edges plan opens on for its own reason now (TASK-38).
     localStorage.setItem('wbs.ganttArrows', JSON.stringify(true));
-    drawEveryMark();
+    drawEveryMark(everyGatedMark([]));
 
     expect(theSwitch().getAttribute('aria-pressed')).toBe('false');
     expect(countOf('[data-gantt-arrow]')).toBe(0);

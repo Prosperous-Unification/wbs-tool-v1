@@ -455,8 +455,13 @@ const DETAIL_KEY = 'wbs.ganttDetail';
 const RETIRED_ARROWS_KEY = 'wbs.ganttArrows';
 
 /**
- * Whether the gated marks are drawn, as this browser last said — and `false`
- * where it has never said, which is the state every reader starts in.
+ * Drops the two keys this panel refuses, then reads the remembered answer.
+ *
+ * The chart's own starting answer is {@link readDetail}'s, not this function's
+ * return — `true` for a plan with dependency edges, `false` without, and a
+ * stored answer wherever this browser has said. This function exists for the
+ * mount-effect **write** half of the read: the drop is a side effect and the
+ * return is ignored by its one caller.
  *
  * The stored value is a claim, not a fact: user-editable storage read at a
  * boundary. Anything that is not a boolean takes the key with it and the switch
@@ -497,7 +502,8 @@ function rememberedDetail(): boolean {
  * The same read with **nothing written** — what a React render is allowed to
  * do.
  *
- * `useState(readDetail)` below is a lazy initialiser, which React calls during
+ * `useState(() => readDetail(hasDependencyEdges))` below is a lazy initialiser,
+ * which React calls during
  * a render and StrictMode calls **twice** on purpose to surface exactly this:
  * {@link rememberedDetail} drops two keys, and dropping a key is a write. The
  * rule is the one this file already states over the switch's own handler — "a
@@ -509,9 +515,13 @@ function rememberedDetail(): boolean {
  * `DETAIL_KEY` drop only ever fires on a stored value this panel refuses. It is
  * a rule kept, not a defect fixed. Cross-review, 2026-08-12.
  */
-function readDetail(): boolean {
+function readDetail(hasEdges = false): boolean {
   const stored = localStorage.getItem(DETAIL_KEY);
-  if (stored === null) return false;
+  // Nothing stored: the chart opens with the detail on for a plan that has
+  // dependency edges — a first-time reader sees the arrows without hunting for
+  // the toggle — and off for a plan with nothing to hide. A stored answer,
+  // either way, wins.
+  if (stored === null) return hasEdges;
   const claimed = claimedDetail(stored);
   return typeof claimed === 'boolean' ? claimed : false;
 }
@@ -1899,7 +1909,15 @@ function GanttChart({
   // render, and the two keys `rememberedDetail` drops are writes. The drops run
   // from the mount effect just below — same answer either way, and the rule
   // this file states over the switch's own handler kept where it is broken.
-  const [detailShown, setDetailShown] = useState(readDetail);
+  //
+  // The default is no longer a bare `false`: a plan that carries dependency
+  // edges opens with the detail on, so a first-time reader sees the arrows a
+  // WBS Gantt exists to show rather than a toggle they have to find first
+  // (TASK-38). A stored answer still wins — turning the detail off is a
+  // remembered choice, and the `hasDependencyEdges` seed only ever decides the
+  // never-said case.
+  const hasDependencyEdges = plan.dependencies.length > 0;
+  const [detailShown, setDetailShown] = useState(() => readDetail(hasDependencyEdges));
   // The retired key, and any stored answer this panel refuses, dropped once
   // after the first paint. The write half of the read above.
   useEffect(() => {
