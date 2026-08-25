@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { DARK_CLASS, THEME_KEY, useTheme } from '@/lib/theme';
+
 import { AccountMenu, type AccountMenuProps } from './account-menu';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
@@ -256,5 +258,79 @@ describe('the palette, in the account menu', () => {
     // Bare: not prevented, so the browser's own click on a `<button>` is what
     // takes the item. Nothing here fakes that click.
     expect(fireEvent.keyDown(dark, { key: 'Enter' })).toBe(true);
+  });
+});
+/**
+ * The control wired to the hook that owns the answer, as `app.tsx` mounts it.
+ *
+ * `AccountMenu` takes the choice and the chooser as props; `useTheme` is where
+ * the choice lives and where choosing writes it. Mounting the two together is
+ * the only thing that closes the seam `wbs-theme-indicator-lies` found: a
+ * control that paints the page dark while still reporting `System`, because its
+ * checked state read a default rather than the stored answer. Every assertion
+ * here is a watched red — pointing the hook's initialiser back at a hardcoded
+ * default fails them (proved by reverting `useState(readTheme)` in `lib/theme.ts`).
+ */
+function ThemeHarness() {
+  const { choice, chooseTheme } = useTheme();
+  return (
+    <AccountMenu
+      username="kat"
+      theme={choice}
+      onChooseTheme={chooseTheme}
+      onSignOut={() => {
+        // The harness never signs out; the callback is required.
+      }}
+    />
+  );
+}
+
+describe('the theme control, wired to the hook that owns it', () => {
+  const answers = ['System', 'Light', 'Dark'] as const;
+
+  beforeEach(() => {
+    localStorage.removeItem(THEME_KEY);
+    document.documentElement.classList.remove(DARK_CLASS);
+  });
+
+  const open = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'kat' }));
+  };
+
+  const checkedOf = (name: (typeof answers)[number]): string =>
+    screen.getByRole('menuitemradio', { name }).getAttribute('aria-checked') ?? '';
+
+  itDom('reports the answer just chosen, for every answer, and only that one', () => {
+    render(<ThemeHarness />);
+    open();
+
+    for (const answer of answers) {
+      fireEvent.click(screen.getByRole('menuitemradio', { name: answer }));
+      for (const offered of answers) {
+        expect(checkedOf(offered), `${offered} while ${answer} was chosen`).toBe(
+          offered === answer ? 'true' : 'false',
+        );
+      }
+    }
+  });
+
+  itDom('reports the answer that was chosen, and only that one, after a reload', () => {
+    for (const answer of answers) {
+      const first = render(<ThemeHarness />);
+      open();
+      fireEvent.click(screen.getByRole('menuitemradio', { name: answer }));
+      first.unmount();
+
+      // A reload is a fresh mount: the menu must read the stored answer, not a
+      // default, and report it.
+      const second = render(<ThemeHarness />);
+      open();
+      for (const offered of answers) {
+        expect(checkedOf(offered), `${offered} after ${answer} was chosen and reloaded`).toBe(
+          offered === answer ? 'true' : 'false',
+        );
+      }
+      second.unmount();
+    }
   });
 });
