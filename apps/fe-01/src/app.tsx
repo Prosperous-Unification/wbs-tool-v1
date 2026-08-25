@@ -6,7 +6,7 @@ import { AccountMenu } from '@/components/chrome/account-menu';
 import { AppFaultBoundary } from '@/components/chrome/app-fault';
 import { PresencePanel } from '@/components/presence/presence-panel';
 import { me as fetchMe, type Session } from '@/lib/api';
-import { useTheme } from '@/lib/theme';
+import { ThemeProvider, useThemeChoice } from '@/lib/theme';
 
 /**
  * The document's whole app, inside the boundary that catches what it throws.
@@ -23,19 +23,45 @@ import { useTheme } from '@/lib/theme';
 export function App() {
   return (
     <AppFaultBoundary>
-      <AppContent />
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
     </AppFaultBoundary>
+  );
+}
+
+/**
+ * The account menu, wired to the live theme rather than to a prop.
+ *
+ * `account` is a React element passed through the router's frozen match
+ * context, so a `theme` prop baked into it would keep the value it was built
+ * with until the next navigation — choosing Dark would repaint the page while
+ * the control kept reporting `System`. The theme is read back through
+ * {@link useThemeChoice} instead, so the control follows the stored choice
+ * live and after a reload. `username` and `onSignOut` are safe as props: they
+ * change only at sign-in and sign-out, which remounts this element.
+ */
+function ThemedAccountMenu({
+  username,
+  onSignOut,
+}: {
+  username: string;
+  onSignOut: () => void;
+}): React.JSX.Element {
+  const { choice, chooseTheme } = useThemeChoice();
+  return (
+    <AccountMenu
+      username={username}
+      theme={choice}
+      onChooseTheme={chooseTheme}
+      onSignOut={onSignOut}
+    />
   );
 }
 
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [checked, setChecked] = useState(false);
-  // Above the branch below on purpose: the palette belongs to the browser
-  // rather than to the account, so the sign-in form, the "Loading…" line and
-  // the plan are all painted the same — and signing out does not flash a
-  // remembered dark page white on the way to the form.
-  const { choice: theme, chooseTheme } = useTheme();
 
   // A token in localStorage is a claim, not a session. It is checked against
   // /api/auth/me before the app renders as signed in, so an expired or
@@ -121,10 +147,8 @@ function AppContent() {
           )
         }
         account={
-          <AccountMenu
+          <ThemedAccountMenu
             username={session.user.username}
-            theme={theme}
-            onChooseTheme={chooseTheme}
             onSignOut={() => {
               setSession(null);
             }}

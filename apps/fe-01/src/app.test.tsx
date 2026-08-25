@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as Api from '@/lib/api';
@@ -114,5 +114,80 @@ describe('a signed-in address asked for while signed out', () => {
     });
     expect(screen.queryByRole('combobox', { name: 'Project' })).toBeNull();
     expect(window.location.pathname).toBe('/directory');
+  });
+});
+
+/**
+ * The theme control, exercised through the whole app rather than the hook and
+ * menu in isolation.
+ *
+ * The seam `wbs-theme-indicator-lies` found lives where `useTheme`'s choice is
+ * carried into the account menu: as a React element baked through the router's
+ * frozen match context, a `theme` prop holds the value it was built with until
+ * the next navigation — so choosing `Dark` repaints the page while the control
+ * keeps reporting `System`. A harness that mounts `AccountMenu` beside
+ * `useTheme` never sees that, which is why this drives the real `App`. The
+ * first case is the live half, the second the reload half; both were watched
+ * failing before the theme moved into `ThemeProvider`/`useThemeChoice`.
+ */
+describe('the theme control through the app', () => {
+  const signedIn = () => {
+    me.mockResolvedValue({ id: 'u1', username: 'kat' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path: string) => {
+        const collection = path.split('/').at(-1) ?? 'unknown';
+        return Promise.resolve(new Response(JSON.stringify({ [collection]: [] }), { status: 200 }));
+      }),
+    );
+  };
+
+  const checkedOf = (name: string) =>
+    screen.getByRole('menuitemradio', { name }).getAttribute('aria-checked');
+
+  const open = () => fireEvent.click(screen.getByRole('button', { name: 'kat' }));
+
+  itDom('reports the answer just chosen, and only that one, without a reload', async () => {
+    signedIn();
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'kat' })).toBeDefined();
+    });
+    open();
+
+    for (const answer of ['System', 'Light', 'Dark']) {
+      fireEvent.click(screen.getByRole('menuitemradio', { name: answer }));
+      for (const offered of ['System', 'Light', 'Dark']) {
+        expect(checkedOf(offered), `${offered} while ${answer} was chosen`).toBe(
+          offered === answer ? 'true' : 'false',
+        );
+      }
+    }
+  });
+
+  itDom('reports the answer that was chosen, and only that one, after a reload', async () => {
+    signedIn();
+    for (const answer of ['System', 'Light', 'Dark']) {
+      const first = render(<App />);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'kat' })).toBeDefined();
+      });
+      open();
+      fireEvent.click(screen.getByRole('menuitemradio', { name: answer }));
+      first.unmount();
+
+      // A reload is a fresh mount: the control reads the stored answer, not a default.
+      const second = render(<App />);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'kat' })).toBeDefined();
+      });
+      open();
+      for (const offered of ['System', 'Light', 'Dark']) {
+        expect(checkedOf(offered), `${offered} after ${answer} was chosen and reloaded`).toBe(
+          offered === answer ? 'true' : 'false',
+        );
+      }
+      second.unmount();
+    }
   });
 });

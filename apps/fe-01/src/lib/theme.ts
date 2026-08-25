@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import {
+  createContext,
+  createElement,
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 /**
  * What a reader has asked for, which is not the same as what is painted.
@@ -239,4 +249,42 @@ export function useTheme(): Theme {
   }, []);
 
   return { choice, palette, chooseTheme };
+}
+
+/**
+ * The live theme, shared across the tree.
+ *
+ * The router freezes the props it is handed into its match context — a React
+ * element passed down as `account` keeps the `theme` it was built with until
+ * the next navigation, which is the exact seam `wbs-theme-indicator-lies`
+ * found: a control that repaints the page dark while still reporting `System`.
+ * React context is not frozen: a consumer re-renders the moment the value
+ * changes, whatever sits between it and the provider. {@link ThemeProvider}
+ * holds the state, and the account menu reads it back through
+ * {@link useThemeChoice}, so the checked answer follows the stored choice
+ * live and after a reload.
+ */
+export interface ThemeContextValue {
+  choice: ThemeChoice;
+  chooseTheme: (choice: ThemeChoice) => void;
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+/**
+ * Mounted once, above the router, where {@link useTheme} used to be called
+ * directly by `app.tsx`. The palette still paints the document from here, and
+ * the answer is shared with whatever reads it through {@link useThemeChoice}.
+ */
+export function ThemeProvider({ children }: { children: ReactNode }): ReactElement {
+  const { choice, chooseTheme } = useTheme();
+  const value = useMemo<ThemeContextValue>(() => ({ choice, chooseTheme }), [choice, chooseTheme]);
+  return createElement(ThemeContext.Provider, { value }, children);
+}
+
+/** The live theme, from anywhere under {@link ThemeProvider}. */
+export function useThemeChoice(): ThemeContextValue {
+  const value = useContext(ThemeContext);
+  if (value === null) throw new Error('useThemeChoice must be read below a ThemeProvider');
+  return value;
 }
