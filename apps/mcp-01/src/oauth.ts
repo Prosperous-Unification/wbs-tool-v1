@@ -70,7 +70,9 @@ interface Options {
   clientSourceLimit?: number;
   provenClientSourceLimit?: number;
   clientTtlMs?: number;
+  grantLimit?: number;
   activeClientTtlMs?: number;
+  sessionLimit?: number;
   transactionLimit?: number;
   transactionLimitPerClient?: number;
 }
@@ -99,6 +101,8 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
   private readonly provenClientSourceLimit: number;
   private readonly clientTtlMs: number;
   private readonly activeClientTtlMs: number;
+  private readonly grantLimit: number;
+  private readonly sessionLimit: number;
   private readonly transactionLimit: number;
   private readonly transactionLimitPerClient: number;
   constructor(
@@ -124,6 +128,8 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     this.provenClientSourceLimit = Math.max(1, options.provenClientSourceLimit ?? 100);
     this.clientTtlMs = Math.max(1, options.clientTtlMs ?? UNPROVEN_CLIENT_TTL_MS);
     this.activeClientTtlMs = Math.max(1, options.activeClientTtlMs ?? ACTIVE_CLIENT_TTL_MS);
+    this.grantLimit = Math.max(1, options.grantLimit ?? 1_000);
+    this.sessionLimit = Math.max(1, options.sessionLimit ?? 1_000);
     this.transactionLimit = Math.max(1, options.transactionLimit ?? 1_000);
     this.transactionLimitPerClient = Math.max(1, options.transactionLimitPerClient ?? 5);
   }
@@ -345,6 +351,10 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       .map((scope) => `wbs:${scope}`)
       .filter((scope) => requested.has(scope));
     if (!scopes.includes('wbs:read')) return oauthError('access_denied', clearCookie());
+    this.cleanup();
+    if (this.grants.size >= this.grantLimit) {
+      return oauthError('temporarily_unavailable', clearCookie(), 429);
+    }
     const code = this.random();
     this.grants.set(code, {
       clientId: transaction.clientId,
@@ -365,11 +375,12 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
   private async token(request: Request): Promise<Response> {
     const form = await request.formData();
     const code = stringField(form, 'code');
+    this.cleanup();
     const grant = code === undefined ? undefined : this.grants.get(code);
-    if (code !== undefined) this.grants.delete(code);
     const client = grant === undefined ? undefined : this.clients.get(grant.clientId);
     const verifier = stringField(form, 'code_verifier');
     if (
+      code === undefined ||
       grant === undefined ||
       client === undefined ||
       grant.expiresAt <= this.now() ||
@@ -380,29 +391,42 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       !/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) ||
       challengeOf(verifier) !== grant.codeChallenge
     ) {
+      if (code !== undefined) this.grants.delete(code);
       return oauthError('invalid_grant');
+    }
+
+    if (this.sessions.size >= this.sessionLimit) {
+      return oauthError('temporarily_unavailable', undefined, 429);
     }
 
     const jti = this.random();
     const expiresAt = this.now() + TTL_MS;
-    const token = await new SignJWT({
-      [this.groupsClaim]: grant.scopes.map((scope) => `${this.groupPrefix}:${scope}`),
-      scope: grant.scope,
-    })
-      .setProtectedHeader({ alg: 'RS256', kid: 'mcp-01-ephemeral', typ: 'JWT' })
-      .setIssuer(this.issuer)
-      .setAudience(this.audience)
-      .setSubject(grant.subject)
-      .setJti(jti)
-      .setIssuedAt(Math.floor(this.now() / 1000))
-      .setExpirationTime(Math.floor(expiresAt / 1000))
-      .sign(this.privateKey);
-    client.proven = true;
-    client.expiresAt = this.now() + this.activeClientTtlMs;
+    this.grants.delete(code);
     this.sessions.set(jti, {
       expiresAt,
       upstreamAccessToken: grant.upstreamAccessToken,
     });
+    let token: string;
+    try {
+      token = await new SignJWT({
+        [this.groupsClaim]: grant.scopes.map((scope) => `${this.groupPrefix}:${scope}`),
+        scope: grant.scope,
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'mcp-01-ephemeral', typ: 'JWT' })
+        .setIssuer(this.issuer)
+        .setAudience(this.audience)
+        .setSubject(grant.subject)
+        .setJti(jti)
+        .setIssuedAt(Math.floor(this.now() / 1000))
+        .setExpirationTime(Math.floor(expiresAt / 1000))
+        .sign(this.privateKey);
+    } catch (error) {
+      this.sessions.delete(jti);
+      this.grants.set(code, grant);
+      throw error;
+    }
+    client.proven = true;
+    client.expiresAt = this.now() + this.activeClientTtlMs;
     return Response.json({
       access_token: token,
       expires_in: TTL_MS / 1000,

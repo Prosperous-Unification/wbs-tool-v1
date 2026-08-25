@@ -18,7 +18,9 @@ function fixture(
     clientLimit?: number;
     clientSourceLimit?: number;
     clientTtlMs?: number;
+    grantLimit?: number;
     provenClientSourceLimit?: number;
+    sessionLimit?: number;
     transactionLimit?: number;
     transactionLimitPerClient?: number;
   } = {},
@@ -109,22 +111,54 @@ function challengeOf(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url');
 }
 
-async function authorizationCode(oauth: InMemoryMcpOAuth, verifier: string): Promise<string> {
+async function completedAuthorization(
+  oauth: InMemoryMcpOAuth,
+  verifier: string,
+): Promise<{ clientId: string; response: Response }> {
   const clientId = await register(oauth);
   const url = authorizeUrl(clientId);
   url.searchParams.set('code_challenge', challengeOf(verifier));
   const started = await oauth.response(new Request(url));
   const binding = started?.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
   const upstream = new URL(started?.headers.get('location') ?? 'https://invalid');
-  const completed = await oauth.response(
+  const response = await oauth.response(
     new Request(
       `https://dev.wbs.bulletpoints.club/mcp/oauth/callback?code=upstream&state=${String(upstream.searchParams.get('state'))}`,
       { headers: { cookie: binding } },
     ),
   );
+  if (response === undefined) throw new Error('callback endpoint did not handle the request');
+  return { clientId, response };
+}
+
+async function authorizationCode(oauth: InMemoryMcpOAuth, verifier: string): Promise<string> {
+  const { response } = await completedAuthorization(oauth, verifier);
   return (
-    new URL(completed?.headers.get('location') ?? 'https://invalid').searchParams.get('code') ?? ''
+    new URL(response.headers.get('location') ?? 'https://invalid').searchParams.get('code') ?? ''
   );
+}
+
+async function tokenResponse(
+  oauth: InMemoryMcpOAuth,
+  clientId: string,
+  code: string,
+  verifier: string,
+): Promise<Response> {
+  const response = await oauth.response(
+    new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/token', {
+      body: new URLSearchParams({
+        client_id: clientId,
+        code,
+        code_verifier: verifier,
+        grant_type: 'authorization_code',
+        redirect_uri: CALLBACK,
+      }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      method: 'POST',
+    }),
+  );
+  if (response === undefined) throw new Error('token endpoint did not handle the request');
+  return response;
 }
 
 async function promoteClient(oauth: InMemoryMcpOAuth, source: string): Promise<string> {
@@ -362,6 +396,42 @@ describe('InMemoryMcpOAuth', () => {
     expect((await oauth.response(new Request(authorizeUrl(first))))?.status).toBe(302);
     expect((await oauth.response(new Request(authorizeUrl(first))))?.status).toBe(429);
     expect((await oauth.response(new Request(authorizeUrl(second))))?.status).toBe(302);
+  });
+
+  // Proof: allowing callbacks to append authorization grants without a bound
+  // lets completed Auth0 flows retain arbitrary upstream access tokens.
+  it('refuses a callback at grant capacity without evicting a live grant', async () => {
+    const { oauth } = fixture({ grantLimit: 1 });
+    const verifier = 'v'.repeat(43);
+    const firstCode = await authorizationCode(oauth, verifier);
+    const second = await completedAuthorization(oauth, verifier);
+
+    expect(firstCode).toBe('random-6');
+    expect(second.response.status).toBe(429);
+    expect(await second.response.json()).toEqual({ error: 'temporarily_unavailable' });
+    expect((await tokenResponse(oauth, 'random-1', firstCode, verifier)).status).toBe(200);
+  });
+
+  // Proof: allowing token exchanges to append sessions without a bound keeps
+  // arbitrary upstream access tokens live until every local token expires.
+  it('refuses token exchange at session capacity and preserves the retryable grant', async () => {
+    const { oauth } = fixture({ sessionLimit: 1 });
+    const verifier = 'v'.repeat(43);
+    const firstCode = await authorizationCode(oauth, verifier);
+    const secondCode = await authorizationCode(oauth, verifier);
+    const first = await tokenResponse(oauth, 'random-1', firstCode, verifier);
+    const firstToken = ((await first.json()) as { access_token: string }).access_token;
+
+    expect((await tokenResponse(oauth, 'random-7', secondCode, verifier)).status).toBe(429);
+    expect(oauth.verify(firstToken)).resolves.toMatchObject({ sub: 'person-1' });
+    await oauth.response(
+      new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/revoke', {
+        body: new URLSearchParams({ token: firstToken }),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        method: 'POST',
+      }),
+    );
+    expect((await tokenResponse(oauth, 'random-7', secondCode, verifier)).status).toBe(200);
   });
 
   // Proof: removing the byte and multiplicity checks retains attacker-chosen
