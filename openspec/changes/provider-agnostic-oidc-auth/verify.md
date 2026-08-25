@@ -217,7 +217,7 @@ exhausted; Opus was not substituted. Public exposure remains unapplied.
 
 ## 15. Dev MCP exposure implementation — 2026-08-25
 
-**State:** exact implementation and review head `e168fbf5`. Public Caddy and
+**State:** exact implementation and review head `e904143b`. Public Caddy and
 the Auth0 callback remain unapplied pending main-session exposure approval.
 
 ### Failure proofs
@@ -247,7 +247,8 @@ isolated in-test mutations; each makes the superset predicate false.
 
 ### Exact-head gate
 
-h2puni, Bun 1.3.14, exact head `e168fbf5`:
+h2puni, Bun 1.3.14, exact implementation head `e904143b` plus this
+documentation-only successor:
 
 - `bunx nx format:check --all`: clean.
 - `bunx nx run-many -t test lint typecheck build --parallel=2`: all targets
@@ -265,7 +266,8 @@ h2puni, Bun 1.3.14, exact head `e168fbf5`:
 
 ### Review and deployment boundary
 
-Opus 5 reviewed exact implementation head `e168fbf5` and returned PASS with
+Opus 5 reviewed the behaviorally identical pre-rebase implementation head
+`e168fbf5` and returned PASS with
 0 Critical / 0 Important findings. Gemini via Antigravity CLI reviewed the same
 complete PR diff and returned PASS with 0 Critical / 0 Important / 0 Minor.
 GitHub `gate` and `pixels` both passed at that exact head. The main-session
