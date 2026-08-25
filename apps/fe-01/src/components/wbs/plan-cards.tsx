@@ -743,7 +743,7 @@ function CardSetField({
           type="button"
           data-card-tags-field={kind === 'tag' ? '' : undefined}
           data-card-service-field={kind === 'service' ? '' : undefined}
-          aria-label={`${plural} for ${row.number}`}
+          aria-label={`${plural} for ${row.number}${names.length > 0 ? `: ${names.join(', ')}` : ''}`}
           title={title}
           className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
         >
@@ -769,9 +769,34 @@ function CardSetField({
             Type to search the directory, or add a name nobody has used yet.
           </ModalDescription>
         </ModalHeader>
+        {ownIds.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label={`${plural} on ${row.number}`}>
+            {ownIds.map((id) => {
+              const name = entries.find((entry) => entry.id === id)?.name ?? id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`${TAP} bg-muted inline-flex items-center gap-1 rounded px-2 text-sm`}
+                  aria-label={`Remove ${name} from ${row.number}`}
+                  onClick={() => {
+                    setValues(
+                      row,
+                      ownIds.filter((each) => each !== id),
+                    );
+                  }}
+                >
+                  <span>{name}</span>
+                  <span aria-hidden>✕</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <CreatablePicker
           label={`${plural} for ${row.number}`}
-          placeholder="search or add"
+          placeholder={inherited ? `↳ ${names.join(', ')}` : 'search or add'}
+          title={title}
           entries={entries.filter((entry) => !ownIds.includes(entry.id))}
           value={null}
           dataCell={cellKey(row.id, kind)}

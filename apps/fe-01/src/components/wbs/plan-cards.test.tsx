@@ -2507,7 +2507,9 @@ describe('setting a card’s tags and services', () => {
       rows[0].serviceIds = ['service-seed'];
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Services for 010' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Services for 010: seed service' }),
+    );
     fireEvent.click(await screen.findByRole('button', { name: 'Remove seed service from 010' }));
 
     await waitFor(() => {
