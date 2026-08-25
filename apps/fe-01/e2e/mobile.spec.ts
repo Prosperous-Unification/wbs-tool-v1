@@ -706,6 +706,69 @@ test.describe('the plan on a phone, measured by a browser', () => {
   });
 
   /**
+   * The sheet must not cover the card it is editing.
+   *
+   * `wbs-card-priority-qa`'s defect, measured on dev at 28 rows (2026-08-23):
+   * the last card's `priority…` trigger sat at y=469–513 and the sheet it
+   * opened at y=291–844 — the whole control underneath its own sheet. The
+   * scroll room this case adds (`useTriggerAboveSheet` in `plan-cards.tsx`)
+   * is padding at the bottom of the `[data-plan-cards]` scroller, taken off
+   * again on close.
+   *
+   * The rows are made through be-01 rather than through the sheet: 28 rows,
+   * at ~two UI gestures each, would put the measurement behind half a minute
+   * of fixture, and what is being measured is the geometry — the fixture is
+   * only in the way of it. `afterId` is chained so the list reads in order
+   * rather than reversed.
+   */
+  test('the priority sheet keeps the card it edits above it, also at the end of a list', async ({
+    page,
+  }) => {
+    const made = await page.evaluate(async (count: number) => {
+      const projectId = window.localStorage.getItem('wbs.project');
+      let afterId: string | null = null;
+      for (let each = 0; each < count; each += 1) {
+        const res = await fetch(`/api/projects/${String(projectId)}/work-items`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ afterId }),
+        });
+        if (!res.ok) throw new Error(`create refused: ${String(res.status)}`);
+        afterId = ((await res.json()) as { id: string }).id;
+      }
+      return afterId;
+    }, 28);
+
+    // The last card on the page, whichever row landed there. The create above
+    // landed the chain first, so this is the fixture's original `020`.
+    const cards = page.locator('[data-plan-cards] > article');
+    const last = cards.nth((await cards.count()) - 1);
+    await expect(last).toBeVisible();
+    const trigger = last.locator('[data-card-priority-field]');
+
+    const sheet = page.getByRole('dialog', { name: /Priority for \d+/ });
+    await trigger.click();
+    await expect(sheet).toBeVisible();
+
+    const where = await trigger.boundingBox();
+    const sheetBox = await sheet.boundingBox();
+    expect(where, 'the trigger is on screen').not.toBeNull();
+    expect(sheetBox, 'the sheet is on screen').not.toBeNull();
+    expect(
+      (where?.y ?? 0) + (where?.height ?? 0),
+      'the edited card stayed above the sheet it opened',
+    ).toBeLessThan(sheetBox?.y ?? 0);
+
+    await page.keyboard.press('Escape');
+    await expect(sheet).toBeHidden();
+    // And the close puts the reader back where the list was, rather than
+    // leaving the browser to clamp a scroll offset the padding no longer holds.
+    await expect(trigger).toBeVisible();
+
+    void made;
+  });
+
+  /**
    * The last of `card-field-pickers`' four fields, and the only one that edits a
    * **set** — so the round trip has to cover both directions: an edge taken on
    * and the same edge taken off, each surviving a reload.

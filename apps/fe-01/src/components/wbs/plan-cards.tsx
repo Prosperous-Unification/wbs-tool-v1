@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 
 import {
   Modal,
@@ -905,6 +905,71 @@ function CardNotBeforeField({
 }
 
 /**
+ * Keeps the control that opened a bottom sheet on the visible side of it.
+ *
+ * The cards scroll themselves (`overflow-y-auto` on `[data-plan-cards]`), and a
+ * bottom sheet is `position: fixed` above the page — so a trigger near the end
+ * of a long list sits *underneath* its own sheet, fully hidden: the measured
+ * case (`wbs-card-priority-qa`, 2026-08-23, 28 rows at 390x844) had the
+ * trigger at y=469-513 with the sheet at y=291-844. `scrollIntoView` cannot
+ * help on its own there: the last cards are already at the scroll end, so
+ * there is no room left to bring them up.
+ *
+ * So for as long as the sheet is open the list gets that much trailing room
+ * (the sheet's own height, as padding at the bottom of the scroller) and the
+ * trigger is scrolled to just above the sheet's top. On close -- Escape, a tap
+ * away, a landed write -- the padding comes off and the scroll position the
+ * reader had before the tap is put back, clamped to what the list still holds.
+ *
+ * All of it is geometry, so jsdom -- where every rect is zero -- takes the same
+ * path and measures nothing: no sheet element, no container with a height, and
+ * an `overhang` that comes out at most zero. The browser coverage for this
+ * lives in `e2e/mobile.spec.ts` (`the priority sheet keeps the card it edits
+ * above it`), because that is the only place the answer is not a zero.
+ */
+function useTriggerAboveSheet(open: boolean): React.RefObject<HTMLButtonElement | null> {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const trigger = triggerRef.current;
+    if (trigger === null) return;
+    // The sheet the trigger just opened is the most recent one in the DOM --
+    // Radix appends each portal to `body`, and a focus trap means two are
+    // never open at once.
+    const sheets = document.querySelectorAll('[data-modal-surface="bottom"]');
+    const sheet = sheets.item(sheets.length - 1);
+    if (!(sheet instanceof HTMLElement)) return;
+    const container = trigger.closest('[data-plan-cards]');
+    if (!(container instanceof HTMLElement)) return;
+
+    const sheetTop = sheet.getBoundingClientRect().top;
+    const sheetHeight = sheet.getBoundingClientRect().height;
+    const before = {
+      scrollTop: container.scrollTop,
+      paddingBottom: container.style.paddingBottom,
+    };
+    // The scroll room has to exist before the trigger can be moved into it.
+    container.style.paddingBottom = `${String(sheetHeight)}px`;
+    // A small gap, so the trigger reads as *above* the sheet rather than
+    // flush against it.
+    const overhang = trigger.getBoundingClientRect().bottom + 8 - sheetTop;
+    if (overhang > 0) container.scrollTop += overhang;
+
+    return () => {
+      container.style.paddingBottom = before.paddingBottom;
+      // The position the reader had, but never below what the list still
+      // holds -- a shorter list after the padding comes off would otherwise
+      // leave the browser to clamp it, which is a jump rather than a place.
+      container.scrollTop = Math.min(
+        before.scrollTop,
+        Math.max(0, container.scrollHeight - container.clientHeight),
+      );
+    };
+  }, [open]);
+  return triggerRef;
+}
+
+/**
  * The priority on a card — the chip the header has always drawn, now the
  * control that sets it.
  *
@@ -960,6 +1025,7 @@ function CardPriorityField({
   setPriority: (row: TreeRow, typed: string) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useTriggerAboveSheet(open);
   // The draft, seeded from the row on every open through the `key` below —
   // `CardNotBeforeField`'s bargain and its reason: a controlled box fed from
   // the row would be overwritten by a refetch mid-keystroke, and an
@@ -981,6 +1047,7 @@ function CardPriorityField({
     >
       <ModalTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           data-card-priority-field
           // The table cell's own accessible name, so one plan read on two faces
