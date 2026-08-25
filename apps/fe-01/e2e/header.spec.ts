@@ -477,6 +477,44 @@ test.describe('the open project picker, measured by a browser', () => {
     expect(card).toContain(owner);
   });
 
+  test('the portalled card follows its option when the listbox scrolls', async ({ page }) => {
+    await switchToAccountWithAProject(page, signedInAs, LOCAL_USERNAME);
+    for (let index = 0; index < 10; index += 1) {
+      await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === 'POST' &&
+            response.url().endsWith('/api/projects') &&
+            response.status() === 201,
+        ),
+        page.getByRole('button', { name: 'New project' }).click(),
+      ]);
+    }
+    await openPicker(page);
+    const list = page.getByRole('listbox', { name: 'Projects' });
+    const option = list.getByRole('option').nth(5);
+    await option.hover();
+    const card = page.getByRole('tooltip').first();
+    await expect(card).toBeVisible();
+    const before = await option.boundingBox();
+    if (before === null) throw new Error('the sixth option has no browser rectangle');
+
+    await list.evaluate((node) => {
+      node.scrollTop += 12;
+    });
+
+    await expect
+      .poll(async () => {
+        const [optionBox, cardBox] = await Promise.all([option.boundingBox(), card.boundingBox()]);
+        if (optionBox === null || cardBox === null) return null;
+        return {
+          optionMoved: Math.round(before.y - optionBox.y),
+          cardGap: Math.round(cardBox.y - (optionBox.y + optionBox.height)),
+        };
+      })
+      .toEqual({ optionMoved: 12, cardGap: 6 });
+  });
+
   test('a short entry is shown whole', async ({ page }) => {
     // The other side of the claim. Without it, "clipped" would be satisfied by
     // a picker that clips everything — including the two-word names most
