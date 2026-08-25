@@ -304,6 +304,20 @@ describe('InMemoryMcpOAuth', () => {
     expect(token?.status).toBe(200);
   });
 
+  // Proof: extending expiry from the current time on every authorize lets a
+  // registered but unauthenticated client renew itself forever without login.
+  it('caps repeated authorization extensions at an absolute unproven lifetime', async () => {
+    const { advance, oauth } = fixture();
+    const clientId = await register(oauth);
+
+    advance(400_000);
+    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(302);
+    advance(400_000);
+    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(302);
+    advance(400_001);
+    expect((await oauth.response(new Request(authorizeUrl(clientId))))?.status).toBe(400);
+  });
+
   // Proof: a global-only cap lets one source refill all expired anonymous
   // registrations forever and prevent a new connector from registering.
   it('partitions anonymous registration capacity by forwarding source', async () => {
@@ -423,7 +437,7 @@ describe('InMemoryMcpOAuth', () => {
     const firstToken = ((await first.json()) as { access_token: string }).access_token;
 
     expect((await tokenResponse(oauth, 'random-7', secondCode, verifier)).status).toBe(429);
-    expect(oauth.verify(firstToken)).resolves.toMatchObject({ sub: 'person-1' });
+    expect(await oauth.verify(firstToken)).toMatchObject({ sub: 'person-1' });
     await oauth.response(
       new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/revoke', {
         body: new URLSearchParams({ token: firstToken }),

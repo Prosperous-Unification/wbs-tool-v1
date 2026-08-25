@@ -28,6 +28,7 @@ interface ClientRecord {
   redirectUris: readonly string[];
   source: string;
   expiresAt: number;
+  unprovenExpiresAt: number;
 }
 
 interface Transaction {
@@ -245,7 +246,13 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     const issuedAt = this.now();
     const expiresAt = issuedAt + this.clientTtlMs;
     const clientId = this.random();
-    this.clients.set(clientId, { proven: false, redirectUris, source, expiresAt });
+    this.clients.set(clientId, {
+      proven: false,
+      redirectUris,
+      source,
+      expiresAt,
+      unprovenExpiresAt: issuedAt + this.clientTtlMs * 2,
+    });
     return Response.json(
       {
         client_id: clientId,
@@ -296,7 +303,10 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     ) {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
-    client.expiresAt = Math.max(client.expiresAt, this.now() + TTL_MS * 2);
+    const activeFlowExpiry = Math.max(client.expiresAt, this.now() + TTL_MS * 2);
+    client.expiresAt = client.proven
+      ? activeFlowExpiry
+      : Math.min(activeFlowExpiry, client.unprovenExpiresAt);
     this.transactions.set(browserBinding, {
       browserBinding,
       clientId,
