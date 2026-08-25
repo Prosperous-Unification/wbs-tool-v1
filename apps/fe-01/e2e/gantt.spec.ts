@@ -369,14 +369,13 @@ async function openTheChart(
 }
 
 /**
- * Presses the detail switch and waits for the marks it draws.
+ * Makes sure the detail is drawn, and waits for the marks it draws.
  *
- * The chart opens with none of the three gated families since
- * `declutter-one-button` — no arrows, no parent brackets, no assumed bars — so
- * every measurement of an elbow, a head, a ghost or a guessed width has to ask
- * for them first. The counts are asserted rather than assumed: a click that
- * landed on nothing would otherwise leave the assertions below measuring a
- * chart with none of it on, which is exactly how R5 #14 and #15 hid.
+ * Since TASK-38 a plan with dependency edges opens with the detail on, so the
+ * switch is only pressed when the marks are not there. The counts are asserted
+ * rather than assumed: a click that landed on nothing would otherwise leave the
+ * assertions below measuring a chart with none of it on, which is exactly how
+ * R5 #14 and #15 hid.
  *
  * The press is also the half jsdom cannot answer at all: a real click on a
  * button inside a sticky, z-indexed subtree of an `overflow-auto` scroller is
@@ -386,15 +385,9 @@ async function openTheChart(
  * @param heads How many arrow heads the fixture draws once they are asked for.
  */
 async function askForTheDetail(page: Page, heads: number): Promise<void> {
-  await expect(
-    page.locator('[data-gantt-arrow]'),
-    'the chart drew arrows before anybody asked for them',
-  ).toHaveCount(0);
-  await expect(
-    page.locator('[data-gantt-detail-toggle]'),
-    'the detail switch was already pressed before this test asked',
-  ).toHaveAttribute('aria-pressed', 'false');
-  await page.locator('[data-gantt-detail-toggle]').click();
+  if ((await page.locator('[data-gantt-arrow]').count()) === 0) {
+    await page.locator('[data-gantt-detail-toggle]').click();
+  }
   await expect(page.locator('[data-gantt-arrow-head]')).toHaveCount(heads);
   await expect(page.locator('[data-gantt-detail-toggle]')).toHaveAttribute('aria-pressed', 'true');
 }
@@ -673,11 +666,11 @@ test.describe('the chart, after the browser has scaled it', () => {
     await seedPlan(page, nextAccount(), { estimate: PAST_THE_WEEKEND });
     await openTheChart(page);
 
-    // The chart at rest, before anything is asked of it: no ghost on the
-    // parent's row, and one label per row of the plan all the same. Taken here
-    // rather than after the press, because the press is what draws the ghost.
-    await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
-    await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    // The chart at rest: the detail is on by default since TASK-38 (the seeded
+    // plan has a dependency), so the ghost and the assumed QA slices are drawn
+    // already — and one label per row of the plan all the same.
+    await expect(page.locator('[data-gantt-bracket]')).toHaveCount(1);
+    await expect(page.locator('[data-assumed]')).toHaveCount(2);
     const restingRows = await page.locator('tbody tr').count();
     expect(restingRows, 'the seeded plan has no rows to line the chart up against').toBe(3);
     await expect(page.locator('[data-gantt-label]')).toHaveCount(restingRows);
@@ -901,28 +894,15 @@ test.describe('the chart, after the browser has scaled it', () => {
    * away and rebuilt from storage — the session, the remembered project and the
    * preference all read at boot.
    */
-  test('opens with the detail off, and keeps the answer through a reload', async ({ page }) => {
+  test('opens with the detail on, and keeps the answer through a reload', async ({ page }) => {
     await seedPlan(page, nextAccount(), { estimate: PAST_THE_WEEKEND });
     await openTheChart(page);
 
-    // The chart this plan opens with: costed bars, and none of the three gated
-    // families. Both halves, so a chart that drew nothing at all could not pass
-    // the absences alone.
+    // The chart this plan opens with: the stored dependency's arrow and the two
+    // other gated families, on by default since TASK-38 — a first-time reader
+    // sees the arrows without hunting for the toggle. Both halves, so a chart
+    // that drew nothing at all could not pass the presences alone.
     await expect(page.locator('[data-gantt-bar]').first()).toBeVisible();
-    await expect(page.locator('[data-gantt-arrow]')).toHaveCount(0);
-    await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
-    await expect(page.locator('[data-assumed]')).toHaveCount(0);
-    await expect(page.locator('[data-gantt-detail-toggle]')).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
-
-    await askForTheDetail(page, 1);
-
-    await page.reload();
-    await openTheChart(page, { drawn: '[data-gantt-arrow-head]' });
-    // All three families across the reload, and not the arrows alone: the
-    // stored answer is one answer about the whole chart, which is the change.
     await expect(page.locator('[data-gantt-arrow]')).toHaveCount(1);
     await expect(page.locator('[data-gantt-bracket]')).toHaveCount(1);
     await expect(page.locator('[data-assumed]')).toHaveCount(2);
@@ -931,15 +911,26 @@ test.describe('the chart, after the browser has scaled it', () => {
       'true',
     );
 
-    // And off again, remembered the same way round: a preference that only
-    // ever remembers "on" is a switch with one direction.
+    // Off, and the answer remembered across the reload.
     await page.locator('[data-gantt-detail-toggle]').click();
     await expect(page.locator('[data-gantt-arrow]')).toHaveCount(0);
+
     await page.reload();
     await openTheChart(page);
+    // All three families stay off across the reload, and not the arrows alone:
+    // the stored answer is one answer about the whole chart.
     await expect(page.locator('[data-gantt-arrow]')).toHaveCount(0);
     await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
     await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-detail-toggle]')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+
+    // And on again, remembered the same way round: a preference that only ever
+    // remembers "off" is a switch with one direction.
+    await askForTheDetail(page, 1);
+    await expect(page.locator('[data-gantt-arrow]')).toHaveCount(1);
   });
 
   /**
@@ -955,7 +946,7 @@ test.describe('the chart, after the browser has scaled it', () => {
    * measured for area: a count of marks is not a count of things a reader can
    * see, which is the sixteenth check's lesson.
    */
-  test('draws only costed work at rest, and every mark once the detail is asked for', async ({
+  test('draws every mark at rest, and only costed work once the detail is off', async ({
     page,
   }) => {
     await seedPlan(page, nextAccount(), { estimate: PAST_THE_WEEKEND });
@@ -967,36 +958,35 @@ test.describe('the chart, after the browser has scaled it', () => {
         .locator('[data-gantt-bar]')
         .evaluateAll((bars) => bars.map((bar) => bar.getBoundingClientRect().width));
 
-    // Two leaves, each estimated for Dev alone, under a parent that draws
-    // nothing: two bars on a three-row chart.
-    await expect(page.locator('[data-gantt-bar]')).toHaveCount(2);
-    await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
-    await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    // Two leaves, each estimated for Dev alone, under a parent: on by default
+    // since TASK-38, so the two uncosted QA slices and the parent's ghost are
+    // drawn at rest — four bars on a three-row chart.
+    await expect(page.locator('[data-gantt-bar]')).toHaveCount(4);
+    await expect(page.locator('[data-gantt-bracket]')).toHaveCount(1);
+    await expect(page.locator('[data-assumed]')).toHaveCount(2);
     const rows = await page.locator('tbody tr').count();
     expect(rows, 'the seeded plan has no rows to line the chart up against').toBe(3);
     await expect(page.locator('[data-gantt-label]')).toHaveCount(rows);
     expect(Math.min(...(await barWidths())), 'a drawn bar has no width at all').toBeGreaterThan(0);
+    const ghost = await rectOf(page, '[data-gantt-bracket]');
+    expect(ghost.width, 'the parent’s ghost bar has no width at all').toBeGreaterThan(0);
+    expect(ghost.height, 'the parent’s ghost bar has no height at all').toBeGreaterThan(0);
 
     await page.locator('[data-gantt-detail-toggle]').click();
 
-    // Asked for: four bars — the two Dev bars and the two uncosted QA slices —
-    // and the parent's ghost over them. Five marks where the reader saw two.
-    await expect(page.locator('[data-gantt-bar]')).toHaveCount(4);
-    await expect(page.locator('[data-assumed]')).toHaveCount(2);
-    await expect(page.locator('[data-gantt-bracket]')).toHaveCount(1);
+    // Asked off: two bars — the two Dev bars — and no ghost, no assumed QA.
+    await expect(page.locator('[data-gantt-bar]')).toHaveCount(2);
+    await expect(page.locator('[data-assumed]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-bracket]')).toHaveCount(0);
     // The plan and the chart still line up row for row, which is the one thing
     // the switch is not allowed to touch.
     await expect(page.locator('[data-gantt-label]')).toHaveCount(rows);
     expect(await page.locator('tbody tr').count()).toBe(rows);
-    // And the marks it brought back are marks, not boxes of nothing: the
-    // assumed bars have width, and so does the ghost.
+    // And the bars it kept are bars, not boxes of nothing.
     expect(
       Math.min(...(await barWidths())),
-      'a bar the detail switch drew has no width at all',
+      'a bar the detail switch kept has no width at all',
     ).toBeGreaterThan(0);
-    const ghost = await rectOf(page, '[data-gantt-bracket]');
-    expect(ghost.width, 'the parent’s ghost bar has no width at all').toBeGreaterThan(0);
-    expect(ghost.height, 'the parent’s ghost bar has no height at all').toBeGreaterThan(0);
   });
 
   test('holds the labels at the left edge with the chart scrolled fully right', async ({
