@@ -24,6 +24,7 @@ const MAX_REDIRECT_URIS = 10;
 const MAX_REDIRECT_URI_BYTES = 512;
 
 interface ClientRecord {
+  proven: boolean;
   redirectUris: readonly string[];
   source: string;
   expiresAt: number;
@@ -219,14 +220,16 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
     }
     this.cleanup();
     const source = sourceOf(request);
-    const sourceClients = [...this.clients.values()].filter((client) => client.source === source);
+    const sourceClients = [...this.clients.values()].filter(
+      (client) => client.source === source && !client.proven,
+    );
     if (this.clients.size >= this.clientLimit || sourceClients.length >= this.clientSourceLimit) {
       return oauthError('temporarily_unavailable', undefined, 429);
     }
     const issuedAt = this.now();
     const expiresAt = issuedAt + this.clientTtlMs;
     const clientId = this.random();
-    this.clients.set(clientId, { redirectUris, source, expiresAt });
+    this.clients.set(clientId, { proven: false, redirectUris, source, expiresAt });
     return Response.json(
       {
         client_id: clientId,
@@ -382,6 +385,7 @@ export class InMemoryMcpOAuth implements McpOAuthHandler {
       .setIssuedAt(Math.floor(this.now() / 1000))
       .setExpirationTime(Math.floor(expiresAt / 1000))
       .sign(this.privateKey);
+    client.proven = true;
     client.expiresAt = this.now() + this.activeClientTtlMs;
     this.sessions.set(jti, {
       expiresAt,

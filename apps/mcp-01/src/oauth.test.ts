@@ -203,6 +203,30 @@ describe('InMemoryMcpOAuth', () => {
     expect((await registrationResponse(oauth, [CALLBACK], '203.0.113.2')).status).toBe(201);
   });
 
+  // Proof: counting promoted clients in the source bucket makes shared
+  // connector egress hit the anonymous cap for up to 24 hours.
+  it('removes a proven client from its anonymous source partition', async () => {
+    const { oauth } = fixture({ clientLimit: 2, clientSourceLimit: 1 });
+    const verifier = 'v'.repeat(43);
+    const code = await authorizationCode(oauth, verifier);
+    const token = await oauth.response(
+      new Request('https://dev.wbs.bulletpoints.club/mcp/oauth/token', {
+        body: new URLSearchParams({
+          client_id: 'random-1',
+          code,
+          code_verifier: verifier,
+          grant_type: 'authorization_code',
+          redirect_uri: CALLBACK,
+        }),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        method: 'POST',
+      }),
+    );
+
+    expect(token?.status).toBe(200);
+    expect((await registrationResponse(oauth, [CALLBACK], '')).status).toBe(201);
+  });
+
   // Proof: replacing capacity refusal with FIFO eviction makes the first
   // registered connector fail authorization after an anonymous registration.
   it('refuses registration at capacity without evicting a live connector', async () => {
