@@ -268,11 +268,14 @@ documentation-only successor:
 
 ### Review and deployment boundary
 
-Opus 5 reviewed the pre-promotion-fix implementation head `e168fbf5` and returned PASS with
-0 Critical / 0 Important findings. Gemini via Antigravity CLI reviewed the same
-complete PR diff and returned PASS with 0 Critical / 0 Important / 0 Minor.
-GitHub `gate` and `pixels` both passed at that earlier head. Fresh exact-head
-Opus/Gemini reviews and GitHub checks are pending at `fd3640a5`. The main-session
+Opus 5 (`anthropic/claude-opus-5`) reviewed the complete rebased diff through
+`64e6526f` and returned PASS with 0 Critical / 0 Important findings. Its Minor
+notes were non-blocking hardening and documented dev-scale trade-offs, not
+release defects. Direct Gemini was temporarily overloaded; the required
+fallback `openrouter/google/gemini-3.1-pro-preview` reviewed the same complete
+diff and returned PASS with 0 Critical / 0 Important findings. GitHub `gate`
+and `pixels` both passed at the earlier pre-promotion-fix head; fresh checks are
+required at this documentation successor. The main-session
 review independently re-ran the grant/session/query/late-window watched reds,
 the Caddy source-trust red, the full h2puni gate, ShellCheck, and Caddy
 validation. Merge, Auth0 callback application, Caddy reload, persistent marker
