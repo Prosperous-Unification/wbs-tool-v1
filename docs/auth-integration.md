@@ -195,11 +195,13 @@ Add this byte-exact Auth0 callback without replacing the browser callback:
 `https://dev.wbs.bulletpoints.club/mcp/oauth/callback`. Dynamic registration
 accepts only the Claude connector callback on `claude.ai`/`claude.com` or an
 HTTP(S) loopback callback for tools such as MCP Inspector. Clients expire after
-24 hours and the in-memory registry retains at most 1,000 entries.
+24 hours. At 1,000 live clients or in-flight logins, new anonymous requests are
+refused with 429; they never evict another connector's state.
 
-Normal deploys leave `MCP_EXPOSURE_EXPECTED` unset and report the MCP public
-probe as skipped. Cutover sets `MCP_EXPOSURE_EXPECTED=1`; that explicit signal
-must be enabled in the same operator run that installs the Caddy candidate.
+Before cutover, the absent `/home/puni1/wbs-dev/state/mcp-exposure` marker makes
+the MCP public probe skip. Cutover atomically writes `enabled` to that mode-600
+marker. Every later deploy reads it before snapshotting devsync and must pass
+the semantic MCP probe; malformed or unreadable state fails the deploy.
 The probe requires Bun and verifies both RFC 9728 resource-metadata locations,
 the RFC 8414 authorization-server metadata, and the unauthenticated challenge.
 
@@ -209,10 +211,14 @@ Cut over in this order:
 2. Add the exact Auth0 callback above.
 3. Back up the live Caddy file, install the reviewed candidate, and validate it
    with the running Caddy version before reload.
-4. Reload, then run `MCP_EXPOSURE_EXPECTED=1 bin/dev-deploy.sh` and verify the
-   four MCP discovery/resource paths plus the existing app/API/WS probes.
-5. If validation, reload, or any probe fails, restore the Caddy backup, reload,
-   verify the original app/API/WS routes, and remove the added Auth0 callback.
+4. Reload, then persist the successful cutover before its health check:
+   `printf 'enabled\n' | install -m 600 /dev/stdin /home/puni1/wbs-dev/state/mcp-exposure`.
+5. Run `bin/dev-deploy.sh` and verify the four MCP discovery/resource paths
+   plus the existing app/API/WS probes. Do not pass a one-run environment flag;
+   the persistent marker is the assertion.
+6. If validation, reload, or any probe fails, restore the Caddy backup, reload,
+   move the marker out of the state path, verify the original app/API/WS routes,
+   and remove the added Auth0 callback.
 
 ## Historical Okta mapping
 
