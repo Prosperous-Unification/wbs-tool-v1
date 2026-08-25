@@ -950,18 +950,22 @@ function CardNotBeforeField({
  * - **The restore belongs to this open only.** It lives in this effect
  *   invocation's own closure, not a ref, so a fast close-then-reopen can
  *   never re-apply the previous card's scroll position.
- * - **The trigger stops observing once Radix starts the close.** Radix
- *   starts its close transition before the caller's `open` flips and this
- *   hook's cleanup runs; one ResizeObserver tick inside that window would
- *   re-pad and re-scroll the list an instant before the restore, sending
- *   the reader to the bottom (measured: 13089px of phantom scroll on the
- *   penultimate-card pass of the e2e). The trigger's blur is the close's
- *   first observable sign, because Radix focuses `document.body` when it
- *   starts dismissing.
+ * - **A blur that lands outside the sheet is the close's first sign — a
+ *   blur that lands inside it is the open.** Radix's focus trap moves focus
+ *   into the sheet while it opens, and that blur must not disengage the
+ *   guard (measured: gate 4 pass 1, the trigger still 222px under the sheet
+ *   with engaged false before the first measurement). The close needs the
+ *   blur at all: Radix starts its close transition before the caller's
+ *   `open` flips and this hook's cleanup runs; one ResizeObserver tick
+ *   inside that window would re-pad and re-scroll the list an instant
+ *   before the restore, sending the reader to the bottom (measured: 13089px
+ *   of phantom scroll on the penultimate-card pass of the e2e). The dismiss
+ *   focuses `document.body`, so only a blur whose new focus is NOT inside
+ *   the open sheet disengages.
  */
 function useTriggerAboveSheet(open: boolean) {
   const triggerRef = useRef<HTMLButtonElement>(null);
-  /** Set false by the trigger's blur — the close's first observable sign. */
+  /** Set false by the trigger blur that leaves the sheet — the close's sign. */
   const engagedRef = useRef(true);
   useEffect(() => {
     if (!open) return;
@@ -1166,7 +1170,15 @@ function CardPriorityField({
       <ModalTrigger asChild>
         <button
           ref={triggerRef}
-          onBlur={() => {
+          onBlur={(event) => {
+            // The open's own focus trap blurs the trigger INTO the sheet;
+            // disengaging there killed the guard with the trigger 222px
+            // under the sheet (gate 4, pass 1). Only a blur that leaves
+            // the sheet entirely — Radix's dismiss focuses `document.body`
+            // — is a close.
+            const next = event.relatedTarget;
+            if (next instanceof Element && next.closest('[data-modal-surface="bottom"]') !== null)
+              return;
             engagedRef.current = false;
           }}
           type="button"
