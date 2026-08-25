@@ -950,11 +950,25 @@ function CardNotBeforeField({
  * - **The restore belongs to this open only.** It lives in this effect
  *   invocation's own closure, not a ref, so a fast close-then-reopen can
  *   never re-apply the previous card's scroll position.
+ * - **The trigger stops observing once Radix starts the close.** Radix
+ *   starts its close transition before the caller's `open` flips and this
+ *   hook's cleanup runs; one ResizeObserver tick inside that window would
+ *   re-pad and re-scroll the list an instant before the restore, sending
+ *   the reader to the bottom (measured: 13089px of phantom scroll on the
+ *   penultimate-card pass of the e2e). The trigger's blur is the close's
+ *   first observable sign, because Radix focuses `document.body` when it
+ *   starts dismissing.
  */
 function useTriggerAboveSheet(open: boolean) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  /** Set false by the trigger's blur — the close's first observable sign. */
+  const engagedRef = useRef(true);
   useEffect(() => {
     if (!open) return;
+    // A fresh open re-engages. Both the blur and this effect run between
+    // opens, so whichever order they fire in, the flag is right by the time
+    // the sheet can be measured.
+    engagedRef.current = true;
     /** The gap between the trigger's bottom and the sheet's top, in px. */
     const GAP = 8;
     /** Two seconds of frames at 60fps: the retry budget for a sheet that
@@ -991,6 +1005,9 @@ function useTriggerAboveSheet(open: boolean) {
       // Direct `scrollTop` writes have to land now, not animate.
       container.style.scrollBehavior = 'auto';
       const place = (): void => {
+        // The close can start while this observer still has one tick owed,
+        // and re-placing then would fight the restore about to run below.
+        if (!engagedRef.current) return;
         const rect = sheet.getBoundingClientRect();
         if (rect.height <= 0) return;
         // The scroll room has to exist before the trigger can be moved into
@@ -1057,7 +1074,7 @@ function useTriggerAboveSheet(open: boolean) {
       restore = null;
     };
   }, [open]);
-  return triggerRef;
+  return { triggerRef, engagedRef };
 }
 
 /**
@@ -1116,7 +1133,7 @@ function CardPriorityField({
   setPriority: (row: TreeRow, typed: string) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
-  const triggerRef = useTriggerAboveSheet(open);
+  const { triggerRef, engagedRef } = useTriggerAboveSheet(open);
   // The draft, seeded from the row on every open through the `key` below —
   // `CardNotBeforeField`'s bargain and its reason: a controlled box fed from
   // the row would be overwritten by a refetch mid-keystroke, and an
@@ -1139,6 +1156,9 @@ function CardPriorityField({
       <ModalTrigger asChild>
         <button
           ref={triggerRef}
+          onBlur={() => {
+            engagedRef.current = false;
+          }}
           type="button"
           data-card-priority-field
           // The table cell's own accessible name, so one plan read on two faces
