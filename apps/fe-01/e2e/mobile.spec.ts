@@ -730,15 +730,64 @@ test.describe('the plan on a phone, measured by a browser', () => {
    * is padding at the bottom of the `[data-plan-cards]` scroller, taken off
    * again on close.
    *
+   * Parameterised over the five card sheets, which is `wbs-card-sheets-cover-row`:
+   * priority had the guard from `wbs-card-priority-sheet-covers-row` and the
+   * other four shared its geometry without it. The trio sheet opens from
+   * inside each phase's `<details>` disclosure, so that case opens one before
+   * tapping; the earliest-start sheet needs a day zero, set once up front.
+   *
    * The rows are made through be-01 rather than through the sheet: 28 rows,
    * at ~two UI gestures each, would put the measurement behind half a minute
    * of fixture, and what is being measured is the geometry — the fixture is
    * only in the way of it. `afterId` is chained so the list reads in order
    * rather than reversed.
    */
-  test('the priority sheet keeps the card it edits above it, also at the end of a list', async ({
-    page,
-  }) => {
+  interface SheetSpec {
+    name: string;
+    triggerSelector: string;
+    dialogName: RegExp;
+    controlSelector: string;
+    openDisclosureFirst: boolean;
+  }
+  const CARD_SHEETS: readonly SheetSpec[] = [
+    {
+      name: 'priority',
+      triggerSelector: '[data-card-priority-field]',
+      dialogName: /Priority for \d+/,
+      controlSelector: '[data-card-priority-save]',
+      openDisclosureFirst: false,
+    },
+    {
+      name: 'team',
+      triggerSelector: '[data-card-team-field]',
+      dialogName: /Service or team for \d+/,
+      controlSelector: '[role="combobox"]',
+      openDisclosureFirst: false,
+    },
+    {
+      name: 'dependency',
+      triggerSelector: '[data-card-waits-field]',
+      dialogName: /Depends on for \d+/,
+      controlSelector: '[data-card-depends-input]',
+      openDisclosureFirst: false,
+    },
+    {
+      name: 'earliest start',
+      triggerSelector: '[data-card-not-before-field]',
+      dialogName: /Earliest start for \d+/,
+      controlSelector: '[data-card-not-before-save]',
+      openDisclosureFirst: false,
+    },
+    {
+      name: 'estimate trio',
+      triggerSelector: '[data-card-trio-field]',
+      dialogName: /estimate for \d+/,
+      controlSelector: '[data-card-trio-save]',
+      openDisclosureFirst: true,
+    },
+  ];
+
+  test('no card sheet covers the card it edits, also at the end of a list', async ({ page }) => {
     const cards = page.locator('[data-plan-cards] > article');
     const fixtureRows = await cards.count();
     await page.evaluate(async (count: number) => {
@@ -760,18 +809,32 @@ test.describe('the plan on a phone, measured by a browser', () => {
     // the case below could be reading the fixture's own rows.
     await expect(cards).toHaveCount(fixtureRows + 28);
 
+    // The earliest-start sheet is disabled without a day zero — one up front
+    // covers both cards it gets measured on, and the other sheets read it no
+    // differently.
+    await giveThePlanADayZero(page, '2030-01-01');
+
     const scroller = page.locator('[data-plan-cards]');
-    const sheet = page.getByRole('dialog', { name: /Priority for \d+/ });
     const viewport = page.viewportSize();
 
-    // One card, opened and measured: the trigger stays above the sheet it
-    // opened, the sheet stays fully on screen with its controls reachable,
-    // nothing goes sideways, and the close hands the pre-open scroll
-    // position back.
-    const expectAboveSheet = async (index: number): Promise<void> => {
+    // One sheet on one card, opened and measured: the trigger stays above
+    // the sheet it opened, the sheet stays fully on screen with its controls
+    // reachable, nothing goes sideways, and the close hands the pre-open
+    // scroll position back.
+    const expectAboveSheet = async (spec: SheetSpec, index: number): Promise<void> => {
       const card = cards.nth(index);
       await expect(card).toBeVisible();
-      const trigger = card.locator('[data-card-priority-field]');
+      if (spec.openDisclosureFirst) {
+        // The trio trigger lives inside a `<details>`; a shut one hides its
+        // own contents from a click, so it opens first unless it already is.
+        const summary = card.locator('details[data-phase-detail] summary').first();
+        const closed = await summary.evaluate(
+          (el) => !(el.parentElement as HTMLDetailsElement).open,
+        );
+        if (closed) await summary.click();
+      }
+      const trigger = card.locator(spec.triggerSelector).first();
+      const sheet = page.getByRole('dialog', { name: spec.dialogName });
       // The reader has to be looking at the card to tap it, so scroll it
       // into view BEFORE capturing the offset the close must hand back:
       // Playwright's click scrolls an off-screen trigger into view itself,
@@ -786,7 +849,7 @@ test.describe('the plan on a phone, measured by a browser', () => {
 
       await trigger.click();
       await expect(sheet).toBeVisible();
-      await expect(sheet.locator('[data-card-priority-save]')).toBeVisible();
+      await expect(sheet.locator(spec.controlSelector)).toBeVisible();
       // The guard is async by design — it measures on animation frames,
       // because Radix mounts its portal from an internal effect after the
       // click and an open animation settles after that. Poll the geometry
@@ -851,10 +914,12 @@ test.describe('the plan on a phone, measured by a browser', () => {
 
     // The end of the list is where the defect lives: the last card has no
     // trailing room of its own, and the penultimate is the off-by-one next
-    // to it — the criterion names both.
+    // to it — the criterion names both, for every sheet.
     const total = await cards.count();
-    await expectAboveSheet(total - 1);
-    await expectAboveSheet(total - 2);
+    for (const spec of CARD_SHEETS) {
+      await expectAboveSheet(spec, total - 1);
+      await expectAboveSheet(spec, total - 2);
+    }
   });
 
   /**

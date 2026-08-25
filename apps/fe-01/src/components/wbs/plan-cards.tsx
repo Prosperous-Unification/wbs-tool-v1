@@ -608,6 +608,9 @@ function CardTeamField({
   createTeam: (row: TreeRow, name: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Guard against the same geometry `CardPriorityField` measured first — a
+  // 60vh bottom sheet opened from near the list end covers its own trigger.
+  const triggerRef = useTriggerAboveSheet(open);
   // Inherited is the case the sentence exists for: the box is empty because
   // this row carries no team, and the name beside it is one a reader is owed
   // the source of. The table's cell says exactly this in its own `title`.
@@ -619,6 +622,7 @@ function CardTeamField({
     <Modal open={open} onOpenChange={setOpen}>
       <ModalTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           data-card-team-field
           // The sheet's own name, said on the control that opens it: `Billing`
@@ -740,6 +744,7 @@ function CardNotBeforeField({
   setNotBefore: (row: TreeRow, day: string | null, reason: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useTriggerAboveSheet(open);
   const day = row.startNoEarlierThan;
   const reason = row.startNoEarlierThanReason;
   /*
@@ -782,6 +787,7 @@ function CardNotBeforeField({
     >
       <ModalTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           data-card-not-before-field
           disabled={!hasCalendar}
@@ -926,9 +932,10 @@ function CardNotBeforeField({
  *
  * - **The sheet is found by polling frames, bounded.** Radix mounts its
  *   portal from an internal effect *after* this one runs, so measuring in
- *   the effect body finds no sheet at all. The loop stops after two
- *   seconds' worth of frames: a sheet that never mounts (a broken portal,
- *   jsdom's zero rects) is a stopped loop, not a hot one.
+ *   the effect body finds no sheet at all. The loop stops after ten
+ *   seconds' worth of frames (`MAX_FRAMES` at 60fps): a sheet that never
+ *   mounts (a broken portal, jsdom's zero rects) is a stopped loop, not a
+ *   hot one.
  * - **Only a visible, laid-out sheet counts.** A closing sheet still in the
  *   DOM, or one mounted but not yet laid out, measures a zero height and
  *   would scroll the trigger by a nonsense amount. The last *visible*
@@ -1361,6 +1368,7 @@ function CardDependsField({
   dropDependency: (row: TreeRow, predecessorId: string) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useTriggerAboveSheet(open);
   // What has been typed into the search box, cleared on every open and after
   // every pick. Not a draft of a value — nothing here is held back and sent
   // later — so unlike the date and priority sheets there is no `key` re-seed to
@@ -1420,6 +1428,7 @@ function CardDependsField({
     >
       <ModalTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           data-card-waits-field
           aria-label={`Depends on for ${row.number}`}
@@ -1636,6 +1645,7 @@ function CardTrioField({
   commit: (typed: string, baseline: string) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useTriggerAboveSheet(open);
   // Seeded from the row on every open through the `key` below — the bargain
   // `CardPriorityField` and `CardNotBeforeField` make, and its reason: a
   // controlled box fed from the row would be overwritten by a refetch
@@ -1659,6 +1669,7 @@ function CardTrioField({
     >
       <ModalTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           data-card-trio-field={roleId}
           // The three boxes' own accessible names one sentence up: this opens
