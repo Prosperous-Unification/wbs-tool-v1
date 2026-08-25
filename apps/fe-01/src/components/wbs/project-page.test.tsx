@@ -168,6 +168,18 @@ function openPicker() {
   fireEvent.focus(picker());
 }
 
+/** Gives jsdom's open picker the rectangles a browser supplies. */
+function layOutPicker(): HTMLElement {
+  const list = screen.getByRole('listbox', { name: 'Projects' });
+  list.getBoundingClientRect = () => new DOMRect(0, 0, 200, 240);
+  within(list)
+    .getAllByRole('option')
+    .forEach((option, index) => {
+      option.getBoundingClientRect = () => new DOMRect(0, index * 24, 200, 20);
+    });
+  return list;
+}
+
 async function selectProject(id: string) {
   await waitFor(() => {
     expect(screen.getByLabelText('Project')).toBeDefined();
@@ -851,6 +863,7 @@ describe('the hover card follows the list, not a stale pointer', () => {
       await waitFor(() => {
         expect(optionNames().length).toBe(2);
       });
+      layOutPicker();
 
       // Hover the second project.
       fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
@@ -866,6 +879,7 @@ describe('the hover card follows the list, not a stale pointer', () => {
       await waitFor(() => {
         expect(optionNames().length).toBe(2);
       });
+      layOutPicker();
       expect(screen.queryByRole('tooltip')).toBeNull();
 
       // The card now follows the keyboard highlight, never the old pointer.
@@ -885,6 +899,7 @@ describe('the hover card follows the list, not a stale pointer', () => {
     await waitFor(() => {
       expect(optionNames().length).toBe(2);
     });
+    layOutPicker();
 
     fireEvent.mouseEnter(document.getElementById('project-option-p2')!);
     expect(await screen.findByRole('tooltip', { name: 'Paint the fence' })).toBeDefined();
