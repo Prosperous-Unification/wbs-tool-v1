@@ -500,7 +500,22 @@ test.describe('the plan on a phone, measured by a browser', () => {
     // autofocus changed `typed` to `''`. Watched at 390×844, 2026-08-23.
     await field.click();
     await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeVisible();
-    await page.getByRole('button', { name: 'Clear Service or team for 010' }).click();
+
+    // **The Clear control's box, measured rather than assumed.** TASK-106
+    // measured it on dev at 26×44 — reachable by accident of the CSS
+    // `min-height` floor, not a tappable square like the sheet's own Close ✕
+    // at 44×44. Unmeasured, an edit like a font-change that clips the box
+    // could only ever regress it further while this test still clicked it
+    // happily.
+    const clear = page.getByRole('button', { name: 'Clear Service or team for 010' });
+    const clearBox = await clear.boundingBox();
+    expect(clearBox, 'the sheet Clear is a measured square target').not.toBeNull();
+    expect(clearBox!.width, 'clear width ≥ 44').toBeGreaterThanOrEqual(44);
+    expect(clearBox!.height, 'clear height ≥ 44').toBeGreaterThanOrEqual(44);
+    expect(clearBox!.x + clearBox!.width, 'clear stays inside the viewport').toBeLessThanOrEqual(
+      390,
+    );
+    await clear.click();
 
     await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeHidden();
     await expect(field.locator('[data-card-team]')).toHaveCount(0);

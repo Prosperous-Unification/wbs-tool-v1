@@ -1257,6 +1257,7 @@
    * otherwise be 44px of nothing to aim at.
    */
   [data-modal-surface] [aria-label='Close'],
+  [data-modal-surface] [data-clear-button],
   [data-account-menu] [role='menuitemradio'] {
     min-width: 44px;
   }
@@ -1268,6 +1269,7 @@
    * to either of them without this puts the word at the top of a 44px box.
    */
   [data-modal-surface] [aria-label='Close'],
+  [data-modal-surface] [data-clear-button],
   [data-account-menu] [role='menuitemradio'],
   [data-account-menu] [role='menuitem'] {
     display: inline-flex;

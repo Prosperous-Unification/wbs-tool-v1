@@ -549,6 +549,7 @@ export function CreatablePicker({
         <button
           type="button"
           aria-label={`Clear ${label}`}
+          data-clear-button
           title="Clear"
           onClick={onClear}
           style={{ marginLeft: 2, flex: 'none' }}
