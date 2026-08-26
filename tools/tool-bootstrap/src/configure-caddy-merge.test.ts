@@ -180,26 +180,24 @@ const runShippedScript = (
   }
   const script = join(root, 'configure.sh');
   writeFileSync(script, text);
-  const env: Record<string, string> = {
-    PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
-    WBS_ROOT: root,
-    WBS_USER: 'wbs-test',
-    BUN_VERSION: 'stubbed',
-    REGISTRY_PASS: 'stopped-before-this-is-used',
-  };
-  for (const [name, value] of Object.entries(opts.env ?? {})) {
-    // WBS_ROOT is what this harness reads its results back out of. Overriding
-    // it would send every write somewhere else, `caddyfile` would come back
-    // null, and the cell would be scored a kill for the wrong reason -- the
-    // same conflation the whole-script rewrite exists to remove.
-    if (name === 'WBS_ROOT') {
-      throw new Error(
-        'WBS_ROOT is fixed by construction: this harness reads its results out of it',
-      );
-    }
-    if (value === null) delete env[name];
-    else env[name] = value;
+  const overrides = opts.env ?? {};
+  // WBS_ROOT is what this harness reads its results back out of. Overriding
+  // it would send every write somewhere else, `caddyfile` would come back
+  // null, and the cell would be scored a kill for the wrong reason -- the
+  // same conflation the whole-script rewrite exists to remove.
+  if ('WBS_ROOT' in overrides) {
+    throw new Error('WBS_ROOT is fixed by construction: this harness reads its results out of it');
   }
+  const env = Object.fromEntries(
+    Object.entries<string | null>({
+      PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+      WBS_ROOT: root,
+      WBS_USER: 'wbs-test',
+      BUN_VERSION: 'stubbed',
+      REGISTRY_PASS: 'stopped-before-this-is-used',
+      ...overrides,
+    }).filter((entry): entry is [string, string] => entry[1] !== null),
+  );
   const res = spawnSync('/bin/sh', [script], { encoding: 'utf8', env });
   if (res.error) throw res.error;
   return {
