@@ -114,7 +114,9 @@ const STUBS: Record<string, string> = {
   rm: '#!/bin/sh\nexit 0\n',
 };
 
-const runShippedPrefix = (): {
+const runShippedPrefix = (
+  overrides: Record<string, string> = {},
+): {
   status: number | null;
   stderr: string;
   caddyfile: string | null;
@@ -122,7 +124,7 @@ const runShippedPrefix = (): {
   const root = mkdtempSync(join(tmpdir(), 'task160-reach-'));
   const bin = join(root, 'stubbin');
   mkdirSync(bin);
-  for (const [name, body] of Object.entries(STUBS)) {
+  for (const [name, body] of Object.entries({ ...STUBS, ...overrides })) {
     const f = join(bin, name);
     writeFileSync(f, body);
     chmodSync(f, 0o755);
@@ -210,16 +212,32 @@ describe('configure.sh Caddyfile merge, executed', () => {
     expect(mergeBlock.split('\n').length).toBeGreaterThan(20);
   });
 
-  it('is reached by the shipped script, not merely runnable in isolation', () => {
-    // If this passes while the behavioural cases below fail, the block is
-    // broken. If the behavioural cases pass and THIS fails, the block is fine
-    // and nothing calls it -- which is the failure slicing cannot see.
-    const run = runShippedPrefix();
-    expect(run.status).toBe(0);
-    expect(run.stderr).toBe('');
-    expect(run.caddyfile).not.toBeNull();
-    expect(importsOf(run.caddyfile ?? '')).toEqual(OWNED);
-  });
+  // Sol round 4: a stub with ONE fixed outcome pins one branch of the shipped
+  // script. `if ! systemctl list-unit-files caddy.service; then <merge> fi` is
+  // `sh -n` clean, passes here because the stub always exits 1, and skips the
+  // merge entirely on a host that does have that unit. So the proof runs under
+  // both outcomes of the one stubbed command the script branches on.
+  for (const [label, exitCode] of [
+    ['no host caddy unit', 1],
+    ['a host caddy unit already present', 0],
+  ] as const) {
+    it(`is reached by the shipped script, not merely runnable in isolation (${label})`, () => {
+      // KNOWN LIMIT, stated because it is not what it looks like. This runs a
+      // PREFIX of the script, ending at the merge block's last line. Any
+      // wrapper around the block must close AFTER that line, so the prefix
+      // ends mid-construct and `sh` exits 2 on a syntax error. Every wrapper
+      // mutation is therefore caught -- but by "the prefix no longer parses",
+      // not by "no Caddyfile was written", and `status` conflates the two.
+      // The proof that would not conflate them runs the WHOLE script; that
+      // needs the compose/registry/docker-login tail stubbed too. Until then
+      // this is a reachability SMOKE test, not the reachability proof.
+      const run = runShippedPrefix({ systemctl: `#!/bin/sh\nexit ${exitCode}\n` });
+      expect(run.status).toBe(0);
+      expect(run.stderr).toBe('');
+      expect(run.caddyfile).not.toBeNull();
+      expect(importsOf(run.caddyfile ?? '')).toEqual(OWNED);
+    });
+  }
 
   it('runs the shipped prefix, not a fragment of it', () => {
     // A prefix that stopped short would write no Caddyfile for the honest
