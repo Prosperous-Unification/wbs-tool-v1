@@ -180,7 +180,7 @@ export function subscribeToProject(
     // the flag is read here too.
     if (unsubscribed) return;
     pendingReconnect = null;
-    socket = deps.openSocket(websocketUrl(options.token), {
+    socket = deps.openSocket(websocketUrl(), {
       onOpen: () => {
         socket?.send(JSON.stringify({ type: 'subscribe', subscription }));
 

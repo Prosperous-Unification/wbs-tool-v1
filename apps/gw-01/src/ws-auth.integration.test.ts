@@ -62,9 +62,9 @@ async function tokenFor(username: string, expiresAt?: number): Promise<string> {
     .sign(key);
 }
 
-function openSocket(headers: Record<string, string>): Promise<WebSocket> {
+function openSocket(headers: Record<string, string>, path = '/ws'): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`ws://localhost:${String(port)}/ws`, {
+    const socket = new WebSocket(`ws://localhost:${String(port)}${path}`, {
       headers,
     });
     socket.addEventListener(
@@ -107,9 +107,9 @@ function expectRefused(headers: Record<string, string>): Promise<void> {
   });
 }
 
-function expectUrlRefused(url: string): Promise<void> {
+function expectUrlRefused(url: string, headers: Record<string, string>): Promise<void> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(url, { headers });
     socket.addEventListener(
       'open',
       () => {
@@ -129,23 +129,12 @@ function expectUrlRefused(url: string): Promise<void> {
 }
 
 describe('WebSocket query authentication', () => {
-  it('refuses a valid session JWT carried in the URL', async () => {
-    const app = buildApp({
-      beUrl: 'http://be.invalid',
-      internalAuthSecret: INTERNAL_SECRET,
-      jwtKey: JWT_KEY,
-    });
-    app.listen(0);
-    const queryPort = app.server?.port ?? 0;
+  it('refuses a valid session JWT carried in the production OIDC URL', async () => {
     const token = await tokenFor('ada');
 
-    try {
-      await expectUrlRefused(
-        `ws://localhost:${String(queryPort)}/ws?token=${encodeURIComponent(token)}`,
-      );
-    } finally {
-      await app.stop();
-    }
+    await expectUrlRefused(`ws://localhost:${String(port)}/ws?token=${encodeURIComponent(token)}`, {
+      origin: APP_ORIGIN,
+    });
   });
 });
 
@@ -161,10 +150,13 @@ describe('OIDC WebSocket authentication', () => {
     // Proof: without the cookie token source in the production beforeHandle,
     // this upgrade is refused as `missing token`. Watched 2026-08-24.
     const token = await tokenFor('ada');
-    const socket = await openSocket({
-      cookie: `__Host-wbs_access=${token}`,
-      origin: APP_ORIGIN,
-    });
+    const socket = await openSocket(
+      {
+        cookie: `__Host-wbs_access=${token}`,
+        origin: APP_ORIGIN,
+      },
+      '/ws?localIdentity=mallory',
+    );
 
     const received: unknown[] = [];
     socket.addEventListener('message', (event: MessageEvent<string>) => {

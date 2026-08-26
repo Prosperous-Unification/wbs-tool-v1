@@ -75,14 +75,8 @@ export async function me(): Promise<SessionUser | null> {
   return ((await res.json()) as { user: SessionUser }).user;
 }
 
-/**
- * The gateway takes the token in the query string, not a header: a browser
- * cannot set Authorization on a WebSocket handshake. That is also why the
- * edge exempts `/ws` from basic auth — gw-01 rejects a missing or invalid
- * token itself.
- */
-export function websocketUrl(token?: string): string {
-  void token;
+/** The access cookie authenticates the upgrade; the URL carries no credential. */
+export function websocketUrl(): string {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${scheme}://${location.host}/ws`;
 }

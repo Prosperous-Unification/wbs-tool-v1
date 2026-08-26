@@ -61,7 +61,7 @@ export function PresencePanel({ token, me, projectId }: PresencePanelProps) {
     // miniature that scoping exists to stop.
     setUsers([]);
     setStatus('connecting');
-    const ws = new WebSocket(websocketUrl(token));
+    const ws = new WebSocket(websocketUrl());
     socketRef.current = ws;
 
     ws.onopen = () => {

@@ -14,6 +14,13 @@ import { SubscriptionMap } from './service/subscription-map';
 
 /** Short: `/health` is polled, and a slow answer is as useless as no answer. */
 const HEALTH_PROBE_TIMEOUT_MS = 2_000;
+const LOCAL_IDENTITY = Symbol('local websocket identity');
+const VERIFIED_TOKEN = Symbol('verified websocket token');
+
+interface WsAuthCarrier {
+  [LOCAL_IDENTITY]?: string;
+  [VERIFIED_TOKEN]?: string;
+}
 
 function cookieValue(raw: string | null, name: string): string | null {
   for (const part of (raw ?? '').split(';')) {
@@ -55,7 +62,7 @@ interface WsConnection {
    * Never rejects: a token that fails here is already handled inside it.
    */
   joined: Promise<void>;
-  query?: { authenticatedUsername?: string; localIdentity?: string };
+  query?: WsAuthCarrier;
 }
 
 export interface AppOptions {
@@ -142,15 +149,12 @@ export function buildApp(opts: AppOptions) {
       .get('/metrics/snapshot', () => metrics.counters)
       .ws('/ws', {
         async beforeHandle({ query, request, set }) {
-          const wsQuery = query as {
-            authenticatedUsername?: string;
-            localIdentity?: string;
-          };
+          const auth = query as WsAuthCarrier;
           if (opts.localIdentity !== undefined) {
             // Proof: without this production upgrade branch, the local-mode
             // browser gate closes /ws as `missing token` and both peer-edit
             // cases fail after their PATCH returns 200. Watched 2026-08-24.
-            wsQuery.localIdentity = opts.localIdentity;
+            auth[LOCAL_IDENTITY] = opts.localIdentity;
             return undefined;
           }
           // There is deliberately no compatibility fallback to `query.token`.
@@ -174,13 +178,12 @@ export function buildApp(opts: AppOptions) {
             return { error: 'missing token' };
           }
           try {
-            const claims = await verifier.verify(token);
-            wsQuery.authenticatedUsername =
-              typeof claims['username'] === 'string' ? claims['username'] : claims.sub;
+            await verifier.verify(token);
           } catch {
             set.status = 401;
             return { error: 'invalid token' };
           }
+          auth[VERIFIED_TOKEN] = token;
           return undefined;
         },
         async open(ws) {
@@ -195,17 +198,26 @@ export function buildApp(opts: AppOptions) {
           // Assigned before this handler's first `await`, which is the only
           // point at which `message` and `close` can start. See {@link
           // WsConnection.joined} for what happened when they did not wait.
-          conn.joined = Promise.resolve().then(() => {
-            const username = conn.query?.localIdentity ?? conn.query?.authenticatedUsername;
-            if (username === undefined) return;
-            // A join puts the connection in no project — it has not said which
-            // one it is looking at yet, and until it subscribes it belongs to
-            // nothing (see {@link Presence}). The broadcast is what hands the
-            // newcomer its own empty roster; every other socket's is unchanged
-            // by a join, and only `onSubscribed` below moves anybody's.
-            presence.join(conn.connectionId, username, { send: (s) => ws.send(s) });
-            presence.broadcast();
-          });
+          conn.joined = (async () => {
+            try {
+              let username = conn.query?.[LOCAL_IDENTITY];
+              if (username === undefined) {
+                const token = conn.query?.[VERIFIED_TOKEN];
+                if (token === undefined) return;
+                const claims = await verifier.verify(token);
+                username = typeof claims['username'] === 'string' ? claims['username'] : claims.sub;
+              }
+              // A join puts the connection in no project — it has not said which
+              // one it is looking at yet, and until it subscribes it belongs to
+              // nothing (see {@link Presence}). The broadcast is what hands the
+              // newcomer its own empty roster; every other socket's is unchanged
+              // by a join, and only `onSubscribed` below moves anybody's.
+              presence.join(conn.connectionId, username, { send: (s) => ws.send(s) });
+              presence.broadcast();
+            } catch {
+              // beforeHandle already rejected invalid tokens; nothing to add.
+            }
+          })();
           await conn.joined;
         },
         async message(ws, data) {
