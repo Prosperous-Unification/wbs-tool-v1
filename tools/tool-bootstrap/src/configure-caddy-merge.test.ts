@@ -321,9 +321,7 @@ describe('configure.sh Caddyfile merge, executed', () => {
   it('takes the product of the host-state dimensions, not one factor at a time', () => {
     // The guard on the comment above. If a dimension is added and this falls
     // back to a sum, a mutation conditioned on two of them goes unseen again.
-    expect(HOST_STATES).toHaveLength(
-      DIMENSIONS.reduce((n, dimension) => n * dimension.length, 1),
-    );
+    expect(HOST_STATES).toHaveLength(DIMENSIONS.reduce((n, dimension) => n * dimension.length, 1));
     expect(new Set(HOST_STATES.map((state) => state.key)).size).toBe(HOST_STATES.length);
   });
 
@@ -452,7 +450,9 @@ describe('configure.sh Caddyfile merge, executed', () => {
       // whether the block ran -- which is what makes the counts below a
       // reachability result.
       for (const { key, run } of runs) {
-        expect(`${key}: status ${String(run.status)}`).toBe(`${key}: status ${String(STOP_STATUS)}`);
+        expect(`${key}: status ${String(run.status)}`).toBe(
+          `${key}: status ${String(STOP_STATUS)}`,
+        );
         expect(`${key}: ${run.stderr}`).toBe(`${key}: `);
         expect(run.siteCaddy).not.toBeNull();
       }
