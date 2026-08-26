@@ -583,10 +583,6 @@ describe('configure.sh Caddyfile merge, executed', () => {
   // Two ways an input gets there, and both are checked below:
   //   - the harness never sets it, so configure.sh's own default applies; or
   //   - the harness sets it TO configure.sh's default, read out of the script.
-  // REGISTRY_PASS is the one input with neither, and cannot have either: it
-  // has no default (configure.sh:61 dies without it) and its real value is a
-  // secret. So `case "$REGISTRY_PASS" in stopped-*)` survives this file --
-  // named here because the boundary is the point, not the omission.
   // REGISTRY_PASS is the one input with no shipped default and no possible
   // one: configure.sh:61 dies without it, and its real value is a secret. So
   // `case "$REGISTRY_PASS" in stopped-*)` survives this file -- named here
