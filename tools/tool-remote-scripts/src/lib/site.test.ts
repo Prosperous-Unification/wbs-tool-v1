@@ -230,6 +230,16 @@ describe('rendered dev site.caddy MCP exposure', () => {
     expect(exposed).toMatch(
       /handle\s+\/mcp\*\s*\{[\s\S]*?request_body\s*\{\s*max_size\s+64KB\s*\}[\s\S]*?reverse_proxy\s+wbs-dev-src:3300\s*\{[\s\S]*?header_up\s+X-Forwarded-For\s+\{remote_host\}/,
     );
+    for (const route of [
+      '/.well-known/oauth-protected-resource',
+      '/.well-known/oauth-protected-resource/mcp',
+      '/.well-known/oauth-authorization-server/mcp/oauth',
+    ]) {
+      const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect(exposed).toMatch(
+        new RegExp(`handle\\s+${escaped}\\s*\\{\\s*reverse_proxy\\s+wbs-dev-src:3300`),
+      );
+    }
   });
 
   it('keeps MCP routes absent before exposure is enabled', () => {
