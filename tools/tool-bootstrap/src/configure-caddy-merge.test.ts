@@ -269,17 +269,63 @@ describe('configure.sh Caddyfile merge, executed', () => {
     stubs?: Record<string, string>;
     seedCaddyfile?: string;
   }
-  const HOST_STATES: readonly HostState[] = [
-    // `bun --version` empty (not installed) and mismatched are the same branch
-    // -- the script compares for equality against $BUN_VERSION -- so one stub
-    // covers both.
-    { key: 'caddy unit absent', stubs: { systemctl: '#!/bin/sh\nexit 1\n' } },
-    { key: 'caddy unit present', stubs: { systemctl: '#!/bin/sh\nexit 0\n' } },
-    { key: 'pinned bun already installed' },
-    { key: 'bun missing or a different version', stubs: { bun: '#!/bin/sh\nexit 127\n' } },
-    { key: 'no Caddyfile yet' },
-    { key: 'a Caddyfile from an earlier run', seedCaddyfile: `${PRESERVED}\n` },
-  ];
+  // Sol round 6, and right a fifth time: six one-factor-at-a-time rows are not
+  // a matrix. They cover only four distinct states, and this survives all of
+  // them --
+  //
+  //   if [ "$current_bun_version" = "$BUN_VERSION" ] \
+  //      || [ ! -e "$WBS_ROOT/caddy/Caddyfile" ]; then <merge> fi
+  //
+  // -- because bun is pinned in the row that seeds a Caddyfile and no
+  // Caddyfile is seeded in the row that unpins bun, so the disjunction is
+  // true in every row and false only on the COMBINED state: a host configured
+  // once before whose bun has since drifted. That is a real host, and it is
+  // exactly the re-run these imports have to survive.
+  //
+  // So take the product, not the rows. Every boolean function of these three
+  // predicates is false in at least one of the eight cells unless it is a
+  // tautology over them -- and a tautology always runs the block, which is
+  // the outcome being asked for anyway.
+  //
+  // `bun --version` empty (not installed) and mismatched are ONE branch: the
+  // script compares for equality against $BUN_VERSION, so one stub covers
+  // both. Adding a branch to configure.sh means adding a dimension here.
+  const DIMENSIONS = [
+    [
+      ['no host caddy unit', { stubs: { systemctl: '#!/bin/sh\nexit 1\n' } }],
+      ['a host caddy unit', { stubs: { systemctl: '#!/bin/sh\nexit 0\n' } }],
+    ],
+    [
+      ['pinned bun installed', {}],
+      ['bun missing or a different version', { stubs: { bun: '#!/bin/sh\nexit 127\n' } }],
+    ],
+    [
+      ['no Caddyfile yet', {}],
+      ['a Caddyfile from an earlier run', { seedCaddyfile: `${PRESERVED}\n` }],
+    ],
+  ] as const satisfies readonly (readonly (readonly [string, Partial<HostState>])[])[];
+
+  const HOST_STATES: readonly HostState[] = DIMENSIONS.reduce<HostState[]>(
+    (acc, dimension) =>
+      acc.flatMap((partial) =>
+        dimension.map(([label, delta]) => ({
+          ...partial,
+          ...delta,
+          key: partial.key === '' ? label : `${partial.key}, ${label}`,
+          stubs: { ...partial.stubs, ...('stubs' in delta ? delta.stubs : {}) },
+        })),
+      ),
+    [{ key: '' }],
+  );
+
+  it('takes the product of the host-state dimensions, not one factor at a time', () => {
+    // The guard on the comment above. If a dimension is added and this falls
+    // back to a sum, a mutation conditioned on two of them goes unseen again.
+    expect(HOST_STATES).toHaveLength(
+      DIMENSIONS.reduce((n, dimension) => n * dimension.length, 1),
+    );
+    expect(new Set(HOST_STATES.map((state) => state.key)).size).toBe(HOST_STATES.length);
+  });
 
   for (const state of HOST_STATES) {
     it(`is reached by the shipped script, not merely runnable in isolation (${state.key})`, () => {
@@ -353,62 +399,73 @@ describe('configure.sh Caddyfile merge, executed', () => {
 
   // The wrappers above disconnect the block unconditionally, so any host state
   // kills them. These do not: each is a condition the shipped script itself
-  // reads, TRUE under the control run's stubs and false on a real host -- so
-  // each one passes every case above and is only caught by running it in the
-  // state that exposes it. Sol's round-5 finding is the second row; the third
-  // is the same shape and is the worst of them, because "only write the
-  // Caddyfile if there isn't one" skips exactly the re-run this whole block
-  // exists to protect.
-  const CONDITIONALS: readonly (readonly [
-    string,
-    (b: string) => string,
-    { stubs?: Record<string, string>; seedCaddyfile?: string },
-  ])[] = [
+  // reads, and each is TRUE on some hosts and false on others -- so each one
+  // passes every behavioural case and is caught only by the cell of the
+  // product where its condition goes false. Rather than hand-pick that cell
+  // (which is how round 6's disjunction slipped through -- the pick was made
+  // per-mutation, one factor at a time), every mutation runs the WHOLE
+  // product and the assertions are about the shape of the result.
+  const CONDITIONALS: readonly (readonly [string, (b: string) => string])[] = [
     [
       'a condition on the host caddy unit',
       (b) => `if ! systemctl list-unit-files caddy.service >/dev/null 2>&1; then\n${b}\nfi\n`,
-      { stubs: { systemctl: '#!/bin/sh\nexit 0\n' } },
     ],
     [
+      // Sol, round 5.
       'a condition on the installed bun version',
       (b) => `if [ "$current_bun_version" = "$BUN_VERSION" ]; then\n${b}\nfi\n`,
-      { stubs: { bun: '#!/bin/sh\nexit 127\n' } },
     ],
     [
       // The literal path, not "$caddyfile": that variable is assigned by the
       // block's own first line, so a wrapper referencing it would die on
       // `set -u` at status 2 and be scored as a kill for the wrong reason --
-      // the exact conflation this whole rewrite exists to remove.
+      // the exact conflation this rewrite exists to remove. This is also the
+      // worst of the three, because "only write it if there isn't one" skips
+      // precisely the re-run that has five live vhost imports to preserve.
       'a condition on the Caddyfile not already existing',
       (b) => `if [ ! -e "$WBS_ROOT/caddy/Caddyfile" ]; then\n${b}\nfi\n`,
-      { seedCaddyfile: 'import monitoring.caddy\n' },
+    ],
+    [
+      // Sol, round 6: false only where two dimensions go the wrong way at
+      // once. It is here so the product has to keep being a product.
+      'a condition spanning two host-state dimensions',
+      (b) =>
+        `if [ "$current_bun_version" = "$BUN_VERSION" ] || [ ! -e "$WBS_ROOT/caddy/Caddyfile" ]; then\n${b}\nfi\n`,
     ],
   ];
 
-  for (const [label, wrap, state] of CONDITIONALS) {
-    it(`writes no Caddyfile when the block is disconnected by ${label}`, () => {
-      const run = runShippedScript({
-        ...state,
-        mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
-      });
-      expect(run.status).toBe(STOP_STATUS);
-      expect(run.stderr).toBe('');
-      expect(run.siteCaddy).not.toBeNull();
-      // Seeded or not, what the block would have written is absent: an
-      // untouched seed still carries only the import it started with.
-      expect(importsOf(run.caddyfile ?? '')).not.toContain('import log-redact.caddy');
-    });
+  const wroteOwned = (run: { caddyfile: string | null }): boolean =>
+    importsOf(run.caddyfile ?? '').includes('import log-redact.caddy');
 
-    it(`and the same mutation still passes in the state that hides it (${label})`, () => {
-      // The control's job, stated as a case: without the exposing state each
-      // mutation is invisible, which is why the matrix above is the proof and
-      // a single default run is not.
-      const run = runShippedScript({
-        mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
-      });
-      expect(run.status).toBe(STOP_STATUS);
-      expect(run.caddyfile).not.toBeNull();
-      expect(importsOf(run.caddyfile ?? '')).toEqual(OWNED);
+  for (const [label, wrap] of CONDITIONALS) {
+    it(`is caught somewhere in the product when disconnected by ${label}`, () => {
+      const runs = HOST_STATES.map((state) => ({
+        key: state.key,
+        run: runShippedScript({
+          ...state,
+          mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+        }),
+      }));
+
+      // No cell may BREAK. Every one reaches the same stop having seeded
+      // site.caddy, so the only thing that varies across the product is
+      // whether the block ran -- which is what makes the counts below a
+      // reachability result.
+      for (const { key, run } of runs) {
+        expect(`${key}: status ${String(run.status)}`).toBe(`${key}: status ${String(STOP_STATUS)}`);
+        expect(`${key}: ${run.stderr}`).toBe(`${key}: `);
+        expect(run.siteCaddy).not.toBeNull();
+      }
+
+      const killed = runs.filter(({ run }) => !wroteOwned(run)).map(({ key }) => key);
+      const hidden = runs.filter(({ run }) => wroteOwned(run)).map(({ key }) => key);
+      // Caught somewhere: the product sees it at all.
+      expect(killed.length).toBeGreaterThan(0);
+      // Hidden somewhere: it is a CONDITIONAL disconnect, not a blanket one,
+      // so a single hand-picked state would have missed it and the product is
+      // doing the work. This is also what stops a no-op mutation scoring as a
+      // kill -- a no-op writes the imports in every cell and empties `killed`.
+      expect(hidden.length).toBeGreaterThan(0);
     });
   }
 
