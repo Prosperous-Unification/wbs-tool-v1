@@ -122,19 +122,12 @@ require it for day-to-day dev.
   ends.
 - **`@/` imports fail in fe-01 tests** — run them via `bunx nx test fe-01`
   (Vitest resolves the alias); root `bun test` does not.
-- **JWT errors on gw-01 WS upgrade** — expected when connecting without a JWT.
-  Get a real token the way the app does — register, then log in:
-
-  ```sh
-  curl -s -X POST localhost:3100/api/auth/register \
-    -H 'content-type: application/json' \
-    -d '{"username":"ada","password":"lovelace99"}' | jq -r .token
-  ```
-
-  Then `wscat -c 'ws://localhost:3200/ws?token=<that token>'`. Signing one by hand
-  is no longer the route: be-01 issues the tokens gw-01 verifies, and both read the
-  same `JWT_SIGNING_KEY_CURRENT` — `dev:setup` seeds them identically, and
-  `tools/dev/setup.test.ts` fails if the two `.env.example` files ever disagree.
+- **gw-01 refuses the WS upgrade** — check the configured authentication mode.
+  The seeded local mode uses its fixed development identity, so
+  `wscat -c 'ws://localhost:3200/ws'` opens without a credential. OIDC mode
+  accepts only the `__Host-wbs_access` httpOnly cookie from the configured exact
+  Origin; use the browser login flow for that check. Never append `?token=` or
+  `?localIdentity=`: URL values do not authenticate a socket.
 
 ## What local dev does NOT do
 
