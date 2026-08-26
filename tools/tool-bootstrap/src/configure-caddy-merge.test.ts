@@ -218,8 +218,8 @@ describe('configure.sh Caddyfile merge, executed', () => {
   // merge entirely on a host that does have that unit. So the proof runs under
   // both outcomes of the one stubbed command the script branches on.
   for (const [label, exitCode] of [
-    ['no host caddy unit', 1],
-    ['a host caddy unit already present', 0],
+    ['no host caddy unit', '1'],
+    ['a host caddy unit already present', '0'],
   ] as const) {
     it(`is reached by the shipped script, not merely runnable in isolation (${label})`, () => {
       // KNOWN LIMIT, stated because it is not what it looks like. This runs a
