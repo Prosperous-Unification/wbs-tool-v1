@@ -122,9 +122,7 @@ const ENV_AXIS_NAMES: readonly string[] = [
 const assertEveryNameAccountedFor = (env: Record<string, string>): void => {
   const unaccounted = Object.keys(env).filter(
     (name) =>
-      !(name in PINNED_BY_CONSTRUCTION) &&
-      !(name in BASE_ENV) &&
-      !ENV_AXIS_NAMES.includes(name),
+      !(name in PINNED_BY_CONSTRUCTION) && !(name in BASE_ENV) && !ENV_AXIS_NAMES.includes(name),
   );
   if (unaccounted.length > 0) {
     throw new Error(
