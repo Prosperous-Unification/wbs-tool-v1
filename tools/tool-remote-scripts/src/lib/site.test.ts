@@ -195,3 +195,39 @@ describe('rendered site.caddy access logging', () => {
     expect(rendered).not.toContain('output file /var/log/caddy');
   });
 });
+
+// TASK-160. A swap rewrites the complete dev vhost. Once the persistent
+// exposure marker says the reviewed MCP surface is live, rendering only the
+// generic app/API/WS routes silently removes that surface on the next swap.
+describe('rendered dev site.caddy MCP exposure', () => {
+  const rendered = (mcpExposed: boolean) =>
+    renderTemplate(
+      siteCaddyTmpl,
+      siteContext(
+        { be: 'green', gw: 'blue', fe: 'green' },
+        'dev.wbs.bulletpoints.club',
+        mcpExposed,
+      ),
+    );
+
+  it('preserves the reviewed MCP routes after exposure is enabled', () => {
+    const exposed = rendered(true);
+    expect(
+      [...exposed.matchAll(/^\s*handle\s+(\/mcp\*|\/\.well-known\/\S+)\s*\{/gm)].map(
+        (match) => match[1],
+      ),
+    ).toEqual([
+      '/mcp*',
+      '/.well-known/oauth-protected-resource',
+      '/.well-known/oauth-protected-resource/mcp',
+      '/.well-known/oauth-authorization-server/mcp/oauth',
+    ]);
+    expect(exposed).toMatch(
+      /handle\s+\/mcp\*\s*\{[\s\S]*?request_body\s*\{\s*max_size\s+64KB\s*\}[\s\S]*?reverse_proxy\s+wbs-dev-src:3300\s*\{[\s\S]*?header_up\s+X-Forwarded-For\s+\{remote_host\}/,
+    );
+  });
+
+  it('keeps MCP routes absent before exposure is enabled', () => {
+    expect(rendered(false)).not.toMatch(/^\s*handle\s+(\/mcp|\/\.well-known\/)/m);
+  });
+});
