@@ -12,9 +12,9 @@ import { flipColor, parseStateJson, renderStateJson } from './lib/state';
 import {
   isFileAbsent,
   parseRecordedColor,
-  readMcpExposure,
   parseTierList,
   pollActiveConnections,
+  readMcpExposure,
   readSiteCaddy,
   runSwaps,
   shouldRestoreSiteCaddy,
