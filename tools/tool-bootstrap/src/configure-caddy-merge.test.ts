@@ -119,10 +119,20 @@ const ENV_AXIS_NAMES: readonly string[] = [
 // configure.sh is a stated boundary pin, a BASE_ENV pin held to the shipped
 // default, or an axis that varies, and a name that is none of those is a value
 // no cell varies and no guard covers.
+// `Object.hasOwn`, never `in`, and that is the whole of Sol's round-11 BLOCK:
+// `'constructor' in PINNED_BY_CONSTRUCTION` is TRUE through Object.prototype,
+// as are `toString`, `valueOf`, `hasOwnProperty`, `isPrototypeOf`,
+// `propertyIsEnumerable`, `toLocaleString` and `__proto__` -- and every one of
+// them is a legal shell variable name. So `constructor: 'harness-only'` in the
+// env literal read as accounted-for, and `[ "${constructor:-}" = harness-only ]`
+// was the round-10 mutation again, wearing an inherited key. The closed set was
+// never closed; it just looked closed to `in`.
 const assertEveryNameAccountedFor = (env: Record<string, string>): void => {
   const unaccounted = Object.keys(env).filter(
     (name) =>
-      !(name in PINNED_BY_CONSTRUCTION) && !(name in BASE_ENV) && !ENV_AXIS_NAMES.includes(name),
+      !Object.hasOwn(PINNED_BY_CONSTRUCTION, name) &&
+      !Object.hasOwn(BASE_ENV, name) &&
+      !ENV_AXIS_NAMES.includes(name),
   );
   if (unaccounted.length > 0) {
     throw new Error(
@@ -132,7 +142,7 @@ const assertEveryNameAccountedFor = (env: Record<string, string>): void => {
   // The other direction, so the stated boundary cannot outlive the pin it
   // describes: an entry left behind after its pin was dropped would make this
   // file claim it proves less than it does.
-  const stale = Object.keys(PINNED_BY_CONSTRUCTION).filter((name) => !(name in env));
+  const stale = Object.keys(PINNED_BY_CONSTRUCTION).filter((name) => !Object.hasOwn(env, name));
   if (stale.length > 0) {
     throw new Error(
       `PINNED_BY_CONSTRUCTION names ${stale.join()} but the harness no longer pins it; a stated boundary with nothing behind it understates what this file proves`,
@@ -296,7 +306,7 @@ const runShippedScript = (
   // `caddyfile: null` and score the cell a kill for the wrong reason, the same
   // conflation the whole-script rewrite exists to remove.
   for (const [name, reason] of Object.entries(PINNED_BY_CONSTRUCTION)) {
-    if (name in overrides) {
+    if (Object.hasOwn(overrides, name)) {
       throw new Error(`${name} is fixed by construction: ${reason}`);
     }
   }
@@ -683,7 +693,7 @@ describe('configure.sh Caddyfile merge, executed', () => {
     // Nothing may be pinned by construction and an axis at the same time: an
     // axis would look varied while the harness overwrote it back to one value.
     for (const axis of ENV_AXES) {
-      if (axis.name in PINNED_BY_CONSTRUCTION) {
+      if (Object.hasOwn(PINNED_BY_CONSTRUCTION, axis.name)) {
         wrong.push(`${axis.name}: pinned by construction, so it cannot also be an axis`);
       }
     }
@@ -715,7 +725,7 @@ describe('configure.sh Caddyfile merge, executed', () => {
       }
     }
     for (const axis of ENV_AXES) {
-      if (!(axis.name in axis.alternative)) {
+      if (!Object.hasOwn(axis.alternative, axis.name)) {
         wrong.push(`${axis.name}: its alternative must set its own name`);
         continue;
       }
@@ -737,6 +747,21 @@ describe('configure.sh Caddyfile merge, executed', () => {
     }
     expect(wrong).toEqual([]);
   });
+
+  // The regression case for Sol's round-11 BLOCK, executable rather than
+  // argued. Every name here is inherited from Object.prototype, so `in` says
+  // the closed set contains it, and every one is a legal shell variable name --
+  // `[ "${constructor:-}" = harness-only ]` would have been true in all 128
+  // cells and false on every real host. `Object.hasOwn` is what makes the set
+  // closed; this case is what makes a future `in` fail loudly instead of
+  // quietly widening it again.
+  for (const inherited of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+    it(`refuses ${inherited}, which is inherited rather than in the closed set`, () => {
+      expect(() => runShippedScript({ env: { [inherited]: 'harness-only' } })).toThrow(
+        /neither a stated PINNED_BY_CONSTRUCTION boundary/,
+      );
+    });
+  }
 
   // Enumerated in binary, so cell i takes axis k's alternative exactly when
   // bit k of i is set. That is the full product -- all 2^7 combinations, not
@@ -771,7 +796,8 @@ describe('configure.sh Caddyfile merge, executed', () => {
   // boundary pin, a BASE_ENV pin at the shipped default, or an axis
   // (`assertEveryNameAccountedFor`), so a new pin cannot join silently from
   // anywhere -- not the merge literal, not an axis's alternative, not an
-  // override.
+  // override, and not through Object.prototype, which is what round 11 found
+  // and what `Object.hasOwn` closes.
   const HOST_WEIGHTS = [1, 2, 4] as const;
   const hostIndexFor = (picks: readonly boolean[]): number =>
     picks.reduce(
