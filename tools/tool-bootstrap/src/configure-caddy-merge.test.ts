@@ -54,6 +54,26 @@ const shippedDefault = (name: string): string => {
   return m[1];
 };
 
+// The environment inputs this harness pins to a value NO real host has, each
+// with the reason it cannot be otherwise. The OpenAI seat's round-9 BLOCK is
+// why this is an enumerated list with reasons rather than an implicit
+// consequence of how `runShippedScript` happens to build its env: PATH was
+// pinned to the stub directory, no cell had a real host's PATH, and
+//
+//   if [ "${PATH%%:*}" = "$WBS_ROOT/stubbin" ]; then <merge> fi
+//
+// was true in all 128 cells and false on every real host. That pin cannot be
+// removed -- it is what makes the script runnable unprivileged and stoppable
+// before it writes outside WBS_ROOT -- so it is a stated boundary instead, and
+// `runShippedScript` throws if the set of by-construction pins ever stops
+// matching this list. A new pin is then either an env axis with the shipped
+// default (below) or a deliberate, reasoned entry here. It cannot be neither.
+const PINNED_BY_CONSTRUCTION: Record<string, string> = {
+  PATH: 'the stub directory must come first: it is what makes the script runnable unprivileged and stops it at htpasswd, before the one step that writes outside WBS_ROOT',
+  WBS_ROOT:
+    'a fresh /tmp directory this harness reads its results out of; it must never be a real /home/*/wbs',
+};
+
 // The part of the harness environment that is a fixed VALUE rather than a
 // per-run path. Every key here that configure.sh gives a default must be
 // pinned to that default -- see the guard case below for why.
@@ -218,10 +238,21 @@ const runShippedScript = (
   if ('WBS_ROOT' in overrides) {
     throw new Error('WBS_ROOT is fixed by construction: this harness reads its results out of it');
   }
+  const byConstruction: Record<string, string> = {
+    PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+    WBS_ROOT: root,
+  };
+  // Fires on every run, not only when someone remembers to look: a pin added
+  // here without a reason in PINNED_BY_CONSTRUCTION is a value no cell has and
+  // no guard covers, which is exactly the round-9 finding.
+  if (Object.keys(byConstruction).join() !== Object.keys(PINNED_BY_CONSTRUCTION).join()) {
+    throw new Error(
+      `the harness pins ${Object.keys(byConstruction).join()} by construction but PINNED_BY_CONSTRUCTION names ${Object.keys(PINNED_BY_CONSTRUCTION).join()}; a pin with no stated reason is a value no cell has`,
+    );
+  }
   const env = Object.fromEntries(
     Object.entries<string | null>({
-      PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
-      WBS_ROOT: root,
+      ...byConstruction,
       ...BASE_ENV,
       ...overrides,
     }).filter((entry): entry is [string, string] => entry[1] !== null),
@@ -595,6 +626,18 @@ describe('configure.sh Caddyfile merge, executed', () => {
     // happened to name: anything this harness pins to a fixed value must be
     // pinned to configure.sh's own default, read out of the script. A future
     // pin added without that is the same hole again.
+    // Nothing may be pinned by construction and an axis at the same time: an
+    // axis would look varied while the harness overwrote it back to one value.
+    for (const axis of ENV_AXES) {
+      if (axis.name in PINNED_BY_CONSTRUCTION) {
+        wrong.push(`${axis.name}: pinned by construction, so it cannot also be an axis`);
+      }
+    }
+    for (const [name, reason] of Object.entries(PINNED_BY_CONSTRUCTION)) {
+      // A reason, not a placeholder -- this list is the file's stated boundary,
+      // and an entry with nothing written next to it silently widens it.
+      if (reason.length < 40) wrong.push(`${name}: needs a stated reason, not a label`);
+    }
     for (const [name, pinned] of Object.entries(BASE_ENV)) {
       if (NO_SHIPPED_DEFAULT.includes(name)) continue;
       const shipped = shippedDefault(name);
@@ -649,9 +692,12 @@ describe('configure.sh Caddyfile merge, executed', () => {
   // The boundary, stated rather than left to be inferred. Uncovered here:
   // a condition needing TWO env axes AND a host-state dimension to align at
   // once, and any property shared by every value this harness can give a
-  // pinned input (`WBS_ROOT` is always a fresh /tmp path, so `case "$WBS_ROOT"
-  // in /tmp/*)` survives -- it cannot be otherwise while the tests run
-  // unprivileged and must not write to a real /home/*/wbs).
+  // pin it cannot vary -- the entries of PINNED_BY_CONSTRUCTION. So
+  // `case "$WBS_ROOT" in /tmp/*)` and `[ "${PATH%%:*}" = "$WBS_ROOT/stubbin" ]`
+  // both survive this file. Neither pin can be dropped: one is where the
+  // results are read from, the other is what stops the script before it writes
+  // outside WBS_ROOT. What the list buys is that the set is CLOSED -- a new
+  // pin cannot join it silently.
   const HOST_WEIGHTS = [1, 2, 4] as const;
   const hostIndexFor = (picks: readonly boolean[]): number =>
     picks.reduce(
