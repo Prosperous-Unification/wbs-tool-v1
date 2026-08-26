@@ -276,19 +276,20 @@ describe('tierEnvFiles', () => {
 describe('deriveTierSecrets', () => {
   const SHARED =
     'INTERNAL_AUTH_SECRET=shared-secret-32-characters-long\n' +
-    'JWT_SIGNING_KEY_CURRENT=jwt-current-32-characters-long!\n' +
+    'JWT_SIGNING_KEY_CURRENT=jwt-current-secret-is-at-least-32-chars!\n' +
     'REGISTRY_PASS=super-secret-registry-password\n';
 
-  it('gives be-01 only INTERNAL_AUTH_SECRET', () => {
+  it('gives be-01 INTERNAL_AUTH_SECRET and the JWT signing key, but never REGISTRY_PASS', () => {
     expect(deriveTierSecrets('be', SHARED)).toBe(
-      'INTERNAL_AUTH_SECRET=shared-secret-32-characters-long\n',
+      'INTERNAL_AUTH_SECRET=shared-secret-32-characters-long\n' +
+        'JWT_SIGNING_KEY_CURRENT=jwt-current-secret-is-at-least-32-chars!\n',
     );
   });
 
   it('gives gw-01 INTERNAL_AUTH_SECRET and the JWT signing key, but never REGISTRY_PASS', () => {
     const out = deriveTierSecrets('gw', SHARED);
     expect(out).toContain('INTERNAL_AUTH_SECRET=shared-secret-32-characters-long');
-    expect(out).toContain('JWT_SIGNING_KEY_CURRENT=jwt-current-32-characters-long!');
+    expect(out).toContain('JWT_SIGNING_KEY_CURRENT=jwt-current-secret-is-at-least-32-chars!');
     expect(out).not.toContain('REGISTRY_PASS');
   });
 
@@ -314,6 +315,42 @@ describe('deriveTierSecrets', () => {
 
   it('omits an optional key the shared file does not carry (JWT_SIGNING_KEY_PREVIOUS)', () => {
     expect(deriveTierSecrets('gw', SHARED)).not.toContain('JWT_SIGNING_KEY_PREVIOUS');
+  });
+
+  it("constructs a complete BeConfig from app config plus be's derived shared secrets", async () => {
+    // This is deliberately a runtime cross-project contract check. A static
+    // infra -> app import would make the deploy library depend on an app;
+    // the computed specifier keeps that exception inside this test only.
+    const beModule: unknown = await import(['../../../..', 'apps/be-01/src/config'].join('/'));
+    if (
+      typeof beModule !== 'object' ||
+      beModule === null ||
+      !('BeConfig' in beModule) ||
+      typeof beModule.BeConfig !== 'function'
+    ) {
+      throw new Error('apps/be-01/src/config does not export BeConfig');
+    }
+    const validateBeConfig = beModule.BeConfig as (env: Record<string, string>) => unknown;
+    const derived = Object.fromEntries(
+      deriveTierSecrets('be', SHARED)
+        .trimEnd()
+        .split('\n')
+        .map((line) => {
+          const separator = line.indexOf('=');
+          return [line.slice(0, separator), line.slice(separator + 1)];
+        }),
+    );
+
+    expect(
+      validateBeConfig({
+        PORT: '3100',
+        LOG_LEVEL: 'info',
+        GW_URL: 'http://gw-01:3200',
+        DB_PATH: '/data/wbs.db',
+        AUTH_MODE: 'oidc',
+        ...derived,
+      }),
+    ).not.toHaveProperty('summary');
   });
 });
 

@@ -114,7 +114,8 @@ export function assertDigestPinnedRef(ref: string, tier: Tier): string {
  *
  * - fe-01 (`apps/fe-01`) is a static `caddy:2-alpine` server with no
  *   `config.ts` at all. It needs, and gets, zero secrets.
- * - be-01 (`apps/be-01/src/config.ts`) reads only `INTERNAL_AUTH_SECRET`.
+ * - be-01 (`apps/be-01/src/config.ts`) reads `INTERNAL_AUTH_SECRET` plus the
+ *   JWT signing key it uses to mint `/ws` tokens.
  * - gw-01 (`apps/gw-01/src/config.ts`) reads `INTERNAL_AUTH_SECRET` plus the
  *   JWT signing key(s) it verifies `/ws` tokens against.
  *
@@ -126,7 +127,7 @@ export function assertDigestPinnedRef(ref: string, tier: Tier): string {
  * registry. See `deriveTierSecrets`.
  */
 const SECRET_KEYS: Record<Tier, readonly string[]> = {
-  be: ['INTERNAL_AUTH_SECRET'],
+  be: ['INTERNAL_AUTH_SECRET', 'JWT_SIGNING_KEY_CURRENT'],
   gw: ['INTERNAL_AUTH_SECRET', 'JWT_SIGNING_KEY_CURRENT', 'JWT_SIGNING_KEY_PREVIOUS'],
   fe: [],
 };
