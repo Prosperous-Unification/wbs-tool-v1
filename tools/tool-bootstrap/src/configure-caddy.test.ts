@@ -38,15 +38,25 @@ describe('configure.sh Caddy provisioning', () => {
   });
 
   it('imports log-redact.caddy before site.caddy, in both copies', () => {
+    // Comments in both files quote `import site.caddy` while explaining the
+    // history, so this reads the lines that actually get emitted rather than
+    // the first occurrence of the string anywhere in the file.
+    const emitted = (text: string): string[] =>
+      text
+        .split('\n')
+        .map((l) => l.replace(/^\s*printf '(.*)\\n'\s*$/, '$1').trim())
+        .filter((l) => /^import\s+\S+$/.test(l));
+
     for (const [name, text] of [
       ['configure.sh', configureSh],
       ['Caddyfile.bootstrap', bootstrapCaddyfile],
     ] as const) {
-      const redact = text.indexOf('import log-redact.caddy');
-      const site = text.indexOf('import site.caddy');
-      expect(redact, `${name} imports log-redact.caddy`).toBeGreaterThanOrEqual(0);
-      expect(site, `${name} imports site.caddy`).toBeGreaterThanOrEqual(0);
-      expect(redact, `${name} imports log-redact.caddy first`).toBeLessThan(site);
+      const lines = emitted(text);
+      const redact = lines.indexOf('import log-redact.caddy');
+      const site = lines.indexOf('import site.caddy');
+      expect(redact, `${name} emits import log-redact.caddy`).toBeGreaterThanOrEqual(0);
+      expect(site, `${name} emits import site.caddy`).toBeGreaterThanOrEqual(0);
+      expect(redact, `${name} emits log-redact.caddy first`).toBeLessThan(site);
     }
   });
 

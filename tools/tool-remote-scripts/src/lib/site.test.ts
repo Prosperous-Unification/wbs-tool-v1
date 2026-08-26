@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-
 import { renderTemplate, siteCaddyTmpl } from '@wbs/tool-compose';
+import { describe, expect, it } from 'bun:test';
 
 import { routedColorFor, routedColorFromAdminConfig, siteContext } from './site';
 
