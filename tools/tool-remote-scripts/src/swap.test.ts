@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -500,6 +500,16 @@ describe('readMcpExposure', () => {
     expect(await readMcpExposure(at('prod'))).toBe(false);
   });
 
+  it('never reads the marker path in prod, not even to discard what it read', async () => {
+    // Fable round-3 Minor 1: the test above cannot tell "never reads" from
+    // "reads, then discards". A directory at the marker path throws EISDIR on
+    // any read at all, so this fails the moment the environment branch moves
+    // below the read — which would abort a PROD swap on a prod-path marker
+    // that prod has no business consulting.
+    mkdirSync(join(dir, 'mcp-exposure'));
+    expect(await readMcpExposure(at('prod'))).toBe(false);
+  });
+
   it('treats an absent dev marker as pre-cutover rather than an error', async () => {
     expect(await readMcpExposure(at('dev'))).toBe(false);
   });
@@ -518,6 +528,25 @@ describe('readMcpExposure', () => {
       threw = true;
       expect(e instanceof Error && e.message).toMatch(/refusing to rewrite the dev vhost/);
       expect(e instanceof Error && e.message).toMatch(/malformed MCP exposure state/);
+    }
+    expect(threw).toBe(true);
+  });
+
+  it('refuses a permission-denied dev marker, the shape a mode-600 marker fails in', async () => {
+    // Fable round-3 Minor 2: EISDIR alone leaves a narrower loosening alive —
+    // `isFileAbsent(e) || e.code === 'EACCES'` bypasses isFileAbsent entirely
+    // and survives every other test here. The real marker is installed mode
+    // 600, so EACCES is its realistic unreadable shape.
+    if (process.getuid?.() === 0) return; // root ignores mode bits
+    const marker = join(dir, 'mcp-exposure');
+    writeFileSync(marker, 'enabled\n');
+    chmodSync(marker, 0o000);
+    let threw = false;
+    try {
+      await readMcpExposure(at('dev'));
+    } catch (e: unknown) {
+      threw = true;
+      expect(e instanceof Error && e.message).toMatch(/cannot read/);
     }
     expect(threw).toBe(true);
   });

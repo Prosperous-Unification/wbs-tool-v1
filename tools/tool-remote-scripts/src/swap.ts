@@ -77,14 +77,15 @@ const SITE_CADDY_PATH = CURRENT_ENV.siteCaddyPath;
  * cannot be read — stops the swap rather than rewriting the vhost without
  * knowing what it is allowed to serve.
  *
- * `layout` is a parameter rather than a direct `CURRENT_ENV` read purely so a
- * test can drive it: `CURRENT_ENV` is frozen at import, so nothing else can
+ * `layout` is a required parameter rather than a direct `CURRENT_ENV` read so
+ * a test can drive it: `CURRENT_ENV` is frozen at import, so nothing else can
  * reach the environment branch, the ENOENT tolerance, or the unreadable-file
- * refusal. Same `layout: EnvLayout = CURRENT_ENV` shape `containerName` and
- * `tierEnvFiles` already use in lib/docker.ts, so every real call site is
- * unchanged.
+ * refusal. Required rather than `= CURRENT_ENV` (the shape `containerName` and
+ * `tierEnvFiles` use in lib/docker.ts) because those have many call sites and
+ * this has exactly one: a default here would be a production path no test ever
+ * takes, so a mutation to the default would leave the whole suite green.
  */
-export async function readMcpExposure(layout: EnvLayout = CURRENT_ENV): Promise<boolean> {
+export async function readMcpExposure(layout: EnvLayout): Promise<boolean> {
   if (layout.env !== 'dev') return false;
   const path = `${layout.stateDir}/mcp-exposure`;
   try {
@@ -729,7 +730,7 @@ async function execute(plan: SwapPlan, image: string, sha: string): Promise<void
           colors[tier] = to;
           const rendered = renderTemplate(
             siteCaddyTmpl,
-            siteContext(colors, SITE_ADDRESS, await readMcpExposure()),
+            siteContext(colors, SITE_ADDRESS, await readMcpExposure(CURRENT_ENV)),
           );
           // Captured before the write, so abortSwap can put the file back
           // exactly as it found it.
