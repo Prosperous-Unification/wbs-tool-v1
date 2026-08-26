@@ -142,7 +142,11 @@ const readOrNull = (path: string): string | null => {
 };
 
 const runShippedScript = (
-  opts: { stubs?: Record<string, string>; mutate?: (text: string) => string } = {},
+  opts: {
+    stubs?: Record<string, string>;
+    mutate?: (text: string) => string;
+    seedCaddyfile?: string;
+  } = {},
 ): {
   status: number | null;
   stderr: string;
@@ -150,6 +154,13 @@ const runShippedScript = (
   siteCaddy: string | null;
 } => {
   const root = mkdtempSync(join(tmpdir(), 'task160-reach-'));
+  if (opts.seedCaddyfile !== undefined) {
+    // A host that has already been configured once. The script creates this
+    // directory itself, well before the block under test; seeding it here just
+    // puts the file there first.
+    mkdirSync(join(root, 'caddy'), { recursive: true });
+    writeFileSync(join(root, 'caddy', 'Caddyfile'), opts.seedCaddyfile);
+  }
   const bin = join(root, 'stubbin');
   mkdirSync(bin);
   for (const [name, body] of Object.entries({ ...STUBS, ...(opts.stubs ?? {}) })) {
@@ -243,17 +254,36 @@ describe('configure.sh Caddyfile merge, executed', () => {
     expect(mergeBlock.split('\n').length).toBeGreaterThan(20);
   });
 
-  // Sol round 4: a stub with ONE fixed outcome pins one branch of the shipped
-  // script. `if ! systemctl list-unit-files caddy.service; then <merge> fi` is
-  // `sh -n` clean, passes here because the stub always exits 1, and skips the
-  // merge entirely on a host that does have that unit. So the proof runs under
-  // both outcomes of the one stubbed command the script branches on.
-  for (const [label, exitCode] of [
-    ['no host caddy unit', '1'],
-    ['a host caddy unit already present', '0'],
-  ] as const) {
-    it(`is reached by the shipped script, not merely runnable in isolation (${label})`, () => {
-      const run = runShippedScript({ stubs: { systemctl: `#!/bin/sh\nexit ${exitCode}\n` } });
+  // Sol round 4, generalised in round 5: a stub with ONE fixed outcome pins one
+  // branch of the shipped script, and a mutation that wraps the merge block in
+  // THAT condition survives every assertion here while skipping the merge on a
+  // real host. `if ! systemctl list-unit-files caddy.service; then <merge> fi`
+  // was the first instance; Sol found the second (`bun --version`), and the
+  // same shape gives a third (a Caddyfile that already exists). So the control
+  // runs the whole matrix of host state the script reads before the block,
+  // and each conditional mutation below is paired with the state that exposes
+  // it. Adding a branch to configure.sh means adding a dimension here.
+  const PRESERVED = 'import monitoring.caddy';
+  interface HostState {
+    key: string;
+    stubs?: Record<string, string>;
+    seedCaddyfile?: string;
+  }
+  const HOST_STATES: readonly HostState[] = [
+    // `bun --version` empty (not installed) and mismatched are the same branch
+    // -- the script compares for equality against $BUN_VERSION -- so one stub
+    // covers both.
+    { key: 'caddy unit absent', stubs: { systemctl: '#!/bin/sh\nexit 1\n' } },
+    { key: 'caddy unit present', stubs: { systemctl: '#!/bin/sh\nexit 0\n' } },
+    { key: 'pinned bun already installed' },
+    { key: 'bun missing or a different version', stubs: { bun: '#!/bin/sh\nexit 127\n' } },
+    { key: 'no Caddyfile yet' },
+    { key: 'a Caddyfile from an earlier run', seedCaddyfile: `${PRESERVED}\n` },
+  ];
+
+  for (const state of HOST_STATES) {
+    it(`is reached by the shipped script, not merely runnable in isolation (${state.key})`, () => {
+      const run = runShippedScript(state);
       // The stop is the htpasswd stub, so the script ran PAST the merge block
       // and past the site.caddy seed to get here. Asserting the status pins
       // where it stopped: any earlier failure carries a different one.
@@ -261,7 +291,9 @@ describe('configure.sh Caddyfile merge, executed', () => {
       expect(run.stderr).toBe('');
       expect(run.siteCaddy).not.toBeNull();
       expect(run.caddyfile).not.toBeNull();
-      expect(importsOf(run.caddyfile ?? '')).toEqual(OWNED);
+      expect(importsOf(run.caddyfile ?? '')).toEqual(
+        state.seedCaddyfile === undefined ? OWNED : [...OWNED, PRESERVED],
+      );
     });
   }
 
@@ -316,6 +348,67 @@ describe('configure.sh Caddyfile merge, executed', () => {
       expect(run.stderr).toBe('');
       expect(run.siteCaddy).not.toBeNull();
       expect(run.caddyfile).toBeNull();
+    });
+  }
+
+  // The wrappers above disconnect the block unconditionally, so any host state
+  // kills them. These do not: each is a condition the shipped script itself
+  // reads, TRUE under the control run's stubs and false on a real host -- so
+  // each one passes every case above and is only caught by running it in the
+  // state that exposes it. Sol's round-5 finding is the second row; the third
+  // is the same shape and is the worst of them, because "only write the
+  // Caddyfile if there isn't one" skips exactly the re-run this whole block
+  // exists to protect.
+  const CONDITIONALS: readonly (readonly [
+    string,
+    (b: string) => string,
+    { stubs?: Record<string, string>; seedCaddyfile?: string },
+  ])[] = [
+    [
+      'a condition on the host caddy unit',
+      (b) => `if ! systemctl list-unit-files caddy.service >/dev/null 2>&1; then\n${b}\nfi\n`,
+      { stubs: { systemctl: '#!/bin/sh\nexit 0\n' } },
+    ],
+    [
+      'a condition on the installed bun version',
+      (b) => `if [ "$current_bun_version" = "$BUN_VERSION" ]; then\n${b}\nfi\n`,
+      { stubs: { bun: '#!/bin/sh\nexit 127\n' } },
+    ],
+    [
+      // The literal path, not "$caddyfile": that variable is assigned by the
+      // block's own first line, so a wrapper referencing it would die on
+      // `set -u` at status 2 and be scored as a kill for the wrong reason --
+      // the exact conflation this whole rewrite exists to remove.
+      'a condition on the Caddyfile not already existing',
+      (b) => `if [ ! -e "$WBS_ROOT/caddy/Caddyfile" ]; then\n${b}\nfi\n`,
+      { seedCaddyfile: 'import monitoring.caddy\n' },
+    ],
+  ];
+
+  for (const [label, wrap, state] of CONDITIONALS) {
+    it(`writes no Caddyfile when the block is disconnected by ${label}`, () => {
+      const run = runShippedScript({
+        ...state,
+        mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+      });
+      expect(run.status).toBe(STOP_STATUS);
+      expect(run.stderr).toBe('');
+      expect(run.siteCaddy).not.toBeNull();
+      // Seeded or not, what the block would have written is absent: an
+      // untouched seed still carries only the import it started with.
+      expect(importsOf(run.caddyfile ?? '')).not.toContain('import log-redact.caddy');
+    });
+
+    it(`and the same mutation still passes in the state that hides it (${label})`, () => {
+      // The control's job, stated as a case: without the exposing state each
+      // mutation is invisible, which is why the matrix above is the proof and
+      // a single default run is not.
+      const run = runShippedScript({
+        mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+      });
+      expect(run.status).toBe(STOP_STATUS);
+      expect(run.caddyfile).not.toBeNull();
+      expect(importsOf(run.caddyfile ?? '')).toEqual(OWNED);
     });
   }
 
