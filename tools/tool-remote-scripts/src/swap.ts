@@ -28,6 +28,7 @@ import {
   CURRENT_ENV,
   deriveTierSecrets,
   EDGE_CONTAINER,
+  type EnvLayout,
   grantAliasCommands,
   manifestInspectArgs,
   migrateDownCommand,
@@ -67,9 +68,25 @@ const SITE_ADDRESS = process.env['SITE_ADDRESS'] ?? CURRENT_ENV.siteAddress;
 // not live under the environment's own root. lib/env.ts states that exception.
 const SITE_CADDY_PATH = CURRENT_ENV.siteCaddyPath;
 
-async function readMcpExposure(): Promise<boolean> {
-  if (CURRENT_ENV.env !== 'dev') return false;
-  const path = `${CURRENT_ENV.stateDir}/mcp-exposure`;
+/**
+ * Whether this environment's reviewed public MCP surface is enabled.
+ *
+ * Three outcomes, all fail-closed and all reached before `writeAtomic`: prod
+ * never reads a marker at all, an absent dev marker is pre-cutover, and
+ * anything present that is not exactly `enabled` — including a file that
+ * cannot be read — stops the swap rather than rewriting the vhost without
+ * knowing what it is allowed to serve.
+ *
+ * `layout` is a parameter rather than a direct `CURRENT_ENV` read purely so a
+ * test can drive it: `CURRENT_ENV` is frozen at import, so nothing else can
+ * reach the environment branch, the ENOENT tolerance, or the unreadable-file
+ * refusal. Same `layout: EnvLayout = CURRENT_ENV` shape `containerName` and
+ * `tierEnvFiles` already use in lib/docker.ts, so every real call site is
+ * unchanged.
+ */
+export async function readMcpExposure(layout: EnvLayout = CURRENT_ENV): Promise<boolean> {
+  if (layout.env !== 'dev') return false;
+  const path = `${layout.stateDir}/mcp-exposure`;
   try {
     return mcpExposureEnabled(await Bun.file(path).text());
   } catch (e: unknown) {
