@@ -78,48 +78,75 @@ ${helpers}
 ${mergeBlock}
 `;
 
-// Sol's round-2 finding 1, and the sharpest one of the run: slicing proves the
-// block BEHAVES, not that configure.sh ever RUNS it. Wrap lines 179-213 in an
-// uncalled `merge_caddyfile() { ... }` and every case above stays green while
-// the shipped script writes no Caddyfile at all — `sh -n` passes and the
-// extracted slice is byte-identical.
+// Sol's round-2 finding 1: slicing proves the block BEHAVES, not that
+// configure.sh ever RUNS it. Wrap it in an uncalled `merge_caddyfile() { ... }`
+// and every behavioural case stays green while the shipped script writes no
+// Caddyfile at all.
 //
-// So walk the script down to the block and require the nesting depth to be
-// zero: top-level, unconditional, not inside a function, `if`, loop or `case`.
-// Heredoc bodies are blanked first, because the snippet this script writes is
-// full of braces that are Caddy syntax rather than shell.
-const withoutHeredocBodies = (text: string): string[] => {
-  const lines = text.split('\n');
-  const out: string[] = [];
-  let terminator: string | null = null;
-  for (const line of lines) {
-    if (terminator !== null) {
-      out.push('');
-      if (line.trim() === terminator) terminator = null;
-      continue;
-    }
-    out.push(line);
-    const opened = /<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?/.exec(line);
-    if (opened) terminator = opened[1];
-  }
-  return out;
+// The first answer was a nesting-depth walk over the script text. Gemini's
+// round 3 took it apart in three `sh -n`-clean lines -- `merge_caddyfile() {`
+// with a trailing comment, the POSIX subshell form `merge_caddyfile() (`, and
+// `false && {` -- and it was right: counting tokens cannot decide shell
+// reachability, and a guard that reads sound while missing three one-line
+// mutations is worse than none.
+//
+// So run it instead. This executes the SHIPPED script from line 1 down to the
+// end of the merge block, with only the root- and network-bound commands
+// stubbed, and asserts a Caddyfile appears. Every mutation above disconnects
+// the block from that control flow, so none of them writes one.
+const scriptPrefix = configureSh.slice(0, configureSh.indexOf(MERGE_END) + MERGE_END.length);
+
+// dash refuses `apt-get() { ... }` -- POSIX function names cannot contain a
+// hyphen -- so the stubs are executables on a shadowing PATH instead. Only the
+// root- and network-bound commands are shadowed; mkdir, touch, cat, printf,
+// grep and mv stay real, because those are what the block under test uses.
+const STUBS: Record<string, string> = {
+  id: '#!/bin/sh\ncase "${1:-}" in -u) echo 0 ;; *) exit 0 ;; esac\n',
+  'apt-get': '#!/bin/sh\nexit 0\n',
+  usermod: '#!/bin/sh\nexit 0\n',
+  systemctl: '#!/bin/sh\nexit 1\n',
+  curl: '#!/bin/sh\nexit 0\n',
+  // Echoing the pinned version takes the script's already-installed branch, so
+  // nothing tries to fetch bun.
+  bun: '#!/bin/sh\necho "$BUN_VERSION"\n',
+  chown: '#!/bin/sh\nexit 0\n',
+  chmod: '#!/bin/sh\nexit 0\n',
+  rm: '#!/bin/sh\nexit 0\n',
 };
 
-const depthBefore = (marker: string): number => {
-  const lines = withoutHeredocBodies(configureSh);
-  const target = lines.findIndex((l) => l.includes(marker));
-  if (target < 0) throw new Error(`marker ${JSON.stringify(marker)} vanished from configure.sh`);
-  let depth = 0;
-  for (const line of lines.slice(0, target)) {
-    if (/^\s*(if|for|while|until|case)\b/.test(line)) depth += 1;
-    else if (/^\s*(fi|done|esac)\b/.test(line)) depth -= 1;
-    // A one-line `name() { ...; }` opens and closes on the same line and is
-    // deliberately not counted; a multi-line one is exactly the mutation.
-    else if (/^\s*[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{\s*$/.test(line)) depth += 1;
-    else if (/^\s*\{\s*$/.test(line)) depth += 1;
-    else if (/^\s*\}/.test(line)) depth -= 1;
+const runShippedPrefix = (): {
+  status: number | null;
+  stderr: string;
+  caddyfile: string | null;
+} => {
+  const root = mkdtempSync(join(tmpdir(), 'task160-reach-'));
+  const bin = join(root, 'stubbin');
+  mkdirSync(bin);
+  for (const [name, body] of Object.entries(STUBS)) {
+    const f = join(bin, name);
+    writeFileSync(f, body);
+    chmodSync(f, 0o755);
   }
-  return depth;
+  const script = join(root, 'prefix.sh');
+  writeFileSync(script, scriptPrefix + '\n');
+  const res = spawnSync('/bin/sh', [script], {
+    encoding: 'utf8',
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+      WBS_ROOT: root,
+      WBS_USER: 'wbs-test',
+      BUN_VERSION: 'stubbed',
+      REGISTRY_PASS: 'unused-by-this-prefix',
+    },
+  });
+  if (res.error) throw res.error;
+  let caddyfile: string | null = null;
+  try {
+    caddyfile = readFileSync(join(root, 'caddy', 'Caddyfile'), 'utf8');
+  } catch {
+    caddyfile = null;
+  }
+  return { status: res.status, stderr: res.stderr, caddyfile };
 };
 
 interface Run {
@@ -183,24 +210,24 @@ describe('configure.sh Caddyfile merge, executed', () => {
     expect(mergeBlock.split('\n').length).toBeGreaterThan(20);
   });
 
-  it('runs the merge block unconditionally, at the top level of the script', () => {
-    // Depth 0 at the marker means nothing this harness executes is skipped by
-    // the real script. Proven negatively below by the watched mutations: wrap
-    // the block in a function, or in `if false; then`, and this goes red while
-    // every behavioural case above stays green.
-    expect(depthBefore(MERGE_START)).toBe(0);
-    // Column 0 as well, so an indented copy inside a wrapper cannot pass by
-    // keeping the brace bookkeeping balanced some other way.
-    expect(configureSh).toContain(`\n${MERGE_START}`);
+  it('is reached by the shipped script, not merely runnable in isolation', () => {
+    // If this passes while the behavioural cases below fail, the block is
+    // broken. If the behavioural cases pass and THIS fails, the block is fine
+    // and nothing calls it -- which is the failure slicing cannot see.
+    const run = runShippedPrefix();
+    expect(run.status).toBe(0);
+    expect(run.stderr).toBe('');
+    expect(run.caddyfile).not.toBeNull();
+    expect(importsOf(run.caddyfile ?? '')).toEqual(OWNED);
   });
 
-  it('blanks heredoc bodies before counting, and still sees the block', () => {
-    // A passing depth check over a mangled script would prove nothing. The
-    // snippet heredoc contains bare `{` and `}` lines that are Caddy syntax.
-    const lines = withoutHeredocBodies(configureSh);
-    expect(lines.some((l) => l.includes(MERGE_START))).toBe(true);
-    expect(lines.some((l) => l.includes('(access-log) {'))).toBe(false);
-    expect(configureSh).toContain('(access-log) {');
+  it('runs the shipped prefix, not a fragment of it', () => {
+    // A prefix that stopped short would write no Caddyfile for the honest
+    // reason and the case above would read as a real failure; a prefix that
+    // never reached the root checks would prove nothing about the real script.
+    expect(scriptPrefix).toContain('must run as root');
+    expect(scriptPrefix).toContain('(access-log) {');
+    expect(scriptPrefix.trimEnd().endsWith(MERGE_END)).toBe(true);
   });
 
   it('writes both owned imports, in order, when no Caddyfile exists', () => {
