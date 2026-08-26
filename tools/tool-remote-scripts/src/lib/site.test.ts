@@ -1,7 +1,12 @@
 import { renderTemplate, siteCaddyTmpl } from '@wbs/tool-compose';
 import { describe, expect, it } from 'bun:test';
 
-import { routedColorFor, routedColorFromAdminConfig, siteContext } from './site';
+import {
+  mcpExposureEnabled,
+  routedColorFor,
+  routedColorFromAdminConfig,
+  siteContext,
+} from './site';
 
 describe('routedColorFor', () => {
   const rendered = [
@@ -229,5 +234,11 @@ describe('rendered dev site.caddy MCP exposure', () => {
 
   it('keeps MCP routes absent before exposure is enabled', () => {
     expect(rendered(false)).not.toMatch(/^\s*handle\s+(\/mcp|\/\.well-known\/)/m);
+  });
+
+  it('treats only the persistent enabled marker as exposed', () => {
+    expect(mcpExposureEnabled(null)).toBeFalse();
+    expect(mcpExposureEnabled('enabled\n')).toBeTrue();
+    expect(() => mcpExposureEnabled('disabled\n')).toThrow(/malformed MCP exposure state/);
   });
 });

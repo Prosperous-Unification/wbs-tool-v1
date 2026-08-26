@@ -1,6 +1,28 @@
 import { appName, containerName, PORT } from './docker';
 import type { Color, Tier } from './state';
 
+const DEV_MCP_ROUTES = `\thandle /mcp* {
+\t\trequest_body {
+\t\t\tmax_size 64KB
+\t\t}
+\t\treverse_proxy wbs-dev-src:3300 {
+\t\t\theader_up X-Forwarded-For {remote_host}
+\t\t}
+\t}
+
+\thandle /.well-known/oauth-protected-resource {
+\t\treverse_proxy wbs-dev-src:3300
+\t}
+
+\thandle /.well-known/oauth-protected-resource/mcp {
+\t\treverse_proxy wbs-dev-src:3300
+\t}
+
+\thandle /.well-known/oauth-authorization-server/mcp/oauth {
+\t\treverse_proxy wbs-dev-src:3300
+\t}
+`;
+
 /**
  * Pure helpers for the single rendered `site.caddy` — the routing source of
  * truth (design decision 6): a deploy killed between `caddy reload` and the
@@ -68,13 +90,26 @@ function routeBlock(tier: Tier, color: Color | null): string {
 export function siteContext(
   colors: Record<Tier, Color | null>,
   siteAddress: string,
+  mcpExposed = false,
 ): Record<string, string> {
   return {
     SITE_ADDRESS: siteAddress,
+    MCP_ROUTES: mcpExposed ? DEV_MCP_ROUTES : '',
     BE_ROUTE: routeBlock('be', colors.be),
     GW_ROUTE: routeBlock('gw', colors.gw),
     FE_ROUTE: routeBlock('fe', colors.fe),
   };
+}
+
+/**
+ * The persistent marker is the cutover decision. Missing means the reviewed
+ * public surface has not been enabled yet; any other present value is corrupt
+ * state and must stop a swap before it rewrites the vhost.
+ */
+export function mcpExposureEnabled(raw: string | null): boolean {
+  if (raw === null) return false;
+  if (raw.replace(/\n+$/, '') === 'enabled') return true;
+  throw new Error('malformed MCP exposure state — expected exactly "enabled"');
 }
 
 /**

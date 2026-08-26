@@ -49,7 +49,7 @@ import { waitForHealthy } from './lib/health';
 import { withLock } from './lib/lock';
 import { readPhase, writePhase } from './lib/phase';
 import { type Observed, planSwap, type SwapPlan, type SwapStep } from './lib/reconcile';
-import { routedColorFromAdminConfig, siteContext } from './lib/site';
+import { mcpExposureEnabled, routedColorFromAdminConfig, siteContext } from './lib/site';
 import { type Color, parseStateJson, renderStateJson, type Tier } from './lib/state';
 
 // No REGISTRY here, deliberately. The publish address arrives as part of
@@ -66,6 +66,20 @@ const SITE_ADDRESS = process.env['SITE_ADDRESS'] ?? CURRENT_ENV.siteAddress;
 // directory, so the site file is the single environment-varying path that does
 // not live under the environment's own root. lib/env.ts states that exception.
 const SITE_CADDY_PATH = CURRENT_ENV.siteCaddyPath;
+
+async function readMcpExposure(): Promise<boolean> {
+  if (CURRENT_ENV.env !== 'dev') return false;
+  const path = `${CURRENT_ENV.stateDir}/mcp-exposure`;
+  try {
+    return mcpExposureEnabled(await Bun.file(path).text());
+  } catch (e: unknown) {
+    if (isFileAbsent(e)) return false;
+    throw new Error(
+      `cannot read ${path}; refusing to rewrite the dev vhost without its exposure state ` +
+        `(${e instanceof Error ? e.message : String(e)})`,
+    );
+  }
+}
 
 // fe-01 is a static Caddy server with no /health route; design decision 5's
 // health gate for it is "fetch / and assert 200 + a non-empty body" instead.
@@ -696,7 +710,10 @@ async function execute(plan: SwapPlan, image: string, sha: string): Promise<void
           // to green, which is exactly the window abortSwap exists to close.
           const colors = await liveRoutedColors();
           colors[tier] = to;
-          const rendered = renderTemplate(siteCaddyTmpl, siteContext(colors, SITE_ADDRESS));
+          const rendered = renderTemplate(
+            siteCaddyTmpl,
+            siteContext(colors, SITE_ADDRESS, await readMcpExposure()),
+          );
           // Captured before the write, so abortSwap can put the file back
           // exactly as it found it.
           siteTextBefore = await readSiteCaddy();
