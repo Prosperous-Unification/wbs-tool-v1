@@ -84,7 +84,7 @@ function harness() {
 describe('subscribeToProject', () => {
   it('subscribes and resumes from the sequence the caller read at', () => {
     const h = harness();
-    subscribeToProject({ token: 't', projectId: PROJECT, sinceSeq: 7, onChange: ignore }, h.deps);
+    subscribeToProject({ projectId: PROJECT, sinceSeq: 7, onChange: ignore }, h.deps);
 
     h.latest().handlers.onOpen();
 
@@ -98,7 +98,7 @@ describe('subscribeToProject', () => {
     const h = harness();
     let changes = 0;
     subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: () => (changes += 1) },
+      { projectId: PROJECT, sinceSeq: -1, onChange: () => (changes += 1) },
       h.deps,
     );
     h.latest().handlers.onOpen();
@@ -116,7 +116,7 @@ describe('subscribeToProject', () => {
   it('reopens after a close it did not ask for, and resumes from what it saw', () => {
     const h = harness();
     const stream = subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
+      { projectId: PROJECT, sinceSeq: -1, onChange: ignore },
       h.deps,
     );
     h.latest().handlers.onOpen();
@@ -140,7 +140,7 @@ describe('subscribeToProject', () => {
 
   it('backs off exponentially and stops growing at the cap', () => {
     const h = harness();
-    subscribeToProject({ token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
+    subscribeToProject({ projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
 
     const delays: number[] = [];
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -154,7 +154,7 @@ describe('subscribeToProject', () => {
 
   it('resets the backoff once the resume is answered', () => {
     const h = harness();
-    subscribeToProject({ token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
+    subscribeToProject({ projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
 
     h.latest().handlers.onClose();
     h.runNextTimer();
@@ -174,10 +174,7 @@ describe('subscribeToProject', () => {
   it('jitters the delay so a gateway restart does not reconnect every client at once', () => {
     const h = harness();
     const jittered: ProjectStreamDeps = { ...h.deps, random: () => 0 };
-    subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
-      jittered,
-    );
+    subscribeToProject({ projectId: PROJECT, sinceSeq: -1, onChange: ignore }, jittered);
 
     h.latest().handlers.onClose();
 
@@ -187,7 +184,7 @@ describe('subscribeToProject', () => {
   it('stops reconnecting once the caller unsubscribes', () => {
     const h = harness();
     const stream = subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
+      { projectId: PROJECT, sinceSeq: -1, onChange: ignore },
       h.deps,
     );
     h.latest().handlers.onOpen();
@@ -203,7 +200,7 @@ describe('subscribeToProject', () => {
   it('cancels a pending reconnect when the caller unsubscribes while waiting', () => {
     const h = harness();
     const stream = subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
+      { projectId: PROJECT, sinceSeq: -1, onChange: ignore },
       h.deps,
     );
     h.latest().handlers.onClose();
@@ -220,7 +217,7 @@ describe('subscribeToProject', () => {
     // flag is checked again on the way in.
     const h = harness();
     const stream = subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
+      { projectId: PROJECT, sinceSeq: -1, onChange: ignore },
       h.deps,
     );
     h.latest().handlers.onClose();
@@ -235,10 +232,7 @@ describe('subscribeToProject', () => {
   it('asks the caller to refetch when the server refuses the resume', () => {
     const h = harness();
     let changes = 0;
-    subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: 2, onChange: () => (changes += 1) },
-      h.deps,
-    );
+    subscribeToProject({ projectId: PROJECT, sinceSeq: 2, onChange: () => (changes += 1) }, h.deps);
     h.latest().handlers.onOpen();
 
     h.latest().handlers.onMessage(
@@ -251,7 +245,7 @@ describe('subscribeToProject', () => {
   it('resumes from a sequence the caller reports after refetching', () => {
     const h = harness();
     const stream = subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
+      { projectId: PROJECT, sinceSeq: -1, onChange: ignore },
       h.deps,
     );
     h.latest().handlers.onOpen();
@@ -273,7 +267,7 @@ describe('subscribeToProject', () => {
   it('never moves its resume point backwards', () => {
     const h = harness();
     const stream = subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
+      { projectId: PROJECT, sinceSeq: -1, onChange: ignore },
       h.deps,
     );
     h.latest().handlers.onOpen();
@@ -296,7 +290,6 @@ describe('subscribeToProject', () => {
     const seen: boolean[] = [];
     subscribeToProject(
       {
-        token: 't',
         projectId: PROJECT,
         // A baseline, so each open sends a resume and waits for its answer.
         sinceSeq: 3,
@@ -332,7 +325,6 @@ describe('subscribeToProject — cross-review findings', () => {
     let refetchWorks = false;
     const stream = subscribeToProject(
       {
-        token: 't',
         projectId: PROJECT,
         sinceSeq: 4,
         onChange: () => {
@@ -365,7 +357,6 @@ describe('subscribeToProject — cross-review findings', () => {
     const seen: boolean[] = [];
     subscribeToProject(
       {
-        token: 't',
         projectId: PROJECT,
         sinceSeq: 3,
         onChange: ignore,
@@ -387,7 +378,7 @@ describe('subscribeToProject — cross-review findings', () => {
     // agy, high. `attempt` reset at open turns an expired token or a restarting
     // gateway into a reconnect every 300ms, forever, from every open browser.
     const h = harness();
-    subscribeToProject({ token: 't', projectId: PROJECT, sinceSeq: 3, onChange: ignore }, h.deps);
+    subscribeToProject({ projectId: PROJECT, sinceSeq: 3, onChange: ignore }, h.deps);
 
     const delays: number[] = [];
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -402,7 +393,7 @@ describe('subscribeToProject — cross-review findings', () => {
 
   it('resets the backoff once a resume actually completes', () => {
     const h = harness();
-    subscribeToProject({ token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
+    subscribeToProject({ projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
 
     h.latest().handlers.onClose();
     h.runNextTimer();
@@ -423,7 +414,6 @@ describe('subscribeToProject — cross-review findings', () => {
     let changes = 0;
     subscribeToProject(
       {
-        token: 't',
         projectId: PROJECT,
         sinceSeq: 3,
         onChange: () => (changes += 1),
@@ -442,7 +432,6 @@ describe('subscribeToProject — cross-review findings', () => {
     let changes = 0;
     subscribeToProject(
       {
-        token: 't',
         projectId: PROJECT,
         sinceSeq: 3,
         onChange: () => (changes += 1),
@@ -463,7 +452,6 @@ describe('subscribeToProject — cross-review findings', () => {
     let changes = 0;
     subscribeToProject(
       {
-        token: 't',
         projectId: PROJECT,
         sinceSeq: 3,
         onChange: () => (changes += 1),
@@ -491,7 +479,7 @@ describe('subscribeToProject — the first connection', () => {
     // table refetch — on every first load, for a baseline the caller's own HTTP
     // read is about to establish anyway.
     const h = harness();
-    subscribeToProject({ token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
+    subscribeToProject({ projectId: PROJECT, sinceSeq: -1, onChange: ignore }, h.deps);
 
     h.latest().handlers.onOpen();
 
@@ -503,7 +491,6 @@ describe('subscribeToProject — the first connection', () => {
     const seen: boolean[] = [];
     subscribeToProject(
       {
-        token: 't',
         projectId: PROJECT,
         sinceSeq: -1,
         onChange: ignore,
@@ -520,7 +507,7 @@ describe('subscribeToProject — the first connection', () => {
   it('resumes on the next connection, once a read has given it a baseline', () => {
     const h = harness();
     const stream = subscribeToProject(
-      { token: 't', projectId: PROJECT, sinceSeq: -1, onChange: ignore },
+      { projectId: PROJECT, sinceSeq: -1, onChange: ignore },
       h.deps,
     );
     h.latest().handlers.onOpen();

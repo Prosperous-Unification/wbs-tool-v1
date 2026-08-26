@@ -142,9 +142,7 @@ function AppContent() {
           // selection rather than handed down finished — gw-01 scopes the
           // roster by the project the socket subscribes to (F4, and
           // {@link PresencePanel}).
-          (projectId) => (
-            <PresencePanel token={session.token} me={session.user.username} projectId={projectId} />
-          )
+          (projectId) => <PresencePanel me={session.user.username} projectId={projectId} />
         }
         account={
           <ThemedAccountMenu

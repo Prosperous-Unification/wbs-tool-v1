@@ -28,7 +28,6 @@ export interface ProjectStreamDeps {
 }
 
 export interface ProjectStreamOptions {
-  token: string;
   projectId: string;
   /** Where the caller's last read of this project left off; `-1` for none. */
   sinceSeq: number;

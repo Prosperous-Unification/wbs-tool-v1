@@ -136,6 +136,30 @@ describe('WebSocket query authentication', () => {
       origin: APP_ORIGIN,
     });
   });
+
+  it('refuses an upgrade when WebSocket authentication is not configured', async () => {
+    const app = buildApp({
+      beUrl: 'http://be.invalid',
+      internalAuthSecret: INTERNAL_SECRET,
+      jwtKey: JWT_KEY,
+    });
+    app.listen(0);
+    try {
+      const response = await fetch(`http://localhost:${String(app.server?.port ?? 0)}/ws`, {
+        headers: {
+          connection: 'Upgrade',
+          'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+          'sec-websocket-version': '13',
+          upgrade: 'websocket',
+        },
+      });
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'websocket auth not configured' });
+    } finally {
+      await app.stop();
+    }
+  });
 });
 
 /**
