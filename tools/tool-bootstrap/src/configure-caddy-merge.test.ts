@@ -130,7 +130,7 @@ const STUBS: Record<string, string> = {
   // The deliberate stop. It sits AFTER the merge block and the site.caddy
   // seed, and BEFORE the /etc/docker converge -- the one part of this script
   // that writes outside WBS_ROOT and must never run on a build host.
-  htpasswd: `#!/bin/sh\nexit ${STOP_STATUS}\n`,
+  htpasswd: `#!/bin/sh\nexit ${String(STOP_STATUS)}\n`,
 };
 
 const readOrNull = (path: string): string | null => {
@@ -286,7 +286,7 @@ describe('configure.sh Caddyfile merge, executed', () => {
   // only disconnects it from control flow -- so every behavioural case above
   // still passes, and only these can see it. All three were `sh -n` clean
   // against the earlier text-walking guard, which is why that guard is gone.
-  const WRAPPERS: ReadonlyArray<readonly [string, (b: string) => string]> = [
+  const WRAPPERS: readonly (readonly [string, (b: string) => string])[] = [
     ['an uncalled function', (b) => `merge_caddyfile() {\n${b}\n}\n`],
     // Gemini round 3: a trailing comment after `{` and the POSIX subshell
     // form both defeat "does the line end in a brace".
