@@ -52,7 +52,9 @@ dev.wbs.bulletpoints.club {
 		reverse_proxy wbs-dev-src:4200
 	}
 
-	log {
-		output file /var/log/caddy/access.log
-	}
+	# The shared, query-redacting definition — NOT a log block of this vhost's
+	# own. This is the origin all 10,901 cleartext session JWTs were logged
+	# from (TASK-159); promoting a candidate with its own block would reopen
+	# that leak on the exact vhost it was found on.
+	import access-log
 }

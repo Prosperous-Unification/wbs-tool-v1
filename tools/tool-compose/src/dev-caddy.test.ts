@@ -31,7 +31,7 @@ function preservesExistingDevSurface(candidate: string): boolean {
     /stream_close_delay\s+310s/.test(candidate) &&
     /handle\s+\/api\/\*\s*\{[\s\S]*?reverse_proxy\s+wbs-dev-src:3100/.test(candidate) &&
     /handle\s*\{\s*reverse_proxy\s+wbs-dev-src:4200/.test(candidate) &&
-    /log\s*\{\s*output file \/var\/log\/caddy\/access\.log/.test(candidate)
+    /^\s*import\s+access-log\s*$/m.test(candidate)
   );
 }
 
@@ -69,15 +69,19 @@ describe('dev MCP Caddy candidate', () => {
   });
 
   // Proof: replacing any existing upstream while adding MCP would cut off the
-  // app, API, WebSocket drain contract, or access log during public exposure.
-  it('preserves the existing app, API, WebSocket, and logging surface', () => {
+  // app, API, WebSocket drain contract, or redacted access log during public
+  // exposure.
+  it('preserves the existing app, API, WebSocket, and redacted-logging surface', () => {
     expect(preservesExistingDevSurface(source)).toBeTrue();
     for (const fault of [
       source.replace('wbs-dev-src:3200', 'wbs-dev-src:3300'),
       source.replace('stream_close_delay 310s', ''),
       source.replace('wbs-dev-src:3100', 'wbs-dev-src:3300'),
       source.replace('wbs-dev-src:4200', 'wbs-dev-src:3300'),
-      source.replace('output file /var/log/caddy/access.log', 'output stdout'),
+      // The fault is the one that actually happened: a vhost going back to
+      // defining its own log output, which silently bypasses the redaction
+      // filter every other vhost shares.
+      source.replace('import access-log', 'log {\n\t\toutput file /var/log/caddy/access.log\n\t}'),
     ]) {
       expect(preservesExistingDevSurface(fault)).toBeFalse();
     }

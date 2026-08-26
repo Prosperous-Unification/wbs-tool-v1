@@ -31,9 +31,13 @@ describe('configure.sh Caddy provisioning', () => {
   });
 
   it('redacts every credential-shaped query parameter the snippet file does', () => {
-    for (const param of ['code', 'state', 'token', 'access_token', 'refresh_token']) {
-      expect(configureSh).toContain(`replace ${param} REDACTED`);
-      expect(logRedact).toContain(`replace ${param} REDACTED`);
+    // Derived from the snippet rather than listed here: a hand-written list
+    // cannot fail when a parameter is added to one copy and not the other,
+    // which is the only way these two ever drift.
+    const params = [...logRedact.matchAll(/replace\s+(\S+)\s+REDACTED/g)].map((m) => m[1]);
+    expect(params.length).toBeGreaterThanOrEqual(13);
+    for (const param of params) {
+      expect(configureSh, `configure.sh redacts ${param}`).toContain(`replace ${param} REDACTED`);
     }
   });
 
@@ -47,8 +51,17 @@ describe('configure.sh Caddy provisioning', () => {
         .map((l) => l.replace(/^\s*printf '(.*)\\n'\s*$/, '$1').trim())
         .filter((l) => /^import\s+\S+$/.test(l));
 
+    // Only the block that writes the Caddyfile. The whole script also contains
+    // the `import access-log` line of the site.caddy seed, which is a snippet
+    // import inside a vhost, not a top-level Caddyfile import.
+    const caddyfileBlock = configureSh.slice(
+      configureSh.indexOf('caddy_tmp='),
+      configureSh.indexOf('mv "$caddy_tmp" "$caddyfile"'),
+    );
+    expect(caddyfileBlock.length).toBeGreaterThan(0);
+
     for (const [name, text] of [
-      ['configure.sh', configureSh],
+      ['configure.sh', caddyfileBlock],
       ['Caddyfile.bootstrap', bootstrapCaddyfile],
     ] as const) {
       const lines = emitted(text);
