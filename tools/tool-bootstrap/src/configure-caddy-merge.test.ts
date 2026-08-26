@@ -604,9 +604,15 @@ describe('configure.sh Caddyfile merge, executed', () => {
       }
     }
     for (const axis of ENV_AXES) {
+      if (!(axis.name in axis.alternative)) {
+        wrong.push(`${axis.name}: its alternative must set its own name`);
+        continue;
+      }
       const alternative = axis.alternative[axis.name];
-      if (alternative === undefined || alternative === null) {
-        wrong.push(`${axis.name}: its alternative must set its own name to a value`);
+      if (alternative === null) {
+        // `null` is UNSET, which for an input with a default is the default
+        // again -- a no-op axis wearing the shape of a real one.
+        wrong.push(`${axis.name}: unsetting it is not an alternative, it is the default`);
         continue;
       }
       if (NO_SHIPPED_DEFAULT.includes(axis.name)) continue;
