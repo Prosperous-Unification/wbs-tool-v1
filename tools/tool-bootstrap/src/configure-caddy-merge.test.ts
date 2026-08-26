@@ -141,11 +141,17 @@ const readOrNull = (path: string): string | null => {
   }
 };
 
+// TASK-160, Sol round 7. `env` exists because environment is host state too,
+// and the product above does not model any of it: every value below was a
+// constant, so a wrapper reading one was true in all eight cells. `null`
+// means UNSET rather than empty -- REGISTRY_INSECURE's documented pair is
+// "unset" vs "1", and `REGISTRY_INSECURE=''` is a third thing that is neither.
 const runShippedScript = (
   opts: {
     stubs?: Record<string, string>;
     mutate?: (text: string) => string;
     seedCaddyfile?: string;
+    env?: Record<string, string | null>;
   } = {},
 ): {
   status: number | null;
@@ -174,16 +180,27 @@ const runShippedScript = (
   }
   const script = join(root, 'configure.sh');
   writeFileSync(script, text);
-  const res = spawnSync('/bin/sh', [script], {
-    encoding: 'utf8',
-    env: {
-      PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
-      WBS_ROOT: root,
-      WBS_USER: 'wbs-test',
-      BUN_VERSION: 'stubbed',
-      REGISTRY_PASS: 'stopped-before-this-is-used',
-    },
-  });
+  const env: Record<string, string> = {
+    PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+    WBS_ROOT: root,
+    WBS_USER: 'wbs-test',
+    BUN_VERSION: 'stubbed',
+    REGISTRY_PASS: 'stopped-before-this-is-used',
+  };
+  for (const [name, value] of Object.entries(opts.env ?? {})) {
+    // WBS_ROOT is what this harness reads its results back out of. Overriding
+    // it would send every write somewhere else, `caddyfile` would come back
+    // null, and the cell would be scored a kill for the wrong reason -- the
+    // same conflation the whole-script rewrite exists to remove.
+    if (name === 'WBS_ROOT') {
+      throw new Error(
+        'WBS_ROOT is fixed by construction: this harness reads its results out of it',
+      );
+    }
+    if (value === null) delete env[name];
+    else env[name] = value;
+  }
+  const res = spawnSync('/bin/sh', [script], { encoding: 'utf8', env });
   if (res.error) throw res.error;
   return {
     status: res.status,
@@ -467,6 +484,215 @@ describe('configure.sh Caddyfile merge, executed', () => {
       // kill -- a no-op writes the imports in every cell and empties `killed`.
       expect(hidden.length).toBeGreaterThan(0);
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Sol round 7, and right a sixth time. The tautology argument above is
+  // sound FOR THE THREE PREDICATES IN `DIMENSIONS`, and that is exactly its
+  // limit: `runShippedScript` pinned every environment input to one value, so
+  //
+  //   if [ "$SITE_ADDRESS" = "wbs.bulletpoints.club" ]; then <merge> fi
+  //
+  // is true in all eight cells and false on a host started the way the module
+  // docstring documents -- `SITE_ADDRESS=":80"`, for a box whose DNS does not
+  // exist yet (configure.sh:39). Environment is host state too.
+  //
+  // Adding a `SITE_ADDRESS` row would be the fourth time this finding is
+  // patched at the instance it was named at. So the claim here is about the
+  // SHAPE instead: the merge block's reachability condition is the EMPTY
+  // CONJUNCTION over the environment -- no env input is a discriminator at
+  // all -- and every input the script reads gets an axis rather than a row.
+  interface EnvAxis {
+    readonly name: string;
+    readonly alternative: Record<string, string | null>;
+    readonly why: string;
+  }
+  // Every environment input configure.sh reads (lines 34-55, plus the required
+  // REGISTRY_PASS at line 61). `WBS_ROOT` is the eighth and is deliberately
+  // absent: see the throw in `runShippedScript`.
+  const ENV_AXES: readonly EnvAxis[] = [
+    {
+      name: 'SITE_ADDRESS',
+      alternative: { SITE_ADDRESS: ':80' },
+      why: 'the documented ":80" form, for a host whose DNS does not exist yet (configure.sh:39)',
+    },
+    {
+      name: 'REGISTRY_INSECURE',
+      alternative: { REGISTRY_INSECURE: '1' },
+      why: 'documented as =1 for a registry with no TLS in front of it; the default is unset',
+    },
+    {
+      name: 'REGISTRY_HOST',
+      alternative: { REGISTRY_HOST: 'registry.example.invalid:5000' },
+      why: 'documented override; defaults to the public hostname Caddy terminates TLS for',
+    },
+    {
+      name: 'REGISTRY_USER',
+      alternative: { REGISTRY_USER: 'someone-else' },
+      why: 'set explicitly in the documented usage line',
+    },
+    {
+      name: 'REGISTRY_PASS',
+      alternative: { REGISTRY_PASS: 'a-different-secret' },
+      why: 'required, so `[ -n "$REGISTRY_PASS" ]` is a tautology past configure.sh:61 -- but its VALUE is free, and an equality on it would not be',
+    },
+    {
+      name: 'WBS_USER',
+      alternative: { WBS_USER: 'puni9' },
+      why: 'the deploy user; the docstring runs this script with WBS_USER=puni1 and the default is puni1',
+    },
+    {
+      name: 'BUN_VERSION',
+      alternative: { BUN_VERSION: '1.2.20' },
+      why: 'the version already on h2puni before the pin existed (configure.sh:47-55)',
+    },
+  ];
+
+  // Enumerated in binary, so cell i takes axis k's alternative exactly when
+  // bit k of i is set. That is the full product -- all 2^7 combinations, not
+  // one factor at a time -- and it is what makes the two properties below
+  // provable rather than hopeful.
+  //
+  // Each cell also runs at a host state, and WHICH one is not `i % 8`. That
+  // was the first attempt and the guard below caught it: the low three bits
+  // of `i` are axes 0-2, so `i % 8` made those three axes a FUNCTION of the
+  // host state and 26 of the 112 (axis value, host state) pairs never
+  // occurred. Instead the host index is a weighted sum over the set axes with
+  // the weights cycling 1, 2, 4. Fixing any single axis leaves six free ones,
+  // and each weight class still has a member (weight 1: axes 0/3/6, weight 2:
+  // axes 1/4, weight 4: axes 2/5), so the remaining sum still reaches all
+  // eight residues -- every pair occurs, by construction and not by luck.
+  //
+  // Why pairs are the thing being bought: round 6's finding was a condition
+  // false only where two dimensions go the wrong way at once. This is that
+  // same shape reaching across the two groups, and the pairing closes it
+  // without the 1024-cell joint product.
+  //
+  // The boundary, stated rather than left to be inferred. Uncovered here:
+  // a condition needing TWO env axes AND a host-state dimension to align at
+  // once, and any property shared by every value this harness can give a
+  // pinned input (`WBS_ROOT` is always a fresh /tmp path, so `case "$WBS_ROOT"
+  // in /tmp/*)` survives -- it cannot be otherwise while the tests run
+  // unprivileged and must not write to a real /home/*/wbs).
+  const HOST_WEIGHTS = [1, 2, 4] as const;
+  const hostIndexFor = (picks: readonly boolean[]): number =>
+    picks.reduce(
+      (sum, pick, bit) => (pick ? sum + HOST_WEIGHTS[bit % HOST_WEIGHTS.length] : sum),
+      0,
+    ) % HOST_STATES.length;
+
+  interface EnvCell {
+    readonly key: string;
+    readonly picks: readonly boolean[];
+    readonly env: Record<string, string | null>;
+    readonly host: HostState;
+  }
+  const ENV_CELLS: readonly EnvCell[] = Array.from(
+    { length: 2 ** ENV_AXES.length },
+    (_unused, i): EnvCell => {
+      const picks = ENV_AXES.map((_axis, bit) => ((i >> bit) & 1) === 1);
+      const env = ENV_AXES.reduce<Record<string, string | null>>(
+        (acc, axis, bit) => (picks[bit] ? { ...acc, ...axis.alternative } : acc),
+        {},
+      );
+      const host = HOST_STATES[hostIndexFor(picks)];
+      const alt = ENV_AXES.filter((_axis, bit) => picks[bit]).map((axis) => axis.name);
+      return {
+        key: `${alt.length === 0 ? 'all env defaults' : `alt: ${alt.join('+')}`} @ ${host.key}`,
+        picks,
+        env,
+        host,
+      };
+    },
+  );
+
+  it('takes the product of the environment axes, and pairs every axis value with every host state', () => {
+    expect(ENV_CELLS).toHaveLength(2 ** ENV_AXES.length);
+    expect(new Set(ENV_CELLS.map((cell) => cell.key)).size).toBe(ENV_CELLS.length);
+    // The pairing property, checked rather than asserted in a comment -- it
+    // already caught one wrong mapping. If an axis is added or the weights
+    // stop covering all three classes, this names the missing pairs instead
+    // of quietly narrowing the sweep.
+    expect(HOST_STATES.length).toBe(HOST_WEIGHTS.reduce((n, w) => n + w, 0) + 1);
+    const missing: string[] = [];
+    for (const [bit, axis] of ENV_AXES.entries()) {
+      for (const pick of [false, true]) {
+        for (const host of HOST_STATES) {
+          const covered = ENV_CELLS.some(
+            (cell) => cell.picks[bit] === pick && cell.host.key === host.key,
+          );
+          if (!covered) missing.push(`${axis.name}=${pick ? 'alt' : 'default'} @ ${host.key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+    // Every axis names why its alternative is the documented one, so a future
+    // axis cannot be added as a bare value with no host it corresponds to.
+    for (const axis of ENV_AXES) expect(axis.why.length).toBeGreaterThan(20);
+  });
+
+  it('runs the merge block at every point of the environment product', () => {
+    const failures: string[] = [];
+    for (const cell of ENV_CELLS) {
+      const run = runShippedScript({ ...cell.host, env: cell.env });
+      const expected = cell.host.seedCaddyfile === undefined ? OWNED : [...OWNED, PRESERVED];
+      const actual = {
+        status: run.status,
+        stderr: run.stderr,
+        siteCaddy: run.siteCaddy === null ? 'missing' : 'seeded',
+        imports: importsOf(run.caddyfile ?? ''),
+      };
+      const want = { status: STOP_STATUS, stderr: '', siteCaddy: 'seeded', imports: expected };
+      if (JSON.stringify(actual) !== JSON.stringify(want)) {
+        failures.push(`${cell.key}: ${JSON.stringify(actual)} != ${JSON.stringify(want)}`);
+      }
+    }
+    // The empty conjunction, as a result: no point of the product skips the
+    // block, so nothing in the environment is part of its guard.
+    expect(failures).toEqual([]);
+  }, 60_000);
+
+  // Round 7's own condition, kept as a permanent case. It is invisible to the
+  // host-state sweep above -- SITE_ADDRESS is constant there, so `killed`
+  // would be 0 and that test would fail for the wrong reason -- which is
+  // precisely why the environment needed a product of its own.
+  const ENV_CONDITIONALS: readonly (readonly [string, (b: string) => string])[] = [
+    [
+      'a condition on the configured site address',
+      (b) => `if [ "$SITE_ADDRESS" = "wbs.bulletpoints.club" ]; then\n${b}\nfi\n`,
+    ],
+    [
+      // The cross-group version of round 6: one env axis and one host-state
+      // dimension, false only where both go the wrong way. The pairing
+      // property is what sees it.
+      'a condition spanning the environment and the host state',
+      (b) =>
+        `if [ "$SITE_ADDRESS" = "wbs.bulletpoints.club" ] || [ ! -e "$WBS_ROOT/caddy/Caddyfile" ]; then\n${b}\nfi\n`,
+    ],
+  ];
+
+  for (const [label, wrap] of ENV_CONDITIONALS) {
+    it(`is caught somewhere in the environment product when disconnected by ${label}`, () => {
+      const broken: string[] = [];
+      const killed: string[] = [];
+      const hidden: string[] = [];
+      for (const cell of ENV_CELLS) {
+        const run = runShippedScript({
+          ...cell.host,
+          env: cell.env,
+          mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+        });
+        if (run.status !== STOP_STATUS || run.stderr !== '' || run.siteCaddy === null) {
+          broken.push(`${cell.key}: status ${String(run.status)} stderr ${run.stderr}`);
+        } else if (wroteOwned(run)) hidden.push(cell.key);
+        else killed.push(cell.key);
+      }
+      // Same three signals as the host-state sweep: no cell may BREAK, so the
+      // only thing varying across the product is whether the block ran.
+      expect(broken).toEqual([]);
+      expect(killed.length).toBeGreaterThan(0);
+      expect(hidden.length).toBeGreaterThan(0);
+    }, 60_000);
   }
 
   it('writes both owned imports, in order, when no Caddyfile exists', () => {
