@@ -33,6 +33,36 @@ const sliceOrThrow = (start: string, end: string): string => {
   return configureSh.slice(a, b + end.length);
 };
 
+// TASK-160, Gemini round 8. The harness used to pin WBS_USER to 'wbs-test' and
+// BUN_VERSION to 'stubbed', so the value a REAL host has -- the script's own
+// default -- appeared in no cell of the product at all, and
+//
+//   if [ "$WBS_USER" != "puni1" ]; then <merge> fi
+//
+// was true in all 128 cells and false on every real host. Varying an input is
+// not enough: one of the two values has to be the one the shipped script
+// actually uses. Read out of configure.sh rather than re-typed, for the same
+// reason the merge block is sliced instead of copied -- a copy drifts, and a
+// harness that drifts from the script proves nothing about the script.
+const shippedDefault = (name: string): string => {
+  const m = new RegExp(`^${name}="\\$\\{${name}:-(.*)\\}"$`, 'm').exec(configureSh);
+  if (m === null) {
+    throw new Error(
+      `configure.sh no longer defaults ${name} as \`${name}="\${${name}:-...}"\`; this harness reads its defaults out of the script, so the pattern needs updating rather than deleting`,
+    );
+  }
+  return m[1];
+};
+
+// The part of the harness environment that is a fixed VALUE rather than a
+// per-run path. Every key here that configure.sh gives a default must be
+// pinned to that default -- see the guard case below for why.
+const BASE_ENV: Record<string, string> = {
+  WBS_USER: shippedDefault('WBS_USER'),
+  BUN_VERSION: shippedDefault('BUN_VERSION'),
+  REGISTRY_PASS: 'stopped-before-this-is-used',
+};
+
 const LOG_MARKER = 'log() {';
 const DIE_MARKER = 'die() {';
 const MERGE_START = 'caddyfile="$WBS_ROOT/caddy/Caddyfile"';
@@ -192,9 +222,7 @@ const runShippedScript = (
     Object.entries<string | null>({
       PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
       WBS_ROOT: root,
-      WBS_USER: 'wbs-test',
-      BUN_VERSION: 'stubbed',
-      REGISTRY_PASS: 'stopped-before-this-is-used',
+      ...BASE_ENV,
       ...overrides,
     }).filter((entry): entry is [string, string] => entry[1] !== null),
   );
@@ -536,8 +564,8 @@ describe('configure.sh Caddyfile merge, executed', () => {
     },
     {
       name: 'WBS_USER',
-      alternative: { WBS_USER: 'puni9' },
-      why: 'the deploy user; the docstring runs this script with WBS_USER=puni1 and the default is puni1',
+      alternative: { WBS_USER: 'wbs-test' },
+      why: 'the deploy user; the docstring passes it explicitly (configure.sh:16) and the default is what the real host runs',
     },
     {
       name: 'BUN_VERSION',
@@ -545,6 +573,53 @@ describe('configure.sh Caddyfile merge, executed', () => {
       why: 'the version already on h2puni before the pin existed (configure.sh:47-55)',
     },
   ];
+
+  // Gemini round 8's finding, as a permanent rule rather than as two patched
+  // values. An axis is only worth anything if one of its two values is the one
+  // a real host has -- otherwise `!= <the real value>` is true in every cell.
+  // Two ways an input gets there, and both are checked below:
+  //   - the harness never sets it, so configure.sh's own default applies; or
+  //   - the harness sets it TO configure.sh's default, read out of the script.
+  // REGISTRY_PASS is the one input with neither, and cannot have either: it
+  // has no default (configure.sh:61 dies without it) and its real value is a
+  // secret. So `case "$REGISTRY_PASS" in stopped-*)` survives this file --
+  // named here because the boundary is the point, not the omission.
+  // REGISTRY_PASS is the one input with no shipped default and no possible
+  // one: configure.sh:61 dies without it, and its real value is a secret. So
+  // `case "$REGISTRY_PASS" in stopped-*)` survives this file -- named here
+  // because the boundary is the point, not the omission.
+  const NO_SHIPPED_DEFAULT = ['REGISTRY_PASS'];
+
+  it('gives every environment axis a value a real host actually has', () => {
+    const wrong: string[] = [];
+    // The rule, applied to the pins rather than to the two values Gemini
+    // happened to name: anything this harness pins to a fixed value must be
+    // pinned to configure.sh's own default, read out of the script. A future
+    // pin added without that is the same hole again.
+    for (const [name, pinned] of Object.entries(BASE_ENV)) {
+      if (NO_SHIPPED_DEFAULT.includes(name)) continue;
+      const shipped = shippedDefault(name);
+      if (pinned !== shipped) {
+        wrong.push(`${name}: harness pins ${pinned}, configure.sh defaults to ${shipped}`);
+      }
+    }
+    for (const axis of ENV_AXES) {
+      const alternative = axis.alternative[axis.name];
+      if (alternative === undefined || alternative === null) {
+        wrong.push(`${axis.name}: its alternative must set its own name to a value`);
+        continue;
+      }
+      if (NO_SHIPPED_DEFAULT.includes(axis.name)) continue;
+      // The default cell is either untouched by the harness -- so
+      // configure.sh's default applies by construction -- or pinned to that
+      // default by the loop above. Either way the alternative must differ, or
+      // the axis is a no-op that would still satisfy the sweeps.
+      if (alternative === shippedDefault(axis.name)) {
+        wrong.push(`${axis.name}: its alternative equals the shipped default`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
 
   // Enumerated in binary, so cell i takes axis k's alternative exactly when
   // bit k of i is set. That is the full product -- all 2^7 combinations, not
