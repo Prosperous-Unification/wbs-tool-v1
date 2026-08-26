@@ -78,9 +78,17 @@ ${helpers}
 ${mergeBlock}
 `;
 
-type Run = { status: number | null; stdout: string; stderr: string; caddyfile: string };
+interface Run {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  caddyfile: string;
+}
 
-const runMerge = (existing: string | null, opts: { failGrepNth?: number; mode?: number } = {}): Run => {
+const runMerge = (
+  existing: string | null,
+  opts: { failGrepNth?: number; mode?: number } = {},
+): Run => {
   const root = mkdtempSync(join(tmpdir(), 'task160-caddy-'));
   mkdirSync(join(root, 'caddy'));
   const caddyfile = join(root, 'caddy', 'Caddyfile');
@@ -104,7 +112,11 @@ const runMerge = (existing: string | null, opts: { failGrepNth?: number; mode?: 
   } catch {
     written = '';
   }
-  return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '', caddyfile: written };
+  // A spawn that never started reports status null and empty streams, which
+  // would read as a silent pass on the die cases; surface it as a failure here
+  // rather than letting a case assert on nothing.
+  if (res.error) throw res.error;
+  return { status: res.status, stdout: res.stdout, stderr: res.stderr, caddyfile: written };
 };
 
 const importsOf = (text: string): string[] =>
@@ -114,12 +126,14 @@ const importsOf = (text: string): string[] =>
     .filter((l) => l.startsWith('import '));
 
 const OWNED = ['import log-redact.caddy', 'import site.caddy'];
+const RUNNING_AS_ROOT = process.getuid() === 0;
 
 describe('configure.sh Caddyfile merge, executed', () => {
   it('slices the shipped block rather than a copy of it', () => {
     // If this ever passes while the block above is empty or truncated, every
     // other case in this file is asserting on nothing.
     expect(mergeBlock).toContain('refusing to rewrite it');
+    expect(mergeBlock).toContain('exists but is not readable');
     expect(mergeBlock).toContain('mv "$caddy_tmp" "$caddyfile"');
     expect(helpers).toContain('exit 1');
     expect(mergeBlock.split('\n').length).toBeGreaterThan(20);
@@ -182,19 +196,20 @@ describe('configure.sh Caddyfile merge, executed', () => {
     expect(importsOf(run.caddyfile)).toEqual(OWNED);
   });
 
-  it('refuses to rewrite a Caddyfile it cannot read, and leaves it alone', () => {
-    if (process.getuid?.() === 0) {
-      // Root reads a 0000 file, so this case cannot be built as root. Stated
-      // rather than silently passing: on a root runner it proves nothing.
-      expect(process.getuid?.()).toBe(0);
-      return;
-    }
-    const original = 'import registry.caddy\nimport monitoring.caddy\n';
-    const run = runMerge(original, { mode: 0o000 });
-    expect(run.status).not.toBe(0);
-    expect(run.stderr).toContain('is not readable');
-    expect(run.caddyfile).toBe(original);
-  });
+  // Root reads a 0000 file, so this case is not constructible as root and is
+  // skipped there rather than passing on nothing. The guard line itself is
+  // still asserted unconditionally by the slice test above, so a root-only
+  // runner loses the behaviour check but not the presence check.
+  it.skipIf(RUNNING_AS_ROOT)(
+    'refuses to rewrite a Caddyfile it cannot read, and leaves it alone',
+    () => {
+      const original = 'import registry.caddy\nimport monitoring.caddy\n';
+      const run = runMerge(original, { mode: 0o000 });
+      expect(run.status).not.toBe(0);
+      expect(run.stderr).toContain('is not readable');
+      expect(run.caddyfile).toBe(original);
+    },
+  );
 
   it('refuses to rewrite when reading the imports errors, and leaves it alone', () => {
     const original = 'import registry.caddy\nimport monitoring.caddy\n';
@@ -221,6 +236,8 @@ describe('configure.sh Caddyfile merge, executed', () => {
     // drops the comments. Pinned so that changing it has to be a decision.
     const run = runMerge('# the registry vhost, added by hand 2026-08-02\nimport registry.caddy\n');
     expect(run.status).toBe(0);
-    expect(run.caddyfile).toBe('import log-redact.caddy\nimport site.caddy\nimport registry.caddy\n');
+    expect(run.caddyfile).toBe(
+      'import log-redact.caddy\nimport site.caddy\nimport registry.caddy\n',
+    );
   });
 });
