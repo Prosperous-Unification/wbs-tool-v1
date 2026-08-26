@@ -125,12 +125,18 @@ describe('no vhost this repo ships opens the access log itself', () => {
     if (file === SNIPPET) continue;
     it(`${file} imports access-log instead of defining an output`, () => {
       const text = readFileSync(join(DEPLOY, file), 'utf8');
-      if (!/^\s*log\s*\{/m.test(text) && !text.includes('import access-log')) {
+      // Unconditional: `log unredacted { output file … }` is valid Caddy, and a
+      // named logger would slip past a check that only looks for a bare `log {`.
+      // Naming the shared file at all, under any logger name, is the defect.
+      expect(text).not.toContain('output file /var/log/caddy');
+      // `log` optionally takes a logger name before its block.
+      const definesLogging = /^\s*log(\s+\S+)?\s*\{/m.test(text);
+      if (!definesLogging && !text.includes('import access-log')) {
         // A site file with no logging at all is fine — registry.caddy is one.
         return;
       }
       expect(text).toContain('import access-log');
-      expect(text).not.toContain('output file /var/log/caddy');
+      expect(definesLogging).toBeFalse();
     });
   }
 });

@@ -131,7 +131,8 @@ log "writing $WBS_ROOT/caddy/log-redact.caddy (the one access-log definition)"
 # (TASK-160). Keep in sync with deploy/compose/log-redact.caddy — duplicated
 # inline for the same reason Caddyfile.bootstrap's content is: this script is
 # copied to the host alone.
-cat > "$WBS_ROOT/caddy/log-redact.caddy" <<'CADDYFILE'
+redact_tmp="$WBS_ROOT/caddy/log-redact.caddy.tmp.$$"
+cat > "$redact_tmp" <<'CADDYFILE'
 (access-log) {
 	log {
 		output file /var/log/caddy/access.log
@@ -158,7 +159,13 @@ cat > "$WBS_ROOT/caddy/log-redact.caddy" <<'CADDYFILE'
 	}
 }
 CADDYFILE
-chown "$WBS_USER:$WBS_USER" "$WBS_ROOT/caddy/log-redact.caddy"
+# Renamed into place rather than written in place: this snippet is imported by
+# every logged vhost, so a truncated copy (interrupt, ENOSPC, EIO) is not a
+# degraded file, it is a config Caddy refuses — and the next container restart
+# then takes every vhost with it.
+chown "$WBS_USER:$WBS_USER" "$redact_tmp"
+chmod 0644 "$redact_tmp"
+mv "$redact_tmp" "$WBS_ROOT/caddy/log-redact.caddy"
 
 log "writing $WBS_ROOT/caddy/Caddyfile (imports log-redact.caddy, then site.caddy)"
 # The two imports this pipeline owns are asserted every re-run; any OTHER
@@ -184,8 +191,21 @@ caddy_tmp="$caddyfile.tmp.$$"
     # 1 means "nothing imported yet", a real state on a fresh host; 2 is a read error.
     [ "$grep_rc" -le 1 ] || die "could not read $caddyfile (grep exit $grep_rc) — refusing to rewrite it"
     if [ -n "$caddy_imports" ]; then
-      printf '%s\n' "$caddy_imports" \
-        | grep -vE '^[[:space:]]*import[[:space:]]+(log-redact\.caddy|site\.caddy)[[:space:]]*$' || true
+      # The owned-import pattern tolerates a trailing comment, because
+      # `import site.caddy # rendered per-deploy` is a valid line that means the
+      # same thing — and preserving it beside the canonical one just emitted
+      # imports the file twice, which Caddy rejects as an ambiguous site
+      # definition, crash-looping every vhost on the next restart. A CRLF file
+      # is already covered: `[[:space:]]` includes CR, and `.` matches it.
+      filter_rc=0
+      caddy_others=$(printf '%s\n' "$caddy_imports" \
+        | grep -vE '^[[:space:]]*import[[:space:]]+(log-redact\.caddy|site\.caddy)[[:space:]]*(#.*)?$') \
+        || filter_rc=$?
+      # 1 means every import was one of ours, a normal state. Anything else is a
+      # real failure, and `|| true` here would install a partial file over five
+      # live vhost imports.
+      [ "$filter_rc" -le 1 ] || die "could not filter the imports in $caddyfile (grep exit $filter_rc) — refusing to rewrite it"
+      [ -z "$caddy_others" ] || printf '%s\n' "$caddy_others"
     fi
   fi
 } > "$caddy_tmp"
