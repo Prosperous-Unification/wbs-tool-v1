@@ -57,33 +57,38 @@ function parseArgs(argv: string[]): { outDir: string } {
 // executor (tools/tool-remote-scripts/src/swap.ts) renders both templates
 // itself with real per-deploy values (digest-pinned image, actual routed
 // colours) via `renderTemplate` directly, imported through `@wbs/tool-compose`.
-async function main(): Promise<void> {
-  const { outDir } = parseArgs(process.argv.slice(2));
+export function previewContext(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): RenderContext {
   // Whole-block route placeholders, matching site.caddy.tmpl (each is the
   // full content of a `handle { ... }` body, not just a colour — see
   // tools/tool-remote-scripts/src/lib/site.ts's `routeBlock`, which is what
   // a real deploy actually uses; this preview default just needs *some*
   // valid Caddyfile snippet per tier, deployed by default).
-  const ctx: RenderContext = {
-    CONTAINER: process.env['CONTAINER'] ?? 'be-01-blue',
-    NETWORK: process.env['NETWORK'] ?? 'wbs-net',
-    IMAGE:
-      process.env['IMAGE'] ?? `registry.infra.bulletpoints.club/wbs-be-01@sha256:${'0'.repeat(64)}`,
-    SITE_ADDRESS: process.env['SITE_ADDRESS'] ?? 'wbs.bulletpoints.club',
-    BE_ROUTE: process.env['BE_ROUTE'] ?? 'reverse_proxy be-01-blue:3100',
-    GW_ROUTE: process.env['GW_ROUTE'] ?? 'reverse_proxy gw-01-blue:3200',
-    FE_ROUTE: process.env['FE_ROUTE'] ?? 'reverse_proxy fe-01-blue:80',
+  return {
+    CONTAINER: env['CONTAINER'] ?? 'be-01-blue',
+    NETWORK: env['NETWORK'] ?? 'wbs-net',
+    IMAGE: env['IMAGE'] ?? `registry.infra.bulletpoints.club/wbs-be-01@sha256:${'0'.repeat(64)}`,
+    SITE_ADDRESS: env['SITE_ADDRESS'] ?? 'wbs.bulletpoints.club',
+    BE_ROUTE: env['BE_ROUTE'] ?? 'reverse_proxy be-01-blue:3100',
+    GW_ROUTE: env['GW_ROUTE'] ?? 'reverse_proxy gw-01-blue:3200',
+    FE_ROUTE: env['FE_ROUTE'] ?? 'reverse_proxy fe-01-blue:80',
+    MCP_ROUTES: env['MCP_ROUTES'] ?? '',
     // Whole-block placeholders, same shape lib/docker.ts's real
     // tierComposeContext produces (see its doc comment) — a preview default
     // just needs *some* valid env_file entry, not the real per-tier
     // allowlisting a real deploy applies.
-    ENV_FILES: process.env['ENV_FILES'] ?? '    env_file:\n      - /home/puni1/wbs/be-01.env\n',
-    VOLUMES: process.env['VOLUMES'] ?? '    volumes:\n      - /home/puni1/wbs/data:/data\n',
+    ENV_FILES: env['ENV_FILES'] ?? '    env_file:\n      - /home/puni1/wbs/be-01.env\n',
+    VOLUMES: env['VOLUMES'] ?? '    volumes:\n      - /home/puni1/wbs/data:/data\n',
   };
+}
+
+async function main(): Promise<void> {
+  const { outDir } = parseArgs(process.argv.slice(2));
   const written = await renderAll({
     templatesDir: new URL('./templates', import.meta.url).pathname,
     outDir,
-    context: ctx,
+    context: previewContext(),
   });
   console.log(`rendered ${String(written.length)} file(s) into ${outDir}`);
 }

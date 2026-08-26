@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'bun:test';
 
-import { renderAll, renderTemplate } from './render';
+import { previewContext, renderAll, renderTemplate } from './render';
 
 const TEMPLATES = join(import.meta.dir, 'templates');
 
@@ -20,6 +20,12 @@ describe('renderTemplate', () => {
 
   it('throws on missing placeholder', () => {
     expect(() => renderTemplate('missing {{FOO}}', {})).toThrow(/FOO/);
+  });
+});
+
+describe('previewContext', () => {
+  it('supplies an empty MCP route block for the build preview', () => {
+    expect(previewContext({})).toMatchObject({ MCP_ROUTES: '' });
   });
 });
 
