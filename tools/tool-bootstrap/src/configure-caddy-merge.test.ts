@@ -64,10 +64,15 @@ const shippedDefault = (name: string): string => {
 //
 // was true in all 128 cells and false on every real host. That pin cannot be
 // removed -- it is what makes the script runnable unprivileged and stoppable
-// before it writes outside WBS_ROOT -- so it is a stated boundary instead, and
-// `runShippedScript` throws if the set of by-construction pins ever stops
-// matching this list. A new pin is then either an env axis with the shipped
-// default (below) or a deliberate, reasoned entry here. It cannot be neither.
+// before it writes outside WBS_ROOT -- so it is a stated boundary instead.
+//
+// The reasons here are prose and only prose, for the same reason `EnvAxis.why`
+// is: a string cannot be checked for truth, and asserting on its LENGTH is the
+// vacuous check round 8 deleted (a reason of forty x's would pass it). What is
+// executable is the SET, and it is enforced on the env the child process
+// actually receives -- see `assertEveryNameAccountedFor`. A new pin is then an
+// env axis carrying the shipped default, a BASE_ENV pin held to it, or a
+// deliberate entry here. It cannot be none of them.
 const PINNED_BY_CONSTRUCTION: Record<string, string> = {
   PATH: 'the stub directory must come first: it is what makes the script runnable unprivileged and stops it at htpasswd, before the one step that writes outside WBS_ROOT',
   WBS_ROOT:
@@ -81,6 +86,60 @@ const BASE_ENV: Record<string, string> = {
   WBS_USER: shippedDefault('WBS_USER'),
   BUN_VERSION: shippedDefault('BUN_VERSION'),
   REGISTRY_PASS: 'stopped-before-this-is-used',
+};
+
+// The names `ENV_AXES` varies, hoisted here because the rule below runs inside
+// `runShippedScript` and `ENV_AXES` itself lives in the describe block with the
+// argument that motivates it. The guard case holds the two in exact
+// correspondence both ways, so this is a second spelling of one list rather
+// than a second list: a name here with no axis fails, and an axis with no name
+// here fails.
+const ENV_AXIS_NAMES: readonly string[] = [
+  'SITE_ADDRESS',
+  'REGISTRY_INSECURE',
+  'REGISTRY_HOST',
+  'REGISTRY_USER',
+  'REGISTRY_PASS',
+  'WBS_USER',
+  'BUN_VERSION',
+];
+
+// The round-9 rule, rebound to the object the child process actually receives.
+// Sol's round-10 BLOCK is why it moved: round 9 compared the `byConstruction`
+// LITERAL's keys against PINNED_BY_CONSTRUCTION, which says nothing about the
+// env that literal is merged INTO, so a pin added one line further down --
+//
+//   Object.entries({ ...byConstruction, ...BASE_ENV, ...overrides,
+//                    HARNESS_GATE: 'harness-only' })
+//
+// passed both round-9 checks, and `[ "${HARNESS_GATE:-}" = harness-only ]`
+// would have been true in all 128 cells and false on every real host: the
+// round-9 finding again, one line away from where it was closed. Reading the
+// final env leaves no "one line further down" -- every name reaching
+// configure.sh is a stated boundary pin, a BASE_ENV pin held to the shipped
+// default, or an axis that varies, and a name that is none of those is a value
+// no cell varies and no guard covers.
+const assertEveryNameAccountedFor = (env: Record<string, string>): void => {
+  const unaccounted = Object.keys(env).filter(
+    (name) =>
+      !(name in PINNED_BY_CONSTRUCTION) &&
+      !(name in BASE_ENV) &&
+      !ENV_AXIS_NAMES.includes(name),
+  );
+  if (unaccounted.length > 0) {
+    throw new Error(
+      `the harness hands configure.sh ${unaccounted.join()}, which is neither a stated PINNED_BY_CONSTRUCTION boundary, a BASE_ENV pin, nor an ENV_AXIS_NAMES axis; a name no cell varies is a value no real host has`,
+    );
+  }
+  // The other direction, so the stated boundary cannot outlive the pin it
+  // describes: an entry left behind after its pin was dropped would make this
+  // file claim it proves less than it does.
+  const stale = Object.keys(PINNED_BY_CONSTRUCTION).filter((name) => !(name in env));
+  if (stale.length > 0) {
+    throw new Error(
+      `PINNED_BY_CONSTRUCTION names ${stale.join()} but the harness no longer pins it; a stated boundary with nothing behind it understates what this file proves`,
+    );
+  }
 };
 
 const LOG_MARKER = 'log() {';
@@ -231,32 +290,29 @@ const runShippedScript = (
   const script = join(root, 'configure.sh');
   writeFileSync(script, text);
   const overrides = opts.env ?? {};
-  // WBS_ROOT is what this harness reads its results back out of. Overriding
-  // it would send every write somewhere else, `caddyfile` would come back
-  // null, and the cell would be scored a kill for the wrong reason -- the
-  // same conflation the whole-script rewrite exists to remove.
-  if ('WBS_ROOT' in overrides) {
-    throw new Error('WBS_ROOT is fixed by construction: this harness reads its results out of it');
-  }
-  const byConstruction: Record<string, string> = {
-    PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
-    WBS_ROOT: root,
-  };
-  // Fires on every run, not only when someone remembers to look: a pin added
-  // here without a reason in PINNED_BY_CONSTRUCTION is a value no cell has and
-  // no guard covers, which is exactly the round-9 finding.
-  if (Object.keys(byConstruction).join() !== Object.keys(PINNED_BY_CONSTRUCTION).join()) {
-    throw new Error(
-      `the harness pins ${Object.keys(byConstruction).join()} by construction but PINNED_BY_CONSTRUCTION names ${Object.keys(PINNED_BY_CONSTRUCTION).join()}; a pin with no stated reason is a value no cell has`,
-    );
+  // No construction pin is overridable, and this is the whole list rather than
+  // WBS_ROOT alone -- Sol's round-10 note, that the old special case left PATH
+  // overridable while PINNED_BY_CONSTRUCTION recorded it as fixed. Either name
+  // going free is a value the file says cannot vary, varying. For WBS_ROOT it
+  // is also where the results are read back from: a redirect would return
+  // `caddyfile: null` and score the cell a kill for the wrong reason, the same
+  // conflation the whole-script rewrite exists to remove.
+  for (const [name, reason] of Object.entries(PINNED_BY_CONSTRUCTION)) {
+    if (name in overrides) {
+      throw new Error(`${name} is fixed by construction: ${reason}`);
+    }
   }
   const env = Object.fromEntries(
     Object.entries<string | null>({
-      ...byConstruction,
+      PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+      WBS_ROOT: root,
       ...BASE_ENV,
       ...overrides,
     }).filter((entry): entry is [string, string] => entry[1] !== null),
   );
+  // On every run, against the finished object, not against any literal that
+  // fed it.
+  assertEveryNameAccountedFor(env);
   const res = spawnSync('/bin/sh', [script], { encoding: 'utf8', env });
   if (res.error) throw res.error;
   return {
@@ -633,10 +689,25 @@ describe('configure.sh Caddyfile merge, executed', () => {
         wrong.push(`${axis.name}: pinned by construction, so it cannot also be an axis`);
       }
     }
-    for (const [name, reason] of Object.entries(PINNED_BY_CONSTRUCTION)) {
-      // A reason, not a placeholder -- this list is the file's stated boundary,
-      // and an entry with nothing written next to it silently widens it.
-      if (reason.length < 40) wrong.push(`${name}: needs a stated reason, not a label`);
+    // ENV_AXIS_NAMES is what `assertEveryNameAccountedFor` reads, and it is one
+    // list only while these two agree exactly. A name added there to silence a
+    // smuggled pin has no axis and fails here; an axis added here without the
+    // name fails at the first cell that runs.
+    const declared = [...ENV_AXIS_NAMES].sort().join();
+    const actual = ENV_AXES.map((axis) => axis.name)
+      .sort()
+      .join();
+    if (declared !== actual) {
+      wrong.push(`ENV_AXIS_NAMES is ${declared} but ENV_AXES is ${actual}`);
+    }
+    // An alternative that set a SECOND name would put that name in every cell
+    // of the half where the axis is taken, unvaried and unaccounted for -- the
+    // round-10 smuggling route with an axis in front of it.
+    for (const axis of ENV_AXES) {
+      const keys = Object.keys(axis.alternative);
+      if (keys.length !== 1 || keys[0] !== axis.name) {
+        wrong.push(`${axis.name}: its alternative must set its own name and nothing else`);
+      }
     }
     for (const [name, pinned] of Object.entries(BASE_ENV)) {
       if (NO_SHIPPED_DEFAULT.includes(name)) continue;
@@ -696,8 +767,13 @@ describe('configure.sh Caddyfile merge, executed', () => {
   // `case "$WBS_ROOT" in /tmp/*)` and `[ "${PATH%%:*}" = "$WBS_ROOT/stubbin" ]`
   // both survive this file. Neither pin can be dropped: one is where the
   // results are read from, the other is what stops the script before it writes
-  // outside WBS_ROOT. What the list buys is that the set is CLOSED -- a new
-  // pin cannot join it silently.
+  // outside WBS_ROOT. What the list buys is that the set is CLOSED, and after
+  // round 10 that is a claim about the env configure.sh actually receives
+  // rather than about one literal on the way to it: every name in it is a
+  // boundary pin, a BASE_ENV pin at the shipped default, or an axis
+  // (`assertEveryNameAccountedFor`), so a new pin cannot join silently from
+  // anywhere -- not the merge literal, not an axis's alternative, not an
+  // override.
   const HOST_WEIGHTS = [1, 2, 4] as const;
   const hostIndexFor = (picks: readonly boolean[]): number =>
     picks.reduce(
