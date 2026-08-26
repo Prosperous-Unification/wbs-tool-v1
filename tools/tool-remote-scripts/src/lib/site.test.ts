@@ -251,4 +251,32 @@ describe('rendered dev site.caddy MCP exposure', () => {
     expect(mcpExposureEnabled('enabled\n')).toBeTrue();
     expect(() => mcpExposureEnabled('disabled\n')).toThrow(/malformed MCP exposure state/);
   });
+
+  /**
+   * The marker is the cutover decision, so "does it look enabled?" is not the
+   * question — "is it exactly enabled?" is. Each rejected value below kills a
+   * different plausible loosening: `'enabled '` kills a `.trim()`,
+   * `'enabled-extra'` and `'enabledx'` kill a `.startsWith`, `' enabled'` kills
+   * a `.includes`, and `''` kills reading an empty marker as an absent one.
+   * Without them the check passes vacuously against any of those rewrites.
+   */
+  it('accepts an exact marker with or without trailing newlines', () => {
+    expect(mcpExposureEnabled('enabled')).toBeTrue();
+    expect(mcpExposureEnabled('enabled\n\n')).toBeTrue();
+  });
+
+  it('refuses every value that merely resembles the enabled marker', () => {
+    for (const raw of [
+      '',
+      '\n',
+      'enabled ',
+      ' enabled',
+      'enabled-extra',
+      'enabledx',
+      'ENABLED',
+      'enabled\nstray',
+    ]) {
+      expect(() => mcpExposureEnabled(raw)).toThrow(/malformed MCP exposure state/);
+    }
+  });
 });

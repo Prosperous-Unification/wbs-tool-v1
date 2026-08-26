@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,11 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { assembleCaddyfile } from './lib/caddy';
 import { drain } from './lib/drain';
+import { type EnvLayout, envLayout } from './lib/env';
 import { waitForHealthy } from './lib/health';
 import { flipColor, parseStateJson, renderStateJson } from './lib/state';
 import {
   isFileAbsent,
   parseRecordedColor,
+  readMcpExposure,
   parseTierList,
   pollActiveConnections,
   readSiteCaddy,
@@ -469,5 +471,69 @@ describe('isFileAbsent', () => {
   it('does not treat a non-errno value as absence', () => {
     expect(isFileAbsent(new Error('something else'))).toBe(false);
     expect(isFileAbsent(null)).toBe(false);
+  });
+});
+
+/**
+ * The marker reader is the whole cutover seam, and until now nothing exercised
+ * it: the environment branch, the ENOENT tolerance and the unreadable-file
+ * refusal were all reachable only from a real swap on a real host. `CURRENT_ENV`
+ * is frozen at import, so the layout parameter is the only seam a unit test can
+ * drive — the same `layout: EnvLayout = CURRENT_ENV` shape `containerName` and
+ * `tierEnvFiles` already use in lib/docker.ts.
+ */
+describe('readMcpExposure', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'wbs-mcp-exposure-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const at = (env: 'prod' | 'dev'): EnvLayout => ({ ...envLayout(env), stateDir: dir });
+
+  it('never reads a marker in prod, even when an enabled one is sitting there', async () => {
+    // Not merely "prod returns false": the marker is present and enabled, so a
+    // reader that dropped the environment branch would return true here.
+    writeFileSync(join(dir, 'mcp-exposure'), 'enabled\n');
+    expect(await readMcpExposure(at('prod'))).toBe(false);
+  });
+
+  it('treats an absent dev marker as pre-cutover rather than an error', async () => {
+    expect(await readMcpExposure(at('dev'))).toBe(false);
+  });
+
+  it('reads an enabled dev marker as exposed', async () => {
+    writeFileSync(join(dir, 'mcp-exposure'), 'enabled\n');
+    expect(await readMcpExposure(at('dev'))).toBe(true);
+  });
+
+  it('refuses a malformed dev marker instead of quietly dropping the surface', async () => {
+    writeFileSync(join(dir, 'mcp-exposure'), 'disabled\n');
+    let threw = false;
+    try {
+      await readMcpExposure(at('dev'));
+    } catch (e: unknown) {
+      threw = true;
+      expect(e instanceof Error && e.message).toMatch(/refusing to rewrite the dev vhost/);
+      expect(e instanceof Error && e.message).toMatch(/malformed MCP exposure state/);
+    }
+    expect(threw).toBe(true);
+  });
+
+  it('refuses an unreadable dev marker rather than reading it as absent', async () => {
+    // A directory in the marker's place throws EISDIR, not ENOENT: the one
+    // distinction `isFileAbsent` exists to make. Reading this as absent would
+    // delete the reviewed public surface on the next swap.
+    mkdirSync(join(dir, 'mcp-exposure'));
+    let threw = false;
+    try {
+      await readMcpExposure(at('dev'));
+    } catch (e: unknown) {
+      threw = true;
+      expect(e instanceof Error && e.message).toMatch(/cannot read/);
+    }
+    expect(threw).toBe(true);
   });
 });
