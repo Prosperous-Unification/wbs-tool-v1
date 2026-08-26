@@ -1,0 +1,59 @@
+# deploy/compose/log-redact.caddy
+#
+# Installed at /home/puni1/wbs/caddy/log-redact.caddy by configure.sh and
+# imported by the host Caddyfile before any site file. Every rendered
+# site.caddy (tools/tool-compose/src/templates/site.caddy.tmpl) and every
+# hand-maintained vhost does `import access-log` instead of defining a log
+# block, so this file is the ONLY place the access log is configured.
+#
+# The single access-log definition. Every vhost that logs imports this snippet
+# instead of writing its own `log { output file … }` block, because all of them
+# write to the SAME file and a leak needs only one of them to opt out.
+#
+# Why the filter exists (queue TASK-159, 2026-08-26). Caddy logs `request.uri`
+# verbatim, query string included, and that file is durable: 49 MB live, five
+# rotated .gz siblings back to 2026-08-04, and it is the input to
+# /home/puni1/monitoring/bin/goaccess-reports.sh, which copies whatever it finds
+# into generated HTML under /home/puni1/monitoring/www. Two credential-shaped
+# values were landing there:
+#
+#   * `code`/`state` on /api/auth/okta/callback — 13 occurrences. Single-use,
+#     PKCE-protected, so not a live takeover path.
+#   * `token` on dev.wbs.bulletpoints.club/ws — 10,901 occurrences, 16 distinct
+#     HS256 JWTs with a 12-hour lifetime. THIS is the one that mattered: for
+#     twelve hours after each line is written, that log holds a replayable
+#     session credential.
+#
+# `replace` rather than `hash`: GoAccess counts URLs, and collapsing every
+# tokened request to one URI makes the report more readable, not less. Params
+# not present in a request are left alone, so listing extras costs nothing.
+#
+# Verified before it shipped: a throwaway caddy:2-alpine on :8099 logged
+# `code=REDACTED&keep=visible&state=REDACTED` with this filter and
+# `code=SECRETCODE123` without it. The negative control is the point — the
+# filter is known to fail loudly, not merely to look present.
+(access-log) {
+	log {
+		output file /var/log/caddy/access.log
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					replace code REDACTED
+					replace state REDACTED
+					replace token REDACTED
+					replace access_token REDACTED
+					replace id_token REDACTED
+					replace refresh_token REDACTED
+					replace session REDACTED
+					replace password REDACTED
+					replace secret REDACTED
+					replace api_key REDACTED
+					replace apikey REDACTED
+					replace signature REDACTED
+					replace sig REDACTED
+				}
+			}
+		}
+	}
+}

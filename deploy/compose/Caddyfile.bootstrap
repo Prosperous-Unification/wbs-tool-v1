@@ -24,4 +24,15 @@
 # render-route would produce for a tier with no observed colour — see
 # tools/tool-remote-scripts/src/lib/site.ts's `routeBlock`), and every real
 # swap's render-route step overwrites it for real from then on.
+# `log-redact.caddy` FIRST: it defines the `(access-log)` snippet that every
+# site file — rendered or hand-maintained — imports. Caddy resolves imports
+# in file order, so a site file that imports `access-log` before the snippet
+# is defined fails the config load. That failure is deliberate and correct:
+# the alternative, a vhost quietly logging unfiltered query strings, is the
+# leak TASK-159 closed and TASK-160 kept closed across swaps.
+#
+# configure.sh does NOT clobber other `import` lines it finds here — this
+# host also serves hand-added vhosts (registry, monitoring, dev, studio)
+# whose imports live in the same file.
+import log-redact.caddy
 import site.caddy

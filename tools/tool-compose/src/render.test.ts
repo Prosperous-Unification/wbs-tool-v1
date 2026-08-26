@@ -85,3 +85,20 @@ describe('site.caddy.tmpl', () => {
     expect(tmpl).toContain('handle /api/*');
   });
 });
+
+// TASK-160. The rendered site config is written wholesale by every blue/green
+// swap over BOTH vhosts, so a per-vhost `log { output file … }` block here is
+// not a style preference — it is the leak TASK-159 closed reopening itself on
+// the next swap, silently, with a config Caddy accepts happily.
+describe('site.caddy.tmpl access logging', () => {
+  const tmpl = readFileSync(join(TEMPLATES, 'site.caddy.tmpl'), 'utf8');
+
+  it('imports the one shared access-log snippet', () => {
+    expect(tmpl).toContain('import access-log');
+  });
+
+  it('never defines an access-log output of its own', () => {
+    expect(tmpl).not.toContain('output file /var/log/caddy');
+    expect(tmpl).not.toMatch(/^\s*log\s*\{/m);
+  });
+});

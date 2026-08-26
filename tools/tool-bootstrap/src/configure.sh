@@ -105,23 +105,92 @@ chmod 0600 "$WBS_ROOT/.env"
 # caddy:2-alpine hard-errors (and crash-loops) with no /etc/caddy/Caddyfile
 # at all, so a fresh host needs one before the first real deploy ever runs.
 #
-# Written UNCONDITIONALLY, every re-run — this file's own content never
-# changes, it always just imports site.caddy (see
-# deploy/compose/Caddyfile.bootstrap for the full history: this used to be a
-# placeholder written only-if-absent, with the real `import site.caddy`
-# version left for "the deploy pipeline" to install later, except nothing
+# The imports it needs are asserted on every re-run, never left for something
+# else to install later (see deploy/compose/Caddyfile.bootstrap for the full
+# history: this used to be a placeholder written only-if-absent, with the real
+# `import site.caddy` version left for "the deploy pipeline", except nothing
 # ever did — `caddy reload` kept exiting 0 forever while silently still
-# serving the placeholder, invisibly, until Task 12's rehearsal caught it
-# live). Keep in sync with deploy/compose/Caddyfile.bootstrap — duplicated
-# inline here, rather than read from that file, because this script is
-# copied to the host alone (see the module docstring's `scp ... sh
-# configure.sh` usage), with no guarantee the rest of the repo is present
-# alongside it.
-log "writing $WBS_ROOT/caddy/Caddyfile (imports site.caddy)"
-cat > "$WBS_ROOT/caddy/Caddyfile" <<'CADDYFILE'
-import site.caddy
+# serving the placeholder, until Task 12's rehearsal caught it live). Keep in
+# sync with deploy/compose/Caddyfile.bootstrap and
+# deploy/compose/log-redact.caddy — duplicated inline here, rather than read
+# from those files, because this script is copied to the host alone (see the
+# module docstring's `scp ... sh configure.sh` usage), with no guarantee the
+# rest of the repo is present alongside it.
+log "writing $WBS_ROOT/caddy/log-redact.caddy (the one access-log definition)"
+# Written UNCONDITIONALLY, like the Caddyfile below and for the same reason:
+# its content is fixed, nothing else on the host mutates it, and every site
+# file's `import access-log` hard-fails Caddy's config load without it.
+#
+# It exists because every vhost on this host writes to ONE access log, Caddy
+# logs `request.uri` with the query string verbatim, and that log is durable
+# and feeds a generated HTML report. Before the filter, it held 13 OIDC
+# `code`/`state` values and 10,901 `token=` values — 16 distinct HS256 JWTs
+# with a 12-hour lifetime, i.e. replayable session credentials sitting in
+# cleartext (queue TASK-159). A per-vhost log block let any one vhost opt out
+# of the filter silently, which is exactly what the next blue/green swap did
+# (TASK-160). Keep in sync with deploy/compose/log-redact.caddy — duplicated
+# inline for the same reason Caddyfile.bootstrap's content is: this script is
+# copied to the host alone.
+cat > "$WBS_ROOT/caddy/log-redact.caddy" <<'CADDYFILE'
+(access-log) {
+	log {
+		output file /var/log/caddy/access.log
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					replace code REDACTED
+					replace state REDACTED
+					replace token REDACTED
+					replace access_token REDACTED
+					replace id_token REDACTED
+					replace refresh_token REDACTED
+					replace session REDACTED
+					replace password REDACTED
+					replace secret REDACTED
+					replace api_key REDACTED
+					replace apikey REDACTED
+					replace signature REDACTED
+					replace sig REDACTED
+				}
+			}
+		}
+	}
+}
 CADDYFILE
-chown "$WBS_USER:$WBS_USER" "$WBS_ROOT/caddy/Caddyfile"
+chown "$WBS_USER:$WBS_USER" "$WBS_ROOT/caddy/log-redact.caddy"
+
+log "writing $WBS_ROOT/caddy/Caddyfile (imports log-redact.caddy, then site.caddy)"
+# The two imports this pipeline owns are asserted every re-run; any OTHER
+# import line already in the file is PRESERVED. It used to be a wholesale
+# overwrite with a single `import site.caddy`, which was true when this stack
+# owned the host alone and false the moment the registry, monitoring, dev and
+# studio vhosts were added by hand beside it — a re-run would have taken five
+# live sites down. `log-redact.caddy` is written first because Caddy resolves
+# imports in file order and every site file's `import access-log` needs the
+# snippet already defined.
+caddyfile="$WBS_ROOT/caddy/Caddyfile"
+caddy_tmp="$caddyfile.tmp.$$"
+{
+  printf 'import log-redact.caddy\n'
+  printf 'import site.caddy\n'
+  if [ -e "$caddyfile" ]; then
+    [ -r "$caddyfile" ] || die "$caddyfile exists but is not readable — refusing to rewrite it, which would drop the vhost imports it holds"
+    grep_rc=0
+    # Captured in one grep, filtered in another: piped straight together, `$?`
+    # would be the SECOND grep's status and a read error in the first (exit 2)
+    # would arrive as "no other imports" — dropping every hand-added vhost.
+    caddy_imports=$(grep -E '^[[:space:]]*import[[:space:]]' "$caddyfile") || grep_rc=$?
+    # 1 means "nothing imported yet", a real state on a fresh host; 2 is a read error.
+    [ "$grep_rc" -le 1 ] || die "could not read $caddyfile (grep exit $grep_rc) — refusing to rewrite it"
+    if [ -n "$caddy_imports" ]; then
+      printf '%s\n' "$caddy_imports" \
+        | grep -vE '^[[:space:]]*import[[:space:]]+(log-redact\.caddy|site\.caddy)[[:space:]]*$' || true
+    fi
+  fi
+} > "$caddy_tmp"
+mv "$caddy_tmp" "$caddyfile"
+chown "$WBS_USER:$WBS_USER" "$caddyfile"
 
 # Caddy would then hard-error on `import site.caddy` if site.caddy itself
 # didn't exist — so seed one, but ONLY if absent: unlike Caddyfile, this
@@ -151,9 +220,7 @@ $SITE_ADDRESS {
 		respond "fe-01 not yet deployed" 503
 	}
 
-	log {
-		output file /var/log/caddy/access.log
-	}
+	import access-log
 }
 
 registry.infra.bulletpoints.club {

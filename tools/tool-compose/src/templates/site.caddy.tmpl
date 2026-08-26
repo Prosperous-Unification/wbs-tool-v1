@@ -15,7 +15,12 @@
 		{{FE_ROUTE}}
 	}
 
-	log {
-		output file /var/log/caddy/access.log
-	}
+	# NOT a `log { output file … }` block of its own. Every vhost on this host
+	# writes to the SAME access log, and that log carried 10,901 cleartext
+	# session JWTs before TASK-159 put a query-redaction filter on it — a leak
+	# needs only one vhost to opt out. `access-log` is defined once, in
+	# deploy/compose/log-redact.caddy, and imported by everyone. A rendered
+	# config that imports it without that snippet present fails to load, loudly,
+	# which is the right failure: a silently unfiltered log is the wrong one.
+	import access-log
 }
