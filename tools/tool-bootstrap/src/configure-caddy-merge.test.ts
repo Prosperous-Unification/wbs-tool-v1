@@ -182,6 +182,33 @@ describe('configure.sh Caddyfile merge, executed', () => {
     expect(importsOf(run.caddyfile)).toEqual([...OWNED, 'import registry.caddy']);
   });
 
+  it('keeps an unowned import whose name merely starts with an owned one', () => {
+    // Gemini's round-2 finding 1, and a gap my own mutations missed: I dropped
+    // the trailing-comment tolerance but kept the `$`, and dropping the anchor
+    // ITSELF is the mutation that survives. All five real vhost names are
+    // distinct enough from `site.caddy` to hide it; `site.caddy.backup` is not.
+    const run = runMerge(
+      'import site.caddy.backup\nimport log-redact.caddy.old\nimport site.caddy\n',
+    );
+    expect(run.status).toBe(0);
+    expect(importsOf(run.caddyfile)).toEqual([
+      ...OWNED,
+      'import site.caddy.backup',
+      'import log-redact.caddy.old',
+    ]);
+  });
+
+  it('emits nothing extra when every import it found was its own', () => {
+    // Gemini's round-2 finding 2. `[ -z "$caddy_others" ] ||` guards a
+    // `printf '%s\n' ""`, which drops a blank line into the middle of the
+    // file. Harmless to Caddy, invisible to importsOf, and the only case where
+    // that branch runs with nothing to print -- so this one asserts the exact
+    // bytes instead of the import lines.
+    const run = runMerge('import log-redact.caddy\nimport site.caddy\n');
+    expect(run.status).toBe(0);
+    expect(run.caddyfile).toBe('import log-redact.caddy\nimport site.caddy\n');
+  });
+
   it('does not duplicate an owned import carrying a trailing comment', () => {
     const run = runMerge(
       'import site.caddy # rendered per-deploy\n\timport log-redact.caddy   # the access-log snippet\nimport registry.caddy\n',
