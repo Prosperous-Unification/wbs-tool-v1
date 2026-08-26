@@ -90,11 +90,26 @@ ${mergeBlock}
 // reachability, and a guard that reads sound while missing three one-line
 // mutations is worse than none.
 //
-// So run it instead. This executes the SHIPPED script from line 1 down to the
-// end of the merge block, with only the root- and network-bound commands
-// stubbed, and asserts a Caddyfile appears. Every mutation above disconnects
-// the block from that control flow, so none of them writes one.
-const scriptPrefix = configureSh.slice(0, configureSh.indexOf(MERGE_END) + MERGE_END.length);
+// So run it instead -- and run the WHOLE file, not a prefix of it. Sol's
+// round-4 follow-up is why: a prefix ending at the merge block's last line
+// cuts every wrapper mutation mid-construct, so `sh` refuses the file with
+// exit 2 and the case goes red for "it no longer parses" rather than for "no
+// Caddyfile was written". `expect(status).toBe(0)` cannot tell those apart,
+// which made the earlier mutation kills worthless as reachability evidence.
+//
+// The whole shipped text always parses, mutated or not, so the only thing
+// left that can differ is whether the block RAN. Execution is stopped
+// deliberately and well past the block by a `htpasswd` stub that exits
+// STOP_STATUS -- `set -e` then ends the script at a known line, before it can
+// reach `mkdir -p /etc/docker` and rewrite the build host's real docker
+// daemon config. Nothing is truncated to arrange that: the stop is a stubbed
+// command's exit code, not a cut.
+//
+// So a mutation is now told from a break by three signals read together:
+// identical exit status (the same stop, not an earlier error), site.caddy
+// seeded (the block after the merge block still ran), and the Caddyfile
+// present or absent (the only thing under test).
+const STOP_STATUS = 7;
 
 // dash refuses `apt-get() { ... }` -- POSIX function names cannot contain a
 // hyphen -- so the stubs are executables on a shadowing PATH instead. Only the
@@ -112,25 +127,42 @@ const STUBS: Record<string, string> = {
   chown: '#!/bin/sh\nexit 0\n',
   chmod: '#!/bin/sh\nexit 0\n',
   rm: '#!/bin/sh\nexit 0\n',
+  // The deliberate stop. It sits AFTER the merge block and the site.caddy
+  // seed, and BEFORE the /etc/docker converge -- the one part of this script
+  // that writes outside WBS_ROOT and must never run on a build host.
+  htpasswd: `#!/bin/sh\nexit ${STOP_STATUS}\n`,
 };
 
-const runShippedPrefix = (
-  overrides: Record<string, string> = {},
+const readOrNull = (path: string): string | null => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+const runShippedScript = (
+  opts: { stubs?: Record<string, string>; mutate?: (text: string) => string } = {},
 ): {
   status: number | null;
   stderr: string;
   caddyfile: string | null;
+  siteCaddy: string | null;
 } => {
   const root = mkdtempSync(join(tmpdir(), 'task160-reach-'));
   const bin = join(root, 'stubbin');
   mkdirSync(bin);
-  for (const [name, body] of Object.entries({ ...STUBS, ...overrides })) {
+  for (const [name, body] of Object.entries({ ...STUBS, ...(opts.stubs ?? {}) })) {
     const f = join(bin, name);
     writeFileSync(f, body);
     chmodSync(f, 0o755);
   }
-  const script = join(root, 'prefix.sh');
-  writeFileSync(script, scriptPrefix + '\n');
+  const text = opts.mutate ? opts.mutate(configureSh) : configureSh;
+  if (opts.mutate && text === configureSh) {
+    throw new Error('a mutation that changed nothing would pass as a kill; check its markers');
+  }
+  const script = join(root, 'configure.sh');
+  writeFileSync(script, text);
   const res = spawnSync('/bin/sh', [script], {
     encoding: 'utf8',
     env: {
@@ -138,17 +170,16 @@ const runShippedPrefix = (
       WBS_ROOT: root,
       WBS_USER: 'wbs-test',
       BUN_VERSION: 'stubbed',
-      REGISTRY_PASS: 'unused-by-this-prefix',
+      REGISTRY_PASS: 'stopped-before-this-is-used',
     },
   });
   if (res.error) throw res.error;
-  let caddyfile: string | null = null;
-  try {
-    caddyfile = readFileSync(join(root, 'caddy', 'Caddyfile'), 'utf8');
-  } catch {
-    caddyfile = null;
-  }
-  return { status: res.status, stderr: res.stderr, caddyfile };
+  return {
+    status: res.status,
+    stderr: res.stderr,
+    caddyfile: readOrNull(join(root, 'caddy', 'Caddyfile')),
+    siteCaddy: readOrNull(join(root, 'caddy', 'site.caddy')),
+  };
 };
 
 interface Run {
@@ -222,31 +253,68 @@ describe('configure.sh Caddyfile merge, executed', () => {
     ['a host caddy unit already present', '0'],
   ] as const) {
     it(`is reached by the shipped script, not merely runnable in isolation (${label})`, () => {
-      // KNOWN LIMIT, stated because it is not what it looks like. This runs a
-      // PREFIX of the script, ending at the merge block's last line. Any
-      // wrapper around the block must close AFTER that line, so the prefix
-      // ends mid-construct and `sh` exits 2 on a syntax error. Every wrapper
-      // mutation is therefore caught -- but by "the prefix no longer parses",
-      // not by "no Caddyfile was written", and `status` conflates the two.
-      // The proof that would not conflate them runs the WHOLE script; that
-      // needs the compose/registry/docker-login tail stubbed too. Until then
-      // this is a reachability SMOKE test, not the reachability proof.
-      const run = runShippedPrefix({ systemctl: `#!/bin/sh\nexit ${exitCode}\n` });
-      expect(run.status).toBe(0);
+      const run = runShippedScript({ stubs: { systemctl: `#!/bin/sh\nexit ${exitCode}\n` } });
+      // The stop is the htpasswd stub, so the script ran PAST the merge block
+      // and past the site.caddy seed to get here. Asserting the status pins
+      // where it stopped: any earlier failure carries a different one.
+      expect(run.status).toBe(STOP_STATUS);
       expect(run.stderr).toBe('');
+      expect(run.siteCaddy).not.toBeNull();
       expect(run.caddyfile).not.toBeNull();
       expect(importsOf(run.caddyfile ?? '')).toEqual(OWNED);
     });
   }
 
-  it('runs the shipped prefix, not a fragment of it', () => {
-    // A prefix that stopped short would write no Caddyfile for the honest
-    // reason and the case above would read as a real failure; a prefix that
-    // never reached the root checks would prove nothing about the real script.
-    expect(scriptPrefix).toContain('must run as root');
-    expect(scriptPrefix).toContain('(access-log) {');
-    expect(scriptPrefix.trimEnd().endsWith(MERGE_END)).toBe(true);
+  it('runs the whole shipped file, and stops where this harness says it does', () => {
+    // Nothing is sliced for the reachability cases -- if it were, a wrapper
+    // mutation would fail on a syntax error and be scored as a kill. The stop
+    // must also stay ordered: after the block under test, before the only
+    // step that writes outside WBS_ROOT.
+    const at = (needle: string): number => {
+      const i = configureSh.indexOf(needle);
+      expect(i).toBeGreaterThan(-1);
+      return i;
+    };
+    expect(configureSh).toContain('must run as root');
+    expect(configureSh).toContain('(access-log) {');
+    expect(at(MERGE_END)).toBeLessThan(at('htpasswd -Bbn'));
+    expect(at('htpasswd -Bbn')).toBeLessThan(at('mkdir -p /etc/docker'));
   });
+
+  // Sol's round-4 point, answered as executable cases rather than as watched
+  // one-off runs. Each mutation leaves the merge block byte-identical and
+  // only disconnects it from control flow -- so every behavioural case above
+  // still passes, and only these can see it. All three were `sh -n` clean
+  // against the earlier text-walking guard, which is why that guard is gone.
+  const WRAPPERS: ReadonlyArray<readonly [string, (b: string) => string]> = [
+    ['an uncalled function', (b) => `merge_caddyfile() {\n${b}\n}\n`],
+    // Gemini round 3: a trailing comment after `{` and the POSIX subshell
+    // form both defeat "does the line end in a brace".
+    ['an uncalled function whose brace carries a comment', (b) => `merge_caddyfile() { # merge\n${b}\n}\n`],
+    ['an uncalled POSIX subshell function', (b) => `merge_caddyfile() (\n${b}\n)\n`],
+    ['a short-circuited group', (b) => `false && {\n${b}\n}\n`],
+    ['an if that never fires', (b) => `if false; then\n${b}\nfi\n`],
+  ];
+
+  for (const [label, wrap] of WRAPPERS) {
+    it(`writes no Caddyfile when the block is disconnected by ${label}`, () => {
+      const run = runShippedScript({
+        // A function replacer, not a string: `$$` and `$&` in a string
+        // replacement are substitution syntax, and the block is full of
+        // `$$` (`$caddyfile.tmp.$$`), which would silently corrupt it into a
+        // different mutation than the one named.
+        mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+      });
+      // Same stop and the same downstream file as the control run: the script
+      // parsed, ran, and got exactly as far. The ONLY difference is the
+      // Caddyfile, which is what makes this a reachability result and not a
+      // restatement of "the mutated file is broken".
+      expect(run.status).toBe(STOP_STATUS);
+      expect(run.stderr).toBe('');
+      expect(run.siteCaddy).not.toBeNull();
+      expect(run.caddyfile).toBeNull();
+    });
+  }
 
   it('writes both owned imports, in order, when no Caddyfile exists', () => {
     const run = runMerge(null);
