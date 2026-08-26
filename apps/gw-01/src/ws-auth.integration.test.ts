@@ -107,6 +107,48 @@ function expectRefused(headers: Record<string, string>): Promise<void> {
   });
 }
 
+function expectUrlRefused(url: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    socket.addEventListener(
+      'open',
+      () => {
+        socket.close();
+        reject(new Error('WebSocket upgrade unexpectedly opened'));
+      },
+      { once: true },
+    );
+    socket.addEventListener(
+      'error',
+      () => {
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+describe('WebSocket query authentication', () => {
+  it('refuses a valid session JWT carried in the URL', async () => {
+    const app = buildApp({
+      beUrl: 'http://be.invalid',
+      internalAuthSecret: INTERNAL_SECRET,
+      jwtKey: JWT_KEY,
+    });
+    app.listen(0);
+    const queryPort = app.server?.port ?? 0;
+    const token = await tokenFor('ada');
+
+    try {
+      await expectUrlRefused(
+        `ws://localhost:${String(queryPort)}/ws?token=${encodeURIComponent(token)}`,
+      );
+    } finally {
+      await app.stop();
+    }
+  });
+});
+
 /**
  * The browser handshake boundary, not cookie parsing in isolation.
  *

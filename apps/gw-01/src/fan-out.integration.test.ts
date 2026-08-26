@@ -5,6 +5,7 @@ import { buildApp } from './app';
 
 const JWT_KEY = 'k'.repeat(32);
 const INTERNAL_SECRET = 's'.repeat(32);
+const APP_ORIGIN = 'https://wbs.test';
 const key = new TextEncoder().encode(JWT_KEY);
 
 let port: number;
@@ -15,6 +16,7 @@ beforeAll(() => {
     beUrl: 'http://be.invalid',
     internalAuthSecret: INTERNAL_SECRET,
     jwtKey: JWT_KEY,
+    appOrigin: APP_ORIGIN,
   });
   app.listen(0);
   port = app.server?.port ?? 0;
@@ -40,7 +42,12 @@ async function tokenFor(username: string): Promise<string> {
 /** A connected socket, subscribed to `subscription`, collecting what it receives. */
 async function connect(username: string, subscription: string) {
   const token = await tokenFor(username);
-  const socket = new WebSocket(`ws://localhost:${String(port)}/ws?token=${token}`);
+  const socket = new WebSocket(`ws://localhost:${String(port)}/ws`, {
+    headers: {
+      cookie: `__Host-wbs_access=${token}`,
+      origin: APP_ORIGIN,
+    },
+  });
   const received: unknown[] = [];
   socket.addEventListener('message', (event: MessageEvent<string>) => {
     received.push(JSON.parse(event.data));

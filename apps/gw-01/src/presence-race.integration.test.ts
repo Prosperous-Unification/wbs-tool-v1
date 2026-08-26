@@ -6,6 +6,7 @@ import { type JwtClaims, JwtVerifier, type TokenVerifier } from './service/jwt-a
 
 const JWT_KEY = 'k'.repeat(32);
 const INTERNAL_SECRET = 's'.repeat(32);
+const APP_ORIGIN = 'https://wbs.test';
 const key = new TextEncoder().encode(JWT_KEY);
 
 /**
@@ -36,6 +37,7 @@ beforeAll(() => {
     beUrl: 'http://be.invalid',
     internalAuthSecret: INTERNAL_SECRET,
     jwtKey: JWT_KEY,
+    appOrigin: APP_ORIGIN,
     verifier: slowVerifier(),
   });
   app.listen(0);
@@ -62,7 +64,12 @@ async function tokenFor(username: string): Promise<string> {
 /** A connected socket, collecting what it receives. Sends nothing on its own. */
 async function connect(username: string) {
   const token = await tokenFor(username);
-  const socket = new WebSocket(`ws://localhost:${String(port)}/ws?token=${token}`);
+  const socket = new WebSocket(`ws://localhost:${String(port)}/ws`, {
+    headers: {
+      cookie: `__Host-wbs_access=${token}`,
+      origin: APP_ORIGIN,
+    },
+  });
   const received: unknown[] = [];
   socket.addEventListener('message', (event: MessageEvent<string>) => {
     received.push(JSON.parse(event.data));

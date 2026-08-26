@@ -55,7 +55,7 @@ interface WsConnection {
    * Never rejects: a token that fails here is already handled inside it.
    */
   joined: Promise<void>;
-  query?: { localIdentity?: string; token?: string };
+  query?: { authenticatedUsername?: string; localIdentity?: string };
 }
 
 export interface AppOptions {
@@ -68,8 +68,8 @@ export interface AppOptions {
   /**
    * The browser origin allowed to open an OIDC cookie-authenticated socket.
    *
-   * Absent in local mode, where the development client still supplies its
-   * short-lived token in the query string.
+   * Absent only in local mode, where {@link localIdentity} authenticates the
+   * cookie-free development socket.
    */
   appOrigin?: string;
   /** Fixed cookie-free identity accepted only by explicit local-mode boot. */
@@ -142,7 +142,10 @@ export function buildApp(opts: AppOptions) {
       .get('/metrics/snapshot', () => metrics.counters)
       .ws('/ws', {
         async beforeHandle({ query, request, set }) {
-          const wsQuery = query as { localIdentity?: string; token?: string };
+          const wsQuery = query as {
+            authenticatedUsername?: string;
+            localIdentity?: string;
+          };
           if (opts.localIdentity !== undefined) {
             // Proof: without this production upgrade branch, the local-mode
             // browser gate closes /ws as `missing token` and both peer-edit
@@ -150,7 +153,14 @@ export function buildApp(opts: AppOptions) {
             wsQuery.localIdentity = opts.localIdentity;
             return undefined;
           }
-          if (opts.appOrigin !== undefined && request.headers.get('origin') !== opts.appOrigin) {
+          // There is deliberately no compatibility fallback to `query.token`.
+          // URLs are copied into browser history, logs and pasted links; a
+          // signed credential in one remains exposed until it expires.
+          if (opts.appOrigin === undefined) {
+            set.status = 401;
+            return { error: 'websocket auth not configured' };
+          }
+          if (request.headers.get('origin') !== opts.appOrigin) {
             // Proof: delete this comparison and "refuses a valid cookie
             // presented by a foreign origin" opens a real socket. Watched
             // 2026-08-24.
@@ -158,21 +168,19 @@ export function buildApp(opts: AppOptions) {
             return { error: 'invalid origin' };
           }
 
-          const token =
-            opts.appOrigin === undefined
-              ? wsQuery.token
-              : cookieValue(request.headers.get('cookie'), '__Host-wbs_access');
+          const token = cookieValue(request.headers.get('cookie'), '__Host-wbs_access');
           if (!token) {
             set.status = 401;
             return { error: 'missing token' };
           }
           try {
-            await verifier.verify(token);
+            const claims = await verifier.verify(token);
+            wsQuery.authenticatedUsername =
+              typeof claims['username'] === 'string' ? claims['username'] : claims.sub;
           } catch {
             set.status = 401;
             return { error: 'invalid token' };
           }
-          wsQuery.token = token;
           return undefined;
         },
         async open(ws) {
@@ -187,33 +195,17 @@ export function buildApp(opts: AppOptions) {
           // Assigned before this handler's first `await`, which is the only
           // point at which `message` and `close` can start. See {@link
           // WsConnection.joined} for what happened when they did not wait.
-          conn.joined = (async () => {
-            // The token is verified a second time here rather than passed down
-            // from beforeHandle: Elysia gives the two hooks separate contexts,
-            // and reading a username that beforeHandle "already checked" would
-            // mean trusting a value this handler never saw. Same verifier, same
-            // key, so a token that reached open cannot fail — but if it does,
-            // the socket joins nobody and simply has no presence.
-            try {
-              const localIdentity = conn.query?.localIdentity;
-              let username = localIdentity;
-              if (username === undefined) {
-                const token = conn.query?.token;
-                if (token === undefined) return;
-                const claims = await verifier.verify(token);
-                username = typeof claims['username'] === 'string' ? claims['username'] : claims.sub;
-              }
-              // A join puts the connection in no project — it has not said which
-              // one it is looking at yet, and until it subscribes it belongs to
-              // nothing (see {@link Presence}). The broadcast is what hands the
-              // newcomer its own empty roster; every other socket's is unchanged
-              // by a join, and only `onSubscribed` below moves anybody's.
-              presence.join(conn.connectionId, username, { send: (s) => ws.send(s) });
-              presence.broadcast();
-            } catch {
-              // beforeHandle already rejected invalid tokens; nothing to add.
-            }
-          })();
+          conn.joined = Promise.resolve().then(() => {
+            const username = conn.query?.localIdentity ?? conn.query?.authenticatedUsername;
+            if (username === undefined) return;
+            // A join puts the connection in no project — it has not said which
+            // one it is looking at yet, and until it subscribes it belongs to
+            // nothing (see {@link Presence}). The broadcast is what hands the
+            // newcomer its own empty roster; every other socket's is unchanged
+            // by a join, and only `onSubscribed` below moves anybody's.
+            presence.join(conn.connectionId, username, { send: (s) => ws.send(s) });
+            presence.broadcast();
+          });
           await conn.joined;
         },
         async message(ws, data) {

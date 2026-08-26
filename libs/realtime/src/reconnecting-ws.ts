@@ -7,7 +7,6 @@ export type ConnectionState = 'open' | 'reconnecting' | 'denied' | 'closed';
 
 export interface ReconnectingWsOptions {
   url: string;
-  jwt: () => Promise<string>;
   onFrame: (frame: WsFrame) => void;
   onControl?: (control: WsControlFrame) => void;
   onStateChange: (state: ConnectionState) => void;
@@ -73,16 +72,13 @@ export function createReconnectingWs(opts: ReconnectingWsOptions): ReconnectingW
     }, heartbeatMs);
   }
 
-  async function connect(): Promise<void> {
+  function connect(): void {
     if (closed) return;
     if (Date.now() - attemptStart > ceilingMs) {
       setState('closed');
       return;
     }
-    const token = await opts.jwt();
-    const url =
-      opts.url + (opts.url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
-    const socket = wsf(url);
+    const socket = wsf(opts.url);
     ws = socket;
 
     socket.onopen = (): void => {
@@ -116,7 +112,7 @@ export function createReconnectingWs(opts: ReconnectingWsOptions): ReconnectingW
       setState('reconnecting');
       const delay = computeBackoff(attempt++, random);
       setTimeout(() => {
-        void connect();
+        connect();
       }, delay);
     };
 
@@ -125,7 +121,7 @@ export function createReconnectingWs(opts: ReconnectingWsOptions): ReconnectingW
     };
   }
 
-  void connect();
+  connect();
 
   return {
     send(frame) {
