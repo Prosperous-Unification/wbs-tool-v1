@@ -78,6 +78,50 @@ ${helpers}
 ${mergeBlock}
 `;
 
+// Sol's round-2 finding 1, and the sharpest one of the run: slicing proves the
+// block BEHAVES, not that configure.sh ever RUNS it. Wrap lines 179-213 in an
+// uncalled `merge_caddyfile() { ... }` and every case above stays green while
+// the shipped script writes no Caddyfile at all — `sh -n` passes and the
+// extracted slice is byte-identical.
+//
+// So walk the script down to the block and require the nesting depth to be
+// zero: top-level, unconditional, not inside a function, `if`, loop or `case`.
+// Heredoc bodies are blanked first, because the snippet this script writes is
+// full of braces that are Caddy syntax rather than shell.
+const withoutHeredocBodies = (text: string): string[] => {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  let terminator: string | null = null;
+  for (const line of lines) {
+    if (terminator !== null) {
+      out.push('');
+      if (line.trim() === terminator) terminator = null;
+      continue;
+    }
+    out.push(line);
+    const opened = /<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?/.exec(line);
+    if (opened) terminator = opened[1];
+  }
+  return out;
+};
+
+const depthBefore = (marker: string): number => {
+  const lines = withoutHeredocBodies(configureSh);
+  const target = lines.findIndex((l) => l.includes(marker));
+  if (target < 0) throw new Error(`marker ${JSON.stringify(marker)} vanished from configure.sh`);
+  let depth = 0;
+  for (const line of lines.slice(0, target)) {
+    if (/^\s*(if|for|while|until|case)\b/.test(line)) depth += 1;
+    else if (/^\s*(fi|done|esac)\b/.test(line)) depth -= 1;
+    // A one-line `name() { ...; }` opens and closes on the same line and is
+    // deliberately not counted; a multi-line one is exactly the mutation.
+    else if (/^\s*[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{\s*$/.test(line)) depth += 1;
+    else if (/^\s*\{\s*$/.test(line)) depth += 1;
+    else if (/^\s*\}/.test(line)) depth -= 1;
+  }
+  return depth;
+};
+
 interface Run {
   status: number | null;
   stdout: string;
@@ -139,6 +183,26 @@ describe('configure.sh Caddyfile merge, executed', () => {
     expect(mergeBlock.split('\n').length).toBeGreaterThan(20);
   });
 
+  it('runs the merge block unconditionally, at the top level of the script', () => {
+    // Depth 0 at the marker means nothing this harness executes is skipped by
+    // the real script. Proven negatively below by the watched mutations: wrap
+    // the block in a function, or in `if false; then`, and this goes red while
+    // every behavioural case above stays green.
+    expect(depthBefore(MERGE_START)).toBe(0);
+    // Column 0 as well, so an indented copy inside a wrapper cannot pass by
+    // keeping the brace bookkeeping balanced some other way.
+    expect(configureSh).toContain(`\n${MERGE_START}`);
+  });
+
+  it('blanks heredoc bodies before counting, and still sees the block', () => {
+    // A passing depth check over a mangled script would prove nothing. The
+    // snippet heredoc contains bare `{` and `}` lines that are Caddy syntax.
+    const lines = withoutHeredocBodies(configureSh);
+    expect(lines.some((l) => l.includes(MERGE_START))).toBe(true);
+    expect(lines.some((l) => l.includes('(access-log) {'))).toBe(false);
+    expect(configureSh).toContain('(access-log) {');
+  });
+
   it('writes both owned imports, in order, when no Caddyfile exists', () => {
     const run = runMerge(null);
     expect(run.status).toBe(0);
@@ -156,10 +220,10 @@ describe('configure.sh Caddyfile merge, executed', () => {
     // down on the next re-run, which is what this whole block exists to stop.
     const existing = [
       'import registry.caddy',
-      'import monitoring.caddy',
+      '  import monitoring.caddy',
       'import site-dev.caddy',
       'import novel.caddy',
-      'import studio.caddy',
+      '\timport studio.caddy',
       '',
     ].join('\n');
     const run = runMerge(existing);
