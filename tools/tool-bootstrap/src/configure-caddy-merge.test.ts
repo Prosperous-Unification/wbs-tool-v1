@@ -290,7 +290,10 @@ describe('configure.sh Caddyfile merge, executed', () => {
     ['an uncalled function', (b) => `merge_caddyfile() {\n${b}\n}\n`],
     // Gemini round 3: a trailing comment after `{` and the POSIX subshell
     // form both defeat "does the line end in a brace".
-    ['an uncalled function whose brace carries a comment', (b) => `merge_caddyfile() { # merge\n${b}\n}\n`],
+    [
+      'an uncalled function whose brace carries a comment',
+      (b) => `merge_caddyfile() { # merge\n${b}\n}\n`,
+    ],
     ['an uncalled POSIX subshell function', (b) => `merge_caddyfile() (\n${b}\n)\n`],
     ['a short-circuited group', (b) => `false && {\n${b}\n}\n`],
     ['an if that never fires', (b) => `if false; then\n${b}\nfi\n`],
