@@ -32,7 +32,8 @@ const bindingKey = (where: string, keys: string): string => `${where}: ${keys}`;
  * The cheat sheet's prose comes from the registry, so the sheet cannot drift
  * from the registry. This table is what keeps the **registry** from drifting
  * from the code: every entry names tests in `wbs-table.test.tsx`, and the
- * check below reads that file and fails when a named test is not in it.
+ * check below reads the table and shared-picker suites and fails when a named
+ * test is not in either one.
  *
  * Its honesty limit, stated rather than glossed: it proves the named test
  * **exists**, not that the test exercises that binding. A test renamed or
@@ -140,6 +141,7 @@ const PROVEN_BY = new Map<string, readonly string[]>(
     'Pickers: ↑ ↓': [
       'arrows move the highlight and Enter takes it',
       'the arrows step over a greyed row',
+      'walks the lines with the arrows, and the box says where it is',
     ],
     'Pickers: Enter': [
       'Enter adds the entry the typing narrowed to',
@@ -173,12 +175,14 @@ const PROVEN_BY = new Map<string, readonly string[]>(
  * `readFileSync` rather than being read as "no tests named", which would be
  * the vacuous version of this whole check.
  */
-const behaviourTestSource = readFileSync(
-  // Joined, not `new URL('./…', import.meta.url)`: Vite rewrites that exact
-  // pattern into an asset URL served over http, and the read would be of
-  // something that is not this directory.
-  join(dirname(fileURLToPath(import.meta.url)), 'wbs-table.test.tsx'),
-  'utf8',
+const behaviourTestSources = ['wbs-table.test.tsx', 'creatable-picker.test.tsx'].map((file) =>
+  readFileSync(
+    // Joined, not `new URL('./…', import.meta.url)`: Vite rewrites that exact
+    // pattern into an asset URL served over http, and the read would be of
+    // something that is not this directory.
+    join(dirname(fileURLToPath(import.meta.url)), file),
+    'utf8',
+  ),
 );
 
 describe('the key binding registry', () => {
@@ -240,7 +244,7 @@ describe('the cheat sheet is cross-checked against the behaviour tests', () => {
   // `Ctrl + K` binding added to the registry with nothing mapped to it failed
   // with `Anywhere: Ctrl + K names no behaviour test`. Both watched,
   // 2026-08-07.
-  it('names, for every binding, a test that is in wbs-table.test.tsx', () => {
+  it('names, for every binding, a test in the table or shared-picker suite', () => {
     const missing: string[] = [];
     for (const binding of KEY_BINDINGS) {
       const key = bindingKey(binding.where, binding.keys);
@@ -252,8 +256,8 @@ describe('the cheat sheet is cross-checked against the behaviour tests', () => {
       for (const name of named) {
         // The declaration, not the words: a test name that only appears in a
         // comment or an assertion would pass a bare substring search.
-        if (!behaviourTestSource.includes(`itDom('${name}'`)) {
-          missing.push(`${key} names a test wbs-table.test.tsx does not have: ${name}`);
+        if (!behaviourTestSources.some((source) => source.includes(`itDom('${name}'`))) {
+          missing.push(`${key} names a behaviour test neither suite has: ${name}`);
         }
       }
     }
