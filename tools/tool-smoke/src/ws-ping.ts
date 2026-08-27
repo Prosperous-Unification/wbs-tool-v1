@@ -34,18 +34,34 @@ export interface PingResult {
 export async function runPingSmoke(opts: PingOptions): Promise<PingResult> {
   const sock = opts.connect();
   return await new Promise<PingResult>((resolve) => {
-    const timer = setTimeout(() => {
+    let settled = false;
+    const finish = (ok: boolean, detail: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       sock.close();
-      resolve({ ok: false, detail: `no pong within ${String(opts.timeoutMs)}ms` });
+      resolve({ ok, detail });
+    };
+
+    const timer = setTimeout(() => {
+      finish(false, `no pong within ${String(opts.timeoutMs)}ms`);
     }, opts.timeoutMs);
 
     sock.addEventListener('open', () => {
       sock.send(JSON.stringify({ type: 'ping' }));
     });
     sock.addEventListener('message', (e) => {
-      clearTimeout(timer);
-      sock.close();
-      resolve({ ok: e.data.includes('"pong"'), detail: e.data });
+      let frame: unknown;
+      try {
+        frame = JSON.parse(e.data);
+      } catch {
+        finish(false, `response is not JSON: ${e.data}`);
+        return;
+      }
+
+      if (typeof frame !== 'object' || frame === null || !('type' in frame)) return;
+      if (frame.type === 'pong') finish(true, e.data);
+      if (frame.type === 'error') finish(false, e.data);
     });
   });
 }
