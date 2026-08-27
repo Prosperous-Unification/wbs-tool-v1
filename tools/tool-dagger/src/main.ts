@@ -30,6 +30,14 @@ const ENGINE_MEMORY_BYTES = 8 * GIBIBYTE;
 const ENGINE_NANO_CPUS = 6_000_000_000;
 const ENGINE_PIDS = 2048;
 const ENGINE_RUNNER_HOST = 'tcp://127.0.0.1:8081';
+const ENGINE_COMMAND = [
+  '--addr',
+  'unix:///run/buildkit/buildkitd.sock',
+  '--addr',
+  'unix:///run/dagger/engine.sock',
+  '--addr',
+  'tcp://0.0.0.0:8080',
+];
 
 export interface BuildCapacity {
   availableMemoryBytes: number;
@@ -140,6 +148,7 @@ export function engineCreateArgs(): string[] {
     '--volume',
     `${ENGINE_NAME}:/var/lib/dagger`,
     ENGINE_IMAGE,
+    ...ENGINE_COMMAND,
   ];
 }
 
@@ -160,6 +169,14 @@ export function assertEngineContract(value: unknown): void {
 
   if (config['Image'] !== ENGINE_IMAGE) {
     throw new Error(`engine image mismatch: expected ${ENGINE_IMAGE}`);
+  }
+  const command = config['Cmd'];
+  if (
+    !Array.isArray(command) ||
+    command.length !== ENGINE_COMMAND.length ||
+    command.some((argument, index) => argument !== ENGINE_COMMAND[index])
+  ) {
+    throw new Error('engine listener mismatch: expected loopback TCP engine API');
   }
   if (host['Memory'] !== ENGINE_MEMORY_BYTES || host['MemorySwap'] !== ENGINE_MEMORY_BYTES) {
     throw new Error('engine memory mismatch: expected 8 GiB with no swap expansion');
