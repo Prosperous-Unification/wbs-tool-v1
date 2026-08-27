@@ -104,22 +104,6 @@ export async function readMcpExposure(layout: EnvLayout): Promise<boolean> {
 // health gate for it is "fetch / and assert 200 + a non-empty body" instead.
 const HEALTH_PATH: Record<Tier, string> = { be: '/health', gw: '/health', fe: '/' };
 
-type ReadText = (path: string) => Promise<string>;
-
-/** Validate every operator-authored env carrier before the phase marker moves. */
-export async function validateTierEnvInputs(
-  tier: Tier,
-  layout: EnvLayout = CURRENT_ENV,
-  readText: ReadText = async (path) => await Bun.file(path).text(),
-): Promise<void> {
-  const appEnvPath = tierEnvFiles(tier, layout)[0];
-  assertTierEnvAllowed(tier, await readText(appEnvPath));
-
-  if (layout.oidcEnvPath !== null && (tier === 'be' || tier === 'gw')) {
-    assertOidcEnvAllowed(await readText(layout.oidcEnvPath));
-  }
-}
-
 async function sh(args: string[]): Promise<string> {
   const p = Bun.spawn(['docker', ...args], { stdout: 'pipe', stderr: 'pipe' });
   const out = await new Response(p.stdout).text();
@@ -453,6 +437,57 @@ async function reloadCaddy(): Promise<void> {
   await sh(['exec', EDGE_CONTAINER, 'caddy', 'reload', '--config', '/etc/caddy/Caddyfile']);
 }
 
+/** IO seams for the start-green step's preflight and side effects. */
+export interface StartGreenDeps {
+  readonly oidcEnvPath: string | null;
+  readText: (path: string) => Promise<string>;
+  writePhaseFile: (path: string, phase: 'preparing') => Promise<void>;
+  writeAtomicFile: (path: string, text: string, mode?: number) => Promise<void>;
+  runDocker: (args: string[]) => Promise<string>;
+}
+
+const START_GREEN_DEPS: StartGreenDeps = {
+  oidcEnvPath: CURRENT_ENV.oidcEnvPath,
+  readText: (path) => Bun.file(path).text(),
+  writePhaseFile: writePhase,
+  writeAtomicFile: writeAtomic,
+  runDocker: sh,
+};
+
+/**
+ * Validates every operator-authored env file before recording a phase or
+ * starting the idle colour, then performs the start-green side effects.
+ */
+export async function startGreen(
+  tier: Tier,
+  to: Color,
+  image: string,
+  phasePath: string,
+  deps: StartGreenDeps = START_GREEN_DEPS,
+): Promise<void> {
+  const appEnvPath = tierEnvFiles(tier)[0];
+  assertTierEnvAllowed(tier, await deps.readText(appEnvPath));
+
+  // Proof: the three `startGreen env preflight` cases observe only the app
+  // and OIDC reads when that file is absent, unreadable, or carries PORT.
+  // Moving this below the phase/Compose calls makes their event assertions red.
+  if (deps.oidcEnvPath !== null && (tier === 'be' || tier === 'gw')) {
+    assertOidcEnvAllowed(await deps.readText(deps.oidcEnvPath));
+  }
+
+  await deps.writePhaseFile(phasePath, 'preparing');
+  // Re-derive on every start, including an empty allowed set, so a stale
+  // secrets file cannot outlive deletion from the shared source. Mode 0600
+  // applies to the temp file at birth; there is no world-readable interval.
+  if (tierHasSecrets(tier)) {
+    const secrets = deriveTierSecrets(tier, await deps.readText(SHARED_ENV_PATH));
+    await deps.writeAtomicFile(tierSecretsFile(tier), secrets, 0o600);
+  }
+  const context = tierComposeContext(tier, to, image);
+  await deps.writeAtomicFile(tierComposeFile(tier, to), renderTemplate(tierComposeTmpl, context));
+  await deps.runDocker(composeUpArgs(tier, to));
+}
+
 // Steps at or before `reload` are still reversible: nothing client-facing has
 // switched over yet (or, for `reload` itself, the switch is what's failing).
 // A failure anywhere in this window must delegate to `abortSwap`. Steps after
@@ -626,45 +661,7 @@ async function execute(plan: SwapPlan, image: string, sha: string): Promise<void
     try {
       switch (step) {
         case 'start-green': {
-          // Item 3(c): the app-config env file (tierEnvFiles(tier)[0]) is
-          // authored by an operator or configure.sh, never by this process —
-          // validate it against a strict allowlist before anything else in
-          // this swap touches state, so a disallowed key (most dangerously
-          // REGISTRY_PASS) fails the swap loudly instead of silently riding
-          // along into the container via env_file.
-          await validateTierEnvInputs(tier);
-
-          await writePhase(phasePath, 'preparing');
-          // Finding I7: re-derive this tier's own filtered secrets file from
-          // the shared `/srv/wbs/.env` source of truth on every swap, rather
-          // than trusting a hand-maintained copy to still match it. Written
-          // before the compose file that references it (tierComposeContext's
-          // ENV_FILES), and before `compose up`, which is what actually
-          // reads it.
-          //
-          // Always written for a secret-bearing tier (item 3(b)), even when
-          // `deriveTierSecrets` computes `''` — e.g. every allowed key has
-          // disappeared from the shared `.env` (typo, accidental deletion).
-          // Skipping the write in that case (the previous behaviour) left
-          // whatever secrets file the LAST successful swap produced active
-          // indefinitely; a secret-bearing tier's derived file must always
-          // reflect the current source of truth, even when that means
-          // replacing it with nothing. Skipped entirely only for a tier with
-          // no secrets at all (fe-01): `tierComposeContext` never references
-          // a secrets path in ENV_FILES for it, so there is nothing for this
-          // file to be read by.
-          //
-          // `writeAtomic`'s `mode` (item 3(a)) creates the temp file at 0600
-          // from birth — no separate `chmod` after `rename`, and so no
-          // window where the file is readable at the process umask's
-          // (typically 0644, world-readable) default.
-          if (tierHasSecrets(tier)) {
-            const secrets = deriveTierSecrets(tier, await Bun.file(SHARED_ENV_PATH).text());
-            await writeAtomic(tierSecretsFile(tier), secrets, 0o600);
-          }
-          const ctx = tierComposeContext(tier, to, image);
-          await writeAtomic(tierComposeFile(tier, to), renderTemplate(tierComposeTmpl, ctx));
-          await sh(composeUpArgs(tier, to));
+          await startGreen(tier, to, image, phasePath);
           break;
         }
 

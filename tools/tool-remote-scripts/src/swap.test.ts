@@ -18,8 +18,9 @@ import {
   readSiteCaddy,
   runSwaps,
   shouldRestoreSiteCaddy,
+  startGreen,
+  type StartGreenDeps,
   type SwapRunDeps,
-  validateTierEnvInputs,
 } from './swap';
 
 describe('state', () => {
@@ -328,6 +329,83 @@ describe('parseTierList', () => {
   });
 });
 
+describe('startGreen env preflight', () => {
+  const OIDC_ENV_PATH = '/fixture/oidc-dev.env';
+  const IMAGE = 'registry.infra.bulletpoints.club/wbs-be-01@sha256:' + 'a'.repeat(64);
+  const APP_ENV =
+    'PORT=3100\nLOG_LEVEL=info\nGW_URL=http://gw-01:3200\n' +
+    'DB_PATH=/data/wbs.db\nAUTH_MODE=oidc\n';
+
+  async function rejectedPreflight(
+    readOidc: () => Promise<string>,
+  ): Promise<{ events: string[]; message: string }> {
+    const events: string[] = [];
+    const deps: StartGreenDeps = {
+      oidcEnvPath: OIDC_ENV_PATH,
+      readText: (path) => {
+        if (path.endsWith('/be-01.env')) {
+          events.push('read:app');
+          return Promise.resolve(APP_ENV);
+        }
+        if (path === OIDC_ENV_PATH) {
+          events.push('read:oidc');
+          return readOidc();
+        }
+        events.push(`read:other:${path}`);
+        return Promise.resolve('INTERNAL_AUTH_SECRET=x\nJWT_SIGNING_KEY_CURRENT=y\n');
+      },
+      writePhaseFile: (_path, phase) => {
+        events.push(`phase:${phase}`);
+        return Promise.resolve();
+      },
+      writeAtomicFile: (path) => {
+        events.push(`write:${path}`);
+        return Promise.resolve();
+      },
+      runDocker: (args) => {
+        events.push(`docker:${args.join(' ')}`);
+        return Promise.resolve('');
+      },
+    };
+
+    let message = '';
+    try {
+      await startGreen('be', 'green', IMAGE, '/fixture/be.phase', deps);
+    } catch (error: unknown) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    return { events, message };
+  }
+
+  it('rejects a missing OIDC file before phase, Compose, or routing can change', async () => {
+    const { events, message } = await rejectedPreflight(() =>
+      Promise.reject(Object.assign(new Error('no such file'), { code: 'ENOENT' })),
+    );
+    expect(message).toContain('no such file');
+    expect(events).toEqual(['read:app', 'read:oidc']);
+  });
+
+  it('rejects an unreadable OIDC file before phase, Compose, or routing can change', async () => {
+    const { events, message } = await rejectedPreflight(() =>
+      Promise.reject(Object.assign(new Error('permission denied'), { code: 'EACCES' })),
+    );
+    expect(message).toContain('permission denied');
+    expect(events).toEqual(['read:app', 'read:oidc']);
+  });
+
+  it('rejects an extra OIDC key before phase, Compose, or routing can change', async () => {
+    const { events, message } = await rejectedPreflight(() =>
+      Promise.resolve(
+        'AUTH_CLIENT_ID=expected-client\n' + 'PORT=should-not-override-the-app-config\n',
+      ),
+    );
+    expect(message).toContain('PORT');
+    expect(message).not.toContain('expected-client');
+    expect(message).not.toContain('should-not-override-the-app-config');
+    expect(events).toEqual(['read:app', 'read:oidc']);
+  });
+});
+
 describe('runSwaps', () => {
   function fakeRunDeps(overrides: Partial<SwapRunDeps> = {}): SwapRunDeps {
     return {
@@ -427,45 +505,6 @@ describe('runSwaps', () => {
     });
     await runSwaps(['be', 'gw'], { be: 'b', gw: 'g' }, 'sha1', deps);
     expect(events).toEqual(['observe:be', 'execute:be', 'observe:gw', 'execute:gw']);
-  });
-});
-
-describe('validateTierEnvInputs', () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'wbs-oidc-env-'));
-  });
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  const layout = (): EnvLayout => ({
-    ...envLayout('dev'),
-    root: dir,
-    oidcEnvPath: join(dir, 'oidc.env'),
-  });
-
-  it('refuses a missing OIDC carrier before a swap can move its phase marker', async () => {
-    writeFileSync(join(dir, 'be-01.env'), 'PORT=3100\n');
-    let message = '';
-    try {
-      await validateTierEnvInputs('be', layout());
-    } catch (e: unknown) {
-      message = e instanceof Error ? e.message : String(e);
-    }
-    expect(message).toMatch(/No such file|ENOENT/);
-  });
-
-  it('refuses an unreadable OIDC carrier before a swap can move its phase marker', async () => {
-    writeFileSync(join(dir, 'gw-01.env'), 'PORT=3200\n');
-    mkdirSync(join(dir, 'oidc.env'));
-    let message = '';
-    try {
-      await validateTierEnvInputs('gw', layout());
-    } catch (e: unknown) {
-      message = e instanceof Error ? e.message : String(e);
-    }
-    expect(message).not.toBe('');
   });
 });
 
