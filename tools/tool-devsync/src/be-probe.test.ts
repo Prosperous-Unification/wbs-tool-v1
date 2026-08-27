@@ -45,4 +45,13 @@ describe('dev be deployment probe', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('be (auth routes mounted)');
   });
+
+  it('rejects a response that does not match the auth controller contract', async () => {
+    const server = authServer({ error: 'missing_token' });
+
+    const result = await runProbe(`http://127.0.0.1:${String(server.port)}`);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('FAIL');
+  });
 });
