@@ -22,6 +22,7 @@ import { renderTemplate, siteCaddyTmpl, tierComposeTmpl } from '@wbs/tool-compos
 import { writeAtomic } from './lib/atomic';
 import {
   assertDigestPinnedRef,
+  assertOidcEnvAllowed,
   assertTierEnvAllowed,
   composeUpArgs,
   containerName,
@@ -102,6 +103,22 @@ export async function readMcpExposure(layout: EnvLayout): Promise<boolean> {
 // fe-01 is a static Caddy server with no /health route; design decision 5's
 // health gate for it is "fetch / and assert 200 + a non-empty body" instead.
 const HEALTH_PATH: Record<Tier, string> = { be: '/health', gw: '/health', fe: '/' };
+
+type ReadText = (path: string) => Promise<string>;
+
+/** Validate every operator-authored env carrier before the phase marker moves. */
+export async function validateTierEnvInputs(
+  tier: Tier,
+  layout: EnvLayout = CURRENT_ENV,
+  readText: ReadText = async (path) => await Bun.file(path).text(),
+): Promise<void> {
+  const appEnvPath = tierEnvFiles(tier, layout)[0];
+  assertTierEnvAllowed(tier, await readText(appEnvPath));
+
+  if (layout.oidcEnvPath !== null && (tier === 'be' || tier === 'gw')) {
+    assertOidcEnvAllowed(await readText(layout.oidcEnvPath));
+  }
+}
 
 async function sh(args: string[]): Promise<string> {
   const p = Bun.spawn(['docker', ...args], { stdout: 'pipe', stderr: 'pipe' });
@@ -615,8 +632,7 @@ async function execute(plan: SwapPlan, image: string, sha: string): Promise<void
           // this swap touches state, so a disallowed key (most dangerously
           // REGISTRY_PASS) fails the swap loudly instead of silently riding
           // along into the container via env_file.
-          const appEnvPath = tierEnvFiles(tier)[0];
-          assertTierEnvAllowed(tier, await Bun.file(appEnvPath).text());
+          await validateTierEnvInputs(tier);
 
           await writePhase(phasePath, 'preparing');
           // Finding I7: re-derive this tier's own filtered secrets file from

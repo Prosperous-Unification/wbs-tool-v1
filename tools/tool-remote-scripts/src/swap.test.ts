@@ -19,6 +19,7 @@ import {
   runSwaps,
   shouldRestoreSiteCaddy,
   type SwapRunDeps,
+  validateTierEnvInputs,
 } from './swap';
 
 describe('state', () => {
@@ -426,6 +427,33 @@ describe('runSwaps', () => {
     });
     await runSwaps(['be', 'gw'], { be: 'b', gw: 'g' }, 'sha1', deps);
     expect(events).toEqual(['observe:be', 'execute:be', 'observe:gw', 'execute:gw']);
+  });
+});
+
+describe('validateTierEnvInputs', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'wbs-oidc-env-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const layout = (): EnvLayout => ({
+    ...envLayout('dev'),
+    root: dir,
+    oidcEnvPath: join(dir, 'oidc.env'),
+  });
+
+  it('refuses a missing OIDC carrier before a swap can move its phase marker', async () => {
+    writeFileSync(join(dir, 'be-01.env'), 'PORT=3100\n');
+    await expect(validateTierEnvInputs('be', layout())).rejects.toThrow(/No such file|ENOENT/);
+  });
+
+  it('refuses an unreadable OIDC carrier before a swap can move its phase marker', async () => {
+    writeFileSync(join(dir, 'gw-01.env'), 'PORT=3200\n');
+    mkdirSync(join(dir, 'oidc.env'));
+    await expect(validateTierEnvInputs('gw', layout())).rejects.toThrow();
   });
 });
 

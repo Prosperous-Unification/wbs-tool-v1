@@ -223,6 +223,14 @@ const APP_ENV_ALLOWED_KEYS: Record<Tier, readonly string[]> = {
   fe: [],
 };
 
+const OIDC_ENV_ALLOWED_KEYS = [
+  'AUTH_AUDIENCE',
+  'AUTH_CLIENT_ID',
+  'AUTH_CLIENT_SECRET',
+  'AUTH_ISSUER_DISCOVERY_URL',
+  'AUTH_REDIRECT_URI',
+] as const;
+
 /** Parses `KEY=VALUE` lines (same shape/skip rules as `deriveTierSecrets`) into just the key names, in file order. */
 export function envKeysOf(envText: string): string[] {
   const keys: string[] = [];
@@ -234,6 +242,22 @@ export function envKeysOf(envText: string): string[] {
     keys.push(line.slice(0, eq));
   }
   return keys;
+}
+
+/**
+ * The dev OIDC carrier is operator-authored and is merged after app config for
+ * both be and gw. Keep it provider-only: otherwise a stray app key can
+ * override tier config and an unrelated secret is widened into both apps.
+ */
+export function assertOidcEnvAllowed(envText: string): void {
+  const allowed = new Set<string>(OIDC_ENV_ALLOWED_KEYS);
+  const bad = envKeysOf(envText).filter((key) => !allowed.has(key));
+  if (bad.length > 0) {
+    throw new Error(
+      `OIDC env carries key(s) outside its provider allowlist: ${bad.join(', ')}. ` +
+        `Only ${OIDC_ENV_ALLOWED_KEYS.join(', ')} may appear in this file.`,
+    );
+  }
 }
 
 /**
