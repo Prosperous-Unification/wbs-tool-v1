@@ -730,6 +730,7 @@ function CardSetField({
   createValue: (row: TreeRow, name: string, current: readonly string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useTriggerAboveSheet(open);
   const plural = kind === 'tag' ? 'Tags' : 'Services';
   const names = label.state === 'none' ? [] : label.names;
   const inherited = label.state === 'inherited';
@@ -740,6 +741,7 @@ function CardSetField({
     <Modal open={open} onOpenChange={setOpen}>
       <ModalTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           data-card-tags-field={kind === 'tag' ? '' : undefined}
           data-card-service-field={kind === 'service' ? '' : undefined}

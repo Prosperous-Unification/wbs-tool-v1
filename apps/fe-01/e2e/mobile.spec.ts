@@ -787,6 +787,20 @@ test.describe('the plan on a phone, measured by a browser', () => {
       openDisclosureFirst: false,
     },
     {
+      name: 'tags',
+      triggerSelector: '[data-card-tags-field]',
+      dialogName: /Tags for \d+/,
+      controlSelector: '[role="combobox"]',
+      openDisclosureFirst: false,
+    },
+    {
+      name: 'services',
+      triggerSelector: '[data-card-service-field]',
+      dialogName: /Services for \d+/,
+      controlSelector: '[role="combobox"]',
+      openDisclosureFirst: false,
+    },
+    {
       name: 'dependency',
       triggerSelector: '[data-card-waits-field]',
       dialogName: /Depends on for \d+/,
