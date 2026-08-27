@@ -304,6 +304,10 @@ export interface PlanCardsProps {
    * `at(0)` anywhere in this dimension to grow out of later.
    */
   tagLabel: (row: TreeRow) => TagLabel;
+  /** Every tag on offer, plus the table cell's two writers for this row's set. */
+  tags: readonly PickableEntry[];
+  setTags: (row: TreeRow, tagIds: readonly string[]) => void;
+  createTag: (row: TreeRow, name: string, current: readonly string[]) => void;
   /**
    * What this row delivers: its own services, the ones it inherits, or neither
    * (task 7.3).
@@ -326,6 +330,10 @@ export interface PlanCardsProps {
    * {@link PlanCardsProps.nonOwner}.
    */
   serviceLabel: (row: TreeRow) => ServiceLabel;
+  /** Every service on offer, plus the table cell's two writers for this row's set. */
+  services: readonly PickableEntry[];
+  setServices: (row: TreeRow, serviceIds: readonly string[]) => void;
+  createService: (row: TreeRow, name: string, current: readonly string[]) => void;
   /**
    * Why this row's work is marked as built by a non-owner — the whole sentence,
    * or `null` where it is not (task `phone-mismatch-markers`).
@@ -692,10 +700,117 @@ function CardTeamField({
             createTeam(row, name);
             setOpen(false);
           }}
+          addButtonLabel={`Add a team to ${row.number}`}
           onClear={() => {
             setTeam(row, null);
             setOpen(false);
           }}
+        />
+      </ModalContent>
+    </Modal>
+  );
+}
+
+/** A card's set-valued label, edited through the table cell's own writers. */
+function CardSetField({
+  row,
+  kind,
+  label,
+  entries,
+  ownIds,
+  setValues,
+  createValue,
+}: {
+  row: TreeRow;
+  kind: 'tag' | 'service';
+  label: TagLabel | ServiceLabel;
+  entries: readonly PickableEntry[];
+  ownIds: readonly string[];
+  setValues: (row: TreeRow, ids: readonly string[]) => void;
+  createValue: (row: TreeRow, name: string, current: readonly string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useTriggerAboveSheet(open);
+  const plural = kind === 'tag' ? 'Tags' : 'Services';
+  const names = label.state === 'none' ? [] : label.names;
+  const inherited = label.state === 'inherited';
+  const title = inherited
+    ? `${names.join(', ')} — inherited from ${label.fromRow}. This row carries no ${kind} of its own.`
+    : undefined;
+  return (
+    <Modal open={open} onOpenChange={setOpen}>
+      <ModalTrigger asChild>
+        <button
+          ref={triggerRef}
+          type="button"
+          data-card-tags-field={kind === 'tag' ? '' : undefined}
+          data-card-service-field={kind === 'service' ? '' : undefined}
+          aria-label={`${plural} for ${row.number}${names.length > 0 ? `: ${names.join(', ')}` : ''}`}
+          title={title}
+          className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
+        >
+          {names.length === 0 ? (
+            <span className="opacity-70">{kind}…</span>
+          ) : (
+            <span
+              {...(kind === 'tag' ? { 'data-card-tags': '' } : { 'data-card-service': '' })}
+              {...(inherited ? { 'data-inherited': 'true' } : {})}
+              title={title}
+            >
+              {inherited ? `↳ ${names.join(', ')}` : names.join(', ')}
+            </span>
+          )}
+        </button>
+      </ModalTrigger>
+      <ModalContent side="bottom" className="min-h-[60vh]">
+        <ModalHeader>
+          <ModalTitle>
+            {plural} for {row.number}
+          </ModalTitle>
+          <ModalDescription>
+            Type to search the directory, or add a name nobody has used yet.
+          </ModalDescription>
+        </ModalHeader>
+        {ownIds.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label={`${plural} on ${row.number}`}>
+            {ownIds.map((id) => {
+              const name = entries.find((entry) => entry.id === id)?.name ?? id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`${TAP} bg-muted inline-flex items-center gap-1 rounded px-2 text-sm`}
+                  aria-label={`Remove ${name} from ${row.number}`}
+                  onClick={() => {
+                    setValues(
+                      row,
+                      ownIds.filter((each) => each !== id),
+                    );
+                  }}
+                >
+                  <span>{name}</span>
+                  <span aria-hidden>✕</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <CreatablePicker
+          label={`${plural} for ${row.number}`}
+          placeholder={inherited ? `↳ ${names.join(', ')}` : 'search or add'}
+          title={title}
+          entries={entries.filter((entry) => !ownIds.includes(entry.id))}
+          value={null}
+          dataCell={cellKey(row.id, kind)}
+          onChoose={(id) => {
+            setValues(row, [...ownIds, id]);
+            setOpen(false);
+          }}
+          onCreate={(name) => {
+            createValue(row, name, ownIds);
+            setOpen(false);
+          }}
+          addButtonLabel={`Add a ${kind} to ${row.number}`}
         />
       </ModalContent>
     </Modal>
@@ -1827,7 +1942,13 @@ export function PlanCards({
   setNotBefore,
   setPriority,
   tagLabel,
+  tags,
+  setTags,
+  createTag,
   serviceLabel,
+  services,
+  setServices,
+  createService,
   nonOwner,
   spanOf,
   showDay,
@@ -1857,7 +1978,7 @@ export function PlanCards({
         const waits = waitsFor(row);
         const floor = startFloor(row);
         const team = teamLabel(row);
-        const tags = tagLabel(row);
+        const tagging = tagLabel(row);
         const delivers = serviceLabel(row);
         const span = spanOf(row);
         const slack = cardSlackOf(row, showDay);
@@ -2199,20 +2320,16 @@ export function PlanCards({
                 "what is regulatory here" should not have to read past a team
                 name to find out.
               */}
-              {tags.state !== 'none' && (
-                <span
-                  data-card-tags
-                  {...(tags.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
-                  title={
-                    tags.state === 'inherited'
-                      ? `${tags.names.join(', ')} — inherited from ${tags.fromRow}. This row carries no tag of its own.`
-                      : undefined
-                  }
-                >
-                  {tags.state === 'inherited'
-                    ? `↳ ${tags.names.join(', ')}`
-                    : tags.names.join(', ')}
-                </span>
+              {tags.length > 0 && (
+                <CardSetField
+                  row={row}
+                  kind="tag"
+                  label={tagging}
+                  entries={tags}
+                  ownIds={row.tagIds}
+                  setValues={setTags}
+                  createValue={createTag}
+                />
               )}
               {/*
                 The services, and `↳` where the row carries none of its own —
@@ -2235,20 +2352,16 @@ export function PlanCards({
                 narrowing what the store, the wire, the filter and the cell all
                 widened.
               */}
-              {delivers.state !== 'none' && (
-                <span
-                  data-card-service
-                  {...(delivers.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
-                  title={
-                    delivers.state === 'inherited'
-                      ? `${delivers.names.join(', ')} — inherited from ${delivers.fromRow}. This row carries no service of its own.`
-                      : undefined
-                  }
-                >
-                  {delivers.state === 'inherited'
-                    ? `↳ ${delivers.names.join(', ')}`
-                    : delivers.names.join(', ')}
-                </span>
+              {services.length > 0 && (
+                <CardSetField
+                  row={row}
+                  kind="service"
+                  label={delivers}
+                  entries={services}
+                  ownIds={row.serviceIds}
+                  setValues={setServices}
+                  createValue={createService}
+                />
               )}
               {/*
                 What the plan was asked to run this row at, where somebody asked

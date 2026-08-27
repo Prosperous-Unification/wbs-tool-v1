@@ -965,7 +965,8 @@
    * palette tests flag; the fill appears only under the pointer, at the deps
    * `+`'s own dose.
    */
-  [data-grid] button[data-creatable-add] {
+  [data-grid] button[data-creatable-add],
+  [data-modal-surface] button[data-creatable-add] {
     border: 0;
     border-radius: var(--radius-sm);
     background: none;
@@ -973,7 +974,8 @@
     cursor: pointer;
   }
 
-  [data-grid] button[data-creatable-add]:hover {
+  [data-grid] button[data-creatable-add]:hover,
+  [data-modal-surface] button[data-creatable-add]:hover {
     background: color-mix(in oklab, var(--foreground) 7%, var(--cell-bg));
     color: var(--foreground);
   }

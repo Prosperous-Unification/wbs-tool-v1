@@ -107,6 +107,26 @@ async function seedPlan(page: Page, _account: string): Promise<void> {
     return;
   }
 
+  // The card fields follow the table's documented bootstrap rule: the first
+  // vocabulary entry is made on the Directory, then every row can search or
+  // add from its card sheet. Seed that prerequisite through the same API the
+  // Directory uses, so the 44px case below measures real, non-vacuous fields.
+  const vocabularyStatuses = await page.evaluate(async () => {
+    const make = async (path: string, name: string) =>
+      (
+        await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name }),
+        })
+      ).status;
+    return Promise.all([
+      make('/api/tags', 'mobile e2e tag'),
+      make('/api/services', 'mobile e2e service'),
+    ]);
+  });
+  expect(vocabularyStatuses, 'the card-label vocabularies were not seeded').toEqual([200, 200]);
+
   await expect(page.getByRole('button', { name: 'Plan actions' })).toBeVisible();
 
   for (const number of ['010', '020']) {
@@ -293,6 +313,8 @@ test.describe('the plan on a phone, measured by a browser', () => {
       // card is neither — so every control a card grows has to carry its own
       // height, and this list is the only thing that checks that it did.
       page.getByRole('button', { name: 'Service or team for 010' }),
+      page.getByRole('button', { name: 'Tags for 010' }),
+      page.getByRole('button', { name: 'Services for 010' }),
       // The earliest-start field, `card-field-pickers` chunk 4, in this list for
       // the reason the line above states: chunk 3 shipped the team trigger
       // without `TAP` and CI measured it at **21px**, so every control a card
@@ -761,6 +783,20 @@ test.describe('the plan on a phone, measured by a browser', () => {
       name: 'team',
       triggerSelector: '[data-card-team-field]',
       dialogName: /Service or team for \d+/,
+      controlSelector: '[role="combobox"]',
+      openDisclosureFirst: false,
+    },
+    {
+      name: 'tags',
+      triggerSelector: '[data-card-tags-field]',
+      dialogName: /Tags for \d+/,
+      controlSelector: '[role="combobox"]',
+      openDisclosureFirst: false,
+    },
+    {
+      name: 'services',
+      triggerSelector: '[data-card-service-field]',
+      dialogName: /Services for \d+/,
       controlSelector: '[role="combobox"]',
       openDisclosureFirst: false,
     },
