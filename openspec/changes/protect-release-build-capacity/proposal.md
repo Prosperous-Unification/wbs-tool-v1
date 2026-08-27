@@ -9,6 +9,7 @@ the application host's capacity after every outcome.
 ## What Changes
 
 **Release admission**
+
 - From: every publish opens a Dagger session immediately.
 - To: one host-wide non-blocking heavy-work lock and a capacity preflight admit
   the publish before any engine starts.
@@ -16,6 +17,7 @@ the application host's capacity after every outcome.
   release attempt.
 
 **Engine lifecycle**
+
 - From: Dagger auto-provisions an unbounded engine that may remain resident.
 - To: the release uses one named engine with explicit memory, CPU, and PID
   ceilings and stops it after success or failure while retaining its disk cache.

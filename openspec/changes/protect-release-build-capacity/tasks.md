@@ -2,19 +2,19 @@
 
 - [x] 1.1 Record the approved release-capacity intent, thresholds, engine
       ceilings, and non-goals in OpenSpec.
-- [ ] 1.2 Refuse below 8 GiB available memory, above 25% combined tmpfs use, or
+- [x] 1.2 Refuse below 8 GiB available memory, above 25% combined tmpfs use, or
       above one runnable task per CPU — test: boundary table; negative: each
       injected unsafe measurement reaches the production admission function.
-- [ ] 1.3 Refuse a second heavy operation without waiting — test: a real child
+- [x] 1.3 Refuse a second heavy operation without waiting — test: a real child
       process holds the temporary `flock` and the production lock entrypoint
       reports the holder conflict.
 
 ## 2. Bounded engine lifecycle
 
-- [ ] 2.1 Create or validate the named engine with 8 GiB memory/no extra swap,
+- [x] 2.1 Create or validate the named engine with 8 GiB memory/no extra swap,
       6 CPUs, and 2,048 PIDs — test: exact Docker create/inspect contract;
       negative: one mismatched ceiling is refused before connection.
-- [ ] 2.2 Stop the engine after success and after a thrown publish error — test:
+- [x] 2.2 Stop the engine after success and after a thrown publish error — test:
       both branches observe the production lifecycle's stop call; negative:
       injected stop failure makes the run fail.
 
