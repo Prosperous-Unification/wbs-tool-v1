@@ -247,7 +247,7 @@ export function createDockerEngineControl(run: CommandRunner = runCommand): Engi
         requireCommand(run, ['docker', 'start', ENGINE_NAME]);
         return Promise.resolve();
       }
-      if (!inspected.stderr.toLowerCase().includes('no such object')) {
+      if (!inspected.stderr.toLowerCase().includes('no such container')) {
         throw new Error(`docker inspect ${ENGINE_NAME} failed: ${inspected.stderr.trim()}`);
       }
       requireCommand(run, engineCreateArgs());
