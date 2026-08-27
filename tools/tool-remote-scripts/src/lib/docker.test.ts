@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   assertDigestPinnedRef,
+  assertOidcEnvAllowed,
   assertTierEnvAllowed,
   composeUpArgs,
   containerName,
@@ -444,6 +445,39 @@ describe('assertTierEnvAllowed', () => {
         'PORT=3200\nLOG_LEVEL=info\nBE_URL=x\nJWT_SIGNING_KEY_CURRENT=x\n',
       );
     }).toThrow(/JWT_SIGNING_KEY_CURRENT/);
+  });
+});
+
+describe('assertOidcEnvAllowed', () => {
+  const intended =
+    'AUTH_AUDIENCE=x\nAUTH_CLIENT_ID=x\nAUTH_CLIENT_SECRET=x\n' +
+    'AUTH_ISSUER_DISCOVERY_URL=https://issuer.example/.well-known/openid-configuration\n' +
+    'AUTH_REDIRECT_URI=https://dev.example/callback\n';
+
+  it('passes the five provider keys carried by oidc-dev.env', () => {
+    expect(() => assertOidcEnvAllowed(intended)).not.toThrow();
+  });
+
+  it('rejects an app-config override without printing its value', () => {
+    let message = '';
+    try {
+      assertOidcEnvAllowed(`${intended}AUTH_MODE=local-should-stay-secret\n`);
+    } catch (e: unknown) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toContain('AUTH_MODE');
+    expect(message).not.toContain('local-should-stay-secret');
+  });
+
+  it('rejects an unrelated secret without printing its value', () => {
+    let message = '';
+    try {
+      assertOidcEnvAllowed(`${intended}REGISTRY_PASS=hunter2\n`);
+    } catch (e: unknown) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toContain('REGISTRY_PASS');
+    expect(message).not.toContain('hunter2');
   });
 });
 
