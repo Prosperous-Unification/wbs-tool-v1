@@ -20,7 +20,17 @@ import {
 } from './main';
 
 const expectedEngine = {
-  Config: { Image: 'registry.dagger.io/engine:v0.21.8' },
+  Config: {
+    Image: 'registry.dagger.io/engine:v0.21.8',
+    Cmd: [
+      '--addr',
+      'unix:///run/buildkit/buildkitd.sock',
+      '--addr',
+      'unix:///run/dagger/engine.sock',
+      '--addr',
+      'tcp://0.0.0.0:8080',
+    ],
+  },
   HostConfig: {
     Memory: 8 * 1024 ** 3,
     MemorySwap: 8 * 1024 ** 3,
@@ -149,6 +159,12 @@ describe('engineCreateArgs', () => {
       '--volume',
       'wbs-dagger-engine:/var/lib/dagger',
       'registry.dagger.io/engine:v0.21.8',
+      '--addr',
+      'unix:///run/buildkit/buildkitd.sock',
+      '--addr',
+      'unix:///run/dagger/engine.sock',
+      '--addr',
+      'tcp://0.0.0.0:8080',
     ]);
   });
 });
@@ -158,6 +174,12 @@ describe('assertEngineContract', () => {
     expect(() => {
       assertEngineContract(expectedEngine);
     }).not.toThrow();
+  });
+
+  it('refuses an existing engine without the loopback TCP listener', () => {
+    expect(() => {
+      assertEngineContract({ ...expectedEngine, Config: { ...expectedEngine.Config, Cmd: null } });
+    }).toThrow('listener');
   });
 
   it('refuses a mismatched memory ceiling before starting the engine', async () => {
