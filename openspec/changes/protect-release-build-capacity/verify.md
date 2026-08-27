@@ -17,6 +17,6 @@
 | `bun test tools/tool-dagger/src/main.test.ts`               | 23 passed, 0 failed at `fd53e76b`                 |
 | `nx run-many -t test lint typecheck --projects=tool-dagger` | 37 passed; lint and typecheck green at `1118494b` |
 | `prettier --check` on the changed TypeScript                | Green at `1118494b`                               |
-| `bin/h2puni-gate.sh`                                       | 23 projects green at `b618f2da`; lock held        |
+| `bin/h2puni-gate.sh`                                        | 23 projects green at `b618f2da`; lock held        |
 
 All builds and autotests ran on h2puni; none ran on h1claw.
