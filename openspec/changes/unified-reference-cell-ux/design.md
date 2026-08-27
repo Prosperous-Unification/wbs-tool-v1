@@ -45,16 +45,19 @@ Add `teamIds?: readonly string[]` alongside the one-release legacy
 `serviceTeamId?: string | null`. A request naming both is a 400 rather than an
 order-dependent write, with the stable controller error
 `cannot_send_both_teamIds_and_serviceTeamId`. `MOST_TEAMS_ON_ONE_ITEM = 10`
-feeds the existing bounded `asOptionalLabelIds` validation. The service
-validates/deduplicates the entire set and `revertTo(before, patch)` writes
-`out.teamIds = before.teamIds` whenever `patch.teamIds` is present, so the
-entire before-set—not `.at(0)`—is the compensating patch.
+feeds the existing bounded `asOptionalLabelIds` validation.
+`WorkItemRepository.patch` validates and deduplicates the entire set inside its
+transaction: sort distinct ids by team id, read them there, and return
+`unknown_team` before scalar, join or revision changes if counts differ.
+`revertTo(before, patch)` writes `out.teamIds = before.teamIds` whenever
+`patch.teamIds` is present, and `fieldsOf(patch)` includes `teamIds`, so the
+entire before-set—not `.at(0)`—is journalled as the compensating patch.
 
 The repository MUST destructure `teamIds: wantedTeams` before spreading scalar
 `fields` into `tx.update(workItem).set(...)`; `teamIds` is not a `work_item`
 column. When `wantedTeams` is defined, the same transaction replaces
-`work_item_team` rows and writes `serviceTeamId: wantedTeams.at(0) ?? null` as
-the legacy scalar projection. `[]` means unstated and reveals inheritance. The
+`work_item_team` rows and writes the first id of the sorted distinct set (or
+`null`) as the stable legacy scalar projection. `[]` means unstated and reveals inheritance. The
 UI always derives the next own set from `row.teamIds`, never from
 `effectiveTeamsOf`; otherwise removing one own team could copy every inherited
 team onto the row.
@@ -63,6 +66,13 @@ The legacy scalar column remains a compatibility projection of the canonical
 first id until its already-planned retirement; there is no schema change. New UI
 is served only after the new backend is the active blue/green color. The gate
 replays legacy scalar requests and refuses mixed scalar/set requests.
+
+Structural commands carry the same set. `RestoreSubtree` and `SubtreeCopy`
+store optional per-row `teamIds`; new delete/duplicate journals always include
+it, duplicate remaps work-item ids but preserves team ids, and
+`insertSubtree` inserts every distinct membership in its transaction. An older
+journal without `teamIds` remains readable by deriving the singleton from
+legacy `serviceTeamId`.
 
 ### D3 — share a reference-set editor, not one universal reference model
 
@@ -74,8 +84,10 @@ Create `reference-set-field.tsx` with two presentation units:
   selected-member list and `CreatablePicker` adapter.
 
 `ReferenceSetAdapter` supplies `kind`, entries, own ids, inherited label,
-`replace(ids)` and `create(name, current)`. Teams, Tags and Services each build
-one adapter over their existing directory and writer. Depends on reuses the
+`replace(ids): Promise<CommitOutcome>` and
+`create(name, current): Promise<CommitOutcome>`, importing `CommitOutcome` from
+`live-editing.ts`. Teams, Tags and Services each build one adapter over their
+existing directory and writer. Depends on reuses the
 strip's visual/add/chip tokens but retains `dep-picker.ts`, refusal reasons,
 bulk-number input and add/remove dependency endpoints.
 
@@ -92,8 +104,12 @@ dependencies cannot be created. The adapter boundary shares mechanics only.
 
 For directory sets: add/create appends an absent id to the own set; chip removal
 filters one id; duplicates are not offered; a landed desktop selection may keep
-the picker open for repeated entry, while phone selection closes the sheet only
-after the write is accepted. Escape closes without writing; Tab leaves the
+the picker open for repeated entry. Every table/card writer returns
+`Promise<CommitOutcome>` by returning `run(...)`, not discarding it. Phone
+choose/create awaits the result, closes only on `landed`, retains sheet and
+typed value on `refused`/`unsent`, and disables the acted-on control while
+pending. Removal always keeps the sheet open, retains the chip on refusal, and
+disables only that chip while pending. Escape closes without writing; Tab leaves the
 desktop cell through existing grid routing; arrows and Enter stay inside
 `CreatablePicker`. The leading `+` remains `tabIndex=-1` because the adjacent
 combobox is the keyboard's identical path.
@@ -143,9 +159,11 @@ hit-testing.
 
 - Porting the stale PR #67 engine may conflict with two weeks of schedule work;
   its behavior and fault corpus are reused, not its old head assumed current.
-- A full-set patch can lose concurrent edits at one stale revision; existing
-  revision refusal remains the concurrency boundary and must be covered.
+- Ordinary set PATCH is explicitly last-writer-wins, matching today's API;
+  revisions guard undo/redo only. A two-client case proves the later whole
+  replacement wins, while stale undo remains refused.
 - Interactive child rows inside a passive parent are subtle across pointer
   transitions; the Chromium owner→third-row→owner→outside sequence is the gate.
-- Touching `service/schedule.ts` makes TASK-182 a prod-mode review path even
-  though WBS itself is PoC/dev; main-session review precedes merge.
+- TASK-182 remains dev mode. Its measured whole-task Flash trial explicitly
+  requires full h2puni/CI, exact-head Sol/Gemini and main-session review before
+  merge; those gates do not change its delivery mode.

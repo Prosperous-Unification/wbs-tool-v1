@@ -17,7 +17,12 @@
 | single-pool identity   | route a singleton through changed semantics that alter visits | `schedule-identity.test.ts` plus capacity oracle                     |
 | binding team           | read `teamIds.at(0)` instead of search output                 | non-first binding-team geometry/service case                         |
 | mixed patch refusal    | allow `teamIds` and `serviceTeamId` together                  | controller exact 400 and unchanged-state case                        |
+| atomic team validation | validate before the repository transaction                    | unknown-among-known changes no scalar, join or revision              |
 | whole-set undo         | journal only the first team                                   | undo of middle-member removal loses sibling                          |
+| patch field journal    | omit `teamIds` from `fieldsOf`                                | `teamIds`-only patch creates no inverse                              |
+| structural restore     | restore only `serviceTeamId`                                  | duplicate/delete undo loses the second membership                    |
+| stable projection      | project the request-order first id                            | equivalent request orders expose different scalar ids                |
+| last-writer-wins       | merge a stale client's members                                | later replacement is not the exact stored set                        |
 | own-vs-effective write | derive next ids from inherited effective set                  | clear/add inheritance case copies ancestor labels                    |
 | passive overlay        | enable pointer events on the whole card                       | DOM passive-surface assertion and Chromium empty-space click-through |
 | interactive row        | remove pointer events from dependency rows                    | Chromium cell→third-row reachability                                 |
@@ -46,5 +51,5 @@
 
 - [ ] Every task checkbox is complete and every check above has an observed failure proof.
 - [ ] Worktree clean, branch pushed, CI green, exact-head reviews complete.
-- [ ] Main-session prod-mode review approves the `service/schedule.ts` path before merge.
+- [ ] Main-session review approves the measured dev-mode Flash trial before merge.
 - [ ] Dev health reports the merged commit and TASK-183 is unblocked.

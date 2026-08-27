@@ -43,6 +43,13 @@ before-value for undo, and update `work_item_team` without a migration. A reques
 MUST NOT send both `teamIds` and legacy `serviceTeamId`; the legacy scalar MUST
 remain accepted for one release.
 
+Equivalent team sets MUST store the same id-sorted legacy scalar projection
+regardless of request order. Ordinary PATCH is last-writer-wins; revisions MUST
+guard undo and redo but MUST NOT be presented as an optimistic PATCH
+precondition. Duplicate, delete undo and redo MUST preserve every team
+membership. A restore payload written before this change MAY omit the set and
+MUST then restore its legacy scalar singleton.
+
 Every effective team with stated capacity MUST contribute one pool to every
 slice. The slice MUST start at the earliest instant all pools have room, reserve
 its width in each, and clamp width to the smallest stated capacity. An unsized
@@ -62,6 +69,20 @@ their prior dates, float and blocking sets.
 - **WHEN** the `Design` chip is removed
 - **THEN** the patch MUST write `Platform` and `QA`
 - **AND** neither surviving member MUST be replaced by an inherited set
+
+#### Scenario: a later full-set write wins without partial state
+
+- **GIVEN** two clients read the same own team set
+- **WHEN** each sends a different whole replacement and the second lands last
+- **THEN** the second complete set MUST be stored with its stable scalar projection
+- **AND** stale undo MUST remain subject to the existing revision refusal
+
+#### Scenario: structural restoration preserves every team
+
+- **GIVEN** a work item with more than one own team
+- **WHEN** it is duplicated or restored by delete undo and redo
+- **THEN** every own team membership MUST survive
+- **AND** an older singleton restore payload MUST remain readable
 
 #### Scenario: a parent set is inherited whole and an own set overrides whole
 
@@ -140,6 +161,11 @@ the same own values, inherited context, add/search and member removal available
 on desktop. Desktop and phone writes MUST survive reload. Light and dark themes
 MUST show every chip and dependency target without clipping, overlap, native
 button paint, hidden third values, stale tint or lost focus.
+
+Directory choose/create controls MUST await the write result: they close only
+after `landed`, retain the sheet and typed value after refusal, and suppress a
+second submission while pending. Member removal MUST keep the sheet open after
+all outcomes, retain a refused member, and suppress duplicate pending removal.
 
 #### Scenario: a phone edits every reference-set kind and reloads
 
