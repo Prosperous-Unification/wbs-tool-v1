@@ -100,6 +100,16 @@ export async function runEngineLifecycle<T>(
   }
 }
 
+/** The admission ordering used by the real publish entrypoint. */
+export async function runAdmittedPublish<T>(
+  capacity: BuildCapacity,
+  engine: EngineControl,
+  work: () => Promise<T>,
+): Promise<T> {
+  assertBuildCapacity(capacity);
+  return runEngineLifecycle(engine, work);
+}
+
 // linux/amd64 is pinned explicitly so a client running on arm64 (a dev laptop,
 // or a build host) produces the same image the amd64 production host runs.
 // When the engine isn't natively amd64 it builds this under QEMU emulation —

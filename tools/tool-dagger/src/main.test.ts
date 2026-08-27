@@ -10,6 +10,7 @@ import {
   assertCleanTree,
   engineCreateArgs,
   requireRegistryPassword,
+  runAdmittedPublish,
   runEngineLifecycle,
   type BuildCapacity,
   type EngineControl,
@@ -103,6 +104,49 @@ describe('runEngineLifecycle', () => {
     await expect(runEngineLifecycle(fixture.control, async () => 'published')).rejects.toThrow(
       'engine remained resident',
     );
+  });
+});
+
+describe('runAdmittedPublish', () => {
+  it('refuses unsafe capacity before starting the engine or calling publish', async () => {
+    const calls: string[] = [];
+    const engine: EngineControl = {
+      start: async () => {
+        calls.push('start');
+      },
+      stop: async () => {
+        calls.push('stop');
+      },
+    };
+
+    await expect(
+      runAdmittedPublish(
+        { ...safeCapacity, availableMemoryBytes: 8 * 1024 ** 3 - 1 },
+        engine,
+        async () => {
+          calls.push('publish');
+        },
+      ),
+    ).rejects.toThrow('available memory');
+    // Proof: this is the production ordering boundary, not a detached parser.
+    expect(calls).toEqual([]);
+  });
+
+  it('publishes inside the bounded engine lifecycle after admission', async () => {
+    const calls: string[] = [];
+    const engine: EngineControl = {
+      start: async () => {
+        calls.push('start');
+      },
+      stop: async () => {
+        calls.push('stop');
+      },
+    };
+
+    await runAdmittedPublish(safeCapacity, engine, async () => {
+      calls.push('publish');
+    });
+    expect(calls).toEqual(['start', 'publish', 'stop']);
   });
 });
 
