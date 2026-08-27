@@ -4,7 +4,107 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { applyRunnerHostAlias, assertCleanTree, requireRegistryPassword } from './main';
+import {
+  applyRunnerHostAlias,
+  assertBuildCapacity,
+  assertCleanTree,
+  engineCreateArgs,
+  requireRegistryPassword,
+  runEngineLifecycle,
+  type BuildCapacity,
+  type EngineControl,
+} from './main';
+
+const safeCapacity: BuildCapacity = {
+  availableMemoryBytes: 9 * 1024 ** 3,
+  tmpfsAvailableBytes: 15 * 1024 ** 3,
+  tmpfsCapacityBytes: 16 * 1024 ** 3,
+  load1: 7,
+  cpuCount: 8,
+};
+
+describe('assertBuildCapacity', () => {
+  it('admits the exact safe boundaries', () => {
+    expect(() =>
+      assertBuildCapacity({
+        availableMemoryBytes: 8 * 1024 ** 3,
+        tmpfsAvailableBytes: 12 * 1024 ** 3,
+        tmpfsCapacityBytes: 16 * 1024 ** 3,
+        load1: 8,
+        cpuCount: 8,
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ['available memory', { availableMemoryBytes: 8 * 1024 ** 3 - 1 }],
+    ['tmpfs occupancy', { tmpfsAvailableBytes: 12 * 1024 ** 3 - 1 }],
+    ['one-minute load', { load1: 8.01 }],
+  ])('refuses unsafe %s before an engine starts', (name, unsafe) => {
+    // Proof: each injected measurement crosses exactly one production limit.
+    expect(() => assertBuildCapacity({ ...safeCapacity, ...unsafe })).toThrow(name);
+  });
+});
+
+describe('engineCreateArgs', () => {
+  it('pins the engine image, loopback port, cache, memory, CPU, and PID ceilings', () => {
+    expect(engineCreateArgs()).toEqual(
+      expect.arrayContaining([
+        '--memory=8g',
+        '--memory-swap=8g',
+        '--cpus=6',
+        '--pids-limit=2048',
+        '127.0.0.1:8081:8080',
+        'wbs-dagger-engine:/var/lib/dagger',
+        'registry.dagger.io/engine:v0.21.8',
+      ]),
+    );
+  });
+});
+
+describe('runEngineLifecycle', () => {
+  function control(stopError?: Error): { control: EngineControl; calls: string[] } {
+    const calls: string[] = [];
+    return {
+      calls,
+      control: {
+        start: async () => {
+          calls.push('start');
+        },
+        stop: async () => {
+          calls.push('stop');
+          if (stopError !== undefined) throw stopError;
+        },
+      },
+    };
+  }
+
+  it('stops the engine after a successful publish', async () => {
+    const fixture = control();
+    await expect(runEngineLifecycle(fixture.control, async () => 'published')).resolves.toBe(
+      'published',
+    );
+    expect(fixture.calls).toEqual(['start', 'stop']);
+  });
+
+  it('stops the engine after a publish failure', async () => {
+    const fixture = control();
+    await expect(
+      runEngineLifecycle(fixture.control, async () => {
+        throw new Error('registry refused');
+      }),
+    ).rejects.toThrow('registry refused');
+    expect(fixture.calls).toEqual(['start', 'stop']);
+  });
+
+  it('fails the run when stopping the engine fails', async () => {
+    const fixture = control(new Error('engine remained resident'));
+    // Proof: success cannot mask failure to return host capacity.
+    await expect(runEngineLifecycle(fixture.control, async () => 'published')).rejects.toThrow(
+      'engine remained resident',
+    );
+  });
+});
 
 describe('applyRunnerHostAlias', () => {
   it('populates the real variable when only the friendly one is set', () => {
