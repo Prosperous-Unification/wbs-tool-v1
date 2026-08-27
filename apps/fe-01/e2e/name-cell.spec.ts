@@ -409,6 +409,16 @@ test.describe('the Name cell at rest is the name alone', () => {
   test('a name that wraps further in a narrower window is still shown whole', async ({ page }) => {
     await seedRows(page, `e2e-name-${String(Date.now())}-${String(account)}`, 1);
 
+    // Optional Tag/Service columns are backed by global vocabularies and may
+    // have been created by a parallel test. Size both viewports from the table
+    // that actually rendered so Name has slack first and then loses it.
+    const tableMinWidth = await page.evaluate(() =>
+      Number.parseInt(document.querySelector('table')?.style.minWidth ?? '', 10),
+    );
+    expect(tableMinWidth).toBeGreaterThan(0);
+    await page.setViewportSize({ width: tableMinWidth + 400, height: 900 });
+    await settled(page);
+
     const long = page.getByLabel('Name of 010');
     await writeInto(long, LONG_NAME);
     const wide = await boxOf(long);
@@ -416,9 +426,9 @@ test.describe('the Name cell at rest is the name alone', () => {
       0.5,
     );
 
-    // Narrower, and still a table: below 768 the plan is cards, and above about
-    // 1106 the Name column is what absorbs the difference.
-    await page.setViewportSize({ width: 1150, height: 900 });
+    // Narrower, and still a table: keep 80px of slack over the rendered floor,
+    // rather than assuming which optional columns another test has created.
+    await page.setViewportSize({ width: tableMinWidth + 80, height: 900 });
     await settled(page);
 
     const narrow = await boxOf(long);

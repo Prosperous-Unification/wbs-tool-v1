@@ -10143,7 +10143,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             return setPriority(row.id, typed);
           }}
           tagLabel={effectiveTagLabelOf}
+          tags={tags}
+          setTags={(row, tagIds) => {
+            setTagsOf(row.id, tagIds);
+          }}
+          createTag={(row, name, current) => {
+            createTagFor(row.id, name, current);
+          }}
           serviceLabel={effectiveServiceLabelOf}
+          services={services}
+          setServices={(row, serviceIds) => {
+            setServicesOf(row.id, serviceIds);
+          }}
+          createService={(row, name, current) => {
+            createServiceFor(row.id, name, current);
+          }}
           // The same sentence the Services cell's `△` carries, handed to the
           // face that had none. Not a card-shaped copy of the rule: one memo
           // (`mismatchByRow`) answers both renderers, so a phone and a laptop
