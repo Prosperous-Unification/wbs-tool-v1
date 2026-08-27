@@ -55,11 +55,17 @@ export async function runPingSmoke(opts: PingOptions): Promise<PingResult> {
       try {
         frame = JSON.parse(e.data);
       } catch {
+        // Proof: at test-only commit 41919a7d, `reports malformed response data
+        // instead of waiting for timeout` failed because raw non-JSON was
+        // accepted as the terminal response.
         finish(false, `response is not JSON: ${e.data}`);
         return;
       }
 
       if (typeof frame !== 'object' || frame === null || !('type' in frame)) return;
+      // Proof: at test-only commit 41919a7d, `ignores presence before the pong
+      // response` failed because the first valid application frame settled the
+      // probe before the later pong arrived.
       if (frame.type === 'pong') finish(true, e.data);
       if (frame.type === 'error') finish(false, e.data);
     });
