@@ -199,13 +199,13 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   },
   {
     keys: '↑ ↓',
-    does: 'Move the highlight in the Depends on list, stepping over the rows it would refuse.',
+    does: 'Move the highlight in an open picker list. The Depends on list steps over rows it would refuse.',
     where: 'Pickers',
     renderers: TABLE_ONLY,
   },
   {
     keys: 'Enter',
-    does: 'Takes the highlighted entry. In an assignee or team box — which has no highlight — it takes the first match, or adds what you typed when nothing matches it.',
+    does: 'Takes the highlighted entry. In an assignee or team box, the Add line creates what you typed.',
     where: 'Pickers',
     renderers: EITHER_RENDERER,
   },
