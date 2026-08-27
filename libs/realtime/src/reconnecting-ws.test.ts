@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { computeBackoff } from './reconnecting-ws';
+import { computeBackoff, createReconnectingWs } from './reconnecting-ws';
 import { SubscriptionTracker } from './subscription-tracker';
 
 describe('SubscriptionTracker', () => {
@@ -66,5 +66,37 @@ describe('computeBackoff', () => {
       expect(v).toBeGreaterThanOrEqual(Math.floor(4000 * 0.8));
       expect(v).toBeLessThanOrEqual(Math.ceil(4000 * 1.2));
     }
+  });
+});
+
+describe('createReconnectingWs', () => {
+  it('opens the configured URL without requiring or appending a JWT', async () => {
+    const opened: string[] = [];
+    const storage = new Map<string, string>();
+    const subscriptions = new SubscriptionTracker({
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => {
+        storage.set(key, value);
+      },
+    });
+    const socket = {
+      readyState: WebSocket.CONNECTING,
+      send: () => undefined,
+      close: () => undefined,
+    } as unknown as WebSocket;
+    const handle = createReconnectingWs({
+      url: 'wss://wbs.test/ws',
+      onFrame: () => undefined,
+      onStateChange: () => undefined,
+      subscriptions,
+      websocketFactory: (url) => {
+        opened.push(url);
+        return socket;
+      },
+    });
+    await Promise.resolve();
+
+    expect(opened).toEqual(['wss://wbs.test/ws']);
+    handle.close();
   });
 });

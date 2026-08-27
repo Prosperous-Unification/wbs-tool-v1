@@ -62,9 +62,9 @@ async function tokenFor(username: string, expiresAt?: number): Promise<string> {
     .sign(key);
 }
 
-function openSocket(headers: Record<string, string>): Promise<WebSocket> {
+function openSocket(headers: Record<string, string>, path = '/ws'): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`ws://localhost:${String(port)}/ws`, {
+    const socket = new WebSocket(`ws://localhost:${String(port)}${path}`, {
       headers,
     });
     socket.addEventListener(
@@ -107,6 +107,61 @@ function expectRefused(headers: Record<string, string>): Promise<void> {
   });
 }
 
+function expectUrlRefused(url: string, headers: Record<string, string>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url, { headers });
+    socket.addEventListener(
+      'open',
+      () => {
+        socket.close();
+        reject(new Error('WebSocket upgrade unexpectedly opened'));
+      },
+      { once: true },
+    );
+    socket.addEventListener(
+      'error',
+      () => {
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+describe('WebSocket query authentication', () => {
+  it('refuses a valid session JWT carried in the production OIDC URL', async () => {
+    const token = await tokenFor('ada');
+
+    await expectUrlRefused(`ws://localhost:${String(port)}/ws?token=${encodeURIComponent(token)}`, {
+      origin: APP_ORIGIN,
+    });
+  });
+
+  it('refuses an upgrade when WebSocket authentication is not configured', async () => {
+    const app = buildApp({
+      beUrl: 'http://be.invalid',
+      internalAuthSecret: INTERNAL_SECRET,
+      jwtKey: JWT_KEY,
+    });
+    app.listen(0);
+    try {
+      const response = await fetch(`http://localhost:${String(app.server?.port ?? 0)}/ws`, {
+        headers: {
+          connection: 'Upgrade',
+          'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+          'sec-websocket-version': '13',
+          upgrade: 'websocket',
+        },
+      });
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'websocket auth not configured' });
+    } finally {
+      await app.stop();
+    }
+  });
+});
+
 /**
  * The browser handshake boundary, not cookie parsing in isolation.
  *
@@ -119,10 +174,13 @@ describe('OIDC WebSocket authentication', () => {
     // Proof: without the cookie token source in the production beforeHandle,
     // this upgrade is refused as `missing token`. Watched 2026-08-24.
     const token = await tokenFor('ada');
-    const socket = await openSocket({
-      cookie: `__Host-wbs_access=${token}`,
-      origin: APP_ORIGIN,
-    });
+    const socket = await openSocket(
+      {
+        cookie: `__Host-wbs_access=${token}`,
+        origin: APP_ORIGIN,
+      },
+      '/ws?localIdentity=mallory',
+    );
 
     const received: unknown[] = [];
     socket.addEventListener('message', (event: MessageEvent<string>) => {

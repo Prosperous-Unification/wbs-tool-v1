@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'bun:test';
 
-import { runBackendHopSmoke, runPingSmoke, type SocketLike } from './ws-ping';
+import { caddyUpgradeRequest, runBackendHopSmoke, runPingSmoke, type SocketLike } from './ws-ping';
+
+describe('caddyUpgradeRequest', () => {
+  it('authenticates in headers and keeps the session credential out of the request target', () => {
+    const request = caddyUpgradeRequest(
+      {
+        host: 'caddy',
+        port: 443,
+        path: '/ws',
+        siteAddress: 'wbs.test',
+        rejectUnauthorized: true,
+        token: 'header.payload.signature',
+      },
+      'websocket-key',
+    );
+
+    expect(request).toContain('GET /ws HTTP/1.1\r\n');
+    expect(request).toContain('Origin: https://wbs.test\r\n');
+    expect(request).toContain('Cookie: __Host-wbs_access=header.payload.signature\r\n');
+    expect(request).not.toContain('?token=');
+  });
+});
 
 describe('runPingSmoke', () => {
   it('reports ok when the socket echoes a pong', async () => {

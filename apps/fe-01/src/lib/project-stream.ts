@@ -28,7 +28,6 @@ export interface ProjectStreamDeps {
 }
 
 export interface ProjectStreamOptions {
-  token: string;
   projectId: string;
   /** Where the caller's last read of this project left off; `-1` for none. */
   sinceSeq: number;
@@ -180,7 +179,7 @@ export function subscribeToProject(
     // the flag is read here too.
     if (unsubscribed) return;
     pendingReconnect = null;
-    socket = deps.openSocket(websocketUrl(options.token), {
+    socket = deps.openSocket(websocketUrl(), {
       onOpen: () => {
         socket?.send(JSON.stringify({ type: 'subscribe', subscription }));
 

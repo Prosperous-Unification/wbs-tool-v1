@@ -14,6 +14,13 @@ import { SubscriptionMap } from './service/subscription-map';
 
 /** Short: `/health` is polled, and a slow answer is as useless as no answer. */
 const HEALTH_PROBE_TIMEOUT_MS = 2_000;
+const LOCAL_IDENTITY = Symbol('local websocket identity');
+const VERIFIED_TOKEN = Symbol('verified websocket token');
+
+interface WsAuthCarrier {
+  [LOCAL_IDENTITY]?: string;
+  [VERIFIED_TOKEN]?: string;
+}
 
 function cookieValue(raw: string | null, name: string): string | null {
   for (const part of (raw ?? '').split(';')) {
@@ -55,7 +62,7 @@ interface WsConnection {
    * Never rejects: a token that fails here is already handled inside it.
    */
   joined: Promise<void>;
-  query?: { localIdentity?: string; token?: string };
+  query?: WsAuthCarrier;
 }
 
 export interface AppOptions {
@@ -68,8 +75,8 @@ export interface AppOptions {
   /**
    * The browser origin allowed to open an OIDC cookie-authenticated socket.
    *
-   * Absent in local mode, where the development client still supplies its
-   * short-lived token in the query string.
+   * Absent only in local mode, where {@link localIdentity} authenticates the
+   * cookie-free development socket.
    */
   appOrigin?: string;
   /** Fixed cookie-free identity accepted only by explicit local-mode boot. */
@@ -142,15 +149,22 @@ export function buildApp(opts: AppOptions) {
       .get('/metrics/snapshot', () => metrics.counters)
       .ws('/ws', {
         async beforeHandle({ query, request, set }) {
-          const wsQuery = query as { localIdentity?: string; token?: string };
+          const auth = query as WsAuthCarrier;
           if (opts.localIdentity !== undefined) {
             // Proof: without this production upgrade branch, the local-mode
             // browser gate closes /ws as `missing token` and both peer-edit
             // cases fail after their PATCH returns 200. Watched 2026-08-24.
-            wsQuery.localIdentity = opts.localIdentity;
+            auth[LOCAL_IDENTITY] = opts.localIdentity;
             return undefined;
           }
-          if (opts.appOrigin !== undefined && request.headers.get('origin') !== opts.appOrigin) {
+          // There is deliberately no compatibility fallback to `query.token`.
+          // URLs are copied into browser history, logs and pasted links; a
+          // signed credential in one remains exposed until it expires.
+          if (opts.appOrigin === undefined) {
+            set.status = 401;
+            return { error: 'websocket auth not configured' };
+          }
+          if (request.headers.get('origin') !== opts.appOrigin) {
             // Proof: delete this comparison and "refuses a valid cookie
             // presented by a foreign origin" opens a real socket. Watched
             // 2026-08-24.
@@ -158,10 +172,7 @@ export function buildApp(opts: AppOptions) {
             return { error: 'invalid origin' };
           }
 
-          const token =
-            opts.appOrigin === undefined
-              ? wsQuery.token
-              : cookieValue(request.headers.get('cookie'), '__Host-wbs_access');
+          const token = cookieValue(request.headers.get('cookie'), '__Host-wbs_access');
           if (!token) {
             set.status = 401;
             return { error: 'missing token' };
@@ -172,7 +183,7 @@ export function buildApp(opts: AppOptions) {
             set.status = 401;
             return { error: 'invalid token' };
           }
-          wsQuery.token = token;
+          auth[VERIFIED_TOKEN] = token;
           return undefined;
         },
         async open(ws) {
@@ -188,17 +199,10 @@ export function buildApp(opts: AppOptions) {
           // point at which `message` and `close` can start. See {@link
           // WsConnection.joined} for what happened when they did not wait.
           conn.joined = (async () => {
-            // The token is verified a second time here rather than passed down
-            // from beforeHandle: Elysia gives the two hooks separate contexts,
-            // and reading a username that beforeHandle "already checked" would
-            // mean trusting a value this handler never saw. Same verifier, same
-            // key, so a token that reached open cannot fail — but if it does,
-            // the socket joins nobody and simply has no presence.
             try {
-              const localIdentity = conn.query?.localIdentity;
-              let username = localIdentity;
+              let username = conn.query?.[LOCAL_IDENTITY];
               if (username === undefined) {
-                const token = conn.query?.token;
+                const token = conn.query?.[VERIFIED_TOKEN];
                 if (token === undefined) return;
                 const claims = await verifier.verify(token);
                 username = typeof claims['username'] === 'string' ? claims['username'] : claims.sub;

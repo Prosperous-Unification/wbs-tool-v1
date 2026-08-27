@@ -121,7 +121,6 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
   const subscribe = useMemo(
     () => (projectId: string, handlers: SubscriptionHandlers) =>
       subscribeToProject({
-        token,
         projectId,
         // The table's first read has not happened yet, so the stream starts
         // knowing nothing and the read reports its sequence through `seen`.
@@ -129,7 +128,7 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
         onChange: handlers.onChange,
         onConnectionChange: handlers.onConnectionChange,
       }),
-    [token],
+    [],
   );
 
   const [projects, setProjects] = useState<ProjectListEntry[]>([]);

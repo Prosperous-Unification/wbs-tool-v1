@@ -166,9 +166,8 @@ export async function runBackendHopSmoke(opts: PingOptions): Promise<PingResult>
 }
 
 /**
- * gw-01's `/ws` upgrade is gated by `beforeHandle` on a valid JWT (see
- * apps/gw-01/src/app.ts) — connecting without `?token=` never reaches
- * `open`, it 401s at the HTTP-upgrade step. So a real WS smoke check has to
+ * gw-01's `/ws` upgrade is gated by `beforeHandle` on a valid access cookie
+ * and exact Origin (see apps/gw-01/src/app.ts). So a real WS smoke check has to
  * mint a token the same way a real client would, using the same signing key
  * gw-01 itself reads from its env (`JWT_SIGNING_KEY_CURRENT`, shared via
  * `/srv/wbs/.env` per tier.compose.tmpl). `SMOKE_JWT_KEY` is accepted first
@@ -281,9 +280,23 @@ export interface CaddyWsTarget {
   host: string;
   port: number;
   path: string;
+  token: string;
   /** Sent as both the HTTP Host header and the TLS SNI — see module doc. */
   siteAddress: string;
   rejectUnauthorized: boolean;
+}
+
+export function caddyUpgradeRequest(target: CaddyWsTarget, key: string): string {
+  return (
+    `GET ${target.path} HTTP/1.1\r\n` +
+    `Host: ${target.siteAddress}\r\n` +
+    'Upgrade: websocket\r\n' +
+    'Connection: Upgrade\r\n' +
+    `Origin: https://${target.siteAddress}\r\n` +
+    `Cookie: __Host-wbs_access=${encodeURIComponent(target.token)}\r\n` +
+    `Sec-WebSocket-Key: ${key}\r\n` +
+    'Sec-WebSocket-Version: 13\r\n\r\n'
+  );
 }
 
 function connectThroughCaddy(target: CaddyWsTarget): SocketLike {
@@ -311,14 +324,7 @@ function connectThroughCaddy(target: CaddyWsTarget): SocketLike {
     socket: {
       open(s) {
         sock = s;
-        const req =
-          `GET ${target.path} HTTP/1.1\r\n` +
-          `Host: ${target.siteAddress}\r\n` +
-          'Upgrade: websocket\r\n' +
-          'Connection: Upgrade\r\n' +
-          `Sec-WebSocket-Key: ${key}\r\n` +
-          'Sec-WebSocket-Version: 13\r\n\r\n';
-        s.write(req);
+        s.write(caddyUpgradeRequest(target, key));
       },
       data(_s, chunk) {
         pending = append(pending, new Uint8Array(chunk));
@@ -392,12 +398,22 @@ export async function runWsSuite(): Promise<boolean> {
   const override = process.env['SMOKE_WS_URL'];
   const connect: () => SocketLike =
     override !== undefined
-      ? () => new WebSocket(`${override}${override.includes('?') ? '&' : '?'}token=${token}`)
+      ? () => {
+          const url = new URL(override);
+          const origin = `${url.protocol === 'wss:' ? 'https:' : 'http:'}//${url.host}`;
+          return new WebSocket(override, {
+            headers: {
+              cookie: `__Host-wbs_access=${encodeURIComponent(token)}`,
+              origin,
+            },
+          });
+        }
       : () =>
           connectThroughCaddy({
             host: process.env['SMOKE_CADDY_HOST'] ?? 'caddy',
             port: 443,
-            path: `/ws?token=${token}`,
+            path: '/ws',
+            token,
             siteAddress: process.env['SITE_ADDRESS'] ?? 'wbs.bulletpoints.club',
             // Secure by default — production has a real, publicly-trusted
             // cert once DNS+ACME are live. Only relax for a deliberate,

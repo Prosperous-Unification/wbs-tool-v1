@@ -47,10 +47,13 @@ app's own, and a browser that had cached a wrong credential for the realm could 
 out of it — which cost a real debugging session. The gated config is backed up beside
 `site-dev.caddy` on h2puni if it is ever wanted again.
 
-What still guards dev: be-01 requires an account on every `/api` route but register and login,
-and gw-01 closes any socket without a valid JWT in `?token=`
-(`apps/gw-01/src/app.ts`). **Account registration is open to the internet**, which is the
-trade that was made knowingly.
+What still guards dev: be-01 applies the configured authentication mode to every
+protected `/api` route. gw-01 accepts the fixed identity only in explicit local
+mode; OIDC mode requires the `__Host-wbs_access` httpOnly cookie and the exact
+configured Origin (`apps/gw-01/src/app.ts`). Query parameters never establish
+WebSocket identity. **Account registration is open to the internet only while
+the public origin deliberately runs password mode**; OIDC mode does not mount
+that route.
 
 Per-tier env lives in gitignored `apps/<tier>/.env` inside that checkout, **not** in
 compose `env_file`: compose merges every env file into one namespace, so `be-01.env` and
