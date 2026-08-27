@@ -24,5 +24,5 @@
       runbooks — test: lock path equality and ShellCheck.
 - [x] 3.2 Run watched REDs, focused green, full gate, format, and OpenSpec on
       h2puni; record every failure proof in `verify.md`.
-- [ ] 3.3 Publish all three images while recording host telemetry, public vhost
+- [x] 3.3 Publish all three images while recording host telemetry, public vhost
       health, SSH, and monitoring throughout; verify the engine is stopped.
