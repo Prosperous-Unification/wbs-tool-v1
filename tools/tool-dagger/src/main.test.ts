@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
+  type BuildCapacity,
+  type EngineControl,
   applyRunnerHostAlias,
   assertBuildCapacity,
   assertCleanTree,
@@ -15,8 +17,6 @@ import {
   requireRegistryPassword,
   runAdmittedPublish,
   runEngineLifecycle,
-  type BuildCapacity,
-  type EngineControl,
 } from './main';
 
 const expectedEngine = {
@@ -49,17 +49,27 @@ const safeCapacity: BuildCapacity = {
   cpuCount: 8,
 };
 
+async function captureFailure(work: () => Promise<unknown>): Promise<Error> {
+  try {
+    await work();
+  } catch (error: unknown) {
+    if (error instanceof Error) return error;
+    throw new Error(`expected Error, received ${String(error)}`);
+  }
+  throw new Error('expected work to fail');
+}
+
 describe('assertBuildCapacity', () => {
   it('admits the exact safe boundaries', () => {
-    expect(() =>
+    expect(() => {
       assertBuildCapacity({
         availableMemoryBytes: 8 * 1024 ** 3,
         tmpfsAvailableBytes: 12 * 1024 ** 3,
         tmpfsCapacityBytes: 16 * 1024 ** 3,
         load1: 8,
         cpuCount: 8,
-      }),
-    ).not.toThrow();
+      });
+    }).not.toThrow();
   });
 
   it.each([
@@ -68,7 +78,9 @@ describe('assertBuildCapacity', () => {
     ['one-minute load', { load1: 8.01 }],
   ])('refuses unsafe %s before an engine starts', (name, unsafe) => {
     // Proof: each injected measurement crosses exactly one production limit.
-    expect(() => assertBuildCapacity({ ...safeCapacity, ...unsafe })).toThrow(name);
+    expect(() => {
+      assertBuildCapacity({ ...safeCapacity, ...unsafe });
+    }).toThrow(name);
   });
 });
 
@@ -122,38 +134,48 @@ describe('readBuildCapacity', () => {
 
 describe('engineCreateArgs', () => {
   it('pins the engine image, loopback port, cache, memory, CPU, and PID ceilings', () => {
-    expect(engineCreateArgs()).toEqual(
-      expect.arrayContaining([
-        '--memory=8g',
-        '--memory-swap=8g',
-        '--cpus=6',
-        '--pids-limit=2048',
-        '127.0.0.1:8081:8080',
-        'wbs-dagger-engine:/var/lib/dagger',
-        'registry.dagger.io/engine:v0.21.8',
-      ]),
-    );
+    expect(engineCreateArgs()).toEqual([
+      'docker',
+      'run',
+      '--detach',
+      '--privileged',
+      '--name=wbs-dagger-engine',
+      '--memory=8g',
+      '--memory-swap=8g',
+      '--cpus=6',
+      '--pids-limit=2048',
+      '--publish',
+      '127.0.0.1:8081:8080',
+      '--volume',
+      'wbs-dagger-engine:/var/lib/dagger',
+      'registry.dagger.io/engine:v0.21.8',
+    ]);
   });
 });
 
 describe('assertEngineContract', () => {
   it('accepts the exact named-engine resource contract', () => {
-    expect(() => assertEngineContract(expectedEngine)).not.toThrow();
+    expect(() => {
+      assertEngineContract(expectedEngine);
+    }).not.toThrow();
   });
 
   it('refuses a mismatched memory ceiling before starting the engine', async () => {
     const calls: string[][] = [];
-    const engine = createDockerEngineControl((argv) => {
+    const engine = createDockerEngineControl((argv: string[]) => {
       calls.push(argv);
       return {
         exitCode: 0,
-        stdout: JSON.stringify([{ ...expectedEngine, HostConfig: { ...expectedEngine.HostConfig, Memory: 0 } }]),
+        stdout: JSON.stringify([
+          { ...expectedEngine, HostConfig: { ...expectedEngine.HostConfig, Memory: 0 } },
+        ]),
         stderr: '',
       };
     });
 
     // Proof: drift in a real `docker inspect` shape reaches the production control.
-    await expect(engine.start()).rejects.toThrow('memory');
+    const failure = await captureFailure(() => engine.start());
+    expect(failure.message).toContain('memory');
     expect(calls).toHaveLength(1);
   });
 });
@@ -164,12 +186,13 @@ describe('runEngineLifecycle', () => {
     return {
       calls,
       control: {
-        start: async () => {
+        start: () => {
           calls.push('start');
+          return Promise.resolve();
         },
-        stop: async () => {
+        stop: () => {
           calls.push('stop');
-          if (stopError !== undefined) throw stopError;
+          return stopError === undefined ? Promise.resolve() : Promise.reject(stopError);
         },
       },
     };
@@ -177,28 +200,27 @@ describe('runEngineLifecycle', () => {
 
   it('stops the engine after a successful publish', async () => {
     const fixture = control();
-    await expect(runEngineLifecycle(fixture.control, async () => 'published')).resolves.toBe(
-      'published',
-    );
+    const published = await runEngineLifecycle(fixture.control, () => Promise.resolve('published'));
+    expect(published).toBe('published');
     expect(fixture.calls).toEqual(['start', 'stop']);
   });
 
   it('stops the engine after a publish failure', async () => {
     const fixture = control();
-    await expect(
-      runEngineLifecycle(fixture.control, async () => {
-        throw new Error('registry refused');
-      }),
-    ).rejects.toThrow('registry refused');
+    const failure = await captureFailure(() =>
+      runEngineLifecycle(fixture.control, () => Promise.reject(new Error('registry refused'))),
+    );
+    expect(failure.message).toContain('registry refused');
     expect(fixture.calls).toEqual(['start', 'stop']);
   });
 
   it('fails the run when stopping the engine fails', async () => {
     const fixture = control(new Error('engine remained resident'));
     // Proof: success cannot mask failure to return host capacity.
-    await expect(runEngineLifecycle(fixture.control, async () => 'published')).rejects.toThrow(
-      'engine remained resident',
+    const failure = await captureFailure(() =>
+      runEngineLifecycle(fixture.control, () => Promise.resolve('published')),
     );
+    expect(failure.message).toContain('engine remained resident');
   });
 });
 
@@ -206,23 +228,27 @@ describe('runAdmittedPublish', () => {
   it('refuses unsafe capacity before starting the engine or calling publish', async () => {
     const calls: string[] = [];
     const engine: EngineControl = {
-      start: async () => {
+      start: () => {
         calls.push('start');
+        return Promise.resolve();
       },
-      stop: async () => {
+      stop: () => {
         calls.push('stop');
+        return Promise.resolve();
       },
     };
 
-    await expect(
+    const failure = await captureFailure(() =>
       runAdmittedPublish(
         { ...safeCapacity, availableMemoryBytes: 8 * 1024 ** 3 - 1 },
         engine,
-        async () => {
+        () => {
           calls.push('publish');
+          return Promise.resolve();
         },
       ),
-    ).rejects.toThrow('available memory');
+    );
+    expect(failure.message).toContain('available memory');
     // Proof: this is the production ordering boundary, not a detached parser.
     expect(calls).toEqual([]);
   });
@@ -230,16 +256,19 @@ describe('runAdmittedPublish', () => {
   it('publishes inside the bounded engine lifecycle after admission', async () => {
     const calls: string[] = [];
     const engine: EngineControl = {
-      start: async () => {
+      start: () => {
         calls.push('start');
+        return Promise.resolve();
       },
-      stop: async () => {
+      stop: () => {
         calls.push('stop');
+        return Promise.resolve();
       },
     };
 
-    await runAdmittedPublish(safeCapacity, engine, async () => {
+    await runAdmittedPublish(safeCapacity, engine, () => {
       calls.push('publish');
+      return Promise.resolve();
     });
     expect(calls).toEqual(['start', 'publish', 'stop']);
   });

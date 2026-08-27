@@ -219,7 +219,7 @@ function requireCommand(run: CommandRunner, argv: string[]): CommandResult {
 /** Creates or validates, starts, and stops the single bounded release engine. */
 export function createDockerEngineControl(run: CommandRunner = runCommand): EngineControl {
   return {
-    start: async (): Promise<void> => {
+    start: (): Promise<void> => {
       const inspected = run(['docker', 'inspect', ENGINE_NAME]);
       if (inspected.exitCode === 0) {
         const parsed: unknown = JSON.parse(inspected.stdout);
@@ -228,15 +228,17 @@ export function createDockerEngineControl(run: CommandRunner = runCommand): Engi
         }
         assertEngineContract(parsed[0]);
         requireCommand(run, ['docker', 'start', ENGINE_NAME]);
-        return;
+        return Promise.resolve();
       }
       if (!inspected.stderr.includes('No such object')) {
         throw new Error(`docker inspect ${ENGINE_NAME} failed: ${inspected.stderr.trim()}`);
       }
       requireCommand(run, engineCreateArgs());
+      return Promise.resolve();
     },
-    stop: async (): Promise<void> => {
+    stop: (): Promise<void> => {
       requireCommand(run, ['docker', 'stop', '--time', '30', ENGINE_NAME]);
+      return Promise.resolve();
     },
   };
 }
