@@ -455,7 +455,9 @@ describe('assertOidcEnvAllowed', () => {
     'AUTH_REDIRECT_URI=https://dev.example/callback\n';
 
   it('passes the five provider keys carried by oidc-dev.env', () => {
-    expect(() => assertOidcEnvAllowed(intended)).not.toThrow();
+    expect(() => {
+      assertOidcEnvAllowed(intended);
+    }).not.toThrow();
   });
 
   it('rejects an app-config override without printing its value', () => {

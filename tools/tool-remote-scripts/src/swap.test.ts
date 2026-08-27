@@ -447,13 +447,25 @@ describe('validateTierEnvInputs', () => {
 
   it('refuses a missing OIDC carrier before a swap can move its phase marker', async () => {
     writeFileSync(join(dir, 'be-01.env'), 'PORT=3100\n');
-    await expect(validateTierEnvInputs('be', layout())).rejects.toThrow(/No such file|ENOENT/);
+    let message = '';
+    try {
+      await validateTierEnvInputs('be', layout());
+    } catch (e: unknown) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toMatch(/No such file|ENOENT/);
   });
 
   it('refuses an unreadable OIDC carrier before a swap can move its phase marker', async () => {
     writeFileSync(join(dir, 'gw-01.env'), 'PORT=3200\n');
     mkdirSync(join(dir, 'oidc.env'));
-    await expect(validateTierEnvInputs('gw', layout())).rejects.toThrow();
+    let message = '';
+    try {
+      await validateTierEnvInputs('gw', layout());
+    } catch (e: unknown) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).not.toBe('');
   });
 });
 
