@@ -33,10 +33,23 @@ plan against prod's real state.
 ```sh
 # ON h2puni, once the dagger CLI and a prod checkout (not dev's) exist:
 export REGISTRY_USER=wbs REGISTRY_PASS=$(grep ^REGISTRY_PASS= /home/puni1/wbs/.env | cut -d= -f2-)
-bunx nx run tool-dagger:publish-all
+bin/h2puni-gate.sh
+bin/publish-release.sh
 bunx nx run tool-remote-scripts:install --execute   # after any swap.js / smoke.js change
 bunx nx run tool-deploy:deploy -- --all --execute
 ```
+
+The gate and publisher share `/home/puni1/.cache/wbs-heavy-work.lock`; either
+refuses immediately with exit 75 when the other owns it. Publishing also
+refuses before Dagger starts when available memory is below 8 GiB, combined
+`/tmp` + `/dev/shm` use is above 25%, or one-minute load exceeds the online CPU
+count. Do not bypass these refusals with the underlying Nx target.
+
+`bin/publish-release.sh` creates or validates `wbs-dagger-engine`: v0.21.8,
+8 GiB memory with no swap expansion, 6 CPUs, 2,048 PIDs, loopback port 8081,
+and persistent volume `wbs-dagger-engine`. It stops the engine after success or
+failure. A stopped engine after a release is the expected state; do not add an
+automatic restart policy.
 
 Env root moved 2026-08-04 — `/home/puni1/wbs/.env`, not `/srv/wbs/.env`. Both are readable
 today because `/srv/wbs` is a stale rollback copy; read the new path.

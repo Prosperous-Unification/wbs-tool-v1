@@ -20,9 +20,9 @@
 
 ## 3. Shared host gate and operations
 
-- [ ] 3.1 Add the h2puni full-gate entrypoint using the same lock and update both
+- [x] 3.1 Add the h2puni full-gate entrypoint using the same lock and update both
       runbooks — test: lock path equality and ShellCheck.
-- [ ] 3.2 Run watched REDs, focused green, full gate, format, and OpenSpec on
+- [x] 3.2 Run watched REDs, focused green, full gate, format, and OpenSpec on
       h2puni; record every failure proof in `verify.md`.
 - [ ] 3.3 Publish all three images while recording host telemetry, public vhost
       health, SSH, and monitoring throughout; verify the engine is stopped.

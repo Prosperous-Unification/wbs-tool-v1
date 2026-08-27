@@ -20,6 +20,13 @@
 > Keep the rest of this document for anything else that needs the engine to
 > reach `wbs-net` by container name.
 
+> **Managed release engine, 2026-08-27:** current publishes use the separately
+> named `wbs-dagger-engine`, created and validated by `bin/publish-release.sh`.
+> It pushes through the registry's public TLS name, is not attached to
+> `wbs-net`, and is deliberately stopped after every outcome. The remediation
+> below applies only to the historical `dagger-engine` container. Do not apply
+> it to `wbs-dagger-engine` or start either historical engine for a release.
+
 ## Symptom
 
 `bunx nx run tool-dagger:publish-all` (or any Dagger build that pushes to
