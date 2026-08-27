@@ -213,7 +213,10 @@ describe('assertEngineContract', () => {
 
     // Proof: this is Docker 29.0.3's exact live missing-container spelling.
     await engine.start();
-    expect(calls).toEqual([['docker', 'inspect', 'wbs-dagger-engine'], engineCreateArgs()]);
+    expect(calls).toEqual([
+      ['docker', 'container', 'inspect', 'wbs-dagger-engine'],
+      engineCreateArgs(),
+    ]);
   });
 });
 
