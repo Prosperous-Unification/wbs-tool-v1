@@ -62,7 +62,7 @@
     "publish-all": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "WBS_SHA=$(git rev-parse HEAD) bun run tools/tool-dagger/src/main.ts",
+        "command": "bin/publish-release.sh",
         "parallel": false
       },
       "cache": false
