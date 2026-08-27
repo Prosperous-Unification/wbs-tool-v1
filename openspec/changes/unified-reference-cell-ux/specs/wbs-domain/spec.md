@@ -94,9 +94,11 @@ boundary MUST clear all dependency tint.
 
 The card surface MUST remain `pointer-events:none`; only the smallest dependency
 row targets MUST opt into pointer events. Empty card area MUST remain
-click-through to the underlying table. The existing accessible full-list
-description MUST remain and card rows MUST NOT add a redundant sequential tab
-stop.
+click-through to the underlying table. Owner leave MUST NOT synchronously
+unmount the card while the pointer is crossing passive padding toward a row;
+the implementation MUST use a state-only pointer bridge with no capturing hit
+box. The existing accessible full-list description MUST remain and card rows
+MUST NOT add a redundant sequential tab stop.
 
 #### Scenario: the third dependency is reachable and narrows the tint
 
@@ -104,6 +106,13 @@ stop.
 - **WHEN** the pointer travels from the cell onto the third card row
 - **THEN** the card MUST stay open
 - **AND** only the third dependency's work-item row and card line MUST be tinted
+
+#### Scenario: passive padding does not break owner-to-row travel
+
+- **GIVEN** passive padding separates the owner edge from the first dependency row target
+- **WHEN** the pointer crosses that padding on its way to a dependency row
+- **THEN** the card MUST remain mounted until the row target is reached
+- **AND** the padding MUST remain transparent to clicks
 
 #### Scenario: leaving one card row but remaining in the owner widens again
 

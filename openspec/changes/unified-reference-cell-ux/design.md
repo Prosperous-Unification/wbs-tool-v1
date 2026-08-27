@@ -43,11 +43,21 @@ records the restored meaning.
 
 Add `teamIds?: readonly string[]` alongside the one-release legacy
 `serviceTeamId?: string | null`. A request naming both is a 400 rather than an
-order-dependent write. The service validates/deduplicates the entire set,
-journals the entire before-set, and the repository replaces join rows in one
-transaction. `[]` means unstated and reveals inheritance. The UI always derives
-the next own set from `row.teamIds`, never from `effectiveTeamsOf`; otherwise
-removing one own team could copy every inherited team onto the row.
+order-dependent write, with the stable controller error
+`cannot_send_both_teamIds_and_serviceTeamId`. `MOST_TEAMS_ON_ONE_ITEM = 10`
+feeds the existing bounded `asOptionalLabelIds` validation. The service
+validates/deduplicates the entire set and `revertTo(before, patch)` writes
+`out.teamIds = before.teamIds` whenever `patch.teamIds` is present, so the
+entire before-set—not `.at(0)`—is the compensating patch.
+
+The repository MUST destructure `teamIds: wantedTeams` before spreading scalar
+`fields` into `tx.update(workItem).set(...)`; `teamIds` is not a `work_item`
+column. When `wantedTeams` is defined, the same transaction replaces
+`work_item_team` rows and writes `serviceTeamId: wantedTeams.at(0) ?? null` as
+the legacy scalar projection. `[]` means unstated and reveals inheritance. The
+UI always derives the next own set from `row.teamIds`, never from
+`effectiveTeamsOf`; otherwise removing one own team could copy every inherited
+team onto the row.
 
 The legacy scalar column remains a compatibility projection of the canonical
 first id until its already-planned retirement; there is no schema change. New UI
@@ -68,6 +78,10 @@ Create `reference-set-field.tsx` with two presentation units:
 one adapter over their existing directory and writer. Depends on reuses the
 strip's visual/add/chip tokens but retains `dep-picker.ts`, refusal reasons,
 bulk-number input and add/remove dependency endpoints.
+
+`ReferenceSetStrip` owns the single leading `+`. Its embedded
+`CreatablePicker` omits `addButtonLabel`, so the picker does not render a second
+add button.
 
 Rejected alternatives: cloning Depends-on four times would preserve data
 boundaries but preserve drift; a universal registry that makes a dependency
@@ -92,12 +106,21 @@ single-row add semantics and fixed search position from PR #147.
 
 `HoverCard` keeps `pointerEvents:'none'` on its surface. `DependsCard` renders
 each dependency line with `pointerEvents:'auto'`, no `tabIndex`, and entry
-enter/leave callbacks. Because the card stays an absolutely positioned
-descendant of the Depends-on owner, pointer travel cell → row stays inside the
-owner boundary and does not fire the owner's leave. An entry enter writes the
-existing `{rowId,pillId}` state; returning to the cell writes `pillId:null`;
-leaving the owner clears. `relatedTarget` guards prevent a late leave from
-clearing a newer target.
+enter/leave callbacks. DOM ancestry alone is insufficient: the card's passive
+padding hit-tests the table beneath it and can fire owner `mouseleave` before a
+row is reached.
+
+While a dependency card is open, a passive document `pointermove` bridge owns
+dismissal. It reads the owner and live row rectangles after placement. A point
+inside the owner writes `{rowId,pillId:null}`; a row target writes its pill id;
+a point in the straight corridor between the nearest owner edge and the union
+of row target rectangles keeps the card mounted without changing hit-testing;
+anything else clears. Owner `mouseleave` therefore requests bridge evaluation
+instead of unmounting synchronously. Row enter/leave and `relatedTarget` guards
+may update eagerly, but a late leave cannot clear a newer target. The bridge is
+removed on clear, unmount, scroll/resize reposition, and pointer cancellation.
+It is state-only: it adds no hit box, capture, delay timer, or click handler, so
+passive padding continues to target the page beneath it.
 
 This deliberately does not use `HoverCardProps.scrolls`, whose whole surface
 takes the pointer. The dependency list is bounded by placement/overflow and its
@@ -107,11 +130,14 @@ page beneath it.
 ### D6 — geometry, hit-testing and paint are separate proofs
 
 DOM tests assert outer `pointer-events:none`, row `pointer-events:auto`, no
-redundant tab stops, state transitions, full accessible descriptions and exact
-set patches. Chromium proves pointer travel, `elementFromPoint` click-through,
-third-row reachability, actual clipping, phone sheet geometry, reload, and tint
-direction in light/dark. A watched-red fault is required for each new guard; a
-jsdom style assertion never substitutes for browser hit-testing.
+redundant tab stops, bridge cleanup, state transitions, full accessible
+descriptions and exact set patches. A pure rectangle-helper test covers owner,
+corridor, target and outside decisions without claiming browser hit-testing.
+Chromium proves pointer travel across passive padding, `elementFromPoint`
+click-through, third-row reachability, actual clipping, phone sheet geometry,
+reload, and tint direction in light/dark. A watched-red fault is required for
+each new guard; a jsdom style assertion never substitutes for browser
+hit-testing.
 
 ## Risks / Trade-offs
 
