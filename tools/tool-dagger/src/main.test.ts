@@ -178,6 +178,21 @@ describe('assertEngineContract', () => {
     expect(failure.message).toContain('memory');
     expect(calls).toHaveLength(1);
   });
+
+  it('creates the bounded engine when Docker reports the named container absent', async () => {
+    const calls: string[][] = [];
+    const engine = createDockerEngineControl((argv: string[]) => {
+      calls.push(argv);
+      if (calls.length === 1) {
+        return { exitCode: 1, stdout: '', stderr: 'error: no such object: wbs-dagger-engine' };
+      }
+      return { exitCode: 0, stdout: 'created', stderr: '' };
+    });
+
+    // Proof: this is Docker 29.0.3's exact live missing-container spelling.
+    await engine.start();
+    expect(calls).toEqual([['docker', 'inspect', 'wbs-dagger-engine'], engineCreateArgs()]);
+  });
 });
 
 describe('runEngineLifecycle', () => {
