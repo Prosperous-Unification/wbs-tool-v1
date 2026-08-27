@@ -49,6 +49,15 @@ non-email accounts remain local; new OIDC usernames are deterministic and
 collision-safe. `password_hash` becomes nullable through a reversible SQLite
 table rebuild.
 
+The pre-OIDC schema cannot represent a null password or issuer-bound identity.
+Downgrade therefore copies every identity field into the additive
+`oidc_identity_downgrade` recovery table and gives each passwordless row the
+same non-guessable Argon2 digest used by the legacy login path for unknown
+users. The old service preserves accounts and foreign keys but cannot password-
+authenticate an OIDC-only account. Re-applying the migrations restores the
+exact email, issuer, subject, and null-password state before OIDC serves again;
+missing recovery owners or a mismatched restore aborts the transaction.
+
 ### D5. Authorization is additive
 
 An env-selected groups claim parses only values in the configured environment

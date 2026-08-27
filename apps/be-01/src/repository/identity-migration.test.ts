@@ -135,7 +135,7 @@ describe('the OIDC identity migration', () => {
     }
   });
 
-  it('refuses rollback rather than inventing a password for an OIDC-only account', () => {
+  it('locks OIDC-only accounts during downgrade and restores every identity on re-apply', async () => {
     const db = tempDb();
     try {
       beforeIdentity(db.path);
@@ -143,39 +143,90 @@ describe('the OIDC identity migration', () => {
       const sqlite = openDatabase(db.path);
       try {
         sqlite.run(
+          "UPDATE users SET email = 'ada@example.com', idp_issuer = 'https://issuer.example', idp_sub = 'legacy-sub' WHERE id = 'legacy'",
+        );
+        sqlite.run(
           "INSERT INTO users (id, username, password_hash, email, idp_issuer, idp_sub, created_at) VALUES ('oidc', 'dany', NULL, 'dany@puni.show', 'https://issuer.example', 'sub-1', 2)",
+        );
+        sqlite.run(
+          "INSERT INTO project (id, name, owner_id, restricted, estimate_method, start_date, revision, created_at) VALUES ('oidc-plan', 'OIDC plan', 'oidc', 0, 'pert', NULL, 0, 2)",
         );
       } finally {
         sqlite.close();
       }
 
-      const before = openDatabase(db.path);
+      expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([SOLUTION_REF, OIDC_IDENTITY]);
+      const downgraded = openDatabase(db.path);
       try {
+        const locked = downgraded
+          .query<{ password_hash: string }, []>("SELECT password_hash FROM users WHERE id = 'oidc'")
+          .get()?.password_hash;
+        expect(locked).toBeString();
+        expect(await Bun.password.verify('not-the-locked-value', locked ?? '')).toBe(false);
         expect(
-          before
-            .query<
-              { password_hash: string | null },
-              []
-            >("SELECT password_hash FROM users WHERE id = 'oidc'")
-            .get()?.password_hash,
-        ).toBeNull();
+          downgraded
+            .query<{ users: number; projects: number; identities: number; migrations: number }, []>(
+              `SELECT
+              (SELECT COUNT(*) FROM users) AS users,
+              (SELECT COUNT(*) FROM project) AS projects,
+              (SELECT COUNT(*) FROM oidc_identity_downgrade) AS identities,
+              (SELECT COUNT(*) FROM __drizzle_migrations) AS migrations`,
+            )
+            .get(),
+        ).toEqual({ users: 2, projects: 2, identities: 2, migrations: 26 });
       } finally {
-        before.close();
+        downgraded.close();
       }
-      expect(() => rollbackTo(db.path, FOLDER, PERSON_KIND)).toThrow(/NOT NULL/);
-      const after = openDatabase(db.path);
+
+      runMigrations(db.path, FOLDER);
+      const restored = openDatabase(db.path);
       try {
-        expect(after.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM users').get()?.n).toBe(2);
         expect(
-          after
+          restored
             .query<
-              { n: number },
+              {
+                id: string;
+                password_hash: string | null;
+                email: string | null;
+                idp_issuer: string | null;
+                idp_sub: string | null;
+              },
               []
-            >("SELECT COUNT(*) AS n FROM pragma_table_info('users') WHERE name = 'idp_sub'")
+            >('SELECT id, password_hash, email, idp_issuer, idp_sub FROM users ORDER BY id')
+            .all(),
+        ).toEqual([
+          {
+            id: 'legacy',
+            password_hash: 'hash',
+            email: 'ada@example.com',
+            idp_issuer: 'https://issuer.example',
+            idp_sub: 'legacy-sub',
+          },
+          {
+            id: 'oidc',
+            password_hash: null,
+            email: 'dany@puni.show',
+            idp_issuer: 'https://issuer.example',
+            idp_sub: 'sub-1',
+          },
+        ]);
+        expect(
+          restored
+            .query<{ users: number; projects: number; migrations: number }, []>(
+              `SELECT
+              (SELECT COUNT(*) FROM users) AS users,
+              (SELECT COUNT(*) FROM project) AS projects,
+              (SELECT COUNT(*) FROM __drizzle_migrations) AS migrations`,
+            )
+            .get(),
+        ).toEqual({ users: 2, projects: 2, migrations: 28 });
+        expect(
+          restored
+            .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM oidc_identity_downgrade')
             .get()?.n,
-        ).toBe(1);
+        ).toBe(0);
       } finally {
-        after.close();
+        restored.close();
       }
     } finally {
       db.cleanup();

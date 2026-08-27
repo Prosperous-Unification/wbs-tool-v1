@@ -305,6 +305,22 @@ requires the exact application `Origin` and the trusted edge's
 `X-Forwarded-For` value. Session JWTs stay only in the hardened HttpOnly cookie,
 including when registration is explicitly enabled.
 
+### OIDC migration downgrade
+
+Rolling back through `20260824010000_add_oidc_identity` keeps every user and
+dependent row. Because the older four-column users table requires a password,
+the down migration stores email, issuer, subject, and original password
+nullability in `oidc_identity_downgrade`; passwordless accounts receive the
+legacy login path's non-guessable dummy Argon2 digest. They remain present but
+cannot use password login while the old release is active. Password accounts
+retain their original hashes.
+
+After the forward scripts re-apply, the migrator restores the saved identity
+fields and changes originally passwordless accounts back to NULL. The recovery
+table is retained for later downgrade cycles; its rows are consumed only after
+an exact restore. A saved identity without its user, or any field that fails to
+restore exactly, aborts startup without discarding the recovery state.
+
 QA credentials live only in `/home/puni1/wbs-dev/qa-accounts.env` on the
 deployment host, with mode 600, as `QA_USER` and `QA_PASS`. Never copy their
 values into the repository, logs, tests, or issue text.

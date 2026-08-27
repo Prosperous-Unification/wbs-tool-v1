@@ -281,3 +281,29 @@ the Caddy source-trust red, the full h2puni gate, ShellCheck, and Caddy
 validation. Merge, Auth0 callback application, Caddy reload, persistent marker
 creation, and real zero-manual connector acceptance remain deliberately
 unapplied until that review completes the cutover.
+
+## 16. OIDC downgrade recovery — 2026-08-27
+
+The watched forward/down/forward case contained one linked password account,
+one OIDC-only account with a null password, and a dependent plan for each. On
+the pre-fix head it failed at the real boundary: 3/4 cases passed and rollback
+threw `NOT NULL constraint failed: users_old.password_hash`. With the recovery
+contract present, the identity plus complete migration suites pass 84/84 on
+h2puni. The test asserts the locked credential rejects password verification,
+both identities and plans survive, exact email/issuer/subject/nullability return,
+recovery rows are consumed, and the ledger returns 28 → 26 → 28.
+
+A Bun `VACUUM INTO` copy of live dev data at
+`/home/puni1/task178-live.wtNb8v/wbs.db` rehearsed the same cycle without writing
+the live database:
+
+- baseline: integrity `ok`, 30 users, 134 projects, 28 migrations, 4 null passwords;
+- down: integrity `ok`, 30 users, 134 projects, 26 migrations, 30 saved identities,
+  and `password_hash` restored to NOT NULL;
+- forward: integrity `ok`, 30 users, 134 projects, 28 migrations, the same 4 null
+  passwords, and 0 unconsumed recovery rows.
+
+The exact code tree passes migration lint, global format, be-01 test/lint/
+typecheck/build (1,119 tests, 0 failures), and strict OpenSpec validation
+(74/74). Prod-mode peer, Gemini, CI, and main-session review remain the terminal
+gate for this slice.

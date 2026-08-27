@@ -29,8 +29,9 @@ main-session review even when earlier slices merge to dev on green.
 ## 3. Identity and authorization
 
 - [x] 3.1 Rebuild the SQLite account table with nullable password, normalized
-      email, issuer, and subject — test: up/down on populated fixture preserves
-      every legacy account and unique constraints.
+      email, issuer, and subject — test: forward/down/forward on a populated
+      fixture locks an OIDC-only account during downgrade, then restores every
+      identity field, dependent plan, ledger row, and unique constraint.
 - [x] 3.2 Link issuer-subject first and verified email second in one transaction
       — test: replay, collision, unverified email, and non-email legacy cases.
 - [x] 3.3 Parse the configured groups claim into scopes — test: exact namespace,

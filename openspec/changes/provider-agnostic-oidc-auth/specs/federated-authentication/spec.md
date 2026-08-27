@@ -95,6 +95,14 @@ OIDC account. Existing non-email local accounts SHALL remain unlinked.
 - **WHEN** the identity logs in
 - **THEN** no legacy account SHALL be linked by email
 
+#### Scenario: an OIDC identity survives a pre-OIDC downgrade
+
+- **GIVEN** an OIDC-only account with dependent plans and no password hash
+- **WHEN** the database rolls back through the OIDC identity migration
+- **THEN** the account and every dependent row SHALL remain present
+- **AND** the old password login SHALL have no usable credential for that account
+- **AND** re-applying migrations SHALL restore its exact email, issuer, subject, and null password
+
 ### Requirement: Request scopes constrain writes and browser transports
 
 The configured groups claim SHALL map environment-prefixed values to read,
