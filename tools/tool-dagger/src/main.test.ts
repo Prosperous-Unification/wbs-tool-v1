@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
-  type BuildCapacity,
-  type EngineControl,
   applyRunnerHostAlias,
   assertBuildCapacity,
   assertCleanTree,
   assertEngineContract,
+  type BuildCapacity,
   createDockerEngineControl,
+  type EngineControl,
   engineCreateArgs,
   readBuildCapacity,
   requireRegistryPassword,
