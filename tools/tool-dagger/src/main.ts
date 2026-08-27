@@ -20,6 +20,86 @@ const PUBLIC_URL = process.env['WBS_PUBLIC_URL'] ?? 'https://wbs.bulletpoints.cl
 const REGISTRY = process.env['REGISTRY'] ?? 'registry.infra.bulletpoints.club';
 const REGISTRY_USER = process.env['REGISTRY_USER'] ?? 'wbs';
 
+const GIBIBYTE = 1024 ** 3;
+
+export interface BuildCapacity {
+  availableMemoryBytes: number;
+  tmpfsAvailableBytes: number;
+  tmpfsCapacityBytes: number;
+  load1: number;
+  cpuCount: number;
+}
+
+export interface EngineControl {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
+/**
+ * Refuses a release before Dagger starts when h2puni cannot keep serving the
+ * application beside the build. See `protect-release-build-capacity`.
+ */
+export function assertBuildCapacity(capacity: BuildCapacity): void {
+  if (capacity.availableMemoryBytes < 8 * GIBIBYTE) {
+    throw new Error(
+      `unsafe available memory: ${String(capacity.availableMemoryBytes)} bytes; need at least ${String(8 * GIBIBYTE)}`,
+    );
+  }
+  if (capacity.tmpfsCapacityBytes <= 0) {
+    throw new Error('unsafe tmpfs occupancy: combined capacity must be positive');
+  }
+  const tmpfsUsedBytes = capacity.tmpfsCapacityBytes - capacity.tmpfsAvailableBytes;
+  if (tmpfsUsedBytes / capacity.tmpfsCapacityBytes > 0.25) {
+    throw new Error(
+      `unsafe tmpfs occupancy: ${String(tmpfsUsedBytes)} of ${String(capacity.tmpfsCapacityBytes)} bytes used; maximum is 25%`,
+    );
+  }
+  if (!Number.isInteger(capacity.cpuCount) || capacity.cpuCount <= 0) {
+    throw new Error(`unsafe one-minute load input: invalid CPU count ${String(capacity.cpuCount)}`);
+  }
+  if (!Number.isFinite(capacity.load1) || capacity.load1 > capacity.cpuCount) {
+    throw new Error(
+      `unsafe one-minute load: ${String(capacity.load1)} for ${String(capacity.cpuCount)} CPUs; maximum is one runnable task per CPU`,
+    );
+  }
+}
+
+/** The single reproducible Docker creation contract for the release engine. */
+export function engineCreateArgs(): string[] {
+  return [
+    'docker',
+    'run',
+    '--detach',
+    '--privileged',
+    '--name=wbs-dagger-engine',
+    '--memory=8g',
+    '--memory-swap=8g',
+    '--cpus=6',
+    '--pids-limit=2048',
+    '--publish',
+    '127.0.0.1:8081:8080',
+    '--volume',
+    'wbs-dagger-engine:/var/lib/dagger',
+    'registry.dagger.io/engine:v0.21.8',
+  ];
+}
+
+/**
+ * Owns the engine lifetime around one release attempt. Stop is deliberately
+ * outside the work callback so success cannot leave resident build capacity.
+ */
+export async function runEngineLifecycle<T>(
+  engine: EngineControl,
+  work: () => Promise<T>,
+): Promise<T> {
+  await engine.start();
+  try {
+    return await work();
+  } finally {
+    await engine.stop();
+  }
+}
+
 // linux/amd64 is pinned explicitly so a client running on arm64 (a dev laptop,
 // or a build host) produces the same image the amd64 production host runs.
 // When the engine isn't natively amd64 it builds this under QEMU emulation —
