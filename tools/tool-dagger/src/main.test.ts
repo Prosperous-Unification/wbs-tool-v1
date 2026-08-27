@@ -206,12 +206,16 @@ describe('assertEngineContract', () => {
     const engine = createDockerEngineControl((argv: string[]) => {
       calls.push(argv);
       if (calls.length === 1) {
-        return { exitCode: 1, stdout: '', stderr: 'error: no such object: wbs-dagger-engine' };
+        return {
+          exitCode: 1,
+          stdout: '',
+          stderr: 'Error response from daemon: No such container: wbs-dagger-engine',
+        };
       }
       return { exitCode: 0, stdout: 'created', stderr: '' };
     });
 
-    // Proof: this is Docker 29.0.3's exact live missing-container spelling.
+    // Proof: this is `docker container inspect`'s exact live absence spelling.
     await engine.start();
     expect(calls).toEqual([
       ['docker', 'container', 'inspect', 'wbs-dagger-engine'],
