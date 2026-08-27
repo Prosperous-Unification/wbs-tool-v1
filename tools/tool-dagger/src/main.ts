@@ -1,3 +1,6 @@
+import { readFileSync, statfsSync } from 'node:fs';
+import { availableParallelism, loadavg } from 'node:os';
+
 import type { BuildArg, Platform } from '@dagger.io/dagger';
 import { connect } from '@dagger.io/dagger';
 
@@ -21,6 +24,12 @@ const REGISTRY = process.env['REGISTRY'] ?? 'registry.infra.bulletpoints.club';
 const REGISTRY_USER = process.env['REGISTRY_USER'] ?? 'wbs';
 
 const GIBIBYTE = 1024 ** 3;
+const ENGINE_NAME = 'wbs-dagger-engine';
+const ENGINE_IMAGE = 'registry.dagger.io/engine:v0.21.8';
+const ENGINE_MEMORY_BYTES = 8 * GIBIBYTE;
+const ENGINE_NANO_CPUS = 6_000_000_000;
+const ENGINE_PIDS = 2048;
+const ENGINE_RUNNER_HOST = 'tcp://127.0.0.1:8081';
 
 export interface BuildCapacity {
   availableMemoryBytes: number;
@@ -33,6 +42,56 @@ export interface BuildCapacity {
 export interface EngineControl {
   start(): Promise<void>;
   stop(): Promise<void>;
+}
+
+export interface CapacitySource {
+  meminfoPath?: string;
+  tmpPath?: string;
+  shmPath?: string;
+  load1?: () => number;
+  cpuCount?: () => number;
+}
+
+export interface CommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export type CommandRunner = (argv: string[]) => CommandResult;
+
+function filesystemCapacity(path: string): { availableBytes: number; capacityBytes: number } {
+  const stats = statfsSync(path, { bigint: true });
+  const availableBytes = Number(stats.bavail * stats.bsize);
+  const capacityBytes = Number(stats.blocks * stats.bsize);
+  if (!Number.isSafeInteger(availableBytes) || !Number.isSafeInteger(capacityBytes)) {
+    throw new Error(`filesystem capacity for ${path} exceeds the safe integer range`);
+  }
+  return { availableBytes, capacityBytes };
+}
+
+/** Reads the fail-closed host snapshot consumed by {@link assertBuildCapacity}. */
+export function readBuildCapacity(source: CapacitySource = {}): BuildCapacity {
+  const meminfoPath = source.meminfoPath ?? '/proc/meminfo';
+  const meminfo = readFileSync(meminfoPath, 'utf8');
+  const availableMatch = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo);
+  if (availableMatch?.[1] === undefined) {
+    throw new Error(`${meminfoPath} has no valid MemAvailable measurement`);
+  }
+  const availableMemoryBytes = Number(availableMatch[1]) * 1024;
+  if (!Number.isSafeInteger(availableMemoryBytes)) {
+    throw new Error(`${meminfoPath} MemAvailable exceeds the safe integer range`);
+  }
+
+  const tmpfs = filesystemCapacity(source.tmpPath ?? '/tmp');
+  const sharedMemory = filesystemCapacity(source.shmPath ?? '/dev/shm');
+  return {
+    availableMemoryBytes,
+    tmpfsAvailableBytes: tmpfs.availableBytes + sharedMemory.availableBytes,
+    tmpfsCapacityBytes: tmpfs.capacityBytes + sharedMemory.capacityBytes,
+    load1: (source.load1 ?? (() => loadavg()[0] ?? Number.NaN))(),
+    cpuCount: (source.cpuCount ?? availableParallelism)(),
+  };
 }
 
 /**
@@ -71,7 +130,7 @@ export function engineCreateArgs(): string[] {
     'run',
     '--detach',
     '--privileged',
-    '--name=wbs-dagger-engine',
+    `--name=${ENGINE_NAME}`,
     '--memory=8g',
     '--memory-swap=8g',
     '--cpus=6',
@@ -79,9 +138,107 @@ export function engineCreateArgs(): string[] {
     '--publish',
     '127.0.0.1:8081:8080',
     '--volume',
-    'wbs-dagger-engine:/var/lib/dagger',
-    'registry.dagger.io/engine:v0.21.8',
+    `${ENGINE_NAME}:/var/lib/dagger`,
+    ENGINE_IMAGE,
   ];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`invalid ${label}: expected an object`);
+  return value;
+}
+
+/** Validates the external Docker inspect document before the named engine is reused. */
+export function assertEngineContract(value: unknown): void {
+  const engine = requireRecord(value, 'engine inspect');
+  const config = requireRecord(engine['Config'], 'engine Config');
+  const host = requireRecord(engine['HostConfig'], 'engine HostConfig');
+
+  if (config['Image'] !== ENGINE_IMAGE) {
+    throw new Error(`engine image mismatch: expected ${ENGINE_IMAGE}`);
+  }
+  if (host['Memory'] !== ENGINE_MEMORY_BYTES || host['MemorySwap'] !== ENGINE_MEMORY_BYTES) {
+    throw new Error('engine memory mismatch: expected 8 GiB with no swap expansion');
+  }
+  if (host['NanoCpus'] !== ENGINE_NANO_CPUS) {
+    throw new Error('engine CPU mismatch: expected 6 CPUs');
+  }
+  if (host['PidsLimit'] !== ENGINE_PIDS) {
+    throw new Error(`engine PID mismatch: expected ${String(ENGINE_PIDS)}`);
+  }
+  if (host['Privileged'] !== true) {
+    throw new Error('engine privilege mismatch: expected privileged mode');
+  }
+
+  const ports = requireRecord(host['PortBindings'], 'engine port bindings');
+  const bindings = ports['8080/tcp'];
+  if (!Array.isArray(bindings) || bindings.length !== 1) {
+    throw new Error('engine port mismatch: expected one loopback binding');
+  }
+  const binding = requireRecord(bindings[0], 'engine port binding');
+  if (binding['HostIp'] !== '127.0.0.1' || binding['HostPort'] !== '8081') {
+    throw new Error('engine port mismatch: expected 127.0.0.1:8081');
+  }
+
+  const mounts = engine['Mounts'];
+  if (!Array.isArray(mounts)) throw new Error('invalid engine mounts: expected an array');
+  const cacheMatches = mounts.some(
+    (mount) =>
+      isRecord(mount) &&
+      mount['Type'] === 'volume' &&
+      mount['Name'] === ENGINE_NAME &&
+      mount['Destination'] === '/var/lib/dagger' &&
+      mount['RW'] === true,
+  );
+  if (!cacheMatches) {
+    throw new Error(`engine cache mismatch: expected volume ${ENGINE_NAME}`);
+  }
+}
+
+function runCommand(argv: string[]): CommandResult {
+  const process = Bun.spawnSync(argv);
+  return {
+    exitCode: process.exitCode,
+    stdout: process.stdout.toString('utf8'),
+    stderr: process.stderr.toString('utf8'),
+  };
+}
+
+function requireCommand(run: CommandRunner, argv: string[]): CommandResult {
+  const result = run(argv);
+  if (result.exitCode !== 0) {
+    throw new Error(`${argv.join(' ')} failed: ${result.stderr.trim()}`);
+  }
+  return result;
+}
+
+/** Creates or validates, starts, and stops the single bounded release engine. */
+export function createDockerEngineControl(run: CommandRunner = runCommand): EngineControl {
+  return {
+    start: async (): Promise<void> => {
+      const inspected = run(['docker', 'inspect', ENGINE_NAME]);
+      if (inspected.exitCode === 0) {
+        const parsed: unknown = JSON.parse(inspected.stdout);
+        if (!Array.isArray(parsed) || parsed.length !== 1) {
+          throw new Error('invalid engine inspect: expected exactly one container');
+        }
+        assertEngineContract(parsed[0]);
+        requireCommand(run, ['docker', 'start', ENGINE_NAME]);
+        return;
+      }
+      if (!inspected.stderr.includes('No such object')) {
+        throw new Error(`docker inspect ${ENGINE_NAME} failed: ${inspected.stderr.trim()}`);
+      }
+      requireCommand(run, engineCreateArgs());
+    },
+    stop: async (): Promise<void> => {
+      requireCommand(run, ['docker', 'stop', '--time', '30', ENGINE_NAME]);
+    },
+  };
 }
 
 /**
@@ -260,7 +417,16 @@ async function main(): Promise<void> {
   assertCleanTree();
   const arg = process.argv[2] ?? 'be,gw,fe';
   const tiers = arg.split(',').filter((t): t is Tier => t === 'be' || t === 'gw' || t === 'fe');
-  const record = await publishAll(tiers, sha);
+  const capacity = readBuildCapacity();
+  console.error(
+    `[tool-dagger] capacity: available-memory=${String(capacity.availableMemoryBytes)} ` +
+      `tmpfs-available=${String(capacity.tmpfsAvailableBytes)}/${String(capacity.tmpfsCapacityBytes)} ` +
+      `load1=${String(capacity.load1)} cpus=${String(capacity.cpuCount)}`,
+  );
+  process.env['_EXPERIMENTAL_DAGGER_RUNNER_HOST'] = ENGINE_RUNNER_HOST;
+  const record = await runAdmittedPublish(capacity, createDockerEngineControl(), () =>
+    publishAll(tiers, sha),
+  );
   await Bun.write('dist/tool-dagger/release.json', renderRelease(record));
   console.log(renderRelease(record));
 }
