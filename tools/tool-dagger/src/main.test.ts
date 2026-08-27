@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,13 +8,38 @@ import {
   applyRunnerHostAlias,
   assertBuildCapacity,
   assertCleanTree,
+  assertEngineContract,
+  createDockerEngineControl,
   engineCreateArgs,
+  readBuildCapacity,
   requireRegistryPassword,
   runAdmittedPublish,
   runEngineLifecycle,
   type BuildCapacity,
   type EngineControl,
 } from './main';
+
+const expectedEngine = {
+  Config: { Image: 'registry.dagger.io/engine:v0.21.8' },
+  HostConfig: {
+    Memory: 8 * 1024 ** 3,
+    MemorySwap: 8 * 1024 ** 3,
+    NanoCpus: 6_000_000_000,
+    PidsLimit: 2048,
+    Privileged: true,
+    PortBindings: {
+      '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8081' }],
+    },
+  },
+  Mounts: [
+    {
+      Type: 'volume',
+      Name: 'wbs-dagger-engine',
+      Destination: '/var/lib/dagger',
+      RW: true,
+    },
+  ],
+};
 
 const safeCapacity: BuildCapacity = {
   availableMemoryBytes: 9 * 1024 ** 3,
@@ -47,6 +72,54 @@ describe('assertBuildCapacity', () => {
   });
 });
 
+describe('readBuildCapacity', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'wbs-capacity-'));
+  });
+
+  afterEach(() => {
+    chmodSync(join(root, 'meminfo'), 0o600);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('reads available memory and filesystem capacity from the host snapshot', () => {
+    const meminfo = join(root, 'meminfo');
+    writeFileSync(meminfo, 'MemTotal: 16384000 kB\nMemAvailable: 9437184 kB\n');
+
+    const capacity = readBuildCapacity({
+      meminfoPath: meminfo,
+      tmpPath: root,
+      shmPath: root,
+      load1: () => 3.5,
+      cpuCount: () => 8,
+    });
+
+    expect(capacity.availableMemoryBytes).toBe(9 * 1024 ** 3);
+    expect(capacity.tmpfsCapacityBytes).toBeGreaterThan(0);
+    expect(capacity.tmpfsAvailableBytes).toBeGreaterThan(0);
+    expect(capacity.load1).toBe(3.5);
+    expect(capacity.cpuCount).toBe(8);
+  });
+
+  it('fails closed when MemAvailable is absent', () => {
+    const meminfo = join(root, 'meminfo');
+    writeFileSync(meminfo, 'MemTotal: 16384000 kB\n');
+
+    expect(() => readBuildCapacity({ meminfoPath: meminfo })).toThrow('MemAvailable');
+  });
+
+  it('fails closed when the capacity source is unreadable', () => {
+    const meminfo = join(root, 'meminfo');
+    writeFileSync(meminfo, 'MemAvailable: 9437184 kB\n');
+    chmodSync(meminfo, 0o000);
+
+    // Proof: the production reader must surface the filesystem refusal.
+    expect(() => readBuildCapacity({ meminfoPath: meminfo })).toThrow();
+  });
+});
+
 describe('engineCreateArgs', () => {
   it('pins the engine image, loopback port, cache, memory, CPU, and PID ceilings', () => {
     expect(engineCreateArgs()).toEqual(
@@ -60,6 +133,28 @@ describe('engineCreateArgs', () => {
         'registry.dagger.io/engine:v0.21.8',
       ]),
     );
+  });
+});
+
+describe('assertEngineContract', () => {
+  it('accepts the exact named-engine resource contract', () => {
+    expect(() => assertEngineContract(expectedEngine)).not.toThrow();
+  });
+
+  it('refuses a mismatched memory ceiling before starting the engine', async () => {
+    const calls: string[][] = [];
+    const engine = createDockerEngineControl((argv) => {
+      calls.push(argv);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([{ ...expectedEngine, HostConfig: { ...expectedEngine.HostConfig, Memory: 0 } }]),
+        stderr: '',
+      };
+    });
+
+    // Proof: drift in a real `docker inspect` shape reaches the production control.
+    await expect(engine.start()).rejects.toThrow('memory');
+    expect(calls).toHaveLength(1);
   });
 });
 
