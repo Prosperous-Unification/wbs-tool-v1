@@ -29,7 +29,7 @@
       "options": {
         "commands": [
           "command -v shellcheck >/dev/null 2>&1 || { echo '[tool-devsync] shellcheck is required but not installed. macOS: brew install shellcheck. Debian/Ubuntu: apt-get install shellcheck.' >&2; exit 1; }",
-          "shellcheck -s bash bin/dev-deploy.sh bin/dev-mcp-preflight.sh bin/dev-mcp-probe.sh"
+          "shellcheck -s bash bin/dev-deploy.sh bin/dev-be-probe.sh bin/dev-mcp-preflight.sh bin/dev-mcp-probe.sh"
         ],
         "parallel": false
       }

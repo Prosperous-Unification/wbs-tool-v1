@@ -124,11 +124,7 @@ check 404 https://dev.wbs.bulletpoints.club/ws 'gw (answered, not 502)'
 # for a route it could not match. This asserts a body only be-01 emits: the
 # auth controller's own JSON for a request with no token. It proves the
 # application layer is mounted, not merely that a process accepted a socket.
-identity=$(curl -s --max-time 15 https://dev.wbs.bulletpoints.club/api/auth/me)
-if [ "$identity" = '{"error":"missing_token"}' ]; then
-  printf '[dev-deploy] %-28s %s\n' 'be (auth routes mounted)' 'ok'
-else
-  printf '[dev-deploy] %-28s %s FAIL\n' 'be (auth routes mounted)' "$identity" >&2
+if ! "$(dirname "${BASH_SOURCE[0]}")/dev-be-probe.sh" https://dev.wbs.bulletpoints.club; then
   fail=1
 fi
 
