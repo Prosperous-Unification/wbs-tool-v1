@@ -237,7 +237,7 @@ function requireCommand(run: CommandRunner, argv: string[]): CommandResult {
 export function createDockerEngineControl(run: CommandRunner = runCommand): EngineControl {
   return {
     start: (): Promise<void> => {
-      const inspected = run(['docker', 'inspect', ENGINE_NAME]);
+      const inspected = run(['docker', 'container', 'inspect', ENGINE_NAME]);
       if (inspected.exitCode === 0) {
         const parsed: unknown = JSON.parse(inspected.stdout);
         if (!Array.isArray(parsed) || parsed.length !== 1) {
