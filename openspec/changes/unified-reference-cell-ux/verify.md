@@ -11,19 +11,19 @@
 
 ## 2. Required watched failures
 
-| Check | Fault to inject | Test that must observe it |
-| --- | --- | --- |
-| joint pool fixpoint | stop after the first pool round | `schedule-joint-capacity.test.ts` re-ask case |
-| single-pool identity | route a singleton through changed semantics that alter visits | `schedule-identity.test.ts` plus capacity oracle |
-| binding team | read `teamIds.at(0)` instead of search output | non-first binding-team geometry/service case |
-| mixed patch refusal | allow `teamIds` and `serviceTeamId` together | controller exact 400 and unchanged-state case |
-| whole-set undo | journal only the first team | undo of middle-member removal loses sibling |
-| own-vs-effective write | derive next ids from inherited effective set | clear/add inheritance case copies ancestor labels |
-| passive overlay | enable pointer events on the whole card | DOM passive-surface assertion and Chromium empty-space click-through |
-| interactive row | remove pointer events from dependency rows | Chromium cell→third-row reachability |
-| complete list | derive overlay entries from visible chips | third dependency absent from description/card |
-| hover cleanup | omit owner leave or stale-id guard | Chromium outside-leave retains tint |
-| palette paint | point card line at the grid-surface tint | two-palette direction assertion |
+| Check                  | Fault to inject                                               | Test that must observe it                                            |
+| ---------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
+| joint pool fixpoint    | stop after the first pool round                               | `schedule-joint-capacity.test.ts` re-ask case                        |
+| single-pool identity   | route a singleton through changed semantics that alter visits | `schedule-identity.test.ts` plus capacity oracle                     |
+| binding team           | read `teamIds.at(0)` instead of search output                 | non-first binding-team geometry/service case                         |
+| mixed patch refusal    | allow `teamIds` and `serviceTeamId` together                  | controller exact 400 and unchanged-state case                        |
+| whole-set undo         | journal only the first team                                   | undo of middle-member removal loses sibling                          |
+| own-vs-effective write | derive next ids from inherited effective set                  | clear/add inheritance case copies ancestor labels                    |
+| passive overlay        | enable pointer events on the whole card                       | DOM passive-surface assertion and Chromium empty-space click-through |
+| interactive row        | remove pointer events from dependency rows                    | Chromium cell→third-row reachability                                 |
+| complete list          | derive overlay entries from visible chips                     | third dependency absent from description/card                        |
+| hover cleanup          | omit owner leave or stale-id guard                            | Chromium outside-leave retains tint                                  |
+| palette paint          | point card line at the grid-surface tint                      | two-palette direction assertion                                      |
 
 ## 3. Remote gate output to record after apply
 
