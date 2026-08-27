@@ -194,6 +194,9 @@ export function deriveTierSecrets(tier: Tier, sharedEnvText: string): string {
  */
 export function tierEnvFiles(tier: Tier, layout: EnvLayout = CURRENT_ENV): string[] {
   const files = [`${layout.root}/${APP[tier]}.env`];
+  if (layout.oidcEnvPath !== null && (tier === 'be' || tier === 'gw')) {
+    files.push(layout.oidcEnvPath);
+  }
   if (SECRET_KEYS[tier].length > 0) files.push(tierSecretsFile(tier, layout));
   return files;
 }

@@ -27,6 +27,8 @@ export interface EnvLayout {
   /** Prepended to every container name. Empty for prod, so prod names are unchanged. */
   readonly containerPrefix: string;
   readonly sharedEnvPath: string;
+  /** Shared OIDC provider settings for app tiers, or null when this environment has none. */
+  readonly oidcEnvPath: string | null;
   readonly stateDir: string;
   readonly siteCaddyPath: string;
   /** The public address Caddy serves this environment at. */
@@ -52,6 +54,7 @@ const LAYOUTS: Readonly<Record<EnvName, EnvLayout>> = {
     network: 'wbs-net',
     containerPrefix: '',
     sharedEnvPath: '/home/puni1/wbs/.env',
+    oidcEnvPath: null,
     stateDir: '/home/puni1/wbs/state',
     siteCaddyPath: '/home/puni1/wbs/caddy/site.caddy',
     siteAddress: 'wbs.bulletpoints.club',
@@ -62,6 +65,7 @@ const LAYOUTS: Readonly<Record<EnvName, EnvLayout>> = {
     network: 'wbs-dev-net',
     containerPrefix: 'dev-',
     sharedEnvPath: '/home/puni1/wbs-dev/.env',
+    oidcEnvPath: '/home/puni1/wbs-dev/oidc-dev.env',
     stateDir: '/home/puni1/wbs-dev/state',
     // Not under dev's own root, deliberately: prod's caddy directory is the
     // single one the one edge container mounts (deploy/compose/base.yml), so a

@@ -42,6 +42,7 @@ describe('envLayout', () => {
       network: 'wbs-net',
       containerPrefix: '',
       sharedEnvPath: '/home/puni1/wbs/.env',
+      oidcEnvPath: null,
       stateDir: '/home/puni1/wbs/state',
       siteCaddyPath: '/home/puni1/wbs/caddy/site.caddy',
       siteAddress: 'wbs.bulletpoints.club',
@@ -67,6 +68,7 @@ describe('envLayout', () => {
       network: 'wbs-dev-net',
       containerPrefix: 'dev-',
       sharedEnvPath: '/home/puni1/wbs-dev/.env',
+      oidcEnvPath: '/home/puni1/wbs-dev/oidc-dev.env',
       stateDir: '/home/puni1/wbs-dev/state',
       // Deliberately under prod's root: that caddy directory is the one the
       // single edge container mounts, so dev's site file has to live there.
@@ -270,6 +272,21 @@ describe('tierEnvFiles', () => {
   it('be-01 and gw-01 get their app-config file then their secrets file, in that order', () => {
     expect(tierEnvFiles('be')).toEqual([`${ROOT}/be-01.env`, `${ROOT}/be-01.secrets.env`]);
     expect(tierEnvFiles('gw')).toEqual([`${ROOT}/gw-01.env`, `${ROOT}/gw-01.secrets.env`]);
+  });
+
+  it('gives dev be and gw the OIDC config before their derived secrets, but never gives it to fe', () => {
+    const dev = envLayout('dev');
+    expect(tierEnvFiles('be', dev)).toEqual([
+      '/home/puni1/wbs-dev/be-01.env',
+      '/home/puni1/wbs-dev/oidc-dev.env',
+      '/home/puni1/wbs-dev/be-01.secrets.env',
+    ]);
+    expect(tierEnvFiles('gw', dev)).toEqual([
+      '/home/puni1/wbs-dev/gw-01.env',
+      '/home/puni1/wbs-dev/oidc-dev.env',
+      '/home/puni1/wbs-dev/gw-01.secrets.env',
+    ]);
+    expect(tierEnvFiles('fe', dev)).toEqual(['/home/puni1/wbs-dev/fe-01.env']);
   });
 });
 
