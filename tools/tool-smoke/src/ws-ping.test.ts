@@ -43,6 +43,17 @@ describe('runPingSmoke', () => {
     expect(res.ok).toBe(true);
   });
 
+  it('ignores presence before the pong response', async () => {
+    const presenceThenPong = scriptedGateway([
+      '{"type":"presence","users":["smoke"]}',
+      '{"type":"pong"}',
+    ]);
+
+    const res = await runPingSmoke({ connect: () => presenceThenPong, timeoutMs: 100 });
+
+    expect(res).toEqual({ ok: true, detail: '{"type":"pong"}' });
+  });
+
   it('reports failure when nothing answers before the timeout', async () => {
     const silent = {
       send: () => undefined,
@@ -75,6 +86,15 @@ describe('runPingSmoke', () => {
     };
     const res = await runPingSmoke({ connect: () => wrongReply, timeoutMs: 100 });
     expect(res.ok).toBe(false);
+  });
+
+  it('reports malformed response data instead of waiting for timeout', async () => {
+    const malformed = scriptedGateway(['not-json']);
+
+    const res = await runPingSmoke({ connect: () => malformed, timeoutMs: 100 });
+
+    expect(res.ok).toBe(false);
+    expect(res.detail).toContain('not JSON');
   });
 });
 
