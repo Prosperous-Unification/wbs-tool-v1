@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +12,32 @@ afterEach(() => {
 });
 
 describe('with-heavy-lock', () => {
+  it('uses one canonical production lock even when callers set different overrides', () => {
+    const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
+    roots.push(root);
+    const fakeBin = join(root, 'bin');
+    const capture = join(root, 'flock-argv');
+    Bun.spawnSync(['mkdir', '-p', fakeBin]);
+    const fakeFlock = join(fakeBin, 'flock');
+    writeFileSync(fakeFlock, '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$FLOCK_CAPTURE"\n');
+    chmodSync(fakeFlock, 0o700);
+
+    const run = Bun.spawnSync(['bash', SCRIPT, '--', 'bash', '-c', 'exit 0'], {
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env['PATH'] ?? ''}`,
+        FLOCK_CAPTURE: capture,
+        WBS_HEAVY_LOCK: join(root, 'caller-selected.lock'),
+      },
+    });
+
+    expect(run.exitCode).toBe(0);
+    expect(readFileSync(capture, 'utf8').split('\n')).toContain(
+      '/home/puni1/.cache/wbs-heavy-work.lock',
+    );
+    expect(readFileSync(capture, 'utf8')).not.toContain('caller-selected.lock');
+  });
+
   it('runs the requested command while the lock is free', () => {
     const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
     roots.push(root);
