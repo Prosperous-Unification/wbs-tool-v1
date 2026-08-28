@@ -1442,6 +1442,36 @@ describe('capacity, as the adapter resolves it', () => {
     expect(slicedFor(tree, strip)).toMatchObject({ effort: 4, width: 2, duration: 2 });
   });
 
+  it('reports the non-first team that bound a joint-capacity slice', async () => {
+    await directory.addTeam({ id: 'team-alpha', name: 'Alpha' });
+    await directory.addTeam({ id: 'team-beta', name: 'Beta' });
+    await capacity.set(projectId, 'team-alpha', 1);
+    await capacity.set(projectId, 'team-beta', 1);
+    const betaBlocker = await leaf('Beta blocker', 1, 'team-beta');
+    const jointlyBound = await leaf('Jointly bound', 1, 'team-alpha');
+
+    // Task 2 widens the writer. Until then, present the reader with the exact
+    // canonical set that the repository already returns from work_item_team.
+    const listByProject = workItems.listByProject.bind(workItems);
+    workItems.listByProject = async (wantedProjectId) =>
+      (await listByProject(wantedProjectId)).map((row) =>
+        row.id === jointlyBound ? { ...row, teamIds: ['team-alpha', 'team-beta'] } : row,
+      );
+    await service.setEstimate(betaBlocker, OWNER, roleId, flat(2));
+    await service.setEstimate(jointlyBound, OWNER, roleId, flat(2));
+
+    const tree = await service.tree(projectId);
+
+    // Proof: replacing the engine's capacityTeamId in the payload with
+    // `teamOf.get(placed.workItemId)?.teamIds.at(0)` failed here on
+    // `team-alpha` versus `team-beta`; the first label did not bind this bar.
+    expect(slicedFor(tree, jointlyBound)).toMatchObject({
+      earliestStart: 2,
+      boundBy: 'capacity',
+      capacityTeamId: 'team-beta',
+    });
+  });
+
   it('runs a named person’s work one at a time however parallel the item is', async () => {
     // D3. One human cannot work beside themselves, and `assumedAssignee` means
     // one named assignment covers every role — so naming somebody collapses
