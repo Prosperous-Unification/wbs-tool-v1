@@ -127,6 +127,7 @@ import { useRendererForViewport } from './plan-renderer';
 import { linkPlanScroll } from './plan-scroll-link';
 import { PrioritiesDialog } from './priorities-dialog';
 import { PriorityCell, priorityTyped } from './priority-cell';
+import { ReferenceSetStrip } from './reference-set-field';
 import { printedDay, shortIsoDate } from './short-date';
 import {
   CARET_GUTTER_PX,
@@ -7391,8 +7392,9 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // the row, its answer changes with it.
             const inherited = live.current.effectiveTeamLabelOf(row.original);
             return (
-              <CreatablePicker
+              <ReferenceSetStrip
                 label={`Service or team for ${row.original.number}`}
+                addLabel={`Add a team to ${row.original.number}`}
                 placeholder={
                   inherited.state === 'inherited' ? `↳ ${inherited.name}` : 'search or add'
                 }
@@ -7401,20 +7403,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     ? `${inherited.name} — inherited from ${inherited.fromRow}. This row carries no team of its own.`
                     : undefined
                 }
-                entries={live.current.teams}
-                value={row.original.teamIds.at(0) ?? null}
-                onChoose={(id) => {
-                  void live.current.setTeamOf(row.original.id, [
-                    ...row.original.teamIds.filter((teamId) => teamId !== id),
-                    id,
-                  ]);
-                }}
-                onCreate={(name) => {
-                  void live.current.createTeamFor(row.original.id, name, row.original.teamIds);
-                }}
-                addButtonLabel={`Add a team to ${row.original.number}`}
-                onClear={() => {
-                  void live.current.setTeamOf(row.original.id, []);
+                adapter={{
+                  kind: 'team',
+                  entries: live.current.teams,
+                  ownIds: row.original.teamIds,
+                  inheritedLabel: inherited.state === 'inherited' ? inherited.name : undefined,
+                  replace: (teamIds) => live.current.setTeamOf(row.original.id, teamIds),
+                  create: (name, current) =>
+                    live.current.createTeamFor(row.original.id, name, current),
                 }}
                 gridCell={{
                   dataCell: cellKey(row.original.id, 'team'),

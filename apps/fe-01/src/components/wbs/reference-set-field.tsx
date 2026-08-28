@@ -23,12 +23,24 @@ export interface ReferenceSetStripProps {
   label: string;
   adapter: ReferenceSetAdapter;
   gridCell?: CreatablePickerProps['gridCell'];
+  addLabel?: string;
+  removeLabel?: (entry: ReferenceSetEntry) => string;
+  placeholder?: string;
+  title?: string;
 }
 
 const unique = (ids: readonly string[]): string[] => [...new Set(ids)];
 
 /** Shared compact editor for directory-backed work-item reference sets. */
-export function ReferenceSetStrip({ label, adapter, gridCell }: ReferenceSetStripProps) {
+export function ReferenceSetStrip({
+  label,
+  adapter,
+  gridCell,
+  addLabel,
+  removeLabel,
+  placeholder,
+  title,
+}: ReferenceSetStripProps) {
   const root = useRef<HTMLSpanElement>(null);
   const ownIds = unique(adapter.ownIds);
   const own = ownIds.map(
@@ -69,13 +81,14 @@ export function ReferenceSetStrip({ label, adapter, gridCell }: ReferenceSetStri
     <span
       ref={root}
       data-reference-set={adapter.kind}
-      style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, minWidth: 0 }}
     >
       <button
         type="button"
         tabIndex={-1}
-        aria-label={`Add a ${adapter.kind}`}
+        aria-label={addLabel ?? `Add a ${adapter.kind}`}
         data-reference-add=""
+        className="shrink-0 border-0 bg-transparent p-0.5 text-xs"
         disabled={pendingAdd}
         onMouseDown={(event) => {
           event.preventDefault();
@@ -89,13 +102,14 @@ export function ReferenceSetStrip({ label, adapter, gridCell }: ReferenceSetStri
           <span
             key={entry.id}
             data-reference-chip={entry.id}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}
+            className="bg-muted inline-flex max-w-full items-center gap-0.5 rounded px-1 text-xs"
           >
-            <span>{entry.name}</span>
+            <span className="truncate">{entry.name}</span>
             <button
               type="button"
-              aria-label={`Remove ${entry.name} ${adapter.kind}`}
+              aria-label={removeLabel?.(entry) ?? `Remove ${entry.name} ${adapter.kind}`}
               disabled={pendingIds.has(entry.id)}
+              className="shrink-0 border-0 bg-transparent p-0"
               onClick={() => void remove(entry.id)}
             >
               ×
@@ -111,7 +125,8 @@ export function ReferenceSetStrip({ label, adapter, gridCell }: ReferenceSetStri
           onChoose={(id) => add(() => adapter.replace([...ownIds, id]))}
           onCreate={(name) => add(() => adapter.create(name, ownIds))}
           closeWhen={(outcome) => outcome === 'landed'}
-          placeholder={`Search ${label.toLowerCase()}`}
+          placeholder={placeholder ?? `Search ${label.toLowerCase()}`}
+          title={title}
           gridCell={gridCell}
         />
       </span>

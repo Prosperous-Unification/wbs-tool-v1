@@ -12418,6 +12418,12 @@ describe('the command chords', () => {
 
   itDom('creating a second team sends and reloads the whole team set', async () => {
     const api = await threeRoots();
+    const patches: unknown[] = [];
+    const realPatch = api.patch.bind(api);
+    api.patch = async (id, patch) => {
+      patches.push({ id, patch });
+      return realPatch(id, patch);
+    };
 
     const createTeam = async (name: string, expected: readonly string[]): Promise<void> => {
       const box = screen.getByRole('combobox', { name: 'Service or team for 020' });
@@ -12435,13 +12441,18 @@ describe('the command chords', () => {
     // be-01 projects the stable first member for old readers; the set is the
     // source of truth and creating the second member must not replace it.
     expect(api.rows[1]?.serviceTeamId).toBe('team1');
+    expect(patches.at(-1)).toMatchObject({
+      id: api.rows[1]?.id,
+      patch: { teamIds: ['team1', 'team2'] },
+    });
 
     // A refetch is part of every `run`. Querying the rendered row again proves
     // the second write survived that round trip rather than only being the
-    // payload observed on the way out.
-    expect(screen.getByRole('combobox', { name: 'Service or team for 020' })).toHaveValue(
-      'Platform',
-    );
+    // payload observed on the way out. Both members remain reachable as chips;
+    // the adjacent box is only the add path and therefore remains empty.
+    expect(screen.getByRole('button', { name: 'Remove Platform team' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Release team' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Service or team for 020' })).toHaveValue('');
   });
 
   itDom('Cmd+Enter in an open assignee picker assigns nobody and adds nobody', async () => {
