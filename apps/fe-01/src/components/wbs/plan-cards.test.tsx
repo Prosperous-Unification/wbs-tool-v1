@@ -520,6 +520,27 @@ afterEach(() => {
   widthIs(LAPTOP);
 });
 
+describe('the plan-card ProjectApi fake', () => {
+  it('round trips whole team sets and retains the legacy scalar arm', async () => {
+    const api = fakeApi();
+    const created = await api.create('p1', { parentId: null, afterId: null, name: 'Strip' });
+
+    await api.patch(created.id, { teamIds: ['team-b', 'team-a'] });
+
+    expect(api.rows.find((row) => row.id === created.id)).toMatchObject({
+      teamIds: ['team-b', 'team-a'],
+      serviceTeamId: 'team-a',
+    });
+
+    await api.patch(created.id, { serviceTeamId: 'team-c' });
+
+    expect(api.rows.find((row) => row.id === created.id)).toMatchObject({
+      teamIds: ['team-c'],
+      serviceTeamId: 'team-c',
+    });
+  });
+});
+
 describe('the plan on a phone', () => {
   itDom('indents a card one step per level, and stops at the cards’ own cap', async () => {
     // `cardIndentFor`: deeper than the Number column's cap — a card has no
