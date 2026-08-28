@@ -778,7 +778,7 @@ function subtreeOf(rows: readonly WorkItem[], rootId: string): string[] {
 }
 
 /** One row of `rows`, or a throw: an id from the same read is not allowed to be missing. */
-function rowOf(rows: readonly WorkItem[], id: string): WorkItem {
+function rowOf<Row extends WorkItem>(rows: readonly Row[], id: string): Row {
   const found = rows.find((row) => row.id === id);
   if (found === undefined) throw new Error(`${id} is not a row of this project`);
   return found;

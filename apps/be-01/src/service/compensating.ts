@@ -150,8 +150,12 @@ export interface DeleteSubtree {
  */
 export interface RestoreSubtree {
   do: 'restore_subtree';
-  /** Ancestors first: `parent_id` references a row that has to be there already. */
-  rows: WorkItem[];
+  /**
+   * Ancestors first: `parent_id` references a row that has to be there already.
+   * New journals carry the whole team set; old journals omit it and restore
+   * the singleton projected in `serviceTeamId`.
+   */
+  rows: (WorkItem & { teamIds?: readonly string[] })[];
   /** Where the root sat among its siblings, which is how the restore finds its slot again. */
   rootPosition: number;
   /** Rows to put back under the restored branch, at the positions they had before. */
