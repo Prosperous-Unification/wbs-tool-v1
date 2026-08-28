@@ -289,7 +289,6 @@ export async function runEngineLifecycle<T>(
   engine: EngineControl,
   work: () => Promise<T>,
 ): Promise<T> {
-  await engine.start();
   let stopPromise: Promise<void> | undefined;
   let result: T | undefined;
   let workFailed = false;
@@ -322,6 +321,14 @@ export async function runEngineLifecycle<T>(
   };
   process.once('SIGINT', onSigint);
   process.once('SIGTERM', onSigterm);
+
+  try {
+    await engine.start();
+  } catch (error: unknown) {
+    process.off('SIGINT', onSigint);
+    process.off('SIGTERM', onSigterm);
+    throw error;
+  }
 
   try {
     result = await work();
