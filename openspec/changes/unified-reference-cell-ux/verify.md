@@ -56,6 +56,12 @@
 - Omitting `teamIds` from the HTTP PATCH body failed exactly one new `wbs-api.test.ts` guard; restored `8b28eaa` passed 25/25.
 - Dropping the full set in the plan-card API fake failed its focused round-trip guard; restored `2fd1646` passed, with fe-01 typecheck plus touched lint/format green. No local build or test ran.
 
+### Observed during task 3.1
+
+- Before `reference-set-field.tsx` existed, its focused suite failed at module resolution. The restored shared strip/sheet passed 6/6 at `67d54f4`.
+- A combined named mutant re-offered selected ids, passed `addButtonLabel` to `CreatablePicker`, and left a pending remove control enabled. It failed 4/6 on duplicate selection, the second `+`, pending disablement, and the ambiguous add focus path; restored code passed 6/6.
+- Omitting the strip's grid contract failed the new cell identity/Tab-routing guard 1/7. Restored `e37de6d` passed 7/7 with touched lint and fe-01 typecheck green. Task 3.1 remains open for outcome semantics and concrete directory adapters. No local build or test ran.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
