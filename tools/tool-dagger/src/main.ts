@@ -164,8 +164,13 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
 /** Validates the external Docker inspect document before the named engine is reused. */
 export function assertEngineContract(value: unknown): void {
   const engine = requireRecord(value, 'engine inspect');
+  const state = requireRecord(engine['State'], 'engine State');
   const config = requireRecord(engine['Config'], 'engine Config');
   const host = requireRecord(engine['HostConfig'], 'engine HostConfig');
+
+  if (state['Running'] !== false) {
+    throw new Error('engine running state mismatch: expected a stopped engine before reuse');
+  }
 
   if (config['Image'] !== ENGINE_IMAGE) {
     throw new Error(`engine image mismatch: expected ${ENGINE_IMAGE}`);
@@ -190,8 +195,18 @@ export function assertEngineContract(value: unknown): void {
   if (host['Privileged'] !== true) {
     throw new Error('engine privilege mismatch: expected privileged mode');
   }
+  const restartPolicy = requireRecord(host['RestartPolicy'], 'engine restart policy');
+  if (restartPolicy['Name'] !== 'no') {
+    throw new Error('engine restart policy mismatch: expected no automatic restart');
+  }
+  if (host['NetworkMode'] !== 'bridge') {
+    throw new Error('engine network mode mismatch: expected the default bridge network');
+  }
 
   const ports = requireRecord(host['PortBindings'], 'engine port bindings');
+  if (Object.keys(ports).length !== 1 || !Object.hasOwn(ports, '8080/tcp')) {
+    throw new Error('engine port mismatch: expected only the loopback engine API binding');
+  }
   const bindings = ports['8080/tcp'];
   if (!Array.isArray(bindings) || bindings.length !== 1) {
     throw new Error('engine port mismatch: expected one loopback binding');
@@ -213,6 +228,12 @@ export function assertEngineContract(value: unknown): void {
   );
   if (!cacheMatches) {
     throw new Error(`engine cache mismatch: expected volume ${ENGINE_NAME}`);
+  }
+
+  const networkSettings = requireRecord(engine['NetworkSettings'], 'engine NetworkSettings');
+  const networks = requireRecord(networkSettings['Networks'], 'engine networks');
+  if (Object.keys(networks).length !== 1 || !Object.hasOwn(networks, 'bridge')) {
+    throw new Error('engine network mismatch: expected only the default bridge network');
   }
 }
 
@@ -269,11 +290,65 @@ export async function runEngineLifecycle<T>(
   work: () => Promise<T>,
 ): Promise<T> {
   await engine.start();
+  let stopPromise: Promise<void> | undefined;
+  let result: T | undefined;
+  let workFailed = false;
+  let workFailure: unknown;
+  let stopFailed = false;
+  let stopFailure: unknown;
+  let signalExitStarted = false;
+  const stopOnce = (): Promise<void> => {
+    stopPromise ??= engine.stop();
+    return stopPromise;
+  };
+  const message = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error);
+  const exitAfterCleanup = (signal: 'SIGINT' | 'SIGTERM', exitCode: number): void => {
+    if (signalExitStarted) return;
+    signalExitStarted = true;
+    void stopOnce()
+      .catch((error: unknown) => {
+        console.error(`[tool-dagger] engine stop after ${signal} failed: ${message(error)}`);
+      })
+      .finally(() => {
+        process.exit(exitCode);
+      });
+  };
+  const onSigint = (): void => {
+    exitAfterCleanup('SIGINT', 130);
+  };
+  const onSigterm = (): void => {
+    exitAfterCleanup('SIGTERM', 143);
+  };
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+
   try {
-    return await work();
-  } finally {
-    await engine.stop();
+    result = await work();
+  } catch (error: unknown) {
+    workFailed = true;
+    workFailure = error;
   }
+  try {
+    await stopOnce();
+  } catch (error: unknown) {
+    stopFailed = true;
+    stopFailure = error;
+  } finally {
+    process.off('SIGINT', onSigint);
+    process.off('SIGTERM', onSigterm);
+  }
+
+  if (workFailed && stopFailed) {
+    throw new AggregateError(
+      [workFailure, stopFailure],
+      `publish failed: ${message(workFailure)}; engine stop also failed: ${message(stopFailure)}`,
+      { cause: workFailure },
+    );
+  }
+  if (workFailed) throw workFailure;
+  if (stopFailed) throw stopFailure;
+  return result as T;
 }
 
 /** The admission ordering used by the real publish entrypoint. */
