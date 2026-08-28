@@ -87,6 +87,11 @@
 - A visible-chip-only mutant narrowed the accessible description with `waitingFor.slice(0, 2)`. The watched guard failed on `Waiting for 010 - Strip, 020 - Sand` instead of the complete `Waiting for 010 - Strip, 020 - Sand, 030 - Paint`; restoring the full `waitingFor` list passed.
 - Remote table, shared-strip, and dependency-card suites passed 536/536. fe-01 app/e2e typecheck, touched lint, format, and pre-commit hooks passed on h2puni with one pre-existing hook warning and zero lint errors. No build or test ran on h1claw.
 
+### Observed during task 4.3
+
+- The stale-state cleanup guard first failed 0/3 because pointer cancellation, scroll, and resize had no listeners. Restored `8a1892b` clears the owner/card tint on all three invalidations, captures nested scroll, and unregisters every listener with the card.
+- The focused pointer-bridge suite passed 5/5; the combined table, shared-strip, and dependency-card run passed 537/537 in 80.46s. fe-01 app/e2e typecheck, touched lint, format, and pre-commit hooks passed on h2puni. Chromium owner-to-third-row travel and empty-card hit testing remain open in task 4.3. No build or test ran on h1claw.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
