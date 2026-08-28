@@ -529,7 +529,7 @@ test.describe('the plan on a phone, measured by a browser', () => {
     // at 44×44. Unmeasured, an edit like a font-change that clips the box
     // could only ever regress it further while this test still clicked it
     // happily.
-    const clear = page.getByRole('button', { name: 'Clear Service or team for 010' });
+    const clear = page.getByRole('button', { name: `Remove ${team} from 010` });
     const clearBox = await clear.boundingBox();
     expect(clearBox, 'the sheet Clear is a measured square target').not.toBeNull();
     expect(clearBox!.width, 'clear width ≥ 44').toBeGreaterThanOrEqual(44);
@@ -539,8 +539,11 @@ test.describe('the plan on a phone, measured by a browser', () => {
     );
     await clear.click();
 
-    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeHidden();
+    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeVisible();
     await expect(field.locator('[data-card-team]')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Close Service or team for 010' }).click();
+    await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeHidden();
 
     await page.reload();
     await expect(field.locator('[data-card-team]')).toHaveCount(0);
@@ -587,8 +590,9 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await page.getByRole('button', { name: 'Service or team for 010' }).click();
     await expect(page.getByRole('dialog', { name: 'Service or team for 010' })).toBeVisible();
 
-    // The sheet autofocuses the combobox and focus opens the list, so the whole
-    // directory is on screen with no key pressed.
+    // The shared sheet exposes the search box directly; tapping it opens the
+    // whole directory with no key pressed.
+    await page.getByRole('combobox', { name: 'Service or team for 010' }).click();
     const list = page.getByRole('listbox', { name: 'Service or team for 010' });
     await expect(list).toBeVisible();
 

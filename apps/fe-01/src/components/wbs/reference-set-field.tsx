@@ -48,7 +48,7 @@ export const REFERENCE_SET_STRIP_STYLE = {
   minWidth: 0,
 } as const;
 
-export const REFERENCE_SET_ADD_CLASS = 'shrink-0 border-0 bg-transparent p-0.5 text-xs';
+export const REFERENCE_SET_ADD_CLASS = 'shrink-0 border-0 text-xs';
 export const REFERENCE_SET_CHIP_CLASS =
   'bg-muted inline-flex max-w-full items-center gap-0.5 rounded px-1 text-xs';
 export const REFERENCE_SET_REMOVE_CLASS = 'shrink-0 border-0 bg-transparent p-0';

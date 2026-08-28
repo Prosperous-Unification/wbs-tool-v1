@@ -396,7 +396,10 @@ test.describe('hovering a dependency lights the rows it names', () => {
     const rest010 = await settledRowBg(page, '010');
     const rest020 = await settledRowBg(page, '020');
 
-    await page.getByLabel('Add a dependency to 030').hover();
+    await page
+      .getByLabel('Add a dependency to 030')
+      .locator('xpath=ancestor::td[@data-column="depends"]')
+      .hover();
 
     await expect(rowOf(page, '010')).toHaveAttribute('data-dep-lit', 'true');
     await expect(rowOf(page, '020')).toHaveAttribute('data-dep-lit', 'true');
@@ -448,9 +451,13 @@ test.describe('hovering a dependency lights the rows it names', () => {
     expect(await emphasised.evaluate((line) => getComputedStyle(line).fontWeight)).toBe('400');
     expect(await bgOf(other)).toBe(TRANSPARENT);
 
-    // Off the pill onto the cell's input area: the light widens back to every
-    // dependency — the browser's own leave, `relatedTarget` and all.
-    await page.getByLabel('Add a dependency to 030').hover();
+    // Off the pill onto the cell's passive owner area: the light widens back
+    // to every dependency — the browser's own leave, `relatedTarget` and all.
+    // The input itself may be clipped behind a full strip at rest.
+    await page
+      .getByLabel('Add a dependency to 030')
+      .locator('xpath=ancestor::td[@data-column="depends"]')
+      .hover();
     await expect(rowOf(page, '020')).toHaveAttribute('data-dep-lit', 'true');
     await expect.poll(() => rowBg(page, '020')).not.toBe(rest020);
   });
