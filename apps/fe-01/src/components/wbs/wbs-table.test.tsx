@@ -8231,6 +8231,9 @@ describe('hovering a dependency lights the rows it names', () => {
     expect(litNumbers()).toEqual(['010', '020']);
 
     fireEvent.mouseLeave(cell);
+    act(() => {
+      document.dispatchEvent(new MouseEvent('pointermove', { clientX: 500, clientY: 500 }));
+    });
     expect(litNumbers()).toEqual([]);
   });
 
@@ -8246,6 +8249,9 @@ describe('hovering a dependency lights the rows it names', () => {
     expect(litNumbers()).toEqual(['010', '020']);
 
     fireEvent.mouseLeave(hoverTargetOf('030'));
+    act(() => {
+      document.dispatchEvent(new MouseEvent('pointermove', { clientX: 500, clientY: 500 }));
+    });
     expect(litNumbers()).toEqual([]);
   });
 
@@ -8292,6 +8298,9 @@ describe('hovering a dependency lights the rows it names', () => {
     expect(litNumbers()).toEqual(['010', '020']);
 
     fireEvent.mouseLeave(hoverTargetOf('030'));
+    act(() => {
+      document.dispatchEvent(new MouseEvent('pointermove', { clientX: 500, clientY: 500 }));
+    });
     expect(litNumbers()).toEqual([]);
   });
 
