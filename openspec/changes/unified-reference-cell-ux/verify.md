@@ -145,7 +145,20 @@
 - [x] Light/dark screenshots or measured paint assertions showing no native grey button face or hidden third value.
 - [x] Pointer sequence cell → third overlay row → cell → outside, with exact lit-row sets at every step.
 - [x] `elementFromPoint` proof that empty card space delivers the underlying cell action.
-- [ ] Rollback/reapply evidence on a database copy; no live database is modified by the rehearsal.
+- [x] Rollback/reapply evidence on a database copy; no live database is modified by the rehearsal.
+
+### Rollback rehearsal
+
+- Chromium's isolated `e2e-1787948452603.db` was WAL-checkpointed and copied;
+  no live database was touched. The branch has no drizzle diff against main.
+- A singleton rehearsal copy removed the two non-projected memberships while
+  keeping every scalar projection. Rolled-back main head `33a251e` started
+  without migrations and returned 200 from `/api/projects/:id/work-items`:
+  five rows, all five singleton-compatible.
+- Reapplied head `eba5946` read the untouched multi-set copy through the same
+  endpoint: five rows, one multi-team row, plus the persisted tag/service sets.
+  The restored 390×844 Chromium case then proved all four reference cells
+  through add/remove/reload. No build or test ran on h1claw.
 
 ## 5. Completion gate
 

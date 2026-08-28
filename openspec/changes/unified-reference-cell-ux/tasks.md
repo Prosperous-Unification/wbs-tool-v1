@@ -26,5 +26,5 @@
 
 - [x] 5.1 Add desktop and 390×844 Chromium round trips for Teams/Tags/Services/Depends on, three-value overflow, reload, inheritance and light/dark paint — tests: `e2e/mobile.spec.ts` and focused reference-cell spec; each new geometry/paint check gets a withheld-style or clipped-value red head.
 - [x] 5.2 Run on h2puni: focused watched reds/greens, full `bunx nx run-many -t test lint typecheck build`, format, strict OpenSpec validation and migration lint; paste decisive output and every injected fault into `verify.md`.
-- [ ] 5.3 Rollback rehearsal: revert the implementation on a database copy and prove existing singleton rows/read API remain valid; no migration is expected. Reapply and prove multi-team sets plus all four reference cells reload.
+- [x] 5.3 Rollback rehearsal: revert the implementation on a database copy and prove existing singleton rows/read API remain valid; no migration is expected. Reapply and prove multi-team sets plus all four reference cells reload.
 - [ ] 5.4 In dev mode, push the exact head, require green `gate` and `pixels`, exact-head Sol xhigh and Gemini full-diff reviews, fix every Critical/Important finding, then hand the measured whole-task Flash trial to main-session review before merge.
