@@ -810,6 +810,7 @@ function fieldsOf(patch: WorkItemPatch): (keyof WorkItemPatch)[] {
   // priority the undone patch had written; watched 2026-08-11.
   if (patch.priority !== undefined) named.push('priority');
   if (patch.serviceTeamId !== undefined) named.push('serviceTeamId');
+  if (patch.teamIds !== undefined) named.push('teamIds');
   // Proof: this line deleted, so a patch naming only the service journals
   // nothing, and `puts a replaced service back` failed at its `expectDone` on
   // `refused: stale_undo — “Strip the roof” has changed since then`: the undo
@@ -870,6 +871,7 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   }
   if (patch.priority !== undefined) out.priority = before.priority;
   if (patch.serviceTeamId !== undefined) out.serviceTeamId = before.serviceTeamId;
+  if (patch.teamIds !== undefined) out.teamIds = before.teamIds;
   // **The whole prior set**, the rule below it and no longer its inverse. The
   // comment that stood here argued the opposite at length — a column has exactly
   // one prior value, so wrapping it in an array would journal a shape the patch

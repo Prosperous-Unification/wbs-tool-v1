@@ -1302,6 +1302,35 @@ describe('what an undo leaves in the plan’s history', () => {
   });
 });
 
+describe('a team set is undone whole, which a scalar habit would not do', () => {
+  async function teamNamed(name: string): Promise<string> {
+    return (await directoryStore.addTeam({ id: crypto.randomUUID(), name })).id;
+  }
+
+  async function teamsOn(id: string): Promise<readonly string[]> {
+    return (await rows()).find((row) => row.id === id)?.teamIds ?? [];
+  }
+
+  it('journals a teamIds-only patch and restores the complete prior set', async () => {
+    // Break caught: omitting teamIds from fieldsOf skips the journal entirely;
+    // restoring only the scalar projection silently loses the second member.
+    const id = await root('Strip the roof');
+    const backend = await teamNamed('Backend');
+    const design = await teamNamed('Design');
+    const platform = await teamNamed('Platform');
+
+    await workItems.patch(id, ownerId, { teamIds: [backend, design] });
+    await workItems.patch(id, ownerId, { teamIds: [platform] });
+    expect(await teamsOn(id)).toEqual([platform]);
+
+    expectDone(await undone());
+    expect([...(await teamsOn(id))].sort()).toEqual([backend, design].sort());
+
+    expectDone(await workItems.redo(projectId, ownerId));
+    expect(await teamsOn(id)).toEqual([platform]);
+  });
+});
+
 describe('a tag set is undone whole, which a scalar habit would not do', () => {
   /** A tag in the global directory, or a throw — a refused fixture is not a result. */
   async function tagNamed(name: string): Promise<string> {
