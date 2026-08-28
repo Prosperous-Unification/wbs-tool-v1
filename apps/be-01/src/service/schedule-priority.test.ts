@@ -316,17 +316,23 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
     // the record of *who waited behind whom*. A prioritising that reordered the
     // queue while landing every slice on the same day would have moved that
     // field and nothing else, and a seven-field pin would have called the plan
-    // unchanged. `personId`, `duration` and `estimated` are here for the same
-    // reason: what is not asserted is not pinned.
+    // unchanged. `capacityTeamId` is asserted separately because this no-pool
+    // plan predates that field and owes null on every slice. `personId`,
+    // `duration` and `estimated` are here for the same reason: what is not
+    // asserted is not pinned.
     const saidOfSlices = [...found.slices]
-      .map(([key, placed]): [string, unknown] => [
-        readable(key),
-        {
-          ...placed,
-          resourcePredecessorId:
-            placed.resourcePredecessorId === null ? null : readable(placed.resourcePredecessorId),
-        },
-      ])
+      .map(([key, placed]): [string, unknown] => {
+        const { capacityTeamId, ...preCapacitySlice } = placed;
+        expect(capacityTeamId).toBeNull();
+        return [
+          readable(key),
+          {
+            ...preCapacitySlice,
+            resourcePredecessorId:
+              placed.resourcePredecessorId === null ? null : readable(placed.resourcePredecessorId),
+          },
+        ];
+      })
       .sort(([left], [right]) => (left < right ? -1 : 1));
 
     expect(Object.fromEntries(saidOfSlices)).toEqual({
