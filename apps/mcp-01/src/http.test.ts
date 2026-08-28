@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { McpConfig } from './config';
-import { healthResponse, mcpHttpResponse, oauthMetadataResponse } from './http';
+import { healthResponse, mcpFetchHandler, mcpHttpResponse, oauthMetadataResponse } from './http';
+import { readDocument, toolsFromDocument } from './openapi-tools';
+import { createServer, resolveDocumentFile } from './server';
 
 describe('healthResponse', () => {
   // Proof: deleting any probe branch made its expected response undefined.
@@ -105,5 +107,55 @@ describe('mcpHttpResponse', () => {
 
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ client_id: 'dynamic-client' });
+  });
+});
+
+describe('mcpFetchHandler', () => {
+  const claims = {
+    iss: 'https://idp.example',
+    sub: 'caller',
+    wbs_groups: ['dev:wbs:read', 'dev:wbs:write', 'dev:wbs:editor'],
+  };
+  const rpc = (body: Record<string, unknown>) =>
+    new Request('https://dev.wbs.bulletpoints.club/mcp', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer any',
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', ...body }),
+    });
+
+  // Proof: with one transport connected once and shared by every request, the
+  // second call here threw the SDK's "Stateless transport cannot be reused
+  // across requests" — which is what mcp-01 did in production for every
+  // request after `initialize`, while 99 tests passed.
+  it('answers a second request after initialize on a stateless endpoint', async () => {
+    const tools = toolsFromDocument(readDocument(resolveDocumentFile()));
+    const handle = mcpFetchHandler(
+      () => createServer({ tools, config: CONFIG }),
+      CONFIG,
+      { verify: () => Promise.resolve(claims) },
+      {},
+    );
+
+    const initialize = await handle(
+      rpc({
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '0' },
+        },
+      }),
+    );
+    expect(initialize.status).toBe(200);
+
+    const list = await handle(rpc({ id: 2, method: 'tools/list', params: {} }));
+    expect(list.status).toBe(200);
+    const listed = (await list.json()) as { result: { tools: unknown[] } };
+    expect(listed.result.tools).toHaveLength(tools.length);
   });
 });

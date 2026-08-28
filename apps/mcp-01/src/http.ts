@@ -112,26 +112,61 @@ export async function mcpHttpResponse(
   return await transport.handleRequest(request, { authInfo });
 }
 
-/** Connects the MCP server to a stateless Streamable HTTP endpoint. */
-export async function startHttpServer(
+/**
+ * The fetch handler behind {@link startHttpServer}, exported so a test can drive
+ * two requests through it without binding a port.
+ *
+ * Every MCP request gets its own `Server` and transport, discarded once the
+ * response exists. That is the SDK's stateless contract, not a style choice: a
+ * `WebStandardStreamableHTTPServerTransport` with no `sessionIdGenerator`
+ * throws on its second `handleRequest`, and a `Server` refuses a second
+ * `connect`. Until 2026-08-28 one transport was connected once at boot, so
+ * mcp-01 answered `initialize` and then 500'd every request after it — the
+ * acceptance trace in `docs/auth-integration.md` sent exactly one request.
+ * Proof: `http.test.ts`, "answers a second request after initialize".
+ *
+ * The response is materialised before the transport closes: `enableJsonResponse`
+ * makes the SDK buffer the JSON-RPC reply into a plain `Response`, and a
+ * stateless endpoint has no standalone SSE stream to keep open.
+ */
+export function mcpFetchHandler(
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- low-level Server preserves OpenAPI-derived schemas; see createServer.
-  server: Server,
+  createServer: () => Server,
   config: McpConfig,
   verifier: TokenVerifier,
   env: Readonly<Record<string, string | undefined>> = process.env,
   oauth?: McpOAuthHandler,
-): Promise<ReturnType<typeof Bun.serve>> {
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    enableJsonResponse: true,
-    sessionIdGenerator: undefined,
-  });
-  await server.connect(transport);
+): (request: Request) => Promise<Response> {
+  const perRequest: HttpTransport = {
+    async handleRequest(request, options) {
+      const server = createServer();
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        enableJsonResponse: true,
+        sessionIdGenerator: undefined,
+      });
+      await server.connect(transport);
+      try {
+        return await transport.handleRequest(request, options);
+      } finally {
+        await server.close();
+      }
+    },
+  };
+  return (request) => mcpHttpResponse(request, config, verifier, perRequest, env, oauth);
+}
+
+/** Serves the stateless Streamable HTTP endpoint on `PORT`. */
+export function startHttpServer(
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- low-level Server preserves OpenAPI-derived schemas; see createServer.
+  createServer: () => Server,
+  config: McpConfig,
+  verifier: TokenVerifier,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  oauth?: McpOAuthHandler,
+): ReturnType<typeof Bun.serve> {
   const port = Number(env['PORT'] ?? '3300');
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error('PORT must be an integer from 1 to 65535');
   }
-  return Bun.serve({
-    port,
-    fetch: (request) => mcpHttpResponse(request, config, verifier, transport, env, oauth),
-  });
+  return Bun.serve({ port, fetch: mcpFetchHandler(createServer, config, verifier, env, oauth) });
 }
