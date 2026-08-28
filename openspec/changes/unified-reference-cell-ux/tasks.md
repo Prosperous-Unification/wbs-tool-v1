@@ -12,8 +12,8 @@
 
 ## 3. Build the shared directory reference-set interaction
 
-- [ ] 3.1 Add `ReferenceSetStrip`/`ReferenceSetSheet` and adapters for Teams, Tags and Services; adapter `replace`/`create` return `Promise<CommitOutcome>`, the strip renders the sole leading `+`, and its picker omits `addButtonLabel` — tests cover chips, duplicates, inheritance, keyboard paths, and choose/create landed/refused/pending outcomes.
-- [ ] 3.2 Replace the three desktop cell shells without changing their directories or writers — tests: watched-red `wbs-table.test.tsx` cases for exact full-set patches, two-team reload state, independent dimensions and inherited-whole override.
+- [x] 3.1 Add `ReferenceSetStrip`/`ReferenceSetSheet` and adapters for Teams, Tags and Services; adapter `replace`/`create` return `Promise<CommitOutcome>`, the strip renders the sole leading `+`, and its picker omits `addButtonLabel` — tests cover chips, duplicates, inheritance, keyboard paths, and choose/create landed/refused/pending outcomes.
+- [x] 3.2 Replace the three desktop cell shells without changing their directories or writers — tests: watched-red `wbs-table.test.tsx` cases for exact full-set patches, two-team reload state, independent dimensions and inherited-whole override.
 - [ ] 3.3 Replace PR #156's phone shells with the shared sheet. Every team/tag/service `PlanCardsProps` writer and table adapter returns `Promise<CommitOutcome>` by returning `run(...)`; widen teams to `setTeams(row, teamIds)` and `createTeam(row, name, currentTeamIds)`. Choose/create closes only on `landed`, retains sheet+input on refusal, and blocks pending double taps; removal keeps the sheet open, retains refused members and disables the pending chip. Test every outcome at 390×844.
 
 ## 4. Make dependency overflow pointer-reachable and narrowly interactive
