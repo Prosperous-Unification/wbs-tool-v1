@@ -111,12 +111,22 @@
   cell-centre hover landed on the first dependency chip and correctly narrowed
   the tint, so the assertion asking for the whole set was aimed at the wrong
   surface. A proven passive-padding point now drives that test; restored head
-  passed 1/1. The 390x844 reference-sheet matrix remains open.
+  passed 1/1.
+- The 390×844 matrix adds a third Team, Tag, Service and dependency through
+  the real bottom sheets, reloads, checks all three values in light and dark,
+  opens inherited child sheets, removes one member from every set, reloads
+  again, and preserves both siblings. It passed 1/1 alone and 2/2 with the
+  desktop case at `4087586`.
+- Clipped-value red head `7aa5b99` capped the shared chip group at 20px with
+  hidden overflow; Chromium failed `reference chip 1 is clipped or covered`.
+  Restored head `6fe01f8` passed both Chromium cases 2/2. Prettier and both
+  commits' touched lint/format/secrets hooks passed on h2puni. No build or test
+  ran on h1claw.
 
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
-- [ ] Focused Chromium suites: exact pass counts, red-head SHAs and restored-head SHA.
+- [x] Focused Chromium suites: 2/2 at restored head `6fe01f8`; clipped-value red `7aa5b99` failed the named hit-test assertion.
 - [x] `bin/h2puni-gate.sh --all` at `00f850f` exited 0: Nx test, lint, typecheck and build succeeded for all 23 projects.
 - [ ] Record format/OpenSpec/migration-lint summaries at the terminal head; OpenSpec CLI was unavailable in this worktree during run 8.
 - [ ] GitHub `gate` and `pixels` run ids on the reviewed exact head.
@@ -124,11 +134,11 @@
 
 ## 4. Acceptance evidence to record after deploy
 
-- [ ] Desktop add/create/remove/reload for two Teams, three Tags, three Services and three Dependencies.
-- [ ] 390×844 sheet parity for the same own sets plus inherited context.
-- [ ] Light/dark screenshots or measured paint assertions showing no native grey button face or hidden third value.
-- [ ] Pointer sequence cell → third overlay row → cell → outside, with exact lit-row sets at every step.
-- [ ] `elementFromPoint` proof that empty card space delivers the underlying cell action.
+- [x] Desktop add/create/remove/reload for two Teams, three Tags, three Services and three Dependencies.
+- [x] 390×844 sheet parity for the same own sets plus inherited context.
+- [x] Light/dark screenshots or measured paint assertions showing no native grey button face or hidden third value.
+- [x] Pointer sequence cell → third overlay row → cell → outside, with exact lit-row sets at every step.
+- [x] `elementFromPoint` proof that empty card space delivers the underlying cell action.
 - [ ] Rollback/reapply evidence on a database copy; no live database is modified by the rehearsal.
 
 ## 5. Completion gate
