@@ -561,6 +561,34 @@ describe('undoing each kind of change', () => {
     expect(await teamIdsOf(sockets)).toEqual(socketTeams);
   });
 
+  it('restores a legacy singleton delete journal that has no teamIds', async () => {
+    const strip = await root('Strip');
+    const backend = await directoryStore.addTeam({ id: crypto.randomUUID(), name: 'Backend' });
+    await workItems.patch(strip, ownerId, { serviceTeamId: backend.id });
+    expect((await workItems.remove(strip, ownerId, 'cascade')).ok).toBe(true);
+
+    const entry = await nextUndoable();
+    if (entry === null) throw new Error('delete wrote no journal entry');
+    const inverse = entry.inverse as {
+      do: string;
+      rows: Record<string, unknown>[];
+    };
+    expect(inverse.do).toBe('restore_subtree');
+    for (const row of inverse.rows) Reflect.deleteProperty(row, 'teamIds');
+    const db = openDatabase(path);
+    try {
+      db.run('UPDATE command_journal SET inverse = ? WHERE id = ?', [
+        JSON.stringify(inverse),
+        entry.id,
+      ]);
+    } finally {
+      db.close();
+    }
+
+    expect(expectDone(await undone())).toBe('delete “Strip”');
+    expect(await teamIdsOf(strip)).toEqual([backend.id]);
+  });
+
   it('restores every day recorded in a deleted branch, against the real cascade', async () => {
     // Against real SQLite, and that is the point of putting this here rather
     // than beside the other actual cases: `actual.work_item_id` cascades, so the
