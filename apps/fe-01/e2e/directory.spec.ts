@@ -69,6 +69,17 @@ let signedInAs = '';
  */
 let tag = '';
 
+/**
+ * Puts the Teams column on the table, which `configurable-columns` hides by
+ * default, and closes the control again so its panel is not over the cells.
+ */
+async function showTeamsColumn(page: Page): Promise<void> {
+  await page.getByText('Columns', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Teams' }).check();
+  await expect(page.locator('thead th[data-column="team"]')).toHaveCount(1);
+  await page.getByText('Columns', { exact: true }).click();
+}
+
 test.beforeEach(async ({ page }) => {
   account += 1;
   tag = `${String(Date.now())}-${String(account)}`;
@@ -151,6 +162,7 @@ test.describe('the directory, edited against be-01', () => {
     await expect(page.getByLabel('Name of 010')).toBeVisible();
     await page.getByLabel('Name of 010').fill(work);
     await page.getByLabel('Name of 010').blur();
+    await showTeamsColumn(page);
 
     // The label, typed into the picker that creates a team if there is none.
     // Found by role rather than by label: the open list carries the same

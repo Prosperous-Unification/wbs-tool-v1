@@ -2201,9 +2201,9 @@ const COLUMN_LABELS: ReadonlyMap<string, string> = new Map([
  * reads; the table itself is the one reader of that list, through the
  * `columns` memo, and this control never touches a column definition.
  *
- * `<label htmlFor>` rather than a wrapping label: the panel is read by tests
- * label-by-label, and a box whose name is a sibling is a box whose name can be
- * asserted without the text being broken up.
+ * Each row is a `<label>` wrapping its box — the shape the phone sheet's 44px
+ * floor is written on — with `htmlFor` as well, so a test can read the panel
+ * label-by-label off `label[for]`.
  */
 function ColumnsControl({
   offered,
@@ -2229,8 +2229,12 @@ function ColumnsControl({
       >
         {offered.map(({ id, label }) => {
           const boxId = `${prefix}-${id}`;
+          // A label **wrapping** its box, as the facet rows are: on a phone the
+          // sheet's 44px floor (`styles.css`, `label:has(> input[type='checkbox'])`)
+          // is written on exactly that shape, and the row is the tap target.
+          // `htmlFor` as well, so the name can be read off `label[for]`.
           return (
-            <div key={id} className="flex min-h-6 items-center gap-1.5">
+            <label key={id} htmlFor={boxId} className="flex min-h-6 items-center gap-1.5">
               <input
                 id={boxId}
                 type="checkbox"
@@ -2239,10 +2243,8 @@ function ColumnsControl({
                   onToggle(id);
                 }}
               />
-              <label htmlFor={boxId} className="truncate">
-                {label}
-              </label>
-            </div>
+              <span className="truncate">{label}</span>
+            </label>
           );
         })}
       </div>
