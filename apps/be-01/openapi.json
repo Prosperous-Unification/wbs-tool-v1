@@ -655,7 +655,7 @@
     "/api/work-items/{id}": {
       "patch": {
         "summary": "Change a work item's own fields",
-        "description": "Every field is optional and an absent one is left alone; `null` where the field\nallows it is the clear. Dates, floats and slices are **not** here — they are\ncomputed from the tree, which is why `number` and `frozenNumber` are refused\nrather than ignored. Re-read `GET /api/projects/{id}/work-items` afterwards: one\npatch can move every date in the plan.\n\nBody refusals, all 400: `expected_object`, `number_is_derived`,\n`name_must_be_text`, `notes_must_be_text`, `startNoEarlierThan_must_be_a_date`,\n`startNoEarlierThanReason_must_be_text`,\n`startNoEarlierThanReason_must_be_at_most_200_characters`,\n`priority_must_be_a_whole_number_from_1`, `serviceTeamId_must_be_id_or_null`,\n`serviceIds_must_be_a_list_of_ids`, `serviceIds_must_be_at_most_10`,\n`maxParallel_must_be_a_whole_number_from_1`,\n`maxParallel_must_be_at_most_1000`. A parallelism on a row that has children is\n`has_children`, also 400 — the cell is read-only on every parent. A patch that\nwould leave the row holding a reason with no `startNoEarlierThan` for it to be\nabout is `not_before_reason_needs_a_date`, also 400: **clearing the date clears\nneither the words nor itself**, so send both as `null` in the one request.",
+        "description": "Every field is optional and an absent one is left alone; `null` where the field\nallows it is the clear. Dates, floats and slices are **not** here — they are\ncomputed from the tree, which is why `number` and `frozenNumber` are refused\nrather than ignored. Re-read `GET /api/projects/{id}/work-items` afterwards: one\npatch can move every date in the plan.\n\nBody refusals, all 400: `expected_object`, `number_is_derived`,\n`name_must_be_text`, `notes_must_be_text`, `startNoEarlierThan_must_be_a_date`,\n`startNoEarlierThanReason_must_be_text`,\n`startNoEarlierThanReason_must_be_at_most_200_characters`,\n`priority_must_be_a_whole_number_from_1`, `serviceTeamId_must_be_id_or_null`,\n`teamIds_must_be_a_list_of_ids`, `teamIds_must_be_at_most_10`,\n`cannot_send_both_teamIds_and_serviceTeamId`,\n`serviceIds_must_be_a_list_of_ids`, `serviceIds_must_be_at_most_10`,\n`maxParallel_must_be_a_whole_number_from_1`,\n`maxParallel_must_be_at_most_1000`. A parallelism on a row that has children is\n`has_children`, also 400 — the cell is read-only on every parent. A patch that\nwould leave the row holding a reason with no `startNoEarlierThan` for it to be\nabout is `not_before_reason_needs_a_date`, also 400: **clearing the date clears\nneither the words nor itself**, so send both as `null` in the one request.",
         "requestBody": {
           "required": true,
           "description": "The fields to change. Send only the ones you mean.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
@@ -689,10 +689,18 @@
                     "minimum": 1,
                     "description": "A whole number from 1, lower being more important. There is no ceiling — how far a planner’s own scale runs is not this API’s to decide. Null leaves the work unprioritised."
                   },
+                  "teamIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10,
+                    "description": "The teams whose people do this work, by id from `GET /api/teams`, as the whole own set. `[]` clears the own set and reveals inherited teams; omit the field to leave it alone. Duplicate ids are accepted and stored once. An unknown id refuses the whole patch with 404 `unknown_team`. Do not send this together with legacy `serviceTeamId`."
+                  },
                   "serviceTeamId": {
                     "type": "string",
                     "nullable": true,
-                    "description": "The team whose people do this work, by id from `GET /api/teams`. Null clears the label."
+                    "description": "Legacy one-release spelling for the row’s own team. Null clears it. Do not send together with `teamIds`."
                   },
                   "serviceIds": {
                     "type": "array",

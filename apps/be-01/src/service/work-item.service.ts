@@ -153,18 +153,19 @@ const UNSCHEDULED: Scheduled = {
  * `Received function did not throw` — the silent narrowing this exists to
  * prevent, reported as a passing schedule; watched 2026-08-14.
  */
-export function poolFor(
+export function poolsFor(
   teamIds: readonly string[],
   teamSizes: ReadonlyMap<string, number>,
-): { poolId: string | null; slots: number | undefined } {
-  if (teamIds.length > 1) {
-    throw new Error(
-      `a work item’s effective team set holds ${String(teamIds.length)} teams (${teamIds.join(', ')}), and a slice spends slots in one pool`,
-    );
+): { poolIds: string[]; slots: number | undefined } {
+  const poolIds: string[] = [];
+  let slots: number | undefined;
+  for (const teamId of teamIds) {
+    const size = teamSizes.get(teamId);
+    if (size === undefined) continue;
+    poolIds.push(teamId);
+    slots = slots === undefined ? size : Math.min(slots, size);
   }
-  const teamId = teamIds.at(0) ?? null;
-  const slots = teamId === null ? undefined : teamSizes.get(teamId);
-  return { poolId: slots === undefined ? null : teamId, slots };
+  return { poolIds, slots };
 }
 
 function slicesOf(
@@ -225,7 +226,7 @@ function slicesOf(
     // while its own assignee was on somebody else's `Dev`; watched 2026-08-09.
     const personFor = (roleId: string | null): string | null =>
       (roleId === null ? undefined : byRole[roleId]) ?? assumedAssignee(byRole);
-    const { poolId, slots } = poolFor(teamOf.get(row.id)?.teamIds ?? [], teamSizes);
+    const { poolIds, slots } = poolsFor(teamOf.get(row.id)?.teamIds ?? [], teamSizes);
     /**
      * How many slots one of this row's slices holds while it runs.
      *
@@ -267,7 +268,7 @@ function slicesOf(
         days: null,
         personId,
         width: widthFor(personId),
-        poolId,
+        poolIds,
       });
       continue;
     }
@@ -279,7 +280,7 @@ function slicesOf(
         days: days.get(sliceKey(row.id, roleId)) ?? null,
         personId,
         width: widthFor(personId),
-        poolId,
+        poolIds,
       });
     }
   }

@@ -24,7 +24,7 @@ import { inMemoryProgress } from '../testing/progress-fixture';
 import { inMemoryProjects } from '../testing/project-fixture';
 import { inMemorySubtrees } from '../testing/subtree-fixture';
 import { inMemoryWorkItems } from '../testing/work-item-fixture';
-import { poolFor, WorkItemService } from './work-item.service';
+import { poolsFor, WorkItemService } from './work-item.service';
 
 const OWNER = 'owner-account';
 const STRANGER = 'stranger-account';
@@ -159,44 +159,36 @@ async function numbered(): Promise<Record<string, string>> {
 describe('the pool a row spends slots in', () => {
   it('spends nothing where the set is empty', () => {
     // _Unstated_ constrains nothing, which is the state most rows are in.
-    expect(poolFor([], new Map([['backend', 2]]))).toEqual({ poolId: null, slots: undefined });
+    expect(poolsFor([], new Map([['backend', 2]]))).toEqual({ poolIds: [], slots: undefined });
   });
 
   it('spends nothing in a team this project has stated no capacity for', () => {
     // An unsized team labels the work and constrains nothing — the `null` pool
     // is what keeps the engine's `no size for pool` throw a caller-fault
     // assertion rather than ordinary control flow.
-    expect(poolFor(['design'], new Map([['backend', 2]]))).toEqual({
-      poolId: null,
+    expect(poolsFor(['design'], new Map([['backend', 2]]))).toEqual({
+      poolIds: [],
       slots: undefined,
     });
   });
 
   it('spends in the one sized team the row names, at its stated size', () => {
-    expect(poolFor(['backend'], new Map([['backend', 2]]))).toEqual({
-      poolId: 'backend',
+    expect(poolsFor(['backend'], new Map([['backend', 2]]))).toEqual({
+      poolIds: ['backend'],
       slots: 2,
     });
   });
 
-  it('refuses a set the engine cannot spend', () => {
-    // R5, and design.md D4: the engine takes one pool per slice, so two teams
-    // have no answer here until R2-2 gives it the joint search. The refused
-    // alternative is silence — scheduling the work against `teamIds[0]`, which
-    // is a pool the plan never narrowed to and a date nobody could explain.
-    //
-    // Unreachable through any request while the write path writes at most one
-    // team, which is why it is an invariant assertion rather than a modelled
-    // refusal. Asserted on `poolFor` directly because that is where it lives;
-    // `slicesOf` is its only production caller.
-    //
-    // Proof: the `teamIds.length > 1` guard made unreachable, so the function
-    // falls through to `teamIds.at(0)` and schedules against Backend, and this
-    // failed on `Received function did not throw` — 82 pass / 1 fail; watched
-    // 2026-08-14.
-    expect(() => poolFor(['backend', 'design'], new Map([['backend', 2]]))).toThrow(
-      'a work item’s effective team set holds 2 teams',
-    );
+  it('spends in every sized team and clamps to the narrowest size', () => {
+    expect(
+      poolsFor(
+        ['backend', 'design', 'unsized'],
+        new Map([
+          ['backend', 4],
+          ['design', 1],
+        ]),
+      ),
+    ).toEqual({ poolIds: ['backend', 'design'], slots: 1 });
   });
 });
 

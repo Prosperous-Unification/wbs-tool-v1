@@ -471,6 +471,121 @@ describe('work item routes', () => {
     expect(workItems[0]?.priority).toBe(3);
   });
 
+  it('takes teamIds as a bounded whole set, including empty and duplicate payloads', async () => {
+    // Dropping the parser arm makes the first write return 200 while the tree
+    // remains empty. Dropping the cap makes the eleven-id request return 404
+    // for an unknown member instead of refusing the malformed payload here.
+    const { token, send, projectId } = await setup();
+    const created = await send(`/api/projects/${projectId}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
+    });
+    const { id } = (await created.json()) as { id: string };
+    const alphaMade = await send('/api/teams', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Alpha' }),
+    });
+    const betaMade = await send('/api/teams', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Beta' }),
+    });
+    const { team: alpha } = (await alphaMade.json()) as { team: { id: string } };
+    const { team: beta } = (await betaMade.json()) as { team: { id: string } };
+
+    const set = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ teamIds: [beta.id, alpha.id, beta.id] }),
+    });
+    expect(set.status).toBe(200);
+    let tree = await send(`/api/projects/${projectId}/work-items`, token);
+    let body = (await tree.json()) as { workItems: { teamIds: string[] }[] };
+    expect(body.workItems[0]?.teamIds).toEqual([alpha.id, beta.id].sort());
+
+    const cleared = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ teamIds: [] }),
+    });
+    expect(cleared.status).toBe(200);
+    tree = await send(`/api/projects/${projectId}/work-items`, token);
+    body = (await tree.json()) as { workItems: { teamIds: string[] }[] };
+    expect(body.workItems[0]?.teamIds).toEqual([]);
+
+    for (const bad of [null, alpha.id, [alpha.id, 7], { id: alpha.id }]) {
+      const res = await send(`/api/work-items/${id}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ teamIds: bad }),
+      });
+      expect([res.status, JSON.stringify(bad)]).toEqual([400, JSON.stringify(bad)]);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'teamIds_must_be_a_list_of_ids',
+      });
+    }
+
+    const overCap = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ teamIds: Array.from({ length: 11 }, () => alpha.id) }),
+    });
+    expect(overCap.status).toBe(400);
+    expect((await overCap.json()) as { error: string }).toEqual({
+      error: 'teamIds_must_be_at_most_10',
+    });
+  });
+
+  it('refuses mixed team arms before either can change the row', async () => {
+    // Removing only the mutual-exclusion guard changes this exact 400 to a
+    // 200 and lets request order decide which spelling wins.
+    const { token, send, projectId } = await setup();
+    const created = await send(`/api/projects/${projectId}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
+    });
+    const { id } = (await created.json()) as { id: string };
+    const alphaMade = await send('/api/teams', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Alpha' }),
+    });
+    const betaMade = await send('/api/teams', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Beta' }),
+    });
+    const { team: alpha } = (await alphaMade.json()) as { team: { id: string } };
+    const { team: beta } = (await betaMade.json()) as { team: { id: string } };
+    await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceTeamId: alpha.id }),
+    });
+
+    const mixed = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ teamIds: [beta.id], serviceTeamId: beta.id }),
+    });
+    expect(mixed.status).toBe(400);
+    expect((await mixed.json()) as { error: string }).toEqual({
+      error: 'cannot_send_both_teamIds_and_serviceTeamId',
+    });
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const { workItems } = (await tree.json()) as { workItems: { teamIds: string[] }[] };
+    expect(workItems[0]?.teamIds).toEqual([alpha.id]);
+  });
+
+  it('answers 404 for an unknown teamIds member and leaves the set alone', async () => {
+    const { token, send, projectId } = await setup();
+    const created = await send(`/api/projects/${projectId}/work-items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
+    });
+    const { id } = (await created.json()) as { id: string };
+    const res = await send(`/api/work-items/${id}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ teamIds: [crypto.randomUUID()] }),
+    });
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: string }).toEqual({ error: 'unknown_team' });
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const { workItems } = (await tree.json()) as { workItems: { teamIds: string[] }[] };
+    expect(workItems[0]?.teamIds).toEqual([]);
+  });
+
   it('refuses a service that is not an id, and writes the one that is', async () => {
     // The parse guard: a non-string is **400** — the body is malformed and no
     // plan anywhere would take it. The other half, an id the directory no longer

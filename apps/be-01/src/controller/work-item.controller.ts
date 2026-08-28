@@ -53,6 +53,9 @@ function asIdOrNull(value: unknown, field: string): string | null {
   return value;
 }
 
+/** The largest own-team set one work item may carry in a single patch. */
+export const MOST_TEAMS_ON_ONE_ITEM = 10;
+
 /**
  * How many tags one work item may carry.
  *
@@ -364,12 +367,16 @@ function parsePatch(body: unknown): {
   startNoEarlierThanReason?: string | null;
   priority?: number | null;
   serviceTeamId?: string | null;
+  teamIds?: readonly string[];
   serviceIds?: readonly string[];
   maxParallel?: number | null;
   tagIds?: readonly string[];
 } {
   const raw = asRecord(body);
   refuseDerivedFields(raw);
+  if ('teamIds' in raw && 'serviceTeamId' in raw) {
+    throw new BadRequest('cannot_send_both_teamIds_and_serviceTeamId');
+  }
   return {
     name: asOptionalText(raw['name'], 'name'),
     notes: asOptionalText(raw['notes'], 'notes'),
@@ -381,6 +388,7 @@ function parsePatch(body: unknown): {
     priority: asOptionalPriority(raw['priority'], 'priority'),
     serviceTeamId:
       'serviceTeamId' in raw ? asIdOrNull(raw['serviceTeamId'], 'serviceTeamId') : undefined,
+    teamIds: asOptionalLabelIds(raw['teamIds'], 'teamIds', MOST_TEAMS_ON_ONE_ITEM),
     // A plain read, and the `in` check the singleton needed is gone with it:
     // `null` was a value while this was a column, so absent and null had to be
     // told apart. The set has one spelling for taking the label off — `[]` — and
@@ -581,6 +589,8 @@ Body refusals, all 400: \`expected_object\`, \`number_is_derived\`,
 \`startNoEarlierThanReason_must_be_text\`,
 \`startNoEarlierThanReason_must_be_at_most_200_characters\`,
 \`priority_must_be_a_whole_number_from_1\`, \`serviceTeamId_must_be_id_or_null\`,
+\`teamIds_must_be_a_list_of_ids\`, \`teamIds_must_be_at_most_10\`,
+\`cannot_send_both_teamIds_and_serviceTeamId\`,
 \`serviceIds_must_be_a_list_of_ids\`, \`serviceIds_must_be_at_most_10\`,
 \`maxParallel_must_be_a_whole_number_from_1\`,
 \`maxParallel_must_be_at_most_1000\`. A parallelism on a row that has children is
@@ -613,11 +623,18 @@ neither the words nor itself**, so send both as \`null\` in the one request.`,
                 description:
                   'A whole number from 1, lower being more important. There is no ceiling — how far a planner’s own scale runs is not this API’s to decide. Null leaves the work unprioritised.',
               },
+              teamIds: {
+                type: 'array',
+                items: { type: 'string' },
+                maxItems: MOST_TEAMS_ON_ONE_ITEM,
+                description:
+                  'The teams whose people do this work, by id from `GET /api/teams`, as the whole own set. `[]` clears the own set and reveals inherited teams; omit the field to leave it alone. Duplicate ids are accepted and stored once. An unknown id refuses the whole patch with 404 `unknown_team`. Do not send this together with legacy `serviceTeamId`.',
+              },
               serviceTeamId: {
                 type: 'string',
                 nullable: true,
                 description:
-                  'The team whose people do this work, by id from `GET /api/teams`. Null clears the label.',
+                  'Legacy one-release spelling for the row’s own team. Null clears it. Do not send together with `teamIds`.',
               },
               serviceIds: {
                 type: 'array',

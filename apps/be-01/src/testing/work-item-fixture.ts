@@ -113,9 +113,16 @@ export function inMemoryWorkItems(
       const existing = byId.get(id);
       if (existing === undefined) return { ok: false, reason: 'not_found' };
       const wanted = patch.serviceTeamId;
-      if (teams !== undefined && wanted !== undefined && wanted !== null) {
+      const wantedTeamIds = patch.teamIds;
+      if (
+        teams !== undefined &&
+        (wantedTeamIds !== undefined || (wanted !== undefined && wanted !== null))
+      ) {
         const held = await teams.listTeams();
-        if (!held.some((each) => each.id === wanted)) return { ok: false, reason: 'unknown_team' };
+        const named = wantedTeamIds ?? (wanted === null || wanted === undefined ? [] : [wanted]);
+        if ([...new Set(named)].some((id) => !held.some((each) => each.id === id))) {
+          return { ok: false, reason: 'unknown_team' };
+        }
       }
       const wantedServices = patch.serviceIds;
       if (teams !== undefined && wantedServices !== undefined && wantedServices.length > 0) {
@@ -142,7 +149,11 @@ export function inMemoryWorkItems(
             : patch.startNoEarlierThanReason,
         priority: patch.priority === undefined ? existing.priority : patch.priority,
         serviceTeamId:
-          patch.serviceTeamId === undefined ? existing.serviceTeamId : patch.serviceTeamId,
+          wantedTeamIds !== undefined
+            ? ([...new Set(wantedTeamIds)].sort().at(0) ?? null)
+            : patch.serviceTeamId === undefined
+              ? existing.serviceTeamId
+              : patch.serviceTeamId,
         // **Left where it stands**, which is task 10.2's rule and the reverse of
         // what this line used to do: the column is the outgoing release's copy
         // and the join is the fact, so a patch moves the set and never this.
@@ -176,7 +187,11 @@ export function inMemoryWorkItems(
       byId.set(id, updated);
       // Only where the patch names the label, as the repository's own
       // transaction does: a rename must leave the join alone.
-      if (patch.serviceTeamId !== undefined) teamsOf.set(id, joinFor(updated));
+      if (wantedTeamIds !== undefined) {
+        teamsOf.set(id, [...new Set(wantedTeamIds)].sort());
+      } else if (patch.serviceTeamId !== undefined) {
+        teamsOf.set(id, joinFor(updated));
+      }
       // The service set, whole and deduplicated, only where the patch names the
       // dimension — the real store's write, mirrored. `[]` is written as an
       // empty set rather than a delete so a later read answers the same either
