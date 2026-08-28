@@ -295,6 +295,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
         name?: string;
         notes?: string;
         serviceTeamId?: string | null;
+        teamIds?: string[];
         tagIds?: string[];
         serviceIds?: string[];
         startNoEarlierThan?: string | null;
@@ -314,6 +315,10 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       if (patch.serviceTeamId !== undefined) {
         row.serviceTeamId = patch.serviceTeamId;
         row.teamIds = patch.serviceTeamId === null ? [] : [patch.serviceTeamId];
+      }
+      if (patch.teamIds !== undefined) {
+        row.teamIds = [...patch.teamIds];
+        row.serviceTeamId = [...patch.teamIds].sort().at(0) ?? null;
       }
       if (patch.tagIds !== undefined) row.tagIds = [...patch.tagIds];
       if (patch.serviceIds !== undefined) row.serviceIds = [...patch.serviceIds];

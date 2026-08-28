@@ -182,6 +182,21 @@ const stub = (answer: (path: string, init?: RequestInit) => Response) => {
   return fetched;
 };
 
+describe('patching a work item team set', () => {
+  it('sends the exact whole teamIds set without rewriting it to the legacy scalar', async () => {
+    const fetched = stub(() => response(204, ''));
+
+    await httpProjectApi('t').patch('w1', { teamIds: ['team-b', 'team-a'] });
+
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/work-items/w1');
+    expect(fetched.mock.calls[0]?.[1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ teamIds: ['team-b', 'team-a'] }),
+    });
+  });
+});
+
 describe('the directory client', () => {
   it('asks the four reads and writes at the paths be-01 mounts them on', async () => {
     const fetched = stub((path) =>

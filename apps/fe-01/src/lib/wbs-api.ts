@@ -1036,6 +1036,14 @@ export interface ProjectApi {
       maxParallel?: number | null;
       serviceTeamId?: string | null;
       /**
+       * The teams this row states, as one whole replacement set.
+       *
+       * `[]` removes the row's own team labels and absent leaves them alone.
+       * The legacy scalar arm above remains for old callers; a request must
+       * never send both arms together. At most 10 ids.
+       */
+      teamIds?: readonly string[];
+      /**
        * The tags this row will carry, **whole** — the set as it will stand,
        * never a member to add or a delta to apply.
        *
