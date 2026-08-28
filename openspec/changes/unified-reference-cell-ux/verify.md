@@ -43,6 +43,14 @@
 - Restored controller, service, and OpenAPI freshness suites passed 150/150; be-01 lint and typecheck also passed at `e470bb6`.
 - Mixed requests return the stable 400 `cannot_send_both_teamIds_and_serviceTeamId`; unknown sets leave state unchanged; OpenAPI records `teamIds` with `maxItems: 10`.
 
+### Observed through task 2.2
+
+- Repository set semantics failed 3/28 under missing atomic validation/projection behavior, then passed 29/29; the whole-set journal mutant failed 1/79, then passed 79/79.
+- Structural insertion failed 1/29 when explicit memberships were not inserted, then passed 29/29; legacy rows still fall back to the projected scalar.
+- The second-member structural mutant failed exactly the new multi-team duplicate-redo and delete undo/redo guards (79 pass, 2 fail); restored `7447f55` passed 81/81 and be-01 typecheck.
+- Removing the legacy scalar fallback failed exactly the old-journal singleton restore guard (81 pass, 1 fail); restored `4015713` passed 82/82. Both commits passed touched lint and format; no local build or test ran.
+- PATCH remains exact whole-set last-writer-wins; unknown-among-known validation leaves the scalar, joins, and revision unchanged.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
