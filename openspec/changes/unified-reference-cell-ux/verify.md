@@ -51,6 +51,11 @@
 - Removing the legacy scalar fallback failed exactly the old-journal singleton restore guard (81 pass, 1 fail); restored `4015713` passed 82/82. Both commits passed touched lint and format; no local build or test ran.
 - PATCH remains exact whole-set last-writer-wins; unknown-among-known validation leaves the scalar, joins, and revision unchanged.
 
+### Observed through task 2.3
+
+- Omitting `teamIds` from the HTTP PATCH body failed exactly one new `wbs-api.test.ts` guard; restored `8b28eaa` passed 25/25.
+- Dropping the full set in the plan-card API fake failed its focused round-trip guard; restored `2fd1646` passed, with fe-01 typecheck plus touched lint/format green. No local build or test ran.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.

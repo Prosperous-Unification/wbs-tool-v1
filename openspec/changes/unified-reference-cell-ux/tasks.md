@@ -8,7 +8,7 @@
 
 - [x] 2.1 Add mutually exclusive `teamIds` and legacy `serviceTeamId` request arms, `MOST_TEAMS_ON_ONE_ITEM = 10`, bounded parsing and stable mixed-payload 400 `cannot_send_both_teamIds_and_serviceTeamId`. Update `handParsedBody`, route refusals and OpenAPI with `teamIds` (`maxItems: 10`), whole-set/`[]` semantics and unknown/mixed errors; regenerate `apps/be-01/openapi.json` and prove freshness. Tests cover absent, empty, over-cap, duplicate, unknown and mixed payloads.
 - [x] 2.2 Destructure `teamIds` before the scalar Drizzle spread. Inside the transaction, sort/deduplicate ids, refuse unknowns before scalar/join/revision changes, replace all joins and project the sorted first id. Add `teamIds` to `fieldsOf` and whole-set `revertTo`; add optional per-row `teamIds` to restore/copy commands, preserve them through duplicate/delete undo/redo, insert every membership, and use legacy scalar only for old journals. PATCH is last-writer-wins; revisions refuse only stale undo/redo. Tests cover order-equivalent projections, unknown-among-known unchanged state, `teamIds`-only journal, two-client later-write-wins, multi-team duplicate/delete undo/redo and legacy singleton restore. Watched negatives independently drop `fieldsOf`, the second restored member and transactional validation.
-- [ ] 2.3 Widen fe-01's `ProjectApi.patch` contract and fakes to `teamIds` while retaining legacy coverage — tests: `wbs-api.test.ts` exact JSON and plan-card/table fake round trips.
+- [x] 2.3 Widen fe-01's `ProjectApi.patch` contract and fakes to `teamIds` while retaining legacy coverage — tests: `wbs-api.test.ts` exact JSON and plan-card/table fake round trips.
 
 ## 3. Build the shared directory reference-set interaction
 
