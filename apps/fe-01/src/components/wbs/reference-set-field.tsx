@@ -122,7 +122,16 @@ export function ReferenceSetStrip({
       >
         +
       </button>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
+      <span
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 3,
+          minWidth: 0,
+          maxWidth: '100%',
+        }}
+      >
         {own.map((entry) => (
           <span key={entry.id} data-reference-chip={entry.id} className={REFERENCE_SET_CHIP_CLASS}>
             <span className="truncate">{entry.name}</span>

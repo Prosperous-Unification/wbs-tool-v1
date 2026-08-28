@@ -351,6 +351,24 @@ const luminance = (page: Page, colour: string): Promise<number> =>
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }, colour);
 
+/** Points at the cell's own left padding, never at a chip that narrows the tint. */
+async function hoverPassiveDependsCell(page: Page, number: string): Promise<void> {
+  const cell = page
+    .getByLabel(`Add a dependency to ${number}`)
+    .locator('xpath=ancestor::td[@data-column="depends"]');
+  const box = await cell.boundingBox();
+  if (box === null) throw new Error(`the Depends on cell for ${number} has no box`);
+  const point = { x: box.x + 2, y: box.y + box.height / 2 };
+  expect(
+    await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit !== null && hit.closest('button, [data-reference-chip]') === null;
+    }, point),
+    `the passive point in ${number}'s Depends on cell lands on a chip`,
+  ).toBe(true);
+  await page.mouse.move(point.x, point.y);
+}
+
 test.describe('hovering a dependency lights the rows it names', () => {
   /** A third row, waiting for the two the shared seed made. */
   async function seed030WaitingForBoth(page: Page): Promise<void> {
@@ -396,10 +414,7 @@ test.describe('hovering a dependency lights the rows it names', () => {
     const rest010 = await settledRowBg(page, '010');
     const rest020 = await settledRowBg(page, '020');
 
-    await page
-      .getByLabel('Add a dependency to 030')
-      .locator('xpath=ancestor::td[@data-column="depends"]')
-      .hover();
+    await hoverPassiveDependsCell(page, '030');
 
     await expect(rowOf(page, '010')).toHaveAttribute('data-dep-lit', 'true');
     await expect(rowOf(page, '020')).toHaveAttribute('data-dep-lit', 'true');
@@ -454,10 +469,7 @@ test.describe('hovering a dependency lights the rows it names', () => {
     // Off the pill onto the cell's passive owner area: the light widens back
     // to every dependency — the browser's own leave, `relatedTarget` and all.
     // The input itself may be clipped behind a full strip at rest.
-    await page
-      .getByLabel('Add a dependency to 030')
-      .locator('xpath=ancestor::td[@data-column="depends"]')
-      .hover();
+    await hoverPassiveDependsCell(page, '030');
     await expect(rowOf(page, '020')).toHaveAttribute('data-dep-lit', 'true');
     await expect.poll(() => rowBg(page, '020')).not.toBe(rest020);
   });
