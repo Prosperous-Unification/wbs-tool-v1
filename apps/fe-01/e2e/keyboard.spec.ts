@@ -105,6 +105,17 @@ function numbersOnScreen(page: Page): Promise<string[]> {
 
 let account = 0;
 
+/**
+ * Puts the Teams column on the table, which `configurable-columns` hides by
+ * default, and closes the control again so its panel is not over the cells.
+ */
+async function showTeamsColumn(page: Page): Promise<void> {
+  await page.getByText('Columns', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Teams' }).check();
+  await expect(page.locator('thead th[data-column="team"]')).toHaveCount(1);
+  await page.getByText('Columns', { exact: true }).click();
+}
+
 test.beforeEach(() => {
   account += 1;
 });
@@ -250,6 +261,7 @@ test.describe('the command chords, in a browser', () => {
     // left the page. The list was suppressing the table's handler and then
     // reading the same key as its own bare Enter.
     await seedRows(page, `e2e-keys-${String(Date.now())}-${String(account)}`, 1);
+    await showTeamsColumn(page);
 
     const writes: string[] = [];
     await page.route('**/api/**', async (route) => {

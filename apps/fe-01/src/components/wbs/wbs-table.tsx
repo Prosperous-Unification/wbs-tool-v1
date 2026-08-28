@@ -19,6 +19,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -139,11 +140,13 @@ import {
   CELL,
   clampColumnWidth,
   DATE_EDITOR_WIDTH,
+  DEFAULT_HIDDEN_COLUMNS,
   FLEXIBLE_FLOOR,
   flexibleCellStyle,
   floorFor,
   frameLayout,
   type FrameLayoutState,
+  hideableColumnIds,
   hierarchyIndentFor,
   numberIndentFor,
   pinnedCellStyle,
@@ -1000,17 +1003,99 @@ function forgetWidthOverrides(projectId: string): void {
 }
 
 /**
+ * Where this browser remembers which of one project's columns a reader has
+ * hidden — the {@link Hidden column}s that, taken off the default column set,
+ * are that reader's {@link Column set}.
+ *
+ * Per project and per browser for {@link widthOverridesKey}'s reason: which
+ * columns a reader wants on their screen is their answer, and be-01 is never
+ * told about it.
+ */
+const hiddenColumnsKey = (projectId: string): string => `wbs.hiddenColumns.${projectId}`;
+
+/**
+ * The hide-list this browser last saved for `projectId`, or the default hidden
+ * columns where it has never saved one.
+ *
+ * A **hide-list**, so a column this table learns to draw later is on screen by
+ * default without anybody's storage being touched; and an absent key means
+ * {@link DEFAULT_HIDDEN_COLUMNS}, while a stored `[]` means "everything shown"
+ * — the two are different facts and this is where they part.
+ *
+ * The stored value is a claim, not a fact — user-editable storage read at a
+ * boundary, the posture {@link rememberedWidthOverrides} takes. A value that is
+ * not a list of strings takes the key with it and the default set is shown. An
+ * id the table does not declare is **not** judged here: a role's id is only
+ * known once the roles have loaded, so the list is kept whole and
+ * `hiddenColumnIds` in the component filters it against
+ * {@link hideableColumnIds} on every render that could change the answer. It
+ * is also not written back — opening a project must not change what is
+ * remembered about it, and a hidden role that is only temporarily absent must
+ * find its entry waiting.
+ *
+ * Deliberately not the "unknown is not OK" throw, for {@link
+ * rememberedWidthOverrides}'s reason: the alternative is a plan nobody can open
+ * until they clear storage by hand, over a preference about a column.
+ *
+ * Proof: the shape check deleted, `clears a store that is not a list of strings
+ * and shows the default set` (wbs-table.test.tsx) failed with `TypeError:
+ * storedHiddenColumns.filter is not a function` — the `'4'` handed to the
+ * component as a list; with only the `removeItem` deleted, on `expected '4' to
+ * be null`. Watched, 2026-08-28.
+ */
+function rememberedHiddenColumns(projectId: string): readonly string[] {
+  const stored = localStorage.getItem(hiddenColumnsKey(projectId));
+  if (stored === null) return DEFAULT_HIDDEN_COLUMNS;
+  const claimed = parsedOrNothing(stored);
+  if (!isStringArray(claimed)) {
+    localStorage.removeItem(hiddenColumnsKey(projectId));
+    return DEFAULT_HIDDEN_COLUMNS;
+  }
+  return claimed;
+}
+
+/**
+ * Writes the hide-list in force for `projectId`.
+ *
+ * Called when a reader ticks or unticks a column in the Columns control, or
+ * applies a saved view that carries a column set, and at no other time — see
+ * {@link rememberedHiddenColumns} for why not on read.
+ */
+function rememberHiddenColumns(projectId: string, hidden: readonly string[]): void {
+  localStorage.setItem(hiddenColumnsKey(projectId), JSON.stringify(hidden));
+}
+
+/**
+ * Forgets which columns are hidden for `projectId` — the columns half of a
+ * {@link Layout reset}.
+ *
+ * `removeItem`, never the default list written over it: the default column set
+ * is whatever {@link DEFAULT_HIDDEN_COLUMNS} says *now*, and a snapshot stored
+ * here is that promise broken the day the default moves.
+ */
+function forgetHiddenColumns(projectId: string): void {
+  localStorage.removeItem(hiddenColumnsKey(projectId));
+}
+
+/**
  * A named filter this browser has saved, so it can be picked again later —
- * R10 F4. Stores only {@link FilterCriteria}: not the expansion, not the
- * column widths. A saved view is *how one reader is looking at a plan*, the
- * exact phrase `planForExport` uses to justify not exporting a collapsed
- * branch or a running search (`:2643` below) — so it lives here, per browser,
- * beside every other display preference, and be-01 is never told about it.
+ * R10 F4 — with, since `configurable-columns`, the {@link Column set} that was
+ * on screen when it was saved. Not the expansion, not the column widths. A
+ * saved view is *how one reader is looking at a plan*, the exact phrase
+ * `planForExport` uses to justify not exporting a collapsed branch or a running
+ * search — so it lives here, per browser, beside every other display
+ * preference, and be-01 is never told about it.
+ *
+ * `hiddenColumnIds` is optional because views saved before it existed have
+ * none, and absent means what it meant then: this view says nothing about
+ * columns, and applying it leaves them as they are. Present, it is the whole
+ * hide-list to apply — `[]` shows everything.
  */
 interface SavedView {
   id: string;
   name: string;
   criteria: FilterCriteria;
+  hiddenColumnIds?: readonly string[];
 }
 
 /**
@@ -1114,7 +1199,13 @@ function isSavedView(value: unknown): value is SavedView {
     typeof claimed['id'] === 'string' &&
     typeof name === 'string' &&
     name.trim() !== '' &&
-    isFilterCriteriaShape(claimed['criteria'])
+    isFilterCriteriaShape(claimed['criteria']) &&
+    // Absent is a view from before column sets; present-but-wrong is a view
+    // this table cannot apply, dropped with the other unusable ones.
+    // Proof: this line deleted, `drops a view whose column set is not a list
+    // of strings, and keeps the one beside it` failed on `Unable to find an
+    // element with the text: Views (1)` — both offered. Watched, 2026-08-28.
+    isAbsentOrStringArray(claimed['hiddenColumnIds'])
   );
 }
 
@@ -2088,6 +2179,86 @@ function FilterFacets({
 }
 
 /**
+ * The words the Columns control uses for the fixed columns a reader may hide —
+ * the full word, where the header is abbreviated for width (`Prio`, `Not
+ * bef.`) or is a glyph (People at once). Roles are named by the project.
+ */
+const COLUMN_LABELS: ReadonlyMap<string, string> = new Map([
+  ['depends', 'Depends on'],
+  ['priority', 'Priority'],
+  ['team', 'Teams'],
+  ['tag', 'Tags'],
+  ['service', 'Services'],
+  ['in-parallel', 'People at once'],
+  ['final-total', 'Days'],
+  ['not-before', 'Not before'],
+  ['start', 'Start'],
+  ['finish', 'End'],
+  ['float', 'Slack'],
+]);
+
+/**
+ * The Columns control: one tick box per column a reader may hide, and one per
+ * role, in the order the table renders them. Ticked is on screen.
+ *
+ * A `<details>` for the reason {@link FilterFacets} is one — no measurement,
+ * no dismiss handler, and it works unchanged inside the phone's `Plan actions`
+ * sheet. What it writes is the hide-list {@link rememberedHiddenColumns}
+ * reads; the table itself is the one reader of that list, through the
+ * `columns` memo, and this control never touches a column definition.
+ *
+ * Each row is a `<label>` wrapping its box — the shape the phone sheet's 44px
+ * floor is written on — with `htmlFor` as well, so a test can read the panel
+ * label-by-label off `label[for]`.
+ */
+function ColumnsControl({
+  offered,
+  hiddenColumnIds,
+  onToggle,
+}: {
+  offered: readonly { id: string; label: string }[];
+  hiddenColumnIds: readonly string[];
+  onToggle: (columnId: string) => void;
+}) {
+  const prefix = useId();
+  return (
+    <details data-columns className="relative">
+      <summary
+        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+        title="Choose which columns are on the table. Number, Name and the row's controls always are."
+      >
+        Columns
+      </summary>
+      <div
+        data-columns-panel
+        className="bg-popover absolute z-50 mt-1 max-h-80 w-56 overflow-y-auto rounded-md border p-3 text-sm shadow-md"
+      >
+        {offered.map(({ id, label }) => {
+          const boxId = `${prefix}-${id}`;
+          // A label **wrapping** its box, as the facet rows are: on a phone the
+          // sheet's 44px floor (`styles.css`, `label:has(> input[type='checkbox'])`)
+          // is written on exactly that shape, and the row is the tap target.
+          // `htmlFor` as well, so the name can be read off `label[for]`.
+          return (
+            <label key={id} htmlFor={boxId} className="flex min-h-6 items-center gap-1.5">
+              <input
+                id={boxId}
+                type="checkbox"
+                checked={!hiddenColumnIds.includes(id)}
+                onChange={() => {
+                  onToggle(id);
+                }}
+              />
+              <span className="truncate">{label}</span>
+            </label>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+/**
  * Named filters this browser has saved for this project — R10 F4, beside
  * {@link FilterFacets} because naming a filter and ticking one are the same
  * act's two moments.
@@ -2348,6 +2519,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     if (widthProject.current === projectId) return;
     widthProject.current = projectId;
     setWidthOverrides(rememberedWidthOverrides(projectId));
+    setStoredHiddenColumns(rememberedHiddenColumns(projectId));
     setGanttHeightPx(rememberedGanttHeight(projectId));
     setGanttDayPx(rememberedGanttDayPx(projectId) ?? DAY_PX);
     setGanttLabelsShown(rememberedGanttLabels(projectId) ?? true);
@@ -2529,6 +2701,60 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * table.
    */
   const [unfoldedRoles, setUnfoldedRoles] = useState<readonly string[]>([]);
+
+  /**
+   * The hide-list as this browser remembers it for this project, whole — see
+   * {@link rememberedHiddenColumns} for why it is not judged on read.
+   */
+  const [storedHiddenColumns, setStoredHiddenColumns] = useState<readonly string[]>(() =>
+    rememberedHiddenColumns(projectId),
+  );
+
+  /**
+   * The columns this reader has hidden **and this table could show**: the
+   * stored list less any id that is neither a hideable column nor one of this
+   * project's roles. A typo in storage, or a role since deleted, hides nothing
+   * and is never handed to `foldedTableMinWidth`, which throws on it by design.
+   *
+   * A memo on the two things it reads, so its identity moves only when one of
+   * them does — it is a `columns` dependency, and every change of identity
+   * there remounts every cell.
+   */
+  const hiddenColumnIds = useMemo(() => {
+    const hideable = hideableColumnIds(roles.map((role) => role.id));
+    return storedHiddenColumns.filter((id) => hideable.includes(id));
+  }, [roles, storedHiddenColumns]);
+
+  /**
+   * What the Columns control offers: every hideable column with the word the
+   * reader knows it by. A hideable id with no word is a column added to
+   * `table-frame.ts` and not here — thrown, not skipped, or the column would be
+   * one nobody can hide back.
+   */
+  const offeredColumns = useMemo(
+    () =>
+      hideableColumnIds(roles.map((role) => role.id)).map((id) => {
+        const label = COLUMN_LABELS.get(id) ?? roles.find((role) => role.id === id)?.name;
+        if (label === undefined) throw new Error(`no label for hideable column "${id}"`);
+        return { id, label };
+      }),
+    [roles],
+  );
+
+  /**
+   * Hides a shown column, or shows a hidden one — and writes the list, which is
+   * the one moment it is written (see {@link rememberedHiddenColumns}). Written
+   * from the sanitised list rather than the stored one, as a drag writes the
+   * widths in force: an id for a role this project no longer holds is dropped
+   * the first time the reader touches the control.
+   */
+  function toggleColumn(columnId: string): void {
+    const next = hiddenColumnIds.includes(columnId)
+      ? hiddenColumnIds.filter((hidden) => hidden !== columnId)
+      : [...hiddenColumnIds, columnId];
+    setStoredHiddenColumns(next);
+    rememberHiddenColumns(projectId, next);
+  }
 
   /**
    * Unfolds a role, or folds it again — and leaves every other role alone.
@@ -4108,10 +4334,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   }
 
   /**
-   * Forgets the column widths **and** the Gantt settings for this project, so
-   * each returns to what is resolved for it **now** — the columns to the frame
-   * layout's answer, the chart to its default share, the scale to Days, the
-   * labels to shown.
+   * Forgets the column widths, the hidden columns **and** the Gantt settings
+   * for this project, so each returns to what is resolved for it **now** — the
+   * widths to the frame layout's answer, the columns on screen to the default
+   * column set, the chart to its default share, the scale to Days, the labels
+   * to shown.
    *
    * Forgotten, never frozen. Storing either half as it stands would turn a
    * reset into a rename of today's defaults, and a column whose default had
@@ -4126,8 +4353,20 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   function resetLayout(): void {
     setWidthOverrides(new Map());
     forgetWidthOverrides(projectId);
+    setStoredHiddenColumns(DEFAULT_HIDDEN_COLUMNS);
+    forgetHiddenColumns(projectId);
     resetGanttSettings();
   }
+
+  /**
+   * Whether the columns on screen are not the default column set — a column
+   * hidden, or a default-hidden one shown — which is the columns half of
+   * whether `Reset layout` has anything to do. Compared as sets: the order a
+   * reader ticked things in is not a difference.
+   */
+  const columnsDiffer =
+    hiddenColumnIds.length !== DEFAULT_HIDDEN_COLUMNS.length ||
+    hiddenColumnIds.some((id) => !DEFAULT_HIDDEN_COLUMNS.includes(id));
 
   /**
    * The whole plan as a document, taken at the moment it is asked for.
@@ -6311,14 +6550,6 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     filtering,
   };
 
-  /**
-   * Whether this deployment has a tag vocabulary at all, which is what decides
-   * the Tags column's existence — see the filter at the end of `columns`.
-   */
-  const tagsExist = tags.length > 0;
-  /** {@link tagsExist}'s rule for the service column, and its reasons. */
-  const servicesExist = services.length > 0;
-
   const columns = useMemo(
     () =>
       [
@@ -7507,7 +7738,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         }),
         column.display({
           // **The column id stays `service` while the header reads `Services`.**
-          // The id is what `CONDITIONAL_COLUMNS`, `cellKey`, the grid's
+          // The id is what `DEFAULT_HIDDEN_COLUMNS`, `cellKey`, the grid's
           // Tab/Alt/Command routing and every saved column-order key are written
           // against; renaming it would move 120px around and rewrite people's
           // stored layouts to say the same thing. The header is the word a
@@ -8772,25 +9003,24 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           ),
         }),
       ]
-        // **The Tags column exists only where the deployment has a tag.**
+        // **A hidden column is not in the table model at all.** Not merely
+        // unrendered: absent, so the keyboard grid, the hover cards and the
+        // drag geometry never learn it was declared. Fixed columns go by their
+        // own id; a hidden role takes every column named after it — folded,
+        // unfolded and assignee — while the role itself stays in `roles`, so
+        // its estimates still reach the total and the dates be-01 computed.
         //
-        // Not a preference and not a toggle: it is what pays for the column. The
-        // folded table has 29px of slack at 1280 and this column costs 120, so
-        // one on screen in every state would put a scrollbar under every
-        // two-phase plan on a laptop — see `CONDITIONAL_COLUMNS` in
-        // `table-frame.ts` for the exemption and what it names.
-        //
-        // Keyed on the **directory** rather than on this plan's rows, and that is
-        // the difference that makes it usable: a plan that has never been tagged
-        // still needs the cell to put a first tag in. What it is keyed on is
-        // somebody having made a tag at all, on the page the proposal says tags
-        // are made on.
-        .filter((each) => each.id !== 'tag' || tagsExist)
-        // The Services column on the same rule and for the same 120px: keyed on
-        // the directory having a service at all, not on this plan carrying one,
-        // so a plan nobody has labelled still has the cell to put a first
-        // service in.
-        .filter((each) => each.id !== 'service' || servicesExist),
+        // Until `configurable-columns` two filters here rendered Tags and
+        // Services only where the directory held one. The default column set
+        // is data-independent now — `DEFAULT_HIDDEN_COLUMNS` in
+        // `table-frame.ts` says which columns start hidden and why.
+        .filter((each) => {
+          // Every column above declares an id; one without is a definition this
+          // filter cannot judge, and hiding it by accident would be silent.
+          if (each.id === undefined) throw new Error('a column definition has no id');
+          const id = each.id;
+          return !hiddenColumnIds.some((hidden) => id === hidden || id.startsWith(`${hidden}-`));
+        }),
     // `roles` because a role's name is rendered in a header, and
     // `unfoldedRoles` because it decides which columns exist at all.
     // `flexRender` renders each `cell` function as a component type, so
@@ -8803,10 +9033,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // is read through `live`, which is why `api`, `run` and `onKeyDown` are
     // absent rather than forgotten.
     //
-    // `tagsExist` joins them because it decides whether a column exists at all,
-    // exactly as `unfoldedRoles` does — a boolean, so the remount it costs
-    // happens once per deployment rather than once per render.
-    [roles, unfoldedRoles, tagsExist, servicesExist],
+    // `hiddenColumnIds` joins them because it decides which columns exist at
+    // all, exactly as `unfoldedRoles` does — a memo whose identity moves only
+    // on a tick in the Columns control, so the remount it costs happens on the
+    // click that asked for it rather than once per render.
+    [roles, unfoldedRoles, hiddenColumnIds],
   );
 
   const table = useReactTable({
@@ -9448,6 +9679,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
       />
       <PhasesDialog
         roles={roles}
+        hiddenColumnIds={hiddenColumnIds}
         // The same object the `<colgroup>` above is resolved from, so the
         // figure this dialog quotes and the width the table lays out cannot
         // be answers to two different questions.
@@ -9468,7 +9700,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         be made.
       */}
       <Input
-        className="h-8 w-40 text-xs"
+        className="h-8 w-32 text-xs"
         aria-label="Find"
         placeholder="Find…"
         size={14}
@@ -9517,7 +9749,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         current={criteria}
         labels={filterLabels}
         onSave={(name) => {
-          const next = [...savedViews, { id: crypto.randomUUID(), name, criteria }];
+          const next = [
+            ...savedViews,
+            { id: crypto.randomUUID(), name, criteria, hiddenColumnIds },
+          ];
           setSavedViews(next);
           rememberSavedViews(projectId, next);
         }}
@@ -9525,12 +9760,24 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           const { query: savedQuery, ...savedFacets } = view.criteria;
           setQuery(savedQuery);
           setFacets(savedFacets);
+          // A view with no column set leaves the columns as they are — see
+          // {@link SavedView}. One with a set applies it and remembers it, as
+          // the Columns control would have.
+          if (view.hiddenColumnIds !== undefined) {
+            setStoredHiddenColumns(view.hiddenColumnIds);
+            rememberHiddenColumns(projectId, view.hiddenColumnIds);
+          }
         }}
         onDelete={(id) => {
           const next = savedViews.filter((view) => view.id !== id);
           setSavedViews(next);
           rememberSavedViews(projectId, next);
         }}
+      />
+      <ColumnsControl
+        offered={offeredColumns}
+        hiddenColumnIds={hiddenColumnIds}
+        onToggle={toggleColumn}
       />
       {filtering && (
         <span role="status" className="text-muted-foreground text-sm">
@@ -9596,12 +9843,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         type="button"
         disabled={busy || !stack.undoable}
         {...busyAffordance(busy)}
+        aria-label="Undo"
         title="Undo your last change to this plan (Ctrl/⌘ + Z)"
         onClick={() => {
           void stepStack('undo');
         }}
       >
-        Undo
+        ↶
       </Button>
       <Button
         variant="outline"
@@ -9609,12 +9857,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         type="button"
         disabled={busy || !stack.redoable}
         {...busyAffordance(busy)}
+        aria-label="Redo"
         title="Put back what you last undid (Ctrl/⌘ + Shift + Z)"
         onClick={() => {
           void stepStack('redo');
         }}
       >
-        Redo
+        ↷
       </Button>
       {/*
         The way in for anyone who was never told about `?`, which is most
@@ -9649,59 +9898,81 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         schedule, or nothing placed), reported the same way a refused
         clipboard write already is.
       */}
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Copy the whole plan as a Markdown table, with a header saying how to read it"
-        onClick={copyAsMarkdown}
-      >
-        Copy as Markdown
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Copy the chart as a Mermaid gantt, for a Markdown document that draws it"
-        onClick={copyAsMermaid}
-      >
-        Copy as Mermaid
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Download the whole plan as a CSV, with a header saying how to read it"
-        onClick={downloadCsv}
-      >
-        Download CSV
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Download the chart as a Mermaid gantt bundled with the Markdown table, with a header saying how to read it"
-        onClick={downloadMermaidDocument}
-      >
-        Download as Markdown
-      </Button>
       {/*
-        The fifth action, and the only one that takes the rows on screen. Its
-        own button rather than a switch on the four beside it: a mode on a
-        button whose header claims the whole plan is how a partial plan gets
-        sent as a whole one, which is what §9's Q3 refused. Always offered, not
-        only while a filter is on — a collapsed branch narrows the screen too,
-        and the `Scope` line it writes says which of the two did it.
+        One menu for the five, since `configurable-columns`: measured at 1280,
+        the five buttons took 683px of a 1248px toolbar and a thirteenth
+        control pushed the row to three lines. A `<details>`, as Filters and
+        Views are — no dismiss handler, and a `<button>` inside it still
+        closes the phone's sheet (`closingControlIn`). The buttons keep their
+        names, titles and handlers; the only thing that moved is where they
+        sit.
       */}
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Download the rows on screen as a Markdown table, with a header saying what was filtered out and what is missing"
-        onClick={downloadOnScreen}
-      >
-        Download what’s on screen
-      </Button>
+      <details data-export className="relative">
+        <summary
+          className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+          title="Copy or download the plan — as a Markdown table, a Mermaid gantt, a CSV, or what is on screen"
+        >
+          Export
+        </summary>
+        <div
+          data-export-panel
+          className="bg-popover absolute z-50 mt-1 flex w-56 flex-col items-stretch gap-1 rounded-md border p-2 shadow-md"
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Copy the whole plan as a Markdown table, with a header saying how to read it"
+            onClick={copyAsMarkdown}
+          >
+            Copy as Markdown
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Copy the chart as a Mermaid gantt, for a Markdown document that draws it"
+            onClick={copyAsMermaid}
+          >
+            Copy as Mermaid
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Download the whole plan as a CSV, with a header saying how to read it"
+            onClick={downloadCsv}
+          >
+            Download CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Download the chart as a Mermaid gantt bundled with the Markdown table, with a header saying how to read it"
+            onClick={downloadMermaidDocument}
+          >
+            Download as Markdown
+          </Button>
+          {/*
+            The fifth action, and the only one that takes the rows on screen. Its
+            own button rather than a switch on the four beside it: a mode on a
+            button whose header claims the whole plan is how a partial plan gets
+            sent as a whole one, which is what §9's Q3 refused. Always offered, not
+            only while a filter is on — a collapsed branch narrows the screen too,
+            and the `Scope` line it writes says which of the two did it.
+          */}
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Download the rows on screen as a Markdown table, with a header saying what was filtered out and what is missing"
+            onClick={downloadOnScreen}
+          >
+            Download what’s on screen
+          </Button>
+        </div>
+      </details>
       <label className="ml-auto flex items-center gap-1 text-sm">
         Starts
         {/*
@@ -9896,6 +10167,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             be null` — the control on the sheet at 390px. Watched, 2026-08-09.
           */}
           {(widthOverrides.size > 0 ||
+            columnsDiffer ||
             ganttHeightPx !== null ||
             ganttDayPx !== DAY_PX ||
             !ganttLabelsShown) && (
@@ -9903,7 +10175,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
               variant="outline"
               size="sm"
               type="button"
-              title="Forget the widths, the chart height, the day scale and the hidden row names set here, and lay the layout out at its own again"
+              title="Forget the widths, the hidden columns, the chart height, the day scale and the hidden row names set here, and lay the layout out at its own again"
               onClick={resetLayout}
             >
               Reset layout

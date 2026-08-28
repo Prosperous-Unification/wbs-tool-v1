@@ -5,10 +5,11 @@ import {
   cardIndentFor,
   CELL,
   clampColumnWidth,
-  CONDITIONAL_COLUMNS,
   DATE_EDITOR_WIDTH,
   DAY_ENVELOPE,
   DEEPEST_INDENT,
+  DEFAULT_COLUMN_SET,
+  DEFAULT_HIDDEN_COLUMNS,
   FIXED_COLUMNS,
   FLEXIBLE_CAP,
   FLEXIBLE_COLUMNS,
@@ -18,6 +19,7 @@ import {
   foldedTableMinWidth,
   frameLayout,
   type FrameLayoutState,
+  hideableColumnIds,
   hierarchyIndentFor,
   NUMBER_ENVELOPE,
   numberIndentFor,
@@ -25,6 +27,7 @@ import {
   pinnedCellStyle,
   pinnedGeometryFor,
   POPOVER_ROW_LAYER,
+  ROW_CONTROLS,
   sizableColumn,
   STICKY_HEADER_CELL,
   TABLE_FRAME,
@@ -39,14 +42,14 @@ const DATED: FrameLayoutState = { hasAnyNotBefore: true };
 /** A plan where nobody has. */
 const UNDATED: FrameLayoutState = { hasAnyNotBefore: false };
 
-/** Every fixed column of the table, in the order the table renders them. */
+/** Every column of the default column set, in the order the table renders them. */
 const RENDERED = [
   'drag',
   'number',
   'name',
   'depends',
   'priority',
-  'team',
+  'tag',
   'in-parallel',
   'final-total',
   'not-before',
@@ -242,7 +245,7 @@ describe('the resolved frame layout', () => {
       number: 105,
       depends: 110,
       priority: 48,
-      team: 120,
+      tag: 120,
       'in-parallel': 32,
       'final-total': 52,
       'not-before': 84,
@@ -602,11 +605,11 @@ describe('how wide the phases make the table', () => {
     // Proof: the role columns dropped from the sum, `grows by one folded column
     // per phase` failed on `expected 959 to be 1151`. Watched, 2026-08-09.
     expect(foldedTableMinWidth([], DATED)).toBe(
-      frameLayout([...FIXED_COLUMNS, ...FLEXIBLE_COLUMNS], DATED).minWidth,
+      frameLayout([...DEFAULT_COLUMN_SET, ...FLEXIBLE_COLUMNS], DATED).minWidth,
     );
     // Every column the table really renders is in that set, which is what the
     // equation above is only worth anything while it is true.
-    for (const id of RENDERED) expect([...FIXED_COLUMNS, ...FLEXIBLE_COLUMNS]).toContain(id);
+    for (const id of RENDERED) expect([...DEFAULT_COLUMN_SET, ...FLEXIBLE_COLUMNS]).toContain(id);
   });
 
   it('has no phases to be wide for at all, and still declares a table', () => {
@@ -615,29 +618,84 @@ describe('how wide the phases make the table', () => {
     expect(foldedTableMinWidth([], DATED)).toBe(1067);
   });
 
-  it('is the same number after service-split as it was before it, which is task 7.7', () => {
-    // The width-budget rule, and the exemption named rather than assumed.
-    // `service` has a declared width — it has to lay out on the deployments
-    // that show it — and it is kept out of `FIXED_COLUMNS` by
-    // `CONDITIONAL_COLUMNS`, so the floor of a table that is not showing it is
-    // the floor it had before this change. 1067 is that number, pinned above
-    // since 2026-08-09 and unmoved here.
-    // The floor first, and deliberately: it is the fact, and the three
-    // statements under it are only why it is true. Struck the other way round
-    // the membership assertion fires first and the number nobody sees is the
-    // one that mattered.
+  it('hides Teams and Services by default, shows Tags, and the folded figures do not move', () => {
+    // `configurable-columns`: the default column set is the same on every
+    // deployment, whatever its directory holds. Teams off pays for Tags on —
+    // both 120px — so the 1067 pinned above since 2026-08-09 and the 1259 the
+    // budget test at 1280 is measured against are the figures they were.
+    // The floor first, deliberately: it is the fact, and the membership
+    // assertions under it are only why it is true.
     expect(foldedTableMinWidth([], DATED)).toBe(1067);
-    // The id, not the header. Task 10.4 made the cell a multi-select and its
-    // header read `Services`; the id stayed `service` precisely so this stays
-    // true — it is what `CONDITIONAL_COLUMNS`, `cellKey`, the grid's key
-    // routing and every saved column order are written against, and renaming it
-    // would move 120px and rewrite stored layouts to say the same thing.
-    expect(widthFor('service', DATED)).toBe(120);
-    expect(CONDITIONAL_COLUMNS).toContain('service');
-    expect(FIXED_COLUMNS).not.toContain('service');
-    // Proof, watched 2026-08-21: `service` struck from `CONDITIONAL_COLUMNS`,
-    // this failed on `expected 1187 to be 1067` — the 120px it would have cost
-    // every deployment, including the ones that have never made a service.
+    expect(foldedTableMinWidth(['role-dev', 'role-qa'], DATED)).toBe(1259);
+    expect(DEFAULT_HIDDEN_COLUMNS).toEqual(['team', 'service']);
+    expect(DEFAULT_COLUMN_SET).toContain('tag');
+    expect(DEFAULT_COLUMN_SET).not.toContain('team');
+    expect(DEFAULT_COLUMN_SET).not.toContain('service');
+    // Every declared column is still declared — a hidden column has to lay
+    // out on the deployments that show it.
+    for (const id of ['team', 'tag', 'service']) {
+      expect(FIXED_COLUMNS).toContain(id);
+      expect(widthFor(id, DATED)).toBe(120);
+    }
+    // Proof: `tag` put into `DEFAULT_HIDDEN_COLUMNS`, this file failed on
+    // `expected 1139 to be 1259` and `expected […] to include 'tag'`; `team`
+    // struck from it, on `expected 1187 to be 1067`. Watched, 2026-08-28.
+  });
+
+  it('subtracts what the reader has hidden, a whole role included', () => {
+    // The Phases dialog quotes the table actually on screen, not the default
+    // one: a reader who has hidden Depends on is 110px narrower than the
+    // default, and one who has shown Teams is 120px wider.
+    expect(foldedTableMinWidth([], DATED, [...DEFAULT_HIDDEN_COLUMNS, 'depends'])).toBe(
+      1067 - widthFor('depends', DATED),
+    );
+    expect(foldedTableMinWidth([], DATED, ['service'])).toBe(1067 + widthFor('team', DATED));
+    // A hidden role takes its folded column with it, and nothing else.
+    expect(
+      foldedTableMinWidth(['role-dev', 'role-qa'], DATED, [...DEFAULT_HIDDEN_COLUMNS, 'role-qa']),
+    ).toBe(foldedTableMinWidth(['role-dev'], DATED));
+    // Proof: the hidden list ignored, the first line failed on `expected 1067
+    // to be 957`. Watched, 2026-08-28.
+  });
+
+  it('offers every data column and every role to hide, and none of the row’s controls', () => {
+    // What the Columns control lists, in the order the table renders them: the
+    // drag handle, Number, Name and the ⋯ menu are the row's controls and are
+    // never offered — a table with no Name column is not a narrower table, it
+    // is no table. A role is one entry, by its bare id, and sits where its
+    // columns do.
+    expect(hideableColumnIds(['role-dev', 'role-qa'])).toEqual([
+      'depends',
+      'priority',
+      'team',
+      'tag',
+      'service',
+      'in-parallel',
+      'role-dev',
+      'role-qa',
+      'final-total',
+      'not-before',
+      'start',
+      'finish',
+      'float',
+    ]);
+    // And the list is the whole width table less the controls, so a column
+    // added to the width table without a place in this order fails here.
+    expect(ROW_CONTROLS).toEqual(['drag', 'number', 'name', 'actions']);
+    expect([...hideableColumnIds([])].sort()).toEqual(
+      FIXED_COLUMNS.filter((id) => !ROW_CONTROLS.includes(id)).sort(),
+    );
+    // Proof: `name` put at the head of the list, this failed on `expected
+    // [ Array(14) ] to deeply equal [ Array(13) ]`; `float` dropped from it, on
+    // the same shape the other way. Watched, 2026-08-28.
+  });
+
+  it('refuses a hidden id that is neither a column nor a role of this plan', () => {
+    // Storage is validated at its boundary and drops unknown ids on their own;
+    // an unknown id reaching this far is a caller's typo, and a typo silently
+    // hiding nothing is the check that cannot fail.
+    expect(() => foldedTableMinWidth(['role-dev'], DATED, ['tags'])).toThrow(UnknownColumnError);
+    expect(() => foldedTableMinWidth(['role-dev'], DATED, ['role-qa'])).toThrow(UnknownColumnError);
   });
 });
 

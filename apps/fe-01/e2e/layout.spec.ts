@@ -7,7 +7,7 @@ import { type Box, findOverlap, findOverrun } from '../src/components/wbs/box-ge
 import { shortIsoDate } from '../src/components/wbs/short-date';
 import {
   DAY_ENVELOPE,
-  FIXED_COLUMNS,
+  DEFAULT_COLUMN_SET,
   FLEXIBLE_CAP,
   FLEXIBLE_COLUMNS,
   FLEXIBLE_FLOOR,
@@ -945,6 +945,49 @@ test.describe('the table, measured by a browser', () => {
     expect(existsSync(picture)).toBe(true);
   });
 
+  test('takes a hidden column’s width off the table, and the frame stops scrolling', async ({
+    page,
+  }) => {
+    // `configurable-columns`, measured where jsdom cannot: at 1200px the
+    // default two-phase table (1219px) overhangs the frame, and hiding Tags —
+    // 120px — is exactly what makes it fit. The declared minimum moves by the
+    // column's width and the frame's own overflow goes to nothing, which is the
+    // half of the claim the browser owns. Then the column comes back, and so
+    // does the scrollbar.
+    const measure = async (): Promise<{ minWidth: number; overhang: number }> =>
+      page.evaluate(() => {
+        const table = document.querySelector('table[data-grid]');
+        const frame = document.querySelector('[data-table-frame]');
+        if (!(table instanceof HTMLElement) || frame === null) {
+          throw new Error('the plan table is not on the page');
+        }
+        return {
+          minWidth: Number.parseFloat(table.style.minWidth),
+          overhang: frame.scrollWidth - frame.clientWidth,
+        };
+      });
+    const tags = () => page.getByRole('checkbox', { name: 'Tags' });
+
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await expect(page.locator('thead th[data-column="tag"]')).toHaveCount(1);
+    const shown = await measure();
+    expect(shown.overhang, 'the default table overhangs a 1200px frame').toBeGreaterThan(0);
+
+    await page.getByText('Columns', { exact: true }).click();
+    await tags().uncheck();
+    await expect(page.locator('thead th[data-column="tag"]')).toHaveCount(0);
+    const hidden = await measure();
+    expect(hidden.minWidth).toBe(shown.minWidth - widthFor('tag', SEEDED_PLAN));
+    expect(hidden.overhang, 'without Tags the table fits the frame').toBe(0);
+    // Every other column still laid out apart from its neighbours.
+    const [heading] = await rowBoxes(page, 'thead tr');
+    expect(findOverlap(heading)).toBe(undefined);
+
+    await tags().check();
+    await expect(page.locator('thead th[data-column="tag"]')).toHaveCount(1);
+    expect(await measure()).toEqual(shown);
+  });
+
   test('lays the heading row out with no two cells on top of each other', async ({ page }) => {
     await scrollFrameTo(page, 0);
     const [heading] = await rowBoxes(page, 'thead tr');
@@ -1641,7 +1684,7 @@ test.describe('the table, measured by a browser', () => {
     const two = await budget();
     expect(two.declaredMinWidth).toBe(`${String(foldedTableMinWidth(twoPhases, SEEDED_PLAN))}px`);
     expect(two.declaredWidth, 'the declared width is the cap, not the floor').toBe(
-      `min(100%, ${String(frameLayout([...FIXED_COLUMNS, ...FLEXIBLE_COLUMNS, ...twoPhases.map((id) => `${id}-final`)], SEEDED_PLAN).maxWidth)}px)`,
+      `min(100%, ${String(frameLayout([...DEFAULT_COLUMN_SET, ...FLEXIBLE_COLUMNS, ...twoPhases.map((id) => `${id}-final`)], SEEDED_PLAN).maxWidth)}px)`,
     );
     // And the two really are different numbers, or the assertion above and the
     // one below are the same assertion written twice.

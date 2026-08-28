@@ -126,6 +126,14 @@ async function chooseTheme(page: Page, answer: 'Light' | 'Dark'): Promise<void> 
     .toBe(0);
 }
 
+async function showReferenceColumns(page: Page): Promise<void> {
+  await page.getByText('Columns', { exact: true }).click();
+  for (const label of ['Teams', 'Tags', 'Services', 'Depends on']) {
+    await page.getByRole('checkbox', { name: label, exact: true }).check();
+  }
+  await page.getByText('Columns', { exact: true }).click();
+}
+
 async function assertReachablePaint(page: Page, roots: Locator[]): Promise<void> {
   for (const root of roots) {
     const chips = root.locator('[data-reference-chip]');
@@ -158,6 +166,7 @@ test('round-trips every desktop reference set with three reachable values in bot
   page,
 }) => {
   const seeded = await seed(page);
+  await showReferenceColumns(page);
   await choose(page, 'Service or team for 010', seeded.teams[2].name);
   await choose(page, 'Tags for 010', seeded.tags[2].name);
   await choose(page, 'Services for 010', seeded.services[2].name);

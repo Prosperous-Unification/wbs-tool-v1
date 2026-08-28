@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { type ColumnHintState, hintFor, UnexplainedColumnError } from './column-hints';
 import { POINTS } from './estimate-draft';
-import { CONDITIONAL_COLUMNS, FIXED_COLUMNS, FLEXIBLE_COLUMNS } from './table-frame';
+import { FIXED_COLUMNS, FLEXIBLE_COLUMNS } from './table-frame';
 
 /** A project on a calendar, which is what the schedule columns hold real dates in. */
 const ON_CALENDAR: ColumnHintState = { hasProjectStartDate: true };
@@ -17,20 +17,15 @@ const OFF_CALENDAR: ColumnHintState = { hasProjectStartDate: false };
 const ROLE_COLUMNS = ['r7-final', 'r7-assignee', ...POINTS.map((point) => `r7-${point}`)];
 
 /**
- * Every column the table can render, in one list — the fixed set, the two
- * conditional ones, the flexible one, and a role's four.
+ * Every column the table can render, in one list — every declared column,
+ * hidden by default or not, the flexible one, and a role's four.
  *
  * Read off `table-frame`'s own exports rather than written out again, which is
  * the whole point of the test below it: a column added to the width table
  * without a sentence fails here, on the same line, without anybody remembering
  * to add it in two places.
  */
-const EVERY_COLUMN = [
-  ...FIXED_COLUMNS,
-  ...CONDITIONAL_COLUMNS,
-  ...FLEXIBLE_COLUMNS,
-  ...ROLE_COLUMNS,
-];
+const EVERY_COLUMN = [...FIXED_COLUMNS, ...FLEXIBLE_COLUMNS, ...ROLE_COLUMNS];
 
 describe('every rendered column explains itself', () => {
   it.each(EVERY_COLUMN)('%s carries a hint in both states of the plan', (columnId) => {

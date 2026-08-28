@@ -88,8 +88,8 @@ contract: `docs/runbook-prod-deploy.md`.**
 
 ## Landmines
 
-- **`columns` in `wbs-table.tsx` depends on `roles` alone**, and `roles` is replaced only when its
-  content differs. Anything else remounts every cell and eats the focus; see the `live` ref. Widths resolve through `table-frame.ts`'s `frameLayout` and never enter a column definition.
+- **`columns` in `wbs-table.tsx` depends on `roles`, `unfoldedRoles`, `hiddenColumnIds` only**, each
+  replaced only on the click that asked; anything else remounts every cell and eats the focus (`live` ref).
 - **Row tints in `styles.css` go by predicate, not source order.** A new `data-*-lit` must join the
   banded-hover rule's `:not()` chain and never land on a row the pointer already hovers, or the rule
   is unmatchable and the stripe stops tinting. Negative must hover that row (`linked-row-hover`).
