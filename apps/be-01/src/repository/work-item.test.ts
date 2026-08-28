@@ -497,6 +497,38 @@ describe('the team set beside the column', () => {
     );
   });
 
+  it('inserts every explicit team membership carried by a structural row', async () => {
+    // Break caught: deriving restore/copy joins only from the legacy scalar
+    // silently drops every structural membership after the sorted first one.
+    const backend = await team('Backend');
+    const design = await team('Design');
+    const copiedRoot = {
+      ...row(null, 20, 'Strip (copy)'),
+      serviceTeamId: [backend, design].sort()[0] ?? null,
+      teamIds: [design, backend],
+    };
+
+    await subtrees.insertSubtree({
+      rows: [copiedRoot],
+      respaced: [],
+      reparented: [],
+      estimates: [],
+      actuals: [],
+      progress: [],
+      measures: [],
+      assignments: [],
+      dependencies: [],
+      removedEstimates: [],
+      removedActuals: [],
+      removedProgress: [],
+      removedMeasures: [],
+    });
+
+    expect(joinedTeams()).toEqual(
+      [backend, design].sort().map((teamId) => ({ workItemId: copiedRoot.id, teamId })),
+    );
+  });
+
   it('takes a work item’s join rows with it when the work item goes', async () => {
     // The cascade, on the other column. Nothing in be-01 deletes these rows,
     // and an undo of the deletion is what puts them back — through the copy

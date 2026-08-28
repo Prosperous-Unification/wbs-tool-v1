@@ -65,10 +65,13 @@ function mergedNotBefore(
  * request carries the set, and the column becomes the derived copy — and R2-6
  * deletes the column and this function with it.
  */
-function joinRowsFor(rows: readonly WorkItem[]): { workItemId: string; teamId: string }[] {
-  return rows.flatMap((row) =>
-    row.serviceTeamId === null ? [] : [{ workItemId: row.id, teamId: row.serviceTeamId }],
-  );
+function joinRowsFor(
+  rows: readonly (WorkItem & { teamIds?: readonly string[] })[],
+): { workItemId: string; teamId: string }[] {
+  return rows.flatMap((row) => {
+    const teamIds = row.teamIds ?? (row.serviceTeamId === null ? [] : [row.serviceTeamId]);
+    return [...new Set(teamIds)].sort().map((teamId) => ({ workItemId: row.id, teamId }));
+  });
 }
 
 /**
@@ -592,7 +595,11 @@ export class SubtreeRepository implements SubtreeStore {
       // One statement per row rather than one multi-row insert: a child
       // referencing a parent in the same `VALUES` list depends on the order
       // SQLite evaluates it in, which is not a contract worth resting a tree on.
-      for (const row of copy.rows) tx.insert(workItem).values(row).run();
+      for (const row of copy.rows) {
+        const stored = { ...row };
+        Reflect.deleteProperty(stored, 'teamIds');
+        tx.insert(workItem).values(stored).run();
+      }
       // The teams the copied rows carry, in the same transaction as the rows.
       // A duplicated branch draws from the pools the original drew from, and a
       // restored one comes back on the pool it left — the join rows of a

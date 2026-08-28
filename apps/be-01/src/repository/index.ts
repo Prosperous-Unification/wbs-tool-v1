@@ -1388,7 +1388,7 @@ export interface SubtreeCopy {
    * `work_item.id`, so any other order is refused by the database rather than
    * silently reordered.
    */
-  rows: readonly WorkItem[];
+  rows: readonly (WorkItem & { teamIds?: readonly string[] })[];
   /** Existing siblings of the copied root whose positions the placement moved. */
   respaced: readonly Repositioned[];
   /**
