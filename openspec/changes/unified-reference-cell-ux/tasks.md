@@ -20,7 +20,7 @@
 
 - [x] 4.1 Extend `DependsCard` rows with pointer-only targets and a document-pointermove rectangle bridge across passive padding while keeping `HoverCard` passive — tests: `depends-card.test.tsx`/`wbs-table.test.tsx` assert passive surface, target-only pointer events, no tab stop, owner/corridor/row/outside decisions, listener cleanup and owner→row narrowing→owner widening→outside clear; negative: clear synchronously on owner leave and observe the passive-padding transition fail, then set the whole card to pointer events and fail the passive-surface assertion.
 - [x] 4.2 Preserve the dependency-specific picker, bulk-number/refusal logic and full accessible description while adopting the shared strip tokens — tests: existing dependency keyboard suite plus a three-dependency full-list description case; negative: narrow the card list to visible chips and observe the third dependency disappear.
-- [ ] 4.3 Add Chromium hit-testing for cell→passive padding→third card row travel, exact row/line tint, empty-card click-through and stale-state cleanup after scroll, resize and pointer cancellation — test: `e2e/hover-cards.spec.ts`; negative heads with the bridge removed, target pointer events removed, and whole-card pointer events enabled MUST fail distinct assertions.
+- [x] 4.3 Add Chromium hit-testing for cell→passive padding→third card row travel, exact row/line tint, empty-card click-through and stale-state cleanup after scroll, resize and pointer cancellation — test: `e2e/hover-cards.spec.ts`; negative heads with the bridge removed, target pointer events removed, and whole-card pointer events enabled MUST fail distinct assertions.
 
 ## 5. Close parity, rollback and delivery gates
 

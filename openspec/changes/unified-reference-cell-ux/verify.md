@@ -91,6 +91,9 @@
 
 - The stale-state cleanup guard first failed 0/3 because pointer cancellation, scroll, and resize had no listeners. Restored `8a1892b` clears the owner/card tint on all three invalidations, captures nested scroll, and unregisters every listener with the card.
 - The focused pointer-bridge suite passed 5/5; the combined table, shared-strip, and dependency-card run passed 537/537 in 80.46s. fe-01 app/e2e typecheck, touched lint, format, and pre-commit hooks passed on h2puni. Chromium owner-to-third-row travel and empty-card hit testing remain open in task 4.3. No build or test ran on h1claw.
+- Chromium exposed a browser-only bridge fault: spreading the first `DOMRect` dropped its prototype-backed `left/top/right/bottom` edges, so the passive corridor became `NaN` and the card closed before the third row. The watched test failed on `the card closed while crossing passive padding`; restored `6da9d6b` copies all four edges explicitly and passed 1/1.
+- Removing the corridor failed the same bridge assertion, removing row pointer events failed `the third dependency row target does not own its painted pixels`, and enabling whole-card pointer events failed `the empty card area intercepted the underlying action`. The restored focused Chromium run passed after format; scroll, resize, and pointer cancellation each clear the card and exact row tint before the test reopens it.
+- Touched format, fe-01 typecheck, lint (one pre-existing hook warning, zero errors), diff check, and pre-commit hooks passed on h2puni. The shared serving checkout repeatedly reset to `origin/main`, so the exact-head gate and commit used the existing detached TASK-182 worktree and pushed `6da9d6b` fast-forward. No build or test ran on h1claw.
 
 ## 3. Remote gate output to record after apply
 
