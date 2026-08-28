@@ -10010,11 +10010,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // team chosen on a phone reaches be-01 by the path a team chosen on a
           // laptop reaches it by.
           teams={teams}
-          setTeam={(row, teamId) => {
-            return setTeamOf(row.id, teamId === null ? [] : [...row.teamIds, teamId]);
+          setTeams={(row, teamIds) => {
+            return setTeamOf(row.id, teamIds);
           }}
-          createTeam={(row, name) => {
-            return createTeamFor(row.id, name, row.teamIds);
+          createTeam={(row, name, currentTeamIds) => {
+            return createTeamFor(row.id, name, currentTeamIds);
           }}
           // The `not-before` cell's own question and its own writer, handed to
           // the face that had neither. `hasCalendar` is the cell's `noCalendar`

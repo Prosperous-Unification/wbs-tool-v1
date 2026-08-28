@@ -14,7 +14,6 @@ import { ActionsMenu, type RowAction } from './actions-menu';
 import { CellInput } from './cell-input';
 import type { CellRef } from './cell-navigation';
 import {
-  CreatablePicker,
   type PickableEntry,
   PickerList,
   type PickerOption,
@@ -27,6 +26,7 @@ import type { ServiceLabel, ServiceTeamLabel, TagLabel } from './gantt-geometry'
 import { type CommitOutcome, flushCell } from './live-editing';
 import { composeNameCell } from './name-notes';
 import { priorityBandStyleOf } from './priority-band-style';
+import { ReferenceSetSheet } from './reference-set-field';
 import { type PrintedDay, shortIsoDate } from './short-date';
 import { cardIndentFor } from './table-frame';
 import type { TreeRow } from './wbs-rows';
@@ -242,9 +242,13 @@ export interface PlanCardsProps {
    * to reach be-01 by the path a team chosen on a laptop reaches it by, or the
    * two faces disagree about what a choice does.
    */
-  setTeam: (row: TreeRow, teamId: string | null) => Promise<CommitOutcome>;
+  setTeams: (row: TreeRow, teamIds: readonly string[]) => Promise<CommitOutcome>;
   /** Makes a team nobody had yet and labels this work item with it, in one go. */
-  createTeam: (row: TreeRow, name: string) => Promise<CommitOutcome>;
+  createTeam: (
+    row: TreeRow,
+    name: string,
+    currentTeamIds: readonly string[],
+  ) => Promise<CommitOutcome>;
   /**
    * Whether the plan has a start date at all.
    *
@@ -606,14 +610,18 @@ function CardTeamField({
   row,
   team,
   teams,
-  setTeam,
+  setTeams,
   createTeam,
 }: {
   row: TreeRow;
   team: ServiceTeamLabel;
   teams: readonly PickableEntry[];
-  setTeam: (row: TreeRow, teamId: string | null) => void;
-  createTeam: (row: TreeRow, name: string) => void;
+  setTeams: (row: TreeRow, teamIds: readonly string[]) => Promise<CommitOutcome>;
+  createTeam: (
+    row: TreeRow,
+    name: string,
+    currentTeamIds: readonly string[],
+  ) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
   // Guard against the same geometry `CardPriorityField` measured first — a
@@ -627,87 +635,69 @@ function CardTeamField({
       ? `${team.name} — inherited from ${team.fromRow}. This row carries no team of its own.`
       : undefined;
   return (
-    <Modal open={open} onOpenChange={setOpen}>
-      <ModalTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          data-card-team-field
-          // The sheet's own name, said on the control that opens it: `Billing`
-          // alone names the value, not what tapping does.
-          aria-label={`Service or team for ${row.number}`}
-          title={inheritedNote}
-          // `TAP`, like every other control this file draws. It was missing
-          // when the sheet landed and the card measured **21px** in CI — and
-          // the reason it was missable is worth keeping: the 44px floor in
-          // `styles.css` is scoped to `[data-modal-surface]` and
-          // `[data-account-menu]`, so a card gets none of it and every control
-          // one grows has to carry its own height. `inline-flex items-center`
-          // beside it because a bare `min-height` on a button leaves the word
-          // at the top of the box it just grew (`styles.css` makes the same
-          // repair for the ✕ and the palette switch).
-          className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
-        >
-          {team.state === 'none' ? (
-            // No `data-card-team`: this row claims no team, and the attribute
-            // is the claim. What is drawn is the invitation to make one.
-            <span className="opacity-70">team…</span>
-          ) : (
-            <span
-              data-card-team
-              {...(team.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
-              title={inheritedNote}
-            >
-              {team.state === 'unresolved'
-                ? 'a team this plan has not loaded'
-                : team.state === 'inherited'
-                  ? `↳ ${team.name}`
-                  : team.name}
-            </span>
-          )}
-        </button>
-      </ModalTrigger>
-      {/*
-        `min-h` and not only the sheet's own `max-h-[85vh]`: `PickerList` is
-        absolutely positioned under its box and `ModalContent` scrolls, so a
-        sheet sized to a single input would clip the list it exists to show.
-      */}
-      <ModalContent side="bottom" className="min-h-[60vh]">
-        <ModalHeader>
-          <ModalTitle>Service or team for {row.number}</ModalTitle>
-          <ModalDescription>
-            {team.state === 'inherited'
-              ? `This row carries no team of its own — it is on ${team.name}, from ${team.fromRow}. Choosing one here labels this row.`
-              : 'Type to search the directory, or type a name nobody has used yet to make it.'}
-          </ModalDescription>
-        </ModalHeader>
-        <CreatablePicker
-          label={`Service or team for ${row.number}`}
-          placeholder={team.state === 'inherited' ? `↳ ${team.name}` : 'search or add'}
-          title={inheritedNote}
-          entries={teams}
-          value={row.teamIds.at(0) ?? null}
-          clearVisibleWhileFocused
-          // The cell the table's Team box carries, on the box that edits it
-          // here — `rowId::team`, one string out of `cellKey`, so the two faces
-          // are the same cell rather than two boxes over one field.
-          dataCell={cellKey(row.id, 'team')}
-          onChoose={(id) => {
-            setTeam(row, id);
-            setOpen(false);
-          }}
-          onCreate={(name) => {
-            createTeam(row, name);
-            setOpen(false);
-          }}
-          addButtonLabel={`Add a team to ${row.number}`}
-          onClear={() => {
-            setTeam(row, null);
-            setOpen(false);
-          }}
-        />
-      </ModalContent>
-    </Modal>
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        data-card-team-field
+        onClick={() => {
+          setOpen(true);
+        }}
+        // The sheet's own name, said on the control that opens it: `Billing`
+        // alone names the value, not what tapping does.
+        aria-label={`Service or team for ${row.number}`}
+        title={inheritedNote}
+        // `TAP`, like every other control this file draws. It was missing
+        // when the sheet landed and the card measured **21px** in CI — and
+        // the reason it was missable is worth keeping: the 44px floor in
+        // `styles.css` is scoped to `[data-modal-surface]` and
+        // `[data-account-menu]`, so a card gets none of it and every control
+        // one grows has to carry its own height. `inline-flex items-center`
+        // beside it because a bare `min-height` on a button leaves the word
+        // at the top of the box it just grew (`styles.css` makes the same
+        // repair for the ✕ and the palette switch).
+        className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
+      >
+        {team.state === 'none' ? (
+          // No `data-card-team`: this row claims no team, and the attribute
+          // is the claim. What is drawn is the invitation to make one.
+          <span className="opacity-70">team…</span>
+        ) : (
+          <span
+            data-card-team
+            {...(team.state === 'inherited' ? { 'data-inherited': 'true' } : {})}
+            title={inheritedNote}
+          >
+            {team.state === 'unresolved'
+              ? 'a team this plan has not loaded'
+              : team.state === 'inherited'
+                ? `↳ ${team.name}`
+                : team.name}
+          </span>
+        )}
+      </button>
+      <ReferenceSetSheet
+        open={open}
+        onClose={() => {
+          setOpen(false);
+        }}
+        label={`Service or team for ${row.number}`}
+        adapter={{
+          kind: 'team',
+          entries: teams,
+          ownIds: row.teamIds,
+          inheritedLabel:
+            team.state === 'inherited' ? `${team.name} from ${team.fromRow}` : undefined,
+          replace: (ids) => setTeams(row, ids),
+          create: (name, current) => createTeam(row, name, current),
+        }}
+        dataCell={cellKey(row.id, 'team')}
+        addLabel={`Add a team to ${row.number}`}
+        removeLabel={(entry) => `Remove ${entry.name} from ${row.number}`}
+        placeholder={team.state === 'inherited' ? `↳ ${team.name}` : 'search or add'}
+        title={inheritedNote}
+      />
+    </>
   );
 }
 
@@ -726,8 +716,8 @@ function CardSetField({
   label: TagLabel | ServiceLabel;
   entries: readonly PickableEntry[];
   ownIds: readonly string[];
-  setValues: (row: TreeRow, ids: readonly string[]) => void;
-  createValue: (row: TreeRow, name: string, current: readonly string[]) => void;
+  setValues: (row: TreeRow, ids: readonly string[]) => Promise<CommitOutcome>;
+  createValue: (row: TreeRow, name: string, current: readonly string[]) => Promise<CommitOutcome>;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useTriggerAboveSheet(open);
@@ -738,82 +728,52 @@ function CardSetField({
     ? `${names.join(', ')} — inherited from ${label.fromRow}. This row carries no ${kind} of its own.`
     : undefined;
   return (
-    <Modal open={open} onOpenChange={setOpen}>
-      <ModalTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          data-card-tags-field={kind === 'tag' ? '' : undefined}
-          data-card-service-field={kind === 'service' ? '' : undefined}
-          aria-label={`${plural} for ${row.number}${names.length > 0 ? `: ${names.join(', ')}` : ''}`}
-          title={title}
-          className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
-        >
-          {names.length === 0 ? (
-            <span className="opacity-70">{kind}…</span>
-          ) : (
-            <span
-              {...(kind === 'tag' ? { 'data-card-tags': '' } : { 'data-card-service': '' })}
-              {...(inherited ? { 'data-inherited': 'true' } : {})}
-              title={title}
-            >
-              {inherited ? `↳ ${names.join(', ')}` : names.join(', ')}
-            </span>
-          )}
-        </button>
-      </ModalTrigger>
-      <ModalContent side="bottom" className="min-h-[60vh]">
-        <ModalHeader>
-          <ModalTitle>
-            {plural} for {row.number}
-          </ModalTitle>
-          <ModalDescription>
-            Type to search the directory, or add a name nobody has used yet.
-          </ModalDescription>
-        </ModalHeader>
-        {ownIds.length > 0 && (
-          <div className="flex flex-wrap gap-2" aria-label={`${plural} on ${row.number}`}>
-            {ownIds.map((id) => {
-              const name = entries.find((entry) => entry.id === id)?.name ?? id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  className={`${TAP} bg-muted inline-flex items-center gap-1 rounded px-2 text-sm`}
-                  aria-label={`Remove ${name} from ${row.number}`}
-                  onClick={() => {
-                    setValues(
-                      row,
-                      ownIds.filter((each) => each !== id),
-                    );
-                  }}
-                >
-                  <span>{name}</span>
-                  <span aria-hidden>✕</span>
-                </button>
-              );
-            })}
-          </div>
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        data-card-tags-field={kind === 'tag' ? '' : undefined}
+        data-card-service-field={kind === 'service' ? '' : undefined}
+        onClick={() => {
+          setOpen(true);
+        }}
+        aria-label={`${plural} for ${row.number}${names.length > 0 ? `: ${names.join(', ')}` : ''}`}
+        title={title}
+        className={`${TAP} text-muted-foreground inline-flex max-w-full min-w-0 items-center text-left underline decoration-dotted underline-offset-2`}
+      >
+        {names.length === 0 ? (
+          <span className="opacity-70">{kind}…</span>
+        ) : (
+          <span
+            {...(kind === 'tag' ? { 'data-card-tags': '' } : { 'data-card-service': '' })}
+            {...(inherited ? { 'data-inherited': 'true' } : {})}
+            title={title}
+          >
+            {inherited ? `↳ ${names.join(', ')}` : names.join(', ')}
+          </span>
         )}
-        <CreatablePicker
-          label={`${plural} for ${row.number}`}
-          placeholder={inherited ? `↳ ${names.join(', ')}` : 'search or add'}
-          title={title}
-          entries={entries.filter((entry) => !ownIds.includes(entry.id))}
-          value={null}
-          dataCell={cellKey(row.id, kind)}
-          onChoose={(id) => {
-            setValues(row, [...ownIds, id]);
-            setOpen(false);
-          }}
-          onCreate={(name) => {
-            createValue(row, name, ownIds);
-            setOpen(false);
-          }}
-          addButtonLabel={`Add a ${kind} to ${row.number}`}
-        />
-      </ModalContent>
-    </Modal>
+      </button>
+      <ReferenceSetSheet
+        open={open}
+        onClose={() => {
+          setOpen(false);
+        }}
+        label={`${plural} for ${row.number}`}
+        adapter={{
+          kind,
+          entries,
+          ownIds,
+          inheritedLabel: inherited ? `${names.join(', ')} from ${label.fromRow}` : undefined,
+          replace: (ids) => setValues(row, ids),
+          create: (name, current) => createValue(row, name, current),
+        }}
+        dataCell={cellKey(row.id, kind)}
+        addLabel={`Add a ${kind} to ${row.number}`}
+        removeLabel={(entry) => `Remove ${entry.name} from ${row.number}`}
+        placeholder={inherited ? `↳ ${names.join(', ')}` : 'search or add'}
+        title={title}
+      />
+    </>
   );
 }
 
@@ -1936,7 +1896,7 @@ export function PlanCards({
   startFloor,
   teamLabel,
   teams,
-  setTeam,
+  setTeams,
   createTeam,
   hasCalendar,
   setNotBefore,
@@ -2307,12 +2267,8 @@ export function PlanCards({
                 row={row}
                 team={team}
                 teams={teams}
-                setTeam={(...args) => {
-                  void setTeam(...args);
-                }}
-                createTeam={(...args) => {
-                  void createTeam(...args);
-                }}
+                setTeams={setTeams}
+                createTeam={createTeam}
               />
               {/*
                 The tags, and `↳` where the row carries none of its own — the
@@ -2331,12 +2287,8 @@ export function PlanCards({
                   label={tagging}
                   entries={tags}
                   ownIds={row.tagIds}
-                  setValues={(...args) => {
-                    void setTags(...args);
-                  }}
-                  createValue={(...args) => {
-                    void createTag(...args);
-                  }}
+                  setValues={setTags}
+                  createValue={createTag}
                 />
               )}
               {/*
@@ -2367,12 +2319,8 @@ export function PlanCards({
                   label={delivers}
                   entries={services}
                   ownIds={row.serviceIds}
-                  setValues={(...args) => {
-                    void setServices(...args);
-                  }}
-                  createValue={(...args) => {
-                    void createService(...args);
-                  }}
+                  setValues={setServices}
+                  createValue={createService}
                 />
               )}
               {/*

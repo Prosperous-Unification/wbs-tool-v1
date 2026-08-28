@@ -1,5 +1,13 @@
 import { useRef, useState } from 'react';
 
+import {
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalHeader,
+  ModalTitle,
+} from '@/components/ui/modal';
+
 import { CreatablePicker, type CreatablePickerProps } from './creatable-picker';
 import type { CommitOutcome } from './live-editing';
 
@@ -22,6 +30,7 @@ export interface ReferenceSetAdapter {
 export interface ReferenceSetStripProps {
   label: string;
   adapter: ReferenceSetAdapter;
+  dataCell?: CreatablePickerProps['dataCell'];
   gridCell?: CreatablePickerProps['gridCell'];
   addLabel?: string;
   removeLabel?: (entry: ReferenceSetEntry) => string;
@@ -35,6 +44,7 @@ const unique = (ids: readonly string[]): string[] => [...new Set(ids)];
 export function ReferenceSetStrip({
   label,
   adapter,
+  dataCell,
   gridCell,
   addLabel,
   removeLabel,
@@ -128,6 +138,7 @@ export function ReferenceSetStrip({
           closeWhen={(outcome) => outcome === 'landed'}
           placeholder={placeholder ?? `Search ${label.toLowerCase()}`}
           title={title}
+          dataCell={dataCell}
           gridCell={gridCell}
         />
       </span>
@@ -144,15 +155,47 @@ export interface ReferenceSetSheetProps extends ReferenceSetStripProps {
 }
 
 /** Phone presentation of the same directory-set editor. */
-export function ReferenceSetSheet({ label, adapter, open, onClose }: ReferenceSetSheetProps) {
+export function ReferenceSetSheet({
+  label,
+  adapter,
+  open,
+  onClose,
+  ...stripProps
+}: ReferenceSetSheetProps) {
   if (!open) return null;
 
+  const ownIds = unique(adapter.ownIds);
+  const closeAfterLanded = (outcome: CommitOutcome): CommitOutcome => {
+    if (outcome === 'landed') onClose();
+    return outcome;
+  };
+  const sheetAdapter: ReferenceSetAdapter = {
+    ...adapter,
+    replace: async (ids) => {
+      const isAddition = unique(ids).some((id) => !ownIds.includes(id));
+      const outcome = await adapter.replace(ids);
+      return isAddition ? closeAfterLanded(outcome) : outcome;
+    },
+    create: async (name, current) => closeAfterLanded(await adapter.create(name, current)),
+  };
+
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Edit ${label}`}>
-      <button type="button" aria-label={`Close ${label}`} onClick={onClose}>
-        ×
-      </button>
-      <ReferenceSetStrip label={label} adapter={adapter} />
-    </div>
+    <Modal
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
+    >
+      <ModalContent side="bottom" className="min-h-[60vh]" aria-label={`Edit ${label}`}>
+        <button type="button" aria-label={`Close ${label}`} onClick={onClose}>
+          ×
+        </button>
+        <ModalHeader>
+          <ModalTitle>Edit {label}</ModalTitle>
+          <ModalDescription>Type to search the directory, or add a new name.</ModalDescription>
+        </ModalHeader>
+        <ReferenceSetStrip label={label} adapter={sheetAdapter} {...stripProps} />
+      </ModalContent>
+    </Modal>
   );
 }
