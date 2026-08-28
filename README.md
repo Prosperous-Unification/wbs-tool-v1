@@ -24,11 +24,11 @@ observability stack: **[docs/local-dev.md](./docs/local-dev.md)**.
 ## Before you push
 
 ```sh
-bunx nx format:check --all
-bunx nx run-many -t test lint typecheck build
+bin/h2puni-gate.sh
 ```
 
-CI runs exactly these, plus a secrets scan, migration lint and
+The h2puni wrapper runs the same format and Nx commands as CI while holding the
+canonical heavy-work lock. CI also runs a secrets scan, migration lint and
 `openspec validate`, on every push and PR. `build` needs `shellcheck`
 (`brew install shellcheck`).
 

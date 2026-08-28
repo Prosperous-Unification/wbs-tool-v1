@@ -23,14 +23,14 @@ Three facts explain most decisions:
 ```sh
 bun install                                     # first, on a fresh clone
 bun run dev:setup                               # writes the .env files dev needs
-bunx nx format:check --all                      # the gate, part 1
-bunx nx run-many -t test lint typecheck build   # the gate, part 2
+bin/h2puni-gate.sh                              # full h2puni gate + canonical lock
 bun run dev                                     # be + gw + fe locally
 bun run e2e                                     # the browser layout gate (needs chromium)
 ```
 
 `bun test` at the repo root is **not** the gate: it collects fe-01's files, which fail on the
-DOM `bun:test` has no jsdom for. Use `bunx nx run-many -t test`. `build` needs `shellcheck`.
+DOM `bun:test` has no jsdom for. On h2puni, use `bin/h2puni-gate.sh`; raw full Nx
+gates bypass the host-wide release lock. `build` needs `shellcheck`.
 
 **Rules: `AGENTS.md`** (symlinked to CLAUDE.md/GEMINI.md) — read it, it governs every change.
 

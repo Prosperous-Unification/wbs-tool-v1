@@ -5,7 +5,23 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 const SCRIPT = join(import.meta.dir, '../../../bin/with-heavy-lock.sh');
+const LOCK_LIB = join(import.meta.dir, '../../../bin/heavy-lock-lib.sh');
 const roots: string[] = [];
+
+function runWithTestLock(lock: string): ReturnType<typeof Bun.spawnSync> {
+  return Bun.spawnSync([
+    'bash',
+    '-c',
+    'source "$1"; shift; with_heavy_lock "$@"',
+    'with-heavy-lock-test',
+    LOCK_LIB,
+    lock,
+    '--',
+    'bash',
+    '-c',
+    'exit 0',
+  ]);
+}
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -41,9 +57,7 @@ describe('with-heavy-lock', () => {
   it('runs the requested command while the lock is free', () => {
     const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
     roots.push(root);
-    const run = Bun.spawnSync(['bash', SCRIPT, '--', 'bash', '-c', 'exit 0'], {
-      env: { ...process.env, WBS_HEAVY_LOCK: join(root, 'heavy.lock') },
-    });
+    const run = runWithTestLock(join(root, 'heavy.lock'));
     expect(run.exitCode).toBe(0);
   });
 
@@ -54,9 +68,7 @@ describe('with-heavy-lock', () => {
     const holder = Bun.spawn(['flock', '--exclusive', lock, 'sleep', '2']);
     await Bun.sleep(100);
 
-    const refused = Bun.spawnSync(['bash', SCRIPT, '--', 'bash', '-c', 'exit 0'], {
-      env: { ...process.env, WBS_HEAVY_LOCK: lock },
-    });
+    const refused = runWithTestLock(lock);
     holder.kill();
     await holder.exited;
 

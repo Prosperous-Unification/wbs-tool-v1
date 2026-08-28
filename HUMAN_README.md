@@ -109,9 +109,8 @@ last holder.
 There is no undo, so the shape is always: find the commit, fix, gate, publish,
 dry-run, authorise, verify.
 
-> in ~/wd/puni/wbs-tool-v1 — pull main, run `bunx nx format:check --all` and
-> `bunx nx run-many -t test lint typecheck build --parallel=2`, report failures
-> only
+> on h2puni in the WBS checkout — pull main, run `bin/h2puni-gate.sh`, report
+> failures only
 
 Then publish and dry-run — still no `--execute`:
 
@@ -235,11 +234,10 @@ bun run dev:setup     # writes the three .env files
 bun run dev           # be :3100, gw :3200, fe :4200
 ```
 
-Gate before pushing — CI runs exactly this:
+Gate before pushing on h2puni through the canonical heavy-work lock:
 
 ```sh
-bunx nx format:check --all
-bunx nx run-many -t test lint typecheck build
+bin/h2puni-gate.sh
 ```
 
 Root `bun test` runs **none** of fe-01's tests and still reports success. Use the

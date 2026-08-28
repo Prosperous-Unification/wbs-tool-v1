@@ -280,9 +280,9 @@ failure mode has never been observed is a claim, not a gate.
 
 ## Gate
 
-- Before claiming done, run locally what CI will run anyway, with the same flags:
-  `bunx nx format:check --all` and
-  `bunx nx run-many -t test lint typecheck build --parallel=2`.
+- Before claiming done on h2puni, run `bin/h2puni-gate.sh`. It acquires the
+  canonical host-wide heavy-work lock before running CI's format, test, lint,
+  typecheck, and build commands. Do not run the raw full Nx gate on h2puni.
   `--all` is not decoration: without it the scope is `git diff main HEAD`, which is
   EMPTY on main — a format check that checks nothing and passes.
 - OpenSpec changes also run `openspec validate --all --json`.

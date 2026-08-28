@@ -75,12 +75,11 @@ Expected:
 ## Tests / lint / typecheck
 
 ```bash
-bunx nx run-many -t test lint typecheck build   # the gate — what CI runs
-bunx nx format:check --all                      # also what CI runs
+bin/h2puni-gate.sh                              # full gate + canonical host lock
 bun run format                                  # prettier --write
 ```
 
-Use the Nx gate, not root `bun test`. Root `bun test` runs **0** of `fe-01`'s
+Use the h2puni gate wrapper, not root `bun test` or the raw full Nx gate. Root `bun test` runs **0** of `fe-01`'s
 test files — they are Vitest + jsdom and `bun:test` does not discover them, so
 it reports a clean run having never looked at the frontend. Measured: root
 `bun test` = 357 tests / 50 files with nothing from `apps/fe-01`;
