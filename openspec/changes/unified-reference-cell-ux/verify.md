@@ -95,6 +95,24 @@
 - Removing the corridor failed the same bridge assertion, removing row pointer events failed `the third dependency row target does not own its painted pixels`, and enabling whole-card pointer events failed `the empty card area intercepted the underlying action`. The restored focused Chromium run passed after format; scroll, resize, and pointer cancellation each clear the card and exact row tint before the test reopens it.
 - Touched format, fe-01 typecheck, lint (one pre-existing hook warning, zero errors), diff check, and pre-commit hooks passed on h2puni. The shared serving checkout repeatedly reset to `origin/main`, so the exact-head gate and commit used the existing detached TASK-182 worktree and pushed `6da9d6b` fast-forward. No build or test ran on h1claw.
 
+### Observed during task 5.1
+
+- The new desktop reference-cell round trip first failed because the third
+  Teams/Tags/Services chip had area but its centre hit-tested outside the chip.
+  The inner chip group was one non-wrapping flex item, so it painted across the
+  next table cell and that cell covered the value. Restored `863b75d` wraps the
+  group within 100% of its cell; all three chips are visible and hit-testable.
+- The same Chromium case adds a third value through each real picker, adds a
+  third dependency, reloads, proves inherited context and light/dark paint,
+  removes one value from each set, reloads again, and preserves both siblings.
+  It passed 1/1; the focused shared-field unit suite passed 8/8, fe-01 app/e2e
+  typecheck and touched lint/format/hooks passed on h2puni.
+- CI run 33204455231's hover failure reproduced locally. Playwright's default
+  cell-centre hover landed on the first dependency chip and correctly narrowed
+  the tint, so the assertion asking for the whole set was aimed at the wrong
+  surface. A proven passive-padding point now drives that test; restored head
+  passed 1/1. The 390x844 reference-sheet matrix remains open.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
