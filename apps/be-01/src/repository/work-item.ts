@@ -220,6 +220,7 @@ export class WorkItemRepository implements WorkItemStore {
       patch.startNoEarlierThanReason === undefined &&
       patch.priority === undefined &&
       patch.serviceTeamId === undefined &&
+      patch.teamIds === undefined &&
       // Proof: this line deleted, so a patch naming only the service takes the
       // no-field branch, writes nothing and answers `ok` with the row it found
       // — every face reporting a write that never happened, which is the tag
@@ -262,10 +263,18 @@ export class WorkItemRepository implements WorkItemStore {
     // and it must not be reached by this `SET` any more — the field naming it is
     // gone from the patch, so the only way one could arrive is a caller inventing
     // it, and drizzle would refuse that.
-    const { maxParallel, tagIds: wantedTags, serviceIds: wantedServices, ...fields } = patch;
+    const {
+      maxParallel,
+      teamIds: wantedTeams,
+      tagIds: wantedTags,
+      serviceIds: wantedServices,
+      ...fields
+    } = patch;
     const written =
       maxParallel === undefined ? fields : { ...fields, maxParallel: maxParallel ?? 1 };
     return this.db.transaction((tx) => {
+      const normalizedTeams =
+        wantedTeams === undefined ? undefined : [...new Set(wantedTeams)].sort();
       // The not-before pair as the row will stand, and the one pair it may not
       // stand in. Asked here rather than at the service for `unknown_team`'s
       // reason below it: a check one statement earlier is a check with a
@@ -305,6 +314,16 @@ export class WorkItemRepository implements WorkItemStore {
         }
       }
       const wanted = patch.serviceTeamId;
+      if (normalizedTeams !== undefined && normalizedTeams.length > 0) {
+        const held = tx
+          .select({ id: serviceTeam.id })
+          .from(serviceTeam)
+          .where(inArray(serviceTeam.id, normalizedTeams))
+          .all();
+        if (held.length !== normalizedTeams.length) {
+          return { ok: false, reason: 'unknown_team' };
+        }
+      }
       // `null` takes the label off and names no team, so there is nothing to
       // read; only a non-null id can be one the directory has lost.
       if (wanted !== undefined && wanted !== null) {
@@ -370,7 +389,13 @@ export class WorkItemRepository implements WorkItemStore {
       }
       const rows = tx
         .update(workItem)
-        .set({ ...written, revision: bumpedWorkItem })
+        .set({
+          ...written,
+          ...(normalizedTeams === undefined
+            ? {}
+            : { serviceTeamId: normalizedTeams.at(0) ?? null }),
+          revision: bumpedWorkItem,
+        })
         .where(eq(workItem.id, id))
         .returning()
         .all();
@@ -389,7 +414,14 @@ export class WorkItemRepository implements WorkItemStore {
       // removed: `empties the join when the label is taken off` failed with the
       // old row still standing — 15 pass / 1 fail, a label the scheduler still
       // spends slots on and no screen shows.
-      if (wanted !== undefined) {
+      if (normalizedTeams !== undefined) {
+        tx.delete(workItemTeam).where(eq(workItemTeam.workItemId, id)).run();
+        if (normalizedTeams.length > 0) {
+          tx.insert(workItemTeam)
+            .values(normalizedTeams.map((teamId) => ({ workItemId: id, teamId })))
+            .run();
+        }
+      } else if (wanted !== undefined) {
         tx.delete(workItemTeam).where(eq(workItemTeam.workItemId, id)).run();
         if (wanted !== null)
           tx.insert(workItemTeam).values({ workItemId: id, teamId: wanted }).run();

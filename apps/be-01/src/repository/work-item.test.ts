@@ -285,6 +285,59 @@ describe('the team set beside the column', () => {
     expect(read.at(0)?.teamIds).toEqual([]);
   });
 
+  it('replaces the whole team set, deduplicates it, and projects its sorted first id', async () => {
+    // Break caught: writing request order into the scalar projection makes two
+    // equal sets expose different legacy ids, while omitting the second join
+    // silently loses one scheduling pool.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, []);
+    const backend = await team('Backend');
+    const design = await team('Design');
+    const sorted = [backend, design].sort((a, b) => (a < b ? -1 : 1));
+
+    const written = await repo.patch(strip.id, { teamIds: [sorted[1], sorted[0], sorted[1]] });
+
+    expect(written.ok).toBe(true);
+    expect(written.ok ? written.workItem.serviceTeamId : null).toBe(sorted[0]);
+    expect(joinedTeams()).toEqual(sorted.map((teamId) => ({ workItemId: strip.id, teamId })));
+    expect((await repo.listByProject(projectId)).at(0)?.teamIds).toEqual(sorted);
+  });
+
+  it('refuses one unknown team before changing the scalar row, joins, or revision', async () => {
+    // Break caught: validation outside the transaction, or after the scalar
+    // update, allows the rename/revision half of a mixed patch to land.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, []);
+    const backend = await team('Backend');
+    await repo.patch(strip.id, { serviceTeamId: backend });
+    const before = await repo.findById(strip.id);
+
+    const written = await repo.patch(strip.id, {
+      name: 'Strip the walls',
+      teamIds: [backend, crypto.randomUUID()],
+    });
+
+    expect(written.ok).toBe(false);
+    expect(written.ok ? null : written.reason).toBe('unknown_team');
+    expect(await repo.findById(strip.id)).toEqual(before);
+    expect(joinedTeams()).toEqual([{ workItemId: strip.id, teamId: backend }]);
+  });
+
+  it('treats sequential team set patches as whole-set last-writer-wins replacements', async () => {
+    // Break caught: merging the later request with stored memberships retains
+    // a sibling the second client explicitly replaced.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, []);
+    const backend = await team('Backend');
+    const design = await team('Design');
+
+    await repo.patch(strip.id, { teamIds: [backend, design] });
+    await repo.patch(strip.id, { teamIds: [design] });
+
+    expect(joinedTeams()).toEqual([{ workItemId: strip.id, teamId: design }]);
+    expect((await repo.listByProject(projectId)).at(0)?.teamIds).toEqual([design]);
+  });
+
   it('writes a reason beside the date it explains', async () => {
     // The ordinary case, and the only pair this feature adds: a floor, and words
     // about it. One patch or two makes no difference — the rule is about the row
