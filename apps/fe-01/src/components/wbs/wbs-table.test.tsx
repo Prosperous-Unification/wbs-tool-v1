@@ -489,7 +489,10 @@ function fakeApi(): ProjectApi & {
       // the join is what this client reads. A fake that wrote only the column
       // would leave the table reading an empty set and every label test green
       // against a screen with no labels on it.
-      if (row !== undefined && 'serviceTeamId' in written) {
+      if (row !== undefined && 'teamIds' in written && written.teamIds !== undefined) {
+        row.teamIds = [...written.teamIds];
+        row.serviceTeamId = row.teamIds.at(0) ?? null;
+      } else if (row !== undefined && 'serviceTeamId' in written) {
         row.teamIds = written.serviceTeamId === null ? [] : [written.serviceTeamId ?? ''];
       }
       return Promise.resolve();
@@ -12411,6 +12414,34 @@ describe('the command chords', () => {
     expect(numbersOnScreen()).toEqual(['010', '020', '030']);
     // The search is still there to go on typing: consumed is not cleared.
     expect(box).toHaveValue('Plat');
+  });
+
+  itDom('creating a second team sends and reloads the whole team set', async () => {
+    const api = await threeRoots();
+
+    const createTeam = async (name: string, expected: readonly string[]): Promise<void> => {
+      const box = screen.getByRole('combobox', { name: 'Service or team for 020' });
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: name } });
+      fireEvent.keyDown(box, { key: 'Enter', code: 'Enter' });
+      await waitFor(() => {
+        expect(api.rows[1]?.teamIds).toEqual(expected);
+      });
+    };
+
+    await createTeam('Platform', ['team1']);
+    await createTeam('Release', ['team1', 'team2']);
+
+    // be-01 projects the stable first member for old readers; the set is the
+    // source of truth and creating the second member must not replace it.
+    expect(api.rows[1]?.serviceTeamId).toBe('team1');
+
+    // A refetch is part of every `run`. Querying the rendered row again proves
+    // the second write survived that round trip rather than only being the
+    // payload observed on the way out.
+    expect(screen.getByRole('combobox', { name: 'Service or team for 020' })).toHaveValue(
+      'Platform',
+    );
   });
 
   itDom('Cmd+Enter in an open assignee picker assigns nobody and adds nobody', async () => {

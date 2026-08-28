@@ -5730,11 +5730,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     focusCellAt(cell, 'all');
   }, [editingNotBefore]);
 
-  /** Labels a work item with a team, or takes the label off. */
+  /** Replaces a work item's own team set, whole. */
   const setTeamOf = useCallback(
-    (id: string, serviceTeamId: string | null) => {
-      void run(() => api.patch(id, { serviceTeamId }));
-    },
+    (id: string, teamIds: readonly string[]): Promise<CommitOutcome> =>
+      run(() => api.patch(id, { teamIds: [...teamIds] })),
     [api, run],
   );
 
@@ -5776,16 +5775,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     [api, run],
   );
 
-  /** Adds a team nobody had yet and labels the work item with it, in one go. */
+  /** Adds a team nobody had yet and appends it to the work item's whole set. */
   const createTeamFor = useCallback(
-    (id: string, name: string) => {
-      void run(async () => {
+    (id: string, name: string, current: readonly string[]): Promise<CommitOutcome> =>
+      run(async () => {
         // be-01 is idempotent by name, so two browsers typing `Platform` at
         // once end up on one team rather than two.
         const team = await api.addTeam(name);
-        await api.patch(id, { serviceTeamId: team.id });
-      });
-    },
+        await api.patch(id, { teamIds: [...current, team.id] });
+      }),
     [api, run],
   );
 
@@ -7410,14 +7408,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                 entries={live.current.teams}
                 value={row.original.teamIds.at(0) ?? null}
                 onChoose={(id) => {
-                  live.current.setTeamOf(row.original.id, id);
+                  void live.current.setTeamOf(row.original.id, [
+                    ...row.original.teamIds.filter((teamId) => teamId !== id),
+                    id,
+                  ]);
                 }}
                 onCreate={(name) => {
-                  live.current.createTeamFor(row.original.id, name);
+                  void live.current.createTeamFor(row.original.id, name, row.original.teamIds);
                 }}
                 addButtonLabel={`Add a team to ${row.original.number}`}
                 onClear={() => {
-                  live.current.setTeamOf(row.original.id, null);
+                  void live.current.setTeamOf(row.original.id, []);
                 }}
                 gridCell={{
                   dataCell: cellKey(row.original.id, 'team'),
@@ -10115,10 +10116,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // laptop reaches it by.
           teams={teams}
           setTeam={(row, teamId) => {
-            setTeamOf(row.id, teamId);
+            void setTeamOf(row.id, teamId === null ? [] : [...row.teamIds, teamId]);
           }}
           createTeam={(row, name) => {
-            createTeamFor(row.id, name);
+            void createTeamFor(row.id, name, row.teamIds);
           }}
           // The `not-before` cell's own question and its own writer, handed to
           // the face that had neither. `hasCalendar` is the cell's `noCalendar`
