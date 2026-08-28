@@ -75,6 +75,12 @@
 - Phone `PlanCardsProps` now sends whole sets through `setTeams(row, teamIds)` and passes the current set to `createTeam`. The 390×844 suite covers two selected teams, refused typed input retention, pending double-tap suppression, landed close, inherited reveal, and Tags/Services create/remove through the same sheet.
 - Remote `plan-cards.test.tsx` passed 109/109 and `reference-set-field.test.tsx` passed 8/8 after the standalone dialog contract was restored. The complete table suite passed 522/522 during the combined gate; fe-01 app/e2e typecheck, touched lint, and format are green with one pre-existing hook warning and zero lint errors. No build or test ran on h1claw.
 
+### Observed during task 4.1
+
+- Before `dependencyPointerRegion` and dependency-row targets existed, the new focused suite failed 3/3: the rectangle helper was absent and neither interactive row target could be found. Restored `6bc430f` keeps the `HoverCard` surface at `pointer-events:none`, opts only its unfocusable rows into pointer events, and removes the passive document listener on unmount.
+- The table guard preserves the card and whole-set tint when owner `mouseleave` reports the underlying element reached through passive padding; a document move outside the owner/row corridor then clears the card and tint. Clearing synchronously on owner leave fails this transition before the row can be reached.
+- Remote `depends-card.test.tsx` plus the complete `wbs-table.test.tsx` passed 527/527 in 79.35s. The focused bridge/hover family passed 14/14; fe-01 typecheck, touched lint, format, and pre-commit hooks passed on h2puni with one pre-existing hook warning and zero lint errors. No build or test ran on h1claw.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
