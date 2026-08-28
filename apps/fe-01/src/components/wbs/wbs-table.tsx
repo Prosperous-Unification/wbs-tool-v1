@@ -8982,11 +8982,15 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         if (!cardable) return;
         setHoveredCell(dependsCell);
       },
-      onMouseLeave: (event) => {
+      onMouseLeave: () => {
         // The open dependency card owns dismissal through its document
         // pointer bridge. Clearing here would unmount the row targets while
-        // the pointer is crossing the card's passive padding.
-        if (openCard === dependsCell && event.relatedTarget instanceof Node) return;
+        // the pointer is crossing the card's passive padding. The bridge sees
+        // the next real pointer position and clears if it is outside; a
+        // `relatedTarget` is deliberately not required because passive card
+        // pixels hit-test through to the plan and Chromium may report that
+        // boundary as a leave with no related node.
+        if (dependenciesOf(row.dependsOn).length > 0 && depPicker?.rowId !== row.id) return;
 
         // Leaving the cell clears the dependency hover outright — with the
         // same-cell guard `hoveredCell`'s clear uses, because a leave lands

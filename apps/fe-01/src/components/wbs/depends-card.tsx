@@ -60,7 +60,12 @@ export function dependencyPointerRegion(
       right: Math.max(box.right, current.rect.right),
       bottom: Math.max(box.bottom, current.rect.bottom),
     }),
-    { ...first.rect },
+    {
+      left: first.rect.left,
+      top: first.rect.top,
+      right: first.rect.right,
+      bottom: first.rect.bottom,
+    },
   );
   const corridor = {
     left: Math.min(owner.left, union.left),
