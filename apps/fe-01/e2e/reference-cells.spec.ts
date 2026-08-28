@@ -46,12 +46,17 @@ async function seed(page: Page): Promise<Seed> {
   await expect(page.getByRole('button', { name: 'local-dev' })).toBeVisible();
   await page.getByRole('button', { name: 'New project' }).click();
 
-  const add = page.getByRole('button', { name: 'Add work item' });
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('wbs.project'))).not.toBeNull();
+  const projectId = await page.evaluate(() => localStorage.getItem('wbs.project'));
+  if (projectId === null) throw new Error('no project id after creating the plan');
+  let afterId: string | null = null;
   for (const number of ['010', '020', '030', '040']) {
-    await add.click();
-    await expect(page.getByLabel(`Name of ${number}`)).toBeVisible();
-    await page.getByLabel(`Name of ${number}`).fill(`Reference ${number}`);
-    await page.getByLabel(`Name of ${number}`).blur();
+    const made: { id: string } = await jsonPost(page, `/api/projects/${projectId}/work-items`, {
+      parentId: null,
+      afterId,
+      name: `Reference ${number}`,
+    });
+    afterId = made.id;
   }
 
   const make = async (path: string, names: string[], key: 'team' | 'tag' | 'service') =>
@@ -69,8 +74,6 @@ async function seed(page: Page): Promise<Seed> {
     make('/api/services', ['Billing', 'Identity', 'Search'], 'service'),
   ]);
 
-  const projectId = await page.evaluate(() => localStorage.getItem('wbs.project'));
-  if (projectId === null) throw new Error('no project id after creating the plan');
   const tree = await page.evaluate(async (id) => {
     const response = await fetch(`/api/projects/${id}/work-items`);
     return response.json() as Promise<{ workItems: { id: string; number: string }[] }>;
@@ -108,7 +111,7 @@ async function choose(page: Page, label: string, name: string): Promise<void> {
 }
 
 async function chooseTheme(page: Page, answer: 'Light' | 'Dark'): Promise<void> {
-  await page.locator('header button[aria-haspopup="menu"]').click();
+  await page.getByRole('button', { name: 'local-dev' }).click();
   await page.getByRole('menuitemradio', { name: answer }).click();
   await page.keyboard.press('Escape');
   await expect
@@ -212,4 +215,137 @@ test('round-trips every desktop reference set with three reachable values in bot
   }
   await expect(page.getByRole('button', { name: /^Stop 040 waiting for / })).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Stop 040 waiting for 010' })).toHaveCount(0);
+});
+
+test.describe('390x844 reference sheets', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('round-trips three reachable values, inherited context, and light/dark paint', async ({
+    page,
+  }) => {
+    const seeded = await seed(page);
+    const parent = page.getByRole('article', { name: 'Work item 010', exact: true });
+    const fields = [
+      {
+        kind: 'team',
+        label: 'Service or team for 010',
+        trigger: '[data-card-team-field]',
+        entries: seeded.teams,
+      },
+      {
+        kind: 'tag',
+        label: 'Tags for 010',
+        trigger: '[data-card-tags-field]',
+        entries: seeded.tags,
+      },
+      {
+        kind: 'service',
+        label: 'Services for 010',
+        trigger: '[data-card-service-field]',
+        entries: seeded.services,
+      },
+    ] as const;
+
+    const openSheet = async (field: (typeof fields)[number], owner = parent) => {
+      await owner.locator(field.trigger).click();
+      const dialog = page.getByRole('dialog', { name: `Edit ${field.label}` });
+      await expect(dialog).toBeVisible();
+      return dialog;
+    };
+    const closeSheet = async (field: (typeof fields)[number], dialog: Locator) => {
+      await dialog.getByRole('button', { name: `Close ${field.label}` }).click();
+      await expect(dialog).toBeHidden();
+    };
+
+    for (const field of fields) {
+      const dialog = await openSheet(field);
+      const box = dialog.getByRole('combobox', { name: field.label, exact: true });
+      await box.fill(field.entries[2].name);
+      await dialog.getByRole('option', { name: field.entries[2].name, exact: true }).click();
+      await expect(dialog).toBeHidden();
+    }
+
+    await page.getByRole('button', { name: 'Depends on for 040' }).click();
+    let dependsDialog = page.getByRole('dialog', { name: 'Depends on for 040' });
+    await expect(dependsDialog).toBeVisible();
+    await dependsDialog.getByLabel('Add a dependency to 040').fill('030');
+    await dependsDialog.locator('[data-card-depends-option="030"]').click();
+    await expect(dependsDialog.locator('[data-card-wait]')).toHaveCount(3);
+    await page.keyboard.press('Escape');
+
+    await page.reload();
+
+    for (const palette of ['Light', 'Dark'] as const) {
+      await chooseTheme(page, palette);
+      for (const field of fields) {
+        const dialog = await openSheet(field);
+        const root = dialog.locator(`[data-reference-set="${field.kind}"]`);
+        await assertReachablePaint(page, [root]);
+        const sheet = await dialog.boundingBox();
+        expect(sheet, `${field.kind} sheet has no painted box`).not.toBeNull();
+        expect(sheet!.x, `${field.kind} sheet clips left`).toBeGreaterThanOrEqual(0);
+        expect(sheet!.x + sheet!.width, `${field.kind} sheet clips right`).toBeLessThanOrEqual(390);
+        expect(sheet!.y + sheet!.height, `${field.kind} sheet clips below`).toBeLessThanOrEqual(
+          844,
+        );
+        await closeSheet(field, dialog);
+      }
+
+      await page.getByRole('button', { name: 'Depends on for 040' }).click();
+      dependsDialog = page.getByRole('dialog', { name: 'Depends on for 040' });
+      await expect(dependsDialog.locator('[data-card-wait]')).toHaveCount(3);
+      for (const row of await dependsDialog.locator('[data-card-wait]').all()) {
+        await expect(row).toBeVisible();
+        await expect(row).toBeInViewport();
+      }
+      expect(
+        await dependsDialog.evaluate((dialog) =>
+          [...dialog.querySelectorAll('button')]
+            .filter((button) => button.getClientRects().length > 0)
+            .filter((button) => getComputedStyle(button).backgroundColor === 'rgb(239, 239, 239)')
+            .map((button) => button.getAttribute('aria-label') ?? button.textContent),
+        ),
+        'the dependency sheet exposes a native grey button face',
+      ).toEqual([]);
+      await page.keyboard.press('Escape');
+    }
+
+    const inherited = page.locator('article[data-card]').filter({
+      has: page.locator('[data-inherited]'),
+    });
+    await expect(inherited).toHaveCount(1);
+    for (const field of fields) {
+      const dialog = await openSheet(field, inherited);
+      await expect(dialog.locator('[data-reference-inherited]')).toContainText('from 010');
+      await closeSheet(field, dialog);
+    }
+
+    for (const field of fields) {
+      const dialog = await openSheet(field);
+      await dialog
+        .getByRole('button', { name: `Remove ${field.entries[0].name} from 010` })
+        .click();
+      await expect(dialog.locator(`[data-reference-chip="${field.entries[0].id}"]`)).toHaveCount(0);
+      await closeSheet(field, dialog);
+    }
+    await page.getByRole('button', { name: 'Depends on for 040' }).click();
+    dependsDialog = page.getByRole('dialog', { name: 'Depends on for 040' });
+    await dependsDialog.getByRole('button', { name: 'Stop 040 waiting for 010' }).click();
+    await expect(dependsDialog.locator('[data-card-wait]')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    await page.reload();
+
+    for (const field of fields) {
+      const dialog = await openSheet(field);
+      const root = dialog.locator(`[data-reference-set="${field.kind}"]`);
+      await expect(root.locator(`[data-reference-chip="${field.entries[0].id}"]`)).toHaveCount(0);
+      await expect(root.locator(`[data-reference-chip="${field.entries[1].id}"]`)).toBeVisible();
+      await expect(root.locator(`[data-reference-chip="${field.entries[2].id}"]`)).toBeVisible();
+      await closeSheet(field, dialog);
+    }
+    await page.getByRole('button', { name: 'Depends on for 040' }).click();
+    dependsDialog = page.getByRole('dialog', { name: 'Depends on for 040' });
+    await expect(dependsDialog.locator('[data-card-wait]')).toHaveCount(2);
+    await expect(dependsDialog.locator('[data-card-wait="010"]')).toHaveCount(0);
+  });
 });
