@@ -7548,8 +7548,6 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // then a control that could not express what the row already held.
             const inherited = live.current.effectiveServiceLabelOf(row.original);
             const own = row.original.serviceIds;
-            const named = (id: string): string =>
-              live.current.services.find((each) => each.id === id)?.name ?? id;
             // Task 7.2's first marker, on the cell its signal is about. The
             // **effective** reading, so a leaf inheriting a service it is not
             // owned to build is marked where the inheritance put the service —
@@ -7559,44 +7557,11 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             const nonOwner = live.current.nonOwnerNoteOf(row.original);
             return (
               <span style={{ display: 'flex', flexWrap: 'wrap', gap: 2, minWidth: 0 }}>
-                {/*
-                One chip per service the row states, each removable on its own.
-                A set is edited a member at a time on screen and written whole on
-                the wire — `setServicesOf` sends the set as it will stand,
-                because a delta has no inverse the undo journal could carry
-                (design D6, and task 10.3's red).
-
-                `named` falls back to the id, which is why `ServiceLabel` no
-                longer needs an `unresolved` arm: a service the directory has not
-                caught up with is on screen as an id rather than missing from a
-                cell that then claims the row has none.
-              */}
-                {own.map((serviceId) => (
-                  <button
-                    key={serviceId}
-                    type="button"
-                    data-service-chip={serviceId}
-                    className="bg-muted flex max-w-full items-center gap-0.5 rounded px-1 text-xs"
-                    aria-label={`Remove ${named(serviceId)} from ${row.original.number}`}
-                    onClick={() => {
-                      void live.current.setServicesOf(
-                        row.original.id,
-                        own.filter((each) => each !== serviceId),
-                      );
-                    }}
-                  >
-                    <span className="truncate">{named(serviceId)}</span>
-                    <span aria-hidden>✕</span>
-                  </button>
-                ))}
-                {/*
-                  After the chips and before the box, not at the end of the
-                  cell: it is about the services on screen to its left, and the
-                  picker is a search box that stays where it has always been.
-                */}
                 {nonOwner !== null && <MismatchMark kind="service" note={nonOwner} />}
-                <CreatablePicker
+                <ReferenceSetStrip
                   label={`Services for ${row.original.number}`}
+                  addLabel={`Add a service to ${row.original.number}`}
+                  removeLabel={(entry) => `Remove ${entry.name} from ${row.original.number}`}
                   placeholder={
                     own.length > 0
                       ? 'add'
@@ -7609,36 +7574,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       ? `${inherited.names.join(', ')} — inherited from ${inherited.fromRow}. This row carries no service of its own.`
                       : undefined
                   }
-                  // Only the services this row does not already carry: offering
-                  // one that is a chip beside it can only mean "add it twice",
-                  // which be-01 deduplicates and the join's primary key refuses.
-                  entries={live.current.services.filter((each) => !own.includes(each.id))}
-                  // Always null: this box adds a member, it does not show the
-                  // set. What the row carries is the chips to its left.
-                  value={null}
-                  onChoose={(id) => {
-                    void live.current.setServicesOf(row.original.id, [...own, id]);
+                  adapter={{
+                    kind: 'service',
+                    entries: live.current.services,
+                    ownIds: own,
+                    inheritedLabel:
+                      inherited.state === 'inherited' ? inherited.names.join(', ') : undefined,
+                    replace: (serviceIds) =>
+                      live.current.setServicesOf(row.original.id, serviceIds),
+                    create: (name, current) =>
+                      live.current.createServiceFor(row.original.id, name, current),
                   }}
-                  onCreate={(name) => {
-                    void live.current.createServiceFor(row.original.id, name, own);
-                  }}
-                  // Dany, 2026-08-23: service cells now search-or-add like Teams
-                  // and Tags — `onCreate` above. The first service still has to
-                  // be made on the directory page (CONDITIONAL_COLUMNS renders
-                  // the column only once a service exists), so the column cannot
-                  // bootstrap itself; the cell's `onCreate` adds subsequent ones.
-                  addButtonLabel={`Add a service to ${row.original.number}`}
-                  // **No `onClear`, and that is a correction rather than an
-                  // omission.** The tag cell beside this one passes one, and it
-                  // is dead: `CreatablePicker` renders its ✕ only while
-                  // `chosen !== undefined`, and a box whose `value` is always
-                  // `null` never has one. Taking the last service off is done by
-                  // removing its chip — the gesture that is actually on screen —
-                  // and the case asserts that `[]` goes out that way. Copying
-                  // the dead prop here would have made a second surface claim an
-                  // affordance neither of them has. Found 2026-08-21 when a case
-                  // written against `Clear Services for 010` could not find the
-                  // button.
                   gridCell={{
                     dataCell: cellKey(row.original.id, 'service'),
                     onTabKey: (e) => {

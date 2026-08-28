@@ -14393,6 +14393,9 @@ describe('the service cell', () => {
     // nothing, which is what `own.length > 0 ? 'add'` says.
     expect(screen.getByLabelText('Remove Checkout from 010')).toBeTruthy();
     expect(screen.getByLabelText('Services for 010')).toHaveAttribute('placeholder', 'add');
+    expect(
+      screen.getByLabelText('Services for 010').closest('[data-reference-set="service"]'),
+    ).not.toBeNull();
     // The child's, as placeholder ink that is shown and not stored — `↳` for
     // the inheritance, the same glyph and the same bargain the Team cell makes
     // at 120px. Inheritance did not change with the widening: blank still means
