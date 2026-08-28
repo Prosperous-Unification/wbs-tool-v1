@@ -7438,89 +7438,46 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
             // `↳` for the inheritance.
             const inherited = live.current.effectiveTagLabelOf(row.original);
             const own = row.original.tagIds;
-            const named = (id: string): string =>
-              live.current.tags.find((each) => each.id === id)?.name ?? id;
             return (
-              <span style={{ display: 'flex', flexWrap: 'wrap', gap: 2, minWidth: 0 }}>
-                {/*
-                One chip per tag the row states, each with its own ✕. A set is
-                edited a member at a time on screen and written whole on the
-                wire — `setTagsOf` sends the set as it will stand, because a
-                delta has no inverse the journal could carry.
-              */}
-                {own.map((tagId) => (
-                  <button
-                    key={tagId}
-                    type="button"
-                    data-tag-chip={tagId}
-                    className="bg-muted flex max-w-full items-center gap-0.5 rounded px-1 text-xs"
-                    aria-label={`Remove ${named(tagId)} from ${row.original.number}`}
-                    onClick={() => {
-                      void live.current.setTagsOf(
-                        row.original.id,
-                        own.filter((each) => each !== tagId),
-                      );
-                    }}
-                  >
-                    <span className="truncate">{named(tagId)}</span>
-                    <span aria-hidden>✕</span>
-                  </button>
-                ))}
-                <CreatablePicker
-                  label={`Tags for ${row.original.number}`}
-                  placeholder={
-                    own.length > 0
-                      ? 'add'
-                      : inherited.state === 'inherited'
-                        ? `↳ ${inherited.names.join(', ')}`
-                        : 'search'
-                  }
-                  title={
-                    own.length === 0 && inherited.state === 'inherited'
-                      ? `${inherited.names.join(', ')} — inherited from ${inherited.fromRow}. This row carries no tag of its own.`
-                      : undefined
-                  }
-                  // Only the tags this row does not already carry: a picker
-                  // offering one that is already a chip beside it can only mean
-                  // "add it twice", which the store deduplicates and the primary
-                  // key refuses.
-                  entries={live.current.tags.filter((each) => !own.includes(each.id))}
-                  // Always null: this box adds a member, it does not show the
-                  // set. What the row carries is the chips to its left.
-                  value={null}
-                  onChoose={(id) => {
-                    void live.current.setTagsOf(row.original.id, [...own, id]);
-                  }}
-                  onCreate={(name) => {
-                    void live.current.createTagFor(row.original.id, name, own);
-                  }}
-                  // Dany, 2026-08-23: tag cells now search-or-add like Teams and
-                  // Services — `onCreate` above. The first tag still has to be
-                  // made on the directory page (CONDITIONAL_COLUMNS renders the
-                  // column only once a tag exists), so the column cannot
-                  // bootstrap itself; the cell's `onCreate` adds subsequent ones.
-                  addButtonLabel={`Add a tag to ${row.original.number}`}
-                  onClear={
-                    own.length === 0
-                      ? undefined
-                      : () => {
-                          void live.current.setTagsOf(row.original.id, []);
-                        }
-                  }
-                  gridCell={{
-                    dataCell: cellKey(row.original.id, 'tag'),
-                    onTabKey: (e) => {
-                      live.current.onTabKey(e, row.original.id, 'tag');
-                    },
-                    onCommandKey: (e) => {
-                      live.current.onCommandKey(e, row.original, 'tag');
-                    },
-                    onAltMove: (e) => {
-                      live.current.onAltMove(e, row.original, 'tag');
-                    },
-                  }}
-                />
-              </span>
+              <ReferenceSetStrip
+                label={`Tags for ${row.original.number}`}
+                addLabel={`Add a tag to ${row.original.number}`}
+                removeLabel={(entry) => `Remove ${entry.name} from ${row.original.number}`}
+                placeholder={
+                  own.length > 0
+                    ? 'add'
+                    : inherited.state === 'inherited'
+                      ? `↳ ${inherited.names.join(', ')}`
+                      : 'search'
+                }
+                title={
+                  own.length === 0 && inherited.state === 'inherited'
+                    ? `${inherited.names.join(', ')} — inherited from ${inherited.fromRow}. This row carries no tag of its own.`
+                    : undefined
+                }
+                adapter={{
+                  kind: 'tag',
+                  entries: live.current.tags,
+                  ownIds: own,
+                  inheritedLabel:
+                    inherited.state === 'inherited' ? inherited.names.join(', ') : undefined,
+                  replace: (tagIds) => live.current.setTagsOf(row.original.id, tagIds),
+                  create: (name, current) =>
+                    live.current.createTagFor(row.original.id, name, current),
+                }}
+                gridCell={{
+                  dataCell: cellKey(row.original.id, 'tag'),
+                  onTabKey: (e) => {
+                    live.current.onTabKey(e, row.original.id, 'tag');
+                  },
+                  onCommandKey: (e) => {
+                    live.current.onCommandKey(e, row.original, 'tag');
+                  },
+                  onAltMove: (e) => {
+                    live.current.onAltMove(e, row.original, 'tag');
+                  },
+                }}
+              />
             );
           },
         }),
