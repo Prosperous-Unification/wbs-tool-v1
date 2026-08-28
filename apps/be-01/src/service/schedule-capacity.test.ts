@@ -52,7 +52,7 @@ const edge = (predecessorId: string, successorId: string): DependencyEdge => ({
  * One slice, with the two facts the caller resolves written out.
  *
  * Written out rather than derived here, because that is exactly the contract:
- * `width` and `poolId` are the **adapter's** reading (`slicesOf` in
+ * `width` and `poolIds` are the **adapter's** reading (`slicesOf` in
  * `work-item.service.ts`), and a fixture that re-derived them would be testing
  * a second implementation of the clamp instead of the engine.
  */
@@ -60,14 +60,14 @@ const slice = (
   workItemId: string,
   roleId: string,
   days: number | null,
-  extra: Partial<Pick<Slice, 'personId' | 'width' | 'poolId'>> = {},
+  extra: Partial<Pick<Slice, 'personId' | 'width' | 'poolIds'>> = {},
 ): Slice => ({
   workItemId,
   roleId,
   days,
   personId: null,
   width: 1,
-  poolId: null,
+  poolIds: [],
   ...extra,
 });
 
@@ -142,7 +142,7 @@ describe('capacity — a team is a pool of slots', () => {
     // Three width-1 blocks of 2 days on a team of 2: the third cannot start
     // until the first releases.
     const rows = ['a', 'b', 'c'].map((id) => item(id, { serviceTeamId: PLATFORM }));
-    const slices = rows.map((row) => slice(row.id, DEV, 2, { poolId: PLATFORM }));
+    const slices = rows.map((row) => slice(row.id, DEV, 2, { poolIds: [PLATFORM] }));
 
     const found = schedule(rows, [], slices, new Map(), pool(2));
 
@@ -164,7 +164,7 @@ describe('capacity — a team is a pool of slots', () => {
     // would make a duration depend on placement order, which is what makes
     // `offsets[]` unsummable before placement.
     const rows = ['a', 'b'].map((id) => item(id, { serviceTeamId: PLATFORM, maxParallel: 2 }));
-    const slices = rows.map((row) => slice(row.id, DEV, 4, { width: 2, poolId: PLATFORM }));
+    const slices = rows.map((row) => slice(row.id, DEV, 4, { width: 2, poolIds: [PLATFORM] }));
 
     const found = schedule(rows, [], slices, new Map(), pool(3));
 
@@ -198,9 +198,9 @@ describe('capacity — a team is a pool of slots', () => {
       item('wide', { serviceTeamId: PLATFORM, priority: 3 }),
     ];
     const slices = [
-      slice('early', DEV, 1, { poolId: PLATFORM }),
-      slice('late', DEV, 4, { poolId: PLATFORM }),
-      slice('wide', DEV, 3, { poolId: PLATFORM }),
+      slice('early', DEV, 1, { poolIds: [PLATFORM] }),
+      slice('late', DEV, 4, { poolIds: [PLATFORM] }),
+      slice('wide', DEV, 3, { poolIds: [PLATFORM] }),
     ];
     // `late` is floored to 2, which is what leaves the hole; `wide` is popped
     // after both because its critical-path start ties and its row number is
@@ -237,9 +237,9 @@ describe('capacity — a team is a pool of slots', () => {
       item('through', { serviceTeamId: PLATFORM, priority: 3 }),
     ];
     const slices = [
-      slice('held', DEV, 2, { poolId: PLATFORM }),
-      slice('next', DEV, 2, { poolId: PLATFORM }),
-      slice('through', DEV, 4, { poolId: PLATFORM }),
+      slice('held', DEV, 2, { poolIds: [PLATFORM] }),
+      slice('next', DEV, 2, { poolIds: [PLATFORM] }),
+      slice('through', DEV, 4, { poolIds: [PLATFORM] }),
     ];
     const floors = new Map([['next', 2]]);
 
@@ -266,7 +266,7 @@ describe('capacity — a team is a pool of slots', () => {
     ];
     const backwards = [...forwards].reverse();
     const slicesFor = (order: readonly WorkItem[]): Slice[] =>
-      order.map((row) => slice(row.id, DEV, row.id === 'b' ? 3 : 2, { poolId: PLATFORM }));
+      order.map((row) => slice(row.id, DEV, row.id === 'b' ? 3 : 2, { poolIds: [PLATFORM] }));
 
     const one = schedule(forwards, [], slicesFor(forwards), new Map(), pool(2));
     const other = schedule(backwards, [], slicesFor(backwards), new Map(), pool(2));
@@ -278,7 +278,7 @@ describe('capacity — a team is a pool of slots', () => {
 
   it('fits a block exactly as wide as its pool', () => {
     const rows = [item('a', { serviceTeamId: PLATFORM, maxParallel: 2 })];
-    const slices = [slice('a', DEV, 4, { width: 2, poolId: PLATFORM })];
+    const slices = [slice('a', DEV, 4, { width: 2, poolIds: [PLATFORM] })];
 
     const found = schedule(rows, [], slices, new Map(), pool(2));
 
@@ -311,9 +311,9 @@ describe('capacity — a team is a pool of slots', () => {
     // an instant at which nothing is happening; watched 2026-08-12.
     const rows = ['z', 'a', 'b'].map((id) => item(id, { serviceTeamId: PLATFORM }));
     const slices = [
-      slice('z', DEV, 0, { poolId: PLATFORM }),
-      slice('a', DEV, 2, { poolId: PLATFORM }),
-      slice('b', DEV, 2, { poolId: PLATFORM }),
+      slice('z', DEV, 0, { poolIds: [PLATFORM] }),
+      slice('a', DEV, 2, { poolIds: [PLATFORM] }),
+      slice('b', DEV, 2, { poolIds: [PLATFORM] }),
     ];
     const notBefore = new Map([
       ['a', 1],
@@ -351,8 +351,8 @@ describe('capacity — a team is a pool of slots', () => {
     // the slot is keyed on the work, the queue on the person.
     const rows = ['a', 'b'].map((id) => item(id, { serviceTeamId: PLATFORM }));
     const slices = [
-      slice('a', DEV, 3, { personId: 'kat', poolId: PLATFORM }),
-      slice('b', DEV, 3, { personId: 'sam', poolId: PLATFORM }),
+      slice('a', DEV, 3, { personId: 'kat', poolIds: [PLATFORM] }),
+      slice('b', DEV, 3, { personId: 'sam', poolIds: [PLATFORM] }),
     ];
 
     // A team of 1 with two different people on it: the pool binds, not the queue.
@@ -364,8 +364,8 @@ describe('capacity — a team is a pool of slots', () => {
       rows,
       [],
       [
-        slice('a', DEV, 3, { personId: 'kat', poolId: PLATFORM }),
-        slice('b', DEV, 3, { personId: 'kat', poolId: PLATFORM }),
+        slice('a', DEV, 3, { personId: 'kat', poolIds: [PLATFORM] }),
+        slice('b', DEV, 3, { personId: 'kat', poolIds: [PLATFORM] }),
       ],
       new Map(),
       pool(2),
@@ -382,8 +382,8 @@ describe('capacity — a team is a pool of slots', () => {
     // both floors are 3 and the person is owed the sentence.
     const rows = ['a', 'b'].map((id) => item(id, { serviceTeamId: PLATFORM }));
     const slices = [
-      slice('a', DEV, 3, { personId: 'kat', poolId: PLATFORM }),
-      slice('b', DEV, 2, { personId: 'kat', poolId: PLATFORM }),
+      slice('a', DEV, 3, { personId: 'kat', poolIds: [PLATFORM] }),
+      slice('b', DEV, 2, { personId: 'kat', poolIds: [PLATFORM] }),
     ];
 
     const found = schedule(rows, [], slices, new Map(), pool(1));
@@ -408,7 +408,7 @@ describe('capacity — a team is a pool of slots', () => {
     const rows = ['a', 'b', 'c'].map((id) => item(id, { serviceTeamId: PLATFORM }));
     const days = [1 / 3, 2 / 3, 1 / 6];
     const unlabelled = rows.map((row, at) => slice(row.id, DEV, days[at]));
-    const pooled = rows.map((row, at) => slice(row.id, DEV, days[at], { poolId: PLATFORM }));
+    const pooled = rows.map((row, at) => slice(row.id, DEV, days[at], { poolIds: [PLATFORM] }));
 
     const bare = schedule(rows, [], unlabelled);
     const sized = schedule(rows, [], pooled, new Map(), pool(10));
@@ -441,9 +441,9 @@ describe('float — the blocking set is the whole set', () => {
       item('X', { serviceTeamId: PLATFORM, maxParallel: 2 }),
     ];
     const slices = [
-      slice('A', DEV, 5, { poolId: PLATFORM }),
-      slice('B', DEV, 7, { poolId: PLATFORM }),
-      slice('X', DEV, 6, { width: 2, poolId: PLATFORM }),
+      slice('A', DEV, 5, { poolIds: [PLATFORM] }),
+      slice('B', DEV, 7, { poolIds: [PLATFORM] }),
+      slice('X', DEV, 6, { width: 2, poolIds: [PLATFORM] }),
     ];
 
     const found = schedule(rows, [], slices, new Map(), pool(2));
@@ -485,9 +485,9 @@ describe('float — the blocking set is the whole set', () => {
       item('tail'),
     ];
     const slices = [
-      slice('A', DEV, 2, { poolId: PLATFORM }),
-      slice('B', DEV, 6, { poolId: PLATFORM }),
-      slice('X', DEV, 4, { width: 2, poolId: PLATFORM }),
+      slice('A', DEV, 2, { poolIds: [PLATFORM] }),
+      slice('B', DEV, 6, { poolIds: [PLATFORM] }),
+      slice('X', DEV, 4, { width: 2, poolIds: [PLATFORM] }),
       slice('tail', DEV, 12),
     ];
 
@@ -523,8 +523,8 @@ describe('float — the blocking set is the whole set', () => {
       { ...item('second', { serviceTeamId: PLATFORM }), priority: 2 },
     ];
     const slices = [
-      slice('first', DEV, 3, { poolId: PLATFORM }),
-      slice('second', DEV, 2, { poolId: PLATFORM }),
+      slice('first', DEV, 3, { poolIds: [PLATFORM] }),
+      slice('second', DEV, 2, { poolIds: [PLATFORM] }),
     ];
     const floors = new Map([['first', 4]]);
 
@@ -550,8 +550,8 @@ describe('float — the blocking set is the whole set', () => {
       item('b', { serviceTeamId: PLATFORM }),
     ];
     const slices = [
-      slice('a', DEV, (1 + 4 * 2 + 4) / 6, { width: 3, poolId: PLATFORM }),
-      slice('b', DEV, (2 + 4 * 3 + 7) / 6, { poolId: PLATFORM }),
+      slice('a', DEV, (1 + 4 * 2 + 4) / 6, { width: 3, poolIds: [PLATFORM] }),
+      slice('b', DEV, (2 + 4 * 3 + 7) / 6, { poolIds: [PLATFORM] }),
     ];
 
     const found = schedule(rows, [edge('a', 'b')], slices, new Map(), pool(3));
@@ -576,7 +576,7 @@ describe('determinism and refusals', () => {
       order.map((row) =>
         slice(row.id, DEV, row.id === 'c' ? 6 : 2, {
           width: row.id === 'c' ? 2 : 1,
-          poolId: PLATFORM,
+          poolIds: [PLATFORM],
         }),
       );
 
@@ -593,7 +593,7 @@ describe('determinism and refusals', () => {
     const rows = Array.from({ length: 30 }, (_, at) =>
       item(`w${String(at)}`, { serviceTeamId: PLATFORM }),
     );
-    const slices = rows.map((row) => slice(row.id, DEV, 1, { poolId: PLATFORM }));
+    const slices = rows.map((row) => slice(row.id, DEV, 1, { poolIds: [PLATFORM] }));
 
     const found = schedule(rows, [], slices, new Map(), pool(1));
 
@@ -603,11 +603,11 @@ describe('determinism and refusals', () => {
   });
 
   it('refuses a pooled slice whose pool has no size', () => {
-    // R5. The adapter sets `poolId` only for a team that has a size, so an
+    // R5. The adapter puts a team in `poolIds` only when it has a size, so an
     // absent entry means the two readings came apart — and a default of
     // "unbounded" here would be a capacity constraint quietly not applied.
     const rows = [item('a', { serviceTeamId: PLATFORM })];
-    const slices = [slice('a', DEV, 2, { poolId: PLATFORM })];
+    const slices = [slice('a', DEV, 2, { poolIds: [PLATFORM] })];
 
     expect(() => schedule(rows, [], slices, new Map(), new Map())).toThrow(
       /no size for pool team-platform/,
@@ -626,7 +626,7 @@ describe('determinism and refusals', () => {
     // this test green: the backstop caught the same plan after a full scan and
     // the test could not tell. Watched 2026-08-12, and the clause is the fix.
     const rows = [item('a', { serviceTeamId: PLATFORM, maxParallel: 4 })];
-    const slices = [slice('a', DEV, 4, { width: 4, poolId: PLATFORM })];
+    const slices = [slice('a', DEV, 4, { width: 4, poolIds: [PLATFORM] })];
 
     expect(() => schedule(rows, [], slices, new Map(), pool(2))).toThrow(
       /cannot fit pool team-platform.*refused before the search/s,
@@ -635,7 +635,7 @@ describe('determinism and refusals', () => {
 
   it('still throws a cycle error on a cyclic graph, pools and all', () => {
     const rows = ['a', 'b'].map((id) => item(id, { serviceTeamId: PLATFORM }));
-    const slices = rows.map((row) => slice(row.id, DEV, 2, { poolId: PLATFORM }));
+    const slices = rows.map((row) => slice(row.id, DEV, 2, { poolIds: [PLATFORM] }));
 
     expect(() =>
       schedule(rows, [edge('a', 'b'), edge('b', 'a')], slices, new Map(), pool(1)),
@@ -659,9 +659,9 @@ describe('the scan, instrumented', () => {
       item(`w${String(at)}`, { serviceTeamId: PLATFORM }),
     );
     const slices = rows.flatMap((row) => [
-      slice(row.id, DEV, 2, { poolId: PLATFORM }),
-      slice(row.id, QA, 1, { poolId: PLATFORM }),
-      slice(row.id, 'role-review', 1, { poolId: PLATFORM }),
+      slice(row.id, DEV, 2, { poolIds: [PLATFORM] }),
+      slice(row.id, QA, 1, { poolIds: [PLATFORM] }),
+      slice(row.id, 'role-review', 1, { poolIds: [PLATFORM] }),
     ]);
 
     const found = schedule(rows, [], slices, new Map(), pool(4));

@@ -122,49 +122,54 @@ const UNSCHEDULED: Scheduled = {
  *   silently or thrown over the whole project's read.
  */
 /**
- * Which pool one row's slices spend slots in, and how many slots that pool
- * holds — read off the row's effective **team** set.
+ * Which pools one row's slices spend slots in, and the **narrowest** of their
+ * sizes — read off the row's effective **team** set.
  *
  * Three rules, and the first two are today's, unchanged by the arity:
  *
  * 1. **No team, no pool.** An empty set states nothing, so the slice is
  *    unconstrained.
  * 2. **An unsized team labels the work and constrains nothing.** A team this
- *    project has stated no capacity for is absent from `teamSizes`, and the
- *    `null` pool that comes back is what keeps the engine's `no size for pool`
- *    throw a caller-fault assertion rather than ordinary control flow.
- * 3. **More than one team throws.** The engine takes one pool per slice
- *    (`Slice.poolId`), so the honest answers are "refuse" and "spend in all of
- *    them" — and the second is R2-2, the change after this one. Narrowing to
- *    the first member instead would schedule the work against a pool the plan
- *    never narrowed to, silently, and is exactly the trap `effectiveTeamsOf`
- *    was renamed to prevent (design.md D3, D4).
+ *    project has stated no capacity for is absent from `teamSizes`, so it is
+ *    absent from `poolIds` too — which is what keeps the engine's `no size for
+ *    pool` throw a caller-fault assertion rather than ordinary control flow. It
+ *    contributes no clamp either: an unstated capacity is not a capacity of
+ *    zero, and reading it as one would move dates nobody typed.
+ * 3. **Every sized team is a pool, and the block spends its whole width in
+ *    each** (Dany, 2026-08-13, decision 3). `slots` is therefore the
+ *    **minimum** of their sizes: a block wider than the narrowest of its pools
+ *    can never be placed in that pool, so without the min
+ *    `CapacityTooNarrowError` — an invariant about the caller and these sizes
+ *    coming apart — becomes reachable from ordinary data.
  *
- * Rule 3 is an invariant assertion rather than a modelled refusal, of the same
- * kind as `schedule.ts`'s `no size for pool`: nothing a client can send
- * produces a second team while the write path writes at most one. R5 — unknown
- * is not OK — and it is a throw rather than a comment because a throw can be
- * watched, which is what the negative below does.
+ * Rule 3 replaces `team-sets`' refusal, which threw on a second team because
+ * the engine took one pool per slice. It takes several now.
  *
- * Exported for that test alone; `slicesOf` is its only production caller.
+ * The order of `poolIds` is the effective set's order, which is the store's:
+ * the joint search's answer does not depend on it (it is a max over the pools'
+ * answers, and the union of their blocking sets), and the binding team's tie is
+ * broken on the pool id rather than on placement, so nothing here needs sorting
+ * to be deterministic.
  *
- * Proof: the arity guard made unreachable, so the body falls through to
- * `teamIds.at(0)`, and `refuses a set the engine cannot spend` failed on
- * `Received function did not throw` — the silent narrowing this exists to
- * prevent, reported as a passing schedule; watched 2026-08-14.
+ * Exported for the tests alone; `slicesOf` is its only production caller.
  */
-export function poolFor(
+export function poolsFor(
   teamIds: readonly string[],
   teamSizes: ReadonlyMap<string, number>,
-): { poolId: string | null; slots: number | undefined } {
-  if (teamIds.length > 1) {
-    throw new Error(
-      `a work item’s effective team set holds ${String(teamIds.length)} teams (${teamIds.join(', ')}), and a slice spends slots in one pool`,
-    );
+): { poolIds: string[]; slots: number | undefined } {
+  const poolIds: string[] = [];
+  let slots: number | undefined;
+  for (const teamId of teamIds) {
+    const size = teamSizes.get(teamId);
+    if (size === undefined) continue;
+    poolIds.push(teamId);
+    // Proof: written as `Math.max` and `clamps a work item’s parallelism down
+    // to the narrowest of its teams` failed with `width: 3` where 1 was owed —
+    // a block claiming three of a team that holds one, which the engine then
+    // refuses outright with `CapacityTooNarrowError`; watched 2026-08-14.
+    slots = slots === undefined ? size : Math.min(slots, size);
   }
-  const teamId = teamIds.at(0) ?? null;
-  const slots = teamId === null ? undefined : teamSizes.get(teamId);
-  return { poolId: slots === undefined ? null : teamId, slots };
+  return { poolIds, slots };
 }
 
 function slicesOf(
@@ -225,7 +230,7 @@ function slicesOf(
     // while its own assignee was on somebody else's `Dev`; watched 2026-08-09.
     const personFor = (roleId: string | null): string | null =>
       (roleId === null ? undefined : byRole[roleId]) ?? assumedAssignee(byRole);
-    const { poolId, slots } = poolFor(teamOf.get(row.id)?.teamIds ?? [], teamSizes);
+    const { poolIds, slots } = poolsFor(teamOf.get(row.id)?.teamIds ?? [], teamSizes);
     /**
      * How many slots one of this row's slices holds while it runs.
      *
@@ -238,8 +243,10 @@ function slicesOf(
      *    serialises its roles. One human cannot work beside themselves, and the
      *    alternative — "kat plus two others" — has the engine claiming people
      *    the plan has not named.
-     * 2. **Nobody may claim more people than the team has.** A `maxParallel` of
-     *    4 against a team of 2 runs at 2.
+     * 2. **Nobody may claim more people than the team has** — and where the
+     *    work names several teams, than the **narrowest** of them has. A
+     *    `maxParallel` of 4 against a team of 2 runs at 2, and against a team
+     *    of 4 and a team of 1 it runs at 1.
      * 3. Otherwise the stored number.
      *
      * Resolved here rather than in the pass for `personId`'s reason: a second
@@ -249,7 +256,8 @@ function slicesOf(
      * Proof: the clamp against `slots` dropped and `clamps a work item's
      * parallelism down to the size of its team` failed with `width: 4` and
      * `duration: 1` — a plan claiming four of a team of two; watched
-     * 2026-08-12.
+     * 2026-08-12. The set-valued arm of the same clamp is
+     * {@link poolsFor}'s own proof.
      *
      * Proof: the named-person arm dropped and `runs a named person's work one
      * at a time however parallel the item is` failed with `width: 3` and
@@ -267,7 +275,7 @@ function slicesOf(
         days: null,
         personId,
         width: widthFor(personId),
-        poolId,
+        poolIds,
       });
       continue;
     }
@@ -279,7 +287,7 @@ function slicesOf(
         days: days.get(sliceKey(row.id, roleId)) ?? null,
         personId,
         width: widthFor(personId),
-        poolId,
+        poolIds,
       });
     }
   }
