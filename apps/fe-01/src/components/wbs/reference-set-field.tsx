@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 
-import { CreatablePicker } from './creatable-picker';
+import { CreatablePicker, type CreatablePickerProps } from './creatable-picker';
 import type { CommitOutcome } from './live-editing';
 
 export type ReferenceSetKind = 'team' | 'tag' | 'service';
@@ -22,12 +22,13 @@ export interface ReferenceSetAdapter {
 export interface ReferenceSetStripProps {
   label: string;
   adapter: ReferenceSetAdapter;
+  gridCell?: CreatablePickerProps['gridCell'];
 }
 
 const unique = (ids: readonly string[]): string[] => [...new Set(ids)];
 
 /** Shared compact editor for directory-backed work-item reference sets. */
-export function ReferenceSetStrip({ label, adapter }: ReferenceSetStripProps) {
+export function ReferenceSetStrip({ label, adapter, gridCell }: ReferenceSetStripProps) {
   const root = useRef<HTMLSpanElement>(null);
   const ownIds = unique(adapter.ownIds);
   const own = ownIds.map(
@@ -107,6 +108,7 @@ export function ReferenceSetStrip({ label, adapter }: ReferenceSetStripProps) {
           onChoose={(id) => void add(() => adapter.replace([...ownIds, id]))}
           onCreate={(name) => void add(() => adapter.create(name, ownIds))}
           placeholder={`Search ${label.toLowerCase()}`}
+          gridCell={gridCell}
         />
       </span>
       {adapter.inheritedLabel !== undefined && (

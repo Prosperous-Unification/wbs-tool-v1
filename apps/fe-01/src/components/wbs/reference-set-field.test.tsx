@@ -96,6 +96,27 @@ describe('ReferenceSetStrip', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add a team' }));
     expect(screen.getByRole('combobox', { name: 'Teams' })).toHaveFocus();
   });
+
+  itDom('forwards the table keyboard path through its combobox', () => {
+    const calls: string[] = [];
+    render(
+      <ReferenceSetStrip
+        label="Teams"
+        adapter={adapter()}
+        gridCell={{
+          dataCell: 'row-1::team',
+          onTabKey: (event) => calls.push(`tab:${event.key}`),
+          onCommandKey: (event) => calls.push(`command:${event.key}`),
+          onAltMove: (event) => calls.push(`alt:${event.key}`),
+        }}
+      />,
+    );
+
+    const box = screen.getByRole<HTMLInputElement>('combobox', { name: 'Teams' });
+    expect(box.dataset.cell).toBe('row-1::team');
+    fireEvent.keyDown(box, { key: 'Tab' });
+    expect(calls).toEqual(['tab:Tab']);
+  });
 });
 
 describe('ReferenceSetSheet', () => {
