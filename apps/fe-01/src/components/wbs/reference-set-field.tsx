@@ -122,6 +122,7 @@ export function ReferenceSetStrip({
           label={label}
           entries={offered}
           value={null}
+          restingValue={own.length === 1 ? own[0]?.name : undefined}
           onChoose={(id) => add(() => adapter.replace([...ownIds, id]))}
           onCreate={(name) => add(() => adapter.create(name, ownIds))}
           closeWhen={(outcome) => outcome === 'landed'}

@@ -12741,6 +12741,9 @@ describe('the chords reach the picker cells and the date cell', () => {
     const box = teamBox(number);
     box.focus();
     fireEvent.focus(box);
+    // A shared set excludes already-selected teams from its offers. Type a
+    // fresh name so this helper still proves the grid chords with a list open.
+    fireEvent.change(box, { target: { value: 'next team' } });
     await screen.findByRole('listbox', { name: `Service or team for ${number}` });
     return box;
   };

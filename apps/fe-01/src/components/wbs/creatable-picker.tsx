@@ -166,6 +166,8 @@ export interface CreatablePickerProps {
   entries: readonly PickableEntry[];
   /** The chosen entry's id, or null. */
   value: string | null;
+  /** Text shown while closed when the chosen entry is not part of this picker's offers. */
+  restingValue?: string;
   onChoose: (id: string) => unknown;
   /**
    * Called with a name that is not in the list. The caller creates it and
@@ -320,6 +322,7 @@ export function CreatablePicker({
   label,
   entries,
   value,
+  restingValue,
   onChoose,
   onCreate,
   closeWhen,
@@ -466,7 +469,7 @@ export function CreatablePicker({
         // A layout the grid does not touch: the attribute is what the table
         // finds this box by, and it adds nothing to the flex row it sits in.
         style={{ font: 'inherit', flex: 1, minWidth: 0, width: 'auto' }}
-        value={typed ?? chosen?.name ?? ''}
+        value={typed ?? restingValue ?? chosen?.name ?? ''}
         onFocus={() => {
           setTyped('');
           setActiveIndex(0);
