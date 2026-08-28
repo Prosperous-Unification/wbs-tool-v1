@@ -69,6 +69,12 @@
 - The first complete desktop-family run exposed six legacy Teams compatibility faults at 524/530. Restored `c89afdf` passed all watched cases 7/7 and the complete reference-set/table run 530/530.
 - Tags moved to the same `ReferenceSetStrip` adapter at `b04cc01`. The complete reference-set/table run passed 530/530; fe-01 app/e2e typecheck, touched lint, and format passed on h2puni. Teams, Tags, and Services now share one desktop strip while retaining their existing directories and `Promise<CommitOutcome>` writers, completing tasks 3.1 and 3.2. No build or test ran on h1claw.
 
+### Observed during task 3.3
+
+- The 390×844 Teams watched guard first failed because the phone sheet had no `data-reference-set="team"` and exposed only one scalar value. The shared `ReferenceSetSheet` restoration exposes every selected team as an independently removable chip.
+- Phone `PlanCardsProps` now sends whole sets through `setTeams(row, teamIds)` and passes the current set to `createTeam`. The 390×844 suite covers two selected teams, refused typed input retention, pending double-tap suppression, landed close, inherited reveal, and Tags/Services create/remove through the same sheet.
+- Remote `plan-cards.test.tsx` passed 109/109 and `reference-set-field.test.tsx` passed 8/8 after the standalone dialog contract was restored. The complete table suite passed 522/522 during the combined gate; fe-01 app/e2e typecheck, touched lint, and format are green with one pre-existing hook warning and zero lint errors. No build or test ran on h1claw.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
