@@ -89,6 +89,13 @@ export interface PhasesDialogProps {
    * has set an earliest start is 28px narrower than one where somebody has.
    */
   frameState: FrameLayoutState;
+  /**
+   * The reader's hidden columns, sanitised — what the table is really showing,
+   * so the folded width quoted below is the width of that table and not of the
+   * default one. `foldedTableMinWidth` throws on an id it does not know, which
+   * is why the caller hands over its filtered list and never the stored one.
+   */
+  hiddenColumnIds: readonly string[];
   numberOf: NumberOf;
   nameOf: NameOf;
   addRole: (name: string) => Promise<RoleView>;
@@ -127,6 +134,7 @@ interface Confirming {
 export function PhasesDialog({
   roles,
   frameState,
+  hiddenColumnIds,
   numberOf,
   nameOf,
   addRole,
@@ -293,6 +301,7 @@ export function PhasesDialog({
   const minWidth = foldedTableMinWidth(
     roles.map((role) => role.id),
     frameState,
+    hiddenColumnIds,
   );
 
   /** Opens and closes, and leaves nothing half-answered behind on the way out. */

@@ -334,30 +334,79 @@ const PLAN_WIDTHS = new Map<string, (state: FrameLayoutState) => number>([
 ]);
 
 /**
- * Every fixed column this table renders, whatever the plan — the two halves of
- * the width table together.
+ * Every column with a declared width — the two halves of the width table
+ * together, hidden by default or not. What the table *can* render; what it
+ * renders before a reader has said anything is {@link DEFAULT_COLUMN_SET}.
  *
- * Enumerated from the maps rather than written out a second time: the folded
- * minimum the Phases dialog quotes is "every fixed column, plus Name, plus one
- * folded column per phase", and a column added to either map but missing here
- * would be a number describing a narrower table than the one on screen.
+ * Enumerated from the maps rather than written out a second time: a column
+ * added to either map but missing here would be a number describing a narrower
+ * table than the one on screen.
  */
-/**
- * The columns that are on screen **in every state of the table**, which is what
- * the folded budget is measured over.
- *
- * `tag` and `service` are excluded and they are the only exclusions: see their
- * entries in {@link COLUMN_WIDTHS} for what each exemption buys and what it
- * costs. Both still have a declared width there, because a column that is
- * sometimes on screen still has to lay out when it is — what it must not do is
- * be counted in the floor of a table that is not showing it.
- */
-export const CONDITIONAL_COLUMNS: readonly string[] = ['tag', 'service'];
+export const FIXED_COLUMNS: readonly string[] = [...COLUMN_WIDTHS.keys(), ...PLAN_WIDTHS.keys()];
 
-export const FIXED_COLUMNS: readonly string[] = [
-  ...COLUMN_WIDTHS.keys(),
-  ...PLAN_WIDTHS.keys(),
-].filter((id) => !CONDITIONAL_COLUMNS.includes(id));
+/**
+ * The columns off the table until a reader shows them — the whole of what makes
+ * the default column set different from {@link FIXED_COLUMNS}.
+ *
+ * `team` and `service`, and the arithmetic is why: the folded two-phase table
+ * has 29px of slack at 1280 (`e2e/layout.spec.ts`, `holds the folded budget at
+ * 1280`), each of these three label columns costs 120, and `tag` is the one on
+ * by default. Teams off pays for Tags on, to the pixel, so the figure that
+ * budget test is measured against did not move when `configurable-columns`
+ * replaced the old rule — Tags and Services rendered only where the directory
+ * held one — with this list. A reader's own hidden columns start from it and
+ * are stored as a hide-list, so a column added to the width table later is on
+ * screen by default without touching anybody's storage.
+ *
+ * Proof: `tag` put here, `table-frame.test.ts` failed on `expected 1139 to be
+ * 1259`; `team` struck from here, on `expected 1187 to be 1067`. Watched,
+ * 2026-08-28.
+ */
+export const DEFAULT_HIDDEN_COLUMNS: readonly string[] = ['team', 'service'];
+
+/**
+ * The columns a project's table shows before anybody has hidden or shown one —
+ * the same set on every deployment, whatever its directory holds — and the
+ * set the folded-width budget is measured over.
+ */
+export const DEFAULT_COLUMN_SET: readonly string[] = FIXED_COLUMNS.filter(
+  (id) => !DEFAULT_HIDDEN_COLUMNS.includes(id),
+);
+
+/**
+ * The row's controls, which no reader may hide: the drag handle, Number, Name
+ * and the ⋯ menu. A table with no Name column is not a narrower table, it is no
+ * table; a row with no handle cannot be moved and no menu cannot be acted on.
+ */
+export const ROW_CONTROLS: readonly string[] = ['drag', 'number', 'name', 'actions'];
+
+/**
+ * The columns a reader may hide, in the order the table renders them — what
+ * the Columns control lists. Every declared column that is not one of
+ * {@link ROW_CONTROLS}, with each role as **one** entry by its bare id, sitting
+ * where the role's columns sit.
+ *
+ * Written out rather than read off {@link FIXED_COLUMNS}, because the width
+ * table's order is not the table's; `table-frame.test.ts` holds the two to the
+ * same membership, so a column added to the width table without a place here
+ * fails there rather than going unofferable.
+ */
+export function hideableColumnIds(roleIds: readonly string[]): readonly string[] {
+  return [
+    'depends',
+    'priority',
+    'team',
+    'tag',
+    'service',
+    'in-parallel',
+    ...roleIds,
+    'final-total',
+    'not-before',
+    'start',
+    'finish',
+    'float',
+  ];
+}
 
 /**
  * The columns with no declared width, which take what the fixed ones leave.
@@ -780,16 +829,14 @@ export function pinnedGeometryFor(
  * exist while the table lays out the ones that do: an override is stored under
  * the exact column id and a `phase0-final` could never carry one.
  *
- * Every column in {@link FIXED_COLUMNS} is on screen in every state of this
- * table — the drag handle, the number, Depends on, the team, the total, the
- * not-before date, Start, Finish, Slack and the ⋯ menu, none of them
- * conditional — so the folded floor is that set, plus Name's
- * {@link FLEXIBLE_FLOOR}, plus one folded column per phase.
- *
- * **`tag` is not among them**, by construction rather than by omission — see
- * {@link CONDITIONAL_COLUMNS}. A deployment with no tags lays out at exactly
- * the number this function answered before that column existed, which is what
- * makes the budget test's figures still true.
+ * The floor is every declared column in {@link FIXED_COLUMNS} less
+ * `hiddenColumnIds`, plus Name's {@link FLEXIBLE_FLOOR}, plus one folded column
+ * per phase that is not itself hidden. The hidden list defaults to
+ * {@link DEFAULT_HIDDEN_COLUMNS}, so a caller with no reader in front of it —
+ * the budget test, a fresh project — gets the default column set's figure, and
+ * the Phases dialog passes the reader's own list to quote the table actually on
+ * screen. A hidden role's id is passed bare (`role-qa`, not `role-qa-final`),
+ * exactly as it is stored.
  *
  * Derived through {@link frameLayout} rather than as arithmetic of its own,
  * and that is the whole point of it living here rather than as a sentence in
@@ -797,16 +844,28 @@ export function pinnedGeometryFor(
  * commit. `phases-dialog.test.tsx` pins the quoted figure against what a real
  * `WbsTable` render of the same phases declares as its `min-width`.
  *
- * @throws {UnknownColumnError} through {@link frameLayout}, for the same
- * reason it does.
+ * @throws {UnknownColumnError} for a hidden id that is neither a declared
+ * column nor one of `roleIds` — storage drops those at its boundary, so one
+ * reaching here is a caller's typo, and a typo that silently hides nothing is
+ * a check that cannot fail — and through {@link frameLayout}, for its reasons.
+ * Proof: the loop deleted, `refuses a hidden id that is neither a column nor a
+ * role of this plan` failed on `expected function to throw`. Watched 2026-08-28.
  */
-export function foldedTableMinWidth(roleIds: readonly string[], state: FrameLayoutState): number {
+export function foldedTableMinWidth(
+  roleIds: readonly string[],
+  state: FrameLayoutState,
+  hiddenColumnIds: readonly string[] = DEFAULT_HIDDEN_COLUMNS,
+): number {
+  for (const id of hiddenColumnIds) {
+    if (!FIXED_COLUMNS.includes(id) && !roleIds.includes(id)) throw new UnknownColumnError(id);
+  }
+  const shown = (id: string): boolean => !hiddenColumnIds.includes(id);
   return frameLayout(
     [
-      ...FIXED_COLUMNS,
+      ...FIXED_COLUMNS.filter(shown),
       ...FLEXIBLE_COLUMNS,
-      // The folded column of each phase, named exactly as the table names it.
-      ...roleIds.map((roleId) => `${roleId}-final`),
+      // The folded column of each shown phase, named exactly as the table names it.
+      ...roleIds.filter(shown).map((roleId) => `${roleId}-final`),
     ],
     state,
   ).minWidth;

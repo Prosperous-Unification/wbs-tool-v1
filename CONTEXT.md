@@ -565,10 +565,28 @@ and never seen by anyone else.
 _Avoid_: chart height, panel size, splitter position
 
 **Layout reset**:
-Forgetting every column width override and the panel height override for one project, so
-each returns to what is resolved for it now rather than to what it was when the override
-was made.
+Forgetting every column width override, the panel height override and the hidden columns
+for one project, so each returns to what is resolved for it now rather than to what it was
+when the override was made.
 _Avoid_: width reset, restore defaults, revert, clear
+
+**Column set**:
+Which of the table's columns one reader has on screen for one project: the default column
+set less that reader's hidden columns. Held per project, per browser, and never seen by
+anyone else; a saved view may carry one.
+_Avoid_: column config, visible columns, layout, column preferences
+
+**Default column set**:
+The columns a project's table shows before anybody has hidden or shown one — the same set
+on every deployment, whatever its directory holds. The set the folded-width budget is
+measured over.
+_Avoid_: fixed columns, standard columns, all columns
+
+**Hidden column**:
+A column a reader has taken off the table for one project, still in the plan and still
+counted in every roll-up and date; a whole role can be hidden, and then none of its columns
+is on screen. Number, Name and the row's controls cannot be.
+_Avoid_: collapsed column, disabled column, removed column, folded column
 
 **Short date**:
 A calendar day as somebody reads one — `1 Jun`, and `1 Jun 2027` when the year is not the

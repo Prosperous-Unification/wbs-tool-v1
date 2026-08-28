@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -696,6 +697,19 @@ const pressTab = (number: string, shiftKey = false) => {
 beforeEach(() => {
   localStorage.clear();
 });
+
+/**
+ * Every column on screen, for a describe whose tests read the Teams or
+ * Services cells: both are hidden by default since `configurable-columns`, and
+ * those tests are about the cells, not about the default column set. Stored as
+ * the reader would have stored it — an empty hide-list — under both project ids
+ * the file renders. The tests that ARE about the default never call this.
+ */
+const showEveryColumn = (): void => {
+  for (const projectId of ['p1', 'p2']) {
+    localStorage.setItem(`wbs.hiddenColumns.${projectId}`, '[]');
+  }
+};
 
 describe('the WBS table', () => {
   itDom('types a three-level breakdown without touching the mouse', async () => {
@@ -1644,6 +1658,8 @@ describe('collapsing a branch', () => {
 });
 
 describe('teams and assignees', () => {
+  beforeEach(showEveryColumn);
+
   async function oneRow() {
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} />);
@@ -6355,6 +6371,8 @@ describe('arrow keys — cross-review findings', () => {
 });
 
 describe('Tab moves between the fields, from every cell', () => {
+  beforeEach(showEveryColumn);
+
   /** Focuses a cell and puts the caret where a test needs it. */
   const focusCaret = (
     label: string,
@@ -6479,6 +6497,8 @@ describe('Tab moves between the fields, from every cell', () => {
       'Add a dependency to 010',
       'Priority for 010',
       'Service or team for 010',
+      'Tags for 010',
+      'Services for 010',
       'People at once for 010',
       'Dev optimistic for 010',
       'Dev realistic for 010',
@@ -6608,7 +6628,9 @@ describe('Tab moves between the fields, from every cell', () => {
     assignee.focus();
     expect(fireEvent.keyDown(assignee, { key: 'Tab', shiftKey: true })).toBe(false);
 
-    expect(document.activeElement).toBe(screen.getByLabelText('Service or team for 010'));
+    // The Services cell: with every column shown it is the last field before
+    // the trio (the In-parallel cell is a parent's rolled-up figure too).
+    expect(document.activeElement).toBe(screen.getByLabelText('Services for 010'));
   });
 
   itDom('at the edges of the grid the key is left to the browser', async () => {
@@ -9257,6 +9279,8 @@ describe('the widths the table is laid out by', () => {
   });
 
   itDom('does not clip the cells whose popovers open over the rows', async () => {
+    // The team picker is one of those cells, and hidden by default.
+    showEveryColumn();
     // The CSS rule, spelled out because the first version of this test
     // asserted its opposite and called the wrong thing a proof: an absolutely
     // positioned box escapes an `overflow: hidden` ancestor only when its
@@ -9742,12 +9766,12 @@ describe('the widths this browser has dragged', () => {
       // Proof: the range check deleted, this failed on `expected '1000000000px'
       // to be '93px'` — a column a billion pixels wide laid out from a
       // hand-edited store. Watched, 2026-08-09.
-      storedWidths({ number: 1e9, depends: 4, team: 240 });
+      storedWidths({ number: 1e9, depends: 4, tag: 240 });
       await threeRoots();
 
       expect(laidOut().number).toBe('105px');
       expect(laidOut().depends).toBe('110px');
-      expect(laidOut().team).toBe('240px');
+      expect(laidOut().tag).toBe('240px');
     },
   );
 
@@ -11465,6 +11489,8 @@ describe('undo and redo', () => {
  * where a chord must be inert because the list owns the keyboard.
  */
 describe('the command chords', () => {
+  beforeEach(showEveryColumn);
+
   /** A chord as a browser delivers it, aimed at a named box. */
   const chord = (
     box: Element,
@@ -12649,6 +12675,8 @@ describe('the command chords', () => {
  * `every chord that makes or destroys a row is inert while … is open`.
  */
 describe('the chords reach the picker cells and the date cell', () => {
+  beforeEach(showEveryColumn);
+
   const chord = (box: Element, key: string, modifiers: { ctrl?: boolean; alt?: boolean }) =>
     fireEvent.keyDown(box, {
       key,
@@ -12798,10 +12826,10 @@ describe('the chords reach the picker cells and the date cell', () => {
     const back = await openTeam('020');
     chord(back, 'l', { ctrl: true });
 
-    // The In-parallel cell, which `capacity-ui` put between the team and the
-    // first role: the chord goes to the next cell of the row, whatever that is.
+    // The Tags cell, which stands beside the team when every column is shown:
+    // the chord goes to the next cell of the row, whatever that is.
     await waitFor(() => {
-      expect(document.activeElement).toBe(screen.getByLabelText('People at once for 020'));
+      expect(document.activeElement).toBe(screen.getByLabelText('Tags for 020'));
     });
   });
 
@@ -13149,6 +13177,8 @@ describe('a phase changing, and what the table does about it', () => {
 });
 
 describe('narrowing the plan by facet', () => {
+  beforeEach(showEveryColumn);
+
   /**
    * The `finding a work item in the tree` plan, with facts on it:
    *
@@ -13426,6 +13456,8 @@ describe('narrowing the plan by facet', () => {
 });
 
 describe('narrowing the plan by service, and by the two mismatch signals', () => {
+  beforeEach(showEveryColumn);
+
   /**
    * The faceted plan again with the third dimension on it, and the directory
    * facts the two signals are asked against:
@@ -13885,6 +13917,8 @@ describe('narrowing the plan by service, and by the two mismatch signals', () =>
 });
 
 describe('saved views, per browser', () => {
+  beforeEach(showEveryColumn);
+
   /**
    * Where this browser remembers `p1`'s saved views — the key F4 writes.
    */
@@ -14052,6 +14086,105 @@ describe('saved views, per browser', () => {
     expect(localStorage.getItem(KEY)).toBeNull();
   });
 
+  /** The hidden-columns store, which a saved view writes when it carries columns. */
+  const HIDDEN_KEY = 'wbs.hiddenColumns.p1';
+  const columnsOnScreen = (): string[] =>
+    screen.getAllByRole('columnheader').map((th) => th.getAttribute('data-column') ?? '');
+  const toggleColumn = (label: string) => {
+    fireEvent.click(screen.getByText('Columns'));
+    const panel = document.querySelector<HTMLElement>('[data-columns-panel]');
+    if (panel === null) throw new Error('the Columns control opened no panel');
+    fireEvent.click(within(panel).getByLabelText(label));
+  };
+
+  itDom('remembers the columns on screen with the filter, and puts them back with it', async () => {
+    // `configurable-columns`: a view is *how one reader is looking at a plan*,
+    // and which columns are on screen is part of that look. Saved with Depends
+    // on hidden; shown again; picked — and hidden again, in storage too.
+    await aPlanWithATeam();
+    toggleColumn('Depends on');
+    expect(columnsOnScreen()).not.toContain('depends');
+    find('strip');
+    openViews();
+    nameTheView('Narrow');
+    click('Save');
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '[]') as { hiddenColumnIds?: unknown }[];
+    expect(stored[0]?.hiddenColumnIds).toEqual(['depends']);
+
+    toggleColumn('Depends on');
+    expect(columnsOnScreen()).toContain('depends');
+    find('');
+
+    fireEvent.click(screen.getByText('Narrow'));
+    expect(screen.getByLabelText<HTMLInputElement>('Find').value).toBe('strip');
+    expect(columnsOnScreen()).not.toContain('depends');
+    expect(localStorage.getItem(HIDDEN_KEY)).toBe(JSON.stringify(['depends']));
+  });
+
+  itDom(
+    'leaves the columns alone when picking a view saved before column sets existed',
+    async () => {
+      localStorage.setItem(
+        KEY,
+        JSON.stringify([
+          {
+            id: 'old',
+            name: 'Older',
+            criteria: {
+              query: 'strip',
+              teamIds: [],
+              assigneeIds: [],
+              priorityBands: [],
+              estimatedRoleIds: [],
+              unestimated: false,
+              critical: false,
+            },
+          },
+        ]),
+      );
+      await aPlanWithATeam();
+      toggleColumn('Priority');
+      expect(columnsOnScreen()).not.toContain('priority');
+
+      openViews();
+      fireEvent.click(screen.getByText('Older'));
+      expect(screen.getByLabelText<HTMLInputElement>('Find').value).toBe('strip');
+      expect(columnsOnScreen()).not.toContain('priority');
+      expect(localStorage.getItem(HIDDEN_KEY)).toBe(JSON.stringify(['priority']));
+    },
+  );
+
+  itDom(
+    'drops a view whose column set is not a list of strings, and keeps the one beside it',
+    async () => {
+      // Proof: `isAbsentOrStringArray(claimed['hiddenColumnIds'])` dropped from
+      // `isSavedView`, this failed on `expected 'Views (2)' …` — the malformed
+      // view offered, to be applied as a column set the table cannot read.
+      // Watched, 2026-08-28.
+      const criteria = {
+        query: 'x',
+        teamIds: [],
+        assigneeIds: [],
+        priorityBands: [],
+        estimatedRoleIds: [],
+        unestimated: false,
+        critical: false,
+      };
+      localStorage.setItem(
+        KEY,
+        JSON.stringify([
+          { id: 'a', name: 'Good', criteria, hiddenColumnIds: ['depends'] },
+          { id: 'b', name: 'Bad', criteria, hiddenColumnIds: 3 },
+        ]),
+      );
+      await aPlanWithATeam();
+      openViews();
+      expect(screen.getByText('Views (1)')).toBeInTheDocument();
+      expect(screen.getByText('Good')).toBeInTheDocument();
+      expect(screen.queryByText('Bad')).toBeNull();
+    },
+  );
+
   itDom('drops one unusable saved view and keeps the rest', async () => {
     localStorage.setItem(
       KEY,
@@ -14131,6 +14264,8 @@ describe('saved views, per browser', () => {
 });
 
 describe('what the filter says it dropped, and what it exports', () => {
+  beforeEach(showEveryColumn);
+
   /**
    * Two roots with a dependency between them, both leaves so both are placed:
    *
@@ -14315,6 +14450,8 @@ describe('what the filter says it dropped, and what it exports', () => {
 });
 
 describe('the service cell', () => {
+  beforeEach(showEveryColumn);
+
   /**
    * The fixture the facet cases use, one file down: two services in the
    * directory, `Checkout` on `010`, and three rows under it that state none of
@@ -14475,30 +14612,238 @@ describe('the service cell', () => {
       expect(patches[1]).toMatchObject({ patch: { serviceIds: [] } });
     },
   );
+});
 
-  itDom('is not a column at all on a deployment that has never made a service', async () => {
-    // `CONDITIONAL_COLUMNS`' whole bargain: 120px is only spent where somebody
-    // has opted into the dimension. Keyed on the **directory**, not on this
-    // plan's rows — a plan nobody has labelled still needs the cell to put a
-    // first service in, which is why the assertion below uses a fixture with a
-    // service in the directory and none on the row.
-    const bare = fakeApi();
-    await bare.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
-    render(<WbsTable projectId="p1" api={bare} />);
+describe('the columns a reader has hidden', () => {
+  /** Where the hide-list lives for the project every test in here opens. */
+  const KEY = 'wbs.hiddenColumns.p1';
+
+  /** The columns on screen, by id, in table order. */
+  const headerIds = (): string[] =>
+    screen.getAllByRole('columnheader').map((th) => th.getAttribute('data-column') ?? '');
+
+  /** A remembered hide-list, as a hand-edited store would hold it. */
+  const storedHidden = (hidden: unknown): void => {
+    localStorage.setItem(KEY, typeof hidden === 'string' ? hidden : JSON.stringify(hidden));
+  };
+
+  /** What is under the key now, which is what a reload would read. */
+  const stored = (): string | null => localStorage.getItem(KEY);
+
+  async function oneRow(api = fakeApi()) {
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+    return api;
+  }
+
+  /** The default column set as this table renders it, read off `table-frame`. */
+  const DEFAULT_ON_SCREEN = (roleIds: readonly string[]) => [
+    'drag',
+    'number',
+    'name',
+    'depends',
+    'priority',
+    'tag',
+    'in-parallel',
+    ...roleIds.map((id) => `${id}-final`),
+    'final-total',
+    'not-before',
+    'start',
+    'finish',
+    'float',
+    'actions',
+  ];
+
+  itDom('shows the Tags column on an empty directory, and not Teams or Services', async () => {
+    // The negative for the rule this change deletes: until `configurable-
+    // columns` the Tags column existed only once the directory held a tag, and
+    // Teams was on screen in every state. On main this fails twice over.
+    localStorage.removeItem(KEY);
+    await oneRow();
+    expect(headerIds()).toEqual(DEFAULT_ON_SCREEN(['role-dev', 'role-qa']));
+    expect(screen.getByLabelText('Add a tag to 010')).toBeDefined();
+    expect(screen.queryByLabelText('Service or team for 010')).toBeNull();
+    expect(screen.queryByLabelText('Services for 010')).toBeNull();
+  });
+
+  itDom('shows the same default set on a full directory', async () => {
+    localStorage.removeItem(KEY);
+    const api = fakeApi();
+    await api.addTeam('Platform');
+    await api.addService('Checkout');
+    await oneRow(api);
+    expect(headerIds()).toEqual(DEFAULT_ON_SCREEN(['role-dev', 'role-qa']));
+  });
+
+  itDom('keeps a hidden column hidden across a reload', async () => {
+    storedHidden(['priority']);
+    await oneRow();
+    expect(headerIds()).not.toContain('priority');
+    expect(headerIds()).toContain('depends');
+    cleanup();
+    await oneRow();
+    expect(headerIds()).not.toContain('priority');
+  });
+
+  itDom('clears a store that is not a list of strings and shows the default set', async () => {
+    // Proof: the shape check deleted, this failed with `TypeError:
+    // storedHiddenColumns.filter is not a function` — the `'4'` handed on as a
+    // list; with only the `removeItem` deleted, on `expected '4' to be null`.
+    // Watched, 2026-08-28.
+    storedHidden('4');
+    await oneRow();
+    expect(headerIds()).toEqual(DEFAULT_ON_SCREEN(['role-dev', 'role-qa']));
+    expect(stored()).toBeNull();
+    cleanup();
+    storedHidden(['priority', 3]);
+    await oneRow();
+    expect(headerIds()).toEqual(DEFAULT_ON_SCREEN(['role-dev', 'role-qa']));
+    expect(stored()).toBeNull();
+  });
+
+  itDom('drops an unknown id on its own and leaves the store as it was', async () => {
+    // A hide-list, so a stored list that names only Prio has Teams and
+    // Services **on** screen: the defaults are what an absent key means, not
+    // what every list starts from.
+    const claimed = JSON.stringify(['priority', 'role-nope', 'banana']);
+    storedHidden(claimed);
+    await oneRow();
+    const ids = headerIds();
+    expect(ids).not.toContain('priority');
+    for (const id of ['depends', 'team', 'tag', 'service', 'role-dev-final', 'role-qa-final']) {
+      expect(ids).toContain(id);
+    }
+    // Not written back on read: opening a project must not change what is
+    // remembered about it.
+    expect(stored()).toBe(claimed);
+    // And the Phases dialog, which quotes the folded width of the columns on
+    // screen, opens: `foldedTableMinWidth` throws on an id it does not know,
+    // so the sanitised list — not the stored one — is what reaches it.
+    // Proof: `hiddenColumnIds` handed `storedHiddenColumns` unfiltered, this
+    // failed with `UnknownColumnError: No declared width for column "role-
+    // nope"` on the click below. Watched, 2026-08-28.
+    click('Phases');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  itDom('hides a role whole and leaves Days and the dates alone', async () => {
+    const api = fakeApi();
+    const row = await api.create('p1', { parentId: null, afterId: null, name: 'Strip' });
+    await api.setEstimate(row.id, 'role-qa', { optimistic: 2, realistic: 3, pessimistic: 4 });
+    render(<WbsTable projectId="p1" api={api} />);
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010']);
     });
-    expect(screen.queryByLabelText('Services for 010')).toBeNull();
-
+    const shown = {
+      total: rowFor('010').querySelector('[data-final-total]')?.textContent,
+      start: rowFor('010').querySelector('td[data-column="start"]')?.textContent,
+    };
+    expect(headerIds().filter((id) => id.startsWith('role-qa-'))).toEqual(['role-qa-final']);
     cleanup();
 
-    const stocked = fakeApi();
-    await stocked.create('p1', { parentId: null, afterId: null, name: 'Strip the walls' });
-    await stocked.addService('Checkout');
-    render(<WbsTable projectId="p1" api={stocked} />);
+    storedHidden(['role-qa']);
+    render(<WbsTable projectId="p1" api={api} />);
     await waitFor(() => {
       expect(numbersOnScreen()).toEqual(['010']);
     });
-    expect(screen.getByLabelText('Services for 010')).toHaveValue('');
+    expect(headerIds().filter((id) => id.startsWith('role-qa-'))).toEqual([]);
+    expect(headerIds()).toContain('role-dev-final');
+    // The figures are be-01's own and the column only drew them: hidden, they
+    // still reach the total and the dates.
+    expect(rowFor('010').querySelector('[data-final-total]')?.textContent).toBe(shown.total);
+    expect(rowFor('010').querySelector('td[data-column="start"]')?.textContent).toBe(shown.start);
+  });
+
+  /** The Columns control's panel, opened; its checkboxes by label, in order. */
+  const openColumns = (): HTMLElement => {
+    fireEvent.click(screen.getByText('Columns'));
+    const panel = document.querySelector<HTMLElement>('[data-columns-panel]');
+    if (panel === null) throw new Error('the Columns control opened no panel');
+    return panel;
+  };
+  const offered = (panel: HTMLElement): { label: string; checked: boolean }[] =>
+    [...panel.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].map((box) => ({
+      label: panel.querySelector(`label[for="${box.id}"]`)?.textContent ?? '(unlabelled)',
+      checked: box.checked,
+    }));
+
+  itDom('offers every data column and every role, in table order, and no control', async () => {
+    await oneRow();
+    const panel = openColumns();
+    expect(offered(panel)).toEqual([
+      { label: 'Depends on', checked: true },
+      { label: 'Priority', checked: true },
+      { label: 'Teams', checked: false },
+      { label: 'Tags', checked: true },
+      { label: 'Services', checked: false },
+      { label: 'People at once', checked: true },
+      { label: 'Dev', checked: true },
+      { label: 'QA', checked: true },
+      { label: 'Days', checked: true },
+      { label: 'Not before', checked: true },
+      { label: 'Start', checked: true },
+      { label: 'End', checked: true },
+      { label: 'Slack', checked: true },
+    ]);
+  });
+
+  itDom(
+    'unchecking a column takes it off the table and remembers it; checking puts it back',
+    async () => {
+      await oneRow();
+      const panel = openColumns();
+      fireEvent.click(within(panel).getByLabelText('Depends on'));
+      expect(headerIds()).not.toContain('depends');
+      expect(screen.queryByLabelText('Add a dependency to 010')).toBeNull();
+      expect(stored()).toBe(JSON.stringify(['team', 'service', 'depends']));
+
+      fireEvent.click(within(panel).getByLabelText('Depends on'));
+      expect(headerIds()).toContain('depends');
+      expect(stored()).toBe(JSON.stringify(['team', 'service']));
+      // Proof: `rememberHiddenColumns` left out of the toggle, this failed on
+      // `expected null to be '["team","service","depends"]'`. Watched, 2026-08-28.
+    },
+  );
+
+  itDom('shows a hidden-by-default column from the control, a whole role too', async () => {
+    await oneRow();
+    const panel = openColumns();
+    fireEvent.click(within(panel).getByLabelText('Teams'));
+    expect(headerIds()).toContain('team');
+    expect(screen.getByLabelText('Service or team for 010')).toBeDefined();
+    fireEvent.click(within(panel).getByLabelText('QA'));
+    expect(headerIds().filter((id) => id.startsWith('role-qa-'))).toEqual([]);
+    expect(stored()).toBe(JSON.stringify(['service', 'role-qa']));
+  });
+
+  itDom('is forgotten by a layout reset, which is offered while a column is hidden', async () => {
+    // Forgotten, never frozen: the key goes, and what comes back is whatever
+    // the default column set is **now**. The reset is offered on a hidden
+    // column alone, with no width dragged — a control that provably does
+    // nothing reads as a broken one, and this one has something to do.
+    await oneRow();
+    expect(screen.queryByRole('button', { name: 'Reset layout' })).toBeNull();
+    const panel = openColumns();
+    fireEvent.click(within(panel).getByLabelText('Depends on'));
+    expect(headerIds()).not.toContain('depends');
+
+    click('Reset layout');
+    expect(headerIds()).toEqual(DEFAULT_ON_SCREEN(['role-dev', 'role-qa']));
+    expect(stored()).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reset layout' })).toBeNull();
+  });
+
+  itDom('takes Right from the Name cell to Prio when Depends on is hidden', async () => {
+    // A hidden column is absent from the table model, so the grid never
+    // declared it: nothing to skip, nothing to land on.
+    storedHidden(['depends']);
+    await oneRow();
+    const name = screen.getByLabelText('Name of 010');
+    if (!isCell(name)) throw new Error('Name of 010 is not an editable cell');
+    name.focus();
+    name.setSelectionRange(name.value.length, name.value.length);
+    fireEvent.keyDown(name, { key: 'ArrowRight' });
+    expect(document.activeElement?.closest('td')?.getAttribute('data-column')).toBe('priority');
   });
 });

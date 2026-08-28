@@ -5,7 +5,7 @@ import type { RoleUsage, RoleView } from '@/lib/wbs-api';
 
 import { flipSentence, PhasesDialog, usageSentence } from './phases-dialog';
 import type * as TableFrame from './table-frame';
-import { foldedTableMinWidth, type FrameLayoutState } from './table-frame';
+import { DEFAULT_HIDDEN_COLUMNS, foldedTableMinWidth, type FrameLayoutState } from './table-frame';
 
 /**
  * The width module with its folded-minimum function watched.
@@ -47,6 +47,8 @@ function stubbed(overrides: Partial<Parameters<typeof PhasesDialog>[0]> = {}) {
   const props = {
     roles: [DEV, QA],
     frameState: UNDATED,
+    // The table's own default, so every figure below is the default table's.
+    hiddenColumnIds: DEFAULT_HIDDEN_COLUMNS,
     numberOf: (id: string) => NUMBERS[id] ?? null,
     nameOf: (id: string) => PEOPLE[id] ?? null,
     addRole,
@@ -74,6 +76,21 @@ const type = (label: string, value: string): void => {
 };
 
 describe('the phases a project holds', () => {
+  itDom('quotes the folded width of the columns actually on screen', () => {
+    // `configurable-columns`: a reader who has hidden Depends on is 110px
+    // narrower than the default table, and the sentence has to say so — the
+    // spy is what sees **which** hidden list the figure was resolved against,
+    // since a stand-in list and the real one print the same kind of number.
+    stubbed({ hiddenColumnIds: ['depends'] });
+    const spy = vi.mocked(foldedTableMinWidth);
+    expect(spy).toHaveBeenLastCalledWith(['role-dev', 'role-qa'], UNDATED, ['depends']);
+    const quoted = String(foldedTableMinWidth(['role-dev', 'role-qa'], UNDATED, ['depends']));
+    expect(screen.getByText(new RegExp(`≥\\s*${quoted}px`))).toBeInTheDocument();
+    // Proof: `hiddenColumnIds` not passed through to `foldedTableMinWidth`,
+    // this failed on `expected "vi.fn" to be called with arguments: [ [ 'role-
+    // dev', 'role-qa' ], …, [ 'depends' ] ]`. Watched, 2026-08-28.
+  });
+
   itDom('lists every phase, each with a way to rename it and remove it', () => {
     stubbed();
 
