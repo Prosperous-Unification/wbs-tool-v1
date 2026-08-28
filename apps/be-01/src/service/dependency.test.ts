@@ -180,7 +180,7 @@ describe('canDepend — cross-review findings', () => {
             days: 1,
             personId: null,
             width: 1,
-            poolId: null,
+            poolIds: [],
           }));
         expect(() =>
           schedule(rows, [...existing, { predecessorId: from.id, successorId: to.id }], slices),

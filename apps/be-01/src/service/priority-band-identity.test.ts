@@ -378,8 +378,32 @@ describe('a priority ladder moves no date', () => {
   function lifted(
     tree: NonNullable<Awaited<ReturnType<WorkItemService['tree']>>>,
   ): Record<string, unknown> {
+    const byId = new Map(tree.workItems.map((row) => [row.id, row]));
+    const effectiveTeamOf = (rowId: string): string | null => {
+      for (let at: string | null = rowId; at !== null; ) {
+        const row = byId.get(at);
+        if (row === undefined) return null;
+        if (row.serviceTeamId !== null) return row.serviceTeamId;
+        at = row.parentId;
+      }
+      return null;
+    };
+
     return {
       ...tree,
+      // The capture predates the pool named on each slice. Assert the new field
+      // against the replayed plan, then lift it so the old scheduling oracle
+      // continues to compare only fields that existed when it was recorded.
+      slices: tree.slices.map(({ capacityTeamId, ...slice }) => {
+        if (slice.boundBy === 'capacity') {
+          const owed = effectiveTeamOf(slice.workItemId);
+          expect(owed).not.toBeNull();
+          expect(capacityTeamId).toBe(owed);
+        } else {
+          expect(capacityTeamId).toBeNull();
+        }
+        return slice;
+      }),
       workItems: tree.workItems.map(
         ({ teamIds, tagIds, serviceIds, actuals, measures, progress, state, ...row }) => {
           expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);

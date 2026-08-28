@@ -30,11 +30,19 @@
 | hover cleanup          | omit owner leave or stale-id guard                            | Chromium outside-leave retains tint                                  |
 | palette paint          | point card line at the grid-surface tint                      | two-palette direction assertion                                      |
 
+### Observed through task 1
+
+- Joint-pool fixpoint: one-pass search failed the re-ask case before restoration.
+- Single-pool identity: bypassing the fast path failed `eventsVisited` at 4 versus 2 before restoration.
+- Binding team: projecting `teamIds.at(0)` made the service payload case fail on `team-alpha` versus the engine-selected `team-beta`; restored head passed 1/1.
+- Geometry: the non-first binding-team suite passed 123/123 and the full fe-01 suite passed 1,759/1,759 before the service payload assertion landed.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
 - [ ] Focused Chromium suites: exact pass counts, red-head SHAs and restored-head SHA.
-- [ ] Full h2puni test/lint/typecheck/build/format/OpenSpec/migration-lint summaries.
+- [x] `bin/h2puni-gate.sh --all` at `00f850f` exited 0: Nx test, lint, typecheck and build succeeded for all 23 projects.
+- [ ] Record format/OpenSpec/migration-lint summaries at the terminal head; OpenSpec CLI was unavailable in this worktree during run 8.
 - [ ] GitHub `gate` and `pixels` run ids on the reviewed exact head.
 - [ ] Sol xhigh and Gemini sealed artifact paths, models, verdicts, all findings and dispositions.
 

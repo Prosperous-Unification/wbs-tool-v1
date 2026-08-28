@@ -88,6 +88,7 @@ const sliceAt = (
   critical: false,
   boundBy: 'projectStart',
   resourcePredecessorId: null,
+  capacityTeamId: null,
   width: 1,
   effort: earliestFinish - earliestStart,
   capacityPredecessorIds: [],
@@ -118,6 +119,7 @@ const planOf = (parts: Partial<GanttPlan>): GanttPlan => ({
   narrowedByFilter: false,
   roles: [{ id: 'dev', name: 'Dev' }],
   personNames: new Map(),
+  teamNames: new Map([['team-platform', 'Platform']]),
   priorityBands: DEFAULT_PRIORITY_BANDS,
   ...parts,
 });
@@ -807,6 +809,7 @@ describe('the chart is drawn in calendar days', () => {
             sliceAt('strip-dev', 'strip', 0, 3),
             sliceAt('sand-dev', 'sand', 3, 5, {
               boundBy: 'capacity',
+              capacityTeamId: 'team-platform',
               resourcePredecessorId: 'strip-dev',
               capacityPredecessorIds: ['strip-dev'],
               width: 2,
@@ -1230,6 +1233,7 @@ describe('the chart is drawn in calendar days', () => {
             sliceAt('strip-dev', 'strip', 0, 3),
             sliceAt('sand-dev', 'sand', 3, 5, {
               boundBy: 'capacity',
+              capacityTeamId: 'team-platform',
               resourcePredecessorId: 'strip-dev',
               capacityPredecessorIds: ['strip-dev'],
               width: 2,
@@ -3348,6 +3352,7 @@ const SLICES_HELD_BY_A_POOL: SliceView[] = SLICES.map((slice) =>
     ? {
         ...slice,
         boundBy: 'capacity' as const,
+        capacityTeamId: 'team-platform',
         resourcePredecessorId: `sanding::${DEV.id}`,
         capacityPredecessorIds: [`sanding::${DEV.id}`],
       }

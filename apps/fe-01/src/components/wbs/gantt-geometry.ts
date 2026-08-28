@@ -378,6 +378,8 @@ export interface GanttSlice {
    * because "and 2 others" is a fact a single id cannot state.
    */
   resourcePredecessorId: string | null;
+  /** The team pool that set a capacity floor, or null for every other floor. */
+  capacityTeamId: string | null;
   /**
    * How many of the team's slots this slice holds while it runs — 1 unless the
    * plan says otherwise.
@@ -483,6 +485,8 @@ export interface GanttPlan {
   narrowedByFilter: boolean;
   roles: readonly GanttRole[];
   personNames: ReadonlyMap<string, string>;
+  /** Team names by id, used to name the pool that actually bound a slice. */
+  teamNames: ReadonlyMap<string, string>;
   /**
    * What this plan calls its priority numbers — five rungs, most important first.
    *
@@ -1597,6 +1601,16 @@ function poolNameOf(team: ServiceTeamLabel): string | null {
   }
 }
 
+/** The binding pool as words, resolved from the engine's id rather than row-label order. */
+function capacityTeamLabelOf(
+  slice: GanttSlice,
+  teamNames: ReadonlyMap<string, string>,
+): ServiceTeamLabel {
+  if (slice.capacityTeamId === null) return { state: 'none' };
+  const name = teamNames.get(slice.capacityTeamId);
+  return name === undefined ? { state: 'unresolved' } : { state: 'named', name };
+}
+
 /**
  * The sentence a capacity-floored bar shows: whose people ran out, how many
  * this slice needs, and which slice freeing them let it start.
@@ -1832,7 +1846,7 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
           slice,
           predecessor,
           personName,
-          row.team,
+          capacityTeamLabelOf(slice, plan.teamNames),
           // `?? null` and not a required field: the row that carries this is
           // built in `wbs-table.tsx`, which owes the one line that fills it —
           // see {@link GanttRow.notBeforeReason}.
@@ -2389,7 +2403,7 @@ export function startFloorByRow(
             ? undefined
             : sliceById.get(anchor.slice.resourcePredecessorId),
           personNameOf(anchor.slice, plan.personNames),
-          row.team,
+          capacityTeamLabelOf(anchor.slice, plan.teamNames),
           row.notBeforeReason ?? null,
           rowNames,
           rolesById,

@@ -156,15 +156,15 @@ async function numbered(): Promise<Record<string, string>> {
   return Object.fromEntries(tree.workItems.map((w) => [w.number, w.name]));
 }
 
-describe('the pool a row spends slots in', () => {
+describe('the pools a row spends slots in', () => {
   it('spends nothing where the set is empty', () => {
     // _Unstated_ constrains nothing, which is the state most rows are in.
     expect(poolsFor([], new Map([['backend', 2]]))).toEqual({ poolIds: [], slots: undefined });
   });
 
   it('spends nothing in a team this project has stated no capacity for', () => {
-    // An unsized team labels the work and constrains nothing — the `null` pool
-    // is what keeps the engine's `no size for pool` throw a caller-fault
+    // An unsized team labels the work and constrains nothing — the empty pool
+    // set is what keeps the engine's `no size for pool` throw a caller-fault
     // assertion rather than ordinary control flow.
     expect(poolsFor(['design'], new Map([['backend', 2]]))).toEqual({
       poolIds: [],
@@ -179,16 +179,40 @@ describe('the pool a row spends slots in', () => {
     });
   });
 
-  it('spends in every sized team and clamps to the narrowest size', () => {
+  it('spends in every sized team the row names', () => {
+    // R2-2's arity: each named team spends its own days, so each of them is a
+    // pool the block draws a slot from. The order is the set's, which is the
+    // store's — the joint search's answer does not depend on it.
     expect(
       poolsFor(
-        ['backend', 'design', 'unsized'],
+        ['backend', 'design'],
         new Map([
-          ['backend', 4],
-          ['design', 1],
+          ['backend', 2],
+          ['design', 3],
         ]),
       ),
-    ).toEqual({ poolIds: ['backend', 'design'], slots: 1 });
+    ).toEqual({ poolIds: ['backend', 'design'], slots: 2 });
+  });
+
+  it('takes the narrowest stated size, whichever team states it', () => {
+    // The clamp is a correctness bound, not a policy: a block wider than the
+    // narrowest of its pools can never be placed there, and without the min
+    // `CapacityTooNarrowError` becomes reachable from ordinary data. Asserted
+    // both ways round so a `Math.max` cannot pass by accident of ordering, and
+    // an unsized third team is in the set to show it contributes no clamp —
+    // unstated is not a capacity of zero.
+    const sizes = new Map([
+      ['backend', 4],
+      ['design', 1],
+    ]);
+    expect(poolsFor(['backend', 'design', 'unsized'], sizes)).toEqual({
+      poolIds: ['backend', 'design'],
+      slots: 1,
+    });
+    expect(poolsFor(['design', 'backend'], sizes)).toEqual({
+      poolIds: ['design', 'backend'],
+      slots: 1,
+    });
   });
 });
 
@@ -1416,6 +1440,36 @@ describe('capacity, as the adapter resolves it', () => {
     const tree = await service.tree(projectId);
 
     expect(slicedFor(tree, strip)).toMatchObject({ effort: 4, width: 2, duration: 2 });
+  });
+
+  it('reports the non-first team that bound a joint-capacity slice', async () => {
+    await directory.addTeam({ id: 'team-alpha', name: 'Alpha' });
+    await directory.addTeam({ id: 'team-beta', name: 'Beta' });
+    await capacity.set(projectId, 'team-alpha', 1);
+    await capacity.set(projectId, 'team-beta', 1);
+    const betaBlocker = await leaf('Beta blocker', 1, 'team-beta');
+    const jointlyBound = await leaf('Jointly bound', 1, 'team-alpha');
+
+    // Task 2 widens the writer. Until then, present the reader with the exact
+    // canonical set that the repository already returns from work_item_team.
+    const listByProject = workItems.listByProject.bind(workItems);
+    workItems.listByProject = async (wantedProjectId) =>
+      (await listByProject(wantedProjectId)).map((row) =>
+        row.id === jointlyBound ? { ...row, teamIds: ['team-alpha', 'team-beta'] } : row,
+      );
+    await service.setEstimate(betaBlocker, OWNER, roleId, flat(2));
+    await service.setEstimate(jointlyBound, OWNER, roleId, flat(2));
+
+    const tree = await service.tree(projectId);
+
+    // Proof: replacing the engine's capacityTeamId in the payload with
+    // `teamOf.get(placed.workItemId)?.teamIds.at(0)` failed here on
+    // `team-alpha` versus `team-beta`; the first label did not bind this bar.
+    expect(slicedFor(tree, jointlyBound)).toMatchObject({
+      earliestStart: 2,
+      boundBy: 'capacity',
+      capacityTeamId: 'team-beta',
+    });
   });
 
   it('runs a named person’s work one at a time however parallel the item is', async () => {

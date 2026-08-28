@@ -1,8 +1,8 @@
 ## 1. Restore the multi-team reader and scheduler before the writer
 
-- [ ] 1.1 Port the current-main version of `poolIds`, joint-window search, narrowest-pool width and binding `capacityTeamId` from PR #67's behavior — tests: `schedule-joint-capacity.test.ts` multi-round, blocking-union, binding-team and unsized-team cases; negative: one-pass joint search makes the re-ask case fail.
-- [ ] 1.2 Prove sets of zero/one preserve current scheduling — tests: `schedule-identity.test.ts` 1,000-plan differential and committed capacity oracle; negative: bypass the one-pool path and observe the pinned `eventsVisited`/identity failure.
-- [ ] 1.3 Thread binding-team payload/words through current fe-01 geometry without first-member inference — tests: `work-item.service.test.ts` payload and `gantt-geometry.test.ts` binding-team/tie words; negative: derive from `teamIds.at(0)` and observe the non-first binding case fail.
+- [x] 1.1 Port the current-main version of `poolIds`, joint-window search, narrowest-pool width and binding `capacityTeamId` from PR #67's behavior — tests: `schedule-joint-capacity.test.ts` multi-round, blocking-union, binding-team and unsized-team cases; negative: one-pass joint search makes the re-ask case fail.
+- [x] 1.2 Prove sets of zero/one preserve current scheduling — tests: `schedule-identity.test.ts` 1,000-plan differential and committed capacity oracle; negative: bypass the one-pool path and observe the pinned `eventsVisited`/identity failure.
+- [x] 1.3 Thread binding-team payload/words through current fe-01 geometry without first-member inference — tests: `work-item.service.test.ts` payload and `gantt-geometry.test.ts` binding-team/tie words; negative: derive from `teamIds.at(0)` and observe the non-first binding case fail.
 
 ## 2. Make the work-item team write set-valued and reversible
 

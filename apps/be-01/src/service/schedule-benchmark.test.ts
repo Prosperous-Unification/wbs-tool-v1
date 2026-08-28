@@ -59,7 +59,7 @@ function buildPlan(): { rows: WorkItem[]; edges: DependencyEdge[]; slices: Slice
           // No capacity in this fixture: the budget below is about the graph
           // and the queues, and a pool would make it about a second thing.
           width: 1,
-          poolId: null,
+          poolIds: [],
         });
       });
       // A chain inside the phase, and one edge reaching back two phases.

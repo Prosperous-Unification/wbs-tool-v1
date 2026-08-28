@@ -271,7 +271,7 @@ const slicesFrom = (plan: GeneratedPlan): Slice[] =>
     // plan that sets neither capacity field must schedule byte for byte as it
     // did before either existed.
     width: 1,
-    poolId: null,
+    poolIds: [],
   }));
 
 /**
@@ -482,7 +482,7 @@ describe('the slice engine against the one it replaced', () => {
       const pooled = schedule(
         labelled,
         [],
-        slicesFrom(plan).map((each) => ({ ...each, poolId: PLATFORM })),
+        slicesFrom(plan).map((each) => ({ ...each, poolIds: [PLATFORM] })),
         plan.notBefore,
         new Map([[PLATFORM, 1000]]),
       );
@@ -588,7 +588,7 @@ describe('the slice engine against the one it replaced', () => {
           days: doubled,
           personId: null,
           width: 1,
-          poolId: null,
+          poolIds: [],
         };
       });
       if (grown.every((slice, at) => slice.days === plan.estimates[at].days)) continue;

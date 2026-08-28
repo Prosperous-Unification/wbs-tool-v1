@@ -54,7 +54,7 @@ const plan = (
       days: row.id in days ? days[row.id] : null,
       personId: null,
       width: 1,
-      poolId: null,
+      poolIds: [],
     }));
   return schedule(rows, edges, slices, notBefore);
 };
@@ -174,7 +174,7 @@ const roledPlan = (
         days: days[row.id][0],
         personId: null,
         width: 1,
-        poolId: null,
+        poolIds: [],
       },
       {
         workItemId: row.id,
@@ -182,7 +182,7 @@ const roledPlan = (
         days: days[row.id][1],
         personId: null,
         width: 1,
-        poolId: null,
+        poolIds: [],
       },
     ]);
   return schedule(rows, edges, slices, notBefore);
@@ -209,7 +209,7 @@ const threeRolePlan = (
         days: days[row.id][0],
         personId: null,
         width: 1,
-        poolId: null,
+        poolIds: [],
       },
       {
         workItemId: row.id,
@@ -217,7 +217,7 @@ const threeRolePlan = (
         days: days[row.id][1],
         personId: null,
         width: 1,
-        poolId: null,
+        poolIds: [],
       },
       {
         workItemId: row.id,
@@ -225,7 +225,7 @@ const threeRolePlan = (
         days: days[row.id][2],
         personId: null,
         width: 1,
-        poolId: null,
+        poolIds: [],
       },
     ]);
   return schedule(rows, edges, slices, notBefore);
