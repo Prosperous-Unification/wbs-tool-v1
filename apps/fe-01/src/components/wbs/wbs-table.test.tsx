@@ -8224,6 +8224,30 @@ describe('hovering a dependency lights the rows it names', () => {
     expect(litNumbers()).toEqual([]);
   });
 
+  itDom(
+    'keeps the card mounted across passive padding and lets the bridge clear outside',
+    async () => {
+      await planWhere030Waits();
+      const owner = hoverTargetOf('030');
+      fireEvent.mouseEnter(owner);
+      expect(litNumbers()).toEqual(['010', '020']);
+
+      // Passive card padding hit-tests the table underneath, so the owner sees a
+      // non-null related target before the pointer reaches a card row. The leave
+      // must not synchronously remove the row targets the pointer is travelling
+      // towards.
+      fireEvent.mouseLeave(owner, { relatedTarget: screen.getByLabelText('Name of 020') });
+      expect(screen.getByRole('tooltip')).toBeDefined();
+      expect(litNumbers()).toEqual(['010', '020']);
+
+      act(() => {
+        document.dispatchEvent(new MouseEvent('pointermove', { clientX: 500, clientY: 500 }));
+      });
+      expect(screen.queryByRole('tooltip')).toBeNull();
+      expect(litNumbers()).toEqual([]);
+    },
+  );
+
   itDom('narrows to the pill’s row, and widens again when the pill is left', async () => {
     await planWhere030Waits();
     fireEvent.mouseEnter(hoverTargetOf('030'));

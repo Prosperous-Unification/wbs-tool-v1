@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 import { HoverCard } from './hover-card';
 
 /** One work item another waits for, as the chips have it. */
@@ -17,6 +19,57 @@ export interface DependsEntry {
  * about one row's dependencies would be worse than either.
  */
 export const dependsLine = (entry: DependsEntry): string => `${entry.number} - ${entry.name}`;
+
+/** The four edges used by the state-only pointer bridge. */
+export interface PointerRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export type DependencyPointerRegion =
+  | { kind: 'owner' }
+  | { kind: 'corridor' }
+  | { kind: 'row'; id: string }
+  | { kind: 'outside' };
+
+const containsPoint = (point: { x: number; y: number }, box: PointerRect): boolean =>
+  point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom;
+
+/**
+ * Read one pointer position against the owner, live row targets and the
+ * straight rectangle joining them. The corridor changes state only: it is not
+ * an element and therefore cannot intercept a click through passive padding.
+ */
+export function dependencyPointerRegion(
+  point: { x: number; y: number },
+  owner: PointerRect,
+  rows: readonly { id: string; rect: PointerRect }[],
+): DependencyPointerRegion {
+  if (containsPoint(point, owner)) return { kind: 'owner' };
+  const row = rows.find(({ rect }) => containsPoint(point, rect));
+  if (row !== undefined) return { kind: 'row', id: row.id };
+  if (rows.length === 0) return { kind: 'outside' };
+
+  const first = rows[0];
+  const union = rows.slice(1).reduce<PointerRect>(
+    (box, current) => ({
+      left: Math.min(box.left, current.rect.left),
+      top: Math.min(box.top, current.rect.top),
+      right: Math.max(box.right, current.rect.right),
+      bottom: Math.max(box.bottom, current.rect.bottom),
+    }),
+    { ...first.rect },
+  );
+  const corridor = {
+    left: Math.min(owner.left, union.left),
+    top: Math.min(owner.top, union.top),
+    right: Math.max(owner.right, union.right),
+    bottom: Math.max(owner.bottom, union.bottom),
+  };
+  return containsPoint(point, corridor) ? { kind: 'corridor' } : { kind: 'outside' };
+}
 
 export interface DependsCardProps {
   /** The waiting work item's number, so the card says whose list this is. */
@@ -42,6 +95,10 @@ export interface DependsCardProps {
    * is why the fault only ever showed on a dark page.
    */
   emphasisedId: string | null;
+  /** Narrow or widen the table/card tint as the document pointer moves. */
+  onPointEntry: (entryId: string | null) => void;
+  /** Clear the owner and every tint once the pointer leaves the bridge. */
+  onPointerOutside: () => void;
 }
 
 /**
@@ -56,12 +113,57 @@ export interface DependsCardProps {
  * with the dash: a space alone let a number and a name that starts with a digit
  * run together.
  */
-export function DependsCard({ number, entries, emphasisedId }: DependsCardProps) {
+export function DependsCard({
+  number,
+  entries,
+  emphasisedId,
+  onPointEntry,
+  onPointerOutside,
+}: DependsCardProps) {
+  const targets = useRef(new Map<string, HTMLDivElement>());
+
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const first = targets.current.values().next().value;
+      const owner = first?.closest('td');
+      if (!(owner instanceof HTMLElement)) return;
+      const rows = entries.flatMap((entry) => {
+        const target = targets.current.get(entry.id);
+        return target === undefined ? [] : [{ id: entry.id, rect: target.getBoundingClientRect() }];
+      });
+      const region = dependencyPointerRegion(
+        { x: event.clientX, y: event.clientY },
+        owner.getBoundingClientRect(),
+        rows,
+      );
+      if (region.kind === 'owner') onPointEntry(null);
+      else if (region.kind === 'row') onPointEntry(region.id);
+      else if (region.kind === 'outside') onPointerOutside();
+    };
+    document.addEventListener('pointermove', move, { passive: true });
+    return () => {
+      document.removeEventListener('pointermove', move);
+    };
+  }, [entries, onPointEntry, onPointerOutside]);
+
   return (
     <HoverCard label={`What ${number} waits for`}>
       {entries.map((entry) => (
         <div
           key={entry.id}
+          ref={(target) => {
+            if (target === null) targets.current.delete(entry.id);
+            else targets.current.set(entry.id, target);
+          }}
+          data-testid="depends-card-target"
+          data-depends-card-target={entry.id}
+          onPointerEnter={() => {
+            onPointEntry(entry.id);
+          }}
+          onPointerLeave={(event) => {
+            const owner = event.currentTarget.closest('td');
+            if (owner?.contains(event.relatedTarget as Node)) onPointEntry(null);
+          }}
           style={
             entry.id === emphasisedId
               ? // The row tint on *this* surface — see
@@ -78,12 +180,13 @@ export function DependsCard({ number, entries, emphasisedId }: DependsCardProps)
                 // this line's text 4px right of every other line's and reflow
                 // the card as the pointer walked the pills.
                 {
+                  pointerEvents: 'auto',
                   background: 'var(--card-dep-lit)',
                   borderRadius: 4,
                   padding: '1px 4px',
                   margin: '-1px -4px',
                 }
-              : undefined
+              : { pointerEvents: 'auto' }
           }
         >
           {dependsLine(entry)}

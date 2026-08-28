@@ -7322,6 +7322,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                         ? live.current.depHover.pillId
                         : null
                     }
+                    onPointEntry={(pillId) => {
+                      live.current.setDepHover((current) =>
+                        current?.rowId === row.original.id && current.pillId === pillId
+                          ? current
+                          : { rowId: row.original.id, pillId },
+                      );
+                    }}
+                    onPointerOutside={() => {
+                      live.current.setDepHover((current) =>
+                        current?.rowId === row.original.id ? null : current,
+                      );
+                      live.current.setHoveredCell((current) =>
+                        current === dependsCell ? null : current,
+                      );
+                    }}
                   />
                 )}
               </span>
@@ -8958,7 +8973,12 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         if (!cardable) return;
         setHoveredCell(dependsCell);
       },
-      onMouseLeave: () => {
+      onMouseLeave: (event) => {
+        // The open dependency card owns dismissal through its document
+        // pointer bridge. Clearing here would unmount the row targets while
+        // the pointer is crossing the card's passive padding.
+        if (openCard === dependsCell && event.relatedTarget instanceof Node) return;
+
         // Leaving the cell clears the dependency hover outright — with the
         // same-cell guard `hoveredCell`'s clear uses, because a leave lands
         // after the next cell's enter.
