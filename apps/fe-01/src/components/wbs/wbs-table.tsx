@@ -127,7 +127,12 @@ import { useRendererForViewport } from './plan-renderer';
 import { linkPlanScroll } from './plan-scroll-link';
 import { PrioritiesDialog } from './priorities-dialog';
 import { PriorityCell, priorityTyped } from './priority-cell';
-import { ReferenceSetStrip } from './reference-set-field';
+import {
+  REFERENCE_SET_ADD_CLASS,
+  REFERENCE_SET_CHIP_CLASS,
+  REFERENCE_SET_STRIP_STYLE,
+  ReferenceSetStrip,
+} from './reference-set-field';
 import { printedDay, shortIsoDate } from './short-date';
 import {
   CARET_GUTTER_PX,
@@ -6776,14 +6781,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
               */}
                 <span
                   data-depends-strip={row.original.id}
+                  data-reference-strip=""
                   style={{
-                    display: 'flex',
+                    ...REFERENCE_SET_STRIP_STYLE,
                     // Wrapping is for the chips, and only for them. See the
                     // block above: an empty cell has nothing to wrap, and the
                     // wrap is what made it two lines tall the moment it was
                     // clicked into.
                     flexWrap: picker !== null && waitingFor.length > 0 ? 'wrap' : 'nowrap',
-                    alignItems: 'center',
                     gap: 2,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -6827,6 +6832,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   <button
                     type="button"
                     data-dep-add={row.original.id}
+                    data-reference-add=""
+                    className={REFERENCE_SET_ADD_CLASS}
                     // Not `Add a dependency to 020` — that is the box's own
                     // label, and two controls in one cell answering to one name
                     // is a reader told the same thing twice with no way to tell
@@ -6939,6 +6946,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     <button
                       key={id}
                       type="button"
+                      data-reference-chip={id}
+                      className={`${REFERENCE_SET_CHIP_CLASS} border-0`}
                       aria-label={`Stop ${row.original.number} waiting for ${number}`}
                       title="Remove this dependency"
                       // Out of the tab order while the strip is clipped: a

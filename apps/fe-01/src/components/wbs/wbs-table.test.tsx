@@ -7096,6 +7096,31 @@ describe('dependencies in the table', () => {
     ).toBeNull();
   });
 
+  itDom('uses the shared reference tokens and describes all three dependencies', async () => {
+    await fiveRoots();
+    dependOn('050', '010, 020, 030');
+    await waitFor(() => {
+      for (const number of ['010', '020', '030']) {
+        expect(screen.getByLabelText(`Stop 050 waiting for ${number}`)).toBeDefined();
+      }
+    });
+    fireEvent.blur(screen.getByLabelText('Add a dependency to 050'));
+
+    const add = screen.getByRole('button', { name: 'Make 050 wait for something' });
+    expect(add).toHaveAttribute('data-reference-add');
+    expect(add.className).toContain('bg-transparent');
+    for (const number of ['010', '020', '030']) {
+      const chip = screen.getByRole('button', { name: `Stop 050 waiting for ${number}` });
+      expect(chip).toHaveAttribute('data-reference-chip');
+      expect(chip.className).toContain('bg-muted');
+      expect(chip.className).toContain('border-0');
+    }
+
+    const box = screen.getByLabelText('Add a dependency to 050');
+    const description = document.getElementById(box.getAttribute('aria-describedby') ?? '');
+    expect(description?.textContent).toBe('Waiting for 010 - Strip, 020 - Sand, 030 - Paint');
+  });
+
   itDom('opens no card over a row that waits for nothing', async () => {
     // The empty cell is a box and no chips; a card holding an empty list is a
     // box over the row below saying nothing.

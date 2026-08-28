@@ -40,6 +40,19 @@ export interface ReferenceSetStripProps {
 
 const unique = (ids: readonly string[]): string[] => [...new Set(ids)];
 
+export const REFERENCE_SET_STRIP_STYLE = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 4,
+  minWidth: 0,
+} as const;
+
+export const REFERENCE_SET_ADD_CLASS = 'shrink-0 border-0 bg-transparent p-0.5 text-xs';
+export const REFERENCE_SET_CHIP_CLASS =
+  'bg-muted inline-flex max-w-full items-center gap-0.5 rounded px-1 text-xs';
+export const REFERENCE_SET_REMOVE_CLASS = 'shrink-0 border-0 bg-transparent p-0';
+
 /** Shared compact editor for directory-backed work-item reference sets. */
 export function ReferenceSetStrip({
   label,
@@ -91,14 +104,15 @@ export function ReferenceSetStrip({
     <span
       ref={root}
       data-reference-set={adapter.kind}
-      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, minWidth: 0 }}
+      data-reference-strip=""
+      style={REFERENCE_SET_STRIP_STYLE}
     >
       <button
         type="button"
         tabIndex={-1}
         aria-label={addLabel ?? `Add a ${adapter.kind}`}
         data-reference-add=""
-        className="shrink-0 border-0 bg-transparent p-0.5 text-xs"
+        className={REFERENCE_SET_ADD_CLASS}
         disabled={pendingAdd}
         onMouseDown={(event) => {
           event.preventDefault();
@@ -109,17 +123,13 @@ export function ReferenceSetStrip({
       </button>
       <span style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
         {own.map((entry) => (
-          <span
-            key={entry.id}
-            data-reference-chip={entry.id}
-            className="bg-muted inline-flex max-w-full items-center gap-0.5 rounded px-1 text-xs"
-          >
+          <span key={entry.id} data-reference-chip={entry.id} className={REFERENCE_SET_CHIP_CLASS}>
             <span className="truncate">{entry.name}</span>
             <button
               type="button"
               aria-label={removeLabel?.(entry) ?? `Remove ${entry.name} ${adapter.kind}`}
               disabled={pendingIds.has(entry.id)}
-              className="shrink-0 border-0 bg-transparent p-0"
+              className={REFERENCE_SET_REMOVE_CLASS}
               onClick={() => void remove(entry.id)}
             >
               ×
