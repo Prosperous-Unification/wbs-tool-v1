@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,6 +20,9 @@ import {
 } from './main';
 
 const expectedEngine = {
+  State: {
+    Running: false,
+  },
   Config: {
     Image: 'registry.dagger.io/engine:v0.21.8',
     Cmd: [
@@ -37,6 +40,8 @@ const expectedEngine = {
     NanoCpus: 6_000_000_000,
     PidsLimit: 2048,
     Privileged: true,
+    RestartPolicy: { Name: 'no', MaximumRetryCount: 0 },
+    NetworkMode: 'bridge',
     PortBindings: {
       '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8081' }],
     },
@@ -49,6 +54,11 @@ const expectedEngine = {
       RW: true,
     },
   ],
+  NetworkSettings: {
+    Networks: {
+      bridge: {},
+    },
+  },
 };
 
 const safeCapacity: BuildCapacity = {
@@ -182,6 +192,45 @@ describe('assertEngineContract', () => {
     }).toThrow('listener');
   });
 
+  it('refuses an additional public port binding before starting the engine', () => {
+    expect(() => {
+      assertEngineContract({
+        ...expectedEngine,
+        HostConfig: {
+          ...expectedEngine.HostConfig,
+          PortBindings: {
+            ...expectedEngine.HostConfig.PortBindings,
+            '2375/tcp': [{ HostIp: '0.0.0.0', HostPort: '2375' }],
+          },
+        },
+      });
+    }).toThrow('port');
+  });
+
+  it.each([
+    ['running state', { State: { Running: true } }],
+    [
+      'restart policy',
+      {
+        HostConfig: {
+          ...expectedEngine.HostConfig,
+          RestartPolicy: { Name: 'always', MaximumRetryCount: 0 },
+        },
+      },
+    ],
+    [
+      'network mode',
+      {
+        HostConfig: { ...expectedEngine.HostConfig, NetworkMode: 'host' },
+        NetworkSettings: { Networks: { host: {} } },
+      },
+    ],
+  ])('refuses existing-engine %s drift before reuse', (name, drift) => {
+    expect(() => {
+      assertEngineContract({ ...expectedEngine, ...drift });
+    }).toThrow(name.split(' ')[0]);
+  });
+
   it('refuses a mismatched memory ceiling before starting the engine', async () => {
     const calls: string[][] = [];
     const engine = createDockerEngineControl((argv: string[]) => {
@@ -265,6 +314,72 @@ describe('runEngineLifecycle', () => {
       runEngineLifecycle(fixture.control, () => Promise.resolve('published')),
     );
     expect(failure.message).toContain('engine remained resident');
+  });
+
+  it('preserves the publish failure when stopping the engine also fails', async () => {
+    const publishError = new Error('registry refused');
+    const stopError = new Error('engine remained resident');
+    const fixture = control(stopError);
+
+    const failure = await captureFailure(() =>
+      runEngineLifecycle(fixture.control, () => Promise.reject(publishError)),
+    );
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure.message).toContain('registry refused');
+    expect(failure.message).toContain('engine remained resident');
+    expect(failure.cause).toBe(publishError);
+    expect((failure as AggregateError).errors).toEqual([publishError, stopError]);
+  });
+
+  it('stops the engine before a real SIGTERM exits the publish process', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wbs-engine-signal-'));
+    const marker = join(root, 'lifecycle.log');
+    const moduleUrl = new URL('./main.ts', import.meta.url).href;
+    const childScript = `
+      import { appendFileSync } from 'node:fs';
+      import { runEngineLifecycle } from ${JSON.stringify(moduleUrl)};
+      const marker = process.env['WBS_SIGNAL_MARKER'];
+      if (marker === undefined) throw new Error('missing marker');
+      await runEngineLifecycle(
+        {
+          start: () => { appendFileSync(marker, 'started\\n'); return Promise.resolve(); },
+          stop: () => { appendFileSync(marker, 'stopped\\n'); return Promise.resolve(); },
+        },
+        () => { appendFileSync(marker, 'ready\\n'); return new Promise(() => {}); },
+      );
+    `;
+    const child = Bun.spawn(['bun', '-e', childScript], {
+      env: { ...process.env, WBS_SIGNAL_MARKER: marker },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    try {
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline) {
+        try {
+          if (readFileSync(marker, 'utf8').includes('ready')) break;
+        } catch (error: unknown) {
+          if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT')
+            throw error;
+        }
+        await Bun.sleep(10);
+      }
+      expect(readFileSync(marker, 'utf8')).toContain('ready');
+
+      child.kill('SIGTERM');
+      expect(await child.exited).toBe(143);
+      expect(readFileSync(marker, 'utf8').split('\n').filter(Boolean)).toEqual([
+        'started',
+        'ready',
+        'stopped',
+      ]);
+    } finally {
+      child.kill();
+      await child.exited;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
