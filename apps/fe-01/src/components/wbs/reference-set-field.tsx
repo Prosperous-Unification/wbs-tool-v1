@@ -71,34 +71,39 @@ export function ReferenceSetStrip({
     (id) => adapter.entries.find((entry) => entry.id === id) ?? { id, name: id },
   );
   const offered = adapter.entries.filter((entry) => !ownIds.includes(entry.id));
-  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
-  const [pendingAdd, setPendingAdd] = useState(false);
-  const pendingAddRef = useRef(false);
+  const sourceIdsRef = useRef(ownIds);
+  const projectedIdsRef = useRef(ownIds);
+  const pendingRef = useRef(false);
+  const [pending, setPending] = useState(false);
+  if (sourceIdsRef.current.join('\0') !== ownIds.join('\0')) {
+    sourceIdsRef.current = ownIds;
+    projectedIdsRef.current = ownIds;
+  }
 
-  const add = async (action: () => Promise<CommitOutcome>): Promise<CommitOutcome> => {
-    if (pendingAddRef.current) return 'unsent';
-    pendingAddRef.current = true;
-    setPendingAdd(true);
+  const mutate = async (
+    project: (current: string[]) => string[],
+    commit: (current: string[], next: string[]) => Promise<CommitOutcome>,
+  ): Promise<CommitOutcome> => {
+    if (pendingRef.current) return 'unsent';
+    pendingRef.current = true;
+    setPending(true);
+    const current = projectedIdsRef.current;
+    const next = unique(project(current));
     try {
-      return await action();
+      const outcome = await commit(current, next);
+      if (outcome === 'landed') projectedIdsRef.current = next;
+      return outcome;
     } finally {
-      pendingAddRef.current = false;
-      setPendingAdd(false);
+      pendingRef.current = false;
+      setPending(false);
     }
   };
 
   const remove = async (id: string): Promise<void> => {
-    if (pendingIds.has(id)) return;
-    setPendingIds((current) => new Set(current).add(id));
-    try {
-      await adapter.replace(ownIds.filter((ownId) => ownId !== id));
-    } finally {
-      setPendingIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-    }
+    await mutate(
+      (current) => current.filter((ownId) => ownId !== id),
+      (_current, next) => adapter.replace(next),
+    );
   };
 
   return (
@@ -114,7 +119,7 @@ export function ReferenceSetStrip({
         aria-label={addLabel ?? `Add a ${adapter.kind}`}
         data-reference-add=""
         className={REFERENCE_SET_ADD_CLASS}
-        disabled={pendingAdd}
+        disabled={pending}
         onMouseDown={(event) => {
           event.preventDefault();
         }}
@@ -138,7 +143,7 @@ export function ReferenceSetStrip({
             <button
               type="button"
               aria-label={removeLabel?.(entry) ?? `Remove ${entry.name} ${adapter.kind}`}
-              disabled={pendingIds.has(entry.id)}
+              disabled={pending}
               className={REFERENCE_SET_REMOVE_CLASS}
               onClick={() => void remove(entry.id)}
             >
@@ -153,9 +158,20 @@ export function ReferenceSetStrip({
           entries={offered}
           value={null}
           restingValue={own.length === 1 ? own[0]?.name : undefined}
-          onChoose={(id) => add(() => adapter.replace([...ownIds, id]))}
-          onCreate={(name) => add(() => adapter.create(name, ownIds))}
+          onChoose={(id) =>
+            mutate(
+              (current) => [...current, id],
+              (_current, next) => adapter.replace(next),
+            )
+          }
+          onCreate={(name) =>
+            mutate(
+              (current) => current,
+              (current) => adapter.create(name, current),
+            )
+          }
           closeWhen={(outcome) => outcome === 'landed'}
+          disabled={pending}
           placeholder={placeholder ?? `Search ${label.toLowerCase()}`}
           title={title}
           dataCell={dataCell}

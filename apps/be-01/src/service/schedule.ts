@@ -1235,7 +1235,14 @@ function placeSlices(
     // Only where the pool is what held it: a set carried on a slice the pool
     // let through would be a wait that is not there, in the same way an arrow
     // for a resource edge that did not bind would be.
-    const capacityPredecessors = boundBy === 'capacity' ? window.blocking : [];
+    // A conservative scan records every reservation present at a violated
+    // instant. Only reservations that finish by the accepted start are actual
+    // predecessors: a narrower reservation may continue alongside this slice.
+    // Promoting that overlap into the backward graph gives it a late finish
+    // before its early finish and exposes negative public float.
+    const finishesByStart = (blocker: number): boolean => placed[blocker].finish <= start;
+    const capacityPredecessors =
+      boundBy === 'capacity' ? window.blocking.filter(finishesByStart) : [];
     /**
      * Which of the blocking set the arrow points at: the latest finisher, ties
      * to the one placed first.
@@ -1292,7 +1299,9 @@ function placeSlices(
     let bestFinish = -Infinity;
     for (const pool of window.binding) {
       let finish = -Infinity;
-      for (const blocker of pool.blocking) finish = Math.max(finish, placed[blocker].finish);
+      for (const blocker of pool.blocking) {
+        if (finishesByStart(blocker)) finish = Math.max(finish, placed[blocker].finish);
+      }
       if (
         finish > bestFinish ||
         (finish === bestFinish && capacityTeamId !== null && pool.poolId < capacityTeamId)

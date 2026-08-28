@@ -183,6 +183,8 @@ export interface CreatablePickerProps {
   onCreate?: (name: string) => unknown;
   /** Await a write and close only when its returned outcome satisfies this predicate. */
   closeWhen?: (result: unknown) => boolean;
+  /** Disables every take path while the caller serializes an external write. */
+  disabled?: boolean;
   /**
    * A visible `+` that opens the box's search list, on the leading edge —
    * the Depends-on cell's add affordance, carried by the shared component so
@@ -326,6 +328,7 @@ export function CreatablePicker({
   onChoose,
   onCreate,
   closeWhen,
+  disabled = false,
   addButtonLabel,
   onClear,
   clearVisibleWhileFocused,
@@ -349,7 +352,7 @@ export function CreatablePicker({
   const [taking, setTaking] = useState(false);
 
   const take = (action: () => unknown): void => {
-    if (takingRef.current) return;
+    if (disabled || takingRef.current) return;
     const result = action();
     if (closeWhen === undefined || result === undefined) {
       setTyped(null);
@@ -435,6 +438,7 @@ export function CreatablePicker({
       {addButtonLabel !== undefined && (
         <button
           type="button"
+          disabled={disabled}
           tabIndex={-1}
           aria-label={addButtonLabel}
           data-creatable-add=""
@@ -454,8 +458,8 @@ export function CreatablePicker({
         </button>
       )}
       <input
-        disabled={taking}
-        aria-busy={taking || undefined}
+        disabled={disabled || taking}
+        aria-busy={disabled || taking || undefined}
         aria-label={label}
         role="combobox"
         aria-expanded={open}

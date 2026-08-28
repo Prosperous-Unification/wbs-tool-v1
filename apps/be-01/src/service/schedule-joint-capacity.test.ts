@@ -229,20 +229,12 @@ describe('a block labelled with two teams waits for both of them', () => {
     }
   });
 
-  it('breaks a tie between two pools on the blocker the reader is looking at', () => {
-    // Both pools free a slot at day 4, so both bound the block. Beta's blocking
-    // set holds a reservation running to day 10; Alpha's runs to 4. The team
-    // named is Beta — the one whose blocking set holds the latest finisher,
-    // which is the display referent's own rule, so the team the sentence names
-    // and the slice the arrow points at are answers to one question.
-    //
-    // `team-alpha` sorts first, so a tie broken on the id alone would answer
-    // Alpha here. That is the point of the fixture.
-    //
-    // Proof: the tie taken on the pool id alone — `binding[0]` after a sort —
-    // and this failed with `"team-alpha"` where `"team-beta"` was owed, naming
-    // a team whose blocker the chart's arrow does not point at; watched
-    // 2026-08-14.
+  it('chooses a tied pool and referent only from blockers that finish by the accepted start', () => {
+    // Both pools free a slot at day 4. Beta still has one reservation running
+    // to day 10, but that reservation overlaps the accepted joint block and is
+    // therefore not its predecessor. Promoting it into the backward graph
+    // makes its late finish day 4 even though its early finish is day 10,
+    // producing negative public float.
     const rows = [
       item('alpha-hold', { priority: 1 }),
       item('beta-long', { priority: 1 }),
@@ -261,11 +253,11 @@ describe('a block labelled with two teams waits for both of them', () => {
     const found = schedule(rows, [], slices, new Map(), pools(1, 2));
 
     const both = planned(found, 'both');
-    expect(both).toMatchObject({ earliestStart: 4, boundBy: 'capacity', capacityTeamId: BETA });
-    // The referent is in the named team's blocking set, which is the coherence
-    // the tie rule buys.
-    expect(both.resourcePredecessorId).toBe(sliceKey('beta-long', DEV));
-    expect(blockersOf(both)).toEqual(['alpha-hold', 'beta-long', 'beta-short']);
+    expect(both).toMatchObject({ earliestStart: 4, boundBy: 'capacity', capacityTeamId: ALPHA });
+    expect(both.resourcePredecessorId).toBe(sliceKey('alpha-hold', DEV));
+    expect(blockersOf(both)).toEqual(['alpha-hold', 'beta-short']);
+    expect(planned(found, 'beta-long').earliestFinish).toBeGreaterThan(both.earliestStart);
+    for (const one of found.slices.values()) expect(one.float).toBeGreaterThanOrEqual(0);
   });
 
   it('names no team on a slice no pool held up', () => {

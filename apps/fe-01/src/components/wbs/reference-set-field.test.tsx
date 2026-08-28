@@ -118,6 +118,56 @@ describe('ReferenceSetStrip', () => {
     expect(screen.getByText('Platform')).toBeInTheDocument();
   });
 
+  itDom('blocks a second remove while the first whole-set write is pending', async () => {
+    let answer!: (value: 'landed' | 'refused' | 'unsent') => void;
+    const pending = new Promise<'landed' | 'refused' | 'unsent'>((resolve) => {
+      answer = resolve;
+    });
+    const model = adapter({
+      ownIds: ['team-1', 'team-2'],
+      replace: vi.fn().mockReturnValue(pending),
+    });
+    render(<ReferenceSetStrip label="Teams" adapter={model} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Platform team' }));
+    const second = screen.getByRole<HTMLButtonElement>('button', { name: 'Remove QA team' });
+    expect(second).toBeDisabled();
+    fireEvent.click(second);
+    expect(model.replace).toHaveBeenCalledOnce();
+    expect(model.replace).toHaveBeenCalledWith(['team-2']);
+
+    await act(async () => {
+      answer('landed');
+      await pending;
+    });
+  });
+
+  itDom('adds against the projected set after a removal lands before props refresh', async () => {
+    let answer!: (value: 'landed' | 'refused' | 'unsent') => void;
+    const pending = new Promise<'landed' | 'refused' | 'unsent'>((resolve) => {
+      answer = resolve;
+    });
+    const replace = vi.fn().mockReturnValueOnce(pending).mockResolvedValue('landed');
+    const model = adapter({ ownIds: ['team-1', 'team-2'], replace });
+    render(<ReferenceSetStrip label="Teams" adapter={model} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Platform team' }));
+    const box = screen.getByRole<HTMLInputElement>('combobox', { name: 'Teams' });
+    expect(box).toBeDisabled();
+
+    await act(async () => {
+      answer('landed');
+      await pending;
+    });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'Release' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenLastCalledWith(['team-2', 'team-3']);
+    });
+  });
+
   itDom('the leading plus focuses the adjacent keyboard path', () => {
     render(<ReferenceSetStrip label="Teams" adapter={adapter()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add a team' }));
