@@ -128,7 +128,13 @@
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
 - [x] Focused Chromium suites: 2/2 at restored head `6fe01f8`; clipped-value red `7aa5b99` failed the named hit-test assertion.
 - [x] `bin/h2puni-gate.sh --all` at `00f850f` exited 0: Nx test, lint, typecheck and build succeeded for all 23 projects.
-- [ ] Record format/OpenSpec/migration-lint summaries at the terminal head; OpenSpec CLI was unavailable in this worktree during run 8.
+- [x] `bin/h2puni-gate.sh --all` at `e57b3ae` exited 0: test, lint,
+      typecheck and build succeeded for all 23 projects; Nx retried and passed the
+      two reported flaky build tasks.
+- [x] `bun run format:check --all` passed. The unscoped `bunx openspec`
+      invocation reproduced the known package-resolution failure; the CI-pinned
+      `bunx @fission-ai/openspec@1.3.0 validate --all --strict --json` passed
+      76/76. Migration lint passed over every tracked drizzle SQL file.
 - [ ] GitHub `gate` and `pixels` run ids on the reviewed exact head.
 - [ ] Sol xhigh and Gemini sealed artifact paths, models, verdicts, all findings and dispositions.
 
