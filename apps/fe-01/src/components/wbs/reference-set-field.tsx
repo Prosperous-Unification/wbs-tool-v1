@@ -130,8 +130,6 @@ export function ReferenceSetStrip({
           gap: 3,
           minWidth: 0,
           maxWidth: '100%',
-          maxHeight: 20,
-          overflow: 'hidden',
         }}
       >
         {own.map((entry) => (
