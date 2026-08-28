@@ -63,6 +63,7 @@
 - Omitting the strip's grid contract failed the new cell identity/Tab-routing guard 1/7. Restored `e37de6d` passed 7/7 with touched lint and fe-01 typecheck green. Task 3.1 remains open for outcome semantics and concrete directory adapters. No local build or test ran.
 - The legacy team create writer replaced an existing membership: the new round-trip guard failed with `['team2']` instead of `['team1', 'team2']`. Restored `a57c517` patches the whole `teamIds` set, projects the first member in the API fake, and passed all 522 table tests plus 7/7 reference-set tests, touched lint, format, and fe-01 typecheck on h2puni.
 - The shared dev checkout reset from the task branch during the first read, so this evidence was produced in detached worktree `/home/puni1/wbs-dev/task182-n15` at the same `48ba9ed` parent and pushed fast-forward to the task branch. No build or test ran on h1claw.
+- Widening the six `PlanCardsProps` directory writers to `Promise<CommitOutcome>` first failed fe-01 typecheck with six TS2322 errors because every table adapter still returned `void`. Restored `9a2bf77` returns `run(...)` from all six writers and adapters; fe-01 app/e2e typecheck, touched lint, and format passed on h2puni. Existing desktop/card handlers explicitly discard outcomes until the shared strip/sheet replaces them in the next behavioral chunk.
 
 ## 3. Remote gate output to record after apply
 
