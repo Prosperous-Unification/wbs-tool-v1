@@ -1462,9 +1462,9 @@ describe('capacity, as the adapter resolves it', () => {
 
     const tree = await service.tree(projectId);
 
-    // Proof: replacing the engine's capacityTeamId in the payload with
-    // `teamOf.get(placed.workItemId)?.teamIds.at(0)` failed here on
-    // `team-alpha` versus `team-beta`; the first label did not bind this bar.
+    // The first label does not bind this bar: a payload projection from
+    // `teamIds.at(0)` would answer `team-alpha`, not the engine's `team-beta`.
+    // The watched fault injection remains the next recovery chunk's first gate.
     expect(slicedFor(tree, jointlyBound)).toMatchObject({
       earliestStart: 2,
       boundBy: 'capacity',
