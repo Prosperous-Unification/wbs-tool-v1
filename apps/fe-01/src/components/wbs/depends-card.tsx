@@ -123,6 +123,9 @@ export function DependsCard({
   const targets = useRef(new Map<string, HTMLDivElement>());
 
   useEffect(() => {
+    const clear = () => {
+      onPointerOutside();
+    };
     const move = (event: PointerEvent) => {
       const first = targets.current.values().next().value;
       const owner = first?.closest('td');
@@ -141,8 +144,14 @@ export function DependsCard({
       else if (region.kind === 'outside') onPointerOutside();
     };
     document.addEventListener('pointermove', move, { passive: true });
+    document.addEventListener('pointercancel', clear, { passive: true });
+    window.addEventListener('scroll', clear, { passive: true, capture: true });
+    window.addEventListener('resize', clear, { passive: true });
     return () => {
       document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointercancel', clear);
+      window.removeEventListener('scroll', clear, true);
+      window.removeEventListener('resize', clear);
     };
   }, [entries, onPointEntry, onPointerOutside]);
 

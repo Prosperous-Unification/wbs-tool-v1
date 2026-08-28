@@ -126,4 +126,23 @@ describe('the dependency-card pointer bridge', () => {
     expect(remove.mock.calls.some(([kind]) => kind === 'pointermove')).toBe(true);
     remove.mockRestore();
   });
+
+  itDom('clears stale tint on pointer cancellation, scroll and resize', () => {
+    const onPointerOutside = vi.fn();
+    render(
+      <DependsCard
+        number="030"
+        entries={[{ id: 'w1', number: '010', name: 'Strip' }]}
+        emphasisedId={null}
+        onPointEntry={() => undefined}
+        onPointerOutside={onPointerOutside}
+      />,
+    );
+
+    document.dispatchEvent(new Event('pointercancel'));
+    window.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+
+    expect(onPointerOutside).toHaveBeenCalledTimes(3);
+  });
 });
