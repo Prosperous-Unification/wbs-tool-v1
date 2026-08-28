@@ -1244,17 +1244,45 @@ function placeSlices(
     const capacityPredecessors =
       boundBy === 'capacity' ? window.blocking.filter(finishesByStart) : [];
     /**
+     * Which pool ran out, of the ones that pinned the start.
+     *
+     * The tightest team, and where two are equally tight the one whose blocking
+     * set holds the latest valid finisher. Ties past that by pool id. Keep the
+     * chosen pool's valid blockers with it: the public referent below must come
+     * from the team the sentence names, not from an independently ordered union.
+     *
+     * A slice a pool did not hold up carries null, exactly as it carries an
+     * empty blocking set: a team named on a slice nothing held up is a wait
+     * that is not there, in the same way a resource arrow would be.
+     */
+    let capacityTeamId: string | null = null;
+    let capacityTeamBlockers: number[] = [];
+    let bestFinish = -Infinity;
+    for (const pool of window.binding) {
+      const validBlockers = pool.blocking.filter(finishesByStart);
+      let finish = -Infinity;
+      for (const blocker of validBlockers) finish = Math.max(finish, placed[blocker].finish);
+      if (
+        finish > bestFinish ||
+        (finish === bestFinish && capacityTeamId !== null && pool.poolId < capacityTeamId)
+      ) {
+        bestFinish = finish;
+        capacityTeamId = pool.poolId;
+        capacityTeamBlockers = validBlockers;
+      }
+    }
+    /**
      * Which of the blocking set the arrow points at: the latest finisher, ties
      * to the one placed first.
      *
-     * A display referent and nothing more — the graph below keeps the whole
-     * set. The latest finisher because it is the one whose end the reader is
-     * actually looking at, and the tie is broken by placement order rather than
-     * by node index so the choice is the pass's own total order and not the
-     * array's.
+     * A display referent and nothing more — the graph below keeps the complete
+     * valid union. Selection is restricted to the chosen binding pool so the
+     * named team and arrow remain one causal explanation. Within that pool the
+     * latest finisher is the end the reader is looking at; ties use placement
+     * order rather than node index, preserving the pass's own total order.
      */
     let referent = NOBODY;
-    for (const blocker of capacityPredecessors) {
+    for (const blocker of capacityTeamBlockers) {
       if (referent === NOBODY) {
         referent = blocker;
         continue;
@@ -1281,34 +1309,6 @@ function placeSlices(
     // fails here instead, which is the point of it; watched 2026-08-12.
     if (boundBy === 'capacity' && referent === NOBODY) {
       throw new Error(`${node.key} waited for capacity with nothing holding the pool`);
-    }
-    /**
-     * Which pool ran out, of the ones that pinned the start.
-     *
-     * The tightest team, and where two are equally tight the one whose blocking
-     * set holds the **latest finisher** — the display referent's own rule, so
-     * the team the sentence names and the slice the arrow points at are answers
-     * to one question rather than two. Ties past that by pool id, which is a
-     * total order the pass does not have to invent.
-     *
-     * A slice a pool did not hold up carries null, exactly as it carries an
-     * empty blocking set: a team named on a slice nothing held up is a wait
-     * that is not there, in the same way a resource arrow would be.
-     */
-    let capacityTeamId: string | null = null;
-    let bestFinish = -Infinity;
-    for (const pool of window.binding) {
-      let finish = -Infinity;
-      for (const blocker of pool.blocking) {
-        if (finishesByStart(blocker)) finish = Math.max(finish, placed[blocker].finish);
-      }
-      if (
-        finish > bestFinish ||
-        (finish === bestFinish && capacityTeamId !== null && pool.poolId < capacityTeamId)
-      ) {
-        bestFinish = finish;
-        capacityTeamId = pool.poolId;
-      }
     }
     // **Read off the search rather than gated on `boundBy`, and then checked
     // against it.** The two are the same fact — a pool binds exactly where it

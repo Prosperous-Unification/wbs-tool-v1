@@ -236,10 +236,13 @@ describe('a block labelled with two teams waits for both of them', () => {
     // makes its late finish day 4 even though its early finish is day 10,
     // producing negative public float.
     const rows = [
-      item('alpha-hold', { priority: 1 }),
-      item('beta-long', { priority: 1 }),
+      // Place Beta's valid blocker before Alpha's while the lexical pool tie
+      // still chooses Alpha. The named pool and displayed referent must remain
+      // one causal pair rather than following independent tie-breakers.
       item('beta-short', { priority: 1 }),
-      item('both', { priority: 2 }),
+      item('beta-long', { priority: 1 }),
+      item('alpha-hold', { priority: 2 }),
+      item('both', { priority: 3 }),
     ];
     const slices = [
       slice('alpha-hold', 4, { poolIds: [ALPHA] }),
