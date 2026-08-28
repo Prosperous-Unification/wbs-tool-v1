@@ -91,7 +91,11 @@ export function ReferenceSetStrip({
     const next = unique(project(current));
     try {
       const outcome = await commit(current, next);
-      if (outcome === 'landed') projectedIdsRef.current = next;
+      // Creation cannot project the server-assigned id. Its unchanged `next`
+      // must not overwrite props that refreshed while the create was awaited.
+      if (outcome === 'landed' && current.join('\0') !== next.join('\0')) {
+        projectedIdsRef.current = next;
+      }
       return outcome;
     } finally {
       pendingRef.current = false;
