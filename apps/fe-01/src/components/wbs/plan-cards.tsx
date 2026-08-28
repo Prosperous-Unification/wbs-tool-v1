@@ -242,9 +242,9 @@ export interface PlanCardsProps {
    * to reach be-01 by the path a team chosen on a laptop reaches it by, or the
    * two faces disagree about what a choice does.
    */
-  setTeam: (row: TreeRow, teamId: string | null) => void;
+  setTeam: (row: TreeRow, teamId: string | null) => Promise<CommitOutcome>;
   /** Makes a team nobody had yet and labels this work item with it, in one go. */
-  createTeam: (row: TreeRow, name: string) => void;
+  createTeam: (row: TreeRow, name: string) => Promise<CommitOutcome>;
   /**
    * Whether the plan has a start date at all.
    *
@@ -306,8 +306,8 @@ export interface PlanCardsProps {
   tagLabel: (row: TreeRow) => TagLabel;
   /** Every tag on offer, plus the table cell's two writers for this row's set. */
   tags: readonly PickableEntry[];
-  setTags: (row: TreeRow, tagIds: readonly string[]) => void;
-  createTag: (row: TreeRow, name: string, current: readonly string[]) => void;
+  setTags: (row: TreeRow, tagIds: readonly string[]) => Promise<CommitOutcome>;
+  createTag: (row: TreeRow, name: string, current: readonly string[]) => Promise<CommitOutcome>;
   /**
    * What this row delivers: its own services, the ones it inherits, or neither
    * (task 7.3).
@@ -332,8 +332,8 @@ export interface PlanCardsProps {
   serviceLabel: (row: TreeRow) => ServiceLabel;
   /** Every service on offer, plus the table cell's two writers for this row's set. */
   services: readonly PickableEntry[];
-  setServices: (row: TreeRow, serviceIds: readonly string[]) => void;
-  createService: (row: TreeRow, name: string, current: readonly string[]) => void;
+  setServices: (row: TreeRow, serviceIds: readonly string[]) => Promise<CommitOutcome>;
+  createService: (row: TreeRow, name: string, current: readonly string[]) => Promise<CommitOutcome>;
   /**
    * Why this row's work is marked as built by a non-owner — the whole sentence,
    * or `null` where it is not (task `phone-mismatch-markers`).
@@ -2307,8 +2307,12 @@ export function PlanCards({
                 row={row}
                 team={team}
                 teams={teams}
-                setTeam={setTeam}
-                createTeam={createTeam}
+                setTeam={(...args) => {
+                  void setTeam(...args);
+                }}
+                createTeam={(...args) => {
+                  void createTeam(...args);
+                }}
               />
               {/*
                 The tags, and `↳` where the row carries none of its own — the
@@ -2327,8 +2331,12 @@ export function PlanCards({
                   label={tagging}
                   entries={tags}
                   ownIds={row.tagIds}
-                  setValues={setTags}
-                  createValue={createTag}
+                  setValues={(...args) => {
+                    void setTags(...args);
+                  }}
+                  createValue={(...args) => {
+                    void createTag(...args);
+                  }}
                 />
               )}
               {/*
@@ -2359,8 +2367,12 @@ export function PlanCards({
                   label={delivers}
                   entries={services}
                   ownIds={row.serviceIds}
-                  setValues={setServices}
-                  createValue={createService}
+                  setValues={(...args) => {
+                    void setServices(...args);
+                  }}
+                  createValue={(...args) => {
+                    void createService(...args);
+                  }}
                 />
               )}
               {/*

@@ -5754,9 +5754,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * that carried two.
    */
   const setServicesOf = useCallback(
-    (id: string, serviceIds: readonly string[]) => {
-      void run(() => api.patch(id, { serviceIds: [...serviceIds] }));
-    },
+    (id: string, serviceIds: readonly string[]): Promise<CommitOutcome> =>
+      run(() => api.patch(id, { serviceIds: [...serviceIds] })),
     [api, run],
   );
 
@@ -5769,9 +5768,8 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
    * before-value, and be-01 refuses to guess at a delta.
    */
   const setTagsOf = useCallback(
-    (id: string, tagIds: readonly string[]) => {
-      void run(() => api.patch(id, { tagIds: [...tagIds] }));
-    },
+    (id: string, tagIds: readonly string[]): Promise<CommitOutcome> =>
+      run(() => api.patch(id, { tagIds: [...tagIds] })),
     [api, run],
   );
 
@@ -5789,23 +5787,21 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
 
   /** Adds a service nobody had yet and labels the work item with it, in one go. */
   const createServiceFor = useCallback(
-    (id: string, name: string, current: readonly string[]) => {
-      void run(async () => {
+    (id: string, name: string, current: readonly string[]): Promise<CommitOutcome> =>
+      run(async () => {
         const service = await api.addService(name);
         await api.patch(id, { serviceIds: [...current, service.id] });
-      });
-    },
+      }),
     [api, run],
   );
 
   /** Adds a tag nobody had yet and labels the work item with it, in one go. */
   const createTagFor = useCallback(
-    (id: string, name: string, current: readonly string[]) => {
-      void run(async () => {
+    (id: string, name: string, current: readonly string[]): Promise<CommitOutcome> =>
+      run(async () => {
         const tag = await api.addTag(name);
         await api.patch(id, { tagIds: [...current, tag.id] });
-      });
-    },
+      }),
     [api, run],
   );
 
@@ -7464,7 +7460,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     className="bg-muted flex max-w-full items-center gap-0.5 rounded px-1 text-xs"
                     aria-label={`Remove ${named(tagId)} from ${row.original.number}`}
                     onClick={() => {
-                      live.current.setTagsOf(
+                      void live.current.setTagsOf(
                         row.original.id,
                         own.filter((each) => each !== tagId),
                       );
@@ -7497,10 +7493,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   // set. What the row carries is the chips to its left.
                   value={null}
                   onChoose={(id) => {
-                    live.current.setTagsOf(row.original.id, [...own, id]);
+                    void live.current.setTagsOf(row.original.id, [...own, id]);
                   }}
                   onCreate={(name) => {
-                    live.current.createTagFor(row.original.id, name, own);
+                    void live.current.createTagFor(row.original.id, name, own);
                   }}
                   // Dany, 2026-08-23: tag cells now search-or-add like Teams and
                   // Services — `onCreate` above. The first tag still has to be
@@ -7512,7 +7508,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     own.length === 0
                       ? undefined
                       : () => {
-                          live.current.setTagsOf(row.original.id, []);
+                          void live.current.setTagsOf(row.original.id, []);
                         }
                   }
                   gridCell={{
@@ -7587,7 +7583,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                     className="bg-muted flex max-w-full items-center gap-0.5 rounded px-1 text-xs"
                     aria-label={`Remove ${named(serviceId)} from ${row.original.number}`}
                     onClick={() => {
-                      live.current.setServicesOf(
+                      void live.current.setServicesOf(
                         row.original.id,
                         own.filter((each) => each !== serviceId),
                       );
@@ -7625,10 +7621,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   // set. What the row carries is the chips to its left.
                   value={null}
                   onChoose={(id) => {
-                    live.current.setServicesOf(row.original.id, [...own, id]);
+                    void live.current.setServicesOf(row.original.id, [...own, id]);
                   }}
                   onCreate={(name) => {
-                    live.current.createServiceFor(row.original.id, name, own);
+                    void live.current.createServiceFor(row.original.id, name, own);
                   }}
                   // Dany, 2026-08-23: service cells now search-or-add like Teams
                   // and Tags — `onCreate` above. The first service still has to
@@ -10116,10 +10112,10 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           // laptop reaches it by.
           teams={teams}
           setTeam={(row, teamId) => {
-            void setTeamOf(row.id, teamId === null ? [] : [...row.teamIds, teamId]);
+            return setTeamOf(row.id, teamId === null ? [] : [...row.teamIds, teamId]);
           }}
           createTeam={(row, name) => {
-            void createTeamFor(row.id, name, row.teamIds);
+            return createTeamFor(row.id, name, row.teamIds);
           }}
           // The `not-before` cell's own question and its own writer, handed to
           // the face that had neither. `hasCalendar` is the cell's `noCalendar`
@@ -10147,18 +10143,18 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           tagLabel={effectiveTagLabelOf}
           tags={tags}
           setTags={(row, tagIds) => {
-            setTagsOf(row.id, tagIds);
+            return setTagsOf(row.id, tagIds);
           }}
           createTag={(row, name, current) => {
-            createTagFor(row.id, name, current);
+            return createTagFor(row.id, name, current);
           }}
           serviceLabel={effectiveServiceLabelOf}
           services={services}
           setServices={(row, serviceIds) => {
-            setServicesOf(row.id, serviceIds);
+            return setServicesOf(row.id, serviceIds);
           }}
           createService={(row, name, current) => {
-            createServiceFor(row.id, name, current);
+            return createServiceFor(row.id, name, current);
           }}
           // The same sentence the Services cell's `△` carries, handed to the
           // face that had none. Not a card-shaped copy of the rule: one memo
