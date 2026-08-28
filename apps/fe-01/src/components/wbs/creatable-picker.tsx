@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useRef, useState } from 'react';
 
 import { commandChordIn, escapesAnOpenList } from './keyboard-bindings';
 
@@ -166,7 +166,7 @@ export interface CreatablePickerProps {
   entries: readonly PickableEntry[];
   /** The chosen entry's id, or null. */
   value: string | null;
-  onChoose: (id: string) => void;
+  onChoose: (id: string) => unknown;
   /**
    * Called with a name that is not in the list. The caller creates it and
    * chooses it.
@@ -178,7 +178,9 @@ export interface CreatablePickerProps {
    * nothing offers nothing and the list simply does not open — which is the
    * honest answer for a picker that cannot make one.
    */
-  onCreate?: (name: string) => void;
+  onCreate?: (name: string) => unknown;
+  /** Await a write and close only when its returned outcome satisfies this predicate. */
+  closeWhen?: (result: unknown) => boolean;
   /**
    * A visible `+` that opens the box's search list, on the leading edge —
    * the Depends-on cell's add affordance, carried by the shared component so
@@ -320,6 +322,7 @@ export function CreatablePicker({
   value,
   onChoose,
   onCreate,
+  closeWhen,
   addButtonLabel,
   onClear,
   clearVisibleWhileFocused,
@@ -339,6 +342,27 @@ export function CreatablePicker({
    * than the index remembers.
    */
   const [activeIndex, setActiveIndex] = useState(0);
+  const takingRef = useRef(false);
+  const [taking, setTaking] = useState(false);
+
+  const take = (action: () => unknown): void => {
+    if (takingRef.current) return;
+    const result = action();
+    if (closeWhen === undefined || result === undefined) {
+      setTyped(null);
+      return;
+    }
+    takingRef.current = true;
+    setTaking(true);
+    void Promise.resolve(result)
+      .then((outcome) => {
+        if (closeWhen(outcome)) setTyped(null);
+      })
+      .finally(() => {
+        takingRef.current = false;
+        setTaking(false);
+      });
+  };
 
   // Derived from the label so two pickers in one row do not share an id.
   const listId = `creatable-${label.replace(/\W+/g, '-').toLowerCase()}`;
@@ -366,8 +390,7 @@ export function CreatablePicker({
     label: pickableLabel(entry),
     selected: entry.id === value,
     take: () => {
-      onChoose(entry.id);
-      setTyped(null);
+      take(() => onChoose(entry.id));
     },
   });
   /** What is drawn, and — first line first — what Enter takes. One array. */
@@ -384,8 +407,7 @@ export function CreatablePicker({
             label: `Add “${typed.trim()}”`,
             selected: false,
             take: () => {
-              onCreate(typed.trim());
-              setTyped(null);
+              take(() => onCreate(typed.trim()));
             },
           },
         ]
@@ -429,6 +451,8 @@ export function CreatablePicker({
         </button>
       )}
       <input
+        disabled={taking}
+        aria-busy={taking || undefined}
         aria-label={label}
         role="combobox"
         aria-expanded={open}

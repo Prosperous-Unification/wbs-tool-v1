@@ -53,6 +53,32 @@ describe('ReferenceSetStrip', () => {
     });
   });
 
+  itDom('retains a refused choice and blocks a pending double take', async () => {
+    let answer!: (value: 'landed' | 'refused' | 'unsent') => void;
+    const pending = new Promise<'landed' | 'refused' | 'unsent'>((resolve) => {
+      answer = resolve;
+    });
+    const model = adapter({ replace: vi.fn().mockReturnValue(pending) });
+    render(<ReferenceSetStrip label="Teams" adapter={model} />);
+
+    const box = screen.getByRole<HTMLInputElement>('combobox', { name: 'Teams' });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'Q' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    fireEvent.keyDown(box, { key: 'Enter' });
+
+    expect(model.replace).toHaveBeenCalledTimes(1);
+    expect(box).toBeDisabled();
+    expect(box).toHaveValue('Q');
+
+    await act(async () => {
+      answer('refused');
+      await pending;
+    });
+    expect(box).not.toBeDisabled();
+    expect(box).toHaveValue('Q');
+  });
+
   itDom('creates against the current whole set and preserves refused members', async () => {
     const model = adapter({ create: vi.fn().mockResolvedValue('refused') });
     render(<ReferenceSetStrip label="Teams" adapter={model} />);
@@ -66,6 +92,7 @@ describe('ReferenceSetStrip', () => {
       expect(model.create).toHaveBeenCalledWith('New team', ['team-1']);
     });
     expect(screen.getByText('Platform')).toBeInTheDocument();
+    expect(box).toHaveValue('New team');
   });
 
   itDom('removes one member and disables only that chip while the write is pending', async () => {

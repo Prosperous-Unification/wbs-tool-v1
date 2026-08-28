@@ -37,13 +37,16 @@ export function ReferenceSetStrip({ label, adapter, gridCell }: ReferenceSetStri
   const offered = adapter.entries.filter((entry) => !ownIds.includes(entry.id));
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
   const [pendingAdd, setPendingAdd] = useState(false);
+  const pendingAddRef = useRef(false);
 
-  const add = async (action: () => Promise<CommitOutcome>): Promise<void> => {
-    if (pendingAdd) return;
+  const add = async (action: () => Promise<CommitOutcome>): Promise<CommitOutcome> => {
+    if (pendingAddRef.current) return 'unsent';
+    pendingAddRef.current = true;
     setPendingAdd(true);
     try {
-      await action();
+      return await action();
     } finally {
+      pendingAddRef.current = false;
       setPendingAdd(false);
     }
   };
@@ -105,8 +108,9 @@ export function ReferenceSetStrip({ label, adapter, gridCell }: ReferenceSetStri
           label={label}
           entries={offered}
           value={null}
-          onChoose={(id) => void add(() => adapter.replace([...ownIds, id]))}
-          onCreate={(name) => void add(() => adapter.create(name, ownIds))}
+          onChoose={(id) => add(() => adapter.replace([...ownIds, id]))}
+          onCreate={(name) => add(() => adapter.create(name, ownIds))}
+          closeWhen={(outcome) => outcome === 'landed'}
           placeholder={`Search ${label.toLowerCase()}`}
           gridCell={gridCell}
         />
