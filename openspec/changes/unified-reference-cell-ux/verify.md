@@ -81,6 +81,12 @@
 - The table guard preserves the card and whole-set tint when owner `mouseleave` reports the underlying element reached through passive padding; a document move outside the owner/row corridor then clears the card and tint. Clearing synchronously on owner leave fails this transition before the row can be reached.
 - Remote `depends-card.test.tsx` plus the complete `wbs-table.test.tsx` passed 527/527 in 79.35s. The focused bridge/hover family passed 14/14; fe-01 typecheck, touched lint, format, and pre-commit hooks passed on h2puni with one pre-existing hook warning and zero lint errors. No build or test ran on h1claw.
 
+### Observed during task 4.2
+
+- Before the shared tokens were applied, the new three-dependency guard failed because the dependency add button exposed no `data-reference-add` marker. Restored `06b1f035` shares the reference strip, add, and compact-chip tokens while retaining the existing dependency combobox, bulk-number parser, refusal rows, and add/remove endpoints.
+- A visible-chip-only mutant narrowed the accessible description with `waitingFor.slice(0, 2)`. The watched guard failed on `Waiting for 010 - Strip, 020 - Sand` instead of the complete `Waiting for 010 - Strip, 020 - Sand, 030 - Paint`; restoring the full `waitingFor` list passed.
+- Remote table, shared-strip, and dependency-card suites passed 536/536. fe-01 app/e2e typecheck, touched lint, format, and pre-commit hooks passed on h2puni with one pre-existing hook warning and zero lint errors. No build or test ran on h1claw.
+
 ## 3. Remote gate output to record after apply
 
 - [ ] Focused DOM suites: exact pass counts and watched-red messages.
