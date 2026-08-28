@@ -9202,6 +9202,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
     // moment is the skew `layOutGantt` throws on.
     roles: chartRead.roles,
     personNames: new Map(chartRead.people.map((person) => [person.id, person.name])),
+    teamNames: new Map(teams.map((team) => [team.id, team.name])),
     // The ladder the chart names its priorities with. Off the same state the
     // table's cells read, so a bar's cap and its row's digits are one colour.
     priorityBands,

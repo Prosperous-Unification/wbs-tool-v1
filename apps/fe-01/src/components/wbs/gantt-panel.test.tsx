@@ -88,6 +88,7 @@ const sliceAt = (
   critical: false,
   boundBy: 'projectStart',
   resourcePredecessorId: null,
+  capacityTeamId: null,
   width: 1,
   effort: earliestFinish - earliestStart,
   capacityPredecessorIds: [],
@@ -118,6 +119,7 @@ const planOf = (parts: Partial<GanttPlan>): GanttPlan => ({
   narrowedByFilter: false,
   roles: [{ id: 'dev', name: 'Dev' }],
   personNames: new Map(),
+  teamNames: new Map(),
   priorityBands: DEFAULT_PRIORITY_BANDS,
   ...parts,
 });

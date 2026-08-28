@@ -102,6 +102,8 @@ export interface SliceView {
   critical: boolean;
   boundBy: ScheduleFloorView;
   resourcePredecessorId: string | null;
+  /** The team pool that set a capacity floor, or null for every other floor. */
+  capacityTeamId: string | null;
   /**
    * How many of its team's slots this slice held while it ran — the
    * **effective** width be-01 scheduled with.

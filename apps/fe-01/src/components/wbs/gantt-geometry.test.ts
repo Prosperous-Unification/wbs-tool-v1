@@ -79,6 +79,7 @@ const sliceAt = (
   critical: false,
   boundBy: 'projectStart',
   resourcePredecessorId: null,
+  capacityTeamId: null,
   // Width 1 is the plan nobody has sized: effort is the duration, and no pool
   // held anything up. The capacity fixtures below pass their own three.
   width: 1,
@@ -115,6 +116,7 @@ const planOf = (parts: Partial<GanttPlan>): GanttPlan => ({
     { id: 'qa', name: 'QA' },
   ],
   personNames: new Map([['kat', 'Kat']]),
+  teamNames: new Map([['team-platform', 'Platform']]),
   ...parts,
 });
 
@@ -538,6 +540,7 @@ describe('a bar held by a team’s capacity', () => {
         sliceAt('strip-dev', 'strip', 0, 3),
         sliceAt('sand-dev', 'sand', 3, 5, {
           boundBy: 'capacity',
+          capacityTeamId: 'team-platform',
           resourcePredecessorId: 'strip-dev',
           capacityPredecessorIds: ['strip-dev'],
           width: 3,
@@ -559,6 +562,35 @@ describe('a bar held by a team’s capacity', () => {
     );
   });
 
+  it('names the binding team even when it is not the row label shown first', () => {
+    const chart = layOutGantt(
+      pooled({
+        rows: [
+          rowAt('strip', 0, 3, { team: { state: 'named', name: 'Alpha' } }),
+          rowAt('sand', 3, 5, { team: { state: 'named', name: 'Alpha' } }),
+        ],
+        teamNames: new Map([
+          ['team-alpha', 'Alpha'],
+          ['team-beta', 'Beta'],
+        ]),
+        slices: [
+          sliceAt('strip-dev', 'strip', 0, 3),
+          sliceAt('sand-dev', 'sand', 3, 5, {
+            boundBy: 'capacity',
+            capacityTeamId: 'team-beta',
+            resourcePredecessorId: 'strip-dev',
+            capacityPredecessorIds: ['strip-dev'],
+            width: 3,
+            effort: 6,
+            duration: 2,
+          }),
+        ],
+      }),
+    );
+
+    expect(wordsFor(chart, 'sand-dev')).toBe('Waits for Beta to free 3 people — after strip (Dev)');
+  });
+
   it('says “a person” for a slice that needs one slot, not “1 people”', () => {
     const chart = layOutGantt(
       pooled({
@@ -566,6 +598,7 @@ describe('a bar held by a team’s capacity', () => {
           sliceAt('strip-dev', 'strip', 0, 3),
           sliceAt('sand-dev', 'sand', 3, 5, {
             boundBy: 'capacity',
+            capacityTeamId: 'team-platform',
             resourcePredecessorId: 'strip-dev',
             capacityPredecessorIds: ['strip-dev'],
           }),
@@ -598,6 +631,7 @@ describe('a bar held by a team’s capacity', () => {
           sliceAt('sand-dev', 'sand', 0, 2),
           sliceAt('wax-dev', 'wax', 3, 5, {
             boundBy: 'capacity',
+            capacityTeamId: 'team-platform',
             resourcePredecessorId: 'strip-dev',
             capacityPredecessorIds: ['strip-dev', 'sand-dev'],
             width: 2,
@@ -639,6 +673,7 @@ describe('a bar held by a team’s capacity', () => {
           sliceAt('rinse-dev', 'rinse', 0, 2),
           sliceAt('wax-dev', 'wax', 3, 5, {
             boundBy: 'capacity',
+            capacityTeamId: 'team-platform',
             resourcePredecessorId: 'strip-dev',
             capacityPredecessorIds: ['strip-dev', 'sand-dev', 'rinse-dev'],
             width: 2,
@@ -722,6 +757,7 @@ describe('a bar held by a team’s capacity', () => {
         sliceAt('strip-dev', 'strip', 0, 3),
         sliceAt('sand-dev', 'sand', 3, 5, {
           boundBy: 'capacity',
+          capacityTeamId: 'team-platform',
           capacityPredecessorIds: ['strip-dev'],
           width: 3,
         }),
@@ -742,6 +778,7 @@ describe('a bar held by a team’s capacity', () => {
         sliceAt('strip-dev', 'strip', 0, 3),
         sliceAt('sand-dev', 'sand', 3, 5, {
           boundBy: 'capacity',
+          capacityTeamId: 'team-platform',
           resourcePredecessorId: 'strip-dev',
           capacityPredecessorIds: [],
           width: 3,
@@ -756,6 +793,16 @@ describe('a bar held by a team’s capacity', () => {
   it('throws when a capacity-floored row names no team to be short of', () => {
     const noPool = pooled({
       rows: [rowAt('strip', 0, 3), rowAt('sand', 3, 5)],
+      slices: [
+        sliceAt('strip-dev', 'strip', 0, 3),
+        sliceAt('sand-dev', 'sand', 3, 5, {
+          boundBy: 'capacity',
+          capacityTeamId: null,
+          resourcePredecessorId: 'strip-dev',
+          capacityPredecessorIds: ['strip-dev'],
+          width: 3,
+        }),
+      ],
     });
 
     expect(() => layOutGantt(noPool)).toThrow(GanttDataError);
@@ -774,6 +821,7 @@ describe('a bar held by a team’s capacity', () => {
    */
   it('carries words for a team the directory read has not caught up with', () => {
     const staleLookup = pooled({
+      teamNames: new Map(),
       rows: [
         rowAt('strip', 0, 3, { team: { state: 'named', name: 'Platform' } }),
         rowAt('sand', 3, 5, { team: { state: 'unresolved' } }),
@@ -2446,6 +2494,7 @@ describe('the waits that were not drawn', () => {
         }),
         sliceAt('wax-dev', 'wax', 5, 7, {
           boundBy: 'capacity',
+          capacityTeamId: 'team-platform',
           resourcePredecessorId: 'sand-dev',
           capacityPredecessorIds: ['sand-dev'],
         }),
@@ -2794,6 +2843,7 @@ describe('what holds a row’s start, for the table', () => {
   it('names the pool a row is short of, how many it needs and who freed them', () => {
     const floors = startFloorByRow(
       planOf({
+        teamNames: new Map([['team-growth', 'Growth squad']]),
         rows: [
           rowAt('010', 0, 2, { name: 'Strip' }),
           rowAt('020', 2, 4, { team: { state: 'named', name: 'Growth squad' } }),
@@ -2802,6 +2852,7 @@ describe('what holds a row’s start, for the table', () => {
           sliceAt('010-dev', '010', 0, 2),
           sliceAt('020-dev', '020', 2, 4, {
             boundBy: 'capacity',
+            capacityTeamId: 'team-growth',
             resourcePredecessorId: '010-dev',
             capacityPredecessorIds: ['010-dev'],
           }),
