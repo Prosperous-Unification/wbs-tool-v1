@@ -65,6 +65,18 @@ Same `Button` + popover as `FilterFacets`, a checkbox per hideable column in
 table order, then a checkbox per role. `Reset layout` gains the hidden list in
 `resetLayout` and in its "offered only while something is in force" predicate.
 
+### D6 — the toolbar pays for its thirteenth control
+
+Measured at 1280 with a plan of unestimated rows (`e2e/header.spec.ts`'s own
+fixture): the bar is 1248px, row one held 1174px, and the Columns control
+(78px) kept `N unestimated` (101px) off it, which pushed `Plan with` onto a
+third row — the frame lost 36px. Five rare export actions took 683px of the
+toolbar. They sit behind one `Export` `<details>` now, Undo/Redo are the glyphs
+the ⌨ beside them already proved (aria-label and title keep the words), and the
+Find box is `w-32`. Two rows again with ~500px to spare; every action keeps its
+name, title and handler, so the export specs change only in where the action
+sits. Dany's call, 2026-08-28: "not all buttons need to be this big".
+
 ## Risks / Trade-offs
 
 - Every existing test that reads a Teams or Services cell now needs those

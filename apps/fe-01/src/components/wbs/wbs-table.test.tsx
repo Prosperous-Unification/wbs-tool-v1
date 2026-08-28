@@ -11100,13 +11100,45 @@ describe('sharing the plan', () => {
     return api;
   };
 
-  itDom('offers all four ways of taking the plan out of the tool', async () => {
+  itDom('offers all five ways of taking the plan out of the tool, in one Export menu', async () => {
+    // `configurable-columns` measured the toolbar at 1280: 683px of five rare
+    // actions on one row, and a Columns control pushed it to three rows. The
+    // five live behind one `Export` summary now — the same `<details>` the
+    // Filters and Views controls are — so the row holds what a reader does
+    // often and the exports are one click further. jsdom cannot see a closed
+    // `<details>` hide its children, so what is asserted is where they live:
+    // inside the menu, in this order, and nowhere else on the toolbar.
     const api = fakeApi();
     render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
     expect(await screen.findByRole('button', { name: 'Copy as Markdown' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Copy as Mermaid' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Download CSV' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Download as Markdown' })).toBeInTheDocument();
+    const menu = document.querySelector<HTMLElement>('[data-toolbar] details[data-export]');
+    if (menu === null) throw new Error('no Export menu on the toolbar');
+    expect(menu.querySelector('summary')?.textContent).toBe('Export');
+    expect([...menu.querySelectorAll('button')].map((button) => button.textContent.trim())).toEqual(
+      [
+        'Copy as Markdown',
+        'Copy as Mermaid',
+        'Download CSV',
+        'Download as Markdown',
+        'Download what’s on screen',
+      ],
+    );
+    // Proof: the `<details>` replaced by a plain `<div>` around the five, this
+    // failed on `no Export menu on the toolbar`. Watched, 2026-08-28.
+  });
+
+  itDom('draws Undo and Redo as glyphs that still answer to their names', async () => {
+    // 55px of word each where a 33px glyph does the job the ⌨ beside them
+    // already proved; the name stays on the control for a reader who cannot see
+    // the glyph and for the tests that click it by name.
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
+    const undo = await screen.findByRole('button', { name: 'Undo' });
+    const redo = screen.getByRole('button', { name: 'Redo' });
+    expect(undo.textContent).toBe('↶');
+    expect(redo.textContent).toBe('↷');
+    expect(undo.getAttribute('title')).toContain('Ctrl/⌘ + Z');
+    expect(redo.getAttribute('title')).toContain('Ctrl/⌘ + Shift + Z');
   });
 
   itDom('copies the whole plan, header first, and says it did', async () => {

@@ -9768,7 +9768,7 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         be made.
       */}
       <Input
-        className="h-8 w-40 text-xs"
+        className="h-8 w-32 text-xs"
         aria-label="Find"
         placeholder="Find…"
         size={14}
@@ -9911,12 +9911,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         type="button"
         disabled={busy || !stack.undoable}
         {...busyAffordance(busy)}
+        aria-label="Undo"
         title="Undo your last change to this plan (Ctrl/⌘ + Z)"
         onClick={() => {
           void stepStack('undo');
         }}
       >
-        Undo
+        ↶
       </Button>
       <Button
         variant="outline"
@@ -9924,12 +9925,13 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         type="button"
         disabled={busy || !stack.redoable}
         {...busyAffordance(busy)}
+        aria-label="Redo"
         title="Put back what you last undid (Ctrl/⌘ + Shift + Z)"
         onClick={() => {
           void stepStack('redo');
         }}
       >
-        Redo
+        ↷
       </Button>
       {/*
         The way in for anyone who was never told about `?`, which is most
@@ -9964,59 +9966,81 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
         schedule, or nothing placed), reported the same way a refused
         clipboard write already is.
       */}
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Copy the whole plan as a Markdown table, with a header saying how to read it"
-        onClick={copyAsMarkdown}
-      >
-        Copy as Markdown
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Copy the chart as a Mermaid gantt, for a Markdown document that draws it"
-        onClick={copyAsMermaid}
-      >
-        Copy as Mermaid
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Download the whole plan as a CSV, with a header saying how to read it"
-        onClick={downloadCsv}
-      >
-        Download CSV
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Download the chart as a Mermaid gantt bundled with the Markdown table, with a header saying how to read it"
-        onClick={downloadMermaidDocument}
-      >
-        Download as Markdown
-      </Button>
       {/*
-        The fifth action, and the only one that takes the rows on screen. Its
-        own button rather than a switch on the four beside it: a mode on a
-        button whose header claims the whole plan is how a partial plan gets
-        sent as a whole one, which is what §9's Q3 refused. Always offered, not
-        only while a filter is on — a collapsed branch narrows the screen too,
-        and the `Scope` line it writes says which of the two did it.
+        One menu for the five, since `configurable-columns`: measured at 1280,
+        the five buttons took 683px of a 1248px toolbar and a thirteenth
+        control pushed the row to three lines. A `<details>`, as Filters and
+        Views are — no dismiss handler, and a `<button>` inside it still
+        closes the phone's sheet (`closingControlIn`). The buttons keep their
+        names, titles and handlers; the only thing that moved is where they
+        sit.
       */}
-      <Button
-        variant="outline"
-        size="sm"
-        type="button"
-        title="Download the rows on screen as a Markdown table, with a header saying what was filtered out and what is missing"
-        onClick={downloadOnScreen}
-      >
-        Download what’s on screen
-      </Button>
+      <details data-export className="relative">
+        <summary
+          className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+          title="Copy or download the plan — as a Markdown table, a Mermaid gantt, a CSV, or what is on screen"
+        >
+          Export
+        </summary>
+        <div
+          data-export-panel
+          className="bg-popover absolute z-50 mt-1 flex w-56 flex-col items-stretch gap-1 rounded-md border p-2 shadow-md"
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Copy the whole plan as a Markdown table, with a header saying how to read it"
+            onClick={copyAsMarkdown}
+          >
+            Copy as Markdown
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Copy the chart as a Mermaid gantt, for a Markdown document that draws it"
+            onClick={copyAsMermaid}
+          >
+            Copy as Mermaid
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Download the whole plan as a CSV, with a header saying how to read it"
+            onClick={downloadCsv}
+          >
+            Download CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Download the chart as a Mermaid gantt bundled with the Markdown table, with a header saying how to read it"
+            onClick={downloadMermaidDocument}
+          >
+            Download as Markdown
+          </Button>
+          {/*
+            The fifth action, and the only one that takes the rows on screen. Its
+            own button rather than a switch on the four beside it: a mode on a
+            button whose header claims the whole plan is how a partial plan gets
+            sent as a whole one, which is what §9's Q3 refused. Always offered, not
+            only while a filter is on — a collapsed branch narrows the screen too,
+            and the `Scope` line it writes says which of the two did it.
+          */}
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            title="Download the rows on screen as a Markdown table, with a header saying what was filtered out and what is missing"
+            onClick={downloadOnScreen}
+          >
+            Download what’s on screen
+          </Button>
+        </div>
+      </details>
       <label className="ml-auto flex items-center gap-1 text-sm">
         Starts
         {/*

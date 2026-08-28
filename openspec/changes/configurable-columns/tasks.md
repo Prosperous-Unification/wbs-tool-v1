@@ -37,3 +37,8 @@ Only `- [ ]` checkboxes are tracked by the apply phase.
 - [x] 5.1 The Phases dialog quotes `foldedTableMinWidth` over the shown columns — test: `phases-dialog.test.tsx` `the quoted folded minimum drops a hidden column's width`; negative: `hidden` not passed through, watched failing on the figure 110px too wide.
 - [ ] 5.2 `e2e/layout.spec.ts`: `holds the folded budget at 1280` unchanged and green; new `hiding Tags narrows the frame by the Tags column's width` measuring `scrollWidth` before and after; heading/body no-overlap re-run after a toggle — run on shifted ports (`CI=1`), never the shared dev server.
 - [x] 5.3 Existing tests that read a Teams or Services cell seed `wbs.hiddenColumns.<projectId>` to `[]` through one helper; every fe-01 test green; `LLM_README.md` landmine about `columns` deps updated in the same commit.
+
+## 6. The toolbar at a laptop width (D6)
+
+- [x] 6.1 One `Export` menu for the five export actions; Undo/Redo as glyphs with their names on them; Find box `w-32` — test: `wbs-table.test.tsx` `offers all five ways of taking the plan out of the tool, in one Export menu`, `draws Undo and Redo as glyphs that still answer to their names`; negative: the `<details>` replaced by a `<div>`, watched failing on `no Export menu on the toolbar`.
+- [ ] 6.2 `e2e/header.spec.ts` `gives the table the height the chrome stopped taking` green again at 1280 (633 → ≥ 634); whole browser gate on shifted ports.
