@@ -381,6 +381,59 @@ describe('runEngineLifecycle', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('owns SIGTERM cleanup while engine startup is still in progress', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wbs-engine-start-signal-'));
+    const marker = join(root, 'lifecycle.log');
+    const moduleUrl = new URL('./main.ts', import.meta.url).href;
+    const childScript = `
+      import { appendFileSync } from 'node:fs';
+      import { runEngineLifecycle } from ${JSON.stringify(moduleUrl)};
+      const marker = process.env['WBS_SIGNAL_MARKER'];
+      if (marker === undefined) throw new Error('missing marker');
+      await runEngineLifecycle(
+        {
+          start: () => {
+            appendFileSync(marker, 'start-entered\\nengine-running\\n');
+            return new Promise(() => {});
+          },
+          stop: () => { appendFileSync(marker, 'stopped\\n'); return Promise.resolve(); },
+        },
+        () => { appendFileSync(marker, 'publish-entered\\n'); return Promise.resolve(); },
+      );
+    `;
+    const child = Bun.spawn(['bun', '-e', childScript], {
+      env: { ...process.env, WBS_SIGNAL_MARKER: marker },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    try {
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline) {
+        try {
+          if (readFileSync(marker, 'utf8').includes('engine-running')) break;
+        } catch (error: unknown) {
+          if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT')
+            throw error;
+        }
+        await Bun.sleep(10);
+      }
+      expect(readFileSync(marker, 'utf8')).toContain('engine-running');
+
+      child.kill('SIGTERM');
+      expect(await child.exited).toBe(143);
+      expect(readFileSync(marker, 'utf8').split('\n').filter(Boolean)).toEqual([
+        'start-entered',
+        'engine-running',
+        'stopped',
+      ]);
+    } finally {
+      child.kill();
+      await child.exited;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('runAdmittedPublish', () => {
