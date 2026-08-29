@@ -5,6 +5,49 @@ Streamable HTTP MCP server over be-01. Tools are derived from
 Every tool call forwards the caller's Bearer token to be-01, so the same
 issuer, identity, scope, journal, and owner rules govern MCP and browser calls.
 
+## Writing is two tools
+
+Since `plan-commands` every plan edit is one tool, `postApiProjectsByIdCommands`:
+an ordered list of typed commands (create, patch, move, estimate, dependency,
+capacity, directory entries…) applied all or none, recorded as **one undo**, and
+answering the id each `ref` became. A later command names what an earlier one
+created by its ref. The directory has no project, so its edits alone have
+`postApiDirectoryCommands`. Twenty tools in all: the reads, the two batches,
+undo, redo, the project and role routes, the export. One call drafts a plan:
+
+```json
+{
+  "id": "<projectId>",
+  "commands": [
+    {
+      "kind": "createWorkItem",
+      "ref": "epic",
+      "parentId": null,
+      "afterId": null,
+      "name": "Payments v2"
+    },
+    {
+      "kind": "createWorkItem",
+      "ref": "a",
+      "parentRef": "epic",
+      "afterId": null,
+      "name": "Schema"
+    },
+    { "kind": "createWorkItem", "ref": "b", "parentRef": "epic", "afterRef": "a", "name": "API" },
+    {
+      "kind": "setEstimate",
+      "workItemRef": "a",
+      "roleId": "<dev>",
+      "days": { "optimistic": 1, "realistic": 2, "pessimistic": 4 }
+    },
+    { "kind": "addDependency", "workItemRef": "b", "predecessorRef": "a" }
+  ]
+}
+```
+
+A refused command refuses the whole batch with `{ "error", "at", "kind" }` and
+nothing is applied; fix that command and resend.
+
 ## Endpoint and probes
 
 - MCP: `POST|GET|DELETE /mcp`

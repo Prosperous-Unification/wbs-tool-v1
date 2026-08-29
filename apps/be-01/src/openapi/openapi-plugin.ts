@@ -25,14 +25,14 @@ const DOCUMENT_VERSION = '0.0.0';
  * What the generated document cannot say about itself, said once here.
  *
  * The two paragraphs are load-bearing rather than decorative. **Bodies:** ten
- * routes declare a schema to Elysia and appear here with one; the eight that
- * parse their body by hand appear with a `requestBody` written in prose, and
- * that prose is documentation only — nothing validates against it. A reader who
- * assumes otherwise will post a field this API refuses and read the 400 as a
- * fault. **Refusals:** the codes a client branches on live inside handlers as
- * `{ error: <code> }` and are not derivable from a route's signature; the eight
- * hand-parsed routes list theirs in their own descriptions and the rest do not
- * list them yet.
+ * routes declare a schema to Elysia and appear here with one; the two batch
+ * routes that parse their body by hand appear with a `requestBody` written out
+ * one variant per command kind, and that document is documentation only —
+ * nothing validates against it. A reader who assumes otherwise will post a field
+ * this API refuses and read the 400 as a fault. **Refusals:** the codes a client
+ * branches on live inside handlers as `{ error: <code> }` and are not derivable
+ * from a route's signature; the batch routes list theirs in their own
+ * descriptions and the rest do not list them yet.
  */
 const DOCUMENT_DESCRIPTION = `The API behind wbs-tool: projects, work items, estimates, dependencies, the
 directory of teams and people, and per-project capacity and priority bands.
@@ -52,20 +52,21 @@ Later commands may name what earlier ones created by \`ref\`. A refused command
 refuses the batch with \`{ "error", "at", "kind" }\` and nothing is applied. Its
 body is described under the route, one variant per command kind.
 
-**Bodies this document declares, and bodies it only describes.** Ten
-body-carrying routes declare a schema to Elysia, and those appear here as
-schemas. Nine parse their body by hand — the six work-item writes, the command
-batch, the capacity PUT and the priority-band PUT — because Elysia strips unknown
-properties before a handler runs, which would silently delete refusals like
-\`number_is_derived\` and the priority and parallelism guards. Their bodies are
-written out in prose under \`requestBody\` and **nothing validates against that
-prose**; the handler's own parse is the contract, and it answers 400 with a code.
+**Bodies this document declares, and bodies it only describes.** The project,
+role and auth routes declare a schema to Elysia, and those appear here as
+schemas. The two batch routes parse their body by hand — because Elysia strips
+unknown properties before a handler runs, which would silently delete refusals
+like \`number_is_derived\` and the priority and parallelism guards — and each
+command inside them is checked by the parser its retired route had. Their bodies
+are written out under \`requestBody\`, one variant per command kind, and
+**nothing validates against that document**; the handler's own parse is the
+contract, and it answers 400 with a code, the command's index and its kind.
 
 **Refusals.** A refused request answers \`{ "error": "<code>" }\` with a status
 that means something: 400 "do not send this", 409 "try again against a different
-state", 404 "that id is not here", 403 "you may read it but not write it". The
-eight hand-parsed routes list their codes in their own descriptions. The rest do
-not yet — that pass is change A2.
+state", 404 "that id is not here", 403 "you may read it but not write it". A
+refused batch adds \`"at"\` and \`"kind"\`. The batch routes list their codes in
+their own descriptions. The rest do not yet — that pass is change A2.
 
 **Numbers are derived.** Work-item numbers, dates, floats and slices are
 recomputed from the tree on every read; a write that names one is refused rather

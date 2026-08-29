@@ -141,7 +141,7 @@ message _containing_ `"pong"`; drain reads a malformed metrics body as zero live
 | `docs/local-dev.md`                                                     | running locally                                                                       |
 | `docs/capacity.md`                                                      | why a plan's dates moved; where a team's number is typed                              |
 | `apps/be-01/openapi.json`                                               | the API's own document — `bun apps/be-01/src/openapi/emit-openapi-cli.ts` rewrites it |
-| `apps/mcp-01/README.md`                                                 | the MCP server: 43 tools derived from that document, stdio, client config stanza      |
+| `apps/mcp-01/README.md`                                                 | the MCP server: 20 tools derived from that document, two of them the batch writes     |
 | `HUMAN_README.md`                                                       | operating prod; triage runbook; openclaw path                                         |
 | `openspec/changes/scaffold-tech-setup/`                                 | original scaffold — **stale**, spec above wins                                        |
 
