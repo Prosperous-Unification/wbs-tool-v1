@@ -144,6 +144,10 @@ AUTH_AUDIENCE=https://wbs.bulletpoints.club/api
 AUTH_GROUPS_CLAIM=wbs_groups
 ```
 
+`AUTH_SCOPE` and `AUTH_GROUPS_CLAIM` are optional — the code defaults to
+exactly the values shown, and the deployed dev env omits both. Set them only to
+override, and never to a different groups claim than the Action emits.
+
 The Auth0 application is a Regular Web Application with Authorization Code +
 PKCE and rotating refresh-token grants. Its callback remains
 `https://dev.wbs.bulletpoints.club/api/auth/okta/callback`; `okta` is a
@@ -168,6 +172,16 @@ This is the dev tenant's deployed Action, so `dev:` is intentional. A production
 tenant must emit `prod:` instead; WBS matches the environment prefix exactly and
 would otherwise issue a session with no scopes. The Action writes the same role
 array to both claims; each app ignores values for the other app segment.
+
+A scopeless session is not a rejected one. The prefix mismatch is silent at
+sign-in: the OIDC callback still issues the `__Host-` cookies, and reading is
+open to every authenticated account by design, so the user lands on a working
+board and can list and open their own projects and receive WebSocket events.
+Only the scope-guarded routes refuse them: mutations return
+`403 insufficient_scope`, and so do the routes that ask for `read` explicitly
+(the solution reader and the project export/opened routes). A wrong prefix
+therefore reads as "the app is up but nothing saves", not as a login failure —
+check the emitted group values before chasing a write bug.
 
 Assign the WBS roles to each user and require `email_verified=true` before
 first-login linking. Real dev credentials live only in
