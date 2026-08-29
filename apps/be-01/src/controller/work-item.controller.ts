@@ -26,7 +26,6 @@ import type {
   UndoOutcome,
   WorkItemService,
 } from '../service/work-item.service';
-import { holdsMetric } from '../service/work-item.service';
 import { BadCapacity, capacityOf } from './capacity.controller';
 import { PLAN_COMMANDS_BODY } from './plan-command-schema';
 import { BadLadder, ladderOf } from './priority-band.controller';
@@ -566,16 +565,19 @@ function parseKind(kind: PlanCommandKind, raw: Record<string, unknown>): PlanCom
       return { kind, ...target, ...role(), days: parseActual(raw) };
     case 'setProgress':
       return { kind, ...target, ...role(), state: parseProgress(raw) };
-    case 'setMeasure': {
-      const metric = asText(raw['metric'], 'metric');
-      if (!holdsMetric(metric)) throw new BadRequest('unknown_metric');
-      return { kind, ...target, ...role(), metric, value: parseMeasure(raw) };
-    }
-    case 'clearMeasure': {
-      const metric = asText(raw['metric'], 'metric');
-      if (!holdsMetric(metric)) throw new BadRequest('unknown_metric');
-      return { kind, ...target, ...role(), metric };
-    }
+    // The metric is text here and judged by the service, as the retired route
+    // left it: `unknown_metric` is a 404 — a unit this release does not keep,
+    // arriving where an id does — and a parser refusal would make it a 400.
+    case 'setMeasure':
+      return {
+        kind,
+        ...target,
+        ...role(),
+        metric: asText(raw['metric'], 'metric'),
+        value: parseMeasure(raw),
+      };
+    case 'clearMeasure':
+      return { kind, ...target, ...role(), metric: asText(raw['metric'], 'metric') };
     case 'setAssignee':
       return present({
         kind,

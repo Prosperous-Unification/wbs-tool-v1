@@ -2,7 +2,6 @@ import type { RoleState } from '@wbs/domain';
 import type { PriorityBand } from '@wbs/domain/priority-band';
 
 import type { PersonPatch, TeamPatch, WorkItemPatch } from '../repository';
-import type { MeasureMetric } from '../repository/schema';
 import type { Days } from './roll-up';
 import type { DeleteStrategy } from './work-item.service';
 
@@ -44,8 +43,8 @@ export type PlanCommand =
   | ({ kind: 'clearActual'; roleId: string } & Target)
   | ({ kind: 'setProgress'; roleId: string; state: RoleState } & Target)
   | ({ kind: 'clearProgress'; roleId: string } & Target)
-  | ({ kind: 'setMeasure'; roleId: string; metric: MeasureMetric; value: number } & Target)
-  | ({ kind: 'clearMeasure'; roleId: string; metric: MeasureMetric } & Target)
+  | ({ kind: 'setMeasure'; roleId: string; metric: string; value: number } & Target)
+  | ({ kind: 'clearMeasure'; roleId: string; metric: string } & Target)
   | ({ kind: 'setAssignee'; roleId: string; personId: string | null; personRef?: string } & Target)
   | ({ kind: 'addDependency'; predecessorId?: string; predecessorRef?: string } & Target)
   | ({ kind: 'removeDependency'; predecessorId?: string; predecessorRef?: string } & Target)
