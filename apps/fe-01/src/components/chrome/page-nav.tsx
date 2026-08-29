@@ -34,7 +34,10 @@ export function PageNav() {
   // So this is not a contrast fix and `dark-mode.spec.ts` does not assert it as
   // one — it asserts the link is the palette's own ink, which is a claim that
   // can fail. Both numbers: `openspec/changes/dark-mode/verify.md`.
-  const shape = cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'text-foreground shrink-0');
+  const shape = cn(
+    buttonVariants({ variant: 'ghost', size: 'sm' }),
+    'text-foreground shrink-0 max-md:min-h-11',
+  );
   const marked = { className: 'bg-accent text-accent-foreground' };
   return (
     <nav aria-label="Pages" className="flex shrink-0 items-center gap-1">
