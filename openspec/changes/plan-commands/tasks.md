@@ -37,9 +37,9 @@ Only `- [ ]` checkboxes are tracked by the apply phase.
 ## 5. fe-01 on batches
 
 - [x] 5.1 `wbs-api.ts` `commands(projectId, list)`; every `ProjectApi`/`DirectoryApi` write method posts a batch of one, signatures unchanged; the test fake gains `commands` routing each kind to its existing handler — test: `wbs-api.test.ts` `a rename is one commands request with one patchWorkItem`, `every write method posts exactly one command`; every existing fe-01 test green unchanged.
-- [ ] 5.2 Browser gate on shifted ports: `keyboard.spec.ts` network assertions (`writes` arrays) updated to the `commands` path; whole gate green.
+- [x] 5.2 Browser gate on shifted ports: `keyboard.spec.ts` network assertions (`writes` arrays) updated to the `commands` path; whole gate green.
 
 ## 6. Retire the single-item routes
 
-- [ ] 6.1 Delete the single-item write routes from be-01 controllers; regenerate `openapi.json`; mcp-01's exclusion assertion now proves the list matches nothing left over and the entries are removed — test: `work-item.controller.test.ts` `PATCH /api/work-items/{id} is 404`, `openapi-document.test.ts` fresh; every be-01 integration test that posted to a single route rewritten to a one-command batch.
+- [x] 6.1 Delete the single-item write routes from be-01 controllers; regenerate `openapi.json`; mcp-01's exclusion assertion now proves the list matches nothing left over and the entries are removed — test: `work-item.controller.test.ts` `PATCH /api/work-items/{id} is 404`, `openapi-document.test.ts` fresh; every be-01 integration test that posted to a single route rewritten to a one-command batch.
 - [x] 6.2 `docs`: `apps/mcp-01/README.md` tool count and the batch example; `LLM_README.md` doc index line for the MCP server; `HUMAN_README.md` if it names routes. Full gate + `openspec validate`.
