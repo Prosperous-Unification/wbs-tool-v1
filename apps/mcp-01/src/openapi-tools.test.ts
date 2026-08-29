@@ -278,14 +278,15 @@ describe('toolsFromDocument, on the committed document', () => {
    * project's gate can see is a count that drifts silently; the routes landed at
    * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
    */
-  it('is 19 tools, so a route that appears must be decided about', () => {
+  it('is 20 tools, so a route that appears must be decided about', () => {
     // **51 to 19 with `plan-commands`.** Every single-item plan and directory
     // write is excluded — a model gets one write tool, `commands`, and cannot
     // pick the slow path — and the batch route arrives. What stays: the reads,
     // `commands`, undo, redo, the project and role routes that are not plan
-    // edits, and the export. Five paths are excluded per method, because they
-    // share a path with a read that stays.
-    expect(tools).toHaveLength(19);
+    // edits, the export, and the directory's own batch route (the directory
+    // has no project). Five paths are excluded per method, because they share
+    // a path with a read that stays.
+    expect(tools).toHaveLength(20);
     expect(EXCLUDED_PATHS).toHaveLength(19);
   });
 
@@ -295,6 +296,7 @@ describe('toolsFromDocument, on the committed document', () => {
     // 2026-08-29.
     const names = tools.map((tool) => tool.name);
     expect(names).toContain('postApiProjectsByIdCommands');
+    expect(names).toContain('postApiDirectoryCommands');
     expect(tools.filter((tool) => tool.path.startsWith('/api/work-items/'))).toHaveLength(0);
     for (const single of [
       'postApiProjectsByIdWork-items',

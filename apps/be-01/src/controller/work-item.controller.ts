@@ -872,6 +872,36 @@ beside the code, as its route did: \`taken\` the surviving \`name\`, \`in_use\` 
         },
       },
     )
+    .post(
+      '/directory/commands',
+      async ({ body, headers, set }) => {
+        const user = await userFromHeaders(auth, headers);
+        if (user === null) {
+          set.status = 401;
+          return { error: 'unauthenticated' };
+        }
+        const outcome = await commands.runDirectory(user.id, parseBatch(body));
+        if (!outcome.ok) {
+          set.status = statusForBatch(outcome.reason);
+          return { ...outcome.detail, error: outcome.reason, at: outcome.at, kind: outcome.kind };
+        }
+        return { results: outcome.results };
+      },
+      {
+        detail: {
+          summary: 'Apply a batch of directory commands, all or none',
+          description: `The directory — teams, people, tags, services — has no project, so its batches
+have their own route: the same commands, the same all-or-none transaction, the same
+\`{ "error", "at", "kind" }\` refusal, and no undo, because the directory has none. A plan
+command (anything but the twelve directory kinds) is refused as \`project_required\` at its
+index. Answers \`{ results: [{ index, ref?, id?, entity? }] }\`.`,
+          requestBody: handParsedBody(
+            'The directory commands, in order. Each names its `kind`.',
+            PLAN_COMMANDS_BODY,
+          ),
+        },
+      },
+    )
     .post('/projects/:id/undo', async ({ params, headers, set }) => {
       const user = await userFromHeaders(auth, headers);
       if (user === null) {

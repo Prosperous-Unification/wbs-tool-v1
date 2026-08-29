@@ -195,6 +195,24 @@ describe('work item routes', () => {
     expect(writes.transactions.calls).toEqual(['begin', 'rollback']);
   });
 
+  it('applies a directory batch at its own route, no project in the path', async () => {
+    const { token, send } = await setup();
+    const res = await send('/api/directory/commands', token, {
+      method: 'POST',
+      body: JSON.stringify({ commands: [{ kind: 'createTag', ref: 't', name: 'regulatory' }] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: { ref?: string; id?: string; entity?: unknown }[];
+    };
+    expect(body.results[0]?.ref).toBe('t');
+    expect(body.results[0]?.entity).toMatchObject({ name: 'regulatory' });
+    const tags = await send('/api/tags', token);
+    expect(((await tags.json()) as { tags: { name: string }[] }).tags.map((t) => t.name)).toEqual([
+      'regulatory',
+    ]);
+  });
+
   it('refuses a batch that is not a list of known commands before applying any', async () => {
     // Proof: the cap dropped from the runner, the 201 case answered 200.
     // Watched, 2026-08-29.

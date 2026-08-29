@@ -2,8 +2,9 @@
 
 ### Requirement: A plan is written to as a command batch
 
-The API SHALL accept `POST /api/projects/{id}/commands` carrying an ordered list
-of at most two hundred typed commands — every plan write (create, patch, move,
+The API SHALL accept `POST /api/projects/{id}/commands` — and, for directory
+commands alone, `POST /api/directory/commands`, which has no project and
+records no undo — carrying an ordered list of at most two hundred typed commands — every plan write (create, patch, move,
 duplicate, delete, estimate, actual, progress, measure, assignee, dependency,
 freeze, unfreeze, capacity, priority bands) and every directory write (team,
 person, tag, service: create, patch, delete) — and SHALL apply them in order,
@@ -117,18 +118,18 @@ while the batch is applying, never across a network call.
 ### Requirement: The MCP server offers batches, not single writes
 
 mcp-01 SHALL derive its tools from the OpenAPI document as it does, and the
-document's write surface SHALL be the `commands` route, undo, redo and the
-project-level routes that are not plan edits. No single-item plan or directory
-write SHALL be offered as a tool, and the `commands` tool's input schema SHALL
-carry every command kind with its description, so a model can compose a batch
-without another document.
+document's write surface SHALL be the two `commands` routes — the project's and
+the directory's — undo, redo and the project-level routes that are not plan
+edits. No single-item plan or directory write SHALL be offered as a tool, and
+the `commands` tools' input schema SHALL carry every command kind with its
+description, so a model can compose a batch without another document.
 
 #### Scenario: the tool set after this change
 
 - **WHEN** the tools are derived from the committed document
-- **THEN** `postApiProjectsByIdCommands` is among them, no tool matches
-  `/api/work-items/*` or a single-item directory write, and the count is under
-  fifteen
+- **THEN** `postApiProjectsByIdCommands` and `postApiDirectoryCommands` are
+  among them, no tool matches `/api/work-items/*` or a single-item directory
+  write, and the count is twenty
 
 #### Scenario: every kind is described
 

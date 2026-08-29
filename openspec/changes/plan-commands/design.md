@@ -44,6 +44,11 @@ create/patch/opened and roles stay their own routes: they are not plan edits.
 The OpenAPI body is a `oneOf` over the kinds with `description`s — that is the
 whole of what mcp-01 shows the model (D5 pass-through). No hand-written schema.
 
+The directory has no project, and the directory page writes without one, so a
+second route `POST /api/directory/commands` takes directory kinds alone: same
+runner, lock and transaction, nothing journalled, `project_required` for a plan
+kind. Two write tools, not one; the browser's `DirectoryApi` uses the second.
+
 ### D2 — atomicity by outer transaction, serialised by a write lock
 
 `runBatch` takes the process-wide write lock (an async mutex every be-01 write

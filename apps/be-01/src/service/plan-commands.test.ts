@@ -318,6 +318,29 @@ describe('a command batch', () => {
     });
   });
 
+  it('applies a directory-only batch with no project, and refuses a plan command in it', async () => {
+    // The directory page has no project; its writes go through `runDirectory`,
+    // which holds the same lock and transaction and records nothing. A plan
+    // command has no project to land in there and is refused by index.
+    const outcome = await runner.runDirectory(ownerId, [
+      { kind: 'createTeam', ref: 'platform', name: 'Platform' },
+      { kind: 'createPerson', ref: 'kat', name: 'Kat', teamRefs: ['platform'] },
+    ]);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    expect(outcome.results.map((each) => each.ref)).toEqual(['platform', 'kat']);
+    expect((await directoryStore.listTeams()).map((each) => each.name)).toEqual(['Platform']);
+    expect(await journal()).toHaveLength(0);
+
+    expect(
+      await runner.runDirectory(ownerId, [
+        { kind: 'createTag', name: 'x' },
+        { kind: 'createWorkItem', name: 'Orphan' },
+      ]),
+    ).toEqual({ ok: false, at: 1, kind: 'createWorkItem', reason: 'project_required' });
+    // All or none here too: the tag went with the refusal.
+    expect(await directoryStore.listTags()).toHaveLength(0);
+  });
+
   it('refuses two hundred and one commands before applying any', async () => {
     const many: PlanCommand[] = Array.from({ length: 201 }, (_, n) => ({
       kind: 'createWorkItem',

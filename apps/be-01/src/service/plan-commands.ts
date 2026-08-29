@@ -45,6 +45,22 @@ export interface PlanCommandRunnerOptions {
   lock: WriteLock;
 }
 
+/** The kinds that need no project: the directory's. */
+const DIRECTORY_KINDS: ReadonlySet<PlanCommandKind> = new Set([
+  'createTeam',
+  'patchTeam',
+  'deleteTeam',
+  'createPerson',
+  'patchPerson',
+  'deletePerson',
+  'createTag',
+  'patchTag',
+  'deleteTag',
+  'createService',
+  'patchService',
+  'deleteService',
+]);
+
 /** Thrown inside a batch to stop it; caught by `run`, never seen outside. */
 class Refused extends Error {
   constructor(
@@ -74,6 +90,25 @@ export class PlanCommandRunner {
   constructor(private readonly opts: PlanCommandRunnerOptions) {}
 
   run(projectId: string, actorId: string, commands: readonly PlanCommand[]): Promise<BatchOutcome> {
+    return this.execute(projectId, actorId, commands);
+  }
+
+  /**
+   * A batch with no project: directory commands only, for the directory page
+   * and for a model editing the directory on its own. Same lock, same outer
+   * transaction, and nothing is journalled — the directory has no undo. A plan
+   * command in it has no project to land in and refuses the batch as
+   * `project_required` at its index.
+   */
+  runDirectory(actorId: string, commands: readonly PlanCommand[]): Promise<BatchOutcome> {
+    return this.execute(null, actorId, commands);
+  }
+
+  private execute(
+    projectId: string | null,
+    actorId: string,
+    commands: readonly PlanCommand[],
+  ): Promise<BatchOutcome> {
     return this.opts.lock.run(async () => {
       const over = commands.at(MOST_COMMANDS_IN_A_BATCH);
       if (over !== undefined) {
@@ -89,7 +124,9 @@ export class PlanCommandRunner {
       let collected;
       try {
         collected = await workItems.collect(() => this.applyAll(projectId, actorId, commands));
-        await workItems.recordCollected(projectId, actorId, collected.recordings);
+        if (projectId !== null) {
+          await workItems.recordCollected(projectId, actorId, collected.recordings);
+        }
       } catch (cause) {
         transactions.rollback();
         if (cause instanceof Refused) {
@@ -104,6 +141,8 @@ export class PlanCommandRunner {
         throw cause;
       }
       transactions.commit();
+      if (projectId === null)
+        return { ok: true, results: collected.result, undoable: false, redoable: false };
       if (collected.dirty) await workItems.announceTreeNow(projectId);
       const state = await workItems.undoState(projectId, actorId);
       return { ok: true, results: collected.result, ...state };
@@ -146,13 +185,18 @@ export class PlanCommandRunner {
   }
 
   private async applyAll(
-    projectId: string,
+    scope: string | null,
     actorId: string,
     commands: readonly PlanCommand[],
   ): Promise<BatchResult[]> {
     const refs = new Map<string, string>();
     const results: BatchResult[] = [];
     for (const [index, command] of commands.entries()) {
+      // A plan command in a batch with no project has nowhere to land.
+      const projectId: string = (() => {
+        if (scope !== null || DIRECTORY_KINDS.has(command.kind)) return scope ?? '';
+        throw new Refused(index, command.kind, 'project_required');
+      })();
       // Typed on the binding, not inferred from the arrow: TypeScript narrows
       // after a call only when the callee's `never` is declared on the name.
       const refuse: (reason: string, detail?: Record<string, unknown>) => never = (
