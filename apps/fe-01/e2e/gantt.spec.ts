@@ -1782,15 +1782,6 @@ test.describe('the surface a bar opens, as a browser places it', () => {
 });
 
 /**
- * The tap, on a device that really has touch.
- *
- * `hasTouch` is what makes Chromium synthesize a whole mouse sequence from a
- * tap — `pointerover`, `mouseover`, `mousemove`, `mousedown` — which is exactly
- * the seam the `pointerType` guard has to survive. A jsdom test cannot stand in
- * for this at any width: it dispatches whatever events it is told to and
- * synthesizes none.
- */
-/**
  * The bar standing closest to the bottom of the window, measured **now**.
  *
  * Every coordinate comes back from the same `evaluate` that reads it, because
@@ -1853,6 +1844,15 @@ const lowestBarInTheWindow = (
     return inside[0];
   });
 
+/**
+ * The tap, on a device that really has touch.
+ *
+ * `hasTouch` is what makes Chromium synthesize a whole mouse sequence from a
+ * tap — `pointerover`, `mouseover`, `mousemove`, `mousedown` — which is exactly
+ * the seam the `pointerType` guard has to survive. A jsdom test cannot stand in
+ * for this at any width: it dispatches whatever events it is told to and
+ * synthesizes none.
+ */
 test.describe('a bar on a touch screen', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
@@ -2030,10 +2030,13 @@ test.describe('a bar on a touch screen', () => {
       'the card does not open from its bar’s left edge, or from the clamp the phone forces',
     ).toBeCloseTo(Math.max(0, Math.min(bar.left, window_.width - shown.width)), 0);
 
-    // Not clipped, structurally: the card is portalled out of the chart, so no
-    // scroller's `overflow` can cut it — a card rendered inside the panel would
-    // be clipped by the panel whatever its rectangle said, and a rectangle is
-    // all the checks above can see.
+    // Outside the chart's own scroller — the narrower claim this can honestly
+    // make, and deliberately not called "not clipped": a card rendered inside
+    // the panel is cut by the panel's `overflow` whatever its rectangle said,
+    // and a rectangle is all the checks above can see. It does **not** rule out
+    // a clipper elsewhere or a later overlay painted over the card; the
+    // full-screen stacking relationship is held elsewhere in this suite, and
+    // painted pixels are beyond any bounding box.
     //
     // **Not a `paintedAt`-style hit test, and that is deliberate.**
     // `pointer-events: none` is the default on a hover card and load-bearing
@@ -2054,6 +2057,14 @@ test.describe('a bar on a touch screen', () => {
       clipper.insideTheScroller,
       'the card is rendered inside the chart’s scroller, which clips it',
     ).toBe(false);
+
+    // The one window this case cannot close, named rather than papered over:
+    // the survey and the tap are two protocol round trips, so a layout that
+    // moved between them would be tapped where the bar used to be. The scroll
+    // before it is synchronous and nothing here animates, and the card naming
+    // its own row below is what catches a tap that landed on a different bar. A
+    // locator `tap()` would not fix it either — its `scrollIntoViewIfNeeded` is
+    // free to scroll the bar away from the very edge this case is about.
 
     // And it says something, about this bar. A card of the right size in the
     // right place with nothing legible in it meets every rectangle assertion
