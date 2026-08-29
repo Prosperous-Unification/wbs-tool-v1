@@ -1378,70 +1378,6 @@ function refusalCodeIn(text: string, status: number): string {
 }
 
 /**
- * Removes a person or a team, reading the **directory usage** out of the 409
- * rather than throwing the code alone.
- *
- * The same shape as {@link removeRoleAt} and for the same reason: `send` throws
- * the `error` field and loses everything beside it, and here everything beside
- * it is what the confirmation is made of.
- *
- * A 409 claiming `in_use` whose usage this client cannot read whole falls
- * through to the throw below **on purpose**. Proof, both watched 2026-08-09:
- * with the `isDirectoryUsage` half dropped, `throws an in_use with no usage
- * rather than confirming against nothing` failed on `promise resolved
- * "{ ok: false, reason: 'in_use', …(1) }" instead of rejecting`; with the whole
- * branch deleted, `reads the usage out of the refusal rather than throwing the
- * code` failed on `promise rejected "Error: in_use" instead of resolving`.
- */
-async function removeDirectoryAt(path: string, token: string): Promise<DirectoryRemoval> {
-  const res = await fetch(path, { method: 'DELETE', headers: auth(token) });
-  const text = await res.text();
-  if (res.status === 409) {
-    const body: unknown = JSON.parse(text);
-    if (isRecord(body) && body['error'] === 'in_use' && isDirectoryUsage(body['usage'])) {
-      return { ok: false, reason: 'in_use', usage: body['usage'] };
-    }
-  }
-  if (!res.ok) throw new Error(refusalCodeIn(text, res.status));
-  return { ok: true };
-}
-
-/**
- * Renames a directory entry — or edits a person's memberships — reading
- * `taken`'s **surviving name** out of the 409 instead of throwing the code.
- *
- * `send` would throw `taken` and lose the name beside it, and that name is what
- * the sentence is made of: somebody who typed `‹space›Kat‹space›` against a
- * held `Kat` has to be told which spelling survived, and the local draft cannot
- * say. Every other refusal throws its code for
- * {@link directoryRefusalSentence} to phrase.
- *
- * @throws `unexpected_response` when a 2xx carries no entry — a panel drawn
- * from `undefined` is a row with no name, and that is not a state to default
- * into.
- */
-async function writeDirectoryAt<T>(
-  path: string,
-  token: string,
-  init: RequestInit,
-  key: 'person' | 'team' | 'tag' | 'service',
-): Promise<DirectoryWrite<T>> {
-  const res = await fetch(path, { ...init, headers: auth(token) });
-  const text = await res.text();
-  if (res.status === 409) {
-    const body: unknown = JSON.parse(text);
-    if (isRecord(body) && body['error'] === 'taken' && typeof body['name'] === 'string') {
-      return { ok: false, reason: 'taken', survivingName: body['name'] };
-    }
-  }
-  if (!res.ok) throw new Error(refusalCodeIn(text, res.status));
-  const body = JSON.parse(text) as Partial<Record<'person' | 'team' | 'tag' | 'service', T>>;
-  const entry = body[key];
-  if (entry === undefined) throw new Error('unexpected_response');
-  return { ok: true, entry };
-}
-
-/**
  * Why a directory write was refused, as this client has to phrase it.
  *
  * Two arms rather than a bare code, because `taken` is the one refusal that
@@ -1628,6 +1564,106 @@ export function directoryRefusalSentence(refusal: DirectoryRefusal): string {
  * `/api/people` is how a page and a picker come to disagree about what a person
  * is.
  */
+/** One command of a batch as the wire carries it — `kind` plus the write's fields. */
+type WireCommand = { kind: string } & Record<string, unknown>;
+
+/** What `POST …/commands` answers when it applied the batch. */
+interface BatchAnswer {
+  results: { index: number; ref?: string; id?: string; entity?: unknown }[];
+  undoable?: boolean;
+  redoable?: boolean;
+}
+
+/**
+ * Posts one batch and answers its results, throwing be-01's code — the same
+ * `Error(code)` every write threw before `plan-commands` — when it is refused.
+ * The refusal names the failing command's index and kind; a batch of one has
+ * only one it can be, so the code alone is what the caller phrases.
+ */
+async function postBatch(
+  path: string,
+  token: string,
+  commands: WireCommand[],
+): Promise<BatchAnswer> {
+  return send<BatchAnswer>(path, token, { method: 'POST', body: JSON.stringify({ commands }) });
+}
+
+/** The one result a batch of one produced. */
+function onlyResult(answer: BatchAnswer): BatchAnswer['results'][number] {
+  if (answer.results.length === 0) throw new Error('unexpected_response');
+  const [only] = answer.results;
+  return only;
+}
+
+/**
+ * The entry a directory command produced, or an `unexpected_response`.
+ * `unknown`, because it is be-01's row of whatever shape the command's list
+ * route shows; the caller names the shape at the boundary.
+ */
+function entryOf(answer: BatchAnswer): unknown {
+  const entity = onlyResult(answer).entity;
+  if (entity === undefined) throw new Error('unexpected_response');
+  return entity;
+}
+
+/** What a directory batch of one came to: applied, or one of the two worded refusals. */
+type DirectoryBatch =
+  | { outcome: 'applied'; answer: BatchAnswer }
+  | { outcome: 'taken'; survivingName: string }
+  | { outcome: 'in_use'; usage: DirectoryUsage };
+
+/**
+ * A directory write as a batch of one at the directory's own route, modelling
+ * the two refusals the directory answers with words rather than a throw: a
+ * `taken` name (the survivor is named) and an `in_use` removal (the usage is
+ * named). Both arrive as the batch refusal's own fields beside the code.
+ */
+async function directoryBatch(token: string, command: WireCommand): Promise<DirectoryBatch> {
+  const res = await fetch('/api/directory/commands', {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ commands: [command] }),
+  });
+  const text = await res.text();
+  if (res.status === 409) {
+    const body: unknown = JSON.parse(text);
+    if (isRecord(body) && body['error'] === 'taken' && typeof body['name'] === 'string') {
+      return { outcome: 'taken', survivingName: body['name'] };
+    }
+    if (isRecord(body) && body['error'] === 'in_use' && isDirectoryUsage(body['usage'])) {
+      return { outcome: 'in_use', usage: body['usage'] };
+    }
+  }
+  if (!res.ok) throw new Error(refusalCodeIn(text, res.status));
+  return { outcome: 'applied', answer: JSON.parse(text) as BatchAnswer };
+}
+
+/** A directory write whose caller wants the entry, or the `taken` refusal. */
+async function directoryWrite<T>(token: string, command: WireCommand): Promise<DirectoryWrite<T>> {
+  const batch = await directoryBatch(token, command);
+  if (batch.outcome === 'taken')
+    return { ok: false, reason: 'taken', survivingName: batch.survivingName };
+  if (batch.outcome === 'in_use') throw new Error('in_use');
+  // The boundary: be-01's own row, of the shape the command's list route shows.
+  return { ok: true, entry: entryOf(batch.answer) as T };
+}
+
+/** A directory create, which answers the new entry. */
+async function directoryCreate<T>(token: string, command: WireCommand): Promise<T> {
+  const batch = await directoryBatch(token, command);
+  if (batch.outcome !== 'applied') throw new Error(batch.outcome);
+  // The boundary: be-01's own row, of the shape the command's list route shows.
+  return entryOf(batch.answer) as T;
+}
+
+/** A directory removal, or the `in_use` refusal with its usage. */
+async function directoryRemove(token: string, command: WireCommand): Promise<DirectoryRemoval> {
+  const batch = await directoryBatch(token, command);
+  if (batch.outcome === 'in_use') return { ok: false, reason: 'in_use', usage: batch.usage };
+  if (batch.outcome === 'taken') throw new Error('taken');
+  return { ok: true };
+}
+
 export function httpDirectoryApi(token: string): DirectoryApi {
   return {
     async listPeople() {
@@ -1638,101 +1674,57 @@ export function httpDirectoryApi(token: string): DirectoryApi {
       const body = await send<{ teams: TeamView[] }>('/api/teams', token);
       return body.teams;
     },
-    async addPerson(name, teamIds) {
-      const body = await send<{ person: PersonView }>('/api/people', token, {
-        method: 'POST',
-        body: JSON.stringify({ name, teamIds }),
-      });
-      return body.person;
-    },
-    async addTeam(name) {
-      const body = await send<{ team: TeamView }>('/api/teams', token, {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
-      return body.team;
-    },
-    patchPerson(id, patch) {
-      return writeDirectoryAt<PersonView>(
-        `/api/people/${id}`,
-        token,
-        { method: 'PATCH', body: JSON.stringify(patch) },
-        'person',
-      );
-    },
-    patchTeam(id, patch) {
-      return writeDirectoryAt<TeamView>(
-        `/api/teams/${id}`,
-        token,
-        { method: 'PATCH', body: JSON.stringify(patch) },
-        'team',
-      );
-    },
-    // The tag half, and it is the team half with the word changed. Global —
-    // no project in any of these paths, exactly as the teams are.
+    addPerson: (name, teamIds) =>
+      directoryCreate<PersonView>(token, { kind: 'createPerson', name, teamIds: [...teamIds] }),
+    addTeam: (name) => directoryCreate<TeamView>(token, { kind: 'createTeam', name }),
+    patchPerson: (id, patch) =>
+      directoryWrite<PersonView>(token, { kind: 'patchPerson', personId: id, patch }),
+    patchTeam: (id, patch) =>
+      directoryWrite<TeamView>(token, { kind: 'patchTeam', teamId: id, patch }),
     async listTags() {
       const body = await send<{ tags: TagView[] }>('/api/tags', token);
       return body.tags;
     },
-    // The service half, and it is the tag half with the word changed —
-    // `/api/services` is global exactly as `/api/tags` is, with no project in
-    // any of these four paths.
     async listServices() {
       const body = await send<{ services: ServiceView[] }>('/api/services', token);
       return body.services;
     },
-    async addService(name) {
-      const body = await send<{ service: ServiceView }>('/api/services', token, {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
-      return body.service;
-    },
-    renameService(id, name) {
-      return writeDirectoryAt<ServiceView>(
-        `/api/services/${id}`,
-        token,
-        { method: 'PATCH', body: JSON.stringify({ name }) },
-        'service',
-      );
-    },
-    removeService(id, cascade) {
-      return removeDirectoryAt(`/api/services/${id}${cascade ? '?cascade=true' : ''}`, token);
-    },
-    async addTag(name) {
-      const body = await send<{ tag: TagView }>('/api/tags', token, {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
-      return body.tag;
-    },
-    renameTag(id, name) {
-      return writeDirectoryAt<TagView>(
-        `/api/tags/${id}`,
-        token,
-        { method: 'PATCH', body: JSON.stringify({ name }) },
-        'tag',
-      );
-    },
-    removeTag(id, cascade) {
-      return removeDirectoryAt(`/api/tags/${id}${cascade ? '?cascade=true' : ''}`, token);
-    },
-    // `?cascade=true` and nothing else — `directoryController`'s own rule, and
-    // `roleController`'s before it: the flag is the second, explicit call
-    // rather than a body on a DELETE, and it is **absent** rather than
-    // `?cascade=false` so that nobody reading a request log can mistake a first
-    // ask for a confirmed one.
-    removePerson(id, cascade) {
-      return removeDirectoryAt(`/api/people/${id}${cascade ? '?cascade=true' : ''}`, token);
-    },
-    removeTeam(id, cascade) {
-      return removeDirectoryAt(`/api/teams/${id}${cascade ? '?cascade=true' : ''}`, token);
-    },
+    addService: (name) => directoryCreate<ServiceView>(token, { kind: 'createService', name }),
+    renameService: (id, name) =>
+      directoryWrite<ServiceView>(token, { kind: 'patchService', serviceId: id, name }),
+    removeService: (id, cascade) =>
+      directoryRemove(token, { kind: 'deleteService', serviceId: id, cascade }),
+    addTag: (name) => directoryCreate<TagView>(token, { kind: 'createTag', name }),
+    renameTag: (id, name) => directoryWrite<TagView>(token, { kind: 'patchTag', tagId: id, name }),
+    removeTag: (id, cascade) => directoryRemove(token, { kind: 'deleteTag', tagId: id, cascade }),
+    removePerson: (id, cascade) =>
+      directoryRemove(token, { kind: 'deletePerson', personId: id, cascade }),
+    removeTeam: (id, cascade) =>
+      directoryRemove(token, { kind: 'deleteTeam', teamId: id, cascade }),
   };
 }
 
 export function httpProjectApi(token: string): ProjectApi {
   const directory = httpDirectoryApi(token);
+  /**
+   * Which project each work item this client has seen belongs to — learned
+   * from every tree it reads and every row it creates, because the batch route
+   * is the project's and the write methods are given a work item id. A write on
+   * a row no tree has shown is refused rather than sent to a guessed project.
+   */
+  const projectOf = new Map<string, string>();
+  const projectFor = (workItemId: string): string => {
+    const found = projectOf.get(workItemId);
+    if (found === undefined) throw new Error('unknown_work_item');
+    return found;
+  };
+  /** One plan command on `projectId`, as a batch of one. */
+  const command = (projectId: string, step: WireCommand): Promise<BatchAnswer> =>
+    postBatch(`/api/projects/${projectId}/commands`, token, [step]);
+  /** One command aimed at a work item, on the project that row belongs to. */
+  const onRow = (workItemId: string, step: WireCommand): Promise<BatchAnswer> =>
+    command(projectFor(workItemId), { ...step, workItemId });
+
   return {
     async listProjects() {
       const body = await send<{ projects: ProjectListEntry[] }>('/api/projects', token);
@@ -1754,8 +1746,8 @@ export function httpProjectApi(token: string): ProjectApi {
         body: JSON.stringify({ name }),
       });
     },
-    tree(projectId) {
-      return send<{
+    async tree(projectId) {
+      const tree = await send<{
         workItems: WorkItemView[];
         seq: number;
         scheduleError: 'cycle' | null;
@@ -1770,6 +1762,8 @@ export function httpProjectApi(token: string): ProjectApi {
         undoable: boolean;
         redoable: boolean;
       }>(`/api/projects/${projectId}/work-items`, token);
+      for (const row of tree.workItems) projectOf.set(row.id, projectId);
+      return tree;
     },
     undo(projectId) {
       return stepStack(`/api/projects/${projectId}/undo`, token);
@@ -1777,10 +1771,6 @@ export function httpProjectApi(token: string): ProjectApi {
     redo(projectId) {
       return stepStack(`/api/projects/${projectId}/redo`, token);
     },
-    // The directory belongs to no project, so these four are the directory
-    // client's verbatim. Delegated rather than repeated: two spellings of
-    // `/api/people` is how the pickers and the directory page come to disagree
-    // about what a person is.
     listTeams: () => directory.listTeams(),
     addTeam: (name) => directory.addTeam(name),
     listTags: () => directory.listTags(),
@@ -1792,10 +1782,7 @@ export function httpProjectApi(token: string): ProjectApi {
     listPeople: () => directory.listPeople(),
     addPerson: (name, teamIds) => directory.addPerson(name, teamIds),
     async assign(workItemId, roleId, personId) {
-      await send(`/api/work-items/${workItemId}/assignees/${roleId}`, token, {
-        method: 'PUT',
-        body: JSON.stringify({ personId }),
-      });
+      await onRow(workItemId, { kind: 'setAssignee', roleId, personId });
     },
     async setStartDate(projectId, startDate) {
       await send(`/api/projects/${projectId}`, token, {
@@ -1803,30 +1790,11 @@ export function httpProjectApi(token: string): ProjectApi {
         body: JSON.stringify({ startDate }),
       });
     },
-    // `PUT` and the whole body, which is be-01's shape: there is one field, so
-    // the same request twice is the same state and an absent one could only mean
-    // "leave the only thing there is alone".
-    //
-    // Sent as typed. The rule about what a capacity may be lives at be-01's
-    // boundary — see `setTeamCapacity` on {@link ProjectApi} — so a `0` or a
-    // `1001` goes and is refused with a code the dialog turns into a sentence.
     async setTeamCapacity(projectId, teamId, size) {
-      await send(`/api/projects/${projectId}/teams/${teamId}/capacity`, token, {
-        method: 'PUT',
-        body: JSON.stringify({ size }),
-      });
+      await command(projectId, { kind: 'setCapacity', teamId, size });
     },
-    // `PUT` and the whole ladder, which is be-01's shape and the reason is on its
-    // route: five rungs are one fact, and half a ladder is not a ladder.
-    //
-    // Sent as typed, exactly as `setTeamCapacity` is: the rule about what a ladder
-    // may be lives at be-01's boundary, so a `Critical` that writes 30 goes and is
-    // refused with a code the dialog turns into a sentence.
     async setPriorityBands(projectId, bands) {
-      await send(`/api/projects/${projectId}/priority-bands`, token, {
-        method: 'PUT',
-        body: JSON.stringify({ bands }),
-      });
+      await command(projectId, { kind: 'setPriorityBands', bands: [...bands] });
     },
     async setEstimateMethod(projectId, method) {
       await send(`/api/projects/${projectId}`, token, {
@@ -1854,77 +1822,62 @@ export function httpProjectApi(token: string): ProjectApi {
       return body.role;
     },
     removeRole(projectId, roleId, cascade) {
-      // `?cascade=true` and nothing else, which is `roleController`'s own rule:
-      // the flag is the second, explicit call rather than a body on a DELETE.
-      // Absent rather than `?cascade=false` for the same reason — the
-      // controller reads `=== 'true'`, and a flag that is always on the URL is
-      // one nobody reading a request log can tell from a confirmed one.
-      // Proof: pinned to `?cascade=true`, `asks for the cascade only when it is
-      // given one` failed on `expected [ …(2) ] to deeply equal [ …(2) ]`.
-      // Watched, 2026-08-09.
       return removeRoleAt(
         `/api/projects/${projectId}/roles/${roleId}${cascade ? '?cascade=true' : ''}`,
         token,
       );
     },
-    create(projectId, input) {
-      return send<{ id: string }>(`/api/projects/${projectId}/work-items`, token, {
-        method: 'POST',
-        body: JSON.stringify(input),
-      });
+    async create(projectId, input) {
+      const made = onlyResult(await command(projectId, { kind: 'createWorkItem', ...input }));
+      if (made.id === undefined) throw new Error('unexpected_response');
+      projectOf.set(made.id, projectId);
+      return { id: made.id };
     },
     async patch(id, patch) {
-      await send(`/api/work-items/${id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      });
+      await onRow(id, { kind: 'patchWorkItem', patch });
     },
     async move(id, parentId, afterId) {
-      await send(`/api/work-items/${id}/move`, token, {
-        method: 'POST',
-        body: JSON.stringify({ parentId, afterId }),
-      });
+      await onRow(id, { kind: 'moveWorkItem', parentId, afterId });
     },
-    duplicate(id) {
-      return send<{ id: string }>(`/api/work-items/${id}/duplicate`, token, { method: 'POST' });
+    async duplicate(id) {
+      const projectId = projectFor(id);
+      const copy = onlyResult(
+        await command(projectId, { kind: 'duplicateWorkItem', workItemId: id }),
+      );
+      if (copy.id === undefined) throw new Error('unexpected_response');
+      projectOf.set(copy.id, projectId);
+      return { id: copy.id };
     },
     async remove(id, options) {
-      const query = options?.strategy === undefined ? '' : `?strategy=${options.strategy}`;
-      await send(`/api/work-items/${id}${query}`, token, { method: 'DELETE' });
+      await onRow(id, {
+        kind: 'deleteWorkItem',
+        ...(options?.strategy === undefined ? {} : { strategy: options.strategy }),
+      });
     },
     async setEstimate(id, roleId, days) {
-      await send(`/api/work-items/${id}/estimates/${roleId}`, token, {
-        method: 'PUT',
-        body: JSON.stringify(days),
-      });
+      await onRow(id, { kind: 'setEstimate', roleId, days });
     },
     async clearEstimate(id, roleId) {
-      await send(`/api/work-items/${id}/estimates/${roleId}`, token, { method: 'DELETE' });
+      await onRow(id, { kind: 'clearEstimate', roleId });
     },
     async freeze(projectId) {
-      await send(`/api/projects/${projectId}/freeze`, token, { method: 'POST' });
+      await command(projectId, { kind: 'freezeProject' });
     },
     async unfreezeProject(projectId) {
-      await send(`/api/projects/${projectId}/unfreeze`, token, { method: 'POST' });
+      await command(projectId, { kind: 'unfreezeProject' });
     },
     async unfreeze(id) {
-      await send(`/api/work-items/${id}/unfreeze`, token, { method: 'POST' });
+      await onRow(id, { kind: 'unfreezeWorkItem' });
     },
     async addDependency(id, predecessorId) {
-      await send(`/api/work-items/${id}/dependencies`, token, {
-        method: 'POST',
-        body: JSON.stringify({ predecessorId }),
-      });
+      await onRow(id, { kind: 'addDependency', predecessorId });
     },
     async removeDependency(id, predecessorId) {
-      await send(`/api/work-items/${id}/dependencies/${predecessorId}`, token, {
-        method: 'DELETE',
-      });
+      await onRow(id, { kind: 'removeDependency', predecessorId });
     },
   };
 }
 
-/** How deep a work item sits, read off its number rather than by walking parents. */
 export function depthOf(workItem: WorkItemView): number {
   return workItem.number.split('.').length - 1;
 }

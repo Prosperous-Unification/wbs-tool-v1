@@ -36,7 +36,7 @@ Only `- [ ]` checkboxes are tracked by the apply phase.
 
 ## 5. fe-01 on batches
 
-- [ ] 5.1 `wbs-api.ts` `commands(projectId, list)`; every `ProjectApi`/`DirectoryApi` write method posts a batch of one, signatures unchanged; the test fake gains `commands` routing each kind to its existing handler — test: `wbs-api.test.ts` `a rename is one commands request with one patchWorkItem`, `every write method posts exactly one command`; every existing fe-01 test green unchanged.
+- [x] 5.1 `wbs-api.ts` `commands(projectId, list)`; every `ProjectApi`/`DirectoryApi` write method posts a batch of one, signatures unchanged; the test fake gains `commands` routing each kind to its existing handler — test: `wbs-api.test.ts` `a rename is one commands request with one patchWorkItem`, `every write method posts exactly one command`; every existing fe-01 test green unchanged.
 - [ ] 5.2 Browser gate on shifted ports: `keyboard.spec.ts` network assertions (`writes` arrays) updated to the `commands` path; whole gate green.
 
 ## 6. Retire the single-item routes

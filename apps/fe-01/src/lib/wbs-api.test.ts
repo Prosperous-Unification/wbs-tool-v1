@@ -20,6 +20,24 @@ import {
 const response = (status: number, body: string): Response =>
   new Response(body === '' ? null : body, { status });
 
+/** A tree answer naming `ids` on project `projectId`, enough for the client to learn them. */
+const TREE = (projectId: string, ids: string[]): string =>
+  JSON.stringify({
+    workItems: ids.map((id) => ({ id, projectId })),
+    seq: 1,
+    scheduleError: null,
+    slices: [],
+    roles: [],
+    assignedPeople: [],
+    teamCapacities: [],
+    priorityBands: [],
+    estimateMethod: 'pert',
+    startDate: null,
+    projectRevision: 1,
+    undoable: false,
+    redoable: false,
+  });
+
 /** What be-01 answers a first, uncascaded removal of a phase somebody is using. */
 const IN_USE: RoleUsage = {
   estimates: 2,
@@ -184,55 +202,82 @@ const stub = (answer: (path: string, init?: RequestInit) => Response) => {
 
 describe('patching a work item team set', () => {
   it('sends the exact whole teamIds set without rewriting it to the legacy scalar', async () => {
-    const fetched = stub(() => response(204, ''));
+    const fetched = stub((path) =>
+      response(
+        200,
+        path.endsWith('/work-items')
+          ? TREE('p1', ['w1'])
+          : JSON.stringify({ results: [{ index: 0 }], undoable: true, redoable: false }),
+      ),
+    );
+    const api = httpProjectApi('t');
+    await api.tree('p1');
+    await api.patch('w1', { teamIds: ['team-b', 'team-a'] });
 
-    await httpProjectApi('t').patch('w1', { teamIds: ['team-b', 'team-a'] });
-
-    expect(fetched).toHaveBeenCalledTimes(1);
-    expect(fetched.mock.calls[0]?.[0]).toBe('/api/work-items/w1');
-    expect(fetched.mock.calls[0]?.[1]).toMatchObject({
-      method: 'PATCH',
-      body: JSON.stringify({ teamIds: ['team-b', 'team-a'] }),
+    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(fetched.mock.calls[1]?.[0]).toBe('/api/projects/p1/commands');
+    expect(fetched.mock.calls[1]?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({
+        commands: [
+          { kind: 'patchWorkItem', patch: { teamIds: ['team-b', 'team-a'] }, workItemId: 'w1' },
+        ],
+      }),
     });
   });
 });
 
 describe('the directory client', () => {
-  it('asks the four reads and writes at the paths be-01 mounts them on', async () => {
+  it('asks the reads at their paths and writes at the directory batch route', async () => {
     const fetched = stub((path) =>
       response(
         200,
         JSON.stringify(
-          path.includes('/people') ? { people: [], person: { id: 'p1' } } : { teams: [] },
+          path.includes('/commands')
+            ? { results: [{ index: 0, id: 'p1', entity: { id: 'p1', name: 'Kat' } }] }
+            : path.includes('/people')
+              ? { people: [] }
+              : { teams: [] },
         ),
       ),
     );
     const api = httpDirectoryApi('t');
     await api.listPeople();
     await api.listTeams();
-    await api.addPerson('Kat', ['t1']);
+    await expect(api.addPerson('Kat', ['t1'])).resolves.toEqual({ id: 'p1', name: 'Kat' });
 
     expect(fetched.mock.calls.map((call) => call[0])).toEqual([
       '/api/people',
       '/api/teams',
-      '/api/people',
+      '/api/directory/commands',
     ]);
-    expect(fetched.mock.calls[2]?.[1]?.body).toBe(JSON.stringify({ name: 'Kat', teamIds: ['t1'] }));
+    expect(fetched.mock.calls[2]?.[1]?.body).toBe(
+      JSON.stringify({ commands: [{ kind: 'createPerson', name: 'Kat', teamIds: ['t1'] }] }),
+    );
     expect(fetched.mock.calls[2]?.[1]?.method).toBe('POST');
   });
 
   it('sends exactly the memberships it is given, and nothing about the name', async () => {
     const fetched = stub(() =>
-      response(200, JSON.stringify({ person: { id: 'p1', name: 'Kat', teamIds: ['t1', 't2'] } })),
+      response(
+        200,
+        JSON.stringify({
+          results: [{ index: 0, entity: { id: 'p1', name: 'Kat', teamIds: ['t1', 't2'] } }],
+        }),
+      ),
     );
     await httpDirectoryApi('t').patchPerson('p1', { teamIds: ['t1', 't2'] });
 
-    expect(fetched.mock.calls[0]?.[0]).toBe('/api/people/p1');
-    expect(fetched.mock.calls[0]?.[1]?.method).toBe('PATCH');
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/directory/commands');
+    expect(fetched.mock.calls[0]?.[1]?.method).toBe('POST');
     // No `name` key at all: an absent name leaves it alone at be-01, and a
     // `{ name: undefined }` would have to be told apart from the absence by
     // every layer below.
-    expect(fetched.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ teamIds: ['t1', 't2'] }));
+    expect(fetched.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({
+        commands: [{ kind: 'patchPerson', personId: 'p1', patch: { teamIds: ['t1', 't2'] } }],
+      }),
+    );
   });
 
   it('reads the usage out of the refusal rather than throwing the code', async () => {
@@ -366,24 +411,24 @@ describe('the directory client', () => {
     await expect(httpDirectoryApi('t').removePerson('p1', false)).rejects.toThrow('in_use');
   });
 
-  it('asks for the cascade only when it is given one', async () => {
-    const fetched = stub(() => response(204, ''));
+  it('carries the cascade on the command as it is given', async () => {
+    const fetched = stub(() => response(200, JSON.stringify({ results: [{ index: 0 }] })));
     const api = httpDirectoryApi('t');
     await api.removePerson('p1', false);
     await api.removeTeam('t1', true);
-    expect(fetched.mock.calls.map((call) => call[0])).toEqual([
-      '/api/people/p1',
-      '/api/teams/t1?cascade=true',
+    expect(fetched.mock.calls.map((call) => call[1]?.body)).toEqual([
+      JSON.stringify({ commands: [{ kind: 'deletePerson', personId: 'p1', cascade: false }] }),
+      JSON.stringify({ commands: [{ kind: 'deleteTeam', teamId: 't1', cascade: true }] }),
     ]);
   });
 
   it('answers a removal be-01 performed outright', async () => {
-    stub(() => response(204, ''));
+    stub(() => response(200, JSON.stringify({ results: [{ index: 0 }] })));
     await expect(httpDirectoryApi('t').removeTeam('t1', false)).resolves.toEqual({ ok: true });
   });
 
   it('throws a 2xx that carries no entry rather than putting nothing on the panel', async () => {
-    stub(() => response(200, JSON.stringify({})));
+    stub(() => response(200, JSON.stringify({ results: [{ index: 0 }] })));
     await expect(httpDirectoryApi('t').patchTeam('t1', { name: 'Platform' })).rejects.toThrow(
       'unexpected_response',
     );
@@ -428,5 +473,149 @@ describe('what a refused directory change says', () => {
     // `expected '' to contain 'http_502'` — an unknown refusal reaching the
     // page as an empty alert. Watched 2026-08-09.
     expect(directoryRefusalSentence({ reason: 'refused', code: 'http_502' })).toContain('http_502');
+  });
+});
+
+/** The JSON a request carried, or an empty string — `RequestInit.body` is wider than string. */
+const bodyOf = (init: RequestInit | undefined): string =>
+  typeof init?.body === 'string' ? init.body : '';
+
+/** A batch answer with one plain result and the undo state a write returns. */
+const APPLIED = JSON.stringify({ results: [{ index: 0 }], undoable: true, redoable: false });
+
+/** The fetch stub, answering `body` to everything and keeping every call. */
+function stubbed(status: number, body: string) {
+  const fetched = vi.fn(() => Promise.resolve(response(status, body)));
+  vi.stubGlobal('fetch', fetched);
+  return {
+    calls: () =>
+      fetched.mock.calls.map((call) => {
+        const [url, init] = call as [string, RequestInit | undefined];
+        return { url, method: init?.method ?? 'GET', body: init?.body };
+      }),
+  };
+}
+
+describe('the browser writes through command batches (plan-commands)', () => {
+  it('sends a rename as one commands request carrying one patchWorkItem', async () => {
+    // The route is the project’s, and `patch` is given a work item id: the
+    // client knows the project from the tree it read that row in.
+    const fetched = vi.fn((url: string) =>
+      Promise.resolve(response(200, url.endsWith('/work-items') ? TREE('p1', ['w1']) : APPLIED)),
+    );
+    vi.stubGlobal('fetch', fetched);
+    const api = httpProjectApi('t');
+    await api.tree('p1');
+    await api.patch('w1', { name: 'Strip it' });
+
+    const [, write] = fetched.mock.calls as [unknown, [string, RequestInit]];
+    expect(write[0]).toBe('/api/projects/p1/commands');
+    expect(write[1].method).toBe('POST');
+    expect(JSON.parse(bodyOf(write[1]))).toEqual({
+      commands: [{ kind: 'patchWorkItem', workItemId: 'w1', patch: { name: 'Strip it' } }],
+    });
+  });
+
+  it('refuses to write to a row no tree has shown it, rather than guessing a project', async () => {
+    // Proof: the projects map made to answer the first project it ever saw,
+    // this failed on `expected …rejects.toThrow('unknown_work_item')`. Watched,
+    // 2026-08-29.
+    stubbed(200, APPLIED);
+    await expect(httpProjectApi('t').patch('nobody', { name: 'X' })).rejects.toThrow(
+      'unknown_work_item',
+    );
+  });
+
+  it('posts exactly one command for every plan write, of the kind the write stands for', async () => {
+    const fetched = vi.fn((url: string) =>
+      Promise.resolve(
+        response(
+          200,
+          url.endsWith('/work-items')
+            ? TREE('p1', ['w1', 'w2'])
+            : JSON.stringify({
+                results: [{ index: 0, id: 'new' }],
+                undoable: true,
+                redoable: false,
+              }),
+        ),
+      ),
+    );
+    vi.stubGlobal('fetch', fetched);
+    const api = httpProjectApi('t');
+    await api.tree('p1');
+    const days = { optimistic: 1, realistic: 2, pessimistic: 3 };
+    const writes: [() => Promise<unknown>, string][] = [
+      [() => api.create('p1', { parentId: null, afterId: null, name: 'A' }), 'createWorkItem'],
+      [() => api.patch('w1', { notes: 'n' }), 'patchWorkItem'],
+      [() => api.move('w1', null, 'w2'), 'moveWorkItem'],
+      [() => api.duplicate('w1'), 'duplicateWorkItem'],
+      [() => api.remove('w1', { strategy: 'cascade' }), 'deleteWorkItem'],
+      [() => api.setEstimate('w1', 'r1', days), 'setEstimate'],
+      [() => api.clearEstimate('w1', 'r1'), 'clearEstimate'],
+      [() => api.assign('w1', 'r1', 'k'), 'setAssignee'],
+      [() => api.addDependency('w2', 'w1'), 'addDependency'],
+      [() => api.removeDependency('w2', 'w1'), 'removeDependency'],
+      [() => api.freeze('p1'), 'freezeProject'],
+      [() => api.unfreezeProject('p1'), 'unfreezeProject'],
+      [() => api.unfreeze('w1'), 'unfreezeWorkItem'],
+      [() => api.setTeamCapacity('p1', 'team1', 3), 'setCapacity'],
+      [() => api.setPriorityBands('p1', []), 'setPriorityBands'],
+    ];
+    for (const [write, kind] of writes) {
+      const before = fetched.mock.calls.length;
+      await write();
+      const made = fetched.mock.calls.slice(before) as [string, RequestInit][];
+      expect(
+        made.map(([url]) => url),
+        kind,
+      ).toEqual(['/api/projects/p1/commands']);
+      const body = JSON.parse(bodyOf(made[0]?.[1])) as { commands: { kind: string }[] };
+      expect(
+        body.commands.map((each) => each.kind),
+        kind,
+      ).toEqual([kind]);
+    }
+    // And the create answers the id the batch minted, as the route did.
+    await expect(api.create('p1', { parentId: null, afterId: null, name: 'B' })).resolves.toEqual({
+      id: 'new',
+    });
+  });
+
+  it('writes the directory at its own route, answering the entry the batch produced', async () => {
+    stubbed(
+      200,
+      JSON.stringify({
+        results: [{ index: 0, ref: undefined, id: 't1', entity: { id: 't1', name: 'regulatory' } }],
+      }),
+    );
+    const api = httpDirectoryApi('t');
+    await expect(api.addTag('regulatory')).resolves.toEqual({ id: 't1', name: 'regulatory' });
+    const { calls } = stubbed(
+      200,
+      JSON.stringify({ results: [{ index: 0, entity: { id: 't1', name: 'legal' } }] }),
+    );
+    await expect(api.renameTag('t1', 'legal')).resolves.toEqual({
+      ok: true,
+      entry: { id: 't1', name: 'legal' },
+    });
+    expect(calls()[0]).toMatchObject({ url: '/api/directory/commands', method: 'POST' });
+    expect(JSON.parse(bodyOf({ body: calls()[0]?.body }))).toEqual({
+      commands: [{ kind: 'patchTag', tagId: 't1', name: 'legal' }],
+    });
+  });
+
+  it('models a taken name and an in-use removal off the batch refusal, as before', async () => {
+    stubbed(409, JSON.stringify({ error: 'taken', at: 0, kind: 'patchTag', name: 'legal' }));
+    await expect(httpDirectoryApi('t').renameTag('t1', 'legal')).resolves.toEqual({
+      ok: false,
+      reason: 'taken',
+      survivingName: 'legal',
+    });
+    const usage = { projects: [], members: [] };
+    stubbed(409, JSON.stringify({ error: 'in_use', at: 0, kind: 'deleteTag', usage }));
+    const removal = await httpDirectoryApi('t').removeTag('t1', false);
+    expect(removal.ok).toBe(false);
+    if (!removal.ok) expect(removal.reason).toBe('in_use');
   });
 });
