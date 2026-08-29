@@ -258,6 +258,21 @@ describe('WebSocket identity after the upgrade', () => {
     };
   }
 
+  function verifierThatExpiresDuringAnInFlightFrame(): TokenVerifier {
+    const real = new JwtVerifier({ current: key });
+    let calls = 0;
+    return {
+      async verify(token: string): Promise<JwtClaims> {
+        calls += 1;
+        if (calls === 1) return real.verify(token);
+        // A browser's `open` event fires while Bun is still awaiting this
+        // handler, so the frame sent there reaches `message` before rejection.
+        await Bun.sleep(100);
+        throw new Error('token expired while a frame was in flight');
+      },
+    };
+  }
+
   it('closes a socket whose identity fails the recheck instead of serving it as anon', async () => {
     const app = buildApp({
       appOrigin: APP_ORIGIN,
@@ -293,6 +308,73 @@ describe('WebSocket identity after the upgrade', () => {
       // identity behind it stopped being true.
       expect(closed.code).toBe(1008);
       expect(received).toEqual([]);
+    } finally {
+      void app.stop();
+    }
+  });
+
+  it('drops a frame already in flight when the identity recheck fails', async () => {
+    let forwards = 0;
+    const app = buildApp({
+      appOrigin: APP_ORIGIN,
+      beUrl: 'http://be.invalid',
+      internalAuthSecret: INTERNAL_SECRET,
+      jwtKey: JWT_KEY,
+      verifier: verifierThatExpiresDuringAnInFlightFrame(),
+      fetchImpl: () => {
+        forwards += 1;
+        return Promise.resolve(new Response(JSON.stringify({ ack: true }), { status: 200 }));
+      },
+    });
+    app.listen(0);
+    const livePort = app.server?.port ?? 0;
+    try {
+      const token = await tokenFor('ada');
+      const socket = new WebSocket(`ws://localhost:${String(livePort)}/ws`, {
+        headers: { cookie: `__Host-wbs_access=${token}`, origin: APP_ORIGIN },
+      });
+      await new Promise<void>((resolve, reject) => {
+        socket.addEventListener(
+          'open',
+          () => {
+            resolve();
+          },
+          { once: true },
+        );
+        socket.addEventListener(
+          'error',
+          () => {
+            reject(new Error('upgrade failed'));
+          },
+          { once: true },
+        );
+      });
+
+      const closedPromise = new Promise<{ code: number }>((resolve, reject) => {
+        const giveUp = setTimeout(() => {
+          reject(new Error('identity-less socket stayed open'));
+        }, 2_000);
+        socket.addEventListener(
+          'close',
+          (event: CloseEvent) => {
+            clearTimeout(giveUp);
+            resolve({ code: event.code });
+          },
+          { once: true },
+        );
+      });
+
+      socket.send(
+        JSON.stringify({
+          subscription: 'project:00000000-0000-4000-8000-000000000001',
+          message: { type: 'changed' },
+        }),
+      );
+
+      const closed = await closedPromise;
+
+      expect(closed.code).toBe(1008);
+      expect(forwards).toBe(0);
     } finally {
       void app.stop();
     }

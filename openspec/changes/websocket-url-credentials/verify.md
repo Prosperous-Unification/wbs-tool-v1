@@ -2,7 +2,7 @@
 
 **Change:** `websocket-url-credentials`  
 **Mode:** prod mode — public authentication path  
-**State:** merge candidate pending fresh exact-head gates and peer reviews
+**State:** merge candidate pending final exact-head CI and main-session decision
 
 ## Baseline implementation evidence
 
@@ -89,8 +89,10 @@ and opened no further socket. All five TASK-175 acceptance criteria are closed.
 ## Exact-head gates — PR #181
 
 - [x] h2puni watched red: reverting the fail-closed guard fails at 2,009 ms,
-      5 passed / 1 failed; exact head passes gw-01 58/58 plus lint, typecheck,
-      build, and global format on Bun 1.3.14
+      5 passed / 1 failed. Deleting only the independent in-flight-message
+      guard fails the new frame-race case on one forbidden backend forward,
+      58 passed / 1 failed; restored exact head passes gw-01 59/59 plus lint,
+      typecheck, build, and global format on Bun 1.3.14
 - [ ] GitHub `gate` and `pixels` on the final exact head
 - [x] verified sealed Gemini artifact on the complete shipped #163/#166 diff
 - [x] verified sealed Anthropic peer artifact on the complete shipped #163/#166 diff
