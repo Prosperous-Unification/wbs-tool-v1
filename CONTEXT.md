@@ -693,6 +693,25 @@ is discarded — its preconditions can never hold again — and the reader is to
 change stood in the way.
 _Avoid_: conflict, rejected undo, out of date undo
 
+**Command batch**:
+One request carrying an ordered list of plan commands — creates, patches, moves, estimates,
+dependencies, directory entries — applied all or none in one transaction and written to the
+command journal as one entry, so one undo puts the whole of it back. A batch of one command
+is that command.
+_Avoid_: bulk update, transaction (for the request), operation list, macro
+
+**Ref**:
+A name a batch gives to an entity it creates, so a later command in the same batch can point
+at it before an id exists. Lives only inside the request that minted it; the response says
+which id each ref became.
+_Avoid_: temp id, client id, placeholder, alias
+
+**Write lock**:
+The one-at-a-time rule every be-01 write waits behind while a command batch is open, because
+the server has one database connection and a batch holds a transaction on it across awaits.
+Reads never wait.
+_Avoid_: mutex, semaphore, queue, serialization
+
 **Restricted project**:
 A project only its owner may edit. Every authenticated account may still read it; an
 unrestricted project may be edited by any of them.
