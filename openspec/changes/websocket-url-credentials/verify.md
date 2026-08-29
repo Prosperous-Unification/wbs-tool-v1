@@ -74,21 +74,32 @@ Live check performed against dev at 16:58Z on 2026-08-29:
 exactly `{"error":"invalid_token"}`, so PR #166's repaired probe matches the real
 be-01 and the pre-#166 `missing_token` expectation really was a false failure.
 
-Still owed on TASK-175: acceptance criteria 1, 2, 3 and 5 — the instrumented
-browser `WebSocket` drive, the forced reconnect, the +310 s Caddy access-log
-sweep, and the exploratory pass.
+The remaining browser criteria were discharged in Browser Use Cloud session
+`47920860-2216-4943-b2f9-eaaf71caa169`. Instrumentation installed before the
+application at both the page constructor and CDP network layers observed 14
+socket constructions, every URL exactly `wss://dev.wbs.bulletpoints.club/ws`,
+11 successful 101 handshakes, 15 sent / 46 received frames, and zero query
+strings or credentials. A forced close produced a replacement socket 0.5 s
+later on the same clean URL and that socket exchanged frames. At 396 seconds
+after the session's last close, the Caddy file log held exactly the matching
+11 `/ws` records, all 101 with URI `/ws` and no credentials. Project switching,
+phone-width rendering, and sign-out also passed; sign-out returned auth/me 401
+and opened no further socket. All five TASK-175 acceptance criteria are closed.
 
-## Exact-head gates owed
+## Exact-head gates — PR #181
 
-- [ ] h2puni affected tests, lint, typecheck, build, global format, and strict
-      OpenSpec validation
-- [ ] GitHub `gate` and `pixels` on the exact rebased head
-- [ ] verified sealed Gemini artifact on the complete diff
-- [ ] verified sealed Anthropic peer artifact on the complete diff
-- [ ] main-session prod review; lane A does not merge this branch
+- [x] h2puni watched red: reverting the fail-closed guard fails at 2,009 ms,
+      5 passed / 1 failed; exact head passes gw-01 58/58 plus lint, typecheck,
+      build, and global format on Bun 1.3.14
+- [ ] GitHub `gate` and `pixels` on the final exact head
+- [x] verified sealed Gemini artifact on the complete shipped #163/#166 diff
+- [x] verified sealed Anthropic peer artifact on the complete shipped #163/#166 diff
+- [ ] main-session prod review and merge of PR #181
+
+No migration path changed in PR #181, so forward and rollback migration
+rehearsals are not applicable.
 
 ## Decision
 
-- [ ] PASS — return to main-session review when every exact-head item above is
-      recorded green
-- [ ] MERGE — main-session decision only after prod review
+- [ ] PASS — final exact-head CI is green and main-session review finds no blocker
+- [ ] MERGE — main-session decision after the prod review
