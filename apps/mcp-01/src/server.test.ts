@@ -43,6 +43,21 @@ const WRITE: DerivedTool = {
   locations: { id: 'path', name: 'body' },
 };
 
+/** The batch route as the committed document derives it, cut to what this test reads. */
+const COMMANDS: DerivedTool = {
+  name: 'postApiProjectsByIdCommands',
+  description: 'Apply a batch of commands to a project, all or none',
+  inputSchema: {
+    type: 'object',
+    properties: { id: { type: 'string' }, commands: { type: 'array' } },
+    required: ['id', 'commands'],
+    additionalProperties: false,
+  },
+  method: 'post',
+  path: '/api/projects/{id}/commands',
+  locations: { id: 'path', commands: 'body' },
+};
+
 interface Seen {
   url: string;
   method: string;
@@ -122,6 +137,42 @@ describe('the round trip over MCP', () => {
     // be-01's body, passed through rather than re-serialised.
     expect(result.content).toEqual([{ type: 'text', text: '{"workItems":[]}' }]);
     expect(result.isError).toBeUndefined();
+  });
+
+  it('forwards a refused batch whole: the code, and the index and kind beside it (D7)', async () => {
+    // A batch refusal is `{ error, at, kind }`, and a model correcting its batch
+    // needs all three. The body follows the head whole, as it does for the
+    // directory's 409s. Proof: `trimmed` dropped from the refusal text in
+    // `wbs-client.ts`, this failed on `expected '…from POST …' to contain
+    // '"at":1'`. Watched, 2026-08-29.
+    const seen: Seen[] = [];
+    const { client } = await connected(
+      [COMMANDS],
+      stub(seen, '{"error":"unknown_role","at":1,"kind":"setEstimate"}', 404),
+    );
+    const batch = [
+      { kind: 'createWorkItem', ref: 'a', name: 'A' },
+      {
+        kind: 'setEstimate',
+        workItemRef: 'a',
+        roleId: 'nope',
+        days: { optimistic: 1, realistic: 2, pessimistic: 3 },
+      },
+    ];
+
+    const result = await client.callTool({
+      name: 'postApiProjectsByIdCommands',
+      arguments: { id: 'p-1', commands: batch },
+    });
+
+    expect(seen[0]?.method).toBe('POST');
+    expect(seen[0]?.url).toBe('https://dev.wbs.bulletpoints.club/api/projects/p-1/commands');
+    expect(JSON.parse(seen[0]?.body ?? 'null')).toEqual({ commands: batch });
+    expect(result.isError).toBe(true);
+    const [content] = result.content as [{ type: string; text: string }];
+    expect(content.text).toContain('HTTP 404 unknown_role from POST /api/projects/{id}/commands');
+    expect(content.text).toContain('"at":1');
+    expect(content.text).toContain('"kind":"setEstimate"');
   });
 
   it('calls a write tool: the stub sees PATCH and the body properties, and not the path one', async () => {
