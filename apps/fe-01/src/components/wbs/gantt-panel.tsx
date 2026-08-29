@@ -8,6 +8,7 @@ import {
   lastWorkdayOf,
   wholeDaysCovering,
 } from '@wbs/domain/workday';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -2045,6 +2046,39 @@ function GanttChart({
   const opening = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Whether the next click belongs to the touch pointer that pressed a bar. */
   const pressedWithTouch = useRef(false);
+  /**
+   * Ends a touch press on a bar, unless the click that spends it is still coming.
+   *
+   * `pressedWithTouch` used to be cleared in `onClick` alone, and a touch that
+   * pressed a bar and was then dragged off it or cancelled never reaches one —
+   * so the ref stayed set, the `onFocus` guard below went on early-returning,
+   * and the next reader to *focus* a bar got no facts at all. Keyboard and
+   * switch-control readers arrive by focus and by nothing else, so their only
+   * recovery was a pointer event they may not have (TASK-185).
+   *
+   * The one thing a bar cannot know at `pointerup` is whether a click is
+   * following, and clearing unconditionally there would break the tap contract
+   * this guard exists for: a tap's `focus` arrives *between* its `pointerup`
+   * and its `click`, and a cleared ref would let that focus open the card the
+   * click is about to be asked to decide on. So the finger's last position
+   * answers it — a press released **on** the bar is a tap whose click is still
+   * to come and stays pressed; one released anywhere else, or cancelled
+   * outright, gets no click and ends here.
+   */
+  const endTouchPress = useCallback((pointer: ReactPointerEvent<SVGRectElement>) => {
+    if (pointer.type === 'pointercancel') {
+      pressedWithTouch.current = false;
+      return;
+    }
+    const box = pointer.currentTarget.getBoundingClientRect();
+    const onTheMark =
+      pointer.clientX >= box.left &&
+      pointer.clientX <= box.right &&
+      pointer.clientY >= box.top &&
+      pointer.clientY <= box.bottom;
+    if (onTheMark) return;
+    pressedWithTouch.current = false;
+  }, []);
   /** The live geometry `<svg>`, read by {@link downloadGanttSvg} and nothing else. */
   const chartSvgRef = useRef<SVGSVGElement | null>(null);
 
@@ -3018,6 +3052,13 @@ function GanttChart({
                     onPointerDown={(pointer) => {
                       pressedWithTouch.current = pointer.pointerType === 'touch';
                     }}
+                    // The three ends a touch has that are not a click, all of
+                    // them through {@link endTouchPress}: the release, the
+                    // cancellation a scroll or a system gesture takes the touch
+                    // away with, and the capture release that follows either.
+                    onPointerUp={endTouchPress}
+                    onPointerCancel={endTouchPress}
+                    onLostPointerCapture={endTouchPress}
                     onClick={(click) => {
                       const rowId = rowIdAt(bar.rowIndex);
                       // A bar with no row is not a state this can be in — the bar

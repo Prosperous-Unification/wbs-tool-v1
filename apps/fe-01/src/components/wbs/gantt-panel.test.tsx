@@ -4155,6 +4155,132 @@ describe('one surface at a time, and it goes when its facts do', () => {
 
     expect(noSurface()).toBe(true);
   });
+
+  /**
+   * The press itself, and the three ends it can have.
+   *
+   * jsdom has no `PointerEvent`, so `fireEvent.pointerUp(node, { pointerType,
+   * clientX })` builds a plain `Event` and drops the whole init on the floor —
+   * the same trap {@link pointerEvent} above is built around. Everything the
+   * guard reads is defined on the event itself.
+   */
+  const pressStart = (): Event => {
+    const event = new Event('pointerdown', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'pointerType', { value: 'touch' });
+    return event;
+  };
+
+  const pressEnd = (
+    name: 'pointerup' | 'pointercancel' | 'lostpointercapture',
+    at: { x: number; y: number },
+  ): Event => {
+    const event = new Event(name, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'pointerType', { value: 'touch' });
+    Object.defineProperty(event, 'clientX', { value: at.x });
+    Object.defineProperty(event, 'clientY', { value: at.y });
+    return event;
+  };
+
+  /**
+   * A bar that has a rectangle, because jsdom reports every element as 0x0 at
+   * the origin and lays nothing out.
+   *
+   * Without this a release at (0, 0) reads as a release **on** the bar and the
+   * dragged-off case cannot be told from the tap — the two assertions below
+   * would then be the same assertion twice, both green against the bug.
+   */
+  const barWithABox = (sliceId: string): Element => {
+    const bar = markFor(sliceId);
+    Object.defineProperty(bar, 'getBoundingClientRect', {
+      configurable: true,
+      value: (): DOMRect => ({
+        x: 10,
+        y: 20,
+        width: 40,
+        height: 12,
+        left: 10,
+        top: 20,
+        right: 50,
+        bottom: 32,
+        toJSON: () => ({}),
+      }),
+    });
+    return bar;
+  };
+
+  /** Full screen, which is the only place the touch guard is armed at all. */
+  const goFullScreen = (): void => {
+    const toggle = document.querySelector('[data-gantt-fullscreen-toggle]');
+    if (!(toggle instanceof HTMLElement)) {
+      throw new Error('the full-screen switch is not on the panel');
+    }
+    fireEvent.click(toggle);
+    if (document.querySelector('[data-gantt-fullscreen]') === null) {
+      throw new Error('the full-screen switch was pressed and no layer arrived');
+    }
+  };
+
+  itDom('opens the facts on focus after a touch press was cancelled', () => {
+    render(draw(twoBarPlan(['010', '020']), 0));
+    goFullScreen();
+    const bar = barWithABox('strip-dev');
+
+    // A finger presses the bar and the gesture is taken away — a scroll, a
+    // system edge swipe, a drag the browser turned into a pan. No click ever
+    // arrives, so nothing used to clear the press.
+    fireEvent(bar, pressStart());
+    fireEvent(bar, pressEnd('pointercancel', { x: 90, y: 100 }));
+    fireEvent.focus(bar);
+
+    // Proof: `onPointerCancel` struck off the bar — this failed on `expected
+    // true to be false`, a bar that takes focus and shows nothing at all.
+    // That is the whole of TASK-185 for a keyboard or switch-control reader,
+    // who reaches bars by focus and has no second pointer event to heal it
+    // with. Reproduced in a real browser first, at 390x844 in full screen.
+    expect(noSurface()).toBe(false);
+  });
+
+  itDom('opens the facts on focus after a touch press was dragged off the bar', () => {
+    render(draw(twoBarPlan(['010', '020']), 0));
+    goFullScreen();
+    const bar = barWithABox('strip-dev');
+
+    // Released well outside the bar's rectangle: the touch kept the implicit
+    // capture, so the release is dispatched here, and no click follows it.
+    fireEvent(bar, pressStart());
+    fireEvent(bar, pressEnd('pointerup', { x: 500, y: 600 }));
+    fireEvent.focus(bar);
+
+    // Proof: the `pointerup` release removed from `endTouchPress` — this
+    // failed on `expected true to be false` while the cancelled case above
+    // stayed green, which is why both are here: `touchcancel` and a plain
+    // drag-and-lift are different ends and only one of them is a cancel.
+    expect(noSurface()).toBe(false);
+  });
+
+  itDom('still leaves a tap’s own click to decide, and not the focus before it', () => {
+    render(draw(twoBarPlan(['010', '020']), 0));
+    goFullScreen();
+    const bar = barWithABox('strip-dev');
+
+    // A real tap, in the order Chromium dispatches it: the release and the
+    // capture release both land on the bar, and the synthesized focus arrives
+    // between them and the click.
+    fireEvent(bar, pressStart());
+    fireEvent(bar, pressEnd('pointerup', { x: 30, y: 26 }));
+    fireEvent(bar, pressEnd('lostpointercapture', { x: 30, y: 26 }));
+    fireEvent.focus(bar);
+
+    // Proof: the rectangle test dropped from `endTouchPress`, so every release
+    // cleared the press — this failed on `expected false to be true`, the
+    // focus opening the card before the click it belongs to had decided
+    // between the facts and navigating to the row.
+    expect(noSurface()).toBe(true);
+
+    fireEvent.click(bar);
+
+    expect(linesOf(screen.getByRole('tooltip'))[0]).toBe('010 - Strip');
+  });
 });
 
 describe('the axis says its date, at the chart’s own speed', () => {
