@@ -32,6 +32,7 @@ import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 import { documentFromApp, OPENAPI_DOCUMENT_FILE, serialiseDocument } from './document-from-app';
 
 /**
@@ -52,6 +53,7 @@ if (import.meta.main) {
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
+    writes: testWrites(),
     migrationsApplied: true,
   });
   writeFileSync(OPENAPI_DOCUMENT_FILE, serialiseDocument(await documentFromApp(app)), 'utf8');

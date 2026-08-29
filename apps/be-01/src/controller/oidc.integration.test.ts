@@ -11,6 +11,7 @@ import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 import * as authModule from './auth.controller';
 
 const now = Date.UTC(2026, 7, 23);
@@ -117,6 +118,7 @@ function fixture(
     directory: testDirectoryService(),
     history: testHistoryService(),
     internalAuthSecret: 'x'.repeat(32),
+    writes: testWrites(),
     migrationsApplied: true,
     oidc,
     priorityBands: testPriorityBandService(),

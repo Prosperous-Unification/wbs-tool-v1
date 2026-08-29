@@ -26,8 +26,8 @@ Only `- [ ]` checkboxes are tracked by the apply phase.
 
 ## 3. The route and the document (be-01)
 
-- [ ] 3.1 `POST /api/projects/:id/commands` in `work-item.controller.ts`: hand-parsed body (the derived-field rule), a `oneOf` OpenAPI schema over every kind with descriptions, ≤ 200, `{ error, at, kind }` refusals through `statusFor`, `unknown_ref`/`duplicate_ref` as 400 — test: `work-item.controller.test.ts` `a batch answers ids per ref and the undo state`, `a 201-command batch is refused before any is applied`, `a refused command names its index and kind`; negative: the cap removed, watched failing.
-- [ ] 3.2 Regenerate `apps/be-01/openapi.json`; `openapi-document.test.ts` green; `DOCUMENT_DESCRIPTION` names the batch contract.
+- [x] 3.1 `POST /api/projects/:id/commands` in `work-item.controller.ts`: hand-parsed body (the derived-field rule), a `oneOf` OpenAPI schema over every kind with descriptions, ≤ 200, `{ error, at, kind }` refusals through `statusFor`, `unknown_ref`/`duplicate_ref` as 400 — test: `work-item.controller.test.ts` `a batch answers ids per ref and the undo state`, `a 201-command batch is refused before any is applied`, `a refused command names its index and kind`; negative: the cap removed, watched failing.
+- [x] 3.2 Regenerate `apps/be-01/openapi.json`; `openapi-document.test.ts` green; `DOCUMENT_DESCRIPTION` names the batch contract.
 
 ## 4. mcp-01
 

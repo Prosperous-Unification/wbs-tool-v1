@@ -29,6 +29,7 @@ import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixtu
 import { testHistoryService } from '../testing/history-fixture';
 import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 /**
  * The directory routes, over real SQLite.
@@ -88,6 +89,7 @@ beforeEach(async () => {
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
+    writes: testWrites(),
     migrationsApplied: true,
   });
   token = await register('owner');

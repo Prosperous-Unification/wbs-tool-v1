@@ -20,6 +20,7 @@ import { inMemoryProjects } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { inMemoryWorkItems } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 function buildWorkItemService(projectStore: ReturnType<typeof inMemoryProjects>) {
   const workItemStore = inMemoryWorkItems();
@@ -78,6 +79,7 @@ function buildHarness(options: { writeOnly?: boolean } = {}) {
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
+    writes: testWrites(),
     migrationsApplied: true,
   });
 

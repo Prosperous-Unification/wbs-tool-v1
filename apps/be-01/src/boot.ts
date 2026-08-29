@@ -3,11 +3,12 @@ import type { Logger } from '@wbs/observability';
 import { buildApp } from './app';
 import type { OidcRouteOptions } from './controller/auth.controller';
 import { readDeployedCommit } from './deployed-commit';
-import { openConnection } from './repository/db';
+import { drizzleOuterTransaction, openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
 import { runMigrations } from './repository/migrate';
 import { UserRepository } from './repository/user';
 import type { AuthenticatedUser } from './service/auth.service';
+import { WriteLock } from './service/write-lock';
 import { type BeServices, buildServices } from './services';
 
 export interface BootOptions {
@@ -96,6 +97,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     history: services.history,
     replay: services.replay,
     probeDatabase: () => probeSchema(db),
+    writes: { transactions: drizzleOuterTransaction(db), lock: new WriteLock() },
     // Read per call, not captured here: dev's deploy is a `git reset` under
     // live watchers, so this process outlives the commit it started on.
     deployedCommit: () => readDeployedCommit(opts.commitDir),

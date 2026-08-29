@@ -10,6 +10,7 @@ import { testProjectService } from './testing/project-fixture';
 import { testReplay } from './testing/replay-fixture';
 import { testRoleService } from './testing/role-fixture';
 import { testWorkItemService } from './testing/work-item-fixture';
+import { testWrites } from './testing/writes-fixture';
 
 describe('migrate lifecycle', () => {
   it('exposes 503 before migrations complete then 200 after', async () => {
@@ -26,6 +27,7 @@ describe('migrate lifecycle', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
+      writes: testWrites(),
       get migrationsApplied() {
         return state.migrationsApplied;
       },

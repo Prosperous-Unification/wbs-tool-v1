@@ -45,14 +45,21 @@ provider's limit, and carry environment-scoped read/write permissions.
 \`/internal/*\` is gw-01's own surface and takes a shared secret in
 \`x-internal-auth\` instead — no account token opens it.
 
+**Writing to a plan is one route.** \`POST /api/projects/:id/commands\` takes an
+ordered list of up to 200 typed commands — every plan edit and every directory
+edit — applies them all or none in one transaction and records them as one undo.
+Later commands may name what earlier ones created by \`ref\`. A refused command
+refuses the batch with \`{ "error", "at", "kind" }\` and nothing is applied. Its
+body is described under the route, one variant per command kind.
+
 **Bodies this document declares, and bodies it only describes.** Ten
 body-carrying routes declare a schema to Elysia, and those appear here as
-schemas. Eight parse their body by hand — the six work-item writes, the capacity
-PUT and the priority-band PUT — because Elysia strips unknown properties before
-a handler runs, which would silently delete refusals like \`number_is_derived\`
-and the priority and parallelism guards. Their bodies are written out in prose
-under \`requestBody\` and **nothing validates against that prose**; the handler's
-own parse is the contract, and it answers 400 with a code.
+schemas. Nine parse their body by hand — the six work-item writes, the command
+batch, the capacity PUT and the priority-band PUT — because Elysia strips unknown
+properties before a handler runs, which would silently delete refusals like
+\`number_is_derived\` and the priority and parallelism guards. Their bodies are
+written out in prose under \`requestBody\` and **nothing validates against that
+prose**; the handler's own parse is the contract, and it answers 400 with a code.
 
 **Refusals.** A refused request answers \`{ "error": "<code>" }\` with a status
 that means something: 400 "do not send this", 409 "try again against a different

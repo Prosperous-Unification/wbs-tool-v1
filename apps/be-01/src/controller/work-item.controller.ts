@@ -13,6 +13,8 @@ import { Elysia } from 'elysia';
 import { userFromHeaders } from '../middleware/authenticated';
 import { handParsedBody } from '../openapi/hand-parsed-body';
 import type { AuthService } from '../service/auth.service';
+import { PLAN_COMMAND_KINDS, type PlanCommand } from '../service/plan-command';
+import type { PlanCommandRunner } from '../service/plan-commands';
 import type {
   CreateWorkItem,
   DeleteStrategy,
@@ -21,6 +23,7 @@ import type {
   WorkItemRefusal,
   WorkItemService,
 } from '../service/work-item.service';
+import { PLAN_COMMANDS_BODY } from './plan-command-schema';
 
 /**
  * These routes validate their bodies by hand rather than with an Elysia schema.
@@ -33,7 +36,11 @@ import type {
  * ignoring it would let that assumption survive until the number silently moved.
  */
 class BadRequest extends Error {
-  constructor(public readonly reason: string) {
+  constructor(
+    public readonly reason: string,
+    /** Which command of a batch, where the body was one. */
+    public readonly at?: number,
+  ) {
     super(reason);
   }
 }
@@ -474,12 +481,74 @@ function answerUndo(outcome: UndoOutcome, set: { status?: number | string }) {
 const isStrategy = (value: string | null): value is DeleteStrategy =>
   value === 'cascade' || value === 'promote';
 
-export function workItemController(auth: AuthService, workItems: WorkItemService) {
+/**
+ * A command batch as the wire carries it, checked to the depth this layer owns:
+ * an object with a `commands` list, each an object naming a known `kind`, none
+ * naming a derived number. Every field below that is the services' to judge —
+ * a step they refuse is refused with its index, exactly as a body on the old
+ * single route was.
+ *
+ * @throws {BadRequest} with `at` set, so the answer names the command.
+ */
+function parseBatch(body: unknown): PlanCommand[] {
+  const record = asRecord(body);
+  const list = record['commands'];
+  if (!Array.isArray(list)) throw new BadRequest('commands_must_be_a_list');
+  return list.map((step, at) => {
+    if (typeof step !== 'object' || step === null) throw new BadRequest('expected_object', at);
+    const named = step as Record<string, unknown>;
+    const kind = named['kind'];
+    if (typeof kind !== 'string' || !(PLAN_COMMAND_KINDS as readonly string[]).includes(kind)) {
+      throw new BadRequest('unknown_kind', at);
+    }
+    try {
+      refuseDerivedFields(named);
+      const patch = named['patch'];
+      if (typeof patch === 'object' && patch !== null) {
+        refuseDerivedFields(patch as Record<string, unknown>);
+      }
+    } catch (cause) {
+      if (cause instanceof BadRequest) throw new BadRequest(cause.reason, at);
+      throw cause;
+    }
+    // The boundary: `kind` is one of ours and the derived fields are absent;
+    // the fields under each kind are validated where they always were, in the
+    // services, which refuse with the code the single routes answered with.
+    return named as PlanCommand;
+  });
+}
+
+/**
+ * `statusFor`, widened to what a batch can refuse with: the work-item ladder,
+ * the directory's `taken`/`in_use` (409, as `cycle` is), the runner's own
+ * `unknown_ref`/`duplicate_ref`/`too_many_commands`/`missing_id`/`invalid_name`
+ * (400), and the capacity/priority refusals that share `not_found`/`forbidden`.
+ */
+function statusForBatch(reason: string): number {
+  if (reason === 'forbidden') return 403;
+  if (reason === 'not_found' || reason.startsWith('unknown_')) {
+    return reason === 'unknown_ref' ? 400 : 404;
+  }
+  if (
+    ['cycle', 'frozen', 'rolled_up', 'ancestor', 'too_large', 'taken', 'in_use'].includes(reason)
+  ) {
+    return 409;
+  }
+  return 400;
+}
+
+export function workItemController(
+  auth: AuthService,
+  workItems: WorkItemService,
+  commands: PlanCommandRunner,
+) {
   return new Elysia({ prefix: '/api' })
     .onError(({ error, set }) => {
       if (error instanceof BadRequest) {
         set.status = 400;
-        return { error: error.reason };
+        return error.at === undefined
+          ? { error: error.reason }
+          : { error: error.reason, at: error.at };
       }
       // The shared schema's refusal is a 400 here rather than a 500: the two
       // tiers validate with the same arktype schema, so this is a client that
@@ -759,13 +828,53 @@ Body refusals, all 400: \`expected_object\`, \`parentId_must_be_id_or_null\`,
       }
       return outcome.result;
     })
+    .post(
+      '/projects/:id/commands',
+      async ({ params, body, headers, set }) => {
+        const user = await userFromHeaders(auth, headers);
+        if (user === null) {
+          set.status = 401;
+          return { error: 'unauthenticated' };
+        }
+        const outcome = await commands.run(params.id, user.id, parseBatch(body));
+        if (!outcome.ok) {
+          set.status = statusForBatch(outcome.reason);
+          return { error: outcome.reason, at: outcome.at, kind: outcome.kind };
+        }
+        return { results: outcome.results, undoable: outcome.undoable, redoable: outcome.redoable };
+      },
+      {
+        detail: {
+          summary: 'Apply a batch of commands to a project, all or none',
+          description: `**The one way to write to a plan.** An ordered list of up to 200 commands — every
+plan edit and every directory edit — applied in one transaction and recorded as one undo.
+A later command may name what an earlier one created by its \`ref\` (\`parentRef\`,
+\`workItemRef\`, \`teamRefs\`…). Directory commands are applied with the batch but are not
+undoable.
+
+A refused command refuses the whole batch and nothing is applied: the answer carries
+\`{ "error": "<code>", "at": <index>, "kind": "<kind>" }\` with the status the code has on its
+own — 400 for a malformed step, \`unknown_ref\`, \`duplicate_ref\`, \`too_many_commands\`;
+403 \`forbidden\`; 404 \`not_found\` and the \`unknown_*\` ids; 409 \`cycle\`, \`frozen\`,
+\`rolled_up\`, \`ancestor\`, \`too_large\`, \`taken\`, \`in_use\`.
+
+Applied, it answers \`{ results: [{ index, ref?, id? }], undoable, redoable }\`: the id of
+everything a command created, and the undo state as the tree read carries it. Read the
+tree afterwards for the plan as the batch left it — numbers and dates are derived.`,
+          requestBody: handParsedBody(
+            'The commands, in order. Each names its `kind`; the fields are those of the write it stands for.',
+            PLAN_COMMANDS_BODY,
+          ),
+        },
+      },
+    )
     .post('/projects/:id/undo', async ({ params, headers, set }) => {
       const user = await userFromHeaders(auth, headers);
       if (user === null) {
         set.status = 401;
         return { error: 'unauthenticated' };
       }
-      return answerUndo(await workItems.undo(params.id, user.id), set);
+      return answerUndo(await commands.undo(params.id, user.id), set);
     })
     .post('/projects/:id/redo', async ({ params, headers, set }) => {
       const user = await userFromHeaders(auth, headers);
@@ -773,7 +882,7 @@ Body refusals, all 400: \`expected_object\`, \`parentId_must_be_id_or_null\`,
         set.status = 401;
         return { error: 'unauthenticated' };
       }
-      return answerUndo(await workItems.redo(params.id, user.id), set);
+      return answerUndo(await commands.redo(params.id, user.id), set);
     })
     .post('/projects/:id/freeze', async ({ params, headers, set }) => {
       const user = await userFromHeaders(auth, headers);

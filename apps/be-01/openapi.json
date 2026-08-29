@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "wbs-tool API",
-    "description": "The API behind wbs-tool: projects, work items, estimates, dependencies, the\ndirectory of teams and people, and per-project capacity and priority bands.\n\n**Authentication.** Every route outside `POST /api/auth/register` and\n`POST /api/auth/login` needs the secure browser session cookie. Non-browser\nclients use `Authorization: Bearer <token>`; the retired `x-wbs-token`\nheader is refused. OIDC tokens are issuer- and audience-bound, expire at the\nprovider's limit, and carry environment-scoped read/write permissions.\n`/internal/*` is gw-01's own surface and takes a shared secret in\n`x-internal-auth` instead — no account token opens it.\n\n**Bodies this document declares, and bodies it only describes.** Ten\nbody-carrying routes declare a schema to Elysia, and those appear here as\nschemas. Eight parse their body by hand — the six work-item writes, the capacity\nPUT and the priority-band PUT — because Elysia strips unknown properties before\na handler runs, which would silently delete refusals like `number_is_derived`\nand the priority and parallelism guards. Their bodies are written out in prose\nunder `requestBody` and **nothing validates against that prose**; the handler's\nown parse is the contract, and it answers 400 with a code.\n\n**Refusals.** A refused request answers `{ \"error\": \"<code>\" }` with a status\nthat means something: 400 \"do not send this\", 409 \"try again against a different\nstate\", 404 \"that id is not here\", 403 \"you may read it but not write it\". The\neight hand-parsed routes list their codes in their own descriptions. The rest do\nnot yet — that pass is change A2.\n\n**Numbers are derived.** Work-item numbers, dates, floats and slices are\nrecomputed from the tree on every read; a write that names one is refused rather\nthan ignored. Re-read `GET /api/projects/:id/work-items` after any write: the\nwhole schedule can move.",
+    "description": "The API behind wbs-tool: projects, work items, estimates, dependencies, the\ndirectory of teams and people, and per-project capacity and priority bands.\n\n**Authentication.** Every route outside `POST /api/auth/register` and\n`POST /api/auth/login` needs the secure browser session cookie. Non-browser\nclients use `Authorization: Bearer <token>`; the retired `x-wbs-token`\nheader is refused. OIDC tokens are issuer- and audience-bound, expire at the\nprovider's limit, and carry environment-scoped read/write permissions.\n`/internal/*` is gw-01's own surface and takes a shared secret in\n`x-internal-auth` instead — no account token opens it.\n\n**Writing to a plan is one route.** `POST /api/projects/:id/commands` takes an\nordered list of up to 200 typed commands — every plan edit and every directory\nedit — applies them all or none in one transaction and records them as one undo.\nLater commands may name what earlier ones created by `ref`. A refused command\nrefuses the batch with `{ \"error\", \"at\", \"kind\" }` and nothing is applied. Its\nbody is described under the route, one variant per command kind.\n\n**Bodies this document declares, and bodies it only describes.** Ten\nbody-carrying routes declare a schema to Elysia, and those appear here as\nschemas. Nine parse their body by hand — the six work-item writes, the command\nbatch, the capacity PUT and the priority-band PUT — because Elysia strips unknown\nproperties before a handler runs, which would silently delete refusals like\n`number_is_derived` and the priority and parallelism guards. Their bodies are\nwritten out in prose under `requestBody` and **nothing validates against that\nprose**; the handler's own parse is the contract, and it answers 400 with a code.\n\n**Refusals.** A refused request answers `{ \"error\": \"<code>\" }` with a status\nthat means something: 400 \"do not send this\", 409 \"try again against a different\nstate\", 404 \"that id is not here\", 403 \"you may read it but not write it\". The\neight hand-parsed routes list their codes in their own descriptions. The rest do\nnot yet — that pass is change A2.\n\n**Numbers are derived.** Work-item numbers, dates, floats and slices are\nrecomputed from the tree on every read; a write that names one is refused rather\nthan ignored. Re-read `GET /api/projects/:id/work-items` after any write: the\nwhole schedule can move.",
     "version": "0.0.0"
   },
   "paths": {
@@ -844,6 +844,1056 @@
           }
         ],
         "operationId": "postApiWork-itemsByIdDuplicate"
+      }
+    },
+    "/api/projects/{id}/commands": {
+      "post": {
+        "summary": "Apply a batch of commands to a project, all or none",
+        "description": "**The one way to write to a plan.** An ordered list of up to 200 commands — every\nplan edit and every directory edit — applied in one transaction and recorded as one undo.\nA later command may name what an earlier one created by its `ref` (`parentRef`,\n`workItemRef`, `teamRefs`…). Directory commands are applied with the batch but are not\nundoable.\n\nA refused command refuses the whole batch and nothing is applied: the answer carries\n`{ \"error\": \"<code>\", \"at\": <index>, \"kind\": \"<kind>\" }` with the status the code has on its\nown — 400 for a malformed step, `unknown_ref`, `duplicate_ref`, `too_many_commands`;\n403 `forbidden`; 404 `not_found` and the `unknown_*` ids; 409 `cycle`, `frozen`,\n`rolled_up`, `ancestor`, `too_large`, `taken`, `in_use`.\n\nApplied, it answers `{ results: [{ index, ref?, id? }], undoable, redoable }`: the id of\neverything a command created, and the undo state as the tree read carries it. Read the\ntree afterwards for the plan as the batch left it — numbers and dates are derived.",
+        "requestBody": {
+          "required": true,
+          "description": "The commands, in order. Each names its `kind`; the fields are those of the write it stands for.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "commands": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "description": "The commands, in order. Later commands may name what earlier ones created by `ref`. Applied all or none.",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "title": "createWorkItem",
+                          "description": "Add a work item. `ref` names it for the rest of this batch.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "createWorkItem"
+                              ]
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A name for the new work item, usable by later commands in this batch."
+                            },
+                            "parentId": {
+                              "type": "string",
+                              "nullable": true,
+                              "description": "The work item it goes under. Null or absent puts it at the top level."
+                            },
+                            "parentRef": {
+                              "type": "string",
+                              "description": "The work item it goes under — the `ref` an earlier command in this batch gave it."
+                            },
+                            "afterId": {
+                              "type": "string",
+                              "nullable": true,
+                              "description": "The sibling it is placed after. Null or absent puts it first in its group."
+                            },
+                            "afterRef": {
+                              "type": "string",
+                              "description": "The sibling it is placed after — the `ref` an earlier command in this batch gave it."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "Its name. Absent leaves it unnamed."
+                            },
+                            "notes": {
+                              "type": "string",
+                              "description": "Free text shown on the row."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "patchWorkItem",
+                          "description": "Change fields of a work item; only the fields named change.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "patchWorkItem"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "patch": {
+                              "type": "object",
+                              "description": "Any of: name, notes, startNoEarlierThan (ISO date or null), startNoEarlierThanReason, priority (whole number ≥ 1 or null), teamIds, tagIds, serviceIds (ids), teamRefs, tagRefs, serviceRefs (refs from this batch), maxParallel. Never number or frozenNumber — those are derived."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "patch"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "moveWorkItem",
+                          "description": "Move a work item under a parent, after a sibling.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "moveWorkItem"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "parentId": {
+                              "type": "string",
+                              "nullable": true,
+                              "description": "The new parent, or null for the top level."
+                            },
+                            "parentRef": {
+                              "type": "string",
+                              "description": "The new parent — the `ref` an earlier command in this batch gave it."
+                            },
+                            "afterId": {
+                              "type": "string",
+                              "nullable": true,
+                              "description": "The sibling it lands after, or null for first."
+                            },
+                            "afterRef": {
+                              "type": "string",
+                              "description": "The sibling it lands after — the `ref` an earlier command in this batch gave it."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "duplicateWorkItem",
+                          "description": "Copy a work item with its whole subtree, placed right after it.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "duplicateWorkItem"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A name for the copy, usable by later commands in this batch."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "deleteWorkItem",
+                          "description": "Remove a work item. A parent needs a strategy: cascade its children or promote them.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "deleteWorkItem"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "strategy": {
+                              "type": "string",
+                              "enum": [
+                                "cascade",
+                                "promote"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "setEstimate",
+                          "description": "Set the three-point estimate of one phase on a leaf work item.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "setEstimate"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            },
+                            "days": {
+                              "type": "object",
+                              "description": "A three-point estimate in workdays.",
+                              "properties": {
+                                "optimistic": {
+                                  "type": "number"
+                                },
+                                "realistic": {
+                                  "type": "number"
+                                },
+                                "pessimistic": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "optimistic",
+                                "realistic",
+                                "pessimistic"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId",
+                            "days"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "clearEstimate",
+                          "description": "Remove one phase’s estimate from a work item.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "clearEstimate"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "setActual",
+                          "description": "Record the days one phase actually took on a work item.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "setActual"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            },
+                            "days": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId",
+                            "days"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "clearActual",
+                          "description": "Remove one phase’s actual from a work item.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "clearActual"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "setProgress",
+                          "description": "Mark one phase of a work item in progress or done.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "setProgress"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "in_progress",
+                                "done"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId",
+                            "state"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "clearProgress",
+                          "description": "Take a phase back to not started.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "clearProgress"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "setMeasure",
+                          "description": "Record a measured figure (tokens, hours…) for one phase of a work item.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "setMeasure"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            },
+                            "metric": {
+                              "type": "string",
+                              "description": "The metric, e.g. tokens or hours."
+                            },
+                            "value": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId",
+                            "metric",
+                            "value"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "clearMeasure",
+                          "description": "Remove one measured figure.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "clearMeasure"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            },
+                            "metric": {
+                              "type": "string",
+                              "description": "The metric."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId",
+                            "metric"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "setAssignee",
+                          "description": "Name who does one phase of a work item, or null to unassign.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "setAssignee"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "The phase (role) this figure belongs to."
+                            },
+                            "personId": {
+                              "type": "string",
+                              "nullable": true,
+                              "description": "The person, or null."
+                            },
+                            "personRef": {
+                              "type": "string",
+                              "description": "The person — the `ref` an earlier command in this batch gave it."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "roleId"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "addDependency",
+                          "description": "Make a work item wait for another.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "addDependency"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "predecessorId": {
+                              "type": "string",
+                              "description": "The work item it waits for."
+                            },
+                            "predecessorRef": {
+                              "type": "string",
+                              "description": "The work item it waits for — the `ref` an earlier command in this batch gave it."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "removeDependency",
+                          "description": "Stop a work item waiting for another.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "removeDependency"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            },
+                            "predecessorId": {
+                              "type": "string",
+                              "description": "The predecessor."
+                            },
+                            "predecessorRef": {
+                              "type": "string",
+                              "description": "The predecessor — the `ref` an earlier command in this batch gave it."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "freezeProject",
+                          "description": "Freeze every work item number as it stands.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "freezeProject"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "unfreezeProject",
+                          "description": "Let every number follow the tree again.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "unfreezeProject"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "unfreezeWorkItem",
+                          "description": "Let one work item’s number follow the tree again.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "unfreezeWorkItem"
+                              ]
+                            },
+                            "workItemId": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at."
+                            },
+                            "workItemRef": {
+                              "type": "string",
+                              "description": "The work item this command is aimed at — the `ref` an earlier command in this batch gave it."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "setCapacity",
+                          "description": "How many of a team may be at work at once on this project; null means unstated.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "setCapacity"
+                              ]
+                            },
+                            "teamId": {
+                              "type": "string",
+                              "description": "The team."
+                            },
+                            "teamRef": {
+                              "type": "string",
+                              "description": "The team — the `ref` an earlier command in this batch gave it."
+                            },
+                            "size": {
+                              "type": "integer",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "size"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "setPriorityBands",
+                          "description": "Replace this project’s priority ladder.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "setPriorityBands"
+                              ]
+                            },
+                            "bands": {
+                              "type": "array",
+                              "items": {
+                                "type": "object"
+                              }
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "bands"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "createTeam",
+                          "description": "Add a team to the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "createTeam"
+                              ]
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A name for the team, usable by later commands in this batch."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "The team’s name."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "patchTeam",
+                          "description": "Rename a team or change the services it owns.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "patchTeam"
+                              ]
+                            },
+                            "teamId": {
+                              "type": "string",
+                              "description": "The team."
+                            },
+                            "teamRef": {
+                              "type": "string",
+                              "description": "The team — the `ref` an earlier command in this batch gave it."
+                            },
+                            "patch": {
+                              "type": "object",
+                              "description": "name and/or serviceIds."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "patch"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "deleteTeam",
+                          "description": "Remove a team from the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "deleteTeam"
+                              ]
+                            },
+                            "teamId": {
+                              "type": "string",
+                              "description": "The team."
+                            },
+                            "teamRef": {
+                              "type": "string",
+                              "description": "The team — the `ref` an earlier command in this batch gave it."
+                            },
+                            "cascade": {
+                              "type": "boolean",
+                              "description": "Take the labels or memberships that use it off as well. Absent refuses an entry still in use."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "createPerson",
+                          "description": "Add a person to the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "createPerson"
+                              ]
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A name for the person, usable by later commands in this batch."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "The person’s name."
+                            },
+                            "teamIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "teamRefs": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "patchPerson",
+                          "description": "Rename a person, change their teams or their kind.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "patchPerson"
+                              ]
+                            },
+                            "personId": {
+                              "type": "string",
+                              "description": "The person."
+                            },
+                            "personRef": {
+                              "type": "string",
+                              "description": "The person — the `ref` an earlier command in this batch gave it."
+                            },
+                            "patch": {
+                              "type": "object",
+                              "description": "name, teamIds and/or kind."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "patch"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "deletePerson",
+                          "description": "Remove a person from the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "deletePerson"
+                              ]
+                            },
+                            "personId": {
+                              "type": "string",
+                              "description": "The person."
+                            },
+                            "personRef": {
+                              "type": "string",
+                              "description": "The person — the `ref` an earlier command in this batch gave it."
+                            },
+                            "cascade": {
+                              "type": "boolean",
+                              "description": "Take the labels or memberships that use it off as well. Absent refuses an entry still in use."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "createTag",
+                          "description": "Add a tag to the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "createTag"
+                              ]
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A name for the tag, usable by later commands in this batch."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "The tag."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "patchTag",
+                          "description": "Rename a tag.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "patchTag"
+                              ]
+                            },
+                            "tagId": {
+                              "type": "string",
+                              "description": "The tag."
+                            },
+                            "tagRef": {
+                              "type": "string",
+                              "description": "The tag — the `ref` an earlier command in this batch gave it."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "Its new name."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "deleteTag",
+                          "description": "Remove a tag from the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "deleteTag"
+                              ]
+                            },
+                            "tagId": {
+                              "type": "string",
+                              "description": "The tag."
+                            },
+                            "tagRef": {
+                              "type": "string",
+                              "description": "The tag — the `ref` an earlier command in this batch gave it."
+                            },
+                            "cascade": {
+                              "type": "boolean",
+                              "description": "Take the labels or memberships that use it off as well. Absent refuses an entry still in use."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "createService",
+                          "description": "Add a service to the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "createService"
+                              ]
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A name for the service, usable by later commands in this batch."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "The service."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "patchService",
+                          "description": "Rename a service.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "patchService"
+                              ]
+                            },
+                            "serviceId": {
+                              "type": "string",
+                              "description": "The service."
+                            },
+                            "serviceRef": {
+                              "type": "string",
+                              "description": "The service — the `ref` an earlier command in this batch gave it."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "Its new name."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "title": "deleteService",
+                          "description": "Remove a service from the directory.",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "deleteService"
+                              ]
+                            },
+                            "serviceId": {
+                              "type": "string",
+                              "description": "The service."
+                            },
+                            "serviceRef": {
+                              "type": "string",
+                              "description": "The service — the `ref` an earlier command in this batch gave it."
+                            },
+                            "cascade": {
+                              "type": "boolean",
+                              "description": "Take the labels or memberships that use it off as well. Absent refuses an entry still in use."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        }
+                      ],
+                      "discriminator": {
+                        "propertyName": "kind"
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "commands"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "postApiProjectsByIdCommands"
       }
     },
     "/api/projects/{id}/undo": {

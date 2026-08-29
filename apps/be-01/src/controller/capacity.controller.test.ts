@@ -29,6 +29,7 @@ import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broa
 import { testHistoryService } from '../testing/history-fixture';
 import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 const TEST_JWT_KEY = 'k'.repeat(32);
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -101,6 +102,7 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
+      writes: testWrites(),
       migrationsApplied: true,
     });
 

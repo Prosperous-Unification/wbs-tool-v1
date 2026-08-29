@@ -21,8 +21,10 @@ import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { inMemorySubtrees } from '../testing/subtree-fixture';
 import { inMemoryWorkItems } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 function buildHarness() {
+  const writes = testWrites();
   const projectStore = inMemoryProjects();
   const directoryStore = inMemoryDirectory();
   const workItemStore = inMemoryWorkItems(directoryStore);
@@ -69,6 +71,7 @@ function buildHarness() {
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
+    writes,
     migrationsApplied: true,
   });
 
@@ -102,11 +105,11 @@ function buildHarness() {
   // would be asserting against a read that does not exist. Every other store
   // stays private, as it should: this one is temporary and section 5 takes it
   // out again.
-  return { register, send, measures: measureStore };
+  return { register, send, measures: measureStore, writes };
 }
 
 async function setup() {
-  const { register, send, measures } = buildHarness();
+  const { register, send, measures, writes } = buildHarness();
   const token = await register('owner');
   const created = await send('/api/projects', token, {
     method: 'POST',
@@ -122,10 +125,113 @@ async function setup() {
   const devId = body.roles.find((each) => each.name === 'Dev')?.id;
   const qaId = body.roles.find((each) => each.name === 'QA')?.id;
   if (devId === undefined || qaId === undefined) throw new Error('a project without its roles');
-  return { token, send, measures, projectId: body.project.id, devId, qaId };
+  return { token, send, measures, writes, projectId: body.project.id, devId, qaId };
 }
 
 describe('work item routes', () => {
+  it('applies a command batch, answering the id each ref became and the undo state', async () => {
+    const { token, send, projectId, devId } = await setup();
+    const res = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify({
+        commands: [
+          { kind: 'createWorkItem', ref: 'strip', parentId: null, afterId: null, name: 'Strip' },
+          { kind: 'createWorkItem', ref: 'sand', parentId: null, afterRef: 'strip', name: 'Sand' },
+          {
+            kind: 'setEstimate',
+            workItemRef: 'sand',
+            roleId: devId,
+            days: { optimistic: 1, realistic: 2, pessimistic: 3 },
+          },
+          { kind: 'addDependency', workItemRef: 'sand', predecessorRef: 'strip' },
+        ],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: { index: number; ref?: string; id?: string }[];
+      undoable: boolean;
+      redoable: boolean;
+    };
+    expect(body.results.map((each) => [each.index, each.ref ?? null, typeof each.id])).toEqual([
+      [0, 'strip', 'string'],
+      [1, 'sand', 'string'],
+      [2, null, 'undefined'],
+      [3, null, 'undefined'],
+    ]);
+    expect(body.undoable).toBe(true);
+    expect(body.redoable).toBe(false);
+
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    const rows = (await tree.json()) as { workItems: { number: string; name: string }[] };
+    expect(rows.workItems.map((w) => [w.number, w.name])).toEqual([
+      ['010', 'Strip'],
+      ['020', 'Sand'],
+    ]);
+  });
+
+  it('refuses a batch at the failing command, naming its index and kind, with nothing applied', async () => {
+    const { token, send, projectId, writes } = await setup();
+    const res = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify({
+        commands: [
+          { kind: 'createWorkItem', ref: 'a', parentId: null, afterId: null, name: 'A' },
+          {
+            kind: 'setEstimate',
+            workItemRef: 'a',
+            roleId: 'no-such-role',
+            days: { optimistic: 1, realistic: 2, pessimistic: 3 },
+          },
+        ],
+      }),
+    });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'unknown_role', at: 1, kind: 'setEstimate' });
+    // The stores here are the in-memory fixtures, which no transaction can
+    // roll back; what this layer can prove is that the route opened one and
+    // rolled it back. That the rollback takes the create with it is
+    // `plan-commands.test.ts`'s, on real SQLite.
+    expect(writes.transactions.calls).toEqual(['begin', 'rollback']);
+  });
+
+  it('refuses a batch that is not a list of known commands before applying any', async () => {
+    // Proof: the cap dropped from the runner, the 201 case answered 200.
+    // Watched, 2026-08-29.
+    const { token, send, projectId } = await setup();
+    const shape = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify({ commands: [{ kind: 'renameEverything' }] }),
+    });
+    expect(shape.status).toBe(400);
+    expect(await shape.json()).toEqual({ error: 'unknown_kind', at: 0 });
+
+    const derived = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify({ commands: [{ kind: 'createWorkItem', name: 'X', number: '010' }] }),
+    });
+    expect(derived.status).toBe(400);
+    expect(await derived.json()).toEqual({ error: 'number_is_derived', at: 0 });
+
+    const many = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify({
+        commands: Array.from({ length: 201 }, (_, n) => ({
+          kind: 'createWorkItem',
+          name: `Row ${String(n)}`,
+        })),
+      }),
+    });
+    expect(many.status).toBe(400);
+    expect(await many.json()).toEqual({
+      error: 'too_many_commands',
+      at: 200,
+      kind: 'createWorkItem',
+    });
+    const tree = await send(`/api/projects/${projectId}/work-items`, token);
+    expect(((await tree.json()) as { workItems: unknown[] }).workItems).toEqual([]);
+  });
+
   it('creates a work item and reads it back numbered', async () => {
     const { token, send, projectId } = await setup();
 

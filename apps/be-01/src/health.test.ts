@@ -17,6 +17,7 @@ import { testProjectService } from './testing/project-fixture';
 import { testReplay } from './testing/replay-fixture';
 import { testRoleService } from './testing/role-fixture';
 import { testWorkItemService } from './testing/work-item-fixture';
+import { testWrites } from './testing/writes-fixture';
 
 const TEST_SECRET = 'x'.repeat(32);
 
@@ -34,6 +35,7 @@ describe('GET /health', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: TEST_SECRET,
+      writes: testWrites(),
       migrationsApplied: true,
     });
     const res = await app.handle(new Request('http://localhost/health'));
@@ -55,6 +57,7 @@ describe('GET /health', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: TEST_SECRET,
+      writes: testWrites(),
       migrationsApplied: false,
     });
     const res = await app.handle(new Request('http://localhost/health'));
@@ -81,6 +84,7 @@ describe('/health tells the truth about the database', () => {
         roles: testRoleService(),
         replay: testReplay().replay,
         internalAuthSecret: TEST_SECRET,
+        writes: testWrites(),
         migrationsApplied: true,
         probeDatabase: () => probeSchema(db),
       });
@@ -112,6 +116,7 @@ describe('/health tells the truth about the database', () => {
         roles: testRoleService(),
         replay: testReplay().replay,
         internalAuthSecret: TEST_SECRET,
+        writes: testWrites(),
         migrationsApplied: true,
         probeDatabase: () => probeSchema(db),
       });
@@ -137,6 +142,7 @@ describe('/health tells the truth about the database', () => {
       roles: testRoleService(),
       replay: testReplay().replay,
       internalAuthSecret: TEST_SECRET,
+      writes: testWrites(),
       migrationsApplied: true,
       probeDatabase: () => {
         throw new Error('database is locked');

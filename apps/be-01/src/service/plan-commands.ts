@@ -1,4 +1,3 @@
-import type { CommandJournalStore } from '../repository';
 import type { CapacityService } from './capacity.service';
 import type { DirectoryService } from './directory.service';
 import type { OuterTransaction } from './outer-transaction';
@@ -31,7 +30,6 @@ export interface PlanCommandRunnerOptions {
   directory: DirectoryService;
   capacity: CapacityService;
   priorityBands: PriorityBandService;
-  journal: CommandJournalStore;
   transactions: OuterTransaction;
   lock: WriteLock;
 }
@@ -110,7 +108,7 @@ export class PlanCommandRunner {
    */
   private walk(step: () => Promise<UndoOutcome>): Promise<UndoOutcome> {
     return this.opts.lock.run(async () => {
-      const { transactions, journal } = this.opts;
+      const { transactions, workItems } = this.opts;
       transactions.begin();
       let outcome: UndoOutcome;
       try {
@@ -124,7 +122,7 @@ export class PlanCommandRunner {
         return outcome;
       }
       transactions.rollback();
-      if (outcome.entryId !== undefined) await journal.discard(outcome.entryId);
+      if (outcome.entryId !== undefined) await workItems.discardEntry(outcome.entryId);
       return outcome;
     });
   }

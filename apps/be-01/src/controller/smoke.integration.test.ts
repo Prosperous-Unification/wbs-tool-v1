@@ -10,6 +10,7 @@ import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 const TEST_SECRET = 'x'.repeat(32);
 
@@ -27,6 +28,7 @@ describe('POST /api/smoke/echo', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: TEST_SECRET,
+      writes: testWrites(),
       migrationsApplied: true,
     });
     const res = await app.handle(
@@ -54,6 +56,7 @@ describe('POST /api/smoke/echo', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: TEST_SECRET,
+      writes: testWrites(),
       migrationsApplied: true,
     });
     const res = await app.handle(

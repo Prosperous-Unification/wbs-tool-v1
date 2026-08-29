@@ -21,6 +21,7 @@ import { testHistoryService } from '../testing/history-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const TEST_JWT_KEY = 'k'.repeat(48);
@@ -84,6 +85,7 @@ describe('PUT /api/projects/:id/priority-bands', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
+      writes: testWrites(),
       migrationsApplied: true,
     });
 

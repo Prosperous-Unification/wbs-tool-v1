@@ -30,6 +30,7 @@ import { personAdded } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
 import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 /**
  * The role routes, over real SQLite.
@@ -95,6 +96,7 @@ beforeEach(() => {
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
+    writes: testWrites(),
     migrationsApplied: true,
   });
 });

@@ -97,7 +97,6 @@ beforeEach(async () => {
     directory: new DirectoryService({ directory: directoryStore, broadcast }),
     capacity: new CapacityService({ projects: projectStore, capacity: capacityStore, broadcast }),
     priorityBands: new PriorityBandService({ projects: projectStore, bands: bandStore, broadcast }),
-    journal: journalStore,
     transactions: drizzleOuterTransaction(db),
     lock: new WriteLock(),
   });

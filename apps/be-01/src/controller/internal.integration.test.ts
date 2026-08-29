@@ -10,6 +10,7 @@ import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 const SECRET = 'test-secret-must-be-32-chars-at-least-!';
 
@@ -24,6 +25,7 @@ function buildHarness() {
     projects: testProjectService(),
     workItems: testWorkItemService(),
     roles: testRoleService(),
+    writes: testWrites(),
     migrationsApplied: true,
     internalAuthSecret: SECRET,
     replay,

@@ -3473,6 +3473,14 @@ export class WorkItemService {
     });
   }
 
+  /**
+   * Discards one journal entry — the {@link Command batch} runner's second
+   * discard of a stale entry, made outside the transaction it rolled back.
+   */
+  discardEntry(entryId: string): Promise<void> {
+    return this.opts.journal.discard(entryId);
+  }
+
   /** Broadcasts the whole tree now — what a batch does once, after its commit. */
   announceTreeNow(projectId: string): Promise<void> {
     return this.announceTree(projectId);

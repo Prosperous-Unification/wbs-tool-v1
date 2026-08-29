@@ -12,6 +12,7 @@ import { testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 const TEST_SECRET = 'x'.repeat(32);
 
@@ -28,6 +29,7 @@ function app() {
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: TEST_SECRET,
+    writes: testWrites(),
     migrationsApplied: true,
   });
 }
@@ -128,6 +130,7 @@ describe('GET /api/auth/me', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: TEST_SECRET,
+      writes: testWrites(),
       migrationsApplied: true,
     }).handle(new Request('http://localhost/api/auth/me'));
 

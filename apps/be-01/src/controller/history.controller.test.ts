@@ -11,6 +11,7 @@ import { inMemoryProjects, testProjectService } from '../testing/project-fixture
 import { testReplay } from '../testing/replay-fixture';
 import { testRoleService } from '../testing/role-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
+import { testWrites } from '../testing/writes-fixture';
 
 const PROJECT = 'p1';
 
@@ -75,6 +76,7 @@ describe('one plan’s history, over HTTP', () => {
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
+      writes: testWrites(),
       migrationsApplied: true,
     });
     // Registered through the route, so the account the token names is the one
