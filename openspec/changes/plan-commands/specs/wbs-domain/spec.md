@@ -37,9 +37,10 @@ created, and SHALL carry the undo state as the tree read does.
 
 ### Requirement: A ref names what a batch creates, for the rest of that batch
 
-A command that creates a work item, a duplicate, a team, a person, a tag or a
-service MAY carry a `ref`; any later command in the same batch MAY name that ref
-wherever it would name an id, and the API SHALL substitute the created id. A ref
+The API SHALL accept an optional `ref` on a command that creates a work item, a
+duplicate, a team, a person, a tag or a service, and SHALL let any later command
+in the same batch name that ref wherever it would name an id, substituting the
+created id. A ref
 SHALL live only in the request that minted it. A ref that no earlier command
 minted SHALL refuse the batch as `unknown_ref` at that index; a ref minted twice
 SHALL refuse it as `duplicate_ref`. The response SHALL say which id each ref
