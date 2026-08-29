@@ -6,19 +6,30 @@ import type { PriorityBandService } from './priority-band.service';
 import type { UndoOutcome, WorkItemService } from './work-item.service';
 import type { WriteLock } from './write-lock';
 
-/** What one step of an applied batch produced: the id of anything it created. */
+/**
+ * What one step of an applied batch produced: the id of anything it created,
+ * and for a directory create or patch the entry as its list route shows it —
+ * the browser's `addTeam`/`renameTag` answer with the row, and a second read
+ * for what the batch just wrote would be the round trip this route removes.
+ */
 export interface BatchResult {
   index: number;
   ref?: string;
   id?: string;
+  entity?: unknown;
 }
 
-/** Why a batch was refused, and at which step. */
+/**
+ * Why a batch was refused, and at which step. `detail` carries what the
+ * refusing route carried beside its code — `taken` names the surviving entry,
+ * `in_use` the usage — so a client models the refusal as it always did.
+ */
 export interface BatchRefusal {
   ok: false;
   at: number;
   kind: PlanCommandKind;
   reason: string;
+  detail?: Record<string, unknown>;
 }
 
 export type BatchOutcome =
@@ -40,6 +51,7 @@ class Refused extends Error {
     readonly at: number,
     readonly kind: PlanCommandKind,
     readonly reason: string,
+    readonly detail?: Record<string, unknown>,
   ) {
     super(`${kind} at ${String(at)}: ${reason}`);
   }
@@ -81,7 +93,13 @@ export class PlanCommandRunner {
       } catch (cause) {
         transactions.rollback();
         if (cause instanceof Refused) {
-          return { ok: false, at: cause.at, kind: cause.kind, reason: cause.reason };
+          return {
+            ok: false,
+            at: cause.at,
+            kind: cause.kind,
+            reason: cause.reason,
+            ...(cause.detail === undefined ? {} : { detail: cause.detail }),
+          };
         }
         throw cause;
       }
@@ -137,8 +155,11 @@ export class PlanCommandRunner {
     for (const [index, command] of commands.entries()) {
       // Typed on the binding, not inferred from the arrow: TypeScript narrows
       // after a call only when the callee's `never` is declared on the name.
-      const refuse: (reason: string) => never = (reason) => {
-        throw new Refused(index, command.kind, reason);
+      const refuse: (reason: string, detail?: Record<string, unknown>) => never = (
+        reason,
+        detail,
+      ) => {
+        throw new Refused(index, command.kind, reason, detail);
       };
       const id = (given: string | null | undefined, ref: string | undefined): string | null => {
         if (ref !== undefined) {
@@ -166,12 +187,27 @@ export class PlanCommandRunner {
       };
       const plain = (): BatchResult => ({ index });
       const { workItems, directory, capacity, priorityBands } = this.opts;
+      // A refusal's own fields ride along: `{ ok: false, reason: 'taken', name }`
+      // becomes `detail: { name }`, `in_use`'s `usage` the same way.
+      const detailOf = (outcome: {
+        ok: false;
+        reason: string;
+      }): Record<string, unknown> | undefined => {
+        const rest: Record<string, unknown> = { ...outcome };
+        delete rest['ok'];
+        delete rest['reason'];
+        return Object.keys(rest).length === 0 ? undefined : rest;
+      };
       const reasonOf = <T>(outcome: { ok: true; result: T } | { ok: false; reason: string }): T =>
-        outcome.ok ? outcome.result : refuse(outcome.reason);
+        outcome.ok ? outcome.result : refuse(outcome.reason, detailOf(outcome));
       const done = (outcome: { ok: true } | { ok: false; reason: string }): BatchResult => {
-        if (!outcome.ok) refuse(outcome.reason);
+        if (!outcome.ok) refuse(outcome.reason, detailOf(outcome));
         return plain();
       };
+      const entity = (result: BatchResult, value: unknown): BatchResult => ({
+        ...result,
+        entity: value,
+      });
 
       switch (command.kind) {
         case 'createWorkItem': {
@@ -384,14 +420,18 @@ export class PlanCommandRunner {
           if (command.ref !== undefined && refs.has(command.ref)) refuse('duplicate_ref');
           const team = await directory.addTeam(command.name);
           if (team === null) refuse('invalid_name');
-          results.push(mint(command.ref, team.id));
+          results.push(entity(mint(command.ref, team.id), team));
           break;
         }
         case 'patchTeam':
-          reasonOf(
-            await directory.patchTeam(required(command.teamId, command.teamRef), command.patch),
+          results.push(
+            entity(
+              plain(),
+              reasonOf(
+                await directory.patchTeam(required(command.teamId, command.teamRef), command.patch),
+              ),
+            ),
           );
-          results.push(plain());
           break;
         case 'deleteTeam':
           results.push(
@@ -408,17 +448,21 @@ export class PlanCommandRunner {
           const person = reasonOf(
             await directory.addPerson(command.name, ids(command.teamIds, command.teamRefs)),
           );
-          results.push(mint(command.ref, person.id));
+          results.push(entity(mint(command.ref, person.id), person));
           break;
         }
         case 'patchPerson':
-          reasonOf(
-            await directory.patchPerson(
-              required(command.personId, command.personRef),
-              command.patch,
+          results.push(
+            entity(
+              plain(),
+              reasonOf(
+                await directory.patchPerson(
+                  required(command.personId, command.personRef),
+                  command.patch,
+                ),
+              ),
             ),
           );
-          results.push(plain());
           break;
         case 'deletePerson':
           results.push(
@@ -434,14 +478,18 @@ export class PlanCommandRunner {
           if (command.ref !== undefined && refs.has(command.ref)) refuse('duplicate_ref');
           const tag = await directory.addTag(command.name);
           if (tag === null) refuse('invalid_name');
-          results.push(mint(command.ref, tag.id));
+          results.push(entity(mint(command.ref, tag.id), tag));
           break;
         }
         case 'patchTag':
-          reasonOf(
-            await directory.renameTag(required(command.tagId, command.tagRef), command.name),
+          results.push(
+            entity(
+              plain(),
+              reasonOf(
+                await directory.renameTag(required(command.tagId, command.tagRef), command.name),
+              ),
+            ),
           );
-          results.push(plain());
           break;
         case 'deleteTag':
           results.push(
@@ -457,17 +505,21 @@ export class PlanCommandRunner {
           if (command.ref !== undefined && refs.has(command.ref)) refuse('duplicate_ref');
           const service = await directory.addService(command.name);
           if (service === null) refuse('invalid_name');
-          results.push(mint(command.ref, service.id));
+          results.push(entity(mint(command.ref, service.id), service));
           break;
         }
         case 'patchService':
-          reasonOf(
-            await directory.renameService(
-              required(command.serviceId, command.serviceRef),
-              command.name,
+          results.push(
+            entity(
+              plain(),
+              reasonOf(
+                await directory.renameService(
+                  required(command.serviceId, command.serviceRef),
+                  command.name,
+                ),
+              ),
             ),
           );
-          results.push(plain());
           break;
         case 'deleteService':
           results.push(

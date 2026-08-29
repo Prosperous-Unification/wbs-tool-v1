@@ -12,7 +12,10 @@ batch with the same reason and status, naming the failing command's index and
 kind, and SHALL leave no command applied, the ones before it included.
 
 The response to an applied batch SHALL name, per command, the id of anything it
-created, and SHALL carry the undo state as the tree read does.
+created — and, for a directory create or patch, the entry as its list route
+shows it — and SHALL carry the undo state as the tree read does. A refused
+directory command SHALL carry its route's own fields beside the code: `taken`
+the surviving name, `in_use` the usage.
 
 #### Scenario: a plan is drafted in one request
 

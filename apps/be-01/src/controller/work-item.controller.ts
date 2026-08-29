@@ -839,7 +839,9 @@ Body refusals, all 400: \`expected_object\`, \`parentId_must_be_id_or_null\`,
         const outcome = await commands.run(params.id, user.id, parseBatch(body));
         if (!outcome.ok) {
           set.status = statusForBatch(outcome.reason);
-          return { error: outcome.reason, at: outcome.at, kind: outcome.kind };
+          // The refusal's own fields beside the code, as the single route
+          // carried them: `taken`'s `name`, `in_use`'s `usage`.
+          return { ...outcome.detail, error: outcome.reason, at: outcome.at, kind: outcome.kind };
         }
         return { results: outcome.results, undoable: outcome.undoable, redoable: outcome.redoable };
       },
@@ -858,9 +860,11 @@ own — 400 for a malformed step, \`unknown_ref\`, \`duplicate_ref\`, \`too_many
 403 \`forbidden\`; 404 \`not_found\` and the \`unknown_*\` ids; 409 \`cycle\`, \`frozen\`,
 \`rolled_up\`, \`ancestor\`, \`too_large\`, \`taken\`, \`in_use\`.
 
-Applied, it answers \`{ results: [{ index, ref?, id? }], undoable, redoable }\`: the id of
-everything a command created, and the undo state as the tree read carries it. Read the
-tree afterwards for the plan as the batch left it — numbers and dates are derived.`,
+Applied, it answers \`{ results: [{ index, ref?, id?, entity? }], undoable, redoable }\`: the
+id of everything a command created, the entry a directory create or patch produced, and the
+undo state as the tree read carries it. Read the tree afterwards for the plan as the batch
+left it — numbers and dates are derived. A refused directory command carries its own fields
+beside the code, as its route did: \`taken\` the surviving \`name\`, \`in_use\` the \`usage\`.`,
           requestBody: handParsedBody(
             'The commands, in order. Each names its `kind`; the fields are those of the write it stands for.',
             PLAN_COMMANDS_BODY,

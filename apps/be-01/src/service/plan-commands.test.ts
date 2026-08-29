@@ -299,6 +299,25 @@ describe('a command batch', () => {
     expect((await directoryStore.listServices()).map((each) => each.name)).toEqual(['Checkout']);
   });
 
+  it('answers a directory create with the entry, and a taken name with the survivor', async () => {
+    // The browser's `addTag` answers with the row and its `renameTag` models
+    // `taken` by the surviving name; both ride on the batch result rather than
+    // costing a second read.
+    const outcome = await run([{ kind: 'createTag', ref: 't', name: 'regulatory' }]);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    expect(outcome.results[0]?.entity).toMatchObject({ name: 'regulatory' });
+    const tagId = outcome.results[0]?.id;
+    if (tagId === undefined) throw new Error('no tag id');
+    applied(await run([{ kind: 'createTag', name: 'legal' }]));
+    expect(await run([{ kind: 'patchTag', tagId, name: 'legal' }])).toEqual({
+      ok: false,
+      at: 0,
+      kind: 'patchTag',
+      reason: 'taken',
+      detail: { name: 'legal' },
+    });
+  });
+
   it('refuses two hundred and one commands before applying any', async () => {
     const many: PlanCommand[] = Array.from({ length: 201 }, (_, n) => ({
       kind: 'createWorkItem',
