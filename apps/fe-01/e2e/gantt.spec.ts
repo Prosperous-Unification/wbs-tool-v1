@@ -1806,15 +1806,25 @@ test.describe('the surface a bar opens, as a browser places it', () => {
  * a tap somewhere the mark is not.
  *
  * @param page The page holding the chart.
- * @returns The tap point, how far the bar's lower edge sits above the bottom of
- * the window, and the bar's accessible name so a failure can say which mark it
- * was about.
+ * @returns The tap point, the bar's own edges — a card is placed *against* a
+ * mark, so a claim about the card that never names the mark is a claim about a
+ * rectangle in a window — how far its lower edge sits above the bottom of the
+ * window, and its accessible name so a failure can say which mark it was
+ * about.
  * @throws When no bar is wholly inside the window, which would leave the tap
  * below a claim about an empty chart.
  */
 const lowestBarInTheWindow = (
   page: Page,
-): Promise<{ x: number; y: number; gapBottom: number; named: string }> =>
+): Promise<{
+  x: number;
+  y: number;
+  left: number;
+  right: number;
+  top: number;
+  gapBottom: number;
+  named: string;
+}> =>
   page.evaluate(() => {
     const height = window.innerHeight;
     const width = window.innerWidth;
@@ -1832,6 +1842,9 @@ const lowestBarInTheWindow = (
       .map(({ mark, box }) => ({
         x: box.left + box.width / 2,
         y: box.top + box.height / 2,
+        left: box.left,
+        right: box.right,
+        top: box.top,
         gapBottom: height - box.bottom,
         named: mark.getAttribute('aria-label') ?? '(a bar with no name)',
       }))
@@ -1985,6 +1998,16 @@ test.describe('a bar on a touch screen', () => {
       shown.height,
       'this bar has room for its card below it, so nothing had to flip',
     ).toBeGreaterThan(bar.gapBottom);
+    // **Above the bar, and this is the assertion the rest hang off.** The four
+    // window-bounds checks below cannot fail on their own: a card docked to the
+    // bottom of the phone covering the bar, and a card that lost its anchor and
+    // opened at `{0, 0}` seven hundred pixels away, both sit inside an 844px
+    // window with a height greater than the gap. Named by the Gemini seat on
+    // this PR, and it was right — the desktop flip test has compared against
+    // `mark.top` since it was written and this one did not.
+    expect(shown.bottom, 'the card was not drawn above its bar').toBeLessThanOrEqual(
+      bar.top + NEARLY,
+    );
     expect(shown.top, 'the card was flipped off the top of the phone').toBeGreaterThanOrEqual(
       -NEARLY,
     );
@@ -1995,6 +2018,17 @@ test.describe('a bar on a touch screen', () => {
     expect(shown.right, 'the card hangs off the right of the phone').toBeLessThanOrEqual(
       window_.width + NEARLY,
     );
+
+    // And placed against the bar sideways too. Every number here is one the
+    // browser measured — the bar's left edge, the card's own width, the window
+    // — so this is an oracle rather than the placement rule restated: a card
+    // reset to the left edge on touch, or clamped when it did not need to be,
+    // fails it. `hover-card.test.tsx` unit-tests the arithmetic on numbers it is
+    // handed; that the numbers are ever measured is only true in here.
+    expect(
+      shown.left,
+      'the card does not open from its bar’s left edge, or from the clamp the phone forces',
+    ).toBeCloseTo(Math.max(0, Math.min(bar.left, window_.width - shown.width)), 0);
 
     // Not clipped, structurally: the card is portalled out of the chart, so no
     // scroller's `overflow` can cut it — a card rendered inside the panel would
