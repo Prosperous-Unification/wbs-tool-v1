@@ -11,24 +11,25 @@
 
 ## 2. Required watched failures
 
-| Check                  | Fault to inject                                               | Test that must observe it                                            |
-| ---------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
-| joint pool fixpoint    | stop after the first pool round                               | `schedule-joint-capacity.test.ts` re-ask case                        |
-| single-pool identity   | route a singleton through changed semantics that alter visits | `schedule-identity.test.ts` plus capacity oracle                     |
-| binding team           | read `teamIds.at(0)` instead of search output                 | non-first binding-team geometry/service case                         |
-| mixed patch refusal    | allow `teamIds` and `serviceTeamId` together                  | controller exact 400 and unchanged-state case                        |
-| atomic team validation | validate before the repository transaction                    | unknown-among-known changes no scalar, join or revision              |
-| whole-set undo         | journal only the first team                                   | undo of middle-member removal loses sibling                          |
-| patch field journal    | omit `teamIds` from `fieldsOf`                                | `teamIds`-only patch creates no inverse                              |
-| structural restore     | restore only `serviceTeamId`                                  | duplicate/delete undo loses the second membership                    |
-| stable projection      | project the request-order first id                            | equivalent request orders expose different scalar ids                |
-| last-writer-wins       | merge a stale client's members                                | later replacement is not the exact stored set                        |
-| own-vs-effective write | derive next ids from inherited effective set                  | clear/add inheritance case copies ancestor labels                    |
-| passive overlay        | enable pointer events on the whole card                       | DOM passive-surface assertion and Chromium empty-space click-through |
-| interactive row        | remove pointer events from dependency rows                    | Chromium cell→third-row reachability                                 |
-| complete list          | derive overlay entries from visible chips                     | third dependency absent from description/card                        |
-| hover cleanup          | omit owner leave or stale-id guard                            | Chromium outside-leave retains tint                                  |
-| palette paint          | point card line at the grid-surface tint                      | two-palette direction assertion                                      |
+| Check                  | Fault to inject                                               | Test that must observe it                                                       |
+| ---------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| joint pool fixpoint    | stop after the first pool round                               | `schedule-joint-capacity.test.ts` re-ask case                                   |
+| single-pool identity   | route a singleton through changed semantics that alter visits | `schedule-identity.test.ts` plus capacity oracle                                |
+| binding team           | read `teamIds.at(0)` instead of search output                 | non-first binding-team geometry/service case                                    |
+| mixed patch refusal    | allow `teamIds` and `serviceTeamId` together                  | controller exact 400 and unchanged-state case                                   |
+| atomic team validation | validate before the repository transaction                    | unknown-among-known changes no scalar, join or revision                         |
+| whole-set undo         | journal only the first team                                   | undo of middle-member removal loses sibling                                     |
+| patch field journal    | omit `teamIds` from `fieldsOf`                                | `teamIds`-only patch creates no inverse                                         |
+| structural restore     | restore only `serviceTeamId`                                  | duplicate/delete undo loses the second membership                               |
+| stable projection      | project the request-order first id                            | equivalent request orders expose different scalar ids                           |
+| last-writer-wins       | merge a stale client's members                                | later replacement is not the exact stored set                                   |
+| own-vs-effective write | derive next ids from inherited effective set                  | clear/add inheritance case copies ancestor labels                               |
+| passive overlay        | enable pointer events on the whole card                       | DOM passive-surface assertion and Chromium empty-space click-through            |
+| interactive row        | remove pointer events from dependency rows                    | Chromium cell→third-row reachability                                            |
+| complete list          | derive overlay entries from visible chips                     | third dependency absent from description/card                                   |
+| hover cleanup          | omit owner leave or stale-id guard                            | Chromium outside-leave retains tint                                             |
+| palette paint          | point card line at the grid-surface tint                      | two-palette direction assertion                                                 |
+| beneath-row takeover   | drop `entersThroughDependsCard` from the cell/pill enters     | Chromium padding crossing over a dependent row; jsdom enter at a corridor point |
 
 ### Observed through task 1
 
@@ -122,6 +123,36 @@
   Restored head `6fe01f8` passed both Chromium cases 2/2. Prettier and both
   commits' touched lint/format/secrets hooks passed on h2puni. No build or test
   ran on h1claw.
+
+### Observed after merge, 2026-08-29
+
+- Found by hand in Chrome on a plan where the row beneath an open card had
+  dependencies of its own: the card's passive padding hit-tests to that row,
+  its Depends on cell's `onMouseEnter` wrote `hoveredCell`, and 020's card
+  became 030's on the way to it. It read as "the card closes for rows with
+  fewer than three dependencies" — the height at which the card happened to
+  stop covering such a row. The spec's `passive padding does not break
+owner-to-row travel` scenario was already precise about this, so no new
+  change; the fix is `entersThroughDependsCard` in `depends-card.tsx`, read by
+  the cell's and the pill's enters.
+- Red first: `e2e/deps-cell.spec.ts` `holds the card while the pointer crosses
+its padding over the row beneath` failed on `the row beneath took the hover:
+Expected ["030", …, "090"], Received ["040", "050"]`; `wbs-table.test.tsx`
+  `leaves the open card alone when the row beneath it is entered through its
+padding` on `expected 'What 030 waits for' to be 'What 020 waits for'`, and
+  with the pill's guard alone removed on `expected ['020'] to deeply equal
+['010']`. The band over a pill measured 0.9px in Chromium, so the pill guard
+  is proved in jsdom alone and the Chromium case aims at the cell beneath.
+- The first cut held every enter inside the bridge's region, owner included,
+  and three existing cases failed (`narrows to the pill’s row…` and two more,
+  `expected ['010', '020'] to deeply equal ['010']`): the owner's own pills
+  enter at a point inside the owner. The owner's subtree is exempt now.
+- Green: both jsdom suites 544/544; `deps-cell.spec.ts` + `reference-cells
+.spec.ts` 11/12 in Chromium, the one failure (`picks the add button up off
+the row it is hovered on`, `Expected: 0, Received: 42`) reproduced on the
+  stashed `main` tree on the same Mac and is the host-specific red already
+  noted in the session memory. fe-01 lint, typecheck and build passed. The
+  same walk that switched the card in Chrome holds it after the fix.
 
 ## 3. Remote gate output to record after apply
 

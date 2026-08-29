@@ -664,4 +664,80 @@ test.describe('the cell answers the pointer that is in it', () => {
     await page.mouse.move(box.x - 40, box.y + box.height / 2);
     await expect.poll(() => litRows(page)).toEqual([]);
   });
+
+  test('holds the card while the pointer crosses its padding over the row beneath', async ({
+    page,
+  }) => {
+    // The card's padding is passive by the spec — a click through it reaches
+    // the row beneath — and the bridge in `depends-card.tsx` is what keeps the
+    // card open while the pointer crosses it. Chromium delivers that crossing
+    // to the row beneath as a `mouseenter`, and when that row's own Depends on
+    // cell has something to say, its handler took the card over: 020's list
+    // became 030's on the way to it. Found in Chrome, 2026-08-29, where it read
+    // as "the card closes for rows with fewer than three dependencies" — the
+    // height at which the card happened to stop covering such a row.
+    //
+    // The fixture is the shape it needs: 020 waits for seven rows and 030,
+    // the row directly beneath it, waits for two of its own.
+    await waitOnTwo(page);
+    await pointerAwayFromTheTable(page);
+
+    const owner = page.locator('tbody tr[data-row-id] td[data-column="depends"]').nth(1);
+    const ownerBox = await owner.boundingBox();
+    if (ownerBox === null) throw new Error('the 020 Depends on cell is not on screen');
+    // The cell's own leading padding rather than `hover()`'s centre, which may
+    // land on a pill and emphasise a card line — an emphasised line grows into
+    // the padding this test is about to measure.
+    await page.mouse.move(ownerBox.x + 2, ownerBox.y + ownerBox.height / 2);
+    const card = page.getByRole('tooltip', { name: 'What 020 waits for' });
+    await expect(card).toBeVisible();
+    const everything = ['030', '040', '050', '060', '070', '080', '090'];
+    await expect.poll(() => litRows(page)).toEqual(everything);
+
+    const cardBox = await card.boundingBox();
+    const firstLine = card.locator('[data-depends-card-target]').first();
+    const lineBox = await firstLine.boundingBox();
+    const beneath = page.locator('tbody tr[data-row-id] td[data-column="depends"]').nth(2);
+    const beneathBox = await beneath.boundingBox();
+    if (cardBox === null || lineBox === null || beneathBox === null) {
+      throw new Error('the card, its first line or the cell beneath is not on screen');
+    }
+
+    // The band this is about, established rather than assumed: card padding
+    // above the first line, standing over the Depends on cell of the row
+    // beneath. Without area here every assertion below is about a point that
+    // does not exist. (Over that cell's *pills* the same band is under 1px —
+    // measured at 0.9px — so the pill's own guard is proved in jsdom alone.)
+    const bandTop = Math.max(cardBox.y, beneathBox.y);
+    const bandBottom = lineBox.y;
+    expect(bandBottom - bandTop, 'no card padding stands over the cell beneath').toBeGreaterThan(1);
+    const point = { x: beneathBox.x + beneathBox.width / 2, y: (bandTop + bandBottom) / 2 };
+
+    // And it really is passive there — the spec's other half. The hit is the
+    // cell beneath, not the card.
+    expect(
+      await page.evaluate(
+        ({ x, y }) =>
+          document
+            .elementFromPoint(x, y)
+            ?.closest('td')
+            ?.querySelector('[data-depends-input]')
+            ?.getAttribute('aria-label'),
+        point,
+      ),
+    ).toBe('Add a dependency to 030');
+
+    // The claim. Read straight after the move rather than polled: the enter is
+    // handled before `mouse.move` resolves, and a poll for the unchanged state
+    // would pass on the instant before the takeover.
+    await page.mouse.move(point.x, point.y);
+    expect(await litRows(page), 'the row beneath took the hover').toEqual(everything);
+    await expect(card).toBeVisible();
+    await expect(page.getByRole('tooltip', { name: 'What 030 waits for' })).toHaveCount(0);
+
+    // On to the line itself, which narrows the light to the one row it names.
+    await page.mouse.move(point.x, lineBox.y + lineBox.height / 2);
+    await expect.poll(() => litRows(page)).toEqual(['030']);
+    await expect(card).toBeVisible();
+  });
 });

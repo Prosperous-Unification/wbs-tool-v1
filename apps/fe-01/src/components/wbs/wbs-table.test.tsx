@@ -8227,6 +8227,86 @@ describe('hovering a dependency lights the rows it names', () => {
     return api;
   }
 
+  /** A rectangle the layout would have measured, on a node jsdom measures as nothing. */
+  const measureAs = (
+    node: Element,
+    box: { left: number; top: number; right: number; bottom: number },
+  ) => {
+    vi.spyOn(node, 'getBoundingClientRect').mockReturnValue({
+      ...box,
+      x: box.left,
+      y: box.top,
+      width: box.right - box.left,
+      height: box.bottom - box.top,
+      toJSON: () => ({}),
+    });
+  };
+
+  itDom(
+    'leaves the open card alone when the row beneath it is entered through its padding',
+    async () => {
+      // The card's padding is passive on purpose — a click through it reaches the
+      // row beneath — so a pointer crossing that padding on its way to a card
+      // line is, to the browser, a pointer entering the row beneath. If that row
+      // has a Depends on cell with something to say, its own `onMouseEnter` would
+      // take the card over, and the reader who was about to read 020's list is
+      // looking at 030's. The bridge is what decides whether the card stays; an
+      // enter that lands where the bridge holds the card is the padding being
+      // crossed, not a cell being pointed at, and writes nothing.
+      //
+      // Found in Chrome, 2026-08-29, on a plan where the row beneath had
+      // dependencies of its own: the card switched rows on the way to it. It read
+      // as "the card closes for rows with fewer than three dependencies", which
+      // was the height at which the card happened to stop covering such a row.
+      //
+      // jsdom lays nothing out, so the geometry the guard reads is declared here;
+      // `e2e/deps-cell.spec.ts`'s `holds the card while the pointer crosses its
+      // padding over the row beneath` is the browser hit-testing the same band.
+      await threeRoots();
+      dependOn('020', '010');
+      await waitFor(() => {
+        expect(screen.getByLabelText('Stop 020 waiting for 010')).toBeDefined();
+      });
+      dependOn('030', '020');
+      await waitFor(() => {
+        expect(screen.getByLabelText('Stop 030 waiting for 020')).toBeDefined();
+      });
+      fireEvent.blur(screen.getByLabelText('Add a dependency to 030'));
+
+      const owner = hoverTargetOf('020');
+      fireEvent.mouseEnter(owner);
+      expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe('What 020 waits for');
+      expect(litNumbers()).toEqual(['010']);
+
+      // The cell, and the card's one line 7px below its bottom edge: the band
+      // between the two is the padding, and it stands over 030's cell.
+      measureAs(owner, { left: 100, top: 100, right: 210, bottom: 126 });
+      measureAs(screen.getByTestId('depends-card-target'), {
+        left: 110,
+        top: 133,
+        right: 360,
+        bottom: 151,
+      });
+      const beneath = hoverTargetOf('030');
+      const inThePadding = { clientX: 150, clientY: 129 };
+
+      fireEvent.mouseEnter(beneath, inThePadding);
+      expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe('What 020 waits for');
+      expect(litNumbers()).toEqual(['010']);
+
+      // The pill under the same padding: its narrowing enter is a hover on the
+      // row beneath as well, and would light 030's own dependency instead.
+      fireEvent.mouseEnter(screen.getByLabelText('Stop 030 waiting for 020'), inThePadding);
+      expect(litNumbers()).toEqual(['010']);
+
+      // And the same enter from where no card stands is a cell being pointed at,
+      // which is what keeps the guard from being a card that can never be left.
+      fireEvent.mouseEnter(beneath, { clientX: 150, clientY: 400 });
+      expect(screen.getByRole('tooltip').getAttribute('aria-label')).toBe('What 030 waits for');
+      expect(litNumbers()).toEqual(['020']);
+    },
+  );
+
   itDom('takes the pointer on the cell itself, not on a wrapper inside it', async () => {
     // The move, said outright rather than left implicit in a helper. jsdom
     // cannot see *why* it matters — whether a pill covers the place the

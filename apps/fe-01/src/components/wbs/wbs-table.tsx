@@ -60,7 +60,7 @@ import {
 } from './creatable-picker';
 import { DateField } from './date-field';
 import { pickerEntries, REFUSAL_SUFFIX } from './dep-picker';
-import { DependsCard, dependsLine } from './depends-card';
+import { DependsCard, dependsLine, entersThroughDependsCard } from './depends-card';
 import { parseDependencies, unknownMessage } from './depends-input';
 import { type DropRefusal, type DropZone, planMove, zoneFor } from './drag-drop';
 import {
@@ -7200,7 +7200,24 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                       // enter above still lights every dependency's row, which
                       // is the U3→U4 case named in the plan rather than
                       // discovered.
-                      onMouseEnter={() => {
+                      onMouseEnter={(event) => {
+                        // The cell's guard, for the pill's write: through the
+                        // open card's passive padding this pill is what the
+                        // pointer lands on, and narrowing to its row would
+                        // light the wrong plan. See {@link entersThroughDependsCard}.
+                        // Proof: this line removed, `leaves the open card alone
+                        // when the row beneath it is entered through its
+                        // padding` failed on `expected ['020'] to deeply equal
+                        // ['010']`. Watched, 2026-08-29; in a browser the band
+                        // over a pill is under 1px, so jsdom is the oracle.
+                        if (
+                          entersThroughDependsCard(
+                            { x: event.clientX, y: event.clientY },
+                            event.currentTarget,
+                          )
+                        ) {
+                          return;
+                        }
                         live.current.setDepHover((current) =>
                           current?.rowId === row.original.id && current.pillId === id
                             ? current
@@ -9178,7 +9195,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
   ): Pick<ComponentProps<'td'>, 'onMouseEnter' | 'onMouseLeave'> => {
     const dependsCell = cellKey(row.id, 'depends');
     return {
-      onMouseEnter: () => {
+      onMouseEnter: (event) => {
+        // Not an enter at all when it arrives through the open card's passive
+        // padding, which hit-tests to this cell while the pointer is on its
+        // way to a card line — see {@link entersThroughDependsCard}. Writing
+        // either state here would take the card over from the row above.
+        if (entersThroughDependsCard({ x: event.clientX, y: event.clientY }, event.currentTarget)) {
+          return;
+        }
         // Every row this one waits for is lit, `pillId: null` saying the
         // pointer is on the cell rather than on one pill. Guarded by the same
         // "nothing to say, nothing written" rule as the card below — a cell
