@@ -16,7 +16,6 @@ import { runMigrations } from '../repository/migrate';
 import { PlanEventRepository } from '../repository/plan-event';
 import { PriorityBandRepository } from '../repository/priority-band';
 import { ProjectRepository } from '../repository/project';
-import { RoleRepository } from '../repository/role';
 import { RoleMeasureRepository } from '../repository/role-measure';
 import { RoleProgressRepository } from '../repository/role-progress';
 import { UserRepository } from '../repository/user';
@@ -42,7 +41,6 @@ let estimateStore: EstimateRepository;
 let dependencyStore: DependencyRepository;
 let directoryStore: DirectoryRepository;
 let journalStore: CommandJournalRepository;
-let roleStore: RoleRepository;
 let planEvents: PlanEventRepository;
 let projectId: string;
 let ownerId: string;
@@ -66,7 +64,6 @@ beforeEach(async () => {
   dependencyStore = new DependencyRepository(db);
   directoryStore = new DirectoryRepository(db);
   journalStore = new CommandJournalRepository(db);
-  roleStore = new RoleRepository(db);
   planEvents = new PlanEventRepository(db);
   const capacityStore = new CapacityRepository(db);
   const bandStore = new PriorityBandRepository(db);
@@ -191,30 +188,66 @@ describe('a command batch', () => {
   });
 
   it('takes back the steps an undo already applied when a later step cannot', async () => {
-    // A batch of [create A, estimate A, create B] has the inverse
-    // [delete B, clear A's estimate, delete A]. With the role gone, clearing
-    // the estimate is refused — and B, deleted a step earlier, must still be
-    // there: the undo is one transaction or it is a plan nobody asked for.
-    // Proof: the runner's `walk` made to commit on a refusal, this failed on
-    // `expected [ 'A' ] to equal [ 'A', 'B' ]`. Watched, 2026-08-29.
-    applied(
-      await run([
-        { kind: 'createWorkItem', ref: 'a', parentId: null, afterId: null, name: 'A' },
-        { kind: 'setEstimate', workItemRef: 'a', roleId: dev(), days: DAYS },
-        { kind: 'createWorkItem', ref: 'b', parentId: null, afterRef: 'a', name: 'B' },
-      ]),
+    // A journal entry as the runner writes one, whose inverse renames X and
+    // then sets an estimate for a role nobody has: the preconditions hold, so
+    // the first step is applied before the second is refused — and the rename
+    // must be gone again, or an undo has left a plan nobody asked for. The
+    // entry is appended by hand because every natural way of making a later
+    // step fail also moves a revision, and then the staleness check refuses
+    // before any step runs (watched: `“A” has changed since then`).
+    // Proof: `walk` made to commit on a refusal, this failed on `expected
+    // 'Undone' to be 'X'`; the per-step refusal dropped from `apply`'s batch
+    // arm, on `expected true to be false` — the undo reported done. Watched,
+    // 2026-08-29.
+    const refs = applied(
+      await run([{ kind: 'createWorkItem', ref: 'x', parentId: null, afterId: null, name: 'X' }]),
     );
-    await roleStore.remove(projectId, dev(), true);
+    const x = refs.get('x');
+    if (x === undefined) throw new Error('no x');
+    const row = await workItemStore.findById(x);
+    if (row === null) throw new Error('x is not stored');
+    const rename = { do: 'patch' as const, workItemId: x, patch: { name: 'Undone' } };
+    const impossible = {
+      do: 'set_estimate' as const,
+      workItemId: x,
+      roleId: 'no-such-role',
+      days: DAYS,
+    };
+    const at = Date.now();
+    await journalStore.append(
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        userId: ownerId,
+        kind: 'batch',
+        payload: { label: '2 changes', forward: { do: 'batch', steps: [impossible, rename] } },
+        inverse: { do: 'batch', steps: [rename, impossible] },
+        preconditions: { expected: { [x]: row.revision }, from: { [x]: row.revision } },
+        createdAt: at,
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        userId: ownerId,
+        kind: 'batch',
+        label: '2 changes',
+        workItemId: x,
+        roleId: null,
+        before: { do: 'batch', steps: [rename, impossible] },
+        after: { do: 'batch', steps: [impossible, rename] },
+        createdAt: at,
+      },
+    );
 
     const undone = await runner.undo(projectId, ownerId);
     expect(undone.ok).toBe(false);
-    if (undone.ok) throw new Error('an undo with a missing role was accepted');
+    if (undone.ok) throw new Error('an undo naming a missing role was accepted');
     expect(undone.reason).toBe('stale_undo');
-    expect(await names()).toEqual(['A', 'B']);
+    expect(undone.detail).toBe('that phase is no longer in this project.');
+    expect((await workItemStore.findById(x))?.name).toBe('X');
     // And the entry is gone for good, discarded outside the rolled-back
-    // transaction: a second undo has nothing to undo.
-    expect((await runner.undo(projectId, ownerId)).ok).toBe(false);
-    expect(await journal()).toHaveLength(0);
+    // transaction: only the create is left to undo.
+    expect(await journal()).toHaveLength(1);
   });
 
   it('records a batch of one as that command, not as a batch', async () => {
