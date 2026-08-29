@@ -12,7 +12,7 @@ import type { CapacityService } from '../service/capacity.service';
  * The same shape `directoryController`'s `BadSize` had — this route inherited that
  * route's whole job when `capacity-per-project` retired the global size.
  */
-class BadCapacity extends Error {
+export class BadCapacity extends Error {
   constructor(public readonly reason: string) {
     super(reason);
   }
@@ -47,7 +47,7 @@ class BadCapacity extends Error {
  * deleted with the integer guard left in: `refuses a capacity above what a plan
  * can mean` failed with `status: 200` and the pair coming back `size: 1001`.
  */
-function capacityOf(body: unknown): number | null {
+export function capacityOf(body: unknown): number | null {
   if (typeof body !== 'object' || body === null) throw new BadCapacity('expected_object');
   const raw = body as Record<string, unknown>;
   if (!('size' in raw)) throw new BadCapacity('size_required');

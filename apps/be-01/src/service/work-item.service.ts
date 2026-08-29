@@ -593,7 +593,7 @@ export type WorkItemOutcome<T> = { ok: true; result: T } | { ok: false; reason: 
  * reaching the store is checked rather than asserted. The value arrives from a
  * URL path, so it is genuinely `string` no matter what the signature says.
  */
-function holdsMetric(metric: string): metric is MeasureMetric {
+export function holdsMetric(metric: string): metric is MeasureMetric {
   return (MEASURE_METRICS as readonly string[]).includes(metric);
 }
 

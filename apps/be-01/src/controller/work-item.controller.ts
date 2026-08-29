@@ -13,7 +13,11 @@ import { Elysia } from 'elysia';
 import { userFromHeaders } from '../middleware/authenticated';
 import { handParsedBody } from '../openapi/hand-parsed-body';
 import type { AuthService } from '../service/auth.service';
-import { PLAN_COMMAND_KINDS, type PlanCommand } from '../service/plan-command';
+import {
+  PLAN_COMMAND_KINDS,
+  type PlanCommand,
+  type PlanCommandKind,
+} from '../service/plan-command';
 import type { PlanCommandRunner } from '../service/plan-commands';
 import type {
   CreateWorkItem,
@@ -23,7 +27,10 @@ import type {
   WorkItemRefusal,
   WorkItemService,
 } from '../service/work-item.service';
+import { holdsMetric } from '../service/work-item.service';
+import { BadCapacity, capacityOf } from './capacity.controller';
 import { PLAN_COMMANDS_BODY } from './plan-command-schema';
+import { BadLadder, ladderOf } from './priority-band.controller';
 
 /**
  * These routes validate their bodies by hand rather than with an Elysia schema.
@@ -481,12 +488,259 @@ function answerUndo(outcome: UndoOutcome, set: { status?: number | string }) {
 const isStrategy = (value: string | null): value is DeleteStrategy =>
   value === 'cascade' || value === 'promote';
 
+/** A string, or the field's `_must_be_text` refusal. */
+function asText(value: unknown, field: string): string {
+  if (typeof value !== 'string') throw new BadRequest(`${field}_must_be_text`);
+  return value;
+}
+
+/** An id, or the field's `_must_be_an_id` refusal; absent is allowed for a `…Ref`. */
+function asOptionalId(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new BadRequest(`${field}_must_be_an_id`);
+  return value;
+}
+
+/** A boolean or absent, or the field's refusal. */
+function asOptionalFlag(value: unknown, field: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw new BadRequest(`${field}_must_be_true_or_false`);
+  return value;
+}
+
+/** Drops the fields whose value is `undefined`, so an absent field stays absent on the wire. */
+function present<T extends Record<string, unknown>>(fields: T): T {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as T;
+}
+
 /**
- * A command batch as the wire carries it, checked to the depth this layer owns:
- * an object with a `commands` list, each an object naming a known `kind`, none
- * naming a derived number. Every field below that is the services' to judge —
- * a step they refuse is refused with its index, exactly as a body on the old
- * single route was.
+ * One command of a batch, validated exactly as the write it stands for was on
+ * its own route — the same parsers, the same codes — with the batch's own
+ * fields (`ref`, the `…Ref` names) checked beside them. This is the API's input
+ * boundary for a batch; the services judge the rest, as they always did.
+ *
+ * @throws {BadRequest} carrying the command's index.
+ */
+function parseCommand(step: unknown, at: number): PlanCommand {
+  if (typeof step !== 'object' || step === null) throw new BadRequest('expected_object', at);
+  const raw = step as Record<string, unknown>;
+  const kind = raw['kind'];
+  if (typeof kind !== 'string' || !(PLAN_COMMAND_KINDS as readonly string[]).includes(kind)) {
+    throw new BadRequest('unknown_kind', at);
+  }
+  try {
+    return parseKind(kind as PlanCommandKind, raw);
+  } catch (cause) {
+    // The parsers' own refusals, given the index; a schema refusal from the
+    // estimate's arktype check is the code its route answered with.
+    if (cause instanceof BadRequest) throw new BadRequest(cause.reason, at);
+    if (cause instanceof BadCapacity || cause instanceof BadLadder) {
+      throw new BadRequest(cause.reason, at);
+    }
+    if (cause instanceof ValidationError) throw new BadRequest('invalid_estimate', at);
+    throw cause;
+  }
+}
+
+function parseKind(kind: PlanCommandKind, raw: Record<string, unknown>): PlanCommand {
+  const target = present({
+    workItemId: asOptionalId(raw['workItemId'], 'workItemId'),
+    workItemRef: asOptionalId(raw['workItemRef'], 'workItemRef'),
+  });
+  // Read only by the kinds that carry a role; eager, it would refuse a create.
+  const role = (): { roleId: string } => ({ roleId: asText(raw['roleId'], 'roleId') });
+  const ref = present({ ref: asOptionalId(raw['ref'], 'ref') });
+  switch (kind) {
+    case 'createWorkItem': {
+      const created = parseCreate(raw);
+      return present({
+        kind,
+        ...ref,
+        parentId: created.parentId,
+        parentRef: asOptionalId(raw['parentRef'], 'parentRef'),
+        afterId: created.afterId,
+        afterRef: asOptionalId(raw['afterRef'], 'afterRef'),
+        name: created.name,
+        notes: created.notes,
+      });
+    }
+    case 'patchWorkItem': {
+      const patchRaw = asRecord(raw['patch']);
+      const patch = present({
+        ...parsePatch(patchRaw),
+        serviceRefs: asOptionalLabelIds(
+          patchRaw['serviceRefs'],
+          'serviceRefs',
+          MOST_SERVICES_ON_ONE_ITEM,
+        ),
+        tagRefs: asOptionalLabelIds(patchRaw['tagRefs'], 'tagRefs', MOST_TAGS_ON_ONE_ITEM),
+        teamRefs: asOptionalLabelIds(patchRaw['teamRefs'], 'teamRefs', MOST_TEAMS_ON_ONE_ITEM),
+      });
+      return {
+        kind,
+        ...target,
+        patch: patch as PlanCommand extends { kind: 'patchWorkItem'; patch: infer P } ? P : never,
+      };
+    }
+    case 'moveWorkItem': {
+      const moved = parseMove(raw);
+      return present({
+        kind,
+        ...target,
+        parentId: moved.parentId,
+        parentRef: asOptionalId(raw['parentRef'], 'parentRef'),
+        afterId: moved.afterId,
+        afterRef: asOptionalId(raw['afterRef'], 'afterRef'),
+      });
+    }
+    case 'duplicateWorkItem':
+      return { kind, ...target, ...ref };
+    case 'deleteWorkItem': {
+      const strategy = raw['strategy'];
+      if (strategy !== undefined && !(typeof strategy === 'string' && isStrategy(strategy))) {
+        throw new BadRequest('unknown_strategy');
+      }
+      return present({ kind, ...target, strategy });
+    }
+    case 'setEstimate':
+      return { kind, ...target, ...role(), days: parseOrThrow(ThreePointEstimate, raw['days']) };
+    case 'clearEstimate':
+    case 'clearActual':
+    case 'clearProgress':
+      return { kind, ...target, ...role() };
+    case 'setActual':
+      return { kind, ...target, ...role(), days: parseActual(raw) };
+    case 'setProgress':
+      return { kind, ...target, ...role(), state: parseProgress(raw) };
+    case 'setMeasure': {
+      const metric = asText(raw['metric'], 'metric');
+      if (!holdsMetric(metric)) throw new BadRequest('unknown_metric');
+      return { kind, ...target, ...role(), metric, value: parseMeasure(raw) };
+    }
+    case 'clearMeasure': {
+      const metric = asText(raw['metric'], 'metric');
+      if (!holdsMetric(metric)) throw new BadRequest('unknown_metric');
+      return { kind, ...target, ...role(), metric };
+    }
+    case 'setAssignee':
+      return present({
+        kind,
+        ...target,
+        ...role(),
+        personId: asIdOrNull(raw['personId'], 'personId'),
+        personRef: asOptionalId(raw['personRef'], 'personRef'),
+      });
+    case 'addDependency':
+    case 'removeDependency':
+      return present({
+        kind,
+        ...target,
+        predecessorId: asOptionalId(raw['predecessorId'], 'predecessorId'),
+        predecessorRef: asOptionalId(raw['predecessorRef'], 'predecessorRef'),
+      });
+    case 'freezeProject':
+    case 'unfreezeProject':
+      return { kind };
+    case 'unfreezeWorkItem':
+      return { kind, ...target };
+    case 'setCapacity':
+      return present({
+        kind,
+        teamId: asOptionalId(raw['teamId'], 'teamId'),
+        teamRef: asOptionalId(raw['teamRef'], 'teamRef'),
+        size: capacityOf(raw),
+      });
+    case 'setPriorityBands':
+      return { kind, bands: ladderOf(raw) };
+    case 'createTeam':
+    case 'createTag':
+    case 'createService':
+      return { kind, ...ref, name: asText(raw['name'], 'name') };
+    case 'createPerson':
+      return present({
+        kind,
+        ...ref,
+        name: asText(raw['name'], 'name'),
+        teamIds: asOptionalLabelIds(raw['teamIds'], 'teamIds', MOST_TEAMS_ON_ONE_ITEM),
+        teamRefs: asOptionalLabelIds(raw['teamRefs'], 'teamRefs', MOST_TEAMS_ON_ONE_ITEM),
+      });
+    case 'patchTeam': {
+      const patch = asRecord(raw['patch']);
+      return present({
+        kind,
+        teamId: asOptionalId(raw['teamId'], 'teamId'),
+        teamRef: asOptionalId(raw['teamRef'], 'teamRef'),
+        patch: present({
+          name: asOptionalText(patch['name'], 'name'),
+          serviceIds: asOptionalLabelIds(
+            patch['serviceIds'],
+            'serviceIds',
+            MOST_SERVICES_ON_ONE_ITEM,
+          ),
+        }),
+      });
+    }
+    case 'patchPerson': {
+      const patch = asRecord(raw['patch']);
+      return present({
+        kind,
+        personId: asOptionalId(raw['personId'], 'personId'),
+        personRef: asOptionalId(raw['personRef'], 'personRef'),
+        patch: present({
+          name: asOptionalText(patch['name'], 'name'),
+          teamIds: asOptionalLabelIds(patch['teamIds'], 'teamIds', MOST_TEAMS_ON_ONE_ITEM),
+          kind: asOptionalText(patch['kind'], 'kind'),
+        }),
+      });
+    }
+    case 'patchTag':
+      return present({
+        kind,
+        tagId: asOptionalId(raw['tagId'], 'tagId'),
+        tagRef: asOptionalId(raw['tagRef'], 'tagRef'),
+        name: asText(raw['name'], 'name'),
+      });
+    case 'patchService':
+      return present({
+        kind,
+        serviceId: asOptionalId(raw['serviceId'], 'serviceId'),
+        serviceRef: asOptionalId(raw['serviceRef'], 'serviceRef'),
+        name: asText(raw['name'], 'name'),
+      });
+    case 'deleteTeam':
+      return present({
+        kind,
+        teamId: asOptionalId(raw['teamId'], 'teamId'),
+        teamRef: asOptionalId(raw['teamRef'], 'teamRef'),
+        cascade: asOptionalFlag(raw['cascade'], 'cascade'),
+      });
+    case 'deletePerson':
+      return present({
+        kind,
+        personId: asOptionalId(raw['personId'], 'personId'),
+        personRef: asOptionalId(raw['personRef'], 'personRef'),
+        cascade: asOptionalFlag(raw['cascade'], 'cascade'),
+      });
+    case 'deleteTag':
+      return present({
+        kind,
+        tagId: asOptionalId(raw['tagId'], 'tagId'),
+        tagRef: asOptionalId(raw['tagRef'], 'tagRef'),
+        cascade: asOptionalFlag(raw['cascade'], 'cascade'),
+      });
+    case 'deleteService':
+      return present({
+        kind,
+        serviceId: asOptionalId(raw['serviceId'], 'serviceId'),
+        serviceRef: asOptionalId(raw['serviceRef'], 'serviceRef'),
+        cascade: asOptionalFlag(raw['cascade'], 'cascade'),
+      });
+  }
+}
+
+/**
+ * A command batch as the wire carries it: an object with a `commands` list, each
+ * command validated by {@link parseCommand}.
  *
  * @throws {BadRequest} with `at` set, so the answer names the command.
  */
@@ -494,28 +748,7 @@ function parseBatch(body: unknown): PlanCommand[] {
   const record = asRecord(body);
   const list = record['commands'];
   if (!Array.isArray(list)) throw new BadRequest('commands_must_be_a_list');
-  return list.map((step, at) => {
-    if (typeof step !== 'object' || step === null) throw new BadRequest('expected_object', at);
-    const named = step as Record<string, unknown>;
-    const kind = named['kind'];
-    if (typeof kind !== 'string' || !(PLAN_COMMAND_KINDS as readonly string[]).includes(kind)) {
-      throw new BadRequest('unknown_kind', at);
-    }
-    try {
-      refuseDerivedFields(named);
-      const patch = named['patch'];
-      if (typeof patch === 'object' && patch !== null) {
-        refuseDerivedFields(patch as Record<string, unknown>);
-      }
-    } catch (cause) {
-      if (cause instanceof BadRequest) throw new BadRequest(cause.reason, at);
-      throw cause;
-    }
-    // The boundary: `kind` is one of ours and the derived fields are absent;
-    // the fields under each kind are validated where they always were, in the
-    // services, which refuse with the code the single routes answered with.
-    return named as PlanCommand;
-  });
+  return list.map((step, at) => parseCommand(step, at));
 }
 
 /**

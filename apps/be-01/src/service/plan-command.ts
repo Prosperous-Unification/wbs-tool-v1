@@ -57,12 +57,18 @@ export type PlanCommand =
   | { kind: 'createTeam'; ref?: string; name: string }
   | { kind: 'patchTeam'; teamId?: string; teamRef?: string; patch: TeamPatch }
   | { kind: 'deleteTeam'; teamId?: string; teamRef?: string; cascade?: boolean }
-  | { kind: 'createPerson'; ref?: string; name: string; teamIds?: string[]; teamRefs?: string[] }
+  | {
+      kind: 'createPerson';
+      ref?: string;
+      name: string;
+      teamIds?: readonly string[];
+      teamRefs?: readonly string[];
+    }
   | {
       kind: 'patchPerson';
       personId?: string;
       personRef?: string;
-      patch: PersonPatch & { kind?: string };
+      patch: Omit<PersonPatch, 'kind'> & { kind?: string };
     }
   | { kind: 'deletePerson'; personId?: string; personRef?: string; cascade?: boolean }
   | { kind: 'createTag'; ref?: string; name: string }

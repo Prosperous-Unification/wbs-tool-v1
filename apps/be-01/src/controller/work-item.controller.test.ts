@@ -213,6 +213,49 @@ describe('work item routes', () => {
     ]);
   });
 
+  it('validates each command with the write’s own parser, refusing by index and code', async () => {
+    // The single routes' hand parsers are the API's input validation, and a
+    // batch goes through the same ones: a parent that is not an id, a priority
+    // below one, a malformed estimate, a negative actual, an unknown delete
+    // strategy, a team name that is not text — each refused as its route
+    // refused it, with the command's index beside the code.
+    // Proof: the per-kind dispatch replaced by the bare `kind` check, every
+    // case below answered 200 or a service refusal instead. Watched,
+    // 2026-08-29.
+    const { token, send, projectId, devId } = await setup();
+    const refused = async (command: Record<string, unknown>, error: string) => {
+      const res = await send(`/api/projects/${projectId}/commands`, token, {
+        method: 'POST',
+        body: JSON.stringify({ commands: [command] }),
+      });
+      expect(res.status, error).toBe(400);
+      expect(await res.json(), error).toEqual({ error, at: 0 });
+    };
+    await refused({ kind: 'createWorkItem', parentId: 5 }, 'parentId_must_be_id_or_null');
+    await refused(
+      { kind: 'patchWorkItem', workItemId: 'w', patch: { priority: 0 } },
+      'priority_must_be_a_whole_number_from_1',
+    );
+    await refused(
+      { kind: 'setEstimate', workItemId: 'w', roleId: devId, days: { optimistic: 'x' } },
+      'invalid_estimate',
+    );
+    await refused(
+      { kind: 'setActual', workItemId: 'w', roleId: devId, days: -1 },
+      'invalid_actual',
+    );
+    await refused(
+      { kind: 'deleteWorkItem', workItemId: 'w', strategy: 'nuke' },
+      'unknown_strategy',
+    );
+    await refused({ kind: 'createTeam', name: 5 }, 'name_must_be_text');
+    await refused(
+      { kind: 'setCapacity', teamId: 't', size: 0 },
+      'size_must_be_a_whole_number_from_1',
+    );
+    await refused({ kind: 'setPriorityBands', bands: [] }, 'bands_must_number_5');
+  });
+
   it('refuses a batch that is not a list of known commands before applying any', async () => {
     // Proof: the cap dropped from the runner, the 201 case answered 200.
     // Watched, 2026-08-29.

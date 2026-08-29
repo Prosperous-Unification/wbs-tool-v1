@@ -12,7 +12,7 @@ import type { AuthService } from '../service/auth.service';
 import type { PriorityBandService } from '../service/priority-band.service';
 
 /** A ladder the request got wrong, carried as the code a client branches on. */
-class BadLadder extends Error {
+export class BadLadder extends Error {
   constructor(public readonly reason: string) {
     super(reason);
   }
@@ -50,7 +50,7 @@ class BadLadder extends Error {
  * would have produced a line later. R5 #7 is the proof that the ladder check
  * itself can fail.
  */
-function ladderOf(body: unknown): PriorityBand[] {
+export function ladderOf(body: unknown): PriorityBand[] {
   if (typeof body !== 'object' || body === null) throw new BadLadder('expected_object');
   const raw = body as Record<string, unknown>;
   if (!('bands' in raw)) throw new BadLadder('bands_required');
