@@ -1,7 +1,21 @@
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, type Response, test } from '@playwright/test';
 
 import { calendarScale } from '../src/components/wbs/gantt-geometry';
 import { CHART_PAD_PX, DAY_PX, ROW_PX } from '../src/components/wbs/gantt-panel';
+
+/**
+ * The batch that carries one `kind` — what a write is since `plan-commands`:
+ * every plan edit is `POST …/commands` with the command inside, so the method
+ * alone no longer says which write left the browser; the kind in the body does.
+ * Registered before the gesture that sends it, as the note above says.
+ */
+const savedCommand = (page: Page, kind: string): Promise<Response> =>
+  page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().includes('/commands') &&
+      (response.request().postData() ?? '').includes(`"kind":"${kind}"`),
+  );
 
 /**
  * Delivers a day the way Chrome's own calendar popup delivers one: the value
@@ -74,7 +88,7 @@ async function setDate(page: Page, label: string, day: string): Promise<void> {
   await expect(box).toHaveAttribute('type', 'date');
   // Registered before the gesture, because the gesture is what sends: see the
   // note above.
-  const saved = page.waitForResponse((response) => response.request().method() === 'PATCH');
+  const saved = savedCommand(page, 'patchWorkItem');
   await box.fill(day);
   await saved;
   // `blur`, not `press('Tab')`: Chrome's date input owns Tab for stepping
@@ -1097,7 +1111,7 @@ test.describe('the chart under a plan being edited', () => {
     // names day 4, and the dependency out-floors it.
     const estimate = page.getByLabel('Dev estimate for 010.1');
     await estimate.fill('8/10/12');
-    const savedEstimate = page.waitForResponse((response) => response.request().method() === 'PUT');
+    const savedEstimate = savedCommand(page, 'setEstimate');
     await estimate.blur();
     await savedEstimate;
     await expect(firstBar).toHaveAttribute('data-finish', '10');
@@ -1653,7 +1667,7 @@ test.describe('the surface a bar opens, as a browser places it', () => {
     // is needed and the check below could not fail.
     const estimate = page.getByLabel('Dev estimate for 010.1');
     await estimate.fill('40/40/40');
-    const saved = page.waitForResponse((response) => response.request().method() === 'PUT');
+    const saved = savedCommand(page, 'setEstimate');
     await estimate.blur();
     await saved;
     await openTheChart(page);

@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, type Request, test } from '@playwright/test';
 
 /**
  * The command chords, in a browser.
@@ -109,6 +109,17 @@ let account = 0;
  * Puts the Teams column on the table, which `configurable-columns` hides by
  * default, and closes the control again so its panel is not over the cells.
  */
+/**
+ * The command a request carries, or null for anything that is not a plan write:
+ * since `plan-commands` every edit is `POST …/commands` with the command inside,
+ * so the kind — not the method — says which write left the browser.
+ */
+function commandKindOf(request: Request): string | null {
+  if (request.method() !== 'POST' || !request.url().includes('/commands')) return null;
+  const body = request.postDataJSON() as { commands?: { kind?: string }[] } | null;
+  return body?.commands?.[0]?.kind ?? null;
+}
+
 async function showTeamsColumn(page: Page): Promise<void> {
   await page.getByText('Columns', { exact: true }).click();
   await page.getByRole('checkbox', { name: 'Teams' }).check();
@@ -164,17 +175,16 @@ test.describe('the command chords, in a browser', () => {
     // writes went first.
     const writes: string[] = [];
     await page.route('**/api/**', async (route) => {
-      const request = route.request();
-      const method = request.method();
-      if (method !== 'PATCH' && method !== 'POST') {
+      const kind = commandKindOf(route.request());
+      if (kind === null) {
         await route.continue();
         return;
       }
-      writes.push(`${method} ${new URL(request.url()).pathname}`);
+      writes.push(kind);
       // The save held open for half a second, so "did it wait for the answer"
       // is a question with a window to ask it in. Only the save: delaying the
       // create as well would say nothing about which came first.
-      if (method === 'PATCH') await new Promise((resolve) => setTimeout(resolve, 500));
+      if (kind === 'patchWorkItem') await new Promise((resolve) => setTimeout(resolve, 500));
       await route.continue();
     });
 
@@ -191,7 +201,7 @@ test.describe('the command chords, in a browser', () => {
     // answer, so this is asserted inside the window the delay above holds
     // open.
     await expect(page.getByLabel('Name of 030')).toHaveCount(0);
-    expect(writes.filter((each) => each.startsWith('POST'))).toHaveLength(0);
+    expect(writes.filter((each) => each === 'createWorkItem')).toHaveLength(0);
 
     await expect(page.getByLabel('Name of 030')).toBeVisible();
     await expect(page.getByLabel('Name of 030')).toBeFocused();
@@ -200,11 +210,9 @@ test.describe('the command chords, in a browser', () => {
     // The save first, the create second — the ordering the unit test asserts
     // against a held promise, here against a real round trip.
     const made = writes.join(', ');
-    expect(writes.at(0), `the writes this chord made were ${made}`).toMatch(/^PATCH \/api\/work-/);
-    expect(writes.at(1), `the writes this chord made were ${made}`).toMatch(
-      /^POST \/api\/projects/,
-    );
-    expect(writes.filter((each) => each.startsWith('POST'))).toHaveLength(1);
+    expect(writes.at(0), `the writes this chord made were ${made}`).toBe('patchWorkItem');
+    expect(writes.at(1), `the writes this chord made were ${made}`).toBe('createWorkItem');
+    expect(writes.filter((each) => each === 'createWorkItem')).toHaveLength(1);
   });
 
   test('a chord after a blur whose save is still out waits for that save', async ({ page }) => {
@@ -217,16 +225,15 @@ test.describe('the command chords, in a browser', () => {
 
     const writes: string[] = [];
     await page.route('**/api/**', async (route) => {
-      const request = route.request();
-      const method = request.method();
-      if (method !== 'PATCH' && method !== 'POST') {
+      const kind = commandKindOf(route.request());
+      if (kind === null) {
         await route.continue();
         return;
       }
-      writes.push(`${method} ${new URL(request.url()).pathname}`);
+      writes.push(kind);
       // Two seconds, so the window to ask the question in is far wider than
       // anything Playwright's own actions cost.
-      if (method === 'PATCH') await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (kind === 'patchWorkItem') await new Promise((resolve) => setTimeout(resolve, 2000));
       await route.continue();
     });
 
@@ -242,7 +249,7 @@ test.describe('the command chords, in a browser', () => {
     await page.waitForTimeout(700);
     // Still inside the held window: nothing created, and the caret has not
     // moved out of the only copy of what was typed.
-    expect(writes.filter((each) => each.startsWith('POST'))).toHaveLength(0);
+    expect(writes.filter((each) => each === 'createWorkItem')).toHaveLength(0);
     expect(await page.getByLabel('Name of 030').count()).toBe(0);
     await expect(last).toBeFocused();
 
@@ -251,8 +258,8 @@ test.describe('the command chords, in a browser', () => {
     await expect(page.getByLabel('Name of 030')).toBeVisible();
     await expect(page.getByLabel('Name of 030')).toBeFocused();
     await expect(page.getByLabel('Name of 020')).toHaveValue('Sand the frames');
-    expect(writes.filter((each) => each.startsWith('PATCH'))).toHaveLength(1);
-    expect(writes.filter((each) => each.startsWith('POST'))).toHaveLength(1);
+    expect(writes.filter((each) => each === 'patchWorkItem')).toHaveLength(1);
+    expect(writes.filter((each) => each === 'createWorkItem')).toHaveLength(1);
   });
 
   test('Cmd+Enter in an open team picker takes no entry and creates none', async ({ page }) => {
@@ -265,10 +272,8 @@ test.describe('the command chords, in a browser', () => {
 
     const writes: string[] = [];
     await page.route('**/api/**', async (route) => {
-      const method = route.request().method();
-      if (method === 'PATCH' || method === 'POST') {
-        writes.push(`${method} ${new URL(route.request().url()).pathname}`);
-      }
+      const kind = commandKindOf(route.request());
+      if (kind !== null) writes.push(kind);
       await route.continue();
     });
 
