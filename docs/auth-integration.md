@@ -179,7 +179,7 @@ open to every authenticated account by design, so the user lands on a working
 board and can list and open their own projects and receive WebSocket events.
 Only the scope-guarded routes refuse them: mutations return
 `403 insufficient_scope`, and so do the routes that ask for `read` explicitly
-(the solution reader and the project export/opened routes). A wrong prefix
+(the solution reader and the project export route). A wrong prefix
 therefore reads as "the app is up but nothing saves", not as a login failure —
 check the emitted group values before chasing a write bug.
 
