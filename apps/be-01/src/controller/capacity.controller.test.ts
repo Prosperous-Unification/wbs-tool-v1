@@ -35,17 +35,21 @@ const TEST_JWT_KEY = 'k'.repeat(32);
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 /**
- * `PUT /api/projects/:id/teams/:teamId/capacity`, over **real SQLite**.
+ * `setCapacity`, a batch of one on `POST /api/projects/:id/commands`, over
+ * **real SQLite**.
  *
  * Real for `directory.controller.test.ts`'s reason: every status asserted here is
  * decided by rows — the 404 by a project or a team the database does not hold,
  * the stored number by the primary key on the pair — and a fixture answering them
  * would be a second implementation of the rules under test. The retired
- * `PATCH /api/teams/:id/size` had its tests in that file; this route inherited
- * its whole job, and these are those tests recast per project plus the three
- * claims that are new.
+ * `PATCH /api/teams/:id/size` had its tests in that file; then the retired
+ * `PUT /api/projects/:id/teams/:teamId/capacity` inherited its whole job, and
+ * the command inherited that route's: these are those tests recast per project
+ * plus the three claims that are new. The batch answers its `results` rather
+ * than the row, so the stored number is read back through the tree's
+ * `teamCapacities` and the repository, never off the write's answer.
  */
-describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
+describe('setCapacity on POST /api/projects/:id/commands', () => {
   let dir: string;
   let app: ReturnType<typeof buildApp>;
   let capacityStore: CapacityRepository;
@@ -124,23 +128,38 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  /**
+   * One `setCapacity` command, `fields` spread over it — `{ size }` in the
+   * common case, `{}` for the body that names no size at all.
+   */
   async function call(
     projectId: string,
     teamId: string,
-    body: unknown,
-    withToken = true,
+    fields: object,
+    as: string | null = token,
   ): Promise<{ status: number; body: unknown }> {
     const res = await app.handle(
-      new Request(`http://localhost/api/projects/${projectId}/teams/${teamId}/capacity`, {
-        method: 'PUT',
+      new Request(`http://localhost/api/projects/${projectId}/commands`, {
+        method: 'POST',
         headers: {
           'content-type': 'application/json',
-          ...(withToken ? { authorization: `Bearer ${token}` } : {}),
+          ...(as === null ? {} : { authorization: `Bearer ${as}` }),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ commands: [{ kind: 'setCapacity', teamId, ...fields }] }),
       }),
     );
     return { status: res.status, body: await res.json() };
+  }
+
+  /** The capacities as the tree read carries them — the one place a client reads them from. */
+  async function capacitiesOnWire(projectId: string): Promise<unknown> {
+    const tree = await app.handle(
+      new Request(`http://localhost/api/projects/${projectId}/work-items`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    if (tree.status !== 200) throw new Error(`tree read answered ${String(tree.status)}`);
+    return ((await tree.json()) as { teamCapacities: unknown }).teamCapacities;
   }
 
   /** A project of `ownerId`'s, and a team, both real rows. */
@@ -158,19 +177,21 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
     const projectId = await plan();
     const platform = await team('Platform');
 
-    expect(await call(projectId, platform, { size: 4 })).toEqual({
+    expect(await call(projectId, platform, { size: 4 })).toMatchObject({
       status: 200,
-      body: { capacities: [{ serviceTeamId: platform, size: 4 }] },
+      body: { results: [{ index: 0 }] },
     });
+    expect(await capacitiesOnWire(projectId)).toEqual([{ serviceTeamId: platform, size: 4 }]);
     expect(await capacityStore.slotsFor(projectId)).toEqual(new Map([[platform, 4]]));
 
     // Cleared is **unstated**, which constrains no schedule — not a team of one,
     // which serialises every item it labels. And unstated is the absence of a
-    // row, so the answer is an empty list rather than a `null` beside the id.
-    expect(await call(projectId, platform, { size: null })).toEqual({
+    // row, so the tree carries an empty list rather than a `null` beside the id.
+    expect(await call(projectId, platform, { size: null })).toMatchObject({
       status: 200,
-      body: { capacities: [] },
+      body: { results: [{ index: 0 }] },
     });
+    expect(await capacitiesOnWire(projectId)).toEqual([]);
     expect(await capacityStore.slotsFor(projectId)).toEqual(new Map());
   });
 
@@ -208,11 +229,11 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
       expect([refused.status, String(bad)]).toEqual([400, String(bad)]);
     }
 
-    // A body naming no size at all is a request that says nothing, and this route
+    // A command naming no size at all is a step that says nothing, and this kind
     // writes exactly one field — absent cannot mean "leave it".
     expect(await call(projectId, platform, {})).toEqual({
       status: 400,
-      body: { error: 'size_required' },
+      body: { error: 'size_required', at: 0, kind: 'setCapacity' },
     });
 
     expect(await capacityStore.slotsFor(projectId)).toEqual(new Map([[platform, 4]]));
@@ -233,7 +254,7 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
 
     expect(await call(projectId, platform, { size: 1001 })).toEqual({
       status: 400,
-      body: { error: 'size_must_be_at_most_1000' },
+      body: { error: 'size_must_be_at_most_1000', at: 0, kind: 'setCapacity' },
     });
     expect(await call(projectId, platform, { size: 1000 })).toMatchObject({ status: 200 });
   });
@@ -244,13 +265,13 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
 
     expect(await call(crypto.randomUUID(), platform, { size: 2 })).toEqual({
       status: 404,
-      body: { error: 'not_found' },
+      body: { error: 'not_found', at: 0, kind: 'setCapacity' },
     });
     expect(await call(projectId, crypto.randomUUID(), { size: 2 })).toEqual({
       status: 404,
-      body: { error: 'not_found' },
+      body: { error: 'not_found', at: 0, kind: 'setCapacity' },
     });
-    expect((await call(projectId, platform, { size: 2 }, false)).status).toBe(401);
+    expect((await call(projectId, platform, { size: 2 }, null)).status).toBe(401);
 
     expect(await capacityStore.slotsFor(projectId)).toEqual(new Map());
   });
@@ -274,15 +295,10 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
     );
     const { token: theirs } = (await registered.json()) as { token: string };
 
-    const res = await app.handle(
-      new Request(`http://localhost/api/projects/${projectId}/teams/${platform}/capacity`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${theirs}` },
-        body: JSON.stringify({ size: 2 }),
-      }),
-    );
-
-    expect(res.status).toBe(403);
+    expect(await call(projectId, platform, { size: 2 }, theirs)).toEqual({
+      status: 403,
+      body: { error: 'forbidden', at: 0, kind: 'setCapacity' },
+    });
     expect(await capacityStore.slotsFor(projectId)).toEqual(new Map());
   });
 
@@ -311,12 +327,12 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
   });
 
   it('puts a capacity floor on the wire, which fe-01 has been able to draw since C3', async () => {
-    // End to end, and the successor of C2's landmine test. Two HTTP requests —
-    // state the capacity, label the work — are all it takes to make be-01 emit
+    // End to end, and the successor of C2's landmine test. Two batches — state
+    // the capacity, label the work — are all it takes to make be-01 emit
     // `boundBy: 'capacity'`, and since C3 (#57) fe-01's `floorWordsOf` has an arm
     // for it. The landmine that test recorded is spent; what is worth keeping is
-    // the shape of the proof, now pointed at the route that replaced the one it
-    // used.
+    // the shape of the proof, now pointed at the command that replaced the route
+    // it used.
     const projectId = await plan();
     const platform = await team('Platform');
     expect((await call(projectId, platform, { size: 1 })).status).toBe(200);
@@ -337,21 +353,24 @@ describe('PUT /api/projects/:id/teams/:teamId/capacity', () => {
     const devId = roles.at(0)?.id;
     if (devId === undefined) throw new Error('the fixture project has no roles');
 
-    for (const name of ['Strip', 'Sand']) {
-      const created = await send(`/api/projects/${projectId}/work-items`, {
-        method: 'POST',
-        body: JSON.stringify({ parentId: null, afterId: null, name }),
-      });
-      const { id } = (await created.json()) as { id: string };
-      await send(`/api/work-items/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ serviceTeamId: platform }),
-      });
-      await send(`/api/work-items/${id}/estimates/${devId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ optimistic: 2, realistic: 2, pessimistic: 2 }),
-      });
-    }
+    // Both items, each labelled and estimated, in one batch: a later command
+    // names what an earlier one made by its `ref`.
+    const labelled = await send(`/api/projects/${projectId}/commands`, {
+      method: 'POST',
+      body: JSON.stringify({
+        commands: ['Strip', 'Sand'].flatMap((name) => [
+          { kind: 'createWorkItem', ref: name, parentId: null, afterId: null, name },
+          { kind: 'patchWorkItem', workItemRef: name, patch: { serviceTeamId: platform } },
+          {
+            kind: 'setEstimate',
+            workItemRef: name,
+            roleId: devId,
+            days: { optimistic: 2, realistic: 2, pessimistic: 2 },
+          },
+        ]),
+      }),
+    });
+    expect(labelled.status).toBe(200);
 
     const tree = await send(`/api/projects/${projectId}/work-items`);
     const body = (await tree.json()) as {

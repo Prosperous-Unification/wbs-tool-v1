@@ -151,6 +151,33 @@ const addRole = (projectId: string, token: string, name: string): Promise<Respon
     body: JSON.stringify({ name }),
   });
 
+/** One plan batch of a single command — the one way a plan is written to. */
+const planCommand = (
+  projectId: string,
+  token: string,
+  step: Record<string, unknown>,
+): Promise<Response> =>
+  send(`/api/projects/${projectId}/commands`, token, {
+    method: 'POST',
+    body: JSON.stringify({ commands: [step] }),
+  });
+
+/** A top-level work item by name, through the command that creates them; throws on a refusal. */
+async function newWorkItem(projectId: string, token: string, name: string): Promise<string> {
+  const res = await planCommand(projectId, token, {
+    kind: 'createWorkItem',
+    parentId: null,
+    afterId: null,
+    name,
+  });
+  const body = (await res.json()) as { results?: { id?: string }[] };
+  const id = body.results?.at(0)?.id;
+  if (res.status !== 200 || id === undefined) {
+    throw new Error(`the create was refused: ${String(res.status)} ${JSON.stringify(body)}`);
+  }
+  return id;
+}
+
 describe('POST /api/projects/:id/roles', () => {
   it('adds a role and answers with it', async () => {
     const token = await register('owner');
@@ -335,14 +362,11 @@ describe('DELETE /api/projects/:id/roles/:roleId', () => {
   it('appends nothing to the account’s undo stack', async () => {
     const token = await register('owner');
     const project = await newProject(token);
-    const created = await send(`/api/projects/${project.id}/work-items`, token, {
-      method: 'POST',
-      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
-    });
-    const strip = (await created.json()) as { id: string };
-    await send(`/api/work-items/${strip.id}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ name: 'Strip the paint' }),
+    const strip = await newWorkItem(project.id, token, 'Strip');
+    await planCommand(project.id, token, {
+      kind: 'patchWorkItem',
+      workItemId: strip,
+      patch: { name: 'Strip the paint' },
     });
 
     await addRole(project.id, token, 'Design');
@@ -359,20 +383,20 @@ describe('DELETE /api/projects/:id/roles/:roleId', () => {
   it('leaves an undo whose role has gone refusing as stale, not writing', async () => {
     const token = await register('owner');
     const project = await newProject(token);
-    const created = await send(`/api/projects/${project.id}/work-items`, token, {
-      method: 'POST',
-      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
-    });
-    const strip = (await created.json()) as { id: string };
-    await send(`/api/work-items/${strip.id}/estimates/${project.qaId}`, token, {
-      method: 'PUT',
-      body: JSON.stringify({ optimistic: 1, realistic: 2, pessimistic: 3 }),
+    const strip = await newWorkItem(project.id, token, 'Strip');
+    await planCommand(project.id, token, {
+      kind: 'setEstimate',
+      workItemId: strip,
+      roleId: project.qaId,
+      days: { optimistic: 1, realistic: 2, pessimistic: 3 },
     });
     // Cleared, so the entry on top of the stack is one whose *inverse writes*:
     // undoing it puts the trio back. That is the entry that would reach for a
     // role that is not there.
-    await send(`/api/work-items/${strip.id}/estimates/${project.qaId}`, token, {
-      method: 'DELETE',
+    await planCommand(project.id, token, {
+      kind: 'clearEstimate',
+      workItemId: strip,
+      roleId: project.qaId,
     });
 
     await send(`/api/projects/${project.id}/roles/${project.qaId}?cascade=true`, token, {
@@ -392,11 +416,7 @@ describe('DELETE /api/projects/:id/roles/:roleId', () => {
   it('refuses an estimate and an assignee for a role that has gone, rather than 500ing', async () => {
     const token = await register('owner');
     const project = await newProject(token);
-    const created = await send(`/api/projects/${project.id}/work-items`, token, {
-      method: 'POST',
-      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
-    });
-    const strip = (await created.json()) as { id: string };
+    const strip = await newWorkItem(project.id, token, 'Strip');
     const ada = await personAdded(
       directory.addPerson({ id: crypto.randomUUID(), name: 'Ada' }, []),
     );
@@ -406,19 +426,23 @@ describe('DELETE /api/projects/:id/roles/:roleId', () => {
     // used to reach the foreign key and answer 500 — the request is about a
     // role that is not in the project, which is the caller's world being out
     // of date rather than this process being broken.
-    const estimated = await send(`/api/work-items/${strip.id}/estimates/${project.qaId}`, token, {
-      method: 'PUT',
-      body: JSON.stringify(DAYS),
+    const estimated = await planCommand(project.id, token, {
+      kind: 'setEstimate',
+      workItemId: strip,
+      roleId: project.qaId,
+      days: DAYS,
     });
     expect(estimated.status).toBe(404);
-    expect(await estimated.json()).toEqual({ error: 'unknown_role' });
+    expect(await estimated.json()).toEqual({ error: 'unknown_role', at: 0, kind: 'setEstimate' });
 
-    const assigned = await send(`/api/work-items/${strip.id}/assignees/${project.qaId}`, token, {
-      method: 'PUT',
-      body: JSON.stringify({ personId: ada.id }),
+    const assigned = await planCommand(project.id, token, {
+      kind: 'setAssignee',
+      workItemId: strip,
+      roleId: project.qaId,
+      personId: ada.id,
     });
     expect(assigned.status).toBe(404);
-    expect(await assigned.json()).toEqual({ error: 'unknown_role' });
+    expect(await assigned.json()).toEqual({ error: 'unknown_role', at: 0, kind: 'setAssignee' });
   });
 
   it('takes estimates for a role added after the project was made', async () => {
@@ -426,15 +450,13 @@ describe('DELETE /api/projects/:id/roles/:roleId', () => {
     const project = await newProject(token);
     const added = await addRole(project.id, token, 'Design');
     const design = (await added.json()) as { role: { id: string } };
-    const created = await send(`/api/projects/${project.id}/work-items`, token, {
-      method: 'POST',
-      body: JSON.stringify({ parentId: null, afterId: null, name: 'Strip' }),
-    });
-    const strip = (await created.json()) as { id: string };
+    const strip = await newWorkItem(project.id, token, 'Strip');
 
-    const estimated = await send(`/api/work-items/${strip.id}/estimates/${design.role.id}`, token, {
-      method: 'PUT',
-      body: JSON.stringify({ optimistic: 1, realistic: 2, pessimistic: 3 }),
+    const estimated = await planCommand(project.id, token, {
+      kind: 'setEstimate',
+      workItemId: strip,
+      roleId: design.role.id,
+      days: { optimistic: 1, realistic: 2, pessimistic: 3 },
     });
 
     expect(estimated.status).toBe(200);

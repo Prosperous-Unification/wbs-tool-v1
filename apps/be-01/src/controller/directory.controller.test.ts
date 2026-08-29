@@ -32,7 +32,7 @@ import { testReplay } from '../testing/replay-fixture';
 import { testWrites } from '../testing/writes-fixture';
 
 /**
- * The directory routes, over real SQLite.
+ * The directory commands, over real SQLite.
  *
  * Real for the same reason `role.controller.test.ts` is: every status asserted
  * here is decided by rows — the unique index behind a 409 `taken`, the
@@ -134,31 +134,55 @@ async function call(
     }),
   );
   // 204 has no body to parse, and asking for one throws rather than answering
-  // null — the delete routes are the ones that answer it.
+  // null.
   if (res.status === 204) return { status: res.status, body: null };
   return { status: res.status, body: await res.json() };
 }
 
-/** A person by name and teams, through the route that creates them. */
-async function addPerson(name: string, teamIds: readonly string[]): Promise<string> {
-  const { body } = await call('POST', '/api/people', { name, teamIds });
-  const { person } = body as { person: { id: string } };
-  return person.id;
+/** One directory batch of a single command, answered as its status and parsed body. */
+function command(step: Record<string, unknown>): Promise<{ status: number; body: unknown }> {
+  return call('POST', '/api/directory/commands', { commands: [step] });
 }
 
-/** A team by name, through the route that creates them. */
+/** One plan batch of a single command, on the project it names. */
+function planCommand(
+  projectId: string,
+  step: Record<string, unknown>,
+): Promise<{ status: number; body: unknown }> {
+  return call('POST', `/api/projects/${projectId}/commands`, { commands: [step] });
+}
+
+/** The id a single create answered with; throws on anything but an applied batch. */
+function createdId(answer: { status: number; body: unknown }): string {
+  if (answer.status !== 200) {
+    throw new Error(`the create was refused: ${JSON.stringify(answer)}`);
+  }
+  const { results } = answer.body as { results: { id?: string }[] };
+  const only = results.at(0);
+  if (only?.id === undefined) throw new Error(`the create minted no id: ${JSON.stringify(answer)}`);
+  return only.id;
+}
+
+/** A person by name and teams, through the command that creates them. */
+async function addPerson(name: string, teamIds: readonly string[]): Promise<string> {
+  return createdId(await command({ kind: 'createPerson', name, teamIds }));
+}
+
+/** A team by name, through the command that creates them. */
 async function addTeam(name: string): Promise<string> {
-  const { body } = await call('POST', '/api/teams', { name });
-  const { team } = body as { team: { id: string } };
-  return team.id;
+  return createdId(await command({ kind: 'createTeam', name }));
 }
 
 /** {@link addTeam}'s shape for the third dimension — the ownership map needs both. */
 async function addService(name: string): Promise<string> {
-  const { body } = await call('POST', '/api/services', { name });
-  const { service } = body as { service: { id: string } };
-  return service.id;
+  return createdId(await command({ kind: 'createService', name }));
 }
+
+/** What an applied single-command patch answers: its one result, carrying the entry as patched. */
+const applied = (entity: unknown) => ({ status: 200, body: { results: [{ index: 0, entity }] } });
+
+/** What an applied single-command removal answers: its one result, and nothing beside the index. */
+const removed = { status: 200, body: { results: [{ index: 0 }] } };
 
 describe('GET /api/teams', () => {
   it('answers a team as an id and a name, and never the retired global size', async () => {
@@ -197,16 +221,17 @@ describe('GET /api/teams', () => {
   });
 });
 
-describe('PATCH /api/teams/:id', () => {
+describe('patchTeam', () => {
   it('renames a team', async () => {
     const platform = await addTeam('Platform');
 
-    const renamed = await call('PATCH', `/api/teams/${platform}`, { name: 'Payments' });
-
-    expect(renamed).toEqual({
-      status: 200,
-      body: { team: { id: platform, name: 'Payments', serviceIds: [] } },
+    const renamed = await command({
+      kind: 'patchTeam',
+      teamId: platform,
+      patch: { name: 'Payments' },
     });
+
+    expect(renamed).toEqual(applied({ id: platform, name: 'Payments', serviceIds: [] }));
     expect(await store.listTeams()).toEqual([{ id: platform, name: 'Payments', serviceIds: [] }]);
   });
 
@@ -214,32 +239,42 @@ describe('PATCH /api/teams/:id', () => {
     await addTeam('Platform');
     const payments = await addTeam('Payments');
 
-    expect(await call('PATCH', `/api/teams/${payments}`, { name: 'Platform' })).toEqual({
+    expect(
+      await command({ kind: 'patchTeam', teamId: payments, patch: { name: 'Platform' } }),
+    ).toEqual({
       status: 409,
-      body: { error: 'taken', name: 'Platform' },
+      body: { error: 'taken', name: 'Platform', at: 0, kind: 'patchTeam' },
     });
   });
 
-  it('answers 422 for a name of spaces and 404 for a team that is gone', async () => {
+  it('answers 400 name_required for a name of spaces and 404 for a team that is gone', async () => {
     const platform = await addTeam('Platform');
 
-    expect(await call('PATCH', `/api/teams/${platform}`, { name: '   ' })).toEqual({
-      status: 422,
-      body: { error: 'name_required' },
+    expect(await command({ kind: 'patchTeam', teamId: platform, patch: { name: '   ' } })).toEqual({
+      status: 400,
+      body: { error: 'name_required', at: 0, kind: 'patchTeam' },
     });
-    expect(await call('PATCH', `/api/teams/${crypto.randomUUID()}`, { name: 'Payments' })).toEqual({
+    expect(
+      await command({
+        kind: 'patchTeam',
+        teamId: crypto.randomUUID(),
+        patch: { name: 'Payments' },
+      }),
+    ).toEqual({
       status: 404,
-      body: { error: 'not_found' },
+      body: { error: 'not_found', at: 0, kind: 'patchTeam' },
     });
   });
 
   it('answers 401 to a request carrying no token', async () => {
     const platform = await addTeam('Platform');
     const res = await app.handle(
-      new Request(`http://localhost/api/teams/${platform}`, {
-        method: 'PATCH',
+      new Request('http://localhost/api/directory/commands', {
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Payments' }),
+        body: JSON.stringify({
+          commands: [{ kind: 'patchTeam', teamId: platform, patch: { name: 'Payments' } }],
+        }),
       }),
     );
 
@@ -252,17 +287,18 @@ describe('PATCH /api/teams/:id', () => {
     const payments = await addService('Payments');
     const auth = await addService('Auth');
 
-    const owned = await call('PATCH', `/api/teams/${platform}`, {
-      serviceIds: [payments, auth],
+    const owned = await command({
+      kind: 'patchTeam',
+      teamId: platform,
+      patch: { serviceIds: [payments, auth] },
     });
 
-    expect(owned).toEqual({
-      status: 200,
-      body: { team: { id: platform, name: 'Platform', serviceIds: [auth, payments].sort() } },
-    });
+    expect(owned).toEqual(
+      applied({ id: platform, name: 'Platform', serviceIds: [auth, payments].sort() }),
+    );
     // Read back through the store rather than trusted from the answer: the
-    // route could echo what it was sent and this is the assertion that says the
-    // map is in the database.
+    // command could echo what it was sent and this is the assertion that says
+    // the map is in the database.
     const teams = await store.listTeams();
     expect(teams).toEqual([
       { id: platform, name: 'Platform', serviceIds: [auth, payments].sort() },
@@ -273,51 +309,57 @@ describe('PATCH /api/teams/:id', () => {
     const platform = await addTeam('Platform');
     const payments = await addService('Payments');
     const auth = await addService('Auth');
-    await call('PATCH', `/api/teams/${platform}`, { serviceIds: [payments, auth] });
+    await command({ kind: 'patchTeam', teamId: platform, patch: { serviceIds: [payments, auth] } });
 
     // Whole-set, not additive: naming one service leaves that one owned and
     // takes the other away. `PersonPatch.teamIds`' rule, one dimension over.
-    const narrowed = await call('PATCH', `/api/teams/${platform}`, { serviceIds: [auth] });
-    expect(narrowed).toEqual({
-      status: 200,
-      body: { team: { id: platform, name: 'Platform', serviceIds: [auth] } },
+    const narrowed = await command({
+      kind: 'patchTeam',
+      teamId: platform,
+      patch: { serviceIds: [auth] },
     });
+    expect(narrowed).toEqual(applied({ id: platform, name: 'Platform', serviceIds: [auth] }));
 
-    const cleared = await call('PATCH', `/api/teams/${platform}`, { serviceIds: [] });
-    expect(cleared).toEqual({
-      status: 200,
-      body: { team: { id: platform, name: 'Platform', serviceIds: [] } },
+    const cleared = await command({
+      kind: 'patchTeam',
+      teamId: platform,
+      patch: { serviceIds: [] },
     });
+    expect(cleared).toEqual(applied({ id: platform, name: 'Platform', serviceIds: [] }));
   });
 
   it('leaves the owned set alone when the patch does not name it', async () => {
     const platform = await addTeam('Platform');
     const payments = await addService('Payments');
-    await call('PATCH', `/api/teams/${platform}`, { serviceIds: [payments] });
+    await command({ kind: 'patchTeam', teamId: platform, patch: { serviceIds: [payments] } });
 
     // Absent and empty are different requests, and only the layers below the
     // wire can tell them apart — a rename that quietly disowned everything is
     // the bug this asserts against.
-    const renamed = await call('PATCH', `/api/teams/${platform}`, { name: 'Platform Team' });
-
-    expect(renamed).toEqual({
-      status: 200,
-      body: { team: { id: platform, name: 'Platform Team', serviceIds: [payments] } },
+    const renamed = await command({
+      kind: 'patchTeam',
+      teamId: platform,
+      patch: { name: 'Platform Team' },
     });
+
+    expect(renamed).toEqual(
+      applied({ id: platform, name: 'Platform Team', serviceIds: [payments] }),
+    );
   });
 
   it('answers 404 for a service the directory does not hold, rename included', async () => {
     const platform = await addTeam('Platform');
     const payments = await addService('Payments');
 
-    // `unknown_service`'s status, on the directory's own routes this time — the
-    // work item patch answers the same 404 for the same sentence.
+    // `unknown_service`'s status, on the directory's own command this time —
+    // the work item patch answers the same 404 for the same sentence.
     expect(
-      await call('PATCH', `/api/teams/${platform}`, {
-        name: 'Renamed',
-        serviceIds: [payments, crypto.randomUUID()],
+      await command({
+        kind: 'patchTeam',
+        teamId: platform,
+        patch: { name: 'Renamed', serviceIds: [payments, crypto.randomUUID()] },
       }),
-    ).toEqual({ status: 404, body: { error: 'unknown_service' } });
+    ).toEqual({ status: 404, body: { error: 'unknown_service', at: 0, kind: 'patchTeam' } });
 
     // The whole patch, not the half of it that could have worked: a refusal
     // that left the rename behind would be a state nothing can see and nobody
@@ -325,26 +367,29 @@ describe('PATCH /api/teams/:id', () => {
     expect(await store.listTeams()).toEqual([{ id: platform, name: 'Platform', serviceIds: [] }]);
   });
 
-  it('answers 422 to a patch naming neither a name nor services', async () => {
+  it('answers 400 nothing_to_change to a patch naming neither a name nor services', async () => {
     const platform = await addTeam('Platform');
 
-    // `/people/:id`'s rule: a no-op is almost certainly a client bug, and a 200
-    // would leave nothing on the wire to notice it by.
-    expect(await call('PATCH', `/api/teams/${platform}`, {})).toEqual({
-      status: 422,
-      body: { error: 'nothing_to_change' },
+    // `patchPerson`'s rule: a no-op is almost certainly a client bug, and a
+    // 200 would leave nothing on the wire to notice it by.
+    expect(await command({ kind: 'patchTeam', teamId: platform, patch: {} })).toEqual({
+      status: 400,
+      body: { error: 'nothing_to_change', at: 0, kind: 'patchTeam' },
     });
   });
 });
 
-describe('POST /api/people into teams', () => {
+describe('createPerson into teams', () => {
   it('refuses the whole create when a teamId names a team that has been removed', async () => {
     const platform = await addTeam('Platform');
-    await call('DELETE', `/api/teams/${platform}`);
+    await command({ kind: 'deleteTeam', teamId: platform });
 
-    const created = await call('POST', '/api/people', { name: 'Kat', teamIds: [platform] });
+    const created = await command({ kind: 'createPerson', name: 'Kat', teamIds: [platform] });
 
-    expect(created).toEqual({ status: 404, body: { error: 'unknown_team' } });
+    expect(created).toEqual({
+      status: 404,
+      body: { error: 'unknown_team', at: 0, kind: 'createPerson' },
+    });
     // Atomic: no half-made person, and no membership row pointing at a team
     // that is not there. `person_team.service_team_id` is a foreign key, so
     // without the validation this request is a raw constraint failure — a 500.
@@ -352,15 +397,17 @@ describe('POST /api/people into teams', () => {
   });
 
   it('answers a kind for a person nobody has patched, on the create and on the list', async () => {
-    // The read half of `kind`: 4.4 proved a `PATCH` can set it, and this proves
-    // a client never has to patch to *see* one. Both the create's own body and
-    // the list, because `POST` answers the row it wrote while `GET` re-reads —
-    // a default that only appeared on one of them would send a client's
-    // `?? 'person'` fallback back into the fe.
-    const created = await call('POST', '/api/people', { name: 'Kat', teamIds: [] });
+    // The read half of `kind`: 4.4 proved a `patchPerson` can set it, and this
+    // proves a client never has to patch to *see* one. Both the create's own
+    // answer and the list, because the batch answers the row it wrote while
+    // `GET` re-reads — a default that only appeared on one of them would send
+    // a client's `?? 'person'` fallback back into the fe.
+    const created = await command({ kind: 'createPerson', name: 'Kat', teamIds: [] });
 
     expect(created.status).toBe(200);
-    expect(created.body).toMatchObject({ person: { name: 'Kat', kind: 'person' } });
+    expect(created.body).toMatchObject({
+      results: [{ index: 0, entity: { name: 'Kat', kind: 'person' } }],
+    });
 
     const listed = await call('GET', '/api/people');
 
@@ -369,7 +416,7 @@ describe('POST /api/people into teams', () => {
   });
 });
 
-describe('DELETE /api/people/:id and /api/teams/:id', () => {
+describe('deletePerson and deleteTeam', () => {
   /** A work item to point at the directory with, in a project this account owns. */
   async function planWithOneRow(): Promise<{
     projectOf: string;
@@ -378,28 +425,38 @@ describe('DELETE /api/people/:id and /api/teams/:id', () => {
   }> {
     const { body } = await call('POST', '/api/projects', { name: 'Rollout' });
     const { project } = body as { project: { id: string } };
-    const created = await call('POST', `/api/projects/${project.id}/work-items`, {
-      parentId: null,
-      afterId: null,
-      name: 'Design',
-    });
-    const workItem = created.body as { id: string };
+    const workItemOf = createdId(
+      await planCommand(project.id, {
+        kind: 'createWorkItem',
+        parentId: null,
+        afterId: null,
+        name: 'Design',
+      }),
+    );
     const roles = await roleStore.listByProject(project.id);
     const dev = roles.find((each) => each.name === 'Dev');
     if (dev === undefined) throw new Error('the seeded project had no Dev role');
-    return { projectOf: project.id, workItemOf: workItem.id, roleOf: dev.id };
+    return { projectOf: project.id, workItemOf, roleOf: dev.id };
   }
 
-  it('answers 409 in_use carrying the usage, then 204 on the cascade', async () => {
+  it('answers 409 in_use carrying the usage, then 200 on the cascade', async () => {
     const kat = await addPerson('Kat', []);
     const { projectOf, workItemOf, roleOf } = await planWithOneRow();
-    await call('PUT', `/api/work-items/${workItemOf}/assignees/${roleOf}`, { personId: kat });
+    const assigned = await planCommand(projectOf, {
+      kind: 'setAssignee',
+      workItemId: workItemOf,
+      roleId: roleOf,
+      personId: kat,
+    });
+    expect(assigned.status).toBe(200);
 
-    const refused = await call('DELETE', `/api/people/${kat}`);
+    const refused = await command({ kind: 'deletePerson', personId: kat });
 
     expect(refused.status).toBe(409);
     expect(refused.body).toEqual({
       error: 'in_use',
+      at: 0,
+      kind: 'deletePerson',
       usage: {
         projects: [
           {
@@ -422,20 +479,17 @@ describe('DELETE /api/people/:id and /api/teams/:id', () => {
       },
     });
 
-    expect(await call('DELETE', `/api/people/${kat}?cascade=true`)).toEqual({
-      status: 204,
-      body: null,
-    });
+    expect(await command({ kind: 'deletePerson', personId: kat, cascade: true })).toEqual(removed);
     expect(await store.listPeople()).toEqual([]);
   });
 
   it('removes an unused team on the first call, and 404s the second', async () => {
     const platform = await addTeam('Platform');
 
-    expect(await call('DELETE', `/api/teams/${platform}`)).toEqual({ status: 204, body: null });
-    expect(await call('DELETE', `/api/teams/${platform}`)).toEqual({
+    expect(await command({ kind: 'deleteTeam', teamId: platform })).toEqual(removed);
+    expect(await command({ kind: 'deleteTeam', teamId: platform })).toEqual({
       status: 404,
-      body: { error: 'not_found' },
+      body: { error: 'not_found', at: 0, kind: 'deleteTeam' },
     });
   });
 
@@ -443,16 +497,25 @@ describe('DELETE /api/people/:id and /api/teams/:id', () => {
     const platform = await addTeam('Platform');
     const kat = await addPerson('Kat', [platform]);
 
-    expect(await call('DELETE', `/api/teams/${platform}`)).toEqual({
+    expect(await command({ kind: 'deleteTeam', teamId: platform })).toEqual({
       status: 409,
-      body: { error: 'in_use', usage: { projects: [], members: [{ id: kat, name: 'Kat' }] } },
+      body: {
+        error: 'in_use',
+        at: 0,
+        kind: 'deleteTeam',
+        usage: { projects: [], members: [{ id: kat, name: 'Kat' }] },
+      },
     });
   });
 
   it('answers 401 to a delete carrying no token', async () => {
     const platform = await addTeam('Platform');
     const res = await app.handle(
-      new Request(`http://localhost/api/teams/${platform}`, { method: 'DELETE' }),
+      new Request('http://localhost/api/directory/commands', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ commands: [{ kind: 'deleteTeam', teamId: platform }] }),
+      }),
     );
 
     expect(res.status).toBe(401);
@@ -460,21 +523,21 @@ describe('DELETE /api/people/:id and /api/teams/:id', () => {
   });
 });
 
-describe('PATCH /api/people/:id', () => {
+describe('patchPerson', () => {
   it('renames and re-teams a person in one request', async () => {
     const platform = await addTeam('Platform');
     const payments = await addTeam('Payments');
     const kat = await addPerson('Kat', [platform]);
 
-    const patched = await call('PATCH', `/api/people/${kat}`, {
-      name: 'Katrin',
-      teamIds: [payments],
+    const patched = await command({
+      kind: 'patchPerson',
+      personId: kat,
+      patch: { name: 'Katrin', teamIds: [payments] },
     });
 
-    expect(patched).toEqual({
-      status: 200,
-      body: { person: { id: kat, name: 'Katrin', kind: 'person', teamIds: [payments] } },
-    });
+    expect(patched).toEqual(
+      applied({ id: kat, name: 'Katrin', kind: 'person', teamIds: [payments] }),
+    );
   });
 
   it('answers 404 unknown_team for a dead team id, and writes nothing', async () => {
@@ -482,51 +545,56 @@ describe('PATCH /api/people/:id', () => {
     const kat = await addPerson('Kat', [platform]);
 
     expect(
-      await call('PATCH', `/api/people/${kat}`, {
-        name: 'Katrin',
-        teamIds: [crypto.randomUUID()],
+      await command({
+        kind: 'patchPerson',
+        personId: kat,
+        patch: { name: 'Katrin', teamIds: [crypto.randomUUID()] },
       }),
-    ).toEqual({ status: 404, body: { error: 'unknown_team' } });
+    ).toEqual({ status: 404, body: { error: 'unknown_team', at: 0, kind: 'patchPerson' } });
     expect(await store.listPeople()).toEqual([
       { id: kat, name: 'Kat', kind: 'person', teamIds: [platform] },
     ]);
   });
 
-  it('answers 422 to a patch that names nothing to change', async () => {
+  it('answers 400 nothing_to_change to a patch that names nothing to change', async () => {
     const kat = await addPerson('Kat', []);
 
-    expect(await call('PATCH', `/api/people/${kat}`, {})).toEqual({
-      status: 422,
-      body: { error: 'nothing_to_change' },
+    expect(await command({ kind: 'patchPerson', personId: kat, patch: {} })).toEqual({
+      status: 400,
+      body: { error: 'nothing_to_change', at: 0, kind: 'patchPerson' },
     });
   });
 
   it('marks a person an agent, and marks them back', async () => {
     const kat = await addPerson('Kat', []);
 
-    expect(await call('PATCH', `/api/people/${kat}`, { kind: 'agent' })).toEqual({
-      status: 200,
-      body: { person: { id: kat, name: 'Kat', kind: 'agent', teamIds: [] } },
-    });
+    expect(await command({ kind: 'patchPerson', personId: kat, patch: { kind: 'agent' } })).toEqual(
+      applied({ id: kat, name: 'Kat', kind: 'agent', teamIds: [] }),
+    );
     // Patching it back is the whole undo — the directory journals nothing, and
     // `plan_event` is a plan's history, so it cannot hold this. tasks.md 4.4.
-    expect(await call('PATCH', `/api/people/${kat}`, { kind: 'person' })).toEqual({
-      status: 200,
-      body: { person: { id: kat, name: 'Kat', kind: 'person', teamIds: [] } },
-    });
+    expect(
+      await command({ kind: 'patchPerson', personId: kat, patch: { kind: 'person' } }),
+    ).toEqual(applied({ id: kat, name: 'Kat', kind: 'person', teamIds: [] }));
   });
 
   it('answers 400 invalid_kind for a kind outside the set, rename included', async () => {
-    // The refusal is only reachable because the route's schema takes a
-    // `t.String()`: a union of the two kinds would have Elysia answer first,
-    // with its own body, and `invalid_kind` would never be sent by the API that
-    // exists to send it. The name beside it proves the check runs before the
-    // write rather than after.
+    // The refusal is only reachable because the command parser takes the
+    // patch's `kind` as any text: a union of the two kinds at the parser would
+    // refuse first, with its own code, and `invalid_kind` would never be sent
+    // by the API that exists to send it. The name beside it proves the check
+    // runs before the write rather than after.
     const kat = await addPerson('Kat', []);
 
-    expect(await call('PATCH', `/api/people/${kat}`, { name: 'Katrin', kind: 'robot' })).toEqual({
+    expect(
+      await command({
+        kind: 'patchPerson',
+        personId: kat,
+        patch: { name: 'Katrin', kind: 'robot' },
+      }),
+    ).toEqual({
       status: 400,
-      body: { error: 'invalid_kind' },
+      body: { error: 'invalid_kind', at: 0, kind: 'patchPerson' },
     });
     expect(await store.listPeople()).toEqual([
       { id: kat, name: 'Kat', kind: 'person', teamIds: [] },
@@ -537,20 +605,24 @@ describe('PATCH /api/people/:id', () => {
     await addPerson('Kat', []);
     const strip = await addPerson('Strip', []);
 
-    expect(await call('PATCH', `/api/people/${strip}`, { name: 'Kat' })).toEqual({
-      status: 409,
-      body: { error: 'taken', name: 'Kat' },
-    });
+    expect(await command({ kind: 'patchPerson', personId: strip, patch: { name: 'Kat' } })).toEqual(
+      {
+        status: 409,
+        body: { error: 'taken', name: 'Kat', at: 0, kind: 'patchPerson' },
+      },
+    );
   });
 
   it('answers 401 to a request carrying no token', async () => {
     const platform = await addTeam('Platform');
     const kat = await addPerson('Kat', [platform]);
     const res = await app.handle(
-      new Request(`http://localhost/api/people/${kat}`, {
-        method: 'PATCH',
+      new Request('http://localhost/api/directory/commands', {
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Katrin' }),
+        body: JSON.stringify({
+          commands: [{ kind: 'patchPerson', personId: kat, patch: { name: 'Katrin' } }],
+        }),
       }),
     );
 
@@ -561,14 +633,7 @@ describe('PATCH /api/people/:id', () => {
   });
 });
 
-describe('the service routes', () => {
-  /** A service by name, through the route that creates them. */
-  async function addService(name: string): Promise<string> {
-    const { body } = await call('POST', '/api/services', { name });
-    const { service } = body as { service: { id: string } };
-    return service.id;
-  }
-
+describe('the service commands', () => {
   it('creates, lists by name, and renames', async () => {
     const payments = await addService('Payments');
     // Idempotent by name at the unique index, as the teams and the tags are:
@@ -587,32 +652,34 @@ describe('the service routes', () => {
       },
     });
 
-    expect(await call('PATCH', `/api/services/${payments}`, { name: 'Billing' })).toEqual({
-      status: 200,
-      body: { service: { id: payments, name: 'Billing' } },
-    });
+    expect(await command({ kind: 'patchService', serviceId: payments, name: 'Billing' })).toEqual(
+      applied({ id: payments, name: 'Billing' }),
+    );
   });
 
-  it('answers 409 taken with the surviving name, 422 for spaces, 404 for a dead id', async () => {
+  it('answers 409 taken with the surviving name, 400 for spaces, 404 for a dead id', async () => {
     const payments = await addService('Payments');
     const auth = await addService('Auth');
 
-    // The surviving name, for `/teams/:id`'s reason: the caller has to be able
+    // The surviving name, for `patchTeam`'s reason: the caller has to be able
     // to say which `Payments` is on screen now.
-    expect(await call('PATCH', `/api/services/${auth}`, { name: 'Payments' })).toEqual({
+    expect(await command({ kind: 'patchService', serviceId: auth, name: 'Payments' })).toEqual({
       status: 409,
-      body: { error: 'taken', name: 'Payments' },
+      body: { error: 'taken', name: 'Payments', at: 0, kind: 'patchService' },
     });
-    expect(await call('PATCH', `/api/services/${auth}`, { name: '   ' })).toEqual({
-      status: 422,
-      body: { error: 'name_required' },
+    expect(await command({ kind: 'patchService', serviceId: auth, name: '   ' })).toEqual({
+      status: 400,
+      body: { error: 'name_required', at: 0, kind: 'patchService' },
     });
     expect(
-      await call('PATCH', `/api/services/${crypto.randomUUID()}`, { name: 'Billing' }),
-    ).toEqual({ status: 404, body: { error: 'not_found' } });
-    expect(await call('POST', '/api/services', { name: ' ' })).toEqual({
-      status: 422,
-      body: { error: 'name_required' },
+      await command({ kind: 'patchService', serviceId: crypto.randomUUID(), name: 'Billing' }),
+    ).toEqual({ status: 404, body: { error: 'not_found', at: 0, kind: 'patchService' } });
+    // A create of spaces is refused as `name_required`, the code the directory's
+    // own refusals use: `addService` answers null for a blank name, and the
+    // batch names the index rather than minting an unnamed row.
+    expect(await command({ kind: 'createService', name: ' ' })).toEqual({
+      status: 400,
+      body: { error: 'name_required', at: 0, kind: 'createService' },
     });
 
     // Nothing above wrote: both rows are as they were created.
@@ -622,19 +689,26 @@ describe('the service routes', () => {
     ]);
   });
 
-  it('answers 409 in_use naming the row that loses its label, then 204 on the cascade', async () => {
+  it('answers 409 in_use naming the row that loses its label, then 200 on the cascade', async () => {
     const payments = await addService('Payments');
     const { body } = await call('POST', '/api/projects', { name: 'Rollout' });
     const { project } = body as { project: { id: string } };
-    const created = await call('POST', `/api/projects/${project.id}/work-items`, {
-      parentId: null,
-      afterId: null,
-      name: 'Design',
+    const workItemOf = createdId(
+      await planCommand(project.id, {
+        kind: 'createWorkItem',
+        parentId: null,
+        afterId: null,
+        name: 'Design',
+      }),
+    );
+    const labelled = await planCommand(project.id, {
+      kind: 'patchWorkItem',
+      workItemId: workItemOf,
+      patch: { serviceIds: [payments] },
     });
-    const { id: workItemOf } = created.body as { id: string };
-    await call('PATCH', `/api/work-items/${workItemOf}`, { serviceIds: [payments] });
+    expect(labelled.status).toBe(200);
 
-    const refused = await call('DELETE', `/api/services/${payments}`);
+    const refused = await command({ kind: 'deleteService', serviceId: payments });
 
     // `label_removed` and **nothing beside it**. This assertion is design.md D7
     // written as a payload: no `capacity_released`, no size, no second effect of
@@ -647,6 +721,8 @@ describe('the service routes', () => {
       status: 409,
       body: {
         error: 'in_use',
+        at: 0,
+        kind: 'deleteService',
         usage: {
           projects: [
             {
@@ -667,10 +743,9 @@ describe('the service routes', () => {
       },
     });
 
-    expect(await call('DELETE', `/api/services/${payments}?cascade=true`)).toEqual({
-      status: 204,
-      body: null,
-    });
+    expect(await command({ kind: 'deleteService', serviceId: payments, cascade: true })).toEqual(
+      removed,
+    );
     expect(await store.listServices()).toEqual([]);
 
     // The work item is **still there**, unlabelled — `ON DELETE SET NULL`, seen
@@ -686,14 +761,14 @@ describe('the service routes', () => {
     // belongs to a service, and the teams that own it are not counted either.
     const payments = await addService('Payments');
 
-    expect(await call('DELETE', `/api/services/${payments}`)).toEqual({ status: 204, body: null });
-    expect(await call('DELETE', `/api/services/${payments}`)).toEqual({
+    expect(await command({ kind: 'deleteService', serviceId: payments })).toEqual(removed);
+    expect(await command({ kind: 'deleteService', serviceId: payments })).toEqual({
       status: 404,
-      body: { error: 'not_found' },
+      body: { error: 'not_found', at: 0, kind: 'deleteService' },
     });
   });
 
-  it('answers 401 to every service route carrying no token', async () => {
+  it('answers 401 to every service command carrying no token', async () => {
     const payments = await addService('Payments');
     const unauthenticated = async (method: string, path: string, body?: unknown) =>
       (
@@ -706,12 +781,14 @@ describe('the service routes', () => {
           }),
         )
       ).status;
+    const batch = (step: Record<string, unknown>) =>
+      unauthenticated('POST', '/api/directory/commands', { commands: [step] });
 
     expect([
       await unauthenticated('GET', '/api/services'),
-      await unauthenticated('POST', '/api/services', { name: 'Auth' }),
-      await unauthenticated('PATCH', `/api/services/${payments}`, { name: 'Billing' }),
-      await unauthenticated('DELETE', `/api/services/${payments}`),
+      await batch({ kind: 'createService', name: 'Auth' }),
+      await batch({ kind: 'patchService', serviceId: payments, name: 'Billing' }),
+      await batch({ kind: 'deleteService', serviceId: payments }),
     ]).toEqual([401, 401, 401, 401]);
     expect(await store.listServices()).toEqual([{ id: payments, name: 'Payments' }]);
   });

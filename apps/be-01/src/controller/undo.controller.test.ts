@@ -142,12 +142,39 @@ async function newProject(token: string, name = 'Rewire the shed'): Promise<stri
   return ((await created.json()) as { project: { id: string } }).project.id;
 }
 
-async function addRoot(token: string, projectId: string, name: string): Promise<string> {
-  const created = await send(`/api/projects/${projectId}/work-items`, token, {
+/**
+ * One plan command, as a batch of one on `POST /api/projects/:id/commands` —
+ * the one way to write to a plan, and the writes every stack below is built
+ * from.
+ */
+function command(projectId: string, token: string, step: object): Promise<Response> {
+  return send(`/api/projects/${projectId}/commands`, token, {
     method: 'POST',
-    body: JSON.stringify({ parentId: null, afterId: null, name }),
+    body: JSON.stringify({ commands: [step] }),
   });
-  return ((await created.json()) as { id: string }).id;
+}
+
+async function addRoot(token: string, projectId: string, name: string): Promise<string> {
+  const created = await command(projectId, token, {
+    kind: 'createWorkItem',
+    parentId: null,
+    afterId: null,
+    name,
+  });
+  if (created.status !== 200) throw new Error(`createWorkItem answered ${String(created.status)}`);
+  const { results } = (await created.json()) as { results: { id?: string }[] };
+  const id = results[0]?.id;
+  if (id === undefined) throw new Error('createWorkItem minted no id');
+  return id;
+}
+
+function patchItem(
+  token: string,
+  projectId: string,
+  workItemId: string,
+  patch: object,
+): Promise<Response> {
+  return command(projectId, token, { kind: 'patchWorkItem', workItemId, patch });
 }
 
 describe('POST /api/projects/:id/undo', () => {
@@ -201,10 +228,7 @@ describe('POST /api/projects/:id/undo', () => {
     const token = await register('owner');
     const projectId = await newProject(token);
     const strip = await addRoot(token, projectId, 'Strip');
-    await send(`/api/work-items/${strip}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ name: 'Strip out' }),
-    });
+    await patchItem(token, projectId, strip, { name: 'Strip out' });
 
     const res = await send(`/api/projects/${projectId}/undo`, token, { method: 'POST' });
 
@@ -217,14 +241,8 @@ describe('POST /api/projects/:id/undo', () => {
     const stranger = await register('stranger');
     const projectId = await newProject(owner);
     const strip = await addRoot(owner, projectId, 'Strip');
-    await send(`/api/work-items/${strip}`, owner, {
-      method: 'PATCH',
-      body: JSON.stringify({ name: 'Mine' }),
-    });
-    await send(`/api/work-items/${strip}`, stranger, {
-      method: 'PATCH',
-      body: JSON.stringify({ name: 'Theirs' }),
-    });
+    await patchItem(owner, projectId, strip, { name: 'Mine' });
+    await patchItem(stranger, projectId, strip, { name: 'Theirs' });
 
     const res = await send(`/api/projects/${projectId}/undo`, owner, { method: 'POST' });
 
@@ -257,10 +275,7 @@ describe('POST /api/projects/:id/redo', () => {
     const token = await register('owner');
     const projectId = await newProject(token);
     const strip = await addRoot(token, projectId, 'Strip');
-    await send(`/api/work-items/${strip}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ name: 'Strip out' }),
-    });
+    await patchItem(token, projectId, strip, { name: 'Strip out' });
     await send(`/api/projects/${projectId}/undo`, token, { method: 'POST' });
 
     const res = await send(`/api/projects/${projectId}/redo`, token, { method: 'POST' });
@@ -299,23 +314,20 @@ describe('what the tree read says about the stack', () => {
 });
 
 /**
- * What the front end's Name cell sends, arriving here as one request.
+ * What the front end's Name cell sends, arriving here as one `patchWorkItem`.
  *
  * The fe-01 test that proves the cell sends one `patch` proves one HTTP call
- * and stops there — codex round 1, finding 3. Whether one call is one entry on
- * the undo stack, and whether one press of Cmd+Z brings both fields back
+ * and stops there — codex round 1, finding 3. Whether one command is one entry
+ * on the undo stack, and whether one press of Cmd+Z brings both fields back
  * together, is decided by this service, this journal and this route, so it is
  * asked of them.
  */
-describe('PATCH /api/work-items/:id with a name and its notes at once', () => {
+describe('patchWorkItem with a name and its notes at once', () => {
   it('writes one journal entry, and one undo puts both fields back', async () => {
     const { token, userId } = await registerAccount('owner');
     const projectId = await newProject(token);
     const strip = await addRoot(token, projectId, 'Strip');
-    await send(`/api/work-items/${strip}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ notes: 'measure twice' }),
-    });
+    await patchItem(token, projectId, strip, { notes: 'measure twice' });
     // The stack as the composite edit finds it: the row's creation and the
     // note written under it, both this account's.
     expect((await journal.entriesFor(projectId, userId)).map((each) => each.kind)).toEqual([
@@ -323,15 +335,15 @@ describe('PATCH /api/work-items/:id with a name and its notes at once', () => {
       'patch',
     ]);
 
-    // Both fields, one gesture, one request — what `commitNameCell` sends when
+    // Both fields, one gesture, one command — what `commitNameCell` sends when
     // somebody rewrites a line and the note under it before leaving the cell.
-    const patched = await send(`/api/work-items/${strip}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ name: 'Strip the wiring', notes: 'measure twice, cut once' }),
+    const patched = await patchItem(token, projectId, strip, {
+      name: 'Strip the wiring',
+      notes: 'measure twice, cut once',
     });
     expect(patched.status).toBe(200);
 
-    // Proof: the same edit sent as two requests instead — `{ name }`, then
+    // Proof: the same edit sent as two commands instead — `{ name }`, then
     // `{ notes }` — this failed here on a fourth entry (`Expected - 0 /
     // Received + 1`, the extra `"patch"`), and with this assertion taken out
     // it failed further down on `Expected: "Strip" / Received: "Strip the

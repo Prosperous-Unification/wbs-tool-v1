@@ -708,7 +708,7 @@ function parseBatch(body: unknown): PlanCommand[] {
 /**
  * `statusFor`, widened to what a batch can refuse with: the work-item ladder,
  * the directory's `taken`/`in_use` (409, as `cycle` is), the runner's own
- * `unknown_ref`/`duplicate_ref`/`too_many_commands`/`missing_id`/`invalid_name`
+ * `unknown_ref`/`duplicate_ref`/`too_many_commands`/`missing_id`/`name_required`
  * (400), and the capacity/priority refusals that share `not_found`/`forbidden`.
  */
 function statusForBatch(reason: string): number {

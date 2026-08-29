@@ -419,7 +419,18 @@ describe('OIDC browser routes', () => {
         !publicProtocolRoutes.has(path),
     );
 
-    expect(mutations.length).toBeGreaterThan(30);
+    // The route table really was read, and it holds the two writes every plan
+    // and directory edit now goes through: with the single-item routes gone,
+    // a table that dropped either of these would leave every edit unguarded
+    // while the loop below still passed over what was left.
+    const commandRoutes = mutations
+      .filter(({ path }) => path.endsWith('/commands'))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    expect(commandRoutes).toEqual([
+      { method: 'POST', path: '/api/directory/commands' },
+      { method: 'POST', path: '/api/projects/:id/commands' },
+    ]);
+    expect(mutations.length).toBeGreaterThanOrEqual(10);
     for (const route of mutations) {
       const path = route.path.replace(/:[^/]+/g, 'test-id');
       const res = await f.app.handle(

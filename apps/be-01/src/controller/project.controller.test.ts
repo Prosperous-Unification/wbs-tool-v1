@@ -145,9 +145,9 @@ describe('projects', () => {
     const token = await register('owner');
     const create = await send('/api/projects', token, created('Export me'));
     const { project } = (await create.json()) as { project: { id: string } };
-    await send(`/api/projects/${project.id}/work-items`, token, {
+    await send(`/api/projects/${project.id}/commands`, token, {
       method: 'POST',
-      body: JSON.stringify({ name: 'Build the thing' }),
+      body: JSON.stringify({ commands: [{ kind: 'createWorkItem', name: 'Build the thing' }] }),
     });
 
     const res = await send(`/api/projects/${project.id}/export?format=json`, token);
@@ -169,9 +169,9 @@ describe('projects', () => {
     const token = await register('owner');
     const create = await send('/api/projects', token, created('Export me'));
     const { project } = (await create.json()) as { project: { id: string } };
-    await send(`/api/projects/${project.id}/work-items`, token, {
+    await send(`/api/projects/${project.id}/commands`, token, {
       method: 'POST',
-      body: JSON.stringify({ name: 'Build | ship' }),
+      body: JSON.stringify({ commands: [{ kind: 'createWorkItem', name: 'Build | ship' }] }),
     });
 
     const res = await send(`/api/projects/${project.id}/export?format=markdown`, token);

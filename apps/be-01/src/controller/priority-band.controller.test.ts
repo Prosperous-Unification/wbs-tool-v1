@@ -41,7 +41,14 @@ function ladderWith(at: number, change: Partial<PriorityBand>): PriorityBand[] {
   );
 }
 
-describe('PUT /api/projects/:id/priority-bands', () => {
+/**
+ * `setPriorityBands`, a batch of one on `POST /api/projects/:id/commands`. The
+ * retired `PUT /api/projects/:id/priority-bands` answered the stored ladder;
+ * the batch answers its `results`, so what was stored is read back through the
+ * repository the service wrote — a fixture answering it would be a second
+ * implementation of the ladder rules under test.
+ */
+describe('setPriorityBands on POST /api/projects/:id/commands', () => {
   let dir: string;
   let app: ReturnType<typeof buildApp>;
   let bands: PriorityBandRepository;
@@ -49,16 +56,24 @@ describe('PUT /api/projects/:id/priority-bands', () => {
   let token: string;
   let otherToken: string;
 
+  /**
+   * One `setPriorityBands` command, `fields` spread over it — `{ bands }` in the
+   * common case, `{}` for the body that names no ladder at all. `as: null`
+   * sends no token.
+   */
   async function put(
     projectId: string,
-    body: unknown,
-    as: string = token,
+    fields: object,
+    as: string | null = token,
   ): Promise<{ status: number; body: unknown }> {
     const response = await app.handle(
-      new Request(`http://localhost/api/projects/${projectId}/priority-bands`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${as}` },
-        body: JSON.stringify(body),
+      new Request(`http://localhost/api/projects/${projectId}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(as === null ? {} : { authorization: `Bearer ${as}` }),
+        },
+        body: JSON.stringify({ commands: [{ kind: 'setPriorityBands', ...fields }] }),
       }),
     );
     return { status: response.status, body: await response.json() };
@@ -140,13 +155,15 @@ describe('PUT /api/projects/:id/priority-bands', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('takes a whole ladder and answers the one it stored', async () => {
+  it('takes a whole ladder and stores the one it was sent', async () => {
     const answered = await put('shed', { bands: RECUT });
 
     expect(answered.status).toBe(200);
-    // The **stored** ladder rather than an echo of the request, which is what
-    // makes a trimmed label reach the client that sent an untrimmed one.
-    expect(answered.body).toEqual({ bands: [...RECUT] });
+    // The batch answers its `results`, never the ladder: a client reads the
+    // **stored** one back off the tree rather than echoing its own request,
+    // which is what makes a trimmed label reach the client that sent an
+    // untrimmed one.
+    expect(answered.body).toMatchObject({ results: [{ index: 0 }] });
     expect(await bands.listFor('shed')).toEqual([...RECUT]);
   });
 
@@ -171,7 +188,10 @@ describe('PUT /api/projects/:id/priority-bands', () => {
     // Three more cases in this file went red with it. Watched 2026-08-14.
     const answered = await put('shed', { bands: ladderWith(0, { startsAt: 5, defaultValue: 10 }) });
 
-    expect(answered).toEqual({ status: 400, body: { error: 'first_band_must_start_at_1' } });
+    expect(answered).toEqual({
+      status: 400,
+      body: { error: 'first_band_must_start_at_1', at: 0, kind: 'setPriorityBands' },
+    });
     expect(await bands.listFor('shed')).toEqual([...DEFAULT_PRIORITY_BANDS]);
   });
 
@@ -180,13 +200,13 @@ describe('PUT /api/projects/:id/priority-bands', () => {
 
     expect(answered).toEqual({
       status: 400,
-      body: { error: 'band_default_must_be_inside_its_own_band' },
+      body: { error: 'band_default_must_be_inside_its_own_band', at: 0, kind: 'setPriorityBands' },
     });
     expect(await bands.listFor('shed')).toEqual([...DEFAULT_PRIORITY_BANDS]);
   });
 
   it('refuses a sixth band and a fourth, because the count is not configurable', async () => {
-    // design.md D3, as a route rather than as prose: Dany asked for the labels,
+    // design.md D3, as a command rather than as prose: Dany asked for the labels,
     // the cuts and the defaults to be a project's own and did not ask to add a
     // rung, and refusing it is what keeps `rank` a number from 0 to 4 that every
     // face keys a colour off.
@@ -196,9 +216,11 @@ describe('PUT /api/projects/:id/priority-bands', () => {
           bands: [...RECUT, { startsAt: 900, label: 'Sixth', defaultValue: 950 }],
         })
       ).body,
-    ).toEqual({ error: 'bands_must_number_5' });
+    ).toEqual({ error: 'bands_must_number_5', at: 0, kind: 'setPriorityBands' });
     expect((await put('shed', { bands: RECUT.slice(0, 4) })).body).toEqual({
       error: 'bands_must_number_5',
+      at: 0,
+      kind: 'setPriorityBands',
     });
     expect(await bands.listFor('shed')).toEqual([...DEFAULT_PRIORITY_BANDS]);
   });
@@ -209,7 +231,7 @@ describe('PUT /api/projects/:id/priority-bands', () => {
     // is false and `priorityLadderProblem` refuses the string on its own — 9 pass,
     // 0 fail, watched 2026-08-14. The arms are how the three fields are narrowed
     // without a cast; the refusal is the ladder check's, and R5 #7 is where that
-    // check is watched failing. This case exists because a route that stored a
+    // check is watched failing. This case exists because a command that stored a
     // string start would be a defect however the refusal is arrived at.
     for (const bad of ['21', true, null]) {
       const answered = await put('shed', { bands: ladderWith(1, { startsAt: bad as never }) });
@@ -219,13 +241,14 @@ describe('PUT /api/projects/:id/priority-bands', () => {
   });
 
   it('refuses a body that is not bands at all', async () => {
-    expect((await put('shed', {})).body).toEqual({ error: 'bands_required' });
-    expect((await put('shed', { bands: 'five of them' })).body).toEqual({
-      error: 'bands_must_be_an_array',
-    });
-    expect((await put('shed', { bands: [1, 2, 3, 4, 5] })).body).toEqual({
-      error: 'bands_must_be_objects',
-    });
+    const refusedAs = (error: string) => ({ error, at: 0, kind: 'setPriorityBands' });
+    expect((await put('shed', {})).body).toEqual(refusedAs('bands_required'));
+    expect((await put('shed', { bands: 'five of them' })).body).toEqual(
+      refusedAs('bands_must_be_an_array'),
+    );
+    expect((await put('shed', { bands: [1, 2, 3, 4, 5] })).body).toEqual(
+      refusedAs('bands_must_be_objects'),
+    );
   });
 
   it('refuses a project that is not there, and one this account may not write', async () => {
@@ -234,25 +257,17 @@ describe('PUT /api/projects/:id/priority-bands', () => {
     // contradict the next GET.
     expect(await put('nobody-holds-this', { bands: RECUT })).toEqual({
       status: 404,
-      body: { error: 'not_found' },
+      body: { error: 'not_found', at: 0, kind: 'setPriorityBands' },
     });
     expect(await put('vault', { bands: RECUT }, otherToken)).toEqual({
       status: 403,
-      body: { error: 'forbidden' },
+      body: { error: 'forbidden', at: 0, kind: 'setPriorityBands' },
     });
     expect(await bands.listFor('vault')).toEqual([...DEFAULT_PRIORITY_BANDS]);
   });
 
   it('refuses an unauthenticated write', async () => {
-    const response = await app.handle(
-      new Request('http://localhost/api/projects/shed/priority-bands', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ bands: RECUT }),
-      }),
-    );
-
-    expect(response.status).toBe(401);
+    expect((await put('shed', { bands: RECUT }, null)).status).toBe(401);
     expect(await bands.listFor('shed')).toEqual([...DEFAULT_PRIORITY_BANDS]);
   });
 });

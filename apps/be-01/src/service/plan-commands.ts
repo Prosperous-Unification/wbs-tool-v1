@@ -463,7 +463,7 @@ export class PlanCommandRunner {
         case 'createTeam': {
           if (command.ref !== undefined && refs.has(command.ref)) refuse('duplicate_ref');
           const team = await directory.addTeam(command.name);
-          if (team === null) refuse('invalid_name');
+          if (team === null) refuse('name_required');
           results.push(entity(mint(command.ref, team.id), team));
           break;
         }
@@ -521,7 +521,7 @@ export class PlanCommandRunner {
         case 'createTag': {
           if (command.ref !== undefined && refs.has(command.ref)) refuse('duplicate_ref');
           const tag = await directory.addTag(command.name);
-          if (tag === null) refuse('invalid_name');
+          if (tag === null) refuse('name_required');
           results.push(entity(mint(command.ref, tag.id), tag));
           break;
         }
@@ -548,7 +548,7 @@ export class PlanCommandRunner {
         case 'createService': {
           if (command.ref !== undefined && refs.has(command.ref)) refuse('duplicate_ref');
           const service = await directory.addService(command.name);
-          if (service === null) refuse('invalid_name');
+          if (service === null) refuse('name_required');
           results.push(entity(mint(command.ref, service.id), service));
           break;
         }
