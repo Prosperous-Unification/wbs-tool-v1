@@ -219,13 +219,28 @@ export function buildApp(opts: AppOptions) {
             }
           })();
           await conn.joined;
+          // An upgrade that was accepted and then could not say who is behind
+          // it is closed, not served. Without this the socket stayed open and
+          // `message` below fell back to `'anon'`, which subscribes to any
+          // project and receives its fan-out — so the cookie checked in
+          // `beforeHandle` was bound to an identity only by Elysia happening
+          // to share the query object between the two hooks.
+          if (presence.usernameOf(conn.connectionId) === null) {
+            ws.close(1008, 'unauthenticated');
+          }
         },
         async message(ws, data) {
           const conn = ws.data as unknown as WsConnection;
           // Before anything reads presence: a `subscribe` that overtook the
           // join found no connection to move and was silently dropped.
           await conn.joined;
-          const clientId = presence.usernameOf(conn.connectionId) ?? 'anon';
+          const clientId = presence.usernameOf(conn.connectionId);
+          // Same boundary as `open`, checked again because a close is
+          // asynchronous and a frame already in flight must not be served.
+          if (clientId === null) {
+            ws.close(1008, 'unauthenticated');
+            return;
+          }
           const socket = conn.socket;
           await handleWsMessage({
             data: typeof data === 'string' ? data : JSON.stringify(data),

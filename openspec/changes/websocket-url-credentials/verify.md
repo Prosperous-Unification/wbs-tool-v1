@@ -48,6 +48,36 @@ gateway branch has a dedicated upgrade test whose deletion was watched red at
 4 passed / 1 failed. The restored h2puni focused gate is gw-01 **57/0** and
 fe-01 **1,754/0**, with both lint and typecheck targets green.
 
+## Post-merge QA — TASK-175, 2026-08-29
+
+Both PRs merged on 2026-08-27 (#163 as `9ecd06a2`, #166 as `25151d93`) with the
+Anthropic peer seat unavailable; Dany allowed the builder to merge and the
+structural peer review stayed owed. Lane q settled it on 2026-08-29:
+
+- `anthropic/claude-opus-5` (the required peer of `openai/gpt-5.6-sol`):
+  APPROVE-WITH-FINDINGS, 0 Critical / 2 Important / 2 Minor / 1 Nit.
+- `gemini/antigravity-cli` on the same complete diff, pinned to a detached
+  `25151d93` worktree: APPROVE, 0 findings.
+
+Both verdicts are sealed artifacts in the ops repo
+(`queue/reviews/task175-ws-auth-{opus,gemini}.txt`).
+
+The two Important findings are fixed on `fix/task175-ws-identity-fail-closed`:
+
+| Finding                               | Fault                                                                                                                                                                                        | Watched red                                                                                                                                     |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity-less socket served as `anon` | An upgrade that passed `beforeHandle` but failed the `open` recheck stayed open; `message` fell back to `clientId = 'anon'` and would subscribe to any project                               | Reverting the `app.ts` close, `ws-auth.integration.test.ts` fails at 2,011 ms on "socket stayed open without an identity" — 5 passed / 1 failed |
+| Runbook misstated registration        | `docs/runbook-dev-deploy.md` said OIDC mode "does not mount" `/api/auth/register`; it is mounted unconditionally and gated by `AUTH_PASSWORD_REGISTER` (default false), not by the auth mode | n/a — documentation                                                                                                                             |
+
+Live check performed against dev at 16:58Z on 2026-08-29:
+`GET https://dev.wbs.bulletpoints.club/api/auth/me` answered HTTP 401 with body
+exactly `{"error":"invalid_token"}`, so PR #166's repaired probe matches the real
+be-01 and the pre-#166 `missing_token` expectation really was a false failure.
+
+Still owed on TASK-175: acceptance criteria 1, 2, 3 and 5 — the instrumented
+browser `WebSocket` drive, the forced reconnect, the +310 s Caddy access-log
+sweep, and the exploratory pass.
+
 ## Exact-head gates owed
 
 - [ ] h2puni affected tests, lint, typecheck, build, global format, and strict

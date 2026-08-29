@@ -3,6 +3,7 @@ import { SignJWT } from 'jose';
 
 import { buildApp } from './app';
 import { loadConfig } from './config';
+import { type JwtClaims, JwtVerifier, type TokenVerifier } from './service/jwt-auth';
 
 const JWT_KEY = 'k'.repeat(32);
 const INTERNAL_SECRET = 's'.repeat(32);
@@ -229,5 +230,71 @@ describe('OIDC WebSocket authentication', () => {
       cookie: `__Host-wbs_access=${token}`,
       origin: APP_ORIGIN,
     });
+  });
+});
+
+/**
+ * The gap between the two hooks, not cookie parsing.
+ *
+ * `beforeHandle` verifies the cookie and `open` verifies it a second time,
+ * because Elysia gives the two hooks separate contexts and `open` will not
+ * trust a username it never saw. A token that expires in that window — or an
+ * Elysia release that stops sharing the query object — makes the second
+ * verification fail after the upgrade has already been accepted. What must not
+ * happen then is that the socket stays open and serves project data under a
+ * fallback identity.
+ */
+describe('WebSocket identity after the upgrade', () => {
+  /** Accepts the upgrade, then fails the recheck — a token expiring mid-handshake. */
+  function verifierThatExpiresAfterTheUpgrade(): TokenVerifier {
+    const real = new JwtVerifier({ current: key });
+    let calls = 0;
+    return {
+      async verify(token: string): Promise<JwtClaims> {
+        calls += 1;
+        if (calls > 1) throw new Error('token expired between the upgrade and the join');
+        return real.verify(token);
+      },
+    };
+  }
+
+  it('closes a socket whose identity fails the recheck instead of serving it as anon', async () => {
+    const app = buildApp({
+      appOrigin: APP_ORIGIN,
+      beUrl: 'http://be.invalid',
+      internalAuthSecret: INTERNAL_SECRET,
+      jwtKey: JWT_KEY,
+      verifier: verifierThatExpiresAfterTheUpgrade(),
+    });
+    app.listen(0);
+    const livePort = app.server?.port ?? 0;
+    try {
+      const token = await tokenFor('ada');
+      const socket = new WebSocket(`ws://localhost:${String(livePort)}/ws`, {
+        headers: { cookie: `__Host-wbs_access=${token}`, origin: APP_ORIGIN },
+      });
+      const received: unknown[] = [];
+      socket.addEventListener('message', (event: MessageEvent<string>) => {
+        received.push(JSON.parse(event.data));
+      });
+
+      let giveUp: ReturnType<typeof setTimeout> | undefined;
+      const closed = await new Promise<{ code: number }>((resolve, reject) => {
+        socket.addEventListener('close', (event: CloseEvent) => {
+          resolve({ code: event.code });
+        });
+        giveUp = setTimeout(() => {
+          reject(new Error('socket stayed open without an identity'));
+        }, 2_000);
+      });
+      clearTimeout(giveUp);
+
+      // 1008 is "policy violation": the handshake was accepted and then the
+      // identity behind it stopped being true.
+      expect(closed.code).toBe(1008);
+      expect(received).toEqual([]);
+    } finally {
+      void app.stop();
+    }
   });
 });
