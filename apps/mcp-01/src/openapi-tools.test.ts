@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { DerivedTool } from './openapi-tools';
-import { EXCLUDED_PATHS, readDocument, toolsFromDocument } from './openapi-tools';
+import {
+  EXCLUDED_PATHS,
+  isExcluded,
+  readDocument,
+  RETIRED_WRITE_PATHS,
+  toolsFromDocument,
+} from './openapi-tools';
 
 interface FixtureBodySchema {
   type?: string;
@@ -27,8 +33,25 @@ interface FixtureDocument {
  * cannot reach the next test. It carries one member of each exclusion class,
  * because the exclusion list is checked *against* the document.
  */
+/**
+ * One stub operation per retired write route, so the fixture document holds
+ * what the exclusion list expects to find — the stale-entry check is about the
+ * committed document, and the fixture has to satisfy it to be read at all.
+ * `METHOD path` entries stub that method; a `prefix/*` stubs one path under it.
+ */
+const retiredStubs = (): FixtureDocument['paths'] =>
+  Object.fromEntries(
+    RETIRED_WRITE_PATHS.map((entry, at) => {
+      const named = /^([A-Z]+) (.+)$/.exec(entry);
+      const method = named?.[1]?.toLowerCase() ?? 'delete';
+      const path = named?.[2] ?? (entry.endsWith('/*') ? `${entry.slice(0, -2)}/stub` : entry);
+      return [path, { [method]: { operationId: `retired${String(at)}` } }];
+    }),
+  );
+
 const fixture = (): FixtureDocument => ({
   paths: {
+    ...retiredStubs(),
     '/health': { get: { operationId: 'getHealth' } },
     '/metrics': { get: { operationId: 'getMetrics' } },
     '/api/smoke/echo': { post: { operationId: 'postApiSmokeEcho' } },
@@ -118,6 +141,17 @@ describe('toolsFromDocument, on a fixture document', () => {
     expect(() => toolsFromDocument(document)).toThrow(/"\/health".*no longer contains/s);
   });
 
+  it('excludes one method of a path when the entry names it, and keeps the others', () => {
+    // `POST /api/projects/{id}/work-items` is the create; the GET beside it is
+    // the tree read every agent needs. Proof: the method half of `excludes`
+    // removed, this failed on `expected [ 'getBand', … ] to contain 'getBand'`
+    // — the whole path gone. Watched, 2026-08-29.
+    expect(isExcluded('post', '/api/projects/{id}/work-items')).toBe(true);
+    expect(isExcluded('get', '/api/projects/{id}/work-items')).toBe(false);
+    expect(isExcluded('delete', '/api/work-items/{id}')).toBe(true);
+    expect(isExcluded('get', '/health')).toBe(true);
+  });
+
   it('excludes a whole prefix, not just the path that was named', () => {
     const document = fixture();
     document.paths['/internal/resume'] = { post: { operationId: 'postInternalResume' } };
@@ -204,13 +238,11 @@ describe('toolsFromDocument, on the committed document', () => {
    */
   it('derives exactly one tool per non-excluded operation in the document', () => {
     const expected = Object.entries(document.paths ?? {})
-      .filter(
-        ([path]) =>
-          !path.startsWith('/api/auth/') &&
-          !path.startsWith('/internal/') &&
-          !['/health', '/metrics', '/api/smoke/echo'].includes(path),
+      .flatMap(([path, item]) =>
+        Object.entries(item ?? {}).map(([method, operation]) =>
+          isExcluded(method, path) ? undefined : operation?.operationId,
+        ),
       )
-      .flatMap(([, item]) => Object.values(item ?? {}).map((operation) => operation?.operationId))
       .filter((id): id is string => id !== undefined);
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([...expected].sort());
@@ -246,9 +278,55 @@ describe('toolsFromDocument, on the committed document', () => {
    * project's gate can see is a count that drifts silently; the routes landed at
    * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
    */
-  it('is 51 tools, so a route that appears must be decided about', () => {
-    expect(tools).toHaveLength(51);
-    expect(EXCLUDED_PATHS).toHaveLength(5);
+  it('is 19 tools, so a route that appears must be decided about', () => {
+    // **51 to 19 with `plan-commands`.** Every single-item plan and directory
+    // write is excluded — a model gets one write tool, `commands`, and cannot
+    // pick the slow path — and the batch route arrives. What stays: the reads,
+    // `commands`, undo, redo, the project and role routes that are not plan
+    // edits, and the export. Five paths are excluded per method, because they
+    // share a path with a read that stays.
+    expect(tools).toHaveLength(19);
+    expect(EXCLUDED_PATHS).toHaveLength(19);
+  });
+
+  it('offers batches, not single writes (plan-commands)', () => {
+    // Proof: `/api/work-items/*` dropped from `EXCLUDED_PATHS`, this failed on
+    // `expected [] to have a length of 0` with sixteen names in it. Watched,
+    // 2026-08-29.
+    const names = tools.map((tool) => tool.name);
+    expect(names).toContain('postApiProjectsByIdCommands');
+    expect(tools.filter((tool) => tool.path.startsWith('/api/work-items/'))).toHaveLength(0);
+    for (const single of [
+      'postApiProjectsByIdWork-items',
+      'postApiTeams',
+      'patchApiTeamsById',
+      'deleteApiTeamsById',
+      'postApiPeople',
+      'postApiTags',
+      'postApiServices',
+      'putApiProjectsByIdTeamsByTeamIdCapacity',
+      'putApiProjectsByIdPriority-bands',
+      'postApiProjectsByIdFreeze',
+    ]) {
+      expect(names).not.toContain(single);
+    }
+    // The reads that share a path with an excluded write are still here.
+    expect(names).toContain('getApiProjectsByIdWork-items');
+    expect(names).toContain('getApiTeams');
+  });
+
+  it('describes every command kind in the commands tool, so a model needs no other document', () => {
+    const commands = byName(tools, 'postApiProjectsByIdCommands');
+    const list = commands.inputSchema.properties['commands'] as {
+      items: {
+        oneOf: { title: string; description: string; properties: { kind: { enum: string[] } } }[];
+      };
+    };
+    expect(list.items.oneOf).toHaveLength(33);
+    for (const variant of list.items.oneOf) {
+      expect(variant.description.length).toBeGreaterThan(10);
+      expect(variant.properties.kind.enum).toEqual([variant.title]);
+    }
   });
 
   it('derives a path-parameter-only read the way the document declares it', () => {
@@ -264,25 +342,18 @@ describe('toolsFromDocument, on the committed document', () => {
   });
 
   it('derives a write with path parameters and a body from both sides', () => {
-    const estimate = byName(tools, 'putApiWork-itemsByIdEstimatesByRoleId');
-    expect(estimate.method).toBe('put');
-    expect(Object.keys(estimate.inputSchema.properties).sort()).toEqual([
-      'id',
-      'optimistic',
-      'pessimistic',
-      'realistic',
-      'roleId',
-    ]);
-    expect([...(estimate.inputSchema.required ?? [])].sort()).toEqual([
-      'id',
-      'optimistic',
-      'pessimistic',
-      'realistic',
-      'roleId',
-    ]);
-    expect(estimate.locations['roleId']).toBe('path');
-    expect(estimate.locations['optimistic']).toBe('body');
-    expect(estimate.description).toContain('documentation, not validation');
+    // The role rename: two path parameters and a typebox body. Until
+    // `plan-commands` this read the estimate PUT, which is a batch command now.
+    const rename = byName(tools, 'patchApiProjectsByIdRolesByRoleId');
+    expect(rename.method).toBe('patch');
+    expect(Object.keys(rename.inputSchema.properties).sort()).toEqual(['id', 'name', 'roleId']);
+    expect([...(rename.inputSchema.required ?? [])].sort()).toEqual(['id', 'name', 'roleId']);
+    expect(rename.locations['roleId']).toBe('path');
+    expect(rename.locations['name']).toBe('body');
+    // And the one hand-parsed write left says so, as the eight used to.
+    expect(byName(tools, 'postApiProjectsByIdCommands').description).toContain(
+      'documentation, not validation',
+    );
   });
 
   it('keeps the history filters optional and in the query string', () => {

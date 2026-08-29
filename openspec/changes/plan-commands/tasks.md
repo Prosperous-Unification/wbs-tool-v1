@@ -31,7 +31,7 @@ Only `- [ ]` checkboxes are tracked by the apply phase.
 
 ## 4. mcp-01
 
-- [ ] 4.1 `EXCLUDED_PATHS` grows every single-item plan and directory write; the exclusion list is asserted against the document (an entry excluding nothing fails) — test: `openapi-tools.test.ts` `the write surface is commands, undo, redo and the project routes` (count < 15, no `/api/work-items/*`), `every command kind is described in the commands tool`; negative: one write route left out of the exclusions, watched failing on the count.
+- [x] 4.1 `EXCLUDED_PATHS` grows every single-item plan and directory write; the exclusion list is asserted against the document (an entry excluding nothing fails) — test: `openapi-tools.test.ts` `the write surface is commands, undo, redo and the project routes` (count < 15, no `/api/work-items/*`), `every command kind is described in the commands tool`; negative: one write route left out of the exclusions, watched failing on the count.
 - [ ] 4.2 `server.test.ts` round trip: `tools/call postApiProjectsByIdCommands` forwards the body and returns be-01's `{ error, at, kind }` as tool content on refusal (D7) — negative: `at` dropped from the forwarded refusal, watched failing.
 
 ## 5. fe-01 on batches
