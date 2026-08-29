@@ -104,15 +104,12 @@ describe('the committed OpenAPI document', () => {
    */
   it('describes every hand-parsed body without declaring it', async () => {
     const document = await documentFromApp(app());
+    // Since `plan-commands` the hand-parsed bodies are the two batch routes:
+    // every plan and directory write arrives as a command inside one of them,
+    // parsed by the same guards the single routes had.
     const handParsed: readonly [string, string][] = [
-      ['/api/projects/{id}/work-items', 'post'],
-      ['/api/work-items/{id}', 'patch'],
-      ['/api/work-items/{id}/assignees/{roleId}', 'put'],
-      ['/api/work-items/{id}/move', 'post'],
-      ['/api/work-items/{id}/dependencies', 'post'],
-      ['/api/work-items/{id}/estimates/{roleId}', 'put'],
-      ['/api/projects/{id}/teams/{teamId}/capacity', 'put'],
-      ['/api/projects/{id}/priority-bands', 'put'],
+      ['/api/projects/{id}/commands', 'post'],
+      ['/api/directory/commands', 'post'],
     ];
     // `| undefined` on both index signatures rather than the tidier
     // `Record<string, Record<string, unknown>>`: this repo does not run

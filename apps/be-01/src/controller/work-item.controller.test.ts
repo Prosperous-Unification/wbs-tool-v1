@@ -229,7 +229,7 @@ describe('work item routes', () => {
         body: JSON.stringify({ commands: [command] }),
       });
       expect(res.status, error).toBe(400);
-      expect(await res.json(), error).toEqual({ error, at: 0 });
+      expect(await res.json(), error).toEqual({ error, at: 0, kind: command['kind'] });
     };
     await refused({ kind: 'createWorkItem', parentId: 5 }, 'parentId_must_be_id_or_null');
     await refused(
@@ -272,7 +272,11 @@ describe('work item routes', () => {
       body: JSON.stringify({ commands: [{ kind: 'createWorkItem', name: 'X', number: '010' }] }),
     });
     expect(derived.status).toBe(400);
-    expect(await derived.json()).toEqual({ error: 'number_is_derived', at: 0 });
+    expect(await derived.json()).toEqual({
+      error: 'number_is_derived',
+      at: 0,
+      kind: 'createWorkItem',
+    });
 
     const many = await send(`/api/projects/${projectId}/commands`, token, {
       method: 'POST',

@@ -85,31 +85,6 @@ export interface OpenApiDocument {
  * `/*` matches a prefix and nothing else does — no regex, because a pattern
  * that can match more than it reads is the wrong tool for a deny list.
  */
-/**
- * The single-item write routes `plan-commands` retires, excluded here until
- * phase 3 deletes them from be-01. A model gets one write tool —
- * `postApiProjectsByIdCommands` — and cannot pick the slow path. Five are
- * excluded **per method** (`METHOD path`) because they share a path with a read
- * that stays: the tree read and the four directory lists. The stale-entry check
- * in {@link toolsFromDocument} is what says to delete each line the day its
- * route goes; when this list is empty, delete it.
- */
-export const RETIRED_WRITE_PATHS = [
-  '/api/work-items/*',
-  'POST /api/projects/{id}/work-items',
-  '/api/projects/{id}/freeze',
-  '/api/projects/{id}/unfreeze',
-  '/api/projects/{id}/teams/{teamId}/capacity',
-  '/api/projects/{id}/priority-bands',
-  'POST /api/teams',
-  '/api/teams/{id}',
-  'POST /api/people',
-  '/api/people/{id}',
-  'POST /api/tags',
-  '/api/tags/{id}',
-  'POST /api/services',
-  '/api/services/{id}',
-] as const;
 
 export const EXCLUDED_PATHS: readonly string[] = [
   '/api/auth/*',
@@ -117,33 +92,24 @@ export const EXCLUDED_PATHS: readonly string[] = [
   '/health',
   '/metrics',
   '/api/smoke/echo',
-  ...RETIRED_WRITE_PATHS,
 ];
 
 /** What the MCP protocol accepts as a tool name; `operationId` must already fit. */
 const TOOL_NAME = /^[a-zA-Z0-9_-]{1,128}$/;
 
 /**
- * Whether one exclusion entry covers this operation. An entry is a path, a
- * `prefix/*`, or `METHOD path` — the last excludes one method of a path whose
- * other methods stay, which is how `POST /api/projects/{id}/work-items` goes
- * while the GET beside it does not.
+ * Whether one exclusion entry covers this path: a path, or a `prefix/*`. Method
+ * plays no part — every path in the document is all read or all excluded.
  */
-const excludes = (pattern: string, method: string, path: string): boolean => {
-  const named = /^([A-Z]+) (.+)$/.exec(pattern);
-  if (named !== null) {
-    return named[1].toLowerCase() === method.toLowerCase() && named[2] === path;
-  }
-  return pattern.endsWith('/*') ? path.startsWith(pattern.slice(0, -1)) : path === pattern;
-};
+const excludes = (pattern: string, path: string): boolean =>
+  pattern.endsWith('/*') ? path.startsWith(pattern.slice(0, -1)) : path === pattern;
 
-/** The exclusion entry covering this operation, or none. */
-const exclusionFor = (method: string, path: string): string | undefined =>
-  EXCLUDED_PATHS.find((candidate) => excludes(candidate, method, path));
+/** The exclusion entry covering this path, or none. */
+const exclusionFor = (path: string): string | undefined =>
+  EXCLUDED_PATHS.find((candidate) => excludes(candidate, path));
 
-/** Whether this operation of the document becomes no tool. */
-export const isExcluded = (method: string, path: string): boolean =>
-  exclusionFor(method, path) !== undefined;
+/** Whether this path of the document becomes no tool. */
+export const isExcluded = (path: string): boolean => exclusionFor(path) !== undefined;
 
 const isMethod = (key: string): key is HttpMethod =>
   (HTTP_METHODS as readonly string[]).includes(key);
@@ -285,7 +251,7 @@ export function toolsFromDocument(document: OpenApiDocument): DerivedTool[] {
     if (item === undefined) continue;
     for (const [key, operation] of Object.entries(item)) {
       if (!isMethod(key) || operation === undefined) continue;
-      const pattern = exclusionFor(key, path);
+      const pattern = exclusionFor(path);
       if (pattern !== undefined) {
         matched.add(pattern);
         continue;

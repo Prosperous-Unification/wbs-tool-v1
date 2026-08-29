@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { DerivedTool } from './openapi-tools';
-import {
-  EXCLUDED_PATHS,
-  isExcluded,
-  readDocument,
-  RETIRED_WRITE_PATHS,
-  toolsFromDocument,
-} from './openapi-tools';
+import { EXCLUDED_PATHS, isExcluded, readDocument, toolsFromDocument } from './openapi-tools';
 
 interface FixtureBodySchema {
   type?: string;
@@ -33,25 +27,8 @@ interface FixtureDocument {
  * cannot reach the next test. It carries one member of each exclusion class,
  * because the exclusion list is checked *against* the document.
  */
-/**
- * One stub operation per retired write route, so the fixture document holds
- * what the exclusion list expects to find — the stale-entry check is about the
- * committed document, and the fixture has to satisfy it to be read at all.
- * `METHOD path` entries stub that method; a `prefix/*` stubs one path under it.
- */
-const retiredStubs = (): FixtureDocument['paths'] =>
-  Object.fromEntries(
-    RETIRED_WRITE_PATHS.map((entry, at) => {
-      const named = /^([A-Z]+) (.+)$/.exec(entry);
-      const method = named?.[1]?.toLowerCase() ?? 'delete';
-      const path = named?.[2] ?? (entry.endsWith('/*') ? `${entry.slice(0, -2)}/stub` : entry);
-      return [path, { [method]: { operationId: `retired${String(at)}` } }];
-    }),
-  );
-
 const fixture = (): FixtureDocument => ({
   paths: {
-    ...retiredStubs(),
     '/health': { get: { operationId: 'getHealth' } },
     '/metrics': { get: { operationId: 'getMetrics' } },
     '/api/smoke/echo': { post: { operationId: 'postApiSmokeEcho' } },
@@ -141,17 +118,6 @@ describe('toolsFromDocument, on a fixture document', () => {
     expect(() => toolsFromDocument(document)).toThrow(/"\/health".*no longer contains/s);
   });
 
-  it('excludes one method of a path when the entry names it, and keeps the others', () => {
-    // `POST /api/projects/{id}/work-items` is the create; the GET beside it is
-    // the tree read every agent needs. Proof: the method half of `excludes`
-    // removed, this failed on `expected [ 'getBand', … ] to contain 'getBand'`
-    // — the whole path gone. Watched, 2026-08-29.
-    expect(isExcluded('post', '/api/projects/{id}/work-items')).toBe(true);
-    expect(isExcluded('get', '/api/projects/{id}/work-items')).toBe(false);
-    expect(isExcluded('delete', '/api/work-items/{id}')).toBe(true);
-    expect(isExcluded('get', '/health')).toBe(true);
-  });
-
   it('excludes a whole prefix, not just the path that was named', () => {
     const document = fixture();
     document.paths['/internal/resume'] = { post: { operationId: 'postInternalResume' } };
@@ -239,8 +205,8 @@ describe('toolsFromDocument, on the committed document', () => {
   it('derives exactly one tool per non-excluded operation in the document', () => {
     const expected = Object.entries(document.paths ?? {})
       .flatMap(([path, item]) =>
-        Object.entries(item ?? {}).map(([method, operation]) =>
-          isExcluded(method, path) ? undefined : operation?.operationId,
+        Object.values(item ?? {}).map((operation) =>
+          isExcluded(path) ? undefined : operation?.operationId,
         ),
       )
       .filter((id): id is string => id !== undefined);
@@ -284,10 +250,10 @@ describe('toolsFromDocument, on the committed document', () => {
     // pick the slow path — and the batch route arrives. What stays: the reads,
     // `commands`, undo, redo, the project and role routes that are not plan
     // edits, the export, and the directory's own batch route (the directory
-    // has no project). Five paths are excluded per method, because they share
-    // a path with a read that stays.
+    // has no project). The single-item routes are gone from be-01, so nothing
+    // needs excluding beyond the five classes.
     expect(tools).toHaveLength(20);
-    expect(EXCLUDED_PATHS).toHaveLength(19);
+    expect(EXCLUDED_PATHS).toHaveLength(5);
   });
 
   it('offers batches, not single writes (plan-commands)', () => {

@@ -1,10 +1,4 @@
 import { MOST_PEOPLE_AT_ONCE } from '@wbs/domain';
-import { Elysia } from 'elysia';
-
-import { userFromHeaders } from '../middleware/authenticated';
-import { handParsedBody } from '../openapi/hand-parsed-body';
-import type { AuthService } from '../service/auth.service';
-import type { CapacityService } from '../service/capacity.service';
 
 /**
  * A capacity the request got wrong, carried as the code a client branches on.
@@ -66,86 +60,4 @@ export function capacityOf(body: unknown): number | null {
     throw new BadCapacity(`size_must_be_at_most_${String(MOST_PEOPLE_AT_ONCE)}`);
   }
   return value;
-}
-
-/**
- * How many of each team a project may have at work at once.
- *
- * **`PUT`, not `PATCH`.** The body carries the whole of the fact — there is one
- * field — and the same request twice is the same state. A `PATCH` would invite an
- * absent `size` to mean "leave it alone", and there is nothing else in this
- * resource to leave.
- *
- * Gated by project write access, unlike everything in `directoryController`: the
- * directory is global and open to every account, and this number moves one
- * project's dates. `CapacityService.set` owns that check and this translates its
- * refusal into a status, so there is one copy of the rule.
- *
- * There is no read route. The capacities ride in the plan's own payload
- * (`GET /api/projects/:id/work-items`), because a client that renders them
- * renders them beside dates computed from them, and a second request is a second
- * moment — the argument `WorkItemService.tree` makes for the people and the roles
- * it already carries.
- */
-export function capacityController(auth: AuthService, capacity: CapacityService) {
-  return new Elysia({ prefix: '/api/projects' })
-    .onError(({ error, set }) => {
-      if (error instanceof BadCapacity) {
-        set.status = 400;
-        return { error: error.reason };
-      }
-      return undefined;
-    })
-    .put(
-      '/:id/teams/:teamId/capacity',
-      async ({ params, body, headers, set }) => {
-        const user = await userFromHeaders(auth, headers);
-        if (user === null) {
-          set.status = 401;
-          return { error: 'unauthenticated' };
-        }
-        const outcome = await capacity.set(params.id, user.id, params.teamId, capacityOf(body));
-        if (!outcome.ok) {
-          // 403 rather than 404 for a project this account may read but not write,
-          // which is `projectController`'s own split: pretending it is absent would
-          // contradict the next GET.
-          set.status = outcome.reason === 'forbidden' ? 403 : 404;
-          return { error: outcome.reason };
-        }
-        return { capacities: outcome.result };
-      },
-      {
-        detail: {
-          summary: 'Say how many of one team this project may have at work at once',
-          description: `\`PUT\`, and the body carries the whole of the fact: the same request twice is the
-same state. **An absent \`size\` is refused rather than read as \`null\`** — a body
-that says nothing is not a clear, and unstated is not a team of one.
-
-There is no read route: the capacities ride in the plan's own payload,
-\`GET /api/projects/{id}/work-items\`, beside the dates computed from them.
-
-Body refusals, all 400: \`expected_object\`, \`size_required\`,
-\`size_must_be_a_whole_number_from_1\`, \`size_must_be_at_most_1000\`. A project this
-account may read but not write is \`forbidden\`, 403 — not 404, which would
-contradict the next GET.`,
-          requestBody: handParsedBody(
-            'How many of this team may be at work at once on this plan.',
-            {
-              type: 'object',
-              required: ['size'],
-              properties: {
-                size: {
-                  type: 'integer',
-                  nullable: true,
-                  minimum: 1,
-                  maximum: 1000,
-                  description:
-                    'People at once, 1 to 1000, or null for unstated. The floor is correctness rather than taste: a pool of 0 slots clamps every width to 0, duration is effort ÷ width, and the plan becomes `Infinity` dates with nothing on screen to say why.',
-                },
-              },
-            },
-          ),
-        },
-      },
-    );
 }

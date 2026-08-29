@@ -7,11 +7,9 @@ import {
   hasInvalidCookieOrigin,
   type OidcRouteOptions,
 } from './controller/auth.controller';
-import { capacityController } from './controller/capacity.controller';
 import { directoryController } from './controller/directory.controller';
 import { historyController } from './controller/history.controller';
 import { internalController } from './controller/internal.controller';
-import { priorityBandController } from './controller/priority-band.controller';
 import { projectController } from './controller/project.controller';
 import { roleController } from './controller/role.controller';
 import { smokeController } from './controller/smoke.controller';
@@ -184,12 +182,10 @@ export function buildApp(opts: AppOptions) {
       // registration order and `/:id/teams/:teamId/capacity` cannot be shadowed by
       // anything that route declares, but keeping the two adjacent is what makes
       // that checkable at a glance.
-      .use(capacityController(opts.auth, opts.capacity))
       // Beside `capacityController` for its reason: it shares
       // `projectController`'s prefix, `/:id/priority-bands` cannot be shadowed by
       // anything that route declares, and adjacency is what makes that checkable
       // at a glance.
-      .use(priorityBandController(opts.auth, opts.priorityBands))
       // Beside the two above for their reason: it shares `projectController`'s
       // prefix, `/:id/history` cannot be shadowed by anything that route
       // declares, and adjacency is what makes that checkable at a glance.
