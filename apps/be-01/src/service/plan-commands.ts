@@ -3,7 +3,7 @@ import type { DirectoryService } from './directory.service';
 import type { OuterTransaction } from './outer-transaction';
 import { MOST_COMMANDS_IN_A_BATCH, type PlanCommand, type PlanCommandKind } from './plan-command';
 import type { PriorityBandService } from './priority-band.service';
-import type { UndoOutcome, WorkItemService } from './work-item.service';
+import type { Collected, UndoOutcome, WorkItemService } from './work-item.service';
 import type { WriteLock } from './write-lock';
 
 /**
@@ -104,57 +104,70 @@ export class PlanCommandRunner {
     return this.execute(null, actorId, commands);
   }
 
-  private execute(
+  /**
+   * The lock covers the transaction and nothing after it: the broadcast is a
+   * push to gw-01 over the network, and a lock held across it would let one
+   * slow gateway stall every write in the process. Proof:
+   * `plan-commands.test.ts` › lets go of the write lock before the broadcast
+   * leaves — with the announce inside `lock.run` the second batch waited on a
+   * publish held open and the test timed out.
+   */
+  private async execute(
     projectId: string | null,
     actorId: string,
     commands: readonly PlanCommand[],
   ): Promise<BatchOutcome> {
-    return this.opts.lock.run(async () => {
-      const over = commands.at(MOST_COMMANDS_IN_A_BATCH);
-      if (over !== undefined) {
-        return {
-          ok: false,
-          at: MOST_COMMANDS_IN_A_BATCH,
-          kind: over.kind,
-          reason: 'too_many_commands',
-        };
-      }
-      const { workItems, transactions } = this.opts;
-      transactions.begin();
-      let collected;
-      try {
-        collected = await workItems.collect(() => this.applyAll(projectId, actorId, commands));
-        if (projectId !== null) {
-          await workItems.recordCollected(projectId, actorId, collected.recordings);
-        }
-      } catch (cause) {
-        transactions.rollback();
-        if (cause instanceof Refused) {
+    const applied = await this.opts.lock.run(
+      async (): Promise<BatchOutcome | Collected<BatchResult[]>> => {
+        const over = commands.at(MOST_COMMANDS_IN_A_BATCH);
+        if (over !== undefined) {
           return {
             ok: false,
-            at: cause.at,
-            kind: cause.kind,
-            reason: cause.reason,
-            ...(cause.detail === undefined ? {} : { detail: cause.detail }),
+            at: MOST_COMMANDS_IN_A_BATCH,
+            kind: over.kind,
+            reason: 'too_many_commands',
           };
         }
-        throw cause;
-      }
-      transactions.commit();
-      if (projectId === null)
-        return { ok: true, results: collected.result, undoable: false, redoable: false };
-      if (collected.dirty) await workItems.announceTreeNow(projectId);
-      const state = await workItems.undoState(projectId, actorId);
-      return { ok: true, results: collected.result, ...state };
-    });
+        const { workItems, transactions } = this.opts;
+        transactions.begin();
+        let collected;
+        try {
+          collected = await workItems.collect(() => this.applyAll(projectId, actorId, commands));
+          if (projectId !== null) {
+            await workItems.recordCollected(projectId, actorId, collected.recordings);
+          }
+        } catch (cause) {
+          transactions.rollback();
+          if (cause instanceof Refused) {
+            return {
+              ok: false,
+              at: cause.at,
+              kind: cause.kind,
+              reason: cause.reason,
+              ...(cause.detail === undefined ? {} : { detail: cause.detail }),
+            };
+          }
+          throw cause;
+        }
+        transactions.commit();
+        return collected;
+      },
+    );
+    if ('ok' in applied) return applied;
+    const { workItems } = this.opts;
+    if (projectId === null)
+      return { ok: true, results: applied.result, undoable: false, redoable: false };
+    if (applied.dirty) await workItems.announceTreeNow(projectId);
+    const state = await workItems.undoState(projectId, actorId);
+    return { ok: true, results: applied.result, ...state };
   }
 
   undo(projectId: string, actorId: string): Promise<UndoOutcome> {
-    return this.walk(() => this.opts.workItems.undo(projectId, actorId));
+    return this.walk(projectId, () => this.opts.workItems.undo(projectId, actorId));
   }
 
   redo(projectId: string, actorId: string): Promise<UndoOutcome> {
-    return this.walk(() => this.opts.workItems.redo(projectId, actorId));
+    return this.walk(projectId, () => this.opts.workItems.redo(projectId, actorId));
   }
 
   /**
@@ -163,25 +176,31 @@ export class PlanCommandRunner {
    * two back too — and then discards the stale entry again, outside the
    * transaction, because the service's own discard went with the rollback.
    */
-  private walk(step: () => Promise<UndoOutcome>): Promise<UndoOutcome> {
-    return this.opts.lock.run(async () => {
-      const { transactions, workItems } = this.opts;
+  private async walk(projectId: string, step: () => Promise<UndoOutcome>): Promise<UndoOutcome> {
+    const { transactions, workItems } = this.opts;
+    // The step's own broadcast is collected rather than sent, for the reason
+    // `execute` gives: the push happens after the lock is let go.
+    const walked = await this.opts.lock.run(async () => {
       transactions.begin();
-      let outcome: UndoOutcome;
+      let collected: Collected<UndoOutcome>;
       try {
-        outcome = await step();
+        collected = await workItems.collect(step);
       } catch (cause) {
         transactions.rollback();
         throw cause;
       }
-      if (outcome.ok) {
+      if (collected.result.ok) {
         transactions.commit();
-        return outcome;
+        return collected;
       }
       transactions.rollback();
-      if (outcome.entryId !== undefined) await workItems.discardEntry(outcome.entryId);
-      return outcome;
+      if (collected.result.entryId !== undefined) {
+        await workItems.discardEntry(collected.result.entryId);
+      }
+      return { ...collected, dirty: false };
     });
+    if (walked.dirty) await workItems.announceTreeNow(projectId);
+    return walked.result;
   }
 
   private async applyAll(

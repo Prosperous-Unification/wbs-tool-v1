@@ -22,19 +22,26 @@ import { UserRepository } from '../repository/user';
 import { SubtreeRepository } from '../repository/work-item';
 import { WorkItemRepository } from '../repository/work-item';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import type { Broadcaster } from './broadcast';
 import { CapacityService } from './capacity.service';
 import { DirectoryService } from './directory.service';
 import type { PlanCommand } from './plan-command';
-import { type BatchOutcome, PlanCommandRunner } from './plan-commands';
+import {
+  type BatchOutcome,
+  PlanCommandRunner,
+  type PlanCommandRunnerOptions,
+} from './plan-commands';
 import { PriorityBandService } from './priority-band.service';
 import { ProjectService } from './project.service';
-import { WorkItemService } from './work-item.service';
+import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
 import { WriteLock } from './write-lock';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 let dir: string;
 let runner: PlanCommandRunner;
+let runnerOptions: PlanCommandRunnerOptions;
+let serviceOptions: WorkItemServiceOptions;
 let workItems: WorkItemService;
 let workItemStore: WorkItemRepository;
 let estimateStore: EstimateRepository;
@@ -77,7 +84,7 @@ beforeEach(async () => {
     createdAt: 1,
   });
 
-  workItems = new WorkItemService({
+  serviceOptions = {
     workItems: workItemStore,
     projects: projectStore,
     estimates: estimateStore,
@@ -91,15 +98,17 @@ beforeEach(async () => {
     subtrees: new SubtreeRepository(db),
     journal: journalStore,
     broadcast,
-  });
-  runner = new PlanCommandRunner({
+  };
+  workItems = new WorkItemService(serviceOptions);
+  runnerOptions = {
     workItems,
     directory: new DirectoryService({ directory: directoryStore, broadcast }),
     capacity: new CapacityService({ projects: projectStore, capacity: capacityStore, broadcast }),
     priorityBands: new PriorityBandService({ projects: projectStore, bands: bandStore, broadcast }),
     transactions: drizzleOuterTransaction(db),
     lock: new WriteLock(),
-  });
+  };
+  runner = new PlanCommandRunner(runnerOptions);
   const created = await new ProjectService({ projects: projectStore }).create(
     'Rewire the shed',
     ownerId,
@@ -339,6 +348,48 @@ describe('a command batch', () => {
     ).toEqual({ ok: false, at: 1, kind: 'createWorkItem', reason: 'project_required' });
     // All or none here too: the tag went with the refusal.
     expect(await directoryStore.listTags()).toHaveLength(0);
+  });
+
+  it('lets go of the write lock before the broadcast leaves', async () => {
+    // The lock is for the one connection; a push to gw-01 is a network call,
+    // and holding the lock across it would let one slow gateway stall every
+    // write in the process. Batch A's publish is held open here; batch B must
+    // still apply while it is pending.
+    // Proof: with `announceTreeNow` inside `lock.run` (the shape this shipped in
+    // until CI's `pixels` job stalled on a first create), batch B never got the
+    // lock and this test timed out at 5000ms. Watched, 2026-08-29.
+    let releaseA: () => void = () => undefined;
+    let pushes = 0;
+    const held = new Promise<void>((resume) => {
+      releaseA = resume;
+    });
+    const slow: Broadcaster = {
+      publish: () => {
+        pushes += 1;
+        return pushes === 1 ? held : Promise.resolve();
+      },
+      latestSeq: () => Promise.resolve(0),
+    };
+    const slowItems = new WorkItemService({ ...serviceOptions, broadcast: slow });
+    const slowRunner = new PlanCommandRunner({ ...runnerOptions, workItems: slowItems });
+
+    let a: 'pending' | 'applied' = 'pending';
+    const first = slowRunner
+      .run(projectId, ownerId, [
+        { kind: 'createWorkItem', parentId: null, afterId: null, name: 'A' },
+      ])
+      .then(() => {
+        a = 'applied';
+      });
+    const second = await slowRunner.run(projectId, ownerId, [
+      { kind: 'createWorkItem', parentId: null, afterId: null, name: 'B' },
+    ]);
+    expect(second.ok).toBe(true);
+    expect(a).toBe('pending');
+    expect(await names()).toEqual(['A', 'B']);
+    releaseA();
+    await first;
+    expect(a).toBe('applied');
   });
 
   it('refuses two hundred and one commands before applying any', async () => {
