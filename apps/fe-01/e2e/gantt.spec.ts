@@ -567,7 +567,7 @@ async function scrollChartFullyRight(page: Page): Promise<number> {
 async function seedOnALaptop(
   page: Page,
   account: string,
-  options: { estimate?: string; extraRows?: number } = {},
+  options: { estimate?: string; extraRows?: number; costedExtras?: boolean } = {},
 ): Promise<void> {
   const phone = page.viewportSize();
   if (phone === null) throw new Error('this project declares no viewport to seed away from');
@@ -1790,6 +1790,56 @@ test.describe('the surface a bar opens, as a browser places it', () => {
  * for this at any width: it dispatches whatever events it is told to and
  * synthesizes none.
  */
+/**
+ * The bar standing closest to the bottom of the window, measured **now**.
+ *
+ * Every coordinate comes back from the same `evaluate` that reads it, because
+ * measuring a bar and then tapping where it used to be is how TASK-186's
+ * investigation went wrong three separate times: an iframe whose layout said
+ * 844 inside a window that was 770, a survey reused across cells while the
+ * panel scrolled back to the top, and a bar that had moved 466px between the
+ * measurement and the finger. Each time the hit test and the input dispatch
+ * were answering different questions, and each time the result read as a
+ * reproduced defect.
+ *
+ * Bars hanging off any edge are dropped rather than clamped: a clamped point is
+ * a tap somewhere the mark is not.
+ *
+ * @param page The page holding the chart.
+ * @returns The tap point, how far the bar's lower edge sits above the bottom of
+ * the window, and the bar's accessible name so a failure can say which mark it
+ * was about.
+ * @throws When no bar is wholly inside the window, which would leave the tap
+ * below a claim about an empty chart.
+ */
+const lowestBarInTheWindow = (
+  page: Page,
+): Promise<{ x: number; y: number; gapBottom: number; named: string }> =>
+  page.evaluate(() => {
+    const height = window.innerHeight;
+    const width = window.innerWidth;
+    const inside = [...document.querySelectorAll('[data-gantt-bar]')]
+      .map((mark) => ({ mark, box: mark.getBoundingClientRect() }))
+      .filter(
+        ({ box }) =>
+          box.width > 0 &&
+          box.height > 0 &&
+          box.top >= 0 &&
+          box.bottom <= height &&
+          box.left >= 0 &&
+          box.right <= width,
+      )
+      .map(({ mark, box }) => ({
+        x: box.left + box.width / 2,
+        y: box.top + box.height / 2,
+        gapBottom: height - box.bottom,
+        named: mark.getAttribute('aria-label') ?? '(a bar with no name)',
+      }))
+      .sort((one, other) => one.gapBottom - other.gapBottom);
+    if (inside.length === 0) throw new Error('no bar is wholly inside the window to tap');
+    return inside[0];
+  });
+
 test.describe('a bar on a touch screen', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
@@ -1863,6 +1913,122 @@ test.describe('a bar on a touch screen', () => {
     } finally {
       await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     }
+  });
+
+  test('opens a bar against the bottom edge, and keeps its card on the glass', async ({ page }) => {
+    // **Costed extras, and that is what this fixture is for.** A row nobody has
+    // estimated draws no bar at all since `gantt-declutter`, so free extra rows
+    // give the chart height and leave every mark up at the top — which is
+    // exactly why the coverage already here passed while TASK-186's bottom edge
+    // was untested: every fixture bar sat in the top-left corner.
+    // Thirty-two of them, and the count is measured rather than tasteful: full
+    // screen is `inset-0`, so the chart's scroller is most of 844px and a row
+    // is `ROW_PX` tall. Sixteen rows — the tallest fixture already in this file
+    // — draw a chart shorter than the phone, `scrollTop` stays 0, and there is
+    // no bottom edge to tap at all. Watched on h2puni, 2026-08-29: this test
+    // failed on `the chart is not taller than the phone` before the bump.
+    await seedOnALaptop(page, nextAccount(), { extraRows: 32, costedExtras: true });
+    await openTheChart(page, { throughTheSheet: true });
+    await page.locator('[data-gantt-fullscreen-toggle]').tap();
+    await expect(page.locator('[data-gantt-fullscreen]')).toHaveCount(1);
+
+    // The chart pinned to its own bottom, so the last mark drawn stands against
+    // the lower edge of the phone instead of in the middle of it.
+    const pinned = await page.evaluate(() => {
+      const panel = document.querySelector('[data-gantt-panel]');
+      if (panel === null) throw new Error('the Gantt panel is not on the page');
+      panel.scrollTop = panel.scrollHeight;
+      return { top: panel.scrollTop, scrollHeight: panel.scrollHeight, height: panel.clientHeight };
+    });
+    expect(
+      pinned.top,
+      `the chart is not taller than the phone (${String(pinned.scrollHeight)} in ${String(pinned.height)}), so no bar is at its bottom edge`,
+    ).toBeGreaterThan(0);
+
+    // Nothing open before the finger lands. Asserted rather than assumed: a
+    // card left over from an earlier gesture makes every check below true
+    // without this tap having opened anything, and a drive of this task that
+    // did assume it reported a pass it had not earned.
+    await expect(surface(page)).toHaveCount(0);
+
+    const bar = await lowestBarInTheWindow(page);
+    // The precondition, and the whole subject: within ~60px of the bottom, the
+    // band the reported case sat in at `gapBottom 54`. Without it the tap could
+    // land mid-window, where the card has room below it and this would be the
+    // test above written a second time.
+    expect(
+      bar.gapBottom,
+      `the lowest bar (${bar.named}) is ${String(Math.round(bar.gapBottom))}px off the bottom, which is not the edge`,
+    ).toBeLessThanOrEqual(60);
+
+    await page.touchscreen.tap(bar.x, bar.y);
+
+    await expect(surface(page)).toBeVisible();
+    // Full screen survived the tap. This is the one assertion about the touch
+    // press rather than about placement: a press cleared between `pointerup`
+    // and `click` falls through to `onPickRow`, which leaves full screen for
+    // the row's card — a card opening is not by itself proof that it did not.
+    await expect(
+      page.locator('[data-gantt-fullscreen]'),
+      'the tap fell through to the row instead of stopping at the facts',
+    ).toHaveCount(1);
+
+    const shown = await rectOfLocator(surface(page), 'the fact card');
+    const window_ = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+    // Placed below its bar this card would hang off the bottom, so the flip is
+    // doing work here rather than agreeing with a placement that was inside the
+    // window all along.
+    expect(
+      shown.height,
+      'this bar has room for its card below it, so nothing had to flip',
+    ).toBeGreaterThan(bar.gapBottom);
+    expect(shown.top, 'the card was flipped off the top of the phone').toBeGreaterThanOrEqual(
+      -NEARLY,
+    );
+    expect(shown.bottom, 'the card hangs off the bottom of the phone').toBeLessThanOrEqual(
+      window_.height + NEARLY,
+    );
+    expect(shown.left, 'the card hangs off the left of the phone').toBeGreaterThanOrEqual(-NEARLY);
+    expect(shown.right, 'the card hangs off the right of the phone').toBeLessThanOrEqual(
+      window_.width + NEARLY,
+    );
+
+    // Not clipped, structurally: the card is portalled out of the chart, so no
+    // scroller's `overflow` can cut it — a card rendered inside the panel would
+    // be clipped by the panel whatever its rectangle said, and a rectangle is
+    // all the checks above can see.
+    //
+    // **Not a `paintedAt`-style hit test, and that is deliberate.**
+    // `pointer-events: none` is the default on a hover card and load-bearing
+    // (`hover-card.tsx`): a card hangs over the row beneath it and one that
+    // takes the mouse eats a click aimed at that row. So
+    // `elementFromPoint` at the card's centre answers with the bar underneath
+    // it, and an assertion written that way fails about a design decision
+    // rather than about a fault. Watched here, 2026-08-29: `Received "<rect
+    // data-gantt-bar …>"` on a card that was open, placed and readable.
+    const clipper = await page.evaluate(() => {
+      const card = document.querySelector('[role="tooltip"]');
+      if (card === null) throw new Error('the fact card is not on the page');
+      const panel = document.querySelector('[data-gantt-panel]');
+      if (panel === null) throw new Error('the Gantt panel is not on the page');
+      return { insideTheScroller: panel.contains(card) };
+    });
+    expect(
+      clipper.insideTheScroller,
+      'the card is rendered inside the chart’s scroller, which clips it',
+    ).toBe(false);
+
+    // And it says something, about this bar. A card of the right size in the
+    // right place with nothing legible in it meets every rectangle assertion
+    // above.
+    const [number] = bar.named.split(' - ');
+    expect(number, 'the bar carries no row number to hold its card to').toBeTruthy();
+    await expect(surface(page)).toContainText(number);
+    const facts = (await surface(page).textContent()) ?? '';
+    expect(facts.trim().length, 'the card is open and says nothing').toBeGreaterThan(20);
   });
 });
 
