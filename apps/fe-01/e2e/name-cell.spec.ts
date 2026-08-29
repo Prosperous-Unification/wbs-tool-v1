@@ -126,10 +126,15 @@ const linesHidden = (box: CellBox): number =>
 async function aPeerRenames(page: Page, workItemId: string, name: string): Promise<void> {
   const status = await page.evaluate(
     async ([id, newName]) => {
-      const res = await fetch(`/api/work-items/${id}`, {
-        method: 'PATCH',
+      // A batch of one on the page's own project, as every write is now.
+      const projectId = window.localStorage.getItem('wbs.project');
+      if (projectId === null) throw new Error('no wbs.project in localStorage');
+      const res = await fetch(`/api/projects/${projectId}/commands`, {
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({
+          commands: [{ kind: 'patchWorkItem', workItemId: id, patch: { name: newName } }],
+        }),
       });
       return res.status;
     },

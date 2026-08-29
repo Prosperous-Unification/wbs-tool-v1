@@ -9,6 +9,22 @@ import { CHART_PAD_PX, DAY_PX, ROW_PX } from '../src/components/wbs/gantt-panel'
  * alone no longer says which write left the browser; the kind in the body does.
  * Registered before the gesture that sends it, as the note above says.
  */
+/**
+ * The write a date box sends: the project start date is still its own
+ * `PATCH /api/projects/{id}`, while a row's earliest start is a `patchWorkItem`
+ * command — `setDate` serves both, so it waits for whichever leaves.
+ */
+const savedDate = (page: Page): Promise<Response> =>
+  page.waitForResponse((response) => {
+    const request = response.request();
+    if (request.method() === 'PATCH' && /\/api\/projects\/[^/]+$/.test(response.url())) return true;
+    return (
+      request.method() === 'POST' &&
+      response.url().includes('/commands') &&
+      (request.postData() ?? '').includes('"kind":"patchWorkItem"')
+    );
+  });
+
 const savedCommand = (page: Page, kind: string): Promise<Response> =>
   page.waitForResponse(
     (response) =>
@@ -88,7 +104,7 @@ async function setDate(page: Page, label: string, day: string): Promise<void> {
   await expect(box).toHaveAttribute('type', 'date');
   // Registered before the gesture, because the gesture is what sends: see the
   // note above.
-  const saved = savedCommand(page, 'patchWorkItem');
+  const saved = savedDate(page);
   await box.fill(day);
   await saved;
   // `blur`, not `press('Tab')`: Chrome's date input owns Tab for stepping

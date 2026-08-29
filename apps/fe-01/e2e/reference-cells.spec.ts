@@ -27,18 +27,29 @@ async function jsonPost<T>(page: Page, path: string, body: unknown): Promise<T> 
   );
 }
 
-async function patch(page: Page, path: string, body: unknown): Promise<void> {
-  await page.evaluate(
-    async ({ at, value }) => {
-      const response = await fetch(at, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(value),
-      });
-      if (!response.ok) throw new Error(`PATCH ${at} failed: ${String(response.status)}`);
-    },
-    { at: path, value: body },
+/** One batch on a project, answering the id each command created (by index). */
+async function commands(
+  page: Page,
+  projectId: string,
+  list: Record<string, unknown>[],
+): Promise<(string | undefined)[]> {
+  const answer = await jsonPost<{ results: { id?: string }[] }>(
+    page,
+    `/api/projects/${projectId}/commands`,
+    { commands: list },
   );
+  return answer.results.map((each) => each.id);
+}
+
+/** One directory batch, answering the entry each command created (by index). */
+async function directoryCommands<T>(page: Page, list: Record<string, unknown>[]): Promise<T[]> {
+  const answer = await jsonPost<{ results: { entity?: T }[] }>(page, '/api/directory/commands', {
+    commands: list,
+  });
+  return answer.results.map((each) => {
+    if (each.entity === undefined) throw new Error('a directory create answered no entry');
+    return each.entity;
+  });
 }
 
 async function seed(page: Page): Promise<Seed> {
@@ -49,30 +60,27 @@ async function seed(page: Page): Promise<Seed> {
   await expect.poll(() => page.evaluate(() => localStorage.getItem('wbs.project'))).not.toBeNull();
   const projectId = await page.evaluate(() => localStorage.getItem('wbs.project'));
   if (projectId === null) throw new Error('no project id after creating the plan');
-  let afterId: string | null = null;
-  for (const number of ['010', '020', '030', '040']) {
-    const made: { id: string } = await jsonPost(page, `/api/projects/${projectId}/work-items`, {
+  // Four rows in one batch, each placed after the one before it by ref.
+  await commands(
+    page,
+    projectId,
+    ['010', '020', '030', '040'].map((number, at) => ({
+      kind: 'createWorkItem',
+      ref: number,
       parentId: null,
-      afterId,
+      ...(at === 0 ? { afterId: null } : { afterRef: ['010', '020', '030', '040'][at - 1] }),
       name: `Reference ${number}`,
-    });
-    afterId = made.id;
-  }
+    })),
+  );
 
-  const make = async (path: string, names: string[], key: 'team' | 'tag' | 'service') =>
-    Promise.all(
-      names.map(async (name) => {
-        const made = await jsonPost<Record<'team' | 'tag' | 'service', Entry>>(page, path, {
-          name,
-        });
-        return made[key];
-      }),
+  const make = (kind: 'createTeam' | 'createTag' | 'createService', names: string[]) =>
+    directoryCommands<Entry>(
+      page,
+      names.map((name) => ({ kind, name })),
     );
-  const [teams, tags, services] = await Promise.all([
-    make('/api/teams', ['Platform', 'Release', 'Support'], 'team'),
-    make('/api/tags', ['Ready', 'Risk', 'Review'], 'tag'),
-    make('/api/services', ['Billing', 'Identity', 'Search'], 'service'),
-  ]);
+  const teams = await make('createTeam', ['Platform', 'Release', 'Support']);
+  const tags = await make('createTag', ['Ready', 'Risk', 'Review']);
+  const services = await make('createService', ['Billing', 'Identity', 'Search']);
 
   const tree = await page.evaluate(async (id) => {
     const response = await fetch(`/api/projects/${id}/work-items`);
@@ -86,19 +94,20 @@ async function seed(page: Page): Promise<Seed> {
   if (id010 === undefined || id020 === undefined || id030 === undefined || id040 === undefined)
     throw new Error('the four reference rows were not created');
 
-  await jsonPost(page, `/api/projects/${projectId}/work-items`, {
-    parentId: id010,
-    afterId: null,
-    name: 'Inherited reference child',
-  });
-  await patch(page, `/api/work-items/${id010}`, {
-    teamIds: teams.slice(0, 2).map(({ id }) => id),
-    tagIds: tags.slice(0, 2).map(({ id }) => id),
-    serviceIds: services.slice(0, 2).map(({ id }) => id),
-  });
-  for (const predecessorId of [id010, id020]) {
-    await jsonPost(page, `/api/work-items/${id040}/dependencies`, { predecessorId });
-  }
+  await commands(page, projectId, [
+    { kind: 'createWorkItem', parentId: id010, afterId: null, name: 'Inherited reference child' },
+    {
+      kind: 'patchWorkItem',
+      workItemId: id010,
+      patch: {
+        teamIds: teams.slice(0, 2).map(({ id }) => id),
+        tagIds: tags.slice(0, 2).map(({ id }) => id),
+        serviceIds: services.slice(0, 2).map(({ id }) => id),
+      },
+    },
+    { kind: 'addDependency', workItemId: id040, predecessorId: id010 },
+    { kind: 'addDependency', workItemId: id040, predecessorId: id020 },
+  ]);
   await page.reload();
   return { teams, tags, services };
 }

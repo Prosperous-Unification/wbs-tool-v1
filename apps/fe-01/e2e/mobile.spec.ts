@@ -111,21 +111,22 @@ async function seedPlan(page: Page, _account: string): Promise<void> {
   // vocabulary entry is made on the Directory, then every row can search or
   // add from its card sheet. Seed that prerequisite through the same API the
   // Directory uses, so the 44px case below measures real, non-vacuous fields.
-  const vocabularyStatuses = await page.evaluate(async () => {
-    const make = async (path: string, name: string) =>
+  const vocabularyStatus = await page.evaluate(
+    async () =>
       (
-        await fetch(path, {
+        await fetch('/api/directory/commands', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({
+            commands: [
+              { kind: 'createTag', name: 'mobile e2e tag' },
+              { kind: 'createService', name: 'mobile e2e service' },
+            ],
+          }),
         })
-      ).status;
-    return Promise.all([
-      make('/api/tags', 'mobile e2e tag'),
-      make('/api/services', 'mobile e2e service'),
-    ]);
-  });
-  expect(vocabularyStatuses, 'the card-label vocabularies were not seeded').toEqual([200, 200]);
+      ).status,
+  );
+  expect(vocabularyStatus, 'the card-label vocabularies were not seeded').toBe(200);
 
   await expect(page.getByRole('button', { name: 'Plan actions' })).toBeVisible();
 
@@ -148,10 +149,15 @@ async function seedPlan(page: Page, _account: string): Promise<void> {
 async function aPeerRenames(page: Page, workItemId: string, name: string): Promise<void> {
   const status = await page.evaluate(
     async ([id, newName]) => {
-      const res = await fetch(`/api/work-items/${id}`, {
-        method: 'PATCH',
+      // A batch of one on the page's own project, as every write is now.
+      const projectId = window.localStorage.getItem('wbs.project');
+      if (projectId === null) throw new Error('no wbs.project in localStorage');
+      const res = await fetch(`/api/projects/${projectId}/commands`, {
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({
+          commands: [{ kind: 'patchWorkItem', workItemId: id, patch: { name: newName } }],
+        }),
       });
       return res.status;
     },
@@ -573,15 +579,12 @@ test.describe('the plan on a phone, measured by a browser', () => {
   test('sizes the team picker option rows to a finger', async ({ page }) => {
     await page.evaluate(
       async (names) => {
-        for (const name of names) {
-          const res = await fetch('/api/teams', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name }),
-          });
-          if (res.status !== 200)
-            throw new Error(`seeding "${name}" failed: ${String(res.status)}`);
-        }
+        const res = await fetch('/api/directory/commands', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ commands: names.map((name) => ({ kind: 'createTeam', name })) }),
+        });
+        if (res.status !== 200) throw new Error(`seeding the teams failed: ${String(res.status)}`);
       },
       ['Platform', 'Carpentry crew', 'Casting crew'],
     );
@@ -833,16 +836,19 @@ test.describe('the plan on a phone, measured by a browser', () => {
     await page.evaluate(async (count: number) => {
       const projectId = window.localStorage.getItem('wbs.project');
       if (projectId === null) throw new Error('no wbs.project in localStorage');
-      let afterId: string | null = null;
-      for (let each = 0; each < count; each += 1) {
-        const res = await fetch(`/api/projects/${projectId}/work-items`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ afterId }),
-        });
-        if (!res.ok) throw new Error(`create refused: ${String(res.status)}`);
-        afterId = ((await res.json()) as { id: string }).id;
-      }
+      // One batch of `count` rows, each after the one before it by ref.
+      const res = await fetch(`/api/projects/${projectId}/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commands: Array.from({ length: count }, (_, each) => ({
+            kind: 'createWorkItem',
+            ref: `r${String(each)}`,
+            ...(each === 0 ? {} : { afterRef: `r${String(each - 1)}` }),
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error(`create refused: ${String(res.status)}`);
     }, 28);
     // The creates went straight to be-01, so nothing here measures a long
     // list until the SPA has actually rendered one: without the count wait
@@ -1069,37 +1075,35 @@ test.describe('the plan on a phone, measured by a browser', () => {
       const tree = (await (await fetch(`/api/projects/${projectId}/work-items`)).json()) as {
         workItems: { id: string; number: string }[];
       };
-      let after = tree.workItems[tree.workItems.length - 1]?.id ?? null;
-      const made: { id: string; number: string }[] = [];
-      for (let i = 0; i < 38; i += 1) {
-        const res = await fetch(`/api/projects/${projectId}/work-items`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            parentId: null,
-            afterId: after,
-            name: `Fixture row ${String(i)}`,
-          }),
-        });
-        if (res.status !== 200)
-          throw new Error(`seeding row ${String(i)} failed: ${String(res.status)}`);
-        const { id } = (await res.json()) as { id: string };
-        after = id;
-        made.push({ id, number: '' });
-      }
+      const last = tree.workItems[tree.workItems.length - 1]?.id ?? null;
       // Four waits on 020, the shape the fault was found in: a header, four
       // rows already taken, then the long list.
       const successor = tree.workItems.find((each) => each.number === '020');
       if (successor === undefined) throw new Error('no 020 in the seeded plan');
-      for (const predecessor of made.slice(0, 4)) {
-        const res = await fetch(`/api/work-items/${successor.id}/dependencies`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ predecessorId: predecessor.id }),
-        });
-        if (res.status !== 200) throw new Error(`seeding a wait failed: ${String(res.status)}`);
-      }
-      return { rows: tree.workItems.length + made.length };
+      // Thirty-eight rows and the four waits in one batch: each row after the
+      // one before it by ref, the first after the seeded plan's last row.
+      const res = await fetch(`/api/projects/${projectId}/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commands: [
+            ...Array.from({ length: 38 }, (_, i) => ({
+              kind: 'createWorkItem',
+              ref: `f${String(i)}`,
+              parentId: null,
+              ...(i === 0 ? { afterId: last } : { afterRef: `f${String(i - 1)}` }),
+              name: `Fixture row ${String(i)}`,
+            })),
+            ...Array.from({ length: 4 }, (_, i) => ({
+              kind: 'addDependency',
+              workItemId: successor.id,
+              predecessorRef: `f${String(i)}`,
+            })),
+          ],
+        }),
+      });
+      if (res.status !== 200) throw new Error(`seeding the plan failed: ${String(res.status)}`);
+      return { rows: tree.workItems.length + 38 };
     });
     expect(seeded.rows, 'the plan did not take the forty rows').toBe(40);
     await page.reload();
