@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import type { Logger } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { drizzle, type SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -107,4 +108,31 @@ export function assertPragmas(db: Database): void {
   if (foreignKeys?.foreign_keys !== 1) {
     throw new Error(`expected foreign_keys=1, got ${String(foreignKeys?.foreign_keys)}`);
   }
+}
+
+/**
+ * The transaction a command batch holds open around the stores' own — see
+ * `service/outer-transaction.ts` for the contract and ADR 0007 for why it is
+ * safe. Here rather than beside its interface because `drizzle-orm` is this
+ * file's to import: the three statements are raw SQL on the one connection.
+ */
+export function drizzleOuterTransaction(db: Drizzle): {
+  begin(): void;
+  commit(): void;
+  rollback(): void;
+} {
+  return {
+    begin() {
+      // IMMEDIATE takes SQLite's write lock now rather than at the first write,
+      // so a reader on another process cannot turn the batch into SQLITE_BUSY
+      // halfway through.
+      db.run(sql.raw('BEGIN IMMEDIATE'));
+    },
+    commit() {
+      db.run(sql.raw('COMMIT'));
+    },
+    rollback() {
+      db.run(sql.raw('ROLLBACK'));
+    },
+  };
 }

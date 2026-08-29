@@ -726,7 +726,18 @@ export interface UndoDone {
  */
 export type UndoOutcome =
   | { ok: true; result: UndoDone }
-  | { ok: false; reason: UndoRefusal; detail: string | null };
+  | {
+      ok: false;
+      reason: UndoRefusal;
+      detail: string | null;
+      /**
+       * The journal entry a `stale_undo` discarded, so a caller that ran the
+       * undo inside an outer transaction and rolled it back can discard it
+       * again outside — the {@link Command batch} runner does. Null for the
+       * refusals that name no entry.
+       */
+      entryId?: string;
+    };
 
 /** Whether applying one compensating command worked, and what it could not do. */
 type ApplyOutcome = { ok: true; detail: string | null } | { ok: false; detail: string };
@@ -951,7 +962,31 @@ function revisionsIn(rows: readonly WorkItem[], ids: readonly string[]): Revisio
 }
 
 /** A journalled command, as the mutation that ran it hands it over. */
-interface Recording {
+/**
+ * One journalled step as a {@link Command batch} collects it: what `record`
+ * would have written, held until the batch knows whether it is one step or
+ * many. See {@link WorkItemService.collect}.
+ */
+export interface CollectedRecording {
+  kind: string;
+  label: string;
+  recording: Recording;
+}
+
+/** What one `collect` call gathered, beside what the work returned. */
+export interface Collected<T> {
+  result: T;
+  recordings: CollectedRecording[];
+  /** Whether any step would have broadcast — the batch broadcasts once for all. */
+  dirty: boolean;
+}
+
+interface BatchCollector {
+  recordings: CollectedRecording[];
+  dirty: boolean;
+}
+
+export interface Recording {
   /** What a redo re-applies. */
   forward: CompensatingCommand;
   /** What an undo applies. */
@@ -972,6 +1007,9 @@ interface Recording {
 export class WorkItemService {
   private readonly newId: () => string;
   private readonly now: () => number;
+
+  /** The {@link Command batch} collecting this service's recordings, or none. */
+  private collector: BatchCollector | null = null;
 
   constructor(private readonly opts: WorkItemServiceOptions) {
     this.newId = opts.newId ?? (() => crypto.randomUUID());
@@ -2851,13 +2889,13 @@ export class WorkItemService {
     const moved = await this.staleness(projectId, preconditions.expected);
     if (moved !== null) {
       await this.opts.journal.discard(entry.id);
-      return { ok: false, reason: 'stale_undo', detail: moved };
+      return { ok: false, reason: 'stale_undo', detail: moved, entryId: entry.id };
     }
 
     const applied = await this.apply(projectId, command);
     if (!applied.ok) {
       await this.opts.journal.discard(entry.id);
-      return { ok: false, reason: 'stale_undo', detail: applied.detail };
+      return { ok: false, reason: 'stale_undo', detail: applied.detail, entryId: entry.id };
     }
 
     // The entry now describes the other direction, so it checks the revisions
@@ -3176,6 +3214,18 @@ export class WorkItemService {
       }
       case 'delete_subtree':
         return this.applyDelete(projectId, command);
+      case 'batch': {
+        // The steps in the order the inverse holds them — reversed forwards for
+        // an undo, forwards for a redo. A step that cannot apply refuses the
+        // whole batch; the runner's outer transaction is what makes the steps
+        // before it vanish (ADR 0007), which is why a batch is only ever
+        // undone through the runner.
+        for (const step of command.steps) {
+          const applied = await this.apply(projectId, step);
+          if (!applied.ok) return applied;
+        }
+        return { ok: true, detail: null };
+      }
       case 'restore_subtree':
         return this.applyRestore(projectId, command);
     }
@@ -3371,6 +3421,63 @@ export class WorkItemService {
    * path too, which is a second write site and R5's H5 question, not this change's.
    * See `openspec/changes/plan-history/design.md` D4.
    */
+  /**
+   * Runs `work` with this service's recordings **collected** rather than
+   * written: every `record` inside it lands in the returned list and every
+   * broadcast is folded into one `dirty` flag. The {@link Command batch} runner
+   * is the one caller; it decides afterwards whether the list is one entry or
+   * a batch ({@link recordCollected}) and broadcasts once.
+   *
+   * Never nested: a batch inside a batch is a shape nothing sends, and quietly
+   * merging two collectors would hand the outer one steps it did not run.
+   *
+   * @throws when a collector is already installed.
+   */
+  async collect<T>(work: () => Promise<T>): Promise<Collected<T>> {
+    if (this.collector !== null) throw new Error('a command batch is already collecting');
+    const collector: BatchCollector = { recordings: [], dirty: false };
+    this.collector = collector;
+    try {
+      const result = await work();
+      return { result, recordings: collector.recordings, dirty: collector.dirty };
+    } finally {
+      this.collector = null;
+    }
+  }
+
+  /**
+   * Writes what {@link collect} gathered: nothing for nothing, the one step as
+   * itself, and two or more as one `batch` compensating command whose inverse
+   * walks the steps backwards — one journal entry, one plan event, one undo.
+   * `plan-commands` D3.
+   */
+  async recordCollected(
+    projectId: string,
+    actorId: string,
+    recordings: readonly CollectedRecording[],
+  ): Promise<void> {
+    if (recordings.length === 0) return;
+    const [only] = recordings;
+    if (recordings.length === 1) {
+      await this.record(projectId, actorId, only.kind, only.label, only.recording);
+      return;
+    }
+    await this.record(projectId, actorId, 'batch', `${String(recordings.length)} changes`, {
+      forward: { do: 'batch', steps: recordings.map((each) => each.recording.forward) },
+      inverse: {
+        do: 'batch',
+        steps: recordings.map((each) => each.recording.inverse).reverse(),
+      },
+      touched: [...new Set(recordings.flatMap((each) => each.recording.touched))],
+      before: only.recording.before,
+    });
+  }
+
+  /** Broadcasts the whole tree now — what a batch does once, after its commit. */
+  announceTreeNow(projectId: string): Promise<void> {
+    return this.announceTree(projectId);
+  }
+
   private async record(
     projectId: string,
     actorId: string,
@@ -3378,6 +3485,10 @@ export class WorkItemService {
     label: string,
     recording: Recording,
   ): Promise<void> {
+    if (this.collector !== null) {
+      this.collector.recordings.push({ kind, label, recording });
+      return;
+    }
     const at = this.now();
     const subject = subjectOf(recording.forward);
     await this.opts.journal.append(
@@ -3551,6 +3662,10 @@ export class WorkItemService {
   }
 
   private async announceTree(projectId: string): Promise<void> {
+    if (this.collector !== null) {
+      this.collector.dirty = true;
+      return;
+    }
     const tree = await this.tree(projectId);
     if (tree === null) return;
     await this.opts.broadcast.publish(projectId, {
@@ -3561,6 +3676,10 @@ export class WorkItemService {
 
   /** Sends one work item and its ancestors, whose roll-ups its change moved. */
   private async announceWorkItem(projectId: string, id: string): Promise<void> {
+    if (this.collector !== null) {
+      this.collector.dirty = true;
+      return;
+    }
     const tree = await this.tree(projectId);
     if (tree === null) return;
     await this.opts.broadcast.publish(projectId, {

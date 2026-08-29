@@ -1,0 +1,305 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
+import type { Role } from '../repository';
+import { ActualRepository } from '../repository/actual';
+import { CapacityRepository } from '../repository/capacity';
+import { CommandJournalRepository } from '../repository/command-journal';
+import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
+import { DependencyRepository } from '../repository/dependency';
+import { DirectoryRepository } from '../repository/directory';
+import { EstimateRepository } from '../repository/estimate';
+import { runMigrations } from '../repository/migrate';
+import { PlanEventRepository } from '../repository/plan-event';
+import { PriorityBandRepository } from '../repository/priority-band';
+import { ProjectRepository } from '../repository/project';
+import { RoleRepository } from '../repository/role';
+import { RoleMeasureRepository } from '../repository/role-measure';
+import { RoleProgressRepository } from '../repository/role-progress';
+import { UserRepository } from '../repository/user';
+import { SubtreeRepository } from '../repository/work-item';
+import { WorkItemRepository } from '../repository/work-item';
+import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { CapacityService } from './capacity.service';
+import { DirectoryService } from './directory.service';
+import type { PlanCommand } from './plan-command';
+import { type BatchOutcome, PlanCommandRunner } from './plan-commands';
+import { PriorityBandService } from './priority-band.service';
+import { ProjectService } from './project.service';
+import { WorkItemService } from './work-item.service';
+import { WriteLock } from './write-lock';
+
+const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
+
+let dir: string;
+let runner: PlanCommandRunner;
+let workItems: WorkItemService;
+let workItemStore: WorkItemRepository;
+let estimateStore: EstimateRepository;
+let dependencyStore: DependencyRepository;
+let directoryStore: DirectoryRepository;
+let journalStore: CommandJournalRepository;
+let roleStore: RoleRepository;
+let planEvents: PlanEventRepository;
+let projectId: string;
+let ownerId: string;
+let roles: Role[];
+
+const dev = (): string => {
+  const found = roles.at(0);
+  if (found === undefined) throw new Error('the project was created without its starting roles');
+  return found.id;
+};
+const DAYS = { optimistic: 1, realistic: 2, pessimistic: 3 };
+
+beforeEach(async () => {
+  dir = mkdtempSync(join(tmpdir(), 'wbs-batch-'));
+  const path = join(dir, 'test.db');
+  runMigrations(path, FOLDER);
+  const db = openDrizzle(path);
+  const projectStore = new ProjectRepository(db);
+  workItemStore = new WorkItemRepository(db);
+  estimateStore = new EstimateRepository(db);
+  dependencyStore = new DependencyRepository(db);
+  directoryStore = new DirectoryRepository(db);
+  journalStore = new CommandJournalRepository(db);
+  roleStore = new RoleRepository(db);
+  planEvents = new PlanEventRepository(db);
+  const capacityStore = new CapacityRepository(db);
+  const bandStore = new PriorityBandRepository(db);
+  const broadcast = recordingBroadcaster();
+
+  ownerId = crypto.randomUUID();
+  await new UserRepository(db).create({
+    id: ownerId,
+    username: 'owner',
+    passwordHash: 'x',
+    createdAt: 1,
+  });
+
+  workItems = new WorkItemService({
+    workItems: workItemStore,
+    projects: projectStore,
+    estimates: estimateStore,
+    actuals: new ActualRepository(db),
+    measures: new RoleMeasureRepository(db),
+    progress: new RoleProgressRepository(db),
+    directory: directoryStore,
+    capacity: capacityStore,
+    priorityBands: bandStore,
+    dependencies: dependencyStore,
+    subtrees: new SubtreeRepository(db),
+    journal: journalStore,
+    broadcast,
+  });
+  runner = new PlanCommandRunner({
+    workItems,
+    directory: new DirectoryService({ directory: directoryStore, broadcast }),
+    capacity: new CapacityService({ projects: projectStore, capacity: capacityStore, broadcast }),
+    priorityBands: new PriorityBandService({ projects: projectStore, bands: bandStore, broadcast }),
+    journal: journalStore,
+    transactions: drizzleOuterTransaction(db),
+    lock: new WriteLock(),
+  });
+  const created = await new ProjectService({ projects: projectStore }).create(
+    'Rewire the shed',
+    ownerId,
+  );
+  projectId = created.project.id;
+  roles = created.roles;
+});
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const run = (commands: PlanCommand[]): Promise<BatchOutcome> =>
+  runner.run(projectId, ownerId, commands);
+
+function applied(outcome: BatchOutcome): Map<string, string> {
+  if (!outcome.ok) throw new Error(`refused at ${String(outcome.at)}: ${outcome.reason}`);
+  return new Map(
+    outcome.results.flatMap((each) =>
+      each.ref !== undefined && each.id !== undefined ? [[each.ref, each.id]] : [],
+    ),
+  );
+}
+
+const names = async (): Promise<string[]> =>
+  (await workItemStore.listByProject(projectId)).map((row) => row.name).sort();
+
+const journal = () => journalStore.entriesFor(projectId, ownerId);
+
+const DRAFT: PlanCommand[] = [
+  { kind: 'createWorkItem', ref: 'strip', parentId: null, afterId: null, name: 'Strip' },
+  { kind: 'createWorkItem', ref: 'sand', parentId: null, afterRef: 'strip', name: 'Sand' },
+  { kind: 'createWorkItem', ref: 'paint', parentId: null, afterRef: 'sand', name: 'Paint' },
+  { kind: 'setEstimate', ref: undefined, workItemRef: 'strip', roleId: 'ROLE', days: DAYS },
+  { kind: 'setEstimate', workItemRef: 'sand', roleId: 'ROLE', days: DAYS },
+  { kind: 'addDependency', workItemRef: 'sand', predecessorRef: 'strip' },
+];
+/** The draft with the project's real Dev role in place of the placeholder. */
+const draft = (): PlanCommand[] =>
+  DRAFT.map((command) =>
+    'roleId' in command && command.roleId === 'ROLE' ? { ...command, roleId: dev() } : command,
+  );
+
+describe('a command batch', () => {
+  it('drafts a plan in one request, and answers the id each ref became', async () => {
+    const refs = applied(await run(draft()));
+    expect([...refs.keys()].sort()).toEqual(['paint', 'sand', 'strip']);
+    expect(await names()).toEqual(['Paint', 'Sand', 'Strip']);
+    expect(
+      (await estimateStore.listByProject(projectId)).map((each) => each.workItemId).sort(),
+    ).toEqual([refs.get('sand'), refs.get('strip')].sort());
+    expect(await dependencyStore.listByProject(projectId)).toHaveLength(1);
+  });
+
+  it('leaves the first two unwritten when the third is refused', async () => {
+    // All or none, on real SQLite: the two creates before the refused estimate
+    // are rolled back with it.
+    // Proof: the runner's `rollback` replaced by `commit`, this failed on
+    // `expected [ 'Sand', 'Strip' ] to equal []`. Watched, 2026-08-29.
+    const outcome = await run([
+      ...draft().slice(0, 2),
+      { kind: 'setEstimate', workItemRef: 'strip', roleId: 'no-such-role', days: DAYS },
+    ]);
+    expect(outcome).toEqual({ ok: false, at: 2, kind: 'setEstimate', reason: 'unknown_role' });
+    expect(await names()).toEqual([]);
+    expect(await journal()).toHaveLength(0);
+  });
+
+  it('is one journal entry, one plan event, and one undo puts all of it back', async () => {
+    // Proof: the collector bypassed so `record` wrote per step, this failed on
+    // `expected 6 to be 1`. Watched, 2026-08-29.
+    applied(await run(draft()));
+    expect(await journal()).toHaveLength(1);
+    expect(await planEvents.listFor(projectId, {})).toHaveLength(1);
+
+    const undone = await runner.undo(projectId, ownerId);
+    if (!undone.ok) throw new Error(`undo refused: ${undone.reason} ${undone.detail ?? ''}`);
+    expect(await names()).toEqual([]);
+    expect(await estimateStore.listByProject(projectId)).toHaveLength(0);
+    expect(await dependencyStore.listByProject(projectId)).toHaveLength(0);
+
+    const redone = await runner.redo(projectId, ownerId);
+    if (!redone.ok) throw new Error(`redo refused: ${redone.reason} ${redone.detail ?? ''}`);
+    expect(await names()).toEqual(['Paint', 'Sand', 'Strip']);
+  });
+
+  it('takes back the steps an undo already applied when a later step cannot', async () => {
+    // A batch of [create A, estimate A, create B] has the inverse
+    // [delete B, clear A's estimate, delete A]. With the role gone, clearing
+    // the estimate is refused — and B, deleted a step earlier, must still be
+    // there: the undo is one transaction or it is a plan nobody asked for.
+    // Proof: the runner's `walk` made to commit on a refusal, this failed on
+    // `expected [ 'A' ] to equal [ 'A', 'B' ]`. Watched, 2026-08-29.
+    applied(
+      await run([
+        { kind: 'createWorkItem', ref: 'a', parentId: null, afterId: null, name: 'A' },
+        { kind: 'setEstimate', workItemRef: 'a', roleId: dev(), days: DAYS },
+        { kind: 'createWorkItem', ref: 'b', parentId: null, afterRef: 'a', name: 'B' },
+      ]),
+    );
+    await roleStore.remove(projectId, dev(), true);
+
+    const undone = await runner.undo(projectId, ownerId);
+    expect(undone.ok).toBe(false);
+    if (undone.ok) throw new Error('an undo with a missing role was accepted');
+    expect(undone.reason).toBe('stale_undo');
+    expect(await names()).toEqual(['A', 'B']);
+    // And the entry is gone for good, discarded outside the rolled-back
+    // transaction: a second undo has nothing to undo.
+    expect((await runner.undo(projectId, ownerId)).ok).toBe(false);
+    expect(await journal()).toHaveLength(0);
+  });
+
+  it('records a batch of one as that command, not as a batch', async () => {
+    const refs = applied(await run(draft()));
+    const strip = refs.get('strip');
+    if (strip === undefined) throw new Error('no strip');
+    applied(await run([{ kind: 'patchWorkItem', workItemId: strip, patch: { name: 'Strip it' } }]));
+    const [, rename] = await journal();
+    expect(rename.kind).toBe('patch');
+    expect(rename.payload).toMatchObject({ label: 'rename “Strip it”' });
+  });
+
+  it('records nothing for a batch that changed nothing', async () => {
+    const refs = applied(await run(draft()));
+    const paint = refs.get('paint');
+    if (paint === undefined) throw new Error('no paint');
+    applied(await run([{ kind: 'clearEstimate', workItemId: paint, roleId: dev() }]));
+    expect(await journal()).toHaveLength(1);
+  });
+
+  it('refuses a ref nobody minted, and a ref minted twice, before applying anything', async () => {
+    // Proof: ref substitution removed, the first case failed on `expected
+    // { ok: false, at: 0, kind: 'createWorkItem', reason: 'unknown_ref' } …` —
+    // the create went through with the literal word as its parent id and was
+    // refused as `not_found` instead. Watched, 2026-08-29.
+    expect(
+      await run([{ kind: 'createWorkItem', parentRef: 'nope', afterId: null, name: 'Orphan' }]),
+    ).toEqual({ ok: false, at: 0, kind: 'createWorkItem', reason: 'unknown_ref' });
+    expect(
+      await run([
+        { kind: 'createWorkItem', ref: 'a', parentId: null, afterId: null, name: 'A' },
+        { kind: 'createWorkItem', ref: 'a', parentId: null, afterId: null, name: 'B' },
+      ]),
+    ).toEqual({ ok: false, at: 1, kind: 'createWorkItem', reason: 'duplicate_ref' });
+    expect(await names()).toEqual([]);
+  });
+
+  it('applies directory commands inside the batch, and undo leaves them in place', async () => {
+    const refs = applied(
+      await run([
+        { kind: 'createService', ref: 'checkout', name: 'Checkout' },
+        { kind: 'createWorkItem', ref: 'w', parentId: null, afterId: null, name: 'Pay' },
+        { kind: 'patchWorkItem', workItemRef: 'w', patch: { serviceRefs: ['checkout'] } },
+      ]),
+    );
+    expect(refs.has('checkout')).toBe(true);
+    const undone = await runner.undo(projectId, ownerId);
+    if (!undone.ok) throw new Error(`undo refused: ${undone.reason}`);
+    expect(await names()).toEqual([]);
+    expect((await directoryStore.listServices()).map((each) => each.name)).toEqual(['Checkout']);
+  });
+
+  it('refuses two hundred and one commands before applying any', async () => {
+    const many: PlanCommand[] = Array.from({ length: 201 }, (_, n) => ({
+      kind: 'createWorkItem',
+      parentId: null,
+      afterId: null,
+      name: `Row ${String(n)}`,
+    }));
+    expect(await run(many)).toEqual({
+      ok: false,
+      at: 200,
+      kind: 'createWorkItem',
+      reason: 'too_many_commands',
+    });
+    expect(await names()).toEqual([]);
+  });
+
+  it('applies a rename queued behind a refused batch, after it', async () => {
+    // The write lock on one connection: without it the rename's writes land
+    // inside the refused batch's open transaction and vanish with its rollback.
+    // Proof: `lock.run` bypassed in the runner, this failed on `expected [] to
+    // equal [ 'Strip it' ]`. Watched, 2026-08-29.
+    const refs = applied(await run(draft().slice(0, 1)));
+    const strip = refs.get('strip');
+    if (strip === undefined) throw new Error('no strip');
+    const refused = run([
+      { kind: 'createWorkItem', ref: 'x', parentId: null, afterId: null, name: 'Doomed' },
+      { kind: 'setEstimate', workItemRef: 'x', roleId: 'no-such-role', days: DAYS },
+    ]);
+    const renamed = run([
+      { kind: 'patchWorkItem', workItemId: strip, patch: { name: 'Strip it' } },
+    ]);
+    expect((await refused).ok).toBe(false);
+    expect((await renamed).ok).toBe(true);
+    expect(await names()).toEqual(['Strip it']);
+  });
+});

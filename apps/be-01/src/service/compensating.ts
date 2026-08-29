@@ -79,7 +79,22 @@ export type CompensatingCommand =
   | { do: 'move'; workItemId: string; parentId: string | null; afterId: string | null }
   | { do: 'set_frozen'; updates: FrozenNumber[] }
   | DeleteSubtree
-  | RestoreSubtree;
+  | RestoreSubtree
+  | Batch;
+
+/**
+ * A {@link Command batch} as one compensating command: the steps in the order
+ * they are to be applied. A batch's forward holds the steps' forwards; its
+ * inverse holds the steps' inverses **reversed**, so undoing walks the batch
+ * backwards. `plan-commands` D3.
+ *
+ * Only ever recorded for two or more steps — a batch of one is recorded as that
+ * one command, so a single edit's undo label and plan event are what they were.
+ */
+export interface Batch {
+  do: 'batch';
+  steps: CompensatingCommand[];
+}
 
 /**
  * Takes a branch away again: the inverse of a create or a duplicate, and the
@@ -282,6 +297,7 @@ const COMMANDS = [
   'set_frozen',
   'delete_subtree',
   'restore_subtree',
+  'batch',
 ] as const;
 
 /**
@@ -392,6 +408,10 @@ export function touchedBy(command: CompensatingCommand): string[] {
         ...command.removedMeasures.map((each) => each.workItemId),
         ...command.externalDependencies.flatMap((edge) => [edge.predecessorId, edge.successorId]),
       ];
+    case 'batch':
+      // Every entity any step wrote to, once: a step left out here is a row an
+      // undo would overwrite without checking its revision.
+      return [...new Set(command.steps.flatMap(touchedBy))];
   }
 }
 
@@ -446,6 +466,14 @@ export function subjectOf(command: CompensatingCommand): CommandSubject {
       // act and the label says so. Naming `updates[0]` would make a plan-wide
       // event read as one item's.
       return { workItemId: null, roleId: null };
+    case 'batch': {
+      // The row the first step was aimed at, as `restore_subtree` names its
+      // root: a batch is journalled only with two or more steps, so an empty
+      // one is a shape nothing writes, answered rather than thrown for the
+      // history reader's sake.
+      const first = command.steps.at(0);
+      return first === undefined ? { workItemId: null, roleId: null } : subjectOf(first);
+    }
   }
 }
 
