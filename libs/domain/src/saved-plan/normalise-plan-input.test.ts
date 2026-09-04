@@ -24,7 +24,9 @@ describe('normalising a stored plan input forward — 7.4', () => {
   it('is the identity at the reader’s own version', () => {
     const parsed: unknown = JSON.parse(bytes);
 
-    expect(normalisePlanInputForward(parsed, CANONICAL_PLAN_INPUT_SCHEMA_VERSION)).toBe(parsed);
+    expect(normalisePlanInputForward(parsed, CANONICAL_PLAN_INPUT_SCHEMA_VERSION) as unknown).toBe(
+      parsed,
+    );
   });
 
   /**
@@ -57,7 +59,7 @@ describe('normalising a stored plan input forward — 7.4', () => {
     try {
       normalisePlanInputForward(JSON.parse(bytes), CANONICAL_PLAN_INPUT_SCHEMA_VERSION + 1);
     } catch (failure) {
-      expect((failure as PlanInputVersionError).cause).toBe('from-the-future');
+      expect((failure as PlanInputVersionError).reason).toBe('from-the-future');
     }
   });
 
@@ -67,7 +69,7 @@ describe('normalising a stored plan input forward — 7.4', () => {
         normalisePlanInputForward(JSON.parse(bytes), bad);
         throw new Error(`accepted ${String(bad)}`);
       } catch (failure) {
-        expect((failure as PlanInputVersionError).cause).toBe('not-a-version');
+        expect((failure as PlanInputVersionError).reason).toBe('not-a-version');
       }
     }
   });
@@ -83,7 +85,7 @@ describe('normalising a stored plan input forward — 7.4', () => {
       normalisePlanInputForward(JSON.parse(bytes), 1, 2, new Map());
       throw new Error('accepted a v1 body against a v2 reader with no step');
     } catch (failure) {
-      expect((failure as PlanInputVersionError).cause).toBe('no-upgrade-path');
+      expect((failure as PlanInputVersionError).reason).toBe('no-upgrade-path');
     }
   });
 
@@ -93,7 +95,8 @@ describe('normalising a stored plan input forward — 7.4', () => {
       (from: number): PlanInputUpgrade =>
       (body) => {
         seen.push(from);
-        return { ...body, upgraded: [...((body.upgraded as number[]) ?? []), from] };
+        const so_far = (body['upgraded'] as number[] | undefined) ?? [];
+        return { ...body, upgraded: [...so_far, from] };
       };
     const upgrades = new Map([
       [1, step(1)],
@@ -116,7 +119,7 @@ describe('normalising a stored plan input forward — 7.4', () => {
    */
   it('catches a step that mutates the body it was given', () => {
     const mutating: PlanInputUpgrade = (body) => {
-      (body as Record<string, unknown>).tampered = true;
+      (body as Record<string, unknown>)['tampered'] = true;
       return body;
     };
     const parsed = JSON.parse(bytes) as Record<string, unknown>;
@@ -126,10 +129,10 @@ describe('normalising a stored plan input forward — 7.4', () => {
     // The mutant is visible in the caller's own value, which is exactly the
     // failure: the assertion that would guard a real step is this comparison,
     // and it is red for `mutating` and green for a copying step.
-    expect(parsed.tampered).toBe(true);
+    expect(parsed['tampered']).toBe(true);
     const copying: PlanInputUpgrade = (body) => ({ ...body, tampered: true });
     const clean = JSON.parse(bytes) as Record<string, unknown>;
     normalisePlanInputForward(clean, 1, 2, new Map([[1, copying]]));
-    expect(clean.tampered).toBeUndefined();
+    expect(clean['tampered']).toBeUndefined();
   });
 });

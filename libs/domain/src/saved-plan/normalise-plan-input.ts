@@ -23,13 +23,13 @@ export type PlanInputNormaliseFailure = 'from-the-future' | 'no-upgrade-path' | 
 
 export class PlanInputVersionError extends Error {
   constructor(
-    readonly cause: PlanInputNormaliseFailure,
+    readonly reason: PlanInputNormaliseFailure,
     readonly storedVersion: number,
     readonly readerVersion: number = CANONICAL_PLAN_INPUT_SCHEMA_VERSION,
   ) {
     super(
       `plan input body at schema version ${String(storedVersion)} cannot be normalised ` +
-        `to ${String(readerVersion)}: ${cause}`,
+        `to ${String(readerVersion)}: ${reason}`,
     );
     this.name = 'PlanInputVersionError';
   }
