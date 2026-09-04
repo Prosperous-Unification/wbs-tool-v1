@@ -54,5 +54,4 @@ export async function readShelf(deps: ShelfDeps, projectId: string): Promise<Sav
  * API layer is an `Error` carrying be-01's own code, and on the day one is not,
  * showing whatever arrived beats erasing it.
  */
-const codeOf = (fault: unknown): string =>
-  fault instanceof Error ? fault.message : String(fault);
+const codeOf = (fault: unknown): string => (fault instanceof Error ? fault.message : String(fault));
