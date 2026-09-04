@@ -575,7 +575,7 @@ comparison UI) and start only after slice 6 is merged.
       calling `schedule()` inside 7.3's held `BEGIN DEFERRED` ships green and
       every saved-vs-current comparison — this feature's hot path — holds the
       read snapshot open for the length of a levelling run.
-- [ ] 7.3b **The compare route**, on `savedPlanController` under the project's
+- [x] 7.3b **The compare route**, on `savedPlanController` under the project's
       read rule: two sides, each a saved-plan id or `current`. It has to be a
       route — `current` needs 7.3's server-side capture over 3.1's read set, so
       the diff cannot run client-side. Extend 6.2's permission matrix to this sixth

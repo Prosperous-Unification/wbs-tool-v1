@@ -410,4 +410,68 @@ ends on, not relayed from the earlier chunk.
 `savedPlanController`, extending 6.2's permission matrix to a sixth route — is
 the only item left in the slice**, and it is the one that can expose a
 restricted project's _live_ plan through `current`, so its guard owes the same
-proof every other check here does.
+proof every other check here does. (Closed by the section below; **slice 7 is
+complete**.)
+
+## 7.3b — the compare route
+
+`GET /api/projects/:id/saved-plans/compare?left=&right=`, each side the literal
+`current` or a saved-plan id. `SavedPlanService.compare` resolves both sides and
+hands them to `diffPlans`; the route answers `{ diff }`.
+
+**The project id in the path is load-bearing rather than repeated**, which is
+why this route sits on the project prefix while read, rename and delete sit on
+their own. `current` has no id, so "the live plan" is only meaningful against a
+named project. The rule the second prefix enforces structurally — a URL may not
+name a project its plan does not belong to — is therefore enforced here by an
+explicit check: a side naming a plan of another project answers `not_found`,
+with the same body a plan id that never existed gets.
+
+`normalisePlanInputForward` is called on every stored side (7.4). Today it is
+the identity and its three refusals are unreachable from this path, because
+`readOfStored` has already thrown on a version outside
+`SUPPORTED_INPUT_BODY_VERSIONS`. That is stated rather than counted as coverage.
+It is called anyway because the day a second version exists is the day this call
+is the only thing between an old body and a diff reporting a removed field as a
+change nobody made.
+
+### Two watched negatives, both measured
+
+**1. The route without the read rule.** Removing `...signedIn` from the compare
+route's options and re-running: **16 pass / 2 fail**, and the two are exactly
+`unrestricted: anonymous` and `restricted: anonymous`. One cell moved in each
+row — `compare: 401 -> 200` — with `save`, `list`, `read`, `rename` and `delete`
+unchanged at 401. An unauthenticated caller received the restricted project's
+**live** plan, captured server-side through 7.3.
+
+**2. The cross-project refusal removed.** Deleting the
+`found.plan.projectId !== projectId` branch in `sideOf`: **17 pass / 1 fail**,
+and the failure is the cross-project case alone.
+
+**The second negative is the finding.** With that branch gone the whole
+permission matrix stayed green — all eight rows, both columns. A status matrix
+cannot see this exposure, because the caller is authenticated and lawfully reads
+project A: what leaks is project B's live plan, named as the *other side*, at
+status 200 in both builds. The task's wording ("watch the matrix's anonymous and
+third-party cases fail") holds for the anonymous half only. On this codebase's
+read rule an authenticated third party is a lawful 200 on `read` and stays 200
+on `compare` — `canEdit` restricts writing, not reading — so the third-party
+half needed its own case rather than a matrix cell, and that case is the one
+that catches the leak.
+
+Both files were restored and `dirty=0` re-asserted before the gate below.
+
+### Gate
+
+At `d8fe88c1`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
+`--skip-nx-cache`, `--parallel=1`, `TMPDIR=/home/puni1/gate-tmp`:
+
+| Gate                                                   | Result                                                    |
+| ------------------------------------------------------ | --------------------------------------------------------- |
+| `nx run-many -t test lint typecheck -p be-01 domain`   | exit 0 — domain **371 pass / 0 fail**, be-01 **1314 pass / 0 fail** across 111 files |
+
+The first attempt at `5744c156` failed twice and both were real: an
+`emit-openapi-cli` guard ("the routes moved and the document did not") caught
+the sixth route missing from `openapi.json`, and `simple-import-sort` caught the
+service's new import members. Both were fixed on h2puni and the corrected files
+copied back, then the whole gate re-run at the head above.
