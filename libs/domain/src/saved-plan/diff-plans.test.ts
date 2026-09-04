@@ -300,7 +300,8 @@ describe('diffPlans — 7.2c, the schedule side', () => {
         body: mutateAt(scheduleBody, path),
       };
       const differences = diffPlans(side(), side(input, mutated)).schedule;
-      if (differences.length === 0 || !covers(differences, `schedule.body.${path}`)) missed.push(path);
+      if (differences.length === 0 || !covers(differences, `schedule.body.${path}`))
+        missed.push(path);
     }
 
     expect(missed).toEqual([]);
