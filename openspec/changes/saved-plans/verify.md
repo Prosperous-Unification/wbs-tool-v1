@@ -483,3 +483,35 @@ The first attempt at `5744c156` failed twice and both were real: an
 the sixth route missing from `openapi.json`, and `simple-import-sort` caught the
 service's new import members. Both were fixed on h2puni and the corrected files
 copied back, then the whole gate re-run at the head above.
+
+### 7.3b — the two cases the first chunk deferred
+
+**A corrupt side is 422 and names the plan.** A saved plan whose input bytes are
+damaged underneath the record — `bytes || ' '`, the one-byte append
+`saved-plan-read.db.test.ts` uses — compared against `current` answers 422 with
+`error: 'corrupt'` and the `savedPlanId`. The refusal is `read`'s; what is
+proved here is that the compare route carries it out rather than folding it into
+the `not_found` its other three refusals share. With two sides, a refusal naming
+no plan leaves a caller unable to tell which picker holds the damaged one.
+**Negative, measured:** the compare route's `422` changed to `404` — **19 pass /
+1 fail**, that case alone.
+
+**`current` is a reserved literal, not a lookup.** Both sides `current` on a
+project with no saved plans at all: 200 and an empty diff on both halves.
+**Negative, measured — and it falsified the claim first written beside it.**
+Deleting the reservation from `sideRef` turns **8 of 20 red**, not 1, because
+every other compare case passes `right=current` too. The case is therefore not
+the sole detector; it is the only one whose failure is unambiguous, having no
+saved plan in it that could fail for another reason. The comment was corrected
+to what was measured rather than left standing.
+
+**Not covered, and named rather than implied:** the `no_project` branch of
+`sideOf` is reachable only if the project is deleted between the route's own
+`projects.read` and the capture, which this file cannot stage.
+
+At `7734769b`, h2puni `/home/puni1/gate-task232`, `dirty=0`:
+`nx run-many -t lint typecheck -p be-01` exit 0; `nx format:check --all` exit 0;
+`bun test src/controller/saved-plan.controller.db.test.ts` exit 0 — **20 pass /
+0 fail**. **This gate is narrower than the one above on purpose**: the diff is
+one test file plus one comment, so the whole-project suite was not re-run here.
+`7fc09526` remains the last whole-project observation.
