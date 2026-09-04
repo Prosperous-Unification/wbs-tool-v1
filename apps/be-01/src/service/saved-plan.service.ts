@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 import {
   canonicalisePlanInput,
+  type PlanScheduleValue,
+  type PlanSide,
   type Schedule,
   ScheduleCycleError,
   serialiseCanonicalPlanInput,
@@ -319,6 +321,59 @@ export class SavedPlanService {
     const stored = await this.opts.plans.readOf(savedPlanId);
     if (stored === null) return { outcome: 'not_found' };
     return readOfStored(stored);
+  }
+
+  /**
+   * The live plan as a comparison side. Writes nothing and consumes no quota.
+   *
+   * **It reuses {@link captureAndAttempt}, which is the save path's own
+   * capture**, rather than reads of its own (task 7.3). Spec requires `current`
+   * to come through the same canonical function the save uses, and the reason
+   * is concrete: a `current` built from the projection's twelve awaited reads
+   * lacks the registry and junction rows *by value*, so every saved-vs-current
+   * comparison would report the saved side's tags, types and external systems
+   * as removed. The diff's own completeness property never catches that — it
+   * mutates `CanonicalPlanInput` values directly and never runs this path.
+   *
+   * Reuse also gives `current` the one `BEGIN DEFERRED` read snapshot. Without
+   * it a torn `current` renders a comparison against a live plan that never
+   * existed — the display-side twin of the defect the torn-read test (3.2)
+   * exists to catch.
+   *
+   * **`current` carries a schedule, and it is not an absent one** (task 7.3a).
+   * Spec's stored-schedule bound lawfully permits returning `unavailable` here,
+   * and that would answer "no schedule was saved" about the live side of this
+   * feature's primary direction. So the schedule is `schedule()`'s return over
+   * the values just captured — computed **outside** the read snapshot, as
+   * {@link captureAndAttempt} already arranges for the save path — labelled
+   * with the algorithm identity currently in force, with a `ScheduleCycleError`
+   * mapping to `infeasible` on the same derivation a save records.
+   *
+   * The body is round-tripped through {@link serialiseScheduleBody} rather than
+   * handed over as the built object. The live side must compare against a
+   * stored side on identical serialization terms; comparing a live object
+   * against parsed stored bytes would report every difference the serializer
+   * normalises away as a real one.
+   */
+  async projectCurrentPlan(projectId: string): Promise<PlanSide | null> {
+    const attempt = await this.captureAndAttempt(projectId);
+    if (attempt === null) return null;
+    const input = canonicalisePlanInput(planInputRowsOf(attempt.reads));
+    if (!attempt.schedule.present) {
+      return { input, schedule: { present: false, absentReason: attempt.schedule.absentReason } };
+    }
+    // The captured project's own start date, not today's — `scheduleWrite`'s
+    // rule, for the same reason: re-rendering against a start that has since
+    // moved would restate the plan.
+    const built = buildScheduleBody(attempt.schedule.planned, attempt.reads.project.startDate);
+    return {
+      input,
+      schedule: {
+        present: true,
+        algorithmId: built.algorithmId,
+        body: JSON.parse(serialiseScheduleBody(built)) as PlanScheduleValue,
+      },
+    };
   }
 
   /**
