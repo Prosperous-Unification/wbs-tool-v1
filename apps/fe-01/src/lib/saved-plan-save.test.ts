@@ -124,10 +124,22 @@ describe('the Save plan action', () => {
   });
 
   /**
-   * The in-flight window is exactly when a component can leave: the user presses
-   * Save and switches project, or closes the sheet, before the response.
+   * The in-flight window is exactly when a component can leave, and this case
+   * asserts what is actually observable about that: **the save completes**.
+   *
+   * An earlier draft asserted the opposite thing — that nothing was written into
+   * the departed component — by spying on `console.error`. Measured: deleting
+   * the `mounted` ref the hook then carried left that case green. React 18
+   * removed the setState-on-unmounted warning and the call is a no-op, so from
+   * outside the component there is no difference to see. The assertion was
+   * therefore documentation wearing an `expect`, and the guard it "covered"
+   * could be deleted in silence.
+   *
+   * What a caller can still get wrong here is the request: aborting it, or
+   * leaving `inFlight` latched so the next mount cannot save. Both are visible
+   * on the fake.
    */
-  itDom('writes no state into a component that left while the save was running', async () => {
+  itDom('lets a save that outlived its component finish rather than abandoning it', async () => {
     const fake = deferredSave();
     const held = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
     act(() => {
@@ -135,10 +147,16 @@ describe('the Save plan action', () => {
     });
 
     held.unmount();
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    expect(fake.calls).toEqual([['p1']]);
 
-    expect(errors).not.toHaveBeenCalled();
+    // The checkpoint is written server-side either way — a plan the user asked
+    // to save is not un-saved by navigating — and a remount can save again.
+    const again = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+    act(() => {
+      again.result.current.save();
+    });
+    expect(fake.calls).toHaveLength(2);
   });
 
   /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import type { SavedPlanApi, SavedPlanListEntryView } from './saved-plan-api';
 import { httpSavedPlanApi } from './saved-plan-api';
@@ -57,28 +57,26 @@ const codeOf = (fault: unknown): string => (fault instanceof Error ? fault.messa
  * about the *plan*, not about the button: nothing here freezes the editor, and
  * the guard covers only the request.
  *
- * **State never lands after unmount.** The mounted ref is checked on the way
- * back, not merely on the way in, because the whole point of the in-flight
- * window is that the component can leave during it.
+ * **There is deliberately no unmount guard**, and that is a measurement rather
+ * than an oversight — see the run 7 chunk 3 log. A first draft carried a
+ * `mounted` ref checked before `setState`, with a case asserting nothing was
+ * written after `unmount()`. Deleting the ref left that case **green**: React 18
+ * removed the setState-on-unmounted warning and makes the call a no-op, so
+ * nothing outside the component can observe the difference. A guard no case can
+ * redden is a line that will be maintained forever on the strength of a comment,
+ * so it is gone. The `inFlight` ref below is cleared unconditionally, which is
+ * the part that does have consequences.
  */
 export function useSavedPlanSave(
   deps: SaveDeps,
   projectId: string,
 ): { readonly state: SavedPlanSaveState; readonly save: () => void } {
   const [state, setState] = useState<SavedPlanSaveState>({ kind: 'idle' });
-  const mounted = useRef(true);
   // The in-flight flag is a ref and not the `state` above, because two presses
   // in one React batch both read the same rendered state and would both pass a
   // `state.kind !== 'saving'` test. A ref is written before the await and read
   // synchronously, which is the only ordering that makes the guard true.
   const inFlight = useRef(false);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   const save = useCallback(() => {
     if (inFlight.current) return;
@@ -93,12 +91,12 @@ export function useSavedPlanSave(
       })
       .catch((fault: unknown): SavedPlanSaveState => ({ kind: 'error', code: codeOf(fault) }))
       .then((next) => {
-        // Cleared even when nobody is listening: a component that unmounts
-        // mid-save and is mounted again from the same `deps` would otherwise
-        // hold a ref that says a request is running which finished long ago,
-        // and its Save button would never work again.
+        // Cleared before the state write and never conditionally: a component
+        // that unmounts mid-save and is mounted again from the same `deps`
+        // would otherwise hold a ref saying a request is running that finished
+        // long ago, and its Save button would never work again.
         inFlight.current = false;
-        if (mounted.current) setState(next);
+        setState(next);
       });
   }, [deps, projectId]);
 
