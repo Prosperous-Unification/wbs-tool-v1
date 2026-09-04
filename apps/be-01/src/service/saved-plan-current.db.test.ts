@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import {
   diffPlans,
   planDiffIsEmpty,
-  SCHEDULE_ALGORITHM_ID,
   type Schedule,
+  SCHEDULE_ALGORITHM_ID,
   serialiseCanonicalPlanInput,
 } from '@wbs/domain';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -228,8 +228,14 @@ describe('projecting the live plan as a comparison side', () => {
   it('maps a dependency cycle to infeasible and still carries the input', async () => {
     const conn = openConnection(path);
     const deps = new DependencyRepository(conn.db);
-    await deps.add({ id: 'dep-1', projectId: 'p1', predecessorId: 'wi-1', successorId: 'wi-2' }, wrote);
-    await deps.add({ id: 'dep-2', projectId: 'p1', predecessorId: 'wi-2', successorId: 'wi-1' }, wrote);
+    await deps.add(
+      { id: 'dep-1', projectId: 'p1', predecessorId: 'wi-1', successorId: 'wi-2' },
+      wrote,
+    );
+    await deps.add(
+      { id: 'dep-2', projectId: 'p1', predecessorId: 'wi-2', successorId: 'wi-1' },
+      wrote,
+    );
     conn.close();
 
     const side = await service().projectCurrentPlan('p1');
