@@ -2,8 +2,8 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SavedPlanListEntryView } from './saved-plan-api';
-import { readShelf, useSavedPlanShelf, watchShelf } from './saved-plan-shelf';
 import type { ShelfWatchDeps } from './saved-plan-shelf';
+import { readShelf, useSavedPlanShelf, watchShelf } from './saved-plan-shelf';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';

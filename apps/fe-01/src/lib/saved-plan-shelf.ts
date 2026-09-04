@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 
 import type { SavedPlanListState } from '../components/wbs/saved-plan-list';
-import { httpSavedPlanApi, savedPlansAvailable } from './saved-plan-api';
-import type { SavedPlanApi } from './saved-plan-api';
 import { subscribeToProject } from './project-stream';
+import type { SavedPlanApi } from './saved-plan-api';
+import { httpSavedPlanApi, savedPlansAvailable } from './saved-plan-api';
 
 /**
  * The two questions a shelf read is made of, injected rather than imported.
