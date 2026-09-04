@@ -247,7 +247,12 @@ function diffCollection(
     const r = rightById[id];
     const path = `${collection}[${id}]`;
     if (l === undefined) {
-      out.push({ category: presenceCategory(collection, 'added'), path, left: undefined, right: r });
+      out.push({
+        category: presenceCategory(collection, 'added'),
+        path,
+        left: undefined,
+        right: r,
+      });
     } else if (r === undefined) {
       out.push({
         category: presenceCategory(collection, 'removed'),
