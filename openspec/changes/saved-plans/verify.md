@@ -470,6 +470,14 @@ At `d8fe88c1`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `nx run-many -t test lint typecheck -p be-01 domain` | exit 0 — domain **371 pass / 0 fail**, be-01 **1314 pass / 0 fail** across 111 files |
 
+Re-run whole at the run's final head `7fc09526`, `dirty=0` — the delta from
+`d8fe88c1` is one prettier line break in the service and the wrapping of this
+record — `nx run-many -t test lint typecheck -p be-01 domain` exit 0, **domain
+371 pass / 0 fail, be-01 1314 pass / 0 fail**, lint and typecheck 0 for both;
+`nx format:check --all` exit 0, zero files; `bun x @fission-ai/openspec validate
+--all --json` **35 valid / 0 invalid** (observed at `1310caa6`, the head that
+introduced this section's text).
+
 The first attempt at `5744c156` failed twice and both were real: an
 `emit-openapi-cli` guard ("the routes moved and the document did not") caught
 the sixth route missing from `openapi.json`, and `simple-import-sort` caught the
