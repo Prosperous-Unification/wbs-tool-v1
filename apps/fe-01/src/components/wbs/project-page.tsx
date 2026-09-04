@@ -261,7 +261,8 @@ function ProjectNameField({
  */
 
 /**
- * The saved-plan shelf: a disclosure floating clear of the plan column's flow.
+ * The saved-plan shelf: the plan toolbar's fifth disclosure, beside Views,
+ * Columns, Facets and Export.
  *
  * **Its own component, and the reason is a bug this had.** The disclosure needs
  * `useClosedByPointerOutside`, whose effect reads `ref.current` once with an
@@ -273,32 +274,65 @@ function ProjectNameField({
  * own chip. Caught by the Gemini seat on PR 202 as F-01. Every other caller of
  * that hook (`wbs-table.tsx`'s Views, Columns, Facets and Export) is a component
  * that renders its own `<details>` unconditionally, which is what this now is.
+ *
+ * **And its own component is also why the second fault was cheap to repair.**
+ * It shipped `absolute right-4 bottom-2 z-40` against `<main>`, which sat it on
+ * top of the chart's `[data-gantt-fullscreen-toggle]` and
+ * `[data-gantt-svg-download]` — the last two children of a control strip that
+ * packs from the left, so no other corner is better — and put `z-40` above the
+ * full-screen chart's `aria-modal` layer. Gemini F-03 and Sol I4, found
+ * independently. The repair is to stop floating: handed to
+ * {@link WbsTableProps.planActions} it sits in a row that already exists, so it
+ * costs the plan column no height either. Same markup as its four siblings,
+ * `z-50` panel and all, so the chart's modal outranks it now.
+ *
+ * **Zero height at rest is not a preference, and this is the third shape to
+ * try for it.** It shipped as an `mt-2 max-h-64 shrink-0` flex sibling of the
+ * table, and `shrink-0` did exactly what it says: ~76px off the one column
+ * whose whole invariant is reaching the bottom of the window. Four browser
+ * measurements said so at once — `header.spec.ts:272` wanted the frame >= 634
+ * and got 601, `header.spec.ts:289` and `plan-surface.spec.ts:278` both wanted
+ * <= 16px under the surface and got 76, and `plan-surface.spec.ts:318` said the
+ * same for a plan that fills the frame. Raising those thresholds is the wrong
+ * repair: `plan-surface.spec.ts:300` exists to say that what reaches the bottom
+ * must be the chart itself, "not a control strip that parted company with it".
+ * Above the table is no better — `:272` measures the frame's own
+ * `clientHeight`, so height lost anywhere in the column fails it the same — and
+ * inside the scrolling frame is ruled out by `plan-surface.spec.ts:288`, which
+ * requires `frame.scrollHeight === frame.clientHeight` on a short plan. The
+ * toolbar row is the fourth place, and the only one that is neither in the
+ * frame nor new height: it is already there whether this control is or not.
  */
 function SavedPlanShelf({
   projectId,
   deps,
 }: {
   projectId: string;
-  deps?: SavedPlansPanelDeps;
+  /**
+   * Required, and it is CI that says so. `SavedPlansPanel.deps` is not
+   * optional, so an optional prop here forwarded `SavedPlansPanelDeps |
+   * undefined` into it — `fe-01:typecheck` TS2322 at
+   * `project-page.tsx(298,50)`, red on the run at `adb58ad9` and invisible on
+   * h2puni, which OOM-killed that target three times running. The one caller
+   * has always passed the memoised `savedPlans`, which is never `undefined`.
+   */
+  deps: SavedPlansPanelDeps;
 }): ReactNode {
   return (
-    <div className="pointer-events-none absolute right-4 bottom-2 z-40">
-      <details
-        ref={useClosedByPointerOutside()}
-        data-saved-plans
-        className="pointer-events-auto relative"
+    <details ref={useClosedByPointerOutside()} data-saved-plans className="relative">
+      <summary
+        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
+        data-hint="The plans saved for this project, and what changed since one of them"
       >
-        <summary className="border-input bg-background h-8 cursor-pointer rounded-md border px-2 py-1 text-xs shadow-sm select-none">
-          Saved plans
-        </summary>
-        <div
-          data-saved-plans-panel
-          className="bg-popover absolute right-0 bottom-full z-50 mb-1 max-h-64 w-96 overflow-y-auto rounded-md border p-3 text-sm shadow-md"
-        >
-          <SavedPlansPanel projectId={projectId} deps={deps} />
-        </div>
-      </details>
-    </div>
+        Saved plans
+      </summary>
+      <div
+        data-saved-plans-panel
+        className="bg-popover absolute right-0 z-50 mt-1 max-h-80 w-96 overflow-y-auto rounded-md border p-3 text-sm shadow-md"
+      >
+        <SavedPlansPanel projectId={projectId} deps={deps} />
+      </div>
+    </details>
   );
 }
 
@@ -890,9 +924,9 @@ export function ProjectPage({
         bottom of the screen and the frame would never be the thing that
         scrolls.
 
-        `relative` is the saved-plan shelf's anchor: the shelf is absolutely
-        positioned out of this column (see below), and this is the ancestor it
-        is positioned against.
+        `relative` stays: the shelf's panel is absolutely positioned, and
+        several of the table's own menus are too, so this column is the
+        containing block they are all measured against.
       */}
       <main className="relative flex min-h-0 flex-1 flex-col px-4 py-2">
         {error !== null && (
@@ -909,56 +943,25 @@ export function ProjectPage({
             projectName={selectedProject?.name}
             api={api}
             subscribe={subscribe}
+            /*
+              The shelf is built here and rendered there, because the two
+              halves of it live in different places: its deps are this page's
+              (`savedPlans`, memoised above), and the row it belongs in is the
+              table's. See {@link SavedPlanShelf} for the two review findings
+              that moved it out of `<main>`'s bottom-right corner.
+
+              `key={selected}` remounts it per project. The panel pins its
+              compare pair once, on the first shelf that arrives (AC #4: a
+              comparison must not be swapped under the reader), and that pin is
+              `useState` — kept across a project switch it would hold a
+              saved-plan id belonging to the project just left, and the first
+              compare of the new project would ask be-01 about a checkpoint
+              that is not in it.
+            */
+            planActions={
+              <SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />
+            }
           />
-        )}
-        {/*
-          The saved-plan shelf, below the plan it is a history of — and
-          **outside this column's flow entirely**.
-
-          **Why it is `absolute` and not a flex sibling.** It shipped as an
-          `mt-2 max-h-64 shrink-0` sibling of the table, and `shrink-0` did
-          exactly what it says: it took ~76px off the one column whose whole
-          invariant is reaching the bottom of the window. Four browser
-          measurements said so at once — `header.spec.ts:272` wanted the frame
-          >= 634 and got 601, `header.spec.ts:289` and `plan-surface.spec.ts:278`
-          both wanted <= 16px under the surface and got 76, and
-          `plan-surface.spec.ts:318` said the same for a plan that fills the
-          frame. Raising those thresholds is the wrong repair:
-          `plan-surface.spec.ts:300` exists to say that what reaches the bottom
-          must be the chart itself, "not a control strip that parted company
-          with it".
-
-          Nor does moving the shelf *above* the table help — `header.spec.ts:272`
-          measures the frame's own `clientHeight`, so height lost anywhere in the
-          column fails it just the same. The shelf has to cost the column zero
-          height at rest, which leaves the two shapes that do: inside the
-          scrolling frame, or out of the flex chain. Inside the frame is ruled
-          out too — `plan-surface.spec.ts:288` requires
-          `frame.scrollHeight === frame.clientHeight` on a short plan, and a
-          shelf in there is content the frame would have to scroll.
-
-          So: `absolute`, anchored to `<main>`'s bottom-right, collapsed to its
-          `<summary>` chip until opened, and opening upward (`bottom-full`) so
-          the panel never needs room below it either. The wrapper is
-          `pointer-events-none` and only the disclosure takes clicks back, so the
-          chart's control strip underneath keeps every pixel it had.
-          `<details>` + `useClosedByPointerOutside` is the same shape the plan
-          toolbar's Views, Columns, Facets and Export menus already use.
-
-          It stays the **last** child of `<main>`, after the table: the shelf is
-          a history of the plan and reads as a footnote to it, and document order
-          is what a screen reader and `project-page.test.tsx` both go by,
-          whatever the positioning does.
-
-          `key={selected}` remounts it per project. The panel pins its compare
-          pair once, on the first shelf that arrives (AC #4: a comparison must
-          not be swapped under the reader), and that pin is `useState` — kept
-          across a project switch it would hold a saved-plan id belonging to the
-          project just left, and the first compare of the new project would ask
-          be-01 about a checkpoint that is not in it.
-        */}
-        {selected !== null && (
-          <SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />
         )}
       </main>
     </>

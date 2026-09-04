@@ -223,6 +223,24 @@ export interface WbsTableProps {
    * socket; supplied in the app.
    */
   subscribe?: (projectId: string, handlers: SubscriptionHandlers) => ProjectStream;
+  /**
+   * Plan-level controls this table does not own, rendered last in
+   * {@link toolbarControls} — today the saved-plan shelf, which
+   * {@link ProjectPage} builds because it holds the shelf's deps.
+   *
+   * **A slot rather than an import, and a slot in the toolbar rather than
+   * anywhere else.** The shelf shipped as a chip absolutely positioned at
+   * `<main>`'s bottom-right, which put it on top of the chart's own
+   * `[data-gantt-fullscreen-toggle]` and `[data-gantt-svg-download]`, and its
+   * `z-40` above the full-screen chart's `aria-modal` layer with it. Both
+   * review seats on PR 202 found it independently (Gemini F-03, Sol I4).
+   * Anchoring elsewhere does not repair it — the control strip packs from the
+   * left, so the left corner is worse — but this row does: it already exists,
+   * so a control in it costs the plan column no height, and "Saved plans"
+   * lands beside Views, Columns, Facets and Export, which is where a reader
+   * looks for it.
+   */
+  planActions?: ReactNode;
 }
 
 export interface SubscriptionHandlers {
@@ -2772,7 +2790,13 @@ function PlanRow({
  * create or a move can renumber rows this component never touched, and guessing
  * which would be a second implementation of the derivation as well.
  */
-export function WbsTable({ projectId, projectName, api, subscribe }: WbsTableProps) {
+export function WbsTable({
+  projectId,
+  projectName,
+  api,
+  subscribe,
+  planActions,
+}: WbsTableProps) {
   /**
    * The project this render belongs to, readable by work that outlives the
    * render which started it.
@@ -11374,6 +11398,14 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
           <option value="pessimistic">pessimistic</option>
         </select>
       </label>
+      {/*
+        Last, and in this list rather than in the toolbar row's own children:
+        the row is rendered on a wide window and the sheet on a phone, and the
+        comment above says why a control put in one of those copies is a
+        control the other renderer does not have. The shelf is the plan's
+        history and belongs on a phone as much as anywhere.
+      */}
+      {planActions}
     </>
   );
 

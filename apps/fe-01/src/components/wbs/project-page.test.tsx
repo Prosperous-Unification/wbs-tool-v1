@@ -400,32 +400,46 @@ describe('the saved-plan shelf is on the project page', () => {
     await selectProject('p2');
 
     /*
-      The shelf is a disclosure now, and closed is its rest state.
+      The shelf is a disclosure in the plan toolbar now, and closed is its rest
+      state.
 
-      It costs the plan column zero height there, which is the point: as an
+      It has to cost the plan column zero height, which is the point: as an
       `mt-2 shrink-0` flex sibling it took ~76px off the one column that has to
       reach the bottom of the window, and four browser measurements failed at
       once (`header.spec.ts:272`/`:289`, `plan-surface.spec.ts:278`/`:318`).
-      jsdom lays nothing out, so those four stay the real guard; what this file
-      can hold is the half that survives without layout — the wrapper is out of
-      flow, and the panel is behind a chip rather than in the column.
+      Floating it over `<main>`'s bottom-right paid that bill but landed on the
+      chart's own controls (Gemini F-03 / Sol I4 on PR 202). The toolbar row is
+      the third shape and the settled one: it exists whether this control is in
+      it or not.
+
+      jsdom lays nothing out, so those four measurements stay the real guard for
+      the height half. What this file can hold is where the chip lives, which is
+      what the height half now follows from — and it is a `<details>` in the
+      same row as Views, Columns, Facets and Export, not a box of its own.
     */
     const chip = await screen.findByText('Saved plans', { selector: 'summary' });
-    const wrapper = chip.closest('details')?.parentElement;
-    expect(wrapper?.className).toContain('absolute');
+    const shelfDisclosure = chip.closest('details');
+    expect(shelfDisclosure?.closest('[data-toolbar], [data-toolbar-sheet]')).not.toBeNull();
+    // Beside its four siblings, in one row, rather than merely somewhere on the
+    // page: `data-export` is the nearest of them and the cheapest to name.
+    expect(
+      shelfDisclosure?.parentElement?.querySelector('[data-export]'),
+    ).not.toBeNull();
 
     fireEvent.click(chip);
 
     const heading = await screen.findByRole('heading', { name: 'Saved plans' });
     const main = document.querySelector('main');
     expect(main?.contains(heading)).toBe(true);
-    // Below the table, not above it: the shelf is a history of the plan and
-    // reads as a footnote to it. `compareDocumentPosition`'s FOLLOWING bit is
-    // the only assertion that holds whatever the markup between them becomes.
+    // Above the grid, not below it — the inverse of what this asserted while
+    // the shelf floated at the bottom of `<main>`, and the assertion moved
+    // rather than being dropped because document order is what a screen reader
+    // reads. The shelf is a toolbar control now: it is announced with the
+    // controls, and its panel opens over the plan rather than under it.
     const grid = document.querySelector('[data-grid]');
     if (grid === null) throw new Error('the table did not render');
     expect(
-      grid.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+      grid.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_PRECEDING,
     ).toBeGreaterThan(0);
     // The shelf's own read landed, so this is the wired panel and not an empty
     // heading: `before the re-plan` is the row the fake answers with.
