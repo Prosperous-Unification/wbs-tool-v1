@@ -280,7 +280,14 @@ describe('the shelf as React state', () => {
    */
   const fakeDeps = (rows: readonly SavedPlanListEntryView[] = [ROW]) => {
     let fire: (() => void) | undefined;
-    const unsubscribe = vi.fn();
+    // Stops delivering, which `subscribeToProject`'s own `unsubscribe` really
+    // does. `watchShelf`'s `stopped` flag suppresses the *state*, not the
+    // request — a fake that kept firing after being unsubscribed would report a
+    // second read that no real stream can produce, and this file measured
+    // exactly that on its first gate run.
+    const unsubscribe = vi.fn(() => {
+      fire = undefined;
+    });
     const list = vi.fn(() => Promise.resolve([...rows]));
     const deps: ShelfWatchDeps = {
       available: () => Promise.resolve(true),
@@ -314,9 +321,9 @@ describe('the shelf as React state', () => {
     // outlives the component and every later broadcast writes state into
     // something nobody is rendering.
     //
-    // Asserted on `unsubscribe` rather than on `held.result.current`, because
-    // React freezes an unmounted hook's last value: a post-unmount `setState`
-    // is a leak the result object cannot see.
+    // Asserted on `unsubscribe` and on the silence after it, never on
+    // `held.result.current`: React freezes an unmounted hook's last value, so a
+    // post-unmount `setState` is a leak the result object cannot see.
     const wiring = fakeDeps();
     const held = renderHook(() => useSavedPlanShelf(wiring.deps, 'p1'));
     await flush();
