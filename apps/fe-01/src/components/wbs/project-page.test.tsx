@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { SavedPlanListEntryView } from '@/lib/saved-plan-api';
 import type { CreatedProject, ProjectApi, ProjectListEntry } from '@/lib/wbs-api';
 import { DEFAULT_PERT_WEIGHTS_VIEW } from '@/lib/wbs-api';
 import { recordCalls } from '@/testing/record-calls';
@@ -9,6 +10,7 @@ import { refusingApi } from '@/testing/refusing-api';
 import { planRead } from '@/testing/views';
 
 import { ProjectPage } from './project-page';
+import type { SavedPlansPanelDeps } from './saved-plans-panel';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
@@ -178,7 +180,39 @@ const THREE: ProjectListEntry[] = [
   },
 ];
 
-const pageWith = (api: ProjectApi) => render(<ProjectPage token="t" api={api} />);
+/** One saved plan, so a selected project's shelf has a row to show. */
+const CHECKPOINT: SavedPlanListEntryView = {
+  id: 'sp1',
+  name: 'before the re-plan',
+  createdBy: 'ada',
+  createdAt: MADE_ON,
+  inputBytes: 4096,
+  scheduleBytes: 2048,
+  scheduleAbsentReason: null,
+};
+
+/**
+ * The shelf's wiring, faked — handed to **every** render in this file.
+ *
+ * Not only to the case that asserts the panel: selecting a project mounts
+ * `SavedPlansPanel`, and without an override it would build the real HTTP deps
+ * and put a `fetch` at a relative URL into jsdom on any test that picks or
+ * creates a project. The default is what production uses and this is what the
+ * page around it is tested with, which is the same bargain `api` already makes
+ * one prop up.
+ */
+const fakeSavedPlansDeps = (
+  rows: readonly SavedPlanListEntryView[] = [CHECKPOINT],
+): SavedPlansPanelDeps => ({
+  available: () => Promise.resolve(true),
+  list: () => Promise.resolve([...rows]),
+  subscribe: () => ({ unsubscribe: () => undefined }),
+  save: () => Promise.resolve({ outcome: 'saved', savedPlan: CHECKPOINT }),
+  compare: () => Promise.resolve({ outcome: 'compared', diff: { input: [], schedule: [] } }),
+});
+
+const pageWith = (api: ProjectApi, savedPlansDeps: SavedPlansPanelDeps = fakeSavedPlansDeps()) =>
+  render(<ProjectPage token="t" api={api} savedPlansDeps={savedPlansDeps} />);
 
 const picker = () => screen.getByLabelText<HTMLInputElement>('Project');
 
@@ -345,6 +379,68 @@ describe('the header bar', () => {
     expect(grid).not.toBeNull();
     expect(bar.contains(grid)).toBe(false);
     expect(document.querySelector('main')?.contains(grid)).toBe(true);
+  });
+});
+
+/**
+ * Slice 9's prerequisite: every part of slice 8 was gated on its own and no
+ * screen rendered any of it, so the suites were green over a feature that could
+ * not be reached by clicking.
+ */
+describe('the saved-plan shelf is on the project page', () => {
+  itDom('renders the shelf under the table once a project is open', async () => {
+    pageWith(fakeProjects(TWO));
+
+    // Before a project is picked there is no history to show — and no project
+    // id to ask be-01 about, which is the honest reason the panel is absent
+    // rather than empty.
+    expect(screen.queryByRole('heading', { name: 'Saved plans' })).toBeNull();
+
+    await selectProject('p2');
+
+    const heading = await screen.findByRole('heading', { name: 'Saved plans' });
+    const main = document.querySelector('main');
+    expect(main?.contains(heading)).toBe(true);
+    // Below the table, not above it: the shelf is a history of the plan and
+    // reads as a footnote to it. `compareDocumentPosition`'s FOLLOWING bit is
+    // the only assertion that holds whatever the markup between them becomes.
+    const grid = document.querySelector('[data-grid]');
+    if (grid === null) throw new Error('the table did not render');
+    expect(grid.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(
+      0,
+    );
+    // The shelf's own read landed, so this is the wired panel and not an empty
+    // heading: `before the re-plan` is the row the fake answers with.
+    expect(await screen.findByText(/before the re-plan/)).toBeDefined();
+  });
+
+  itDom('asks be-01 about the project that is now open, not the one just left', async () => {
+    // The `key={selected}` on the panel, from the outside. The pinned compare
+    // pair is `useState` inside it, so a panel carried across a switch would
+    // hold the previous project's saved-plan id and compare against a
+    // checkpoint the new project does not contain.
+    const asked: string[] = [];
+    const deps: SavedPlansPanelDeps = {
+      ...fakeSavedPlansDeps(),
+      list: (projectId: string) => {
+        asked.push(projectId);
+        return Promise.resolve([CHECKPOINT]);
+      },
+    };
+    pageWith(fakeProjects(TWO), deps);
+
+    await selectProject('p2');
+    await waitFor(() => {
+      expect(asked).toContain('p2');
+    });
+
+    await selectProject('p1');
+    await waitFor(() => {
+      expect(asked).toContain('p1');
+    });
+    // The last word is the project on screen, whatever order the reads settled
+    // in — a stale answer arriving late must not be what the shelf is showing.
+    expect(asked[asked.length - 1]).toBe('p1');
   });
 });
 

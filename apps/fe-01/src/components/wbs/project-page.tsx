@@ -18,12 +18,27 @@ import { httpProjectApi, type ProjectApi, type ProjectListEntry } from '@/lib/wb
 
 import { type BesideAnchorRect, HoverCard } from './hover-card';
 import { entryMeta, matchingProjects, projectCardMeta } from './project-picker';
+import {
+  browserSavedPlansDeps,
+  SavedPlansPanel,
+  type SavedPlansPanelDeps,
+} from './saved-plans-panel';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 export interface ProjectPageProps {
   token: string;
   /** Injected in tests; the app lets it default to the real one. */
   api?: ProjectApi;
+  /**
+   * The saved-plan shelf's wiring — injected in tests, the real one by default.
+   *
+   * A second override rather than a field on `api`, because the two answer
+   * different halves of be-01: `ProjectApi` is the plan's routes and this is
+   * the checkpoint routes, which a node may not have at all
+   * ({@link SavedPlansPanelDeps}'s `available`). Merging them would make a
+   * node without saved plans a `ProjectApi` that cannot be built.
+   */
+  savedPlansDeps?: SavedPlansPanelDeps;
   /**
    * Who else is in the project, for the right-hand end of the header bar.
    *
@@ -243,8 +258,29 @@ function ProjectNameField({
  * scrolling instead and the heading row scrolls away with it, which is the
  * failure `table-frame.ts` describes.
  */
-export function ProjectPage({ token, api: apiOverride, presence, account, nav }: ProjectPageProps) {
+export function ProjectPage({
+  token,
+  api: apiOverride,
+  savedPlansDeps: savedPlansOverride,
+  presence,
+  account,
+  nav,
+}: ProjectPageProps) {
   const api = useMemo(() => apiOverride ?? httpProjectApi(token), [apiOverride, token]);
+  /**
+   * The shelf's wiring, memoised — and the memo is load-bearing rather than
+   * tidy.
+   *
+   * `browserSavedPlansDeps` builds a fresh object every call, and the panel
+   * puts that object in two dependency arrays (`useSavedPlanShelf`'s watch and
+   * the compare effect). Unmemoised it would be a new identity on every render
+   * of this page — every keystroke in the picker — so the shelf would resubscribe
+   * and the comparison would refetch while somebody was typing a project name.
+   */
+  const savedPlans = useMemo(
+    () => savedPlansOverride ?? browserSavedPlansDeps(token),
+    [savedPlansOverride, token],
+  );
   /**
    * Who else is in the selected project, and whether the socket saying so is
    * up.
@@ -826,6 +862,31 @@ export function ProjectPage({ token, api: apiOverride, presence, account, nav }:
             api={api}
             subscribe={subscribe}
           />
+        )}
+        {/*
+          The saved-plan shelf, below the plan it is a history of.
+
+          **Bounded and `shrink-0`, and both are the flex chain rather than
+          taste.** `<main>` hands its height to the one `flex-1` child, and
+          `table-frame.ts` needs that child to be the table so the frame stays
+          the thing that scrolls. A sibling with `min-height: auto` — the flex
+          default — refuses to shrink below its own content, so a project with
+          thirty checkpoints would push the table's share towards nothing and
+          the heading row would go with it. `max-h-64` caps what the shelf can
+          take and `overflow-y-auto` gives the overflow somewhere to go, so a
+          long history scrolls inside its own box and the table keeps the rest.
+
+          `key={selected}` remounts it per project. The panel pins its compare
+          pair once, on the first shelf that arrives (AC #4: a comparison must
+          not be swapped under the reader), and that pin is `useState` — kept
+          across a project switch it would hold a saved-plan id belonging to the
+          project just left, and the first compare of the new project would ask
+          be-01 about a checkpoint that is not in it.
+        */}
+        {selected !== null && (
+          <div className="mt-2 max-h-64 shrink-0 overflow-y-auto">
+            <SavedPlansPanel key={selected} projectId={selected} deps={savedPlans} />
+          </div>
         )}
       </main>
     </>
