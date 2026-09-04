@@ -259,6 +259,49 @@ function ProjectNameField({
  * scrolling instead and the heading row scrolls away with it, which is the
  * failure `table-frame.ts` describes.
  */
+
+/**
+ * The saved-plan shelf: a disclosure floating clear of the plan column's flow.
+ *
+ * **Its own component, and the reason is a bug this had.** The disclosure needs
+ * `useClosedByPointerOutside`, whose effect reads `ref.current` once with an
+ * empty dependency list — so the hook has to mount in the same commit as the
+ * `<details>` it is given. Held on {@link ProjectPage} instead (which renders
+ * first with no project selected and therefore no shelf), `panel.current` is
+ * `null` when the effect runs, the effect returns early, the `pointerdown`
+ * listener is **never** registered, and the panel can only be closed from its
+ * own chip. Caught by the Gemini seat on PR 202 as F-01. Every other caller of
+ * that hook (`wbs-table.tsx`'s Views, Columns, Facets and Export) is a component
+ * that renders its own `<details>` unconditionally, which is what this now is.
+ */
+function SavedPlanShelf({
+  projectId,
+  deps,
+}: {
+  projectId: string;
+  deps?: SavedPlansPanelDeps;
+}): ReactNode {
+  return (
+    <div className="pointer-events-none absolute right-4 bottom-2 z-40">
+      <details
+        ref={useClosedByPointerOutside()}
+        data-saved-plans
+        className="pointer-events-auto relative"
+      >
+        <summary className="border-input bg-background h-8 cursor-pointer rounded-md border px-2 py-1 text-xs shadow-sm select-none">
+          Saved plans
+        </summary>
+        <div
+          data-saved-plans-panel
+          className="bg-popover absolute right-0 bottom-full z-50 mb-1 max-h-64 w-96 overflow-y-auto rounded-md border p-3 text-sm shadow-md"
+        >
+          <SavedPlansPanel projectId={projectId} deps={deps} />
+        </div>
+      </details>
+    </div>
+  );
+}
+
 export function ProjectPage({
   token,
   api: apiOverride,
@@ -320,14 +363,6 @@ export function ProjectPage({
    * keyboard. See {@link ProjectPage}'s `choose`.
    */
   const pickerBox = useRef<HTMLInputElement | null>(null);
-  /**
-   * The saved-plan shelf's disclosure, closed by a pointer landing outside it.
-   *
-   * Held here rather than at the `<details>` — the shelf renders only once a
-   * project is selected, and a hook called inside that conditional would be a
-   * hook the first render does not make.
-   */
-  const shelfDisclosure = useClosedByPointerOutside();
   const [projects, setProjects] = useState<ProjectListEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -923,23 +958,7 @@ export function ProjectPage({
           be-01 about a checkpoint that is not in it.
         */}
         {selected !== null && (
-          <div className="pointer-events-none absolute right-4 bottom-2 z-40">
-            <details
-              ref={shelfDisclosure}
-              data-saved-plans
-              className="pointer-events-auto relative"
-            >
-              <summary className="border-input bg-background h-8 cursor-pointer rounded-md border px-2 py-1 text-xs shadow-sm select-none">
-                Saved plans
-              </summary>
-              <div
-                data-saved-plans-panel
-                className="bg-popover absolute right-0 bottom-full z-50 mb-1 max-h-64 w-96 overflow-y-auto rounded-md border p-3 text-sm shadow-md"
-              >
-                <SavedPlansPanel key={selected} projectId={selected} deps={savedPlans} />
-              </div>
-            </details>
-          </div>
+          <SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />
         )}
       </main>
     </>

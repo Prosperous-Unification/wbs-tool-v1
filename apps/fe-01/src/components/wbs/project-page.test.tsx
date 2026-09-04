@@ -438,6 +438,38 @@ describe('the saved-plan shelf is on the project page', () => {
     expect(within(shelf).getByText('before the re-plan')).toBeDefined();
   });
 
+  itDom('closes the shelf when a pointer goes down outside it', async () => {
+    /*
+      The regression this exists for, and it shipped once.
+
+      `useClosedByPointerOutside` reads its ref **once**, in a `useEffect` with
+      an empty dependency list, so the hook has to mount in the same commit as
+      the `<details>` it is handed. Held on `ProjectPage` — which renders first
+      with no project selected and so no shelf — `panel.current` was `null` when
+      the effect ran, it returned early, and the `pointerdown` listener was never
+      registered: the panel could only be closed from its own chip and otherwise
+      floated over the plan for good. Gemini's F-01 on PR 202, and the fix is
+      `SavedPlanShelf` owning the hook.
+
+      Watched failing: with the hook hoisted back onto `ProjectPage` this case
+      reports `open` still true after the pointer lands outside.
+    */
+    pageWith(fakeProjects(TWO));
+    await selectProject('p2');
+
+    const chip = await screen.findByText('Saved plans', { selector: 'summary' });
+    const disclosure = chip.closest('details');
+    if (disclosure === null) throw new Error('the chip is not inside a disclosure');
+
+    fireEvent.click(chip);
+    expect(disclosure.open).toBe(true);
+
+    // Capture-phase `pointerdown` on the document is what the hook listens for,
+    // so that is what this fires — a `click` would prove nothing about it.
+    fireEvent.pointerDown(document.body);
+    expect(disclosure.open).toBe(false);
+  });
+
   itDom('does not compare the new project against the old project’s checkpoint', async () => {
     /*
       The `key={selected}` on the panel, asserted from the outside.
