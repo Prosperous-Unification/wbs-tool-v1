@@ -80,15 +80,35 @@ viewport, and **above** it the rules are dropped and the chips kept (treatment
 A as the 4-rung fallback). A named constant with a pixel assertion is testable;
 "looks busy" is not.
 
-## 4. Geometry comes from the existing scale
+## 4. Geometry — the seam is `todayOffset`, not `CalendarScale`
 
-A marker's x is `CalendarScale`'s reading of its date, the same scale every
-other mark uses (`gantt-geometry.ts`, `calendarScale(startDate)`). A marker
-must not compute its own offset: two scales drift, which is the exact failure
-`gantt-calendar-axis` was written to end.
+**Corrected after the Sol planning review.** An earlier draft of this section
+said a marker's x comes from `CalendarScale`. It cannot: `CalendarScale` is
+`{ startOf, endOf }`, both `(workday: number) => number`
+(`gantt-geometry.ts:864-880`) — **workday offsets in, calendar-day offsets
+out**. A marker's date is already on the output side of that conversion, so
+there is nothing for it to feed in.
 
-Concretely: date → calendar-day offset from `addWorkdays(startDate, 0)` →
-user-space x, then the same `dayPx` every other mark is stretched by.
+The right seam is the one `todayOffset` (`gantt-panel.tsx:841`) already is,
+and its own docstring states this design rule for us:
+
+> **Read off the axis rather than computed a second time** … the gridlines,
+> the weekend bands and the day cells are all `axis[k].offset`, so a marker
+> that looks its own offset up in the same array cannot drift from the lines
+> it is drawn between. A parallel `calendarDaysBetween(origin, today)` would
+> be a second scale agreeing with the first only for as long as nobody touched
+> either.
+
+So: a marker finds its `offset` by locating its `IsoDate` in the rendered
+`AxisDay[]`, exactly as today does. `todayOffset` is generalised to
+`axisOffsetOf(axis, date)` and today becomes its first caller, so there is one
+lookup rather than two that can disagree. A date not present in the axis
+returns null and draws nothing, which is also the out-of-horizon behaviour the
+spec requires — one mechanism, not two.
+
+The principle survives the correction intact and is the same one
+`gantt-calendar-axis` was written to enforce: **a marker must not compute its
+own offset.** Only the named seam changes.
 
 ## 5. Persistence, modelled on `saved_plan`
 

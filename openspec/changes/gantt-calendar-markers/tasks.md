@@ -117,13 +117,23 @@ is what the rest is allowed to assume.
 
 - [ ] 5.1 The schedule response is byte-identical with and without markers —
       test: `apps/be-01/src/controller/calendar-marker-identity.db.test.ts`.
-      Capture the schedule response for a seeded project, create five markers
-      on dates inside its span, capture again, assert the two byte strings are
-      equal. Negative: a line added to the schedule input assembly that appends
-      marker dates to `notBefore`, watched failing — and removed. **Without
-      that injection this test cannot fail**, because nothing in the current
-      code path connects the two; it would be the sixteenth check all over
-      again. `Proof:` comment naming the injected line.
+      Capture the schedule for a seeded project, create five markers on dates
+      inside its span, capture again, assert equality.
+      **Compare a canonical projection, not the response bytes.**
+      `GET /projects/:id/work-items` spreads `tree()`, which carries the event
+      `seq` (`work-item.service.ts:1147-1159`), and marker broadcasts advance
+      it by design — a whole-body comparison is guaranteed to fail for a reason
+      that is not the schedule. Project to every work item's start, finish and
+      critical-path flag in a fixed order, and assert alongside it that `seq`
+      **did** advance, so the test also proves it compared the right thing.
+      Negative: **not** "marker dates appended to `notBefore`" — that is not
+      compilable, since `notBefore` is `Map<string, number>` keyed by work-item
+      id (`work-item.service.ts:1410-1420`) and a marker has no such id.
+      Instead, seed one known work item and inject a floor derived from a
+      marker's date onto **that id**, watched moving its start and failing the
+      projection, then removed. `Proof:` comment naming the seeded id and the
+      injected floor. Without a compilable injection this test cannot fail and
+      is the sixteenth check again.
 - [ ] 5.2 Markers stay out of a saved plan — test:
       `apps/be-01/src/repository/saved-plan-capture.db.test.ts`, a new case:
       capture a project with markers and a copy with none, assert the
@@ -194,7 +204,18 @@ is what the rest is allowed to assume.
 
 ## 8. Drawing
 
-- [ ] 8.1 The chip in the axis band, anchored via `CalendarScale` — test:
+- [ ] 8.0 `axisOffsetOf(axis, date)` — `todayOffset` (`gantt-panel.tsx:841`)
+      generalised to any `IsoDate`, with today rewired as its first caller so
+      there is one lookup rather than two that can disagree — test:
+      `gantt-panel.test.tsx`, a date present in the axis, one absent (null),
+      and today's existing assertions still green through the new callee.
+      **`CalendarScale` is not the seam:** `startOf`/`endOf` are
+      `(workday: number) => number` (`gantt-geometry.ts:864-880`), so an
+      absolute date is already past that conversion. Negative: the helper
+      reimplemented as `calendarDaysBetween(origin, date)`, watched failing
+      against an axis whose first cell was normalised off a weekend start —
+      the second-scale drift `todayOffset`'s own docstring warns about.
+- [ ] 8.1 The chip in the axis band, placed by `axisOffsetOf` — test:
       `gantt-panel.test.tsx`, a marker on `2026-08-19` asserted at the calendar
       x, not the workday x. Negative: the chip placed by workday number,
       watched failing — this is the drift `gantt-calendar-axis` exists to

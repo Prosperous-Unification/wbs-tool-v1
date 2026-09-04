@@ -15,12 +15,21 @@ Markers SHALL NOT be captured into a saved plan. A saved plan is the plan's
 own numbers copied by value; an annotation drawn over them is not one of them,
 and a restore that resurrected deleted markers would be inventing state.
 
-#### Scenario: the schedule is byte-identical with markers and without
+The proof SHALL compare a **canonical projection of the schedule-bearing
+fields**, not the whole response body. `GET /projects/:id/work-items` spreads
+`tree()`, which carries the project's event `seq`
+(`work-item.service.ts:1147-1159`), and every marker mutation advances that
+sequence by design — so whole-body equality is guaranteed to fail for a reason
+that has nothing to do with the schedule. A test that compared whole bodies
+would fail honestly and mean nothing.
+
+#### Scenario: the schedule projection is identical with markers and without
 
 - **WHEN** a project's schedule is requested, then five markers are added on
   dates inside its span, then the schedule is requested again
-- **THEN** the two responses are byte-identical — every start, finish and
-  critical-path flag among them
+- **THEN** the canonical projection — every work item's start, finish and
+  critical-path flag, in a fixed order — is identical, while `seq` has
+  advanced
 
 #### Scenario: a marker is not a work item
 
@@ -139,8 +148,14 @@ At 4px per day the rule SHALL be suppressed when the count of markers within
 the viewport exceeds the density threshold, leaving the chip alone; the
 threshold SHALL be a named constant with a pixel assertion, not a judgement.
 
-Marker geometry SHALL come from the same `CalendarScale` every other mark
-reads. A marker SHALL NOT compute its own x.
+A marker SHALL find its day by locating its `IsoDate` in the rendered
+`AxisDay[]`, through the same generalised lookup today uses
+(`todayOffset`, `gantt-panel.tsx:841`). A marker SHALL NOT compute its own
+offset from a date, and SHALL NOT read `CalendarScale` — that interface takes
+a **workday** number and returns a calendar offset, so an absolute date is
+already past it.
+
+A date absent from the rendered axis SHALL return no offset and draw nothing.
 
 #### Scenario: the bar layer is untouched at the widest zoom
 
