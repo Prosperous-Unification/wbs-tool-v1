@@ -364,14 +364,14 @@ hide a step that had mutated its argument.
 A single "unsupported version" would hide which of these happened, and they call
 for different answers:
 
-| `reason`          | When                                                    | Why not silent |
-| ----------------- | ------------------------------------------------------- | -------------- |
-| `from-the-future` | stored version above the reader's                        | design.md: a schema that _removes_ a field needs a down-conversion rule written at that change, never guessed here |
-| `no-upgrade-path` | stored version below the reader's, no step registered    | passing an old shape through as current is how a removed field comes to read `undefined` and compare as a change nobody made |
-| `not-a-version`   | not a positive integer                                   | a header number that is not a version is a corrupt header, not a conversion problem |
+| `reason`          | When                                                  | Why not silent                                                                                                               |
+| ----------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `from-the-future` | stored version above the reader's                     | design.md: a schema that _removes_ a field needs a down-conversion rule written at that change, never guessed here           |
+| `no-upgrade-path` | stored version below the reader's, no step registered | passing an old shape through as current is how a removed field comes to read `undefined` and compare as a change nobody made |
+| `not-a-version`   | not a positive integer                                | a header number that is not a version is a corrupt header, not a conversion problem                                          |
 
 `PLAN_INPUT_UPGRADES` is **empty today, and that is a statement**: version 1 is
-the only version that has ever existed, so there is no _n_→_n+1_ step to write.
+the only version that has ever existed, so there is no *n*→*n+1* step to write.
 When `CANONICAL_PLAN_INPUT_SCHEMA_VERSION` moves to 2 a step keyed `1` lands
 with it, and until then a v1 body against a v2 reader fails `no-upgrade-path`
 loudly instead of arriving half-converted. The step-ordering case proves the
@@ -392,10 +392,10 @@ rot into a test that passes either way.
 At `a10ad8cd`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
 `--skip-nx-cache`, `--parallel=1`, `TMPDIR=/home/puni1/gate-tmp`:
 
-| Gate | Result |
-| --- | --- |
+| Gate                                           | Result                                         |
+| ---------------------------------------------- | ---------------------------------------------- |
 | `nx run-many -t test lint typecheck -p domain` | exit 0 — **371 pass / 0 fail** across 27 files |
-| `nx format:check --all` | exit 0, zero files |
+| `nx format:check --all`                        | exit 0, zero files                             |
 
 ### Slice 7 after this chunk
 
