@@ -64,10 +64,17 @@ describe('each side’s schedule state', () => {
     // against a live plan that also has none produces an EMPTY schedule half.
     // A build that read state off the diff would render both sides as scheduled.
     //
-    // Negative, MEASURED on h2puni and reverted with dirty=0 re-asserted: make
-    // `presence()` return `null` when there is no `schedule.present` row —
-    // i.e. drop the shelf fallback — and this file is 8 pass / 1 fail, this
-    // case, `{ kind: 'unknown' }` where `{ kind: 'absent' }` was expected.
+    // Negative, MEASURED on h2puni at c48466ce and reverted with dirty=0
+    // re-asserted: make `presence()` return `null` when there is no
+    // `schedule.present` row — i.e. drop the shelf fallback — and this file is
+    // 11 pass / 4 fail, `{ kind: 'unknown' }` where `{ kind: 'absent' }` and
+    // `{ kind: 'present' }` were expected. FOUR and not one, because the
+    // fallback is the only thing that reads a side's state when the sides
+    // agree, which is every case here that does not carry a `schedule.present`
+    // row: this one, the differing-reasons case, the shelf-presence case and
+    // the null-reason case. The `unknown` case is the one that stays green,
+    // which is the shape to expect — it asserts the absence of this fallback's
+    // input.
     const resolved = resolveSideSchedules(SAVED, 'current', diff(), [NO_SCHEDULE]);
     expect(resolved).toEqual({
       left: { kind: 'absent', reason: 'infeasible' },
@@ -150,10 +157,12 @@ describe('what an absent side says', () => {
     // ever saved, so the saved-side words would state the wrong fact about a
     // cyclic live plan.
     //
-    // Negative, MEASURED on h2puni and reverted with dirty=0 re-asserted: drop
-    // the `ref === 'current'` branch so both sides share one sentence and this
-    // file is 8 pass / 1 fail, this case, `no schedule was saved (infeasible)`
-    // where `the live plan cannot be scheduled (infeasible)` was expected.
+    // Negative, MEASURED on h2puni at c48466ce and reverted with dirty=0
+    // re-asserted: drop the `ref === 'current'` branch so both sides share one
+    // sentence and this file is 13 pass / 2 fail — this case on
+    // `no schedule was saved (infeasible)` where
+    // `the live plan cannot be scheduled (infeasible)` was expected, and the
+    // no-reason case below on the same substitution without the parenthesis.
     const absent = { kind: 'absent', reason: 'infeasible' } as const;
     expect(sideScheduleWords(SAVED, absent)).toBe('no schedule was saved (infeasible)');
     expect(sideScheduleWords('current', absent)).toBe(
@@ -201,6 +210,12 @@ describe('the diff, by category', () => {
     // the natural implementation — rank lookup with `?? -1` — sorts an unknown
     // category to the FRONT of the list, which is the loudest possible place
     // for the one heading this build cannot explain.
+    //
+    // Negative, MEASURED on h2puni at c48466ce and reverted with dirty=0
+    // re-asserted: keep `difference.category` unmapped and sort the observed
+    // keys by `CATEGORY_RANK[c] ?? -1`, and this file is 14 pass / 1 fail —
+    // this case, `[ 'sideways', 'notes' ]` where `[ 'notes', 'other' ]` was
+    // expected. The rogue heading led the list, exactly as predicted.
     const rogue = {
       category: 'sideways',
       path: 'x',

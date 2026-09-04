@@ -592,17 +592,26 @@ comparison UI) and start only after slice 6 is merged.
 
 ## 8. The surfaces
 
-- [ ] 8.1 A saved-plan list per project: name, who saved it, when, whether a
+- [x] 8.1 A saved-plan list per project: name, who saved it, when, whether a
       schedule was saved. Refreshes on the existing broadcast.
+      _(`SavedPlanList` + `watchShelf`/`useSavedPlanShelf`; the broadcast
+      re-reads, the superseded read is dropped, and a node without the routes
+      is never subscribed to.)_
 - [ ] 8.2 Save writes immediately with the server timestamp as the default name
       (A-1); renaming is an edit on the created record, not a modal in the way of
-      the save.
+      the save. _(Save half closed at `d591b3f0`: be-01 defaults the name off the
+      `created_at` it writes, `useSavedPlanSave` sends no name and no modal
+      precedes the press. The rename-as-edit half has an API client method and
+      **no surface** — that is what is left of 8.2.)_
 - [ ] 8.3 The comparison surface: two side pickers, each a saved plan or
       `current`; the diff rendered by category; **the absent reason rendered per
       side**, "no schedule was saved" only for a _saved_ side with no body, and
       `current` + `infeasible` saying the live plan cannot be scheduled —
       nothing about `current` was ever saved, so the saved-side copy would state
       the wrong fact about a cyclic live plan.
+      _(Model landed in `saved-plan-compare.ts`: per-side resolution, the two
+      sentences, category grouping, and `current`/`current` refused. The two
+      pickers and the rendering are what remain.)_
 - [ ] 8.4 **Stale but not replaced.** A broadcast arrives while a comparison is
       open: the refresh affordance appears and the rendered comparison does not
       change until it is used. Negative: refetch into the open comparison and
