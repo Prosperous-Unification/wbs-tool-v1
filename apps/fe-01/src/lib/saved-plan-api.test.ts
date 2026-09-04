@@ -28,15 +28,28 @@ const document = (paths: readonly string[]): string =>
     ),
   });
 
-const ROW: SavedPlanListEntryView = {
+/**
+ * One row as **be-01 really sends it**, `created_at` included — and that is the
+ * whole point of the pair below.
+ *
+ * The column is epoch **seconds** (`boot.ts` builds the service with
+ * `now: () => Math.floor(Date.now() / 1000)` and says so), and every fixture in
+ * this file used to be a 13-digit millisecond value, so the suite agreed with
+ * the client and neither of them agreed with the server. A 2026 checkpoint
+ * rendered as January 1970. Sol's I1 on PR 202.
+ */
+const WIRE = {
   id: 'sp1',
   name: '2026-09-04 06:00',
   createdBy: 'ada',
-  createdAt: 1_788_501_600_000,
+  createdAt: 1_788_501_600,
   inputBytes: 4096,
   scheduleBytes: 2048,
   scheduleAbsentReason: null,
 };
+
+/** The same row after the client boundary: `createdAt` in milliseconds. */
+const ROW: SavedPlanListEntryView = { ...WIRE, createdAt: 1_788_501_600_000 };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -110,7 +123,7 @@ describe('whether this node has the routes at all', () => {
 describe('the shelf', () => {
   it('lists a project’s saved plans', async () => {
     const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
-      Promise.resolve(response(200, JSON.stringify({ savedPlans: [ROW] }))),
+      Promise.resolve(response(200, JSON.stringify({ savedPlans: [WIRE] }))),
     );
     vi.stubGlobal('fetch', fetched);
     await expect(httpSavedPlanApi('t').list('p1')).resolves.toEqual([ROW]);
@@ -121,19 +134,41 @@ describe('the shelf', () => {
     // be-01's column is `text` and its read path passes an unrecognised reason
     // through. A client that accepted only the labels it knew would hide a plan
     // the server is willing to hand over.
+    const wire = { ...WIRE, scheduleBytes: null, scheduleAbsentReason: 'a-reason-from-the-future' };
     const row = { ...ROW, scheduleBytes: null, scheduleAbsentReason: 'a-reason-from-the-future' };
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(response(200, JSON.stringify({ savedPlans: [row] })))),
+      vi.fn(() => Promise.resolve(response(200, JSON.stringify({ savedPlans: [wire] })))),
     );
     await expect(httpSavedPlanApi('t').list('p1')).resolves.toEqual([row]);
+  });
+
+  /**
+   * The defect I1 named, said in the unit a reader would notice it in.
+   *
+   * The two assertions above already fail if the conversion is removed, but they
+   * fail on a nine-digit number comparison, which reads as a fixture typo. This
+   * one fails on **1970**, which is what was on the screen: a checkpoint saved
+   * in September 2026 was stamped 21 January 1970, because `new Date(n)` takes
+   * milliseconds and be-01 sends seconds.
+   *
+   * Watched: with `savedPlanEntry`'s `* 1000` removed, this case fails on
+   * `expected 1970 to be 2026`.
+   */
+  it('reads be-01’s epoch seconds as the year the plan was really saved', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, JSON.stringify({ savedPlans: [WIRE] })))),
+    );
+    const [entry] = await httpSavedPlanApi('t').list('p1');
+    expect(new Date(entry?.createdAt ?? 0).getUTCFullYear()).toBe(2026);
   });
 });
 
 describe('saving', () => {
   it('answers the created record', async () => {
     const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
-      Promise.resolve(response(201, JSON.stringify({ savedPlan: ROW }))),
+      Promise.resolve(response(201, JSON.stringify({ savedPlan: WIRE }))),
     );
     vi.stubGlobal('fetch', fetched);
     await expect(httpSavedPlanApi('t').save('p1', 'before the re-plan')).resolves.toEqual({
@@ -156,7 +191,7 @@ describe('saving', () => {
    */
   it('sends no name at all when the caller chose none, rather than an empty one', async () => {
     const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
-      Promise.resolve(response(201, JSON.stringify({ savedPlan: ROW }))),
+      Promise.resolve(response(201, JSON.stringify({ savedPlan: WIRE }))),
     );
     vi.stubGlobal('fetch', fetched);
     await expect(httpSavedPlanApi('t').save('p1')).resolves.toEqual({

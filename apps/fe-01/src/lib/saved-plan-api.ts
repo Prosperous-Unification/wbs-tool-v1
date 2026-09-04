@@ -74,7 +74,10 @@ export interface SavedPlanListEntryView {
   readonly name: string;
   /** The username recorded at save time, kept even if that account is later deleted. */
   readonly createdBy: string;
-  /** Epoch milliseconds, and be-01's clock rather than the browser's. */
+  /**
+   * Epoch **milliseconds**, and be-01's clock rather than the browser's — but
+   * be-01 does not send milliseconds. See {@link savedPlanEntry}.
+   */
   readonly createdAt: number;
   readonly inputBytes: number;
   /** The schedule side's stored length, or `null` for a schedule-less save. */
@@ -236,6 +239,45 @@ function touchRefusal(code: string): SavedPlanTouchResultView | null {
     : null;
 }
 
+/**
+ * What be-01 puts on the wire for one shelf row: the view's shape, with
+ * `createdAt` in the unit the column really holds.
+ *
+ * Epoch **seconds**. `boot.ts` builds `SavedPlanService` with
+ * `now: () => Math.floor(Date.now() / 1000)` "matching the column", and the
+ * service's contract says the same.
+ */
+type SavedPlanListEntryWire = Omit<SavedPlanListEntryView, 'createdAt'> & {
+  readonly createdAt: number;
+};
+
+/**
+ * The one place seconds become milliseconds, and the reason there is exactly
+ * one.
+ *
+ * be-01 stores and serves epoch **seconds**; every browser API that turns a
+ * number into a date — `new Date(n)`, `toISOString`, `toLocaleString` — takes
+ * milliseconds. The raw value went straight into `new Date(...)` in both the
+ * shelf list and the save confirmation, so a checkpoint saved in September 2026
+ * was shown as **21 January 1970**. Sol's I1 on PR 202, and the client type
+ * claimed milliseconds while the server contract said seconds, so both sides
+ * were internally consistent and wrong about each other.
+ *
+ * **Converted here rather than at the server**, and that is a decision and not
+ * an accident: `created_at` is an `integer` column of epoch seconds with rows
+ * already in it, so changing the wire unit is a data migration plus a
+ * compatibility window for older clients, to fix a defect that lives entirely in
+ * one browser boundary. The unit crosses the network as be-01 defines it and is
+ * normalised on arrival, which is what {@link SavedPlanListEntryView.createdAt}
+ * now documents.
+ *
+ * Both callers go through this: `list` and the `save` confirmation, which is the
+ * other place the raw number reached a `new Date`.
+ */
+function savedPlanEntry(wire: SavedPlanListEntryWire): SavedPlanListEntryView {
+  return { ...wire, createdAt: wire.createdAt * 1000 };
+}
+
 export function httpSavedPlanApi(token: string): SavedPlanApi {
   const headers = auth(token);
   return {
@@ -244,7 +286,9 @@ export function httpSavedPlanApi(token: string): SavedPlanApi {
         headers,
       });
       if (!res.ok) throw new Error(await refusalCode(res));
-      return ((await res.json()) as { savedPlans: SavedPlanListEntryView[] }).savedPlans;
+      return ((await res.json()) as { savedPlans: SavedPlanListEntryWire[] }).savedPlans.map(
+        savedPlanEntry,
+      );
     },
 
     async save(projectId, name) {
@@ -261,7 +305,9 @@ export function httpSavedPlanApi(token: string): SavedPlanApi {
       if (res.ok) {
         return {
           outcome: 'saved',
-          savedPlan: ((await res.json()) as { savedPlan: SavedPlanListEntryView }).savedPlan,
+          savedPlan: savedPlanEntry(
+            ((await res.json()) as { savedPlan: SavedPlanListEntryWire }).savedPlan,
+          ),
         };
       }
       const text = await res.text();
