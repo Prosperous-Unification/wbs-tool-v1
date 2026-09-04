@@ -45,6 +45,8 @@ describe('the saved-plan routes', () => {
   let app: ReturnType<typeof buildApp>;
   let tokens: Record<string, string>;
   let projectId: string;
+  /** The database file behind {@link app}, for the one test that damages it. */
+  let path: string;
 
   /**
    * One authenticated request. `headers` is set rather than merged: every
@@ -64,7 +66,7 @@ describe('the saved-plan routes', () => {
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'wbs-saved-plan-http-'));
-    const path = join(dir, 'test.db');
+    path = join(dir, 'test.db');
     runMigrations(path, FOLDER);
     const connection = openConnection(path);
     const projects = new ProjectRepository(connection.db);
@@ -261,6 +263,53 @@ describe('the saved-plan routes', () => {
     );
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'not_found', savedPlanId: foreign });
+  });
+
+  /**
+   * A corrupt side is 422 and names which plan, not 404 and not 500.
+   *
+   * `read`'s own 422 is proved above for the single-plan route; this is the
+   * part only the compare route has — two sides, so a refusal with no id leaves
+   * a caller unable to tell which of its two pickers is holding the damaged
+   * plan. The service's `read` is what refuses; what is proved here is that the
+   * compare route carries the refusal out rather than folding it into the
+   * `not_found` its other three refusals share.
+   */
+  it('answers 422 naming the side whose stored bytes are damaged', async () => {
+    const id = await savedIdOf(await save('ada'));
+    // One byte appended underneath the record, as `saved-plan-read.db.test.ts`
+    // does it: the change is provably in the bytes rather than in some equal
+    // rendering of them.
+    const damaged = openConnection(path);
+    damaged.db.run(`UPDATE saved_plan_body SET bytes = bytes || ' ' WHERE kind = 'input'`);
+    damaged.close();
+
+    const res = await as(
+      tokens['ada'],
+      `/api/projects/${projectId}/saved-plans/compare?left=${id}&right=current`,
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; savedPlanId: string };
+    expect(body.error).toBe('corrupt');
+    expect(body.savedPlanId).toBe(id);
+  });
+
+  /**
+   * `current` is a reserved literal, not a lookup — and this is the case that
+   * tells the two apart.
+   *
+   * The project has **no saved plans at all**. A build that resolved every side
+   * by id would answer 404 here, because there is no plan called `current`; a
+   * build that reserves the literal captures the live plan twice and reports no
+   * difference. Every other compare case in this file has a saved plan to fall
+   * back on and cannot separate them.
+   */
+  it('reads `current` as the live plan and never as a saved-plan id', async () => {
+    const { status, body } = await compareOf('ada', 'current', 'current');
+    expect(status).toBe(200);
+    const { diff } = body as { diff: { input: unknown[]; schedule: unknown[] } };
+    expect(diff.input).toEqual([]);
+    expect(diff.schedule).toEqual([]);
   });
 
   it('answers 404 when the compare route names a project that is not there', async () => {
