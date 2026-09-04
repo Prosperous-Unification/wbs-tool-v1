@@ -47,6 +47,31 @@ foreign_key_list` → `project_id -> project ON DELETE CASCADE` and
 3. **A body's size against a real plan** (task 9.1) — the serialized byte length
    of the largest real project's plan-input body, printed, against the 8 MiB
    limit. This is A-3's falsifier and a number, not a verdict.
+   **Observed 2026-09-04 at head `7208e8a4`, h2puni, over all 161 projects in
+   the deployed database:** the largest body is **50,975 bytes — 0.6077% of
+   8,388,608**, 164.6× headroom, on a project of 63 work items. Next four:
+   39,197 (79 items), 18,774 (60), 15,546 (44), 15,051 (35). **A-3 is not
+   falsified.** Density at the largest is 809 bytes per work item, so 8 MiB is
+   about **10,300 work items in one project**; the corpus holds 927 across 161,
+   largest 63.
+   **Measured by running the save path, not an estimate of it.** A throwaway
+   script called `SavedPlanCaptureRepository.readPlanInput`, `planInputRowsOf`,
+   `canonicalisePlanInput`, `serialiseCanonicalPlanInput` and `bodyByteLength`
+   in production order against a copy of the database file, so no shape or
+   serializer is reimplemented and the UTF-8 count is the same one the quota
+   uses. The script and the one-line `tsconfig.json` `bun` needed to resolve
+   `@wbs/domain` were deleted afterwards, `dirty=0` re-asserted.
+   **The trap this row nearly fell into, recorded because the next reader will
+   meet it too.** The deployment's colours invert the usual reading of which
+   file holds real data. `be-01-green`, which serves the `wbs.` origin, mounts
+   `/home/puni1/wbs/data/wbs.db`: **36 KiB, last written 2026-08-24, five
+   tables** (`__drizzle_migrations`, `event_log`, `event_sequencer`, `examples`,
+   `sqlite_sequence`) and **no `project` table at all**. The script pointed
+   there exits 1 on `SQLiteError: no such table: project`. Had it instead
+   swallowed the error and printed "0 projects measured", this row would read as
+   a green verdict resting on an empty file. The 161 real projects are in
+   `dev-be-01-blue`'s `/home/puni1/wbs-dev/data/wbs.db` — 27 MB, 35 tables,
+   written within the hour. Both were copied and both were run.
 
 ## Watched negatives
 
