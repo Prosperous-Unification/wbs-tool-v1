@@ -179,16 +179,15 @@ export function SavedPlansPanel({
             rows,
           };
         }
-        // `corrupt` names its side and `not_found` names it when it has one:
-        // with two pickers on screen, a refusal naming no plan leaves the reader
-        // unable to tell which of them holds the damaged one.
+        // 8.5, compare half: each typed refusal keeps its type all the way to
+        // the sentence. Flattened into `error` with a code in brackets — which
+        // is what this did until 2026-09-04 — the reader got `not_found (sp1)`
+        // for a plan a collaborator had deleted, and the API layer's typed
+        // union had been spent on a string.
         if (result.outcome === 'corrupt') {
-          return { kind: 'error', code: `${result.refusal} (${result.savedPlanId})` };
+          return { kind: 'unreadable', savedPlanId: result.savedPlanId, refusal: result.refusal };
         }
-        return {
-          kind: 'error',
-          code: result.savedPlanId === null ? 'not_found' : `not_found (${result.savedPlanId})`,
-        };
+        return { kind: 'gone', savedPlanId: result.savedPlanId };
       })
       .catch(
         (fault: unknown): SavedPlanComparisonState => ({

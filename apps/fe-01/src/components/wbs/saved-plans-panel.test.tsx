@@ -7,6 +7,7 @@ import type {
   SavedPlanListEntryView,
   SavedPlanSaveResult,
 } from '../../lib/saved-plan-api';
+import { compareGoneWords, compareUnreadableWords } from './saved-plan-compare';
 import type { SavedPlansPanelDeps } from './saved-plans-panel';
 import { SAVE_BUSY, SavedPlansPanel, saveWords } from './saved-plans-panel';
 
@@ -301,5 +302,64 @@ describe('the saved-plans panel', () => {
     // The offer is spent: the comparison on screen was made from the shelf that
     // is on screen, so there is nothing left to bring up to date.
     expect(screen.queryByRole('button', { name: 'Compare again' })).toBeNull();
+  });
+
+  itDom('says a deleted plan was deleted, rather than printing not_found', async () => {
+    /*
+      8.5, compare half. `not_found` and `corrupt` are two different things that
+      happened, and until 2026-09-04 the panel flattened both into
+      `{ kind: 'error', code }` — so a plan a collaborator had just deleted was
+      reported as `The comparison could not be read (not_found (sp1)).`
+
+      The assertion that carries the change is the **negative** one: the raw
+      outcome word must not reach the screen. Without it this case would pass
+      against the old flattening, which prints the id and the word both.
+    */
+    const wiring = fakeDeps([ROW]);
+    wiring.compare.mockResolvedValue({ outcome: 'not_found', savedPlanId: ROW.id });
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(compareGoneWords(ROW.id));
+    expect(alert.textContent).toContain(ROW.id);
+    expect(alert.textContent).not.toContain('not_found');
+    // The next move is on this panel, so it is named.
+    expect(alert.textContent).toContain('Pick another');
+  });
+
+  itDom('a refusal naming no plan is about the project, and offers no pick', async () => {
+    // The other branch, and it is a different sentence rather than the same one
+    // with a gap: be-01 refused the project, which no choice among these
+    // pickers can fix, so inviting one would send the reader round a loop.
+    const wiring = fakeDeps([ROW]);
+    wiring.compare.mockResolvedValue({ outcome: 'not_found', savedPlanId: null });
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(compareGoneWords(null));
+    expect(alert.textContent).not.toContain('Pick another');
+  });
+
+  itDom('an unreadable plan is not offered a retry', async () => {
+    // Rereading stored bytes gives the same bytes and the same answer, so the
+    // sentence names the plan and the reason and sends the reader at the other
+    // picker rather than at the same button again.
+    const wiring = fakeDeps([ROW]);
+    wiring.compare.mockResolvedValue({
+      outcome: 'corrupt',
+      savedPlanId: ROW.id,
+      refusal: 'stored_plan_unreadable',
+    });
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(compareUnreadableWords(ROW.id, 'stored_plan_unreadable'));
+    expect(alert.textContent).not.toMatch(/try again|again in a moment/i);
+    // The two refusals do not share a sentence: telling them apart is the whole
+    // of 8.5, and one wording for both would make this suite green over it.
+    expect(alert.textContent).not.toBe(compareGoneWords(ROW.id));
   });
 });

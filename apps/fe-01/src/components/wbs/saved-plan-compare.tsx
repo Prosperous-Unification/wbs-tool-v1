@@ -80,6 +80,25 @@ export type SavedPlanComparisonState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'refused'; readonly reason: 'same_side' }
   | { readonly kind: 'loading' }
+  /**
+   * be-01 has no such saved plan. The id is `null` when the refusal named no
+   * plan — the project itself was the thing not found — and that is a different
+   * sentence rather than the same one with a gap in it.
+   *
+   * A state of its own and not `error` with a code in it (8.5). A refusal the
+   * API layer already typed, flattened back into a string for the renderer to
+   * print in brackets, is a design that spent be-01's work on nothing: the
+   * reader gets `not_found (sp1)` where they could have been told the plan was
+   * deleted and that picking another is what to do next.
+   */
+  | { readonly kind: 'gone'; readonly savedPlanId: string | null }
+  /**
+   * The stored plan is there and cannot be read. `refusal` is be-01's own word
+   * for why, kept verbatim because it is the only thing that distinguishes one
+   * unreadable plan from another when somebody comes to look at the row.
+   */
+  | { readonly kind: 'unreadable'; readonly savedPlanId: string; readonly refusal: string }
+  /** A fault rather than a refusal: the request did not complete. */
   | { readonly kind: 'error'; readonly code: string }
   | {
       readonly kind: 'ready';
@@ -89,6 +108,38 @@ export type SavedPlanComparisonState =
       readonly schedules: SideSchedules;
       readonly rows: readonly SavedPlanListEntryView[];
     };
+
+/**
+ * 8.5's sentence for a saved plan be-01 no longer has.
+ *
+ * Two sentences and not one with a hole in it. With an id, the plan named on a
+ * picker is the thing that went — deleted by a collaborator between the pick
+ * and the compare — and the next move is to pick another. With no id, be-01
+ * refused the *project*, which no choice on this panel can fix, so offering one
+ * would send the reader round a loop.
+ *
+ * A function so both branches can be held against their input without a
+ * renderer, and exported because a case that retypes the copy is a case that
+ * goes green while the surface says something else.
+ */
+export function compareGoneWords(savedPlanId: string | null): string {
+  if (savedPlanId === null) return 'This project no longer has any saved plans to compare.';
+  return `That saved plan (${savedPlanId}) is no longer here — it has been deleted. Pick another to compare.`;
+}
+
+/**
+ * 8.5's sentence for a stored plan that cannot be read.
+ *
+ * The id and be-01's own refusal, both. With two pickers on screen a refusal
+ * naming no plan leaves the reader unable to tell which side holds the damaged
+ * one — be-01's reason for putting `savedPlanId` on its 422 — and the refusal
+ * word is the only thing that tells one unreadable plan from another when
+ * somebody comes to look at the row. Deliberately **not** an invitation to
+ * retry: rereading a stored plan gives the same bytes and the same answer.
+ */
+export function compareUnreadableWords(savedPlanId: string, refusal: string): string {
+  return `That saved plan (${savedPlanId}) cannot be read (${refusal}), so it cannot be compared. Pick another.`;
+}
 
 /** One side's heading and, when it has one, its own absence sentence. */
 function SideSummary({
@@ -171,6 +222,20 @@ export function SavedPlanComparison({ state }: { state: SavedPlanComparisonState
     return (
       <p className="saved-plan-compare__note" role="status">
         Comparing…
+      </p>
+    );
+  }
+  if (state.kind === 'gone') {
+    return (
+      <p className="saved-plan-compare__note" role="alert">
+        {compareGoneWords(state.savedPlanId)}
+      </p>
+    );
+  }
+  if (state.kind === 'unreadable') {
+    return (
+      <p className="saved-plan-compare__note" role="alert">
+        {compareUnreadableWords(state.savedPlanId, state.refusal)}
       </p>
     );
   }
