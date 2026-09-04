@@ -1,7 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SavedPlanListEntryView } from './saved-plan-api';
-import { readShelf, watchShelf } from './saved-plan-shelf';
+import { readShelf, useSavedPlanShelf, watchShelf } from './saved-plan-shelf';
+import type { ShelfWatchDeps } from './saved-plan-shelf';
+
+// fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
+const hasDom = typeof document !== 'undefined';
+const itDom = hasDom ? it : it.skip;
 
 const ROW: SavedPlanListEntryView = {
   id: 'sp1',
@@ -253,5 +259,98 @@ describe('watching a project’s shelf', () => {
     await settled();
 
     expect(onState).toHaveBeenLastCalledWith({ kind: 'ready', rows: [ROW] });
+  });
+});
+
+describe('the shelf as React state', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  /** Resolves once everything already queued as a microtask has run. */
+  const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+  /**
+   * One project's fake wiring, plus the handle to fire its broadcast.
+   *
+   * Returned as a stable object because the hook has `deps` in its dependency
+   * array: a fresh literal per render is exactly the re-subscribe loop the
+   * hook's JSDoc says a caller must not write, and building one here would test
+   * the mistake rather than the hook.
+   */
+  const fakeDeps = (rows: readonly SavedPlanListEntryView[] = [ROW]) => {
+    let fire: (() => void) | undefined;
+    const unsubscribe = vi.fn();
+    const list = vi.fn(() => Promise.resolve([...rows]));
+    const deps: ShelfWatchDeps = {
+      available: () => Promise.resolve(true),
+      list,
+      subscribe: (_projectId, onChange) => {
+        fire = onChange;
+        return { unsubscribe };
+      },
+    };
+    return { deps, list, unsubscribe, broadcast: () => fire?.() };
+  };
+
+  itDom('starts on loading and holds the rows the read answered', async () => {
+    const wiring = fakeDeps();
+    const held = renderHook(() => useSavedPlanShelf(wiring.deps, 'p1'));
+
+    // Before the first read resolves. `loading` and not an empty `ready`: "no
+    // plans saved yet" is a claim about the project, and this component has not
+    // yet been told anything about the project.
+    expect(held.result.current).toEqual({ kind: 'loading' });
+
+    await flush();
+    expect(held.result.current).toEqual({ kind: 'ready', rows: [ROW] });
+  });
+
+  itDom('stops watching when the component unmounts', async () => {
+    // **The case only a renderer can make.** `watchShelf` already proves the
+    // stop it returns silences an in-flight read; what nothing else proves is
+    // that the effect *returns* it. Negative: delete the `return` in front of
+    // `watchShelf(...)` in the effect and this reddens — the subscription
+    // outlives the component and every later broadcast writes state into
+    // something nobody is rendering.
+    //
+    // Asserted on `unsubscribe` rather than on `held.result.current`, because
+    // React freezes an unmounted hook's last value: a post-unmount `setState`
+    // is a leak the result object cannot see.
+    const wiring = fakeDeps();
+    const held = renderHook(() => useSavedPlanShelf(wiring.deps, 'p1'));
+    await flush();
+    expect(wiring.unsubscribe).not.toHaveBeenCalled();
+
+    held.unmount();
+    expect(wiring.unsubscribe).toHaveBeenCalledTimes(1);
+
+    wiring.broadcast();
+    await flush();
+    expect(wiring.list).toHaveBeenCalledTimes(1);
+  });
+
+  itDom('goes back to loading rather than showing the last project’s rows', async () => {
+    // AC #4, read side. The first read of `p2` resolves a request later, and
+    // leaving `p1`'s rows up until then states — with a name, an author and a
+    // timestamp — that they were saved in a project they were never in.
+    // Negative: drop the `setState({ kind: 'loading' })` from the effect and
+    // this reddens on the middle assertion with `p1`'s rows still current.
+    const other: SavedPlanListEntryView = { ...ROW, id: 'sp2', name: 'after the re-plan' };
+    const first = fakeDeps([ROW]);
+    const second = fakeDeps([other]);
+    const held = renderHook(({ deps, id }) => useSavedPlanShelf(deps, id), {
+      initialProps: { deps: first.deps, id: 'p1' },
+    });
+    await flush();
+    expect(held.result.current).toEqual({ kind: 'ready', rows: [ROW] });
+
+    held.rerender({ deps: second.deps, id: 'p2' });
+    expect(held.result.current).toEqual({ kind: 'loading' });
+    // And the first project's socket is closed rather than left open behind it.
+    expect(first.unsubscribe).toHaveBeenCalledTimes(1);
+
+    await flush();
+    expect(held.result.current).toEqual({ kind: 'ready', rows: [other] });
   });
 });

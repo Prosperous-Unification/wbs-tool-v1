@@ -1,5 +1,9 @@
+import { useEffect, useState } from 'react';
+
 import type { SavedPlanListState } from '../components/wbs/saved-plan-list';
+import { httpSavedPlanApi, savedPlansAvailable } from './saved-plan-api';
 import type { SavedPlanApi } from './saved-plan-api';
+import { subscribeToProject } from './project-stream';
 
 /**
  * The two questions a shelf read is made of, injected rather than imported.
@@ -115,4 +119,61 @@ export function watchShelf(
     stream?.unsubscribe();
     stream = null;
   };
+}
+
+/**
+ * The three real answers, wired to the modules that give them.
+ *
+ * A factory and not a constant because `list` needs the token, which is not
+ * known until somebody has logged in. The caller therefore holds the identity of
+ * what it passes to {@link useSavedPlanShelf} — see that hook's dependency note.
+ *
+ * `sinceSeq: -1` is this subscriber's honest answer: a shelf read is a list of
+ * saved plans, not a read of the project at a sequence, so there is no sequence
+ * for it to resume from and nothing here ever calls `seen`. The plan client owns
+ * that conversation on its own socket.
+ */
+export const browserShelfDeps = (token: string): ShelfWatchDeps => ({
+  available: savedPlansAvailable,
+  list: (projectId) => httpSavedPlanApi(token).list(projectId),
+  subscribe: (projectId, onChange) => subscribeToProject({ projectId, sinceSeq: -1, onChange }),
+});
+
+/**
+ * A project's shelf as React state: read on mount, re-read on the broadcast,
+ * stopped on unmount.
+ *
+ * Thin on purpose. Everything that can be got wrong about *reading* a shelf —
+ * the capability question's order, the superseded read, the single subscription
+ * — is in {@link watchShelf} and asserted without a renderer. What is left here
+ * is the part only a component can get wrong, and there are exactly two of them:
+ *
+ * 1. **The stop is returned from the effect.** Without it the subscription
+ *    outlives the component and every later broadcast calls `setState` on
+ *    something nobody is rendering — for a shelf reachable from more than one
+ *    screen, once per visit, forever.
+ * 2. **A new project shows `loading`, not the previous project's rows.** The
+ *    first read of `p2` resolves a request later; leaving `p1`'s rows on screen
+ *    until then states, with a timestamp and an author, that they belong to a
+ *    project they were never saved in. AC #4's "non-destructive" applies to
+ *    reads too: showing nothing is a worse experience and an honest one.
+ *
+ * **`deps` is in the dependency array, so a caller must hold its identity**
+ * (`useMemo` over {@link browserShelfDeps}). Excluding it — via a ref, the usual
+ * dodge — would buy immunity to a re-render loop at the price of a token change
+ * that never reaches the socket, and would need `eslint-disable` to say so.
+ * Keeping it honest means the linter checks this array rather than trusting it.
+ */
+export function useSavedPlanShelf(deps: ShelfWatchDeps, projectId: string): SavedPlanListState {
+  const [state, setState] = useState<SavedPlanListState>({ kind: 'loading' });
+
+  useEffect(() => {
+    // Re-seeded on every subscribe, not just the first: on mount this is what
+    // `useState` already holds, but on a change of project it is the difference
+    // between "reading p2" and "here are p1's plans, mislabelled".
+    setState({ kind: 'loading' });
+    return watchShelf(deps, projectId, setState);
+  }, [deps, projectId]);
+
+  return state;
 }
