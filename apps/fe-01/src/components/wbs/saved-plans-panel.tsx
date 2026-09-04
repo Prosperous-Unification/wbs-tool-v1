@@ -126,17 +126,40 @@ export function SavedPlansPanel({
   const shelf = useSavedPlanShelf(deps, projectId);
   const { state: saveState, save } = useSavedPlanSave(deps, projectId);
   /**
-   * The shelf's rows, or none — memoised, because the empty case is a literal.
+   * The last rows the shelf actually delivered, kept across a shelf that stops
+   * being `ready`.
    *
-   * Without the memo the `[]` is a new array every render, and every effect
-   * below that reads `rows` re-runs on every render of the page around it. That
-   * is not a style point: the derived-default draft of `left` below put a fresh
-   * `{ saved }` object in this same position and the render loop it caused
-   * never terminated, so the case measuring it could not be run at all.
+   * **A failed list read must not destroy an open comparison** (Sol I5). Every
+   * non-`ready` state used to map straight to `EMPTY_ROWS`, and the pickers,
+   * the stale affordance and the comparison all render only when `rows` is
+   * non-empty — so one transient error on a background refresh unmounted a diff
+   * the reader was in the middle of reading and took their picker selections
+   * with it. The refresh is triggered by a collaborator's broadcast, not by the
+   * reader, which makes the loss arrive unprompted.
+   *
+   * Retained rather than refetched: the rows are a *list of checkpoints*, and
+   * the previous list is the right thing to keep offering while the next read is
+   * failing or in flight. `SavedPlanList` above still renders `shelf.state`
+   * directly, so the failure itself is on screen — this keeps the comparison,
+   * it does not hide the error.
+   *
+   * The retained value is only ever READ in a non-`ready` state, and it is
+   * written by an effect that runs on every `ready` one, so there is no lag:
+   * whenever it matters it holds the rows of the last `ready` render.
+   *
+   * Referential stability is load-bearing, which is why this is not `[]` inline.
+   * `rows` is in the dependency array of the default-side effect below, and the
+   * derived-default draft of `left` put a fresh object in this same position:
+   * the render loop it caused never terminated, so the case measuring it could
+   * not be run at all.
    */
+  const [lastReadyRows, setLastReadyRows] = useState<readonly SavedPlanListEntryView[]>(EMPTY_ROWS);
+  useEffect(() => {
+    if (shelf.state.kind === 'ready') setLastReadyRows(shelf.state.rows);
+  }, [shelf.state]);
   const rows: readonly SavedPlanListEntryView[] = useMemo(
-    () => (shelf.state.kind === 'ready' ? shelf.state.rows : EMPTY_ROWS),
-    [shelf.state],
+    () => (shelf.state.kind === 'ready' ? shelf.state.rows : lastReadyRows),
+    [shelf.state, lastReadyRows],
   );
 
   const { refresh } = shelf;

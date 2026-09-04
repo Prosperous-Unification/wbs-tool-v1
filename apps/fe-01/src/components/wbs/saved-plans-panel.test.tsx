@@ -186,6 +186,35 @@ describe('the saved-plans panel', () => {
     expect(wiring.compare).not.toHaveBeenCalled();
   });
 
+  itDom('keeps an open comparison when a background shelf read fails', async () => {
+    // Sol I5. Every non-`ready` shelf state used to map to `EMPTY_ROWS`, and
+    // the pickers, the stale affordance and the comparison all render only when
+    // `rows` is non-empty — so one failed refresh unmounted a diff the reader
+    // was reading and took their picker selections with it. The refresh is
+    // triggered by a collaborator's broadcast, so the loss arrives unprompted.
+    const wiring = fakeDeps([NEWER, ROW]);
+    let failing = false;
+    const list = vi.fn(() =>
+      failing ? Promise.reject(new Error('boom')) : Promise.resolve([NEWER, ROW]),
+    );
+    render(<SavedPlansPanel projectId="p1" deps={{ ...wiring.deps, list }} />);
+    await flush();
+    fireEvent.change(screen.getByLabelText(/^with/), { target: { value: ROW.id } });
+    await flush();
+    expect(screen.getByText('No differences.')).toBeTruthy();
+
+    failing = true;
+    wiring.broadcast();
+    await flush();
+
+    // The failure IS reported — `SavedPlanList` renders `shelf.state` itself.
+    // What survives is the comparison beside it, and both picker selections.
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('No differences.')).toBeTruthy();
+    expect((screen.getByLabelText(/Compare/) as HTMLSelectElement).value).toBe(NEWER.id);
+    expect((screen.getByLabelText(/^with/) as HTMLSelectElement).value).toBe(ROW.id);
+  });
+
   itDom('compares the newest saved plan against the current one by default', async () => {
     const wiring = fakeDeps([NEWER, ROW]);
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
