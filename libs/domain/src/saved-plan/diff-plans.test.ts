@@ -4,10 +4,10 @@ import { canonicalisePlanInput, type CanonicalPlanInput } from './canonical-plan
 import {
   diffPlans,
   type PlanDifference,
+  planDiffIsEmpty,
   type PlanScheduleValue,
   type PlanSide,
   type PlanSideSchedule,
-  planDiffIsEmpty,
 } from './diff-plans';
 import { planFixtureRows, reversed } from './plan-fixture';
 
@@ -34,10 +34,7 @@ const present: PlanSideSchedule = {
   body: scheduleBody,
 };
 
-function side(
-  over: CanonicalPlanInput = input,
-  schedule: PlanSideSchedule = present,
-): PlanSide {
+function side(over: CanonicalPlanInput = input, schedule: PlanSideSchedule = present): PlanSide {
   return { input: over, schedule };
 }
 
@@ -81,10 +78,10 @@ function mutateAt<T>(root: T, path: string): T {
   const last = segs[segs.length - 1];
   const parent = segs
     .slice(0, -1)
-    .reduce<unknown>((node, seg) => (node as Record<string | number, unknown>)[seg], copy) as Record<
-    string | number,
-    unknown
-  >;
+    .reduce<unknown>(
+      (node, seg) => (node as Record<string | number, unknown>)[seg],
+      copy,
+    ) as Record<string | number, unknown>;
   const before = parent[last];
   parent[last] =
     typeof before === 'number'
@@ -137,9 +134,7 @@ function covers(differences: readonly PlanDifference[], mutated: string): boolea
   const target = namedSegments(mutated);
   return differences.some((d) => {
     const reported = namedSegments(d.path);
-    return (
-      reported.length <= target.length && reported.every((seg, i) => seg === target[i])
-    );
+    return reported.length <= target.length && reported.every((seg, i) => seg === target[i]);
   });
 }
 
@@ -160,9 +155,7 @@ describe('diffPlans — 7.1, the two sides', () => {
     const back = diffPlans(side(changed), side()).input;
 
     expect(back.map((d) => d.path)).toEqual(forward.map((d) => d.path));
-    expect(back.map((d) => [d.left, d.right])).toEqual(
-      forward.map((d) => [d.right, d.left]),
-    );
+    expect(back.map((d) => [d.left, d.right])).toEqual(forward.map((d) => [d.right, d.left]));
   });
 });
 
@@ -174,10 +167,7 @@ describe('diffPlans — 7.2, the presentation categories', () => {
   it('reports an added and a removed work item as added and removed, not as changed', () => {
     const added: CanonicalPlanInput = {
       ...input,
-      workItems: [
-        ...input.workItems,
-        { ...input.workItems[0], id: 'w9', name: 'New work' },
-      ],
+      workItems: [...input.workItems, { ...input.workItems[0], id: 'w9', name: 'New work' }],
     };
 
     const forward = inputDiff(added);
@@ -270,13 +260,11 @@ describe('diffPlans — 7.2b, the diff-completeness property', () => {
       const blind = (l: CanonicalPlanInput, r: CanonicalPlanInput): PlanDifference[] =>
         diffPlans(side(l), side(r)).input.filter((d) => fieldOf(d.path) !== dropped);
 
-      const path = leafPaths(input).find((p) =>
-        namedSegments(p).includes(dropped),
-      );
+      const path = leafPaths(input).find((p) => namedSegments(p).includes(dropped));
       expect(path).toBeDefined();
 
-      const differences = blind(input, mutateAt(input, path as string));
-      expect(covers(differences, path as string)).toBe(false);
+      const differences = blind(input, mutateAt(input, path!));
+      expect(covers(differences, path!)).toBe(false);
     }
   });
 });

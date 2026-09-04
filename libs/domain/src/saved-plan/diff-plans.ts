@@ -339,9 +339,7 @@ function diffValue(path: string, left: unknown, right: unknown, out: PlanDiffere
 }
 
 function categoryFor(collection: string, field: string): PlanDiffCategory {
-  return (
-    FIELD_CATEGORIES[collection]?.[field] ?? COLLECTION_CATEGORIES[collection] ?? 'other'
-  );
+  return FIELD_CATEGORIES[collection]?.[field] ?? COLLECTION_CATEGORIES[collection] ?? 'other';
 }
 
 /**

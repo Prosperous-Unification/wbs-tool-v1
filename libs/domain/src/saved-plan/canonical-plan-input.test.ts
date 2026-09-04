@@ -10,7 +10,6 @@ import {
 } from './canonical-plan-input';
 import { planFixtureRows as rows, reversed } from './plan-fixture';
 
-
 describe('canonicalisePlanInput', () => {
   it('serializes identically whatever order the rows arrived in', () => {
     const left = serialiseCanonicalPlanInput(canonicalisePlanInput(rows));
