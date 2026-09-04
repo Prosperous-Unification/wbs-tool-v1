@@ -37,6 +37,16 @@ export const NODE_SUITES: readonly string[] = [
   // cases needs a browser after all. It is the file the plan's own measurement
   // named as the exception, and the guard below asserts it stays one.
   'src/lib/refusal.test.ts',
+  // Of saved-plans' four `src/lib` suites this is the only one the tier rule
+  // reads as DOM-free, and the other three are excluded by that rule rather
+  // than by taste: `saved-plan-save.test.ts` and `saved-plan-shelf.test.ts`
+  // import `@testing-library` and run under jsdom for real, and
+  // `saved-plan-api.test.ts` is caught by `DOM_EVIDENCE`'s deliberately
+  // generous `\bdocument\b` — fourteen prose mentions of the *OpenAPI*
+  // document, no browser global at all. That is the safe direction to be
+  // wrong in, as the rule's own comment says, so it is left where the rule
+  // puts it rather than special-cased.
+  'src/lib/saved-plan-compare.test.ts',
   'src/test-tiers.test.ts',
   'src/testing/record-calls.test.ts',
 ];
