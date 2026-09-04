@@ -161,7 +161,7 @@ describe('the shelf', () => {
       vi.fn(() => Promise.resolve(response(200, JSON.stringify({ savedPlans: [WIRE] })))),
     );
     const [entry] = await httpSavedPlanApi('t').list('p1');
-    expect(new Date(entry?.createdAt ?? 0).getUTCFullYear()).toBe(2026);
+    expect(new Date(entry.createdAt).getUTCFullYear()).toBe(2026);
   });
 });
 
