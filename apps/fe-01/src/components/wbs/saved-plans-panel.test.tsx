@@ -47,12 +47,10 @@ const fakeDeps = (start: readonly SavedPlanListEntryView[] = [ROW]) => {
     (): Promise<SavedPlanCompareResult> =>
       Promise.resolve({ outcome: 'compared', diff: EMPTY_DIFF }),
   );
-  const rename = vi.fn(
-    (savedPlanId: string, name: string): Promise<SavedPlanTouchResultView> => {
-      shelf = shelf.map((row) => (row.id === savedPlanId ? { ...row, name } : row));
-      return Promise.resolve({ outcome: 'touched' });
-    },
-  );
+  const rename = vi.fn((savedPlanId: string, name: string): Promise<SavedPlanTouchResultView> => {
+    shelf = shelf.map((row) => (row.id === savedPlanId ? { ...row, name } : row));
+    return Promise.resolve({ outcome: 'touched' });
+  });
   const deps: SavedPlansPanelDeps = {
     available: () => Promise.resolve(true),
     list,
