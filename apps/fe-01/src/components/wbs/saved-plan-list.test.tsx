@@ -69,18 +69,17 @@ describe('the shelf', () => {
     // did not write the rows.
     const rows = [ROW, { ...ROW, id: 'sp2', name: 'after the re-plan' }];
     render(<SavedPlanList state={{ kind: 'ready', rows }} />);
-    expect(screen.getAllByRole('listitem').map((item) => item.querySelector('span')?.textContent)).toEqual([
-      'before the re-plan',
-      'after the re-plan',
-    ]);
+    expect(
+      screen.getAllByRole('listitem').map((item) => item.querySelector('span')?.textContent),
+    ).toEqual(['before the re-plan', 'after the re-plan']);
   });
 });
 
 describe('what a row says about its schedule', () => {
   it('names the recorded reason a schedule is missing', () => {
-    expect(
-      scheduleWords({ ...ROW, scheduleBytes: null, scheduleAbsentReason: 'infeasible' }),
-    ).toBe('no schedule was saved (infeasible)');
+    expect(scheduleWords({ ...ROW, scheduleBytes: null, scheduleAbsentReason: 'infeasible' })).toBe(
+      'no schedule was saved (infeasible)',
+    );
   });
 
   it('carries a reason this build has never heard of rather than dropping it', () => {
