@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 import type { SavedPlanListEntryView } from '../../lib/saved-plan-api';
 
 /**
@@ -37,13 +39,116 @@ export function scheduleWords(row: SavedPlanListEntryView): string {
 }
 
 /**
+ * A row's name, and the rename that is an edit on it rather than a modal.
+ *
+ * 8.2's second half. The saved plan itself is immutable — `name` is the one
+ * column any `UPDATE` may target, which slice 2's source check enforces — so
+ * this is the only edit the shelf offers, and it is offered where the name is
+ * rather than behind a dialog that would put a decision in front of the reader
+ * before they had one to make.
+ *
+ * The idiom is `ProjectPage`'s `ProjectNameField`, one screen up, and so are its
+ * two lessons. The field is a **component**, mounted on arming, so the focus and
+ * the whole-draft selection happen once instead of on every keystroke — an
+ * inline callback ref is a new function per render, so React reattaches it each
+ * time and a `select()` there would put the draft back under the next character.
+ * And a draft that trims to nothing, or to the name the row already has, is a
+ * **cancel**: an empty name would leave the row unidentifiable on a shelf whose
+ * whole job is telling checkpoints apart, and an unchanged one is a request that
+ * changes nothing.
+ */
+function SavedPlanName({
+  row,
+  onRename,
+}: {
+  row: SavedPlanListEntryView;
+  onRename: (savedPlanId: string, name: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const field = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    // Narrowing rather than a guard: this runs only while the field is mounted.
+    if (draft === null || field.current === null) return;
+    field.current.focus();
+    field.current.select();
+    // Once per arming. `draft` in the array would refocus on every keystroke;
+    // the arming transition is `null` → a string and that is what is watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft === null]);
+
+  const commit = () => {
+    if (draft === null) return;
+    const typed = draft.trim();
+    setDraft(null);
+    if (typed === '' || typed === row.name) return;
+    onRename(row.id, typed);
+  };
+
+  if (draft === null) {
+    return (
+      <>
+        <span className="saved-plan-list__name">{row.name}</span>{' '}
+        <button
+          type="button"
+          className="saved-plan-list__rename"
+          // Named for the plan it renames, because a shelf renders one of these
+          // per row and `Rename` alone would give a screen reader a list of
+          // identical controls.
+          aria-label={`Rename ${row.name}`}
+          onClick={() => {
+            setDraft(row.name);
+          }}
+        >
+          ✎
+        </button>
+      </>
+    );
+  }
+  return (
+    <input
+      ref={field}
+      className="saved-plan-list__name-field"
+      aria-label="Saved plan name"
+      value={draft}
+      onChange={(e) => {
+        setDraft(e.target.value);
+      }}
+      // Blur commits, which also gives the rename a mouse exit: click anywhere
+      // else and the mode resolves instead of sitting open forever.
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+        }
+        if (e.key === 'Escape') setDraft(null);
+      }}
+    />
+  );
+}
+
+/**
  * A project's saved plans, newest first as be-01 orders them.
  *
  * Presentational: it is handed a state and renders it. The read, the broadcast
  * refresh and the save action are the caller's, which is what lets every branch
  * below — including the two nobody can reach by clicking — be a case.
  */
-export function SavedPlanList({ state }: { state: SavedPlanListState }) {
+export function SavedPlanList({
+  state,
+  onRename,
+}: {
+  state: SavedPlanListState;
+  /**
+   * Renames a row, or absent where nothing may be renamed.
+   *
+   * Optional because every other branch of this component renders without one
+   * and the three states above have no rows to rename. Absent, no row offers
+   * the control at all — a ✎ that opens a field whose commit goes nowhere is a
+   * worse surface than a name that plainly cannot be changed.
+   */
+  onRename?: (savedPlanId: string, name: string) => void;
+}) {
   if (state.kind === 'unavailable') {
     return <p className="saved-plan-list__note">{SAVED_PLANS_UNAVAILABLE}</p>;
   }
@@ -68,7 +173,11 @@ export function SavedPlanList({ state }: { state: SavedPlanListState }) {
     <ol className="saved-plan-list" aria-label="Saved plans">
       {state.rows.map((row) => (
         <li key={row.id} className="saved-plan-list__row">
-          <span className="saved-plan-list__name">{row.name}</span>{' '}
+          {onRename === undefined ? (
+            <span className="saved-plan-list__name">{row.name}</span>
+          ) : (
+            <SavedPlanName row={row} onRename={onRename} />
+          )}{' '}
           {/*
             The machine-readable instant is the assertion, and the visible text
             is `toLocaleString`'s — deliberately. A saved plan's timestamp is

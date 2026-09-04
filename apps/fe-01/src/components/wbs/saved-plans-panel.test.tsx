@@ -6,10 +6,11 @@ import type {
   SavedPlanCompareResult,
   SavedPlanListEntryView,
   SavedPlanSaveResult,
+  SavedPlanTouchResultView,
 } from '../../lib/saved-plan-api';
 import { compareGoneWords, compareUnreadableWords } from './saved-plan-compare';
 import type { SavedPlansPanelDeps } from './saved-plans-panel';
-import { SAVE_BUSY, SavedPlansPanel, saveWords } from './saved-plans-panel';
+import { renameWords, SAVE_BUSY, SavedPlansPanel, saveWords } from './saved-plans-panel';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
@@ -46,6 +47,12 @@ const fakeDeps = (start: readonly SavedPlanListEntryView[] = [ROW]) => {
     (): Promise<SavedPlanCompareResult> =>
       Promise.resolve({ outcome: 'compared', diff: EMPTY_DIFF }),
   );
+  const rename = vi.fn(
+    (savedPlanId: string, name: string): Promise<SavedPlanTouchResultView> => {
+      shelf = shelf.map((row) => (row.id === savedPlanId ? { ...row, name } : row));
+      return Promise.resolve({ outcome: 'touched' });
+    },
+  );
   const deps: SavedPlansPanelDeps = {
     available: () => Promise.resolve(true),
     list,
@@ -59,12 +66,14 @@ const fakeDeps = (start: readonly SavedPlanListEntryView[] = [ROW]) => {
     },
     save,
     compare,
+    rename,
   };
   return {
     deps,
     list,
     save,
     compare,
+    rename,
     /** What be-01 will answer the *next* read — nobody has been told yet. */
     setShelf: (rows: readonly SavedPlanListEntryView[]) => {
       shelf = [...rows];
@@ -361,5 +370,92 @@ describe('the saved-plans panel', () => {
     // The two refusals do not share a sentence: telling them apart is the whole
     // of 8.5, and one wording for both would make this suite green over it.
     expect(alert.textContent).not.toBe(compareGoneWords(ROW.id));
+  });
+
+  itDom('renames a row in place, and shows the new name from the re-read', async () => {
+    /*
+      8.2's second half. The saved plan is immutable except for `name` — slice
+      2's source check is what holds that — so this is the only edit the shelf
+      offers, and it is offered where the name is rather than behind a modal.
+
+      The new name on screen comes from the **re-read**, not from local state:
+      be-01 publishes nothing about saved plans, so a rename is the second write
+      this surface makes whose result no broadcast will ever carry.
+    */
+    const wiring = fakeDeps([ROW]);
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: `Rename ${ROW.name}` }));
+    const field = screen.getByLabelText<HTMLInputElement>('Saved plan name');
+    // Armed on the name it already has, selected whole, so one keystroke
+    // replaces it rather than appending to it.
+    expect(field.value).toBe(ROW.name);
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, ROW.name.length]);
+
+    fireEvent.change(field, { target: { value: 'after the budget cut' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await flush();
+
+    expect(wiring.rename).toHaveBeenCalledWith(ROW.id, 'after the budget cut');
+    const list = screen.getByRole('list', { name: 'Saved plans' });
+    expect(within(list).getByText('after the budget cut')).toBeTruthy();
+    // Nothing is said on the path that worked: the new name is the confirmation.
+    expect(screen.queryByText(/could not be renamed|cannot rename/)).toBeNull();
+  });
+
+  itDom('a draft that says nothing new is a cancel, not a request', async () => {
+    // Two ways of saying nothing, and neither is worth a round trip. An empty
+    // name would leave the row unidentifiable on a shelf whose whole job is
+    // telling checkpoints apart; an unchanged one changes nothing.
+    const wiring = fakeDeps([ROW]);
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+
+    for (const typed of ['   ', ROW.name]) {
+      fireEvent.click(screen.getByRole('button', { name: `Rename ${ROW.name}` }));
+      const field = screen.getByLabelText<HTMLInputElement>('Saved plan name');
+      fireEvent.change(field, { target: { value: typed } });
+      fireEvent.keyDown(field, { key: 'Enter' });
+      await flush();
+    }
+
+    expect(wiring.rename).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Saved plan name')).toBeNull();
+  });
+
+  itDom('Escape leaves the name alone and sends nothing', async () => {
+    const wiring = fakeDeps([ROW]);
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: `Rename ${ROW.name}` }));
+    const field = screen.getByLabelText<HTMLInputElement>('Saved plan name');
+    fireEvent.change(field, { target: { value: 'half a thought' } });
+    fireEvent.keyDown(field, { key: 'Escape' });
+    await flush();
+
+    expect(wiring.rename).not.toHaveBeenCalled();
+    const list = screen.getByRole('list', { name: 'Saved plans' });
+    expect(within(list).getByText(ROW.name)).toBeTruthy();
+  });
+
+  itDom('says a refused rename in its own words, and re-reads anyway', async () => {
+    // `not_found` is the shelf being stale rather than the reader being wrong,
+    // so the re-read is part of the answer: the row the reader was renaming is
+    // gone, and the sentence and the refresh say so together.
+    const wiring = fakeDeps([ROW]);
+    wiring.rename.mockResolvedValue({ outcome: 'not_found' });
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+    const readsBefore = wiring.list.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: `Rename ${ROW.name}` }));
+    fireEvent.change(screen.getByLabelText('Saved plan name'), { target: { value: 'a new name' } });
+    fireEvent.keyDown(screen.getByLabelText('Saved plan name'), { key: 'Enter' });
+    await flush();
+
+    expect(screen.getByText(renameWords({ outcome: 'not_found' }) ?? '')).toBeTruthy();
+    expect(wiring.list.mock.calls.length).toBeGreaterThan(readsBefore);
   });
 });

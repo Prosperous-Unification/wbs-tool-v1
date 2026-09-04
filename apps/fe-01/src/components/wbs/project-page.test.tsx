@@ -209,6 +209,7 @@ const fakeSavedPlansDeps = (
   subscribe: () => ({ unsubscribe: () => undefined }),
   save: () => Promise.resolve({ outcome: 'saved', savedPlan: CHECKPOINT }),
   compare: () => Promise.resolve({ outcome: 'compared', diff: { input: [], schedule: [] } }),
+  rename: () => Promise.resolve({ outcome: 'touched' }),
 });
 
 const pageWith = (api: ProjectApi, savedPlansDeps: SavedPlansPanelDeps = fakeSavedPlansDeps()) =>

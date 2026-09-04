@@ -4,6 +4,7 @@ import type {
   SavedPlanApi,
   SavedPlanListEntryView,
   SavedPlanSideRef,
+  SavedPlanTouchResultView,
 } from '../../lib/saved-plan-api';
 import { httpSavedPlanApi } from '../../lib/saved-plan-api';
 import { compareRefusal, resolveSideSchedules } from '../../lib/saved-plan-compare';
@@ -26,6 +27,7 @@ import { SavedPlanList } from './saved-plan-list';
  */
 export interface SavedPlansPanelDeps extends ShelfWatchDeps, SaveDeps {
   compare: SavedPlanApi['compare'];
+  rename: SavedPlanApi['rename'];
 }
 
 /**
@@ -40,6 +42,7 @@ export const browserSavedPlansDeps = (token: string): SavedPlansPanelDeps => ({
   ...browserShelfDeps(token),
   ...browserSaveDeps(token),
   compare: (projectId, left, right) => httpSavedPlanApi(token).compare(projectId, left, right),
+  rename: (savedPlanId, name) => httpSavedPlanApi(token).rename(savedPlanId, name),
 });
 
 /** One frozen empty shelf, so "no rows" has a stable identity. */
@@ -72,6 +75,29 @@ export function saveWords(state: SavedPlanSaveState): string | null {
   if (state.kind === 'quota') return state.refusal;
   if (state.kind === 'error') return `The plan could not be saved (${state.code}).`;
   return null;
+}
+
+/**
+ * What a rename that did not simply work has to say, or `null` when it worked.
+ *
+ * 8.2's second half read the same way 8.5 reads the save half: each typed
+ * outcome keeps its type all the way to the sentence, because be-01 already did
+ * the work of telling them apart and printing the word in brackets throws it
+ * away. `touched` says nothing — the new name is on the row, which is the
+ * confirmation, and a line under it repeating what the reader can see is noise
+ * on the only path that succeeds.
+ *
+ * `not_found` is the shelf being stale rather than the reader being wrong: the
+ * plan was deleted between the ✎ and the Enter, so the sentence says so and the
+ * refresh that follows takes the row away.
+ */
+export function renameWords(result: SavedPlanTouchResultView): string | null {
+  if (result.outcome === 'touched') return null;
+  if (result.outcome === 'not_found') {
+    return 'That saved plan has been deleted, so it could not be renamed.';
+  }
+  if (result.outcome === 'forbidden') return 'You cannot rename this saved plan.';
+  return 'This plan is being written to. Try renaming again in a moment.';
 }
 
 /**
@@ -228,6 +254,34 @@ export function SavedPlansPanel({
    */
   const stale = comparison.kind === 'ready' && comparison.rows !== rows;
 
+  /**
+   * What the last rename said, or `null` while none has anything to say.
+   *
+   * Held here rather than per row: one rename is armed at a time, and a refusal
+   * belongs beside the shelf it is about rather than inside a row that the
+   * refresh is about to replace.
+   */
+  const [renameRefusal, setRenameRefusal] = useState<string | null>(null);
+  const rename = (savedPlanId: string, name: string) => {
+    setRenameRefusal(null);
+    void deps
+      .rename(savedPlanId, name)
+      .then((result) => {
+        setRenameRefusal(renameWords(result));
+        // On every outcome, not only on success. `not_found` means the shelf is
+        // showing a row be-01 no longer has, which is exactly when a re-read is
+        // worth making; and the rename itself is the one write this surface
+        // does that no broadcast will report (be-01 publishes nothing about
+        // saved plans), so the new name arrives here or not at all.
+        refresh();
+      })
+      .catch((fault: unknown) => {
+        setRenameRefusal(
+          `The rename could not be sent (${fault instanceof Error ? fault.message : String(fault)}).`,
+        );
+      });
+  };
+
   const words = saveWords(saveState);
   return (
     /*
@@ -257,7 +311,17 @@ export function SavedPlansPanel({
           </p>
         )}
       </div>
-      <SavedPlanList state={shelf.state} />
+      <SavedPlanList state={shelf.state} onRename={rename} />
+      {/*
+        `status` and not `alert`, for the same reason the save line is: a refused
+        rename is a refusal of something the reader just asked for and is looking
+        at, and an assertive region would interrupt a screen reader mid-sentence.
+      */}
+      {renameRefusal !== null && (
+        <p className="saved-plans-panel__rename-status" role="status">
+          {renameRefusal}
+        </p>
+      )}
       {/*
         No shelf, no comparison. Two pickers whose only option is `the current
         plan` can ask exactly one question, and that question is the one
