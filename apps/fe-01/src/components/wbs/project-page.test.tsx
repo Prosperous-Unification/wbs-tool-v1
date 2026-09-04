@@ -420,33 +420,50 @@ describe('the saved-plan shelf is on the project page', () => {
     expect(within(shelf).getByText('before the re-plan')).toBeDefined();
   });
 
-  itDom('asks be-01 about the project that is now open, not the one just left', async () => {
-    // The `key={selected}` on the panel, from the outside. The pinned compare
-    // pair is `useState` inside it, so a panel carried across a switch would
-    // hold the previous project's saved-plan id and compare against a
-    // checkpoint the new project does not contain.
-    const asked: string[] = [];
+  itDom('does not compare the new project against the old project’s checkpoint', async () => {
+    /*
+      The `key={selected}` on the panel, asserted from the outside.
+
+      The panel pins its compare pair once, in `useState`, so that a
+      collaborator's save cannot re-point a picker the reader left alone
+      (AC #4). Carried across a project switch that same pin is a saved-plan id
+      belonging to the project just left, and the compare effect — which *does*
+      re-run, because `projectId` is in its dependencies — would then ask be-01
+      to compare the new project against a checkpoint that is not in it.
+
+      Asserted on `compare`'s arguments and not on `list`'s: the shelf re-reads
+      on a project change by itself, so a `list` assertion goes green with the
+      key deleted. Measured — with `key={selected}` removed the whole file still
+      passed 46/46 on the `list` form, and this form fails on `expected 'sp1'
+      to be 'sp9'`.
+    */
+    const OTHER: SavedPlanListEntryView = { ...CHECKPOINT, id: 'sp9', name: 'the other project’s' };
+    const compared: [string, unknown][] = [];
     const deps: SavedPlansPanelDeps = {
       ...fakeSavedPlansDeps(),
-      list: (projectId: string) => {
-        asked.push(projectId);
-        return Promise.resolve([CHECKPOINT]);
+      list: (projectId: string) => Promise.resolve([projectId === 'p2' ? CHECKPOINT : OTHER]),
+      compare: (projectId, left) => {
+        compared.push([projectId, left]);
+        return Promise.resolve({ outcome: 'compared', diff: { input: [], schedule: [] } });
       },
     };
     pageWith(fakeProjects(TWO), deps);
 
     await selectProject('p2');
     await waitFor(() => {
-      expect(asked).toContain('p2');
+      expect(compared).toContainEqual(['p2', { saved: 'sp1' }]);
     });
 
     await selectProject('p1');
     await waitFor(() => {
-      expect(asked).toContain('p1');
+      expect(compared.some(([projectId]) => projectId === 'p1')).toBe(true);
     });
-    // The last word is the project on screen, whatever order the reads settled
-    // in — a stale answer arriving late must not be what the shelf is showing.
-    expect(asked[asked.length - 1]).toBe('p1');
+    // Every question asked about p1 is asked about p1's own checkpoint. Not
+    // just the last one: a stale pair asked once and corrected is still a read
+    // of somebody else's plan.
+    for (const [projectId, left] of compared) {
+      if (projectId === 'p1') expect(left).toEqual({ saved: 'sp9' });
+    }
   });
 });
 
