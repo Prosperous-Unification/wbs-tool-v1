@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import type { Step } from '../repository';
 import type { NumberedWorkItem } from './work-item.service';
 
@@ -166,82 +168,80 @@ export interface HeldAnnouncement {
  * released the lock, and drops them entirely when it rolls back. Held events are
  * deduplicated when they carry nothing but a `type`, which is what makes forty
  * `directory_changed` for one rename into one per project.
+ *
+ * **A hold belongs to its caller, not to this object** (TASK-256). The queue
+ * lives in an {@link AsyncLocalStorage}, so a publish is captured when it is
+ * made *inside* the hold's own async context and not merely while the hold is
+ * open. `held` used to be instance state and `services.ts` builds exactly one
+ * instance, so during any open hold *every* publish through this object joined
+ * that batch's queue — including one from an HTTP route that had committed its
+ * own transaction and had nothing to do with the batch. A refused batch drops
+ * its queue (`plan-commands.ts` answers a refusal with `pending: []`) and that
+ * route's event went with it: the write happened and nobody was told. It
+ * shipped that way for saved plans (TASK-255) and for all three `step_*` events
+ * (TASK-256), and both were found by review rather than by a test.
+ *
+ * The context test is the right one because it asks the question the drop is
+ * about. An incoming HTTP request is rooted in its own async context and never
+ * inside `PlanCommandRunner`'s `hold` callback, so it reads no store and
+ * publishes straight through; a command inside the batch reads the batch's
+ * store and is queued, which is what the hold is for. That fixes every present
+ * and future non-batch publisher at once rather than one wiring at a time —
+ * including `WorkItemService.announceTreeNow` and {@link send} themselves,
+ * which run after `hold` has returned and could be captured by a *following*
+ * batch under instance state.
+ *
+ * Deferring by *caller* rather than by *clock* is also why the wiring in
+ * `services.ts` no longer decides anything. Every publisher may hold the
+ * wrapper; a publisher that is never part of a batch is simply never captured.
  */
 export class DeferringBroadcaster implements Broadcaster {
-  private held: HeldAnnouncement[] | null = null;
+  private readonly scope = new AsyncLocalStorage<HeldAnnouncement[]>();
 
   constructor(private readonly inner: Broadcaster) {}
 
   /**
-   * Run `step` with every announcement held, and hand back what it queued.
+   * Run `step` with every announcement *it* makes held, and hand back what it
+   * queued.
    *
    * The caller decides whether they leave: {@link send} them after a commit,
    * drop them after a rollback.
    *
-   * @throws when a hold is already open. Two batches sharing one queue would let
-   * the outer one send events the inner one's rollback disowned.
+   * Two concurrent batches are no longer an error, and could not be expressed
+   * before: each gets its own queue, because each runs in its own async
+   * context. `PlanCommandRunner` serialises them behind the write lock anyway,
+   * so this is a property rather than a feature.
+   *
+   * @throws when a hold is already open **in this context**. A nested hold
+   * would shadow its parent's store, so the parent would commit having been
+   * told nothing about the writes the child announced.
    */
   async hold<T>(step: () => Promise<T>): Promise<{ result: T; pending: HeldAnnouncement[] }> {
-    if (this.held !== null) throw new Error('a batch is already holding announcements');
+    if (this.scope.getStore() !== undefined)
+      throw new Error('a batch is already holding announcements');
     const held: HeldAnnouncement[] = [];
-    this.held = held;
-    try {
-      return { result: await step(), pending: held };
-    } finally {
-      this.held = null;
-    }
+    // `run` unwinds the store itself, on the throw path too — which is why
+    // there is no `finally` here and why an exception cannot leak a queue.
+    return this.scope.run(held, async () => ({ result: await step(), pending: held }));
   }
 
-  /** Publish what a hold queued, in the order it was queued. */
+  /**
+   * Publish what a hold queued, in the order it was queued.
+   *
+   * Straight to {@link inner} and never back through {@link publish}: this runs
+   * after its own hold has returned, so a following batch that happened to be
+   * open would otherwise capture the previous batch's committed events under
+   * the old instance-state rule. It cannot now — this call is rooted in the
+   * first request's context — and going to `inner` says so at the call site
+   * rather than relying on that.
+   */
   async send(pending: readonly HeldAnnouncement[]): Promise<void> {
     for (const each of pending) await this.inner.publish(each.projectId, each.event);
   }
 
-  /**
-   * The broadcaster underneath, for a publisher that provably never runs inside
-   * a batch.
-   *
-   * {@link held} is **instance** state and `services.ts` builds exactly one of
-   * these, so during any open hold *every* publish through this object joins
-   * that batch's queue — including one from an HTTP route that committed its own
-   * transaction and has nothing to do with the batch. A refused batch drops its
-   * queue, and that route's event goes with it: the write happened and nobody
-   * was told. Saved-plan mutations shipped that way and both review seats on
-   * PR 204 found it independently (TASK-255).
-   *
-   * The condition for using this is a property of the CALLER, not of timing:
-   * `plan-commands` has no saved-plan command, so a saved-plan announcement can
-   * never belong to a batch and has nothing to be atomic with. Anything a
-   * command *can* reach must keep the wrapper, because for those the hold is
-   * the whole point.
-   *
-   * Being handed `announcements` in `services.ts` is NOT that test, and saying
-   * so was this doc's own first mistake. `StepService` is wired to the wrapper
-   * and `PlanCommandKind` declares no step command at all, so `step_added`,
-   * `step_renamed` and `step_removed` are HTTP-only and carry this same drop
-   * today. That predates the saved-plan work and is filed rather than widened
-   * into it (TASK-256); the fix there is this accessor or a per-caller hold, and
-   * it is a decision about the batch contract rather than a wiring change.
-   *
-   * **Bypassing the queue is not by itself enough, and that was this accessor's
-   * second mistake.** Skipping the hold means the publish reaches
-   * `GatewayBroadcaster` while the batch's transaction is still open, and the
-   * event log shares its connection with that transaction — so the row went in
-   * as a savepoint and the batch's rollback erased it after the push had left.
-   * Sol's Critical on PR 204. The durable half is now the broadcaster's own
-   * problem and is solved for every publisher at once: it records under the
-   * write lock (`GatewayBroadcasterOptions.lock`) and pushes outside it. What is
-   * left here is the *capture* half alone — being queued into somebody else's
-   * batch and dropped with it — which is what this accessor is for and all it
-   * claims.
-   */
-  get undeferred(): Broadcaster {
-    return this.inner;
-  }
-
   async publish(projectId: string, event: ProjectEvent): Promise<void> {
-    const held = this.held;
-    if (held === null) {
+    const held = this.scope.getStore();
+    if (held === undefined) {
       await this.inner.publish(projectId, event);
       return;
     }

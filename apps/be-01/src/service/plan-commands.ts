@@ -134,7 +134,11 @@ export class PlanCommandRunner {
    * Proof: with `hold` moved outside, `lets go of the write lock before the
    * broadcast leaves` and `applies a rename queued behind a refused batch, after
    * it` both failed on `error: a batch is already holding announcements`;
-   * watched 2026-09-02.
+   * watched 2026-09-02. That *symptom* is gone since TASK-256 made the queue
+   * per-caller — two concurrent holds now each get their own — but the ordering
+   * is unchanged and for a second reason the symptom never named: the hold has
+   * to open after `transactions.begin()` and close before the commit, so what it
+   * collects is exactly the writes the transaction is deciding on.
    */
   private async execute(
     projectId: string | null,

@@ -207,9 +207,9 @@ describe('bootBe01', () => {
       username: 'local-dev',
       scopes: ['read', 'write'],
     });
-    // In production this is the `GatewayBroadcaster`; `undeferred` is the inner
-    // broadcaster the wrapper was built around.
-    const broadcaster = be.services.announcements.undeferred as GatewayBroadcaster;
+    // The `GatewayBroadcaster` `announcements` was built around — the object
+    // that records under the lock, which is the end of the wiring this reads.
+    const broadcaster: GatewayBroadcaster = be.services.gatewayBroadcaster;
 
     let release!: () => void;
     let announceTaken!: () => void;

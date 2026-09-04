@@ -203,16 +203,15 @@ export function buildApp(opts: AppOptions) {
           opts.auth,
           opts.savedPlans,
           opts.projects,
-          // Deliberately NOT the `DeferringBroadcaster` the command runner
-          // holds through. That is what shipped first, on the reasoning that a
-          // saved-plan write never runs inside a batch so the wrapper would
-          // always fall through — which confused "this route is not part of a
-          // batch" with "no batch is open". `held` is instance state on the one
-          // shared wrapper, so a save committing while an unrelated batch holds
-          // was queued into that batch and dropped when it refused. The inner
-          // broadcaster is the same object either way; what changes is that this
-          // route can no longer be captured by somebody else's transaction.
-          opts.writes.announcements.undeferred,
+          // The shared wrapper, like every other publisher. TASK-255 handed
+          // this route the inner broadcaster instead, because a save committing
+          // while an unrelated batch held was queued into that batch and
+          // dropped when it refused; the hold was instance state on the one
+          // shared wrapper, so "no batch is open" was being read as "this route
+          // is not part of a batch". A hold is per-caller now (TASK-256) and
+          // those are the same question again, so the special case is gone
+          // rather than merely redundant — see `DeferringBroadcaster`.
+          opts.writes.announcements,
         ),
       )
       .use(stepController(opts.auth, opts.steps))

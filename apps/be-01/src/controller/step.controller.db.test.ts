@@ -289,8 +289,19 @@ describe('the steps routes are the only spelling', () => {
  * being captured by one is always wrong.
  *
  * The hold here stands in for that unrelated batch: opened on the same shared
- * broadcaster `buildApp` was given, with the route running inside it, and its
- * queue then discarded rather than sent — the refusal path exactly.
+ * broadcaster `buildApp` was given, and its queue then discarded rather than
+ * sent — the refusal path exactly.
+ *
+ * **The route runs BESIDE the hold and not inside it, and that distinction is
+ * the test.** The obvious shape calls the route from within the `hold` callback,
+ * and under instance state it was indistinguishable from a concurrent request —
+ * which is why it read as a fine model of the defect. It is not one. A batch's
+ * hold is per-caller (TASK-256), so a call made inside the callback *is* part of
+ * the batch by the only definition there is, and asserting it escapes would
+ * assert the opposite of the contract. Held open on a gate promise with the
+ * request driven from the test's own root context, this is two genuinely
+ * concurrent async contexts, which is what production has: an incoming HTTP
+ * request is never rooted inside `PlanCommandRunner`'s callback.
  *
  * Two assertions, failing for different reasons. `pending` empty says the event
  * never entered the batch's queue, which is what makes it survivable; the
@@ -304,19 +315,28 @@ describe('a step mutation is not captured by an unrelated batch', () => {
     const project = await newProject(token);
     broadcast.published.length = 0;
 
-    const held = await writes.announcements.hold(async () => {
-      const res = await addStep(project.id, token, 'Design');
-      expect(res.status).toBe(200);
-      return ((await res.json()) as { step: Step }).step;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    // Not awaited yet: the batch sits on the gate with its hold open, which is
+    // the state an unrelated request arrives in.
+    const batch = writes.announcements.hold(() => gate);
+
+    const res = await addStep(project.id, token, 'Design');
+    expect(res.status).toBe(200);
+    const step = ((await res.json()) as { step: Step }).step;
+
+    release();
+    const { pending } = await batch;
 
     // The refusal: the batch's own announcements are dropped, never sent.
-    expect(held.pending).toEqual([]);
+    expect(pending).toEqual([]);
     // `toEqual` on the whole array, not a `.some(...)` search: the step the
     // event carries and the project it was announced on are both part of the
     // claim, and an event announced on the wrong project would pass a count.
     expect(broadcast.published).toEqual([
-      { projectId: project.id, event: { type: 'step_added', step: held.result } },
+      { projectId: project.id, event: { type: 'step_added', step } },
     ]);
   });
 });

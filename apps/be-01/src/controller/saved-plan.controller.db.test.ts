@@ -705,8 +705,17 @@ describe('the saved-plan routes', () => {
      * happened; nobody was told.
      *
      * The hold here stands in for that batch: it is opened on the same shared
-     * broadcaster `buildApp` was given, the save runs inside it, and its queue
-     * is then discarded rather than sent — the rollback path exactly.
+     * broadcaster `buildApp` was given, and its queue is then discarded rather
+     * than sent — the rollback path exactly.
+     *
+     * **The save runs BESIDE the hold and not inside it** (TASK-256). This case
+     * shipped with the save inside the `hold` callback, which under instance
+     * state was indistinguishable from a concurrent request. A hold is
+     * per-caller now, so a call made inside the callback *is* part of the batch
+     * by the only definition there is; held open on a gate promise with the save
+     * driven from the test's own root context, this is two genuinely concurrent
+     * async contexts — what production has, since an incoming HTTP request is
+     * never rooted inside `PlanCommandRunner`'s callback.
      *
      * Two assertions, because they fail for different reasons. `pending` empty
      * says the event never entered the batch's queue, which is the property that
@@ -718,9 +727,16 @@ describe('the saved-plan routes', () => {
     it('delivers a save made while an unrelated batch holds, and that batch then refuses', async () => {
       broadcast.published.length = 0;
 
-      const { pending } = await writes.announcements.hold(async () => {
-        expect((await save('ada')).status).toBe(201);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
       });
+      const batch = writes.announcements.hold(() => gate);
+
+      expect((await save('ada')).status).toBe(201);
+
+      release();
+      const { pending } = await batch;
 
       // The refusal: the batch's own announcements are dropped, never sent.
       expect(pending).toEqual([]);

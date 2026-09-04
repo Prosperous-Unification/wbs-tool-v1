@@ -78,6 +78,18 @@ export interface BeServices {
    * must be this object and not a second wrapper.
    */
   announcements: DeferringBroadcaster;
+  /**
+   * The broadcaster {@link announcements} wraps, for **one** reader: the
+   * one-lock regression in `boot.db.test.ts` has to read the lock off the object
+   * that records under it, or it restates the wiring instead of observing it.
+   *
+   * Nothing publishes through this. It replaced `DeferringBroadcaster.undeferred`
+   * (TASK-256), which was reachable from every service that held the wrapper —
+   * this is reachable only from the composition root. A publisher wired here
+   * would announce before its batch committed, and a rollback would leave a push
+   * describing a write that is not there.
+   */
+  gatewayBroadcaster: GatewayBroadcaster;
   auth: AuthService;
   projects: ProjectService;
   capacity: CapacityService;
@@ -155,6 +167,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
 
   return {
     announcements,
+    gatewayBroadcaster: broadcast,
     auth: new AuthService({
       clock,
       users: userStore,

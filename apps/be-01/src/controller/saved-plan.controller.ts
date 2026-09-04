@@ -165,11 +165,13 @@ function refuseUnknownBodyVersion({
  * lets a slow gateway stall every write in the process. Publishing from inside
  * the service would put it back inside both.
  *
- * That is also why `app.ts` hands this the **undeferred** broadcaster. Nothing
- * here is ever part of a command batch — `plan-commands` has no saved-plan
- * command — so there is no transaction for the announcement to be atomic with,
- * and routing it through the shared `DeferringBroadcaster` only made a
- * committed write's event droppable by an unrelated batch's rollback.
+ * `app.ts` hands this the shared `DeferringBroadcaster`, like every other
+ * publisher. It handed over the inner broadcaster instead when TASK-255 shipped,
+ * because the hold was instance state and a save committing while an unrelated
+ * batch held was queued into that batch and dropped when it refused. TASK-256
+ * made the hold per-caller, so a route that is not part of a batch is not
+ * captured by one whatever is open at the time, and the special case went with
+ * it.
  *
  * The announcement is deliberately **not** conditional on the caller: every
  * successful save, rename and delete publishes, including the actor's own. The
