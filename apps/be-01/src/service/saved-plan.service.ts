@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 
 import {
   canonicalisePlanInput,
-  type PlanDiff,
   diffPlans,
   normalisePlanInputForward,
+  type PlanDiff,
   type PlanScheduleValue,
   type PlanSide,
   type Schedule,

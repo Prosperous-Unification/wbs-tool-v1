@@ -633,6 +633,39 @@
         "operationId": "getApiProjectsByIdSaved-plans"
       }
     },
+    "/api/projects/{id}/saved-plans/compare": {
+      "get": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "left",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "right",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "getApiProjectsByIdSaved-plansCompare"
+      }
+    },
     "/api/saved-plans/{id}": {
       "get": {
         "parameters": [
