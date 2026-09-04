@@ -451,10 +451,11 @@ describe('the saved-plan shelf is on the project page', () => {
       floated over the plan for good. Gemini's F-01 on PR 202, and the fix is
       `SavedPlanShelf` owning the hook.
 
-      Not yet watched failing — the run that added it ran out of box before it
-      could put the hook back on `ProjectPage` and see `open` stay true. Say so
-      rather than imply otherwise: the fault it names was read out of the source
-      and confirmed by a reviewer, not reproduced by this case.
+      Watched failing 2026-09-04, h2puni, `dirty=0` apart from the one file:
+      `project-page.tsx` restored to `4bd9e95b` (the hook hoisted onto
+      `ProjectPage`) under this file at `956265a6` fails right here, at
+      `expect(disclosure.open).toBe(false)` — 1 failed, 46 skipped of 47. So the
+      case is bound to the fault and not to the fix.
     */
     pageWith(fakeProjects(TWO));
     await selectProject('p2');
