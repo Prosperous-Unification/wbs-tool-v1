@@ -46,6 +46,44 @@ function drawsCards(page: Page): boolean {
   return viewport.width < CARDS_BELOW || viewport.height < TABLE_NEEDS_HEIGHT;
 }
 
+/**
+ * Everything about a scroll container that decides whether a scroll it is
+ * asked for can actually be taken — measured in the page, for a failure
+ * message.
+ *
+ * `roomLeft` is the one that matters and the one no assertion prints on its
+ * own: a container already at `scrollHeight - clientHeight` refuses every
+ * further scroll silently, and the surface a reader then sees is identical to
+ * one that is merely still animating. `belowWindow` is the second: a
+ * scroller whose bottom edge is past the bottom of the window has room that
+ * is on nobody's screen, so its own arithmetic can be perfectly satisfied
+ * while the thing it moved is still out of sight.
+ */
+function measureScroller(el: Element): {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  roomLeft: number;
+  paddingBottom: string;
+  top: number;
+  bottom: number;
+  windowHeight: number;
+  belowWindow: number;
+} {
+  const box = el.getBoundingClientRect();
+  return {
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    roomLeft: el.scrollHeight - el.clientHeight - el.scrollTop,
+    paddingBottom: el instanceof HTMLElement ? el.style.paddingBottom : '',
+    top: box.top,
+    bottom: box.bottom,
+    windowHeight: window.innerHeight,
+    belowWindow: box.bottom - window.innerHeight,
+  };
+}
+
 /** Opens the toolbar sheet, which is the only way to any toolbar control here. */
 async function openTheSheet(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Plan actions' }).click();
@@ -909,6 +947,11 @@ test.describe('the plan on a phone, measured by a browser', () => {
         el.scrollIntoView({ block: 'center' });
       });
       const scrollBefore = await scroller.evaluate((el) => el.scrollTop);
+      // Kept for the failure path below, and taken HERE because the guard's
+      // own padding is on the scroller by the time that path runs: a box
+      // measured only after the open cannot say whether the scroller was
+      // already past the window or was pushed there by the guard.
+      const scrollerBefore = await scroller.evaluate(measureScroller);
 
       await trigger.click();
       await expect(sheet).toBeVisible();
@@ -931,17 +974,44 @@ test.describe('the plan on a phone, measured by a browser', () => {
         if (trig === null || sh === null) throw new Error('no box to measure');
         return { trig, sheet: sh };
       };
-      await expect
-        .poll(
-          async () => {
-            const { trig, sheet: sh } = await guardedBox();
-            return sh.y - (trig.y + trig.height);
-          },
-          // The guard's own retry budget is ~10s; headless CI under load
-          // has made Radix's portal mount take most of it.
-          { timeout: 15000, message: 'the guard has not landed' },
-        )
-        .toBeGreaterThan(0);
+      try {
+        await expect
+          .poll(
+            async () => {
+              const { trig, sheet: sh } = await guardedBox();
+              return sh.y - (trig.y + trig.height);
+            },
+            // The guard's own retry budget is ~10s; headless CI under load
+            // has made Radix's portal mount take most of it.
+            { timeout: 15000, message: 'the guard has not landed' },
+          )
+          .toBeGreaterThan(0);
+      } catch (failure: unknown) {
+        // A bare "expected -13.390625 to be greater than 0" says the guard
+        // did not land and nothing about WHY, and the guard has two entirely
+        // different failure modes that print that same line: the sheet never
+        // settled (a race, which the poll would have to lose fifteen seconds
+        // to), or the scroll it asked for was refused because the scroller
+        // had no more room to give (a steady state, which no amount of
+        // polling reaches). `place()` pads the list by the sheet's own
+        // height, which is only enough room while the scroller's bottom edge
+        // is the bottom of the window — so `belowWindow` is the number that
+        // separates the two, and a run that fails without it costs a whole CI
+        // cycle to ask again (measured: TASK-232 runs 16 and 17).
+        const after = await scroller.evaluate(measureScroller);
+        const sheetSeen = await page.evaluate(() => {
+          const sheet = document.querySelector('[data-modal-surface="bottom"][data-state="open"]');
+          const box = sheet?.getBoundingClientRect() ?? null;
+          return box === null ? null : { top: box.top, bottom: box.bottom };
+        });
+        throw new Error(
+          `${failure instanceof Error ? failure.message : String(failure)}\n` +
+            `guard geometry for ${String(spec.dialogName)} on card ${String(index)}\n` +
+            `  before the open: ${JSON.stringify(scrollerBefore)}\n` +
+            `  with the sheet up: ${JSON.stringify(after)}\n` +
+            `  the sheet: ${JSON.stringify(sheetSeen)}`,
+        );
+      }
 
       const { trig: where, sheet: sheetBox } = await guardedBox();
       if (viewport === null) {
