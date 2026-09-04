@@ -585,7 +585,7 @@ comparison UI) and start only after slice 6 is merged.
       third-party cases fail — this is the one permission that can expose a
       restricted project's _live_ plan, through `current`, so its guard owes the
       same proof every other check here does.
-- [ ] 7.4 Cross-version diff: a stored v*n* body against a live v*n+1* projection
+- [x] 7.4 Cross-version diff: a stored v*n* body against a live v*n+1* projection
       normalises forward in memory; the stored bytes are unchanged afterwards
       (asserted by hash). An unknown version fails loudly. Negative: rewrite the
       stored body during normalisation and watch 4.2's hash assertion fail.

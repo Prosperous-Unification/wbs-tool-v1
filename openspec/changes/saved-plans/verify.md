@@ -346,3 +346,61 @@ At `5103e0b3`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
 | `bun test src/service/saved-plan-current.db.test.ts` | exit 0 — **9 pass / 0 fail**                                                       |
 | `nx run-many -t lint typecheck -p be-01 domain`      | exit 0 after the import-sort autofix                                               |
 | `nx run-many -t test -p be-01` (whole suite)         | exit 0 — **1310 pass / 0 fail** across 111 files in 102.5s; 1301 before this chunk |
+
+## TASK-232 run 1 chunk 3 — forward-only normalisation (7.4)
+
+`normalisePlanInputForward(body, storedVersion, readerVersion?, upgrades?)` in
+`libs/domain/src/saved-plan/normalise-plan-input.ts`.
+
+**It takes the parsed body, never the bytes, and that is the structural half of
+"the stored bytes are unchanged".** The function has no access to them and no
+way to write them; the hash assertion 7.4 asks for is then a check on the other
+half rather than the only guard. At the reader's own version it is the
+**identity** — the same value back, not a copy, because a copy would quietly
+hide a step that had mutated its argument.
+
+### Three refusals, distinguished
+
+A single "unsupported version" would hide which of these happened, and they call
+for different answers:
+
+| `reason`          | When                                                    | Why not silent |
+| ----------------- | ------------------------------------------------------- | -------------- |
+| `from-the-future` | stored version above the reader's                        | design.md: a schema that _removes_ a field needs a down-conversion rule written at that change, never guessed here |
+| `no-upgrade-path` | stored version below the reader's, no step registered    | passing an old shape through as current is how a removed field comes to read `undefined` and compare as a change nobody made |
+| `not-a-version`   | not a positive integer                                   | a header number that is not a version is a corrupt header, not a conversion problem |
+
+`PLAN_INPUT_UPGRADES` is **empty today, and that is a statement**: version 1 is
+the only version that has ever existed, so there is no _n_→_n+1_ step to write.
+When `CANONICAL_PLAN_INPUT_SCHEMA_VERSION` moves to 2 a step keyed `1` lands
+with it, and until then a v1 body against a v2 reader fails `no-upgrade-path`
+loudly instead of arriving half-converted. The step-ordering case proves the
+loop by running two synthetic steps and asserting both the order and that each
+ran once.
+
+### The watched negative, standing rather than one-off
+
+7.4 names "rewrite the stored body during normalisation and watch the hash
+assertion fail". The suite keeps both halves as a permanent comparison: a
+`mutating` step that writes into its argument leaves the caller's own parsed
+value tampered, and a `copying` step leaves it untouched. The assertion is red
+for the first and green for the second in the same case, so the guard cannot
+rot into a test that passes either way.
+
+### Gate
+
+At `a10ad8cd`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
+`--skip-nx-cache`, `--parallel=1`, `TMPDIR=/home/puni1/gate-tmp`:
+
+| Gate | Result |
+| --- | --- |
+| `nx run-many -t test lint typecheck -p domain` | exit 0 — **371 pass / 0 fail** across 27 files |
+| `nx format:check --all` | exit 0, zero files |
+
+### Slice 7 after this chunk
+
+7.1, 7.2, 7.2b, 7.2c, 7.3, 7.3a and 7.4 are done. **7.3b — the compare route on
+`savedPlanController`, extending 6.2's permission matrix to a sixth route — is
+the only item left in the slice**, and it is the one that can expose a
+restricted project's _live_ plan through `current`, so its guard owes the same
+proof every other check here does.
