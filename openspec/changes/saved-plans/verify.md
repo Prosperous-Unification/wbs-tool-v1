@@ -341,8 +341,8 @@ next run does them rather than inheriting a green it did not earn.
 At `5103e0b3`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
 `--skip-nx-cache`, `TMPDIR=/home/puni1/gate-tmp`:
 
-| Gate | Result |
-| --- | --- |
-| `bun test src/service/saved-plan-current.db.test.ts` | exit 0 — **9 pass / 0 fail** |
-| `nx run-many -t lint typecheck -p be-01 domain` | exit 0 after the import-sort autofix |
-| `nx run-many -t test -p be-01` (whole suite) | exit 0 — **1310 pass / 0 fail** across 111 files in 102.5s; 1301 before this chunk |
+| Gate                                                 | Result                                                                             |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `bun test src/service/saved-plan-current.db.test.ts` | exit 0 — **9 pass / 0 fail**                                                       |
+| `nx run-many -t lint typecheck -p be-01 domain`      | exit 0 after the import-sort autofix                                               |
+| `nx run-many -t test -p be-01` (whole suite)         | exit 0 — **1310 pass / 0 fail** across 111 files in 102.5s; 1301 before this chunk |
