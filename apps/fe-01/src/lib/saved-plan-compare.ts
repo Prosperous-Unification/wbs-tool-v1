@@ -83,7 +83,7 @@ function shelfSchedule(row: SavedPlanListEntryView): SideScheduleView {
  * this function. `diffSchedule` in `libs/domain` emits `schedule.present` only
  * when the two sides disagree about presence and `schedule.absentReason` only
  * when the two reasons differ, so two sides that are *both* absent for the
- * *same* reason produce neither row. Reading state straight off the diff would
+ * same reason produce neither row. Reading state straight off the diff would
  * therefore render "both schedules present" for a pair of plans neither of
  * which has one.
  *
