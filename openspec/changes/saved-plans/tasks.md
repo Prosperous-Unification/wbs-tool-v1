@@ -640,13 +640,12 @@ Two constraints the mount carries, each measured rather than argued:
   sibling with the flex default `min-height: auto` would let a long history push
   the table's share towards nothing.
 - The panel is keyed `key={selected}`. Its compare pair is pinned in `useState`
-  (AC #4), so carried across a project switch it holds the *previous* project's
+  (AC #4), so carried across a project switch it holds the _previous_ project's
   saved-plan id and the compare effect — `projectId` is in its dependencies —
-  asks be-01 about a checkpoint the new project does not contain. Watched:
-  with the key removed, `expected { saved: 'sp1' } to deeply equal
-  { saved: 'sp9' }`. A `list` assertion cannot see this — the shelf re-reads on
-  a project change by itself, so the whole file still passed 46/46 against one.
-
+  asks be-01 about a checkpoint the new project does not contain. Watched, with
+  the key removed: `expected { saved: 'sp1' } to deeply equal { saved: 'sp9' }`.
+  A `list` assertion cannot see this — the shelf re-reads on a project change by
+  itself, so the whole file still passed 46/46 against one.
 
 - [ ] 9.1 Measure the largest real plan's body size against the 8 MiB limit and
       record the number (A-3's falsifier).
