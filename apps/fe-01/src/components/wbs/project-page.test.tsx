@@ -451,8 +451,10 @@ describe('the saved-plan shelf is on the project page', () => {
       floated over the plan for good. Gemini's F-01 on PR 202, and the fix is
       `SavedPlanShelf` owning the hook.
 
-      Watched failing: with the hook hoisted back onto `ProjectPage` this case
-      reports `open` still true after the pointer lands outside.
+      Not yet watched failing — the run that added it ran out of box before it
+      could put the hook back on `ProjectPage` and see `open` stay true. Say so
+      rather than imply otherwise: the fault it names was read out of the source
+      and confirmed by a reviewer, not reproduced by this case.
     */
     pageWith(fakeProjects(TWO));
     await selectProject('p2');
