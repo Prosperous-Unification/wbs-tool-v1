@@ -25,7 +25,7 @@ import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
 import { WorkItemService } from '../service/work-item.service';
 import { TEST_JWT_KEY } from '../testing/auth-fixture';
-import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixture';
 import { personAdded } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -56,6 +56,17 @@ let directory: DirectoryRepository;
 let workItems: WorkItemRepository;
 let projects: ProjectRepository;
 let seededBy: string;
+/**
+ * The one broadcaster in the process, and the wrapper over it, held apart so a
+ * test can open a batch's hold on the same object the routes publish through.
+ *
+ * `services.ts:186` gives `StepService` `announcements` — the shared
+ * {@link DeferringBroadcaster} — so a fixture that hands it a private recorder
+ * is not wiring this app builds, and cannot see a batch capture a step event.
+ * That divergence is exactly what hid TASK-256.
+ */
+let writes: ReturnType<typeof testWrites>;
+let broadcast: RecordingBroadcaster;
 
 const DAYS = { optimistic: 1, realistic: 2, pessimistic: 3 };
 
@@ -90,6 +101,9 @@ beforeEach(async () => {
     { at: 1, by: seededBy },
   );
 
+  broadcast = recordingBroadcaster();
+  writes = testWrites(broadcast);
+
   app = buildApp({
     savedPlans: testSavedPlanService(),
     directory: new DirectoryService({ directory, broadcast: recordingBroadcaster() }),
@@ -98,7 +112,9 @@ beforeEach(async () => {
     history: testHistoryService(),
     auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
     projects: new ProjectService({ projects }),
-    steps: new StepService({ projects, steps: stepStore, broadcast: recordingBroadcaster() }),
+    // The shared wrapper, as `services.ts:186` wires it — not a private
+    // recorder. See {@link writes}.
+    steps: new StepService({ projects, steps: stepStore, broadcast: writes.announcements }),
     workItems: new WorkItemService({
       workItems,
       projects,
@@ -117,7 +133,7 @@ beforeEach(async () => {
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),
-    writes: testWrites(),
+    writes,
     migrationsApplied: true,
   });
 });
@@ -250,6 +266,58 @@ describe('the steps routes are the only spelling', () => {
 
     // And nothing was written by any of them.
     expect(await stepStore.listByProject(project.id)).toHaveLength(2);
+  });
+});
+
+/**
+ * TASK-256, the same class TASK-255 closed for saved plans, on the one service
+ * that is still wired to the wrapper.
+ *
+ * `DeferringBroadcaster.held` is **instance** state and `services.ts` builds
+ * exactly one instance, so during any open hold *every* publish through that
+ * object joins the batch's queue — including one from an HTTP route that has
+ * already committed and is not part of the batch. A refused batch drops its
+ * queue (`plan-commands.ts` answers a refusal with `pending: []`), and the
+ * route's event goes with it. The write happened; nobody was told.
+ *
+ * Steps are the worst case rather than another instance of it: `readScopeFor`
+ * maps `step_added` / `step_renamed` / `step_removed` to `tree-and-steps`, so
+ * these are the events the table refetches on. `PlanCommandKind`
+ * (`service/plan-command.ts:16-94`) declares no step command and
+ * `plan-commands.ts` never references `StepService`, so a step mutation is
+ * reachable only through this controller — it is never *inside* a batch, and
+ * being captured by one is always wrong.
+ *
+ * The hold here stands in for that unrelated batch: opened on the same shared
+ * broadcaster `buildApp` was given, with the route running inside it, and its
+ * queue then discarded rather than sent — the refusal path exactly.
+ *
+ * Two assertions, failing for different reasons. `pending` empty says the event
+ * never entered the batch's queue, which is what makes it survivable; the
+ * recorder says it actually went out while the hold was still open. An
+ * implementation that queued the event and sent it later passes the second and
+ * fails the first — and still loses the event on the refusal this is named for.
+ */
+describe('a step mutation is not captured by an unrelated batch', () => {
+  it('delivers an add made while an unrelated batch holds, and that batch then refuses', async () => {
+    const token = await register('owner');
+    const project = await newProject(token);
+    broadcast.published.length = 0;
+
+    const held = await writes.announcements.hold(async () => {
+      const res = await addStep(project.id, token, 'Design');
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { step: Step }).step;
+    });
+
+    // The refusal: the batch's own announcements are dropped, never sent.
+    expect(held.pending).toEqual([]);
+    // `toEqual` on the whole array, not a `.some(...)` search: the step the
+    // event carries and the project it was announced on are both part of the
+    // claim, and an event announced on the wrong project would pass a count.
+    expect(broadcast.published).toEqual([
+      { projectId: project.id, event: { type: 'step_added', step: held.result } },
+    ]);
   });
 });
 
