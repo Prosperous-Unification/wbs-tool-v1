@@ -247,9 +247,14 @@ function diffCollection(
     const r = rightById[id];
     const path = `${collection}[${id}]`;
     if (l === undefined) {
-      out.push({ category: 'added', path, left: undefined, right: r });
+      out.push({ category: presenceCategory(collection, 'added'), path, left: undefined, right: r });
     } else if (r === undefined) {
-      out.push({ category: 'removed', path, left: l, right: undefined });
+      out.push({
+        category: presenceCategory(collection, 'removed'),
+        path,
+        left: l,
+        right: undefined,
+      });
     } else if (isRecord(l) && isRecord(r)) {
       diffRowFields(collection, path, l, r, out);
     } else if (!deepEqual(l, r)) {
@@ -340,6 +345,28 @@ function diffValue(path: string, left: unknown, right: unknown, out: PlanDiffere
 
 function categoryFor(collection: string, field: string): PlanDiffCategory {
   return FIELD_CATEGORIES[collection]?.[field] ?? COLLECTION_CATEGORIES[collection] ?? 'other';
+}
+
+/**
+ * How a row present on only one side is grouped.
+ *
+ * The spec reserves `added` and `removed` for **work items** and gives every
+ * other named collection its own heading, and that distinction is load-bearing
+ * rather than cosmetic: in a relationship collection — `dependencies`,
+ * `assignments`, `personTeams`, `teamServices`, `workItemTeams`,
+ * `workItemServices` — every field is part of the row key, so *changing* an
+ * edge is necessarily one row gone and one row arrived and can never surface as
+ * a changed field. Hard-coding the generic pair here therefore left
+ * `dependencies`, `ownership` and `service-assignment` unreachable for the only
+ * operation those rows have, and filed a rewired dependency under the same
+ * heading as a new work item.
+ *
+ * A collection with no heading of its own keeps the generic pair: `workItems`,
+ * which is what the spec names, and `steps`/`stepValues`, which are work-item
+ * structure rather than a domain of their own.
+ */
+function presenceCategory(collection: string, generic: 'added' | 'removed'): PlanDiffCategory {
+  return COLLECTION_CATEGORIES[collection] ?? generic;
 }
 
 /**

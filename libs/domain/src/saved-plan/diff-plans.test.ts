@@ -267,11 +267,46 @@ describe('diffPlans — 7.2, the presentation categories', () => {
     const noAssignments: CanonicalPlanInput = { ...input, assignments: [] };
 
     expect(diffPlans(side(), side(noDeps)).input.map((d) => d.category)).toEqual(
-      input.dependencies.map(() => 'removed'),
+      input.dependencies.map(() => 'dependencies'),
     );
     expect(
-      diffPlans(side(), side(noAssignments)).input.every((d) => d.category === 'removed'),
+      diffPlans(side(), side(noAssignments)).input.every((d) => d.category === 'ownership'),
     ).toBe(true);
+  });
+
+  /**
+   * The only shape a relationship edit can take. Every field of a
+   * `dependencies`, `assignments` or `workItemServices` row is part of its key
+   * (see `ROW_KEYS`), so *changing* an edge is necessarily one row gone and one
+   * row arrived — never a changed field. If row presence reported the generic
+   * `added`/`removed` the spec reserves for work items, the `dependencies`,
+   * `ownership` and `service-assignment` headings would be unreachable for the
+   * only operation those collections have, and a rewired dependency would file
+   * under the same heading as a new work item.
+   */
+  it('files a rewired relationship under its own heading on both sides', () => {
+    const rewired: CanonicalPlanInput = canonicalisePlanInput({
+      ...planFixtureRows,
+      dependencies: [
+        { predecessorId: 'w2', successorId: 'w1' },
+        // was w1 → w2
+        { predecessorId: 'w1', successorId: 'w3' },
+      ],
+      workItemServices: [
+        { workItemId: 'w2', serviceId: 'svc-1' }, // was svc-2
+        { workItemId: 'w1', serviceId: 'svc-1' },
+      ],
+    });
+    const differences = diffPlans(side(), side(rewired)).input;
+    const categoriesFor = (collection: string): string[] =>
+      differences.filter((d) => d.path.startsWith(`${collection}[`)).map((d) => d.category);
+
+    expect(categoriesFor('dependencies').sort()).toEqual(['dependencies', 'dependencies']);
+    expect(categoriesFor('workItemServices').sort()).toEqual([
+      'service-assignment',
+      'service-assignment',
+    ]);
+    expect(differences.some((d) => d.category === 'added' || d.category === 'removed')).toBe(false);
   });
 });
 
