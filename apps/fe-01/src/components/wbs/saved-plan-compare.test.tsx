@@ -38,11 +38,18 @@ const ready = (over: Partial<Extract<SavedPlanComparisonState, { kind: 'ready' }
 describe('the side pickers', () => {
   itDom('offers the live plan first and then the shelf', () => {
     render(
-      <SavedPlanSidePicker label="Left" value="current" rows={[row(), row({ id: 'sp2', name: 'after' })]} onChange={vi.fn()} />,
+      <SavedPlanSidePicker
+        label="Left"
+        value="current"
+        rows={[row(), row({ id: 'sp2', name: 'after' })]}
+        onChange={vi.fn()}
+      />,
     );
-    expect(
-      screen.getAllByRole('option').map((option) => option.textContent),
-    ).toEqual(['the current plan', 'before the re-plan', 'after']);
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'the current plan',
+      'before the re-plan',
+      'after',
+    ]);
   });
 
   itDom('hands back a side reference, not the raw string', () => {
@@ -51,7 +58,9 @@ describe('the side pickers', () => {
     // here rather than at each of the two call sites — where one of them would
     // eventually forget and pass `'sp1'` as if it were `'current'`.
     const onChange = vi.fn();
-    render(<SavedPlanSidePicker label="Right" value="current" rows={[row()]} onChange={onChange} />);
+    render(
+      <SavedPlanSidePicker label="Right" value="current" rows={[row()]} onChange={onChange} />,
+    );
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'sp1' } });
     expect(onChange).toHaveBeenCalledWith({ saved: 'sp1' });
   });

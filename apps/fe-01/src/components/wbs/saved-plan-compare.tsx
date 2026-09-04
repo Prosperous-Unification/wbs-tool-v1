@@ -1,5 +1,6 @@
 import type {
   PlanDifferenceView,
+  PlanDiffView,
   SavedPlanListEntryView,
   SavedPlanSideRef,
 } from '../../lib/saved-plan-api';
@@ -10,7 +11,6 @@ import {
   groupByCategory,
   sideScheduleWords,
 } from '../../lib/saved-plan-compare';
-import type { PlanDiffView } from '../../lib/saved-plan-api';
 
 /** The value a picker holds, as a `<select>` can carry it. */
 export const CURRENT_OPTION = 'current';
@@ -114,7 +114,13 @@ function SideSummary({
 }
 
 /** One half of the diff, by category, or nothing when the half is empty. */
-function DiffHalf({ title, differences }: { title: string; differences: readonly PlanDifferenceView[] }) {
+function DiffHalf({
+  title,
+  differences,
+}: {
+  title: string;
+  differences: readonly PlanDifferenceView[];
+}) {
   if (differences.length === 0) return null;
   return (
     <section className="saved-plan-compare__half" aria-label={title}>
