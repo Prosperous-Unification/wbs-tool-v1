@@ -628,7 +628,7 @@ belongs in the mount: the shelf must stop consuming the main column's height at
 rest — inside the scrolling frame, or behind an overlay/disclosure that is out
 of the flex chain until it is opened.
 
-### `fe-01:test` — red, and its reason is not recoverable from this run's log
+### Red 4 — the `fe-01` unit target. Not recoverable from CI's log; reproduced and fixed at `afd3e934`.
 
 The `fe-01:test` target is marked ❌ and the job ends `Process completed with
 exit code 1`, but the group's captured output is cut mid-token (`at WbsTable
@@ -640,13 +640,38 @@ cap and not a fetch artefact. Everything before the cut is `stderr` noise:
 expected `GanttDataError` output from the **passing** "a chart that cannot be
 drawn" cases, and React `act(...)` warnings from `wbs-table.tsx:1260`.
 
-**Said plainly rather than guessed at: what failed there is not yet known.** The
-four `pixels` failures are a plausible sibling but run in a different runner and
-prove nothing about this one. It was not reproduced this run because h2puni was
-unusable — load1 141.19 at 10:56Z, 453 MB free — and this box may not run tests.
-The next run reproduces the `fe-01` target on h2puni once
-`monitoring/status.json` reads `ok: true`, or reads it out of the CI re-run that
-`f0897a42` triggers.
+**Reproduced on h2puni rather than guessed at, and fixed at `afd3e934`.** The
+first two attempts were abandoned at load1 141.19 / 453 MB free; the third, at
+load1 2.16 in `/home/puni1/gate-task232` at `ce9e0aa3` `dirty=0`, ran the target
+to completion in 245s: **1 test file failed, 85 passed, of 86.** The file is
+`apps/fe-01/src/test-tiers.test.ts`, and its two assertions are one fact:
+
+| Assertion                                                               | Expected   | Received |
+| ----------------------------------------------------------------------- | ---------- | -------- |
+| `[...NODE_SUITES].sort()` deep-equals the directory walk's DOM-free set | 20 entries | 19       |
+| `NODE_SUITES.length + domTier.length` is `all.length`                   | 86         | 85       |
+
+**The missing entry is `src/lib/saved-plan-compare.test.ts`.** Of the four
+`src/lib` suites this branch adds, it is the only one the tier rule reads as
+DOM-free: `saved-plan-save.test.ts` and `saved-plan-shelf.test.ts` import
+`@testing-library` and genuinely need jsdom, and `saved-plan-api.test.ts` is
+caught by `DOM_EVIDENCE`'s deliberately generous `\bdocument\b` on **fourteen
+prose mentions of the _OpenAPI_ document** and not one browser global. That
+third one is left where the rule puts it: being wrong in that direction only
+costs the file the slow tier, which is the trade the rule's own comment says to
+prefer, and special-casing it would trade a cheap loss for a real one.
+
+**Both halves gated at `afd3e934`, h2puni, `dirty=0`.** The guard itself: 3
+passed. And the half the guard says it cannot make — "what this file cannot say
+is that a listed suite really runs under `node`; only running it can" — the fast
+tier now runs **20 files / 359 tests in 1.37s**, with
+`src/lib/saved-plan-compare.test.ts` among them at 15 passed.
+
+**What this also says about the truncation.** The whole failure was one list
+entry, and it cost a reproduction on a second host because GitHub's per-group
+cap ate the summary. Worth remembering the next time a red is read from CI
+alone: a target marked ❌ with no surviving summary is an unknown, not a
+diagnosis.
 
 ### The bottleneck, measured a second time on the same day
 
