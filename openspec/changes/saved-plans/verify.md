@@ -219,10 +219,10 @@ Gate at `ce239c72`, on h2puni `/home/puni1/gate-task232`, `dirty=0`,
 `NX_DAEMON=false`, `--skip-nx-cache`, `--parallel=1`,
 `TMPDIR=/home/puni1/gate-tmp`, head asserted with `rev-parse` after the reset:
 
-| Gate | Result |
-| --- | --- |
+| Gate                                           | Result                                         |
+| ---------------------------------------------- | ---------------------------------------------- |
 | `nx run-many -t test lint typecheck -p domain` | exit 0 — **363 pass / 0 fail** across 26 files |
-| `nx format:check --all` | exit 0, zero files |
+| `nx format:check --all`                        | exit 0, zero files                             |
 
 ### The finding: "names the field" is the wrong assertion, "covers the leaf" is the right one
 
