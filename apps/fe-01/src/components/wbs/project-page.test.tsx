@@ -389,7 +389,7 @@ describe('the header bar', () => {
  * not be reached by clicking.
  */
 describe('the saved-plan shelf is on the project page', () => {
-  itDom('renders the shelf under the table once a project is open', async () => {
+  itDom('renders the shelf in the header once a project is open', async () => {
     pageWith(fakeProjects(TWO));
 
     // Before a project is picked there is no history to show — and no project
@@ -400,40 +400,57 @@ describe('the saved-plan shelf is on the project page', () => {
     await selectProject('p2');
 
     /*
-      The shelf is a disclosure in the plan toolbar now, and closed is its rest
-      state.
+      The shelf is a disclosure in the app header's project row now, and closed
+      is its rest state.
 
-      It has to cost the plan column zero height, which is the point: as an
+      **Four shapes, each killed by a measurement that already existed.** As an
       `mt-2 shrink-0` flex sibling it took ~76px off the one column that has to
       reach the bottom of the window, and four browser measurements failed at
       once (`header.spec.ts:272`/`:289`, `plan-surface.spec.ts:278`/`:318`).
       Floating it over `<main>`'s bottom-right paid that bill but landed on the
-      chart's own controls (Gemini F-03 / Sol I4 on PR 202). The toolbar row is
-      the third shape and the settled one: it exists whether this control is in
-      it or not.
+      chart's own controls (Gemini F-03 / Sol I4 on PR 202). The plan toolbar
+      paid both — and spent a third budget nobody had put on the bill:
+      `project-settings.spec.ts:77` holds `[data-toolbar]`'s children to 1265px
+      with a named margin for exactly one more control, and `gantt.spec.ts:2605`
+      needs that bar to be **one** row at 768 before the drag that adds `Reset
+      layout` makes it two. Both went red at `14a1a070` (2 failed / 281 passed).
+      The header's project row is the fourth and the settled one: `flex-nowrap`
+      above `md` with a `max-w` picker that absorbs the width, outside `<main>`
+      entirely, and one bar at every width instead of a row and a phone sheet.
 
-      jsdom lays nothing out, so those four measurements stay the real guard for
-      the height half. What this file can hold is where the chip lives, which is
-      what the height half now follows from — and it is a `<details>` in the
-      same row as Views, Columns, Facets and Export, not a box of its own.
+      jsdom lays nothing out, so those six measurements stay the real guard for
+      the pixels. What this file can hold is where the chip lives, which is what
+      the pixels follow from — so both halves are asserted: in the banner, and
+      **not** in either copy of the toolbar. The negative is the load-bearing
+      one; it is the shape that was red on CI.
     */
     const chip = await screen.findByText('Saved plans', { selector: 'summary' });
     const shelfDisclosure = chip.closest('details');
-    expect(shelfDisclosure?.closest('[data-toolbar], [data-toolbar-sheet]')).not.toBeNull();
-    // Beside its four siblings, in one row, rather than merely somewhere on the
-    // page: `data-export` is the nearest of them and the cheapest to name.
-    expect(shelfDisclosure?.parentElement?.querySelector('[data-export]')).not.toBeNull();
+    expect(shelfDisclosure?.closest('[data-toolbar], [data-toolbar-sheet]')).toBeNull();
+    expect(shelfDisclosure?.closest('header')).not.toBeNull();
+    // Beside the project's own controls, in one row, rather than merely
+    // somewhere in the bar: `New project` is the nearest of them and the only
+    // one that is there whether a rename is armed or not.
+    expect(
+      within(shelfDisclosure?.parentElement ?? document.body).getByRole('button', {
+        name: 'New project',
+      }),
+    ).toBeDefined();
 
     fireEvent.click(chip);
 
     const heading = await screen.findByRole('heading', { name: 'Saved plans' });
-    const main = document.querySelector('main');
-    expect(main?.contains(heading)).toBe(true);
+    // In the banner landmark, which is the half `main?.contains(heading)`
+    // asserted until the chip left the plan column. A screen reader gets to
+    // skip a banner, and the plan's history is chrome about the project rather
+    // than part of the plan on screen.
+    const banner = document.querySelector('header');
+    expect(banner?.contains(heading)).toBe(true);
+    expect(document.querySelector('main')?.contains(heading)).toBe(false);
     // Above the grid, not below it — the inverse of what this asserted while
-    // the shelf floated at the bottom of `<main>`, and the assertion moved
-    // rather than being dropped because document order is what a screen reader
-    // reads. The shelf is a toolbar control now: it is announced with the
-    // controls, and its panel opens over the plan rather than under it.
+    // the shelf floated at the bottom of `<main>`, and the assertion survived
+    // three moves because document order is what a screen reader reads. The
+    // panel opens over the plan rather than under it.
     const grid = document.querySelector('[data-grid]');
     if (grid === null) throw new Error('the table did not render');
     expect(

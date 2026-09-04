@@ -261,8 +261,8 @@ function ProjectNameField({
  */
 
 /**
- * The saved-plan shelf: the plan toolbar's fifth disclosure, beside Views,
- * Columns, Facets and Export.
+ * The saved-plan shelf: a disclosure in the app header's project row, beside
+ * the picker, Rename and New project.
  *
  * **Its own component, and the reason is a bug this had.** The disclosure needs
  * `useClosedByPointerOutside`, whose effect reads `ref.current` once with an
@@ -281,27 +281,56 @@ function ProjectNameField({
  * `[data-gantt-svg-download]` — the last two children of a control strip that
  * packs from the left, so no other corner is better — and put `z-40` above the
  * full-screen chart's `aria-modal` layer. Gemini F-03 and Sol I4, found
- * independently. The repair is to stop floating: handed to
- * {@link WbsTableProps.planActions} it sits in a row that already exists, so it
- * costs the plan column no height either. Same markup as its four siblings,
- * `z-50` panel and all, so the chart's modal outranks it now.
+ * independently. The repair is to stop floating, and `z-50` on the panel is
+ * what the chart's modal now outranks.
  *
- * **Zero height at rest is not a preference, and this is the third shape to
- * try for it.** It shipped as an `mt-2 max-h-64 shrink-0` flex sibling of the
- * table, and `shrink-0` did exactly what it says: ~76px off the one column
- * whose whole invariant is reaching the bottom of the window. Four browser
- * measurements said so at once — `header.spec.ts:272` wanted the frame >= 634
- * and got 601, `header.spec.ts:289` and `plan-surface.spec.ts:278` both wanted
- * <= 16px under the surface and got 76, and `plan-surface.spec.ts:318` said the
- * same for a plan that fills the frame. Raising those thresholds is the wrong
- * repair: `plan-surface.spec.ts:300` exists to say that what reaches the bottom
- * must be the chart itself, "not a control strip that parted company with it".
- * Above the table is no better — `:272` measures the frame's own
- * `clientHeight`, so height lost anywhere in the column fails it the same — and
- * inside the scrolling frame is ruled out by `plan-surface.spec.ts:288`, which
- * requires `frame.scrollHeight === frame.clientHeight` on a short plan. The
- * toolbar row is the fourth place, and the only one that is neither in the
- * frame nor new height: it is already there whether this control is or not.
+ * **Costing the plan column nothing is not a preference, and this is the
+ * fourth shape to try for it.** The first three each failed to a browser
+ * measurement that already existed, and the list is the argument for where it
+ * ended up:
+ *
+ * 1. *A flex sibling of the table* (`mt-2 max-h-64 shrink-0`): `shrink-0` did
+ *    exactly what it says — ~76px off the one column whose whole invariant is
+ *    reaching the bottom of the window. Four measurements said so at once —
+ *    `header.spec.ts:272` wanted the frame >= 634 and got 601, `:289` and
+ *    `plan-surface.spec.ts:278` both wanted <= 16px under the surface and got
+ *    76, and `plan-surface.spec.ts:318` said the same for a plan that fills the
+ *    frame. Raising those thresholds is the wrong repair:
+ *    `plan-surface.spec.ts:300` exists to say that what reaches the bottom must
+ *    be the chart itself, "not a control strip that parted company with it".
+ *    Above the table is no better — `:272` measures the frame's own
+ *    `clientHeight`, so height lost anywhere in the column fails it the same —
+ *    and inside the scrolling frame is ruled out by `plan-surface.spec.ts:288`,
+ *    which requires `frame.scrollHeight === frame.clientHeight` on a short plan.
+ * 2. *A floating chip over `<main>`*: the two findings above.
+ * 3. *A plain control in the plan toolbar*, handed to the table's own row.
+ *    "It costs the column no height because that row already exists" is true
+ *    only **while the row does not gain a line**, and it does: the row has a
+ *    measured width budget with a named margin for exactly one more control,
+ *    and "Saved plans" spent it. Run
+ *    [33871922414](https://github.com/Prosperous-Unification/wbs-tool-v1/actions/runs/33871922414)
+ *    at `14a1a070`, 2 failed / 281 passed —
+ *    `project-settings.spec.ts:77` ("the toolbar keeps its 1280 budget with one
+ *    settings control") measures `[data-toolbar]`'s children against 1265px and
+ *    a fifth disclosure puts it over, and `gantt.spec.ts:2605`
+ *    ("re-measures the room when the toolbar wraps under a new control") needs
+ *    the bar to be **one** row at 768 before the drag that adds `Reset layout`
+ *    makes it two — with this control on it the bar is already two, so the
+ *    wrap the case is about cannot be observed.
+ * 4. *The app header's project row*, which is where it is. The header is
+ *    `shrink-0` with `md:flex-nowrap` and a `max-w` picker that takes the
+ *    slack, so a control added here changes no height at any laptop width — it
+ *    narrows the picker instead of wrapping (`header.spec.ts`, "keeps the
+ *    header to one row at every laptop width"). It costs `[data-toolbar]`
+ *    nothing because it is not in it, and it costs the plan column nothing
+ *    because it is not in that either: the header is outside `<main>`.
+ *
+ * **And the header is where it belongs rather than merely where it fits.**
+ * These are the plans saved for *this project*, and the row it now sits in is
+ * the project's own — pick a project, rename it, start a new one, read its
+ * history. It is also one control instead of two: the toolbar renders as a row
+ * on a wide window and as a sheet on a phone, so a control in that list is
+ * drawn by two renderers, while the header is one bar at every width.
  */
 function SavedPlanShelf({
   projectId,
@@ -319,7 +348,14 @@ function SavedPlanShelf({
   deps: SavedPlansPanelDeps;
 }): ReactNode {
   return (
-    <details ref={useClosedByPointerOutside()} data-saved-plans className="relative">
+    /*
+      `shrink-0` for the reason the brand and the two fold-in buttons beside it
+      carry one: above `md` the header is `flex-nowrap`, and what absorbs a new
+      control is the picker's `max-w` slack. Shrinkable, this chip would give up
+      its own width first and the label would clip before the picker gave an
+      inch.
+    */
+    <details ref={useClosedByPointerOutside()} data-saved-plans className="relative shrink-0">
       <summary
         className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
         data-hint="The plans saved for this project, and what changed since one of them"
@@ -905,6 +941,23 @@ export function ProjectPage({
       >
         +
       </Button>
+      {/*
+        The project's history, in the project's own row. Absent off a project
+        for the reason {@link AppHeader}'s `project` slot gives for the whole
+        row: a control that belongs to a project is absent off the project
+        rather than drawn dead — and `projectId` is a `string` here, so absence
+        is the type as well as the taste.
+
+        `key={selected}` remounts it per project. The panel pins its compare
+        pair once, on the first shelf that arrives (AC #4: a comparison must not
+        be swapped under the reader), and that pin is `useState` — kept across a
+        project switch it would hold a saved-plan id belonging to the project
+        just left, and the first compare of the new project would ask be-01
+        about a checkpoint that is not in it.
+      */}
+      {selected !== null && (
+        <SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />
+      )}
     </div>
   );
 
@@ -943,22 +996,6 @@ export function ProjectPage({
             projectName={selectedProject?.name}
             api={api}
             subscribe={subscribe}
-            /*
-              The shelf is built here and rendered there, because the two
-              halves of it live in different places: its deps are this page's
-              (`savedPlans`, memoised above), and the row it belongs in is the
-              table's. See {@link SavedPlanShelf} for the two review findings
-              that moved it out of `<main>`'s bottom-right corner.
-
-              `key={selected}` remounts it per project. The panel pins its
-              compare pair once, on the first shelf that arrives (AC #4: a
-              comparison must not be swapped under the reader), and that pin is
-              `useState` — kept across a project switch it would hold a
-              saved-plan id belonging to the project just left, and the first
-              compare of the new project would ask be-01 about a checkpoint
-              that is not in it.
-            */
-            planActions={<SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />}
           />
         )}
       </main>
