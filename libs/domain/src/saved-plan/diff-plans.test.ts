@@ -56,7 +56,7 @@ function clone<T>(value: T): T {
  */
 function leafPaths(value: unknown, prefix = ''): string[] {
   if (Array.isArray(value)) {
-    return value.flatMap((v, i) => leafPaths(v, `${prefix}[${i}]`));
+    return value.flatMap((v, i) => leafPaths(v, `${prefix}[${String(i)}]`));
   }
   if (typeof value === 'object' && value !== null) {
     return Object.entries(value).flatMap(([k, v]) =>
@@ -74,18 +74,11 @@ function segments(path: string): (string | number)[] {
     .map((s) => (/^\d+$/.test(s) ? Number(s) : s));
 }
 
-function readAt(root: unknown, path: string): unknown {
-  return segments(path).reduce<unknown>(
-    (node, seg) => (node as Record<string | number, unknown>)[seg],
-    root,
-  );
-}
-
 /** Return a copy with one leaf changed to a value it certainly did not hold. */
 function mutateAt<T>(root: T, path: string): T {
   const copy = clone(root);
   const segs = segments(path);
-  const last = segs[segs.length - 1] as string | number;
+  const last = segs[segs.length - 1];
   const parent = segs
     .slice(0, -1)
     .reduce<unknown>((node, seg) => (node as Record<string | number, unknown>)[seg], copy) as Record<
@@ -98,20 +91,56 @@ function mutateAt<T>(root: T, path: string): T {
       ? before + 1
       : typeof before === 'boolean'
         ? !before
-        : before === null
-          ? 'was-null'
-          : `${String(before)}~changed`;
+        : typeof before === 'string'
+          ? `${before}~changed`
+          : 'was-null';
   return copy;
 }
 
-/** The last path segment, which is the field name a difference must name. */
+/** The named (non-bracketed) segments of a path: `workItems[w1].name` → `workItems.name`. */
+function namedSegments(path: string): string[] {
+  return path
+    .replace(/\[[^\]]*\]/g, '')
+    .split('.')
+    .filter((s) => s !== '');
+}
+
+/** The last named segment — the field a difference is about. */
 function fieldOf(path: string): string {
-  const segs = segments(path);
-  return String(segs[segs.length - 1]);
+  const named = namedSegments(path);
+  return named[named.length - 1] ?? path;
 }
 
 function names(differences: readonly PlanDifference[], field: string): boolean {
   return differences.some((d) => fieldOf(d.path) === field);
+}
+
+/**
+ * Does any reported difference **cover** the mutated leaf?
+ *
+ * Cover, not equal, and the distinction is the finding of this property rather
+ * than a loosening of it. Two honest reports do not name the leaf verbatim:
+ *
+ * - Mutating a **key** field (`workItems[…].id`, `stepValues[…].stepId`) makes
+ *   the row a different row, so the diff reports it removed and re-added — the
+ *   truthful reading, and the one that keeps a large plan legible.
+ * - A difference inside a **nested array** (`typeIds[0]`,
+ *   `externalRefs[1].url`) is reported at the field that holds it, because the
+ *   field of `CanonicalWorkItem` is `typeIds`, not `typeIds[0]`, and the
+ *   coverage bound spec names is that field list.
+ *
+ * So the rule is: some difference's named-segment chain is a prefix of the
+ * mutated leaf's. A field the comparison drops entirely produces no such
+ * difference at all, which is what the two watched negatives below prove.
+ */
+function covers(differences: readonly PlanDifference[], mutated: string): boolean {
+  const target = namedSegments(mutated);
+  return differences.some((d) => {
+    const reported = namedSegments(d.path);
+    return (
+      reported.length <= target.length && reported.every((seg, i) => seg === target[i])
+    );
+  });
 }
 
 describe('diffPlans — 7.1, the two sides', () => {
@@ -212,7 +241,7 @@ describe('diffPlans — 7.2b, the diff-completeness property', () => {
     const missed: string[] = [];
     for (const path of paths) {
       const differences = diffPlans(side(), side(mutateAt(input, path))).input;
-      if (differences.length === 0 || !names(differences, fieldOf(path))) missed.push(path);
+      if (differences.length === 0 || !covers(differences, path)) missed.push(path);
     }
 
     expect(missed).toEqual([]);
@@ -222,6 +251,33 @@ describe('diffPlans — 7.2b, the diff-completeness property', () => {
     expect(leafPaths(input).some((p) => p.startsWith('tags['))).toBe(true);
     expect(leafPaths(input).some((p) => p.startsWith('workItemTypes['))).toBe(true);
     expect(leafPaths(input).some((p) => p.startsWith('externalSystems['))).toBe(true);
+  });
+
+  it('reports a changed row identity as removed and re-added, not as a changed id', () => {
+    const differences = diffPlans(side(), side(mutateAt(input, 'workItems[0].id'))).input;
+
+    expect(differences.map((d) => d.category).sort()).toEqual(['added', 'removed']);
+  });
+
+  /**
+   * The watched negatives 7.2b names. Both drop a field from the comparison and
+   * the property must catch each one — otherwise it is decoration.
+   */
+  it('catches a comparison that drops freeze, and one that drops a tag id', () => {
+    for (const dropped of ['frozenNumber', 'tagIds'] as const) {
+      // The mutant: a diff that skips one field. Building it here rather than
+      // editing `diffPlans` keeps the negative in the suite permanently.
+      const blind = (l: CanonicalPlanInput, r: CanonicalPlanInput): PlanDifference[] =>
+        diffPlans(side(l), side(r)).input.filter((d) => fieldOf(d.path) !== dropped);
+
+      const path = leafPaths(input).find((p) =>
+        namedSegments(p).includes(dropped),
+      );
+      expect(path).toBeDefined();
+
+      const differences = blind(input, mutateAt(input, path as string));
+      expect(covers(differences, path as string)).toBe(false);
+    }
   });
 });
 
@@ -256,7 +312,7 @@ describe('diffPlans — 7.2c, the schedule side', () => {
         body: mutateAt(scheduleBody, path),
       };
       const differences = diffPlans(side(), side(input, mutated)).schedule;
-      if (differences.length === 0 || !names(differences, fieldOf(path))) missed.push(path);
+      if (differences.length === 0 || !covers(differences, `body.${path}`)) missed.push(path);
     }
 
     expect(missed).toEqual([]);

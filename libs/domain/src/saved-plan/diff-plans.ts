@@ -120,7 +120,7 @@ export function planDiffIsEmpty(diff: PlanDiff): boolean {
  * with no entry falls back to positional comparison, which still reports every
  * difference — coverage never depends on this map, only presentation does.
  */
-const ROW_KEYS: Readonly<Record<string, readonly string[]>> = {
+const ROW_KEYS: Readonly<Record<string, readonly string[] | undefined>> = {
   workItems: ['id'],
   steps: ['id'],
   stepValues: ['workItemId', 'stepId'],
@@ -142,7 +142,9 @@ const ROW_KEYS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** Per-collection field→category table. Presentation only; see {@link PlanDiffCategory}. */
-const FIELD_CATEGORIES: Readonly<Record<string, Readonly<Record<string, PlanDiffCategory>>>> = {
+const FIELD_CATEGORIES: Readonly<
+  Record<string, Readonly<Record<string, PlanDiffCategory | undefined>> | undefined>
+> = {
   project: {
     name: 'renamed',
     ownerId: 'ownership',
@@ -181,7 +183,7 @@ const FIELD_CATEGORIES: Readonly<Record<string, Readonly<Record<string, PlanDiff
 };
 
 /** Per-collection fallback when the field itself has no entry above. */
-const COLLECTION_CATEGORIES: Readonly<Record<string, PlanDiffCategory>> = {
+const COLLECTION_CATEGORIES: Readonly<Record<string, PlanDiffCategory | undefined>> = {
   project: 'settings',
   measures: 'measures',
   dependencies: 'dependencies',
@@ -218,8 +220,8 @@ export function diffPlans(left: PlanSide, right: PlanSide): PlanDiff {
 function diffInput(left: CanonicalPlanInput, right: CanonicalPlanInput): PlanDifference[] {
   const out: PlanDifference[] = [];
   for (const key of unionKeys(left, right)) {
-    const l = (left as Record<string, unknown>)[key];
-    const r = (right as Record<string, unknown>)[key];
+    const l = (left as unknown as Record<string, unknown>)[key];
+    const r = (right as unknown as Record<string, unknown>)[key];
     if (Array.isArray(l) || Array.isArray(r)) {
       diffCollection(key, asRows(l), asRows(r), out);
     } else if (isRecord(l) && isRecord(r)) {
@@ -329,7 +331,7 @@ function diffValue(path: string, left: unknown, right: unknown, out: PlanDiffere
   }
   if (Array.isArray(left) && Array.isArray(right)) {
     for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-      diffValue(`${path}[${i}]`, left[i], right[i], out);
+      diffValue(`${path}[${String(i)}]`, left[i], right[i], out);
     }
     return;
   }
@@ -369,7 +371,7 @@ function rowKey(
     const parts = keyFields.map((f) => row[f]);
     if (parts.every((p) => p !== undefined)) return parts.map(String).join(':');
   }
-  if (isRecord(row) || Array.isArray(row)) return `#${index}`;
+  if (isRecord(row) || Array.isArray(row)) return `#${String(index)}`;
   // Scalar rows (none today) key by their own value, so a reordered list of
   // scalars is not read as every element changing.
   return `=${String(row)}`;
