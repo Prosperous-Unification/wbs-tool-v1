@@ -184,7 +184,16 @@ export function SavedPlansPanel({
 
   const words = saveWords(saveState);
   return (
-    <section className="saved-plans-panel" aria-label="Saved plans">
+    /*
+      Deliberately unnamed, with a heading instead. `SavedPlanList` already
+      labels its own `<ol>` "Saved plans", and an `aria-label` here would make
+      the region and the list inside it two landmarks of one name — the reader
+      hears the same words twice and cannot tell which one they have landed on.
+      An unnamed `<section>` is generic rather than a landmark, so the heading
+      is what carries the navigation and nothing is said twice.
+    */
+    <section className="saved-plans-panel">
+      <h3 className="saved-plans-panel__heading">Saved plans</h3>
       <div className="saved-plans-panel__actions">
         <button type="button" onClick={save} disabled={saveState.kind === 'saving'}>
           Save plan

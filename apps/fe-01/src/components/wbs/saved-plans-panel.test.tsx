@@ -1,4 +1,12 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -111,7 +119,12 @@ describe('the saved-plans panel', () => {
     await flush();
 
     expect(screen.getByRole('button', { name: 'Save plan' })).toBeTruthy();
-    expect(screen.getByText(ROW.name)).toBeTruthy();
+    // Scoped to the list, because a saved plan's name is on screen twice by
+    // design: once as a row and once as an option in each picker. An unscoped
+    // `getByText` here found two nodes and threw, which is the assertion
+    // telling the truth about the surface rather than a fault in it.
+    const shelf = screen.getByRole('list', { name: 'Saved plans' });
+    expect(within(shelf).getByText(ROW.name)).toBeTruthy();
   });
 
   itDom('shows a plan the user just saved, with no broadcast to prompt it', async () => {
