@@ -597,12 +597,27 @@ comparison UI) and start only after slice 6 is merged.
       _(`SavedPlanList` + `watchShelf`/`useSavedPlanShelf`; the broadcast
       re-reads, the superseded read is dropped, and a node without the routes
       is never subscribed to.)_
-- [ ] 8.2 Save writes immediately with the server timestamp as the default name
+- [x] 8.2 Save writes immediately with the server timestamp as the default name
       (A-1); renaming is an edit on the created record, not a modal in the way of
-      the save. _(Save half closed at `d591b3f0`: be-01 defaults the name off the
-      `created_at` it writes, `useSavedPlanSave` sends no name and no modal
-      precedes the press. The rename-as-edit half has an API client method and
-      **no surface** — that is what is left of 8.2.)_
+      the save. **Save half** closed at `d591b3f0`: be-01 defaults the name off
+      the `created_at` it writes, `useSavedPlanSave` sends no name, and no modal
+      precedes the press. **Rename half** closed at `19e2388d`: a ✎ on each shelf
+      row swaps the name for a field armed on the name it already has and
+      selected whole, Enter or blur commits, Escape cancels. The field is a
+      component mounted on arming rather than an inline callback ref, which is
+      `ProjectPage`'s own lesson — a ref recreated each render reattaches on
+      every keystroke and a selection there would put the draft back under the
+      next character. A draft that trims to nothing, or to the name the row
+      already has, is a cancel and sends nothing. Each typed outcome keeps its
+      type to the sentence, as 8.5 does for save and compare: `touched` says
+      nothing because the new name is the confirmation, `not_found` says the
+      plan was deleted, `forbidden` and `snapshot_busy` say themselves.
+      **Two negatives watched.** Delete the cancel rule and the second case
+      fails looking for a ✎ named after a row whose name a blank rename had
+      already emptied. Delete the re-read that follows every rename and two
+      cases fail: the new name never reaches the shelf, and the read count does
+      not grow — be-01 publishes nothing about saved plans, so a rename is the
+      second write this surface makes that no broadcast will ever report.
 - [x] 8.3 The comparison surface: two side pickers, each a saved plan or
       `current`; the diff rendered by category; **the absent reason rendered per
       side**, "no schedule was saved" only for a _saved_ side with no body, and
