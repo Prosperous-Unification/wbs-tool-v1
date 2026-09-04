@@ -623,12 +623,29 @@ comparison UI) and start only after slice 6 is merged.
 
 ## 9. Close
 
-**NOTHING IN SLICE 8 IS MOUNTED YET.** `SavedPlanList`, `useSavedPlanSave`,
-`useSavedPlanShelf` and `SavedPlanComparison` all pass their own cases and no
-screen renders any of them — `grep` for their names outside their own files and
-their cases returns nothing. Every 8.x tick above is a tick on a component that
-works, not on a surface a user can reach. Slice 9 cannot close over that, so the
-mount is a prerequisite of 9.2's gate rather than a follow-up to it.
+**THE MOUNT HAS LANDED (2026-09-04, `0631d0f7`), AND THIS PARAGRAPH RECORDS WHAT
+IT WAS FOR.** Until then `SavedPlanList`, `useSavedPlanSave`, `useSavedPlanShelf`
+and `SavedPlanComparison` all passed their own cases and no screen rendered any
+of them: every 8.x tick above was a tick on a component that works, not on a
+surface a user can reach, and slice 9 could not close over that. `ProjectPage`
+now renders `SavedPlansPanel` under `WbsTable` for the open project, proven by
+`project-page.test.tsx` — the heading is inside `<main>` and after the table, and
+the shelf's own row is on screen. Deleting the mount reddens exactly those two
+cases and nothing else (44 pass / 2 fail, measured).
+
+Two constraints the mount carries, each measured rather than argued:
+
+- The panel is **bounded and `shrink-0`**. `<main>` hands its height to its one
+  `flex-1` child and `table-frame.ts` needs that child to be the table; a
+  sibling with the flex default `min-height: auto` would let a long history push
+  the table's share towards nothing.
+- The panel is keyed `key={selected}`. Its compare pair is pinned in `useState`
+  (AC #4), so carried across a project switch it holds the *previous* project's
+  saved-plan id and the compare effect — `projectId` is in its dependencies —
+  asks be-01 about a checkpoint the new project does not contain. Watched:
+  with the key removed, `expected { saved: 'sp1' } to deeply equal
+  { saved: 'sp9' }`. A `list` assertion cannot see this — the shelf re-reads on
+  a project change by itself, so the whole file still passed 46/46 against one.
 
 
 - [ ] 9.1 Measure the largest real plan's body size against the 8 MiB limit and
