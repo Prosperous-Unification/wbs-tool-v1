@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { SavedPlanApi, SavedPlanListEntryView } from './saved-plan-api';
 import { httpSavedPlanApi } from './saved-plan-api';
@@ -39,6 +39,38 @@ export type SavedPlanSaveState =
 /** {@link readShelf}'s rule, for the same reason: show what arrived, never erase it. */
 const codeOf = (fault: unknown): string => (fault instanceof Error ? fault.message : String(fault));
 
+/** A save that has been issued and has not landed yet, and who is waiting on it. */
+interface RunningSave {
+  readonly waiting: Set<(next: SavedPlanSaveState) => void>;
+}
+
+/**
+ * The saves currently in flight, keyed by the API they went through and then by
+ * project — **outside any component**, which is the whole point.
+ *
+ * A save's owner is the *project*, not the mount that pressed the button. The
+ * guard used to be a `useRef` and `ProjectPage` moves one `SavedPlanShelf`
+ * between the app-header row and the cards renderer's toolbar sheet, so crossing
+ * 768px wide or 500px tall replaces the shelf with a fresh instance holding a
+ * fresh open lock. Two things then went wrong at once, both deterministic rather
+ * than racy: a second press wrote a second immutable checkpoint for one user
+ * action, and the first request settled into a component nobody was rendering,
+ * so `SavedPlansPanel`'s save-completion refresh never ran — and with be-01
+ * broadcasting nothing on save (TASK-255) that refresh is the only thing that
+ * puts the reader's own checkpoint on their own shelf.
+ *
+ * **Keyed by `deps` rather than module-global**, which is a test property as
+ * much as a design one: `SaveDeps` is the injected API, so two suites, two
+ * fakes, or two tokens never share a lock, and a case cannot leak one into the
+ * next through module state that outlives it. A `WeakMap` because the key is an
+ * object nobody here should keep alive.
+ */
+const runningSaves = new WeakMap<SaveDeps, Map<string, RunningSave>>();
+
+function runningFor(deps: SaveDeps, projectId: string): RunningSave | undefined {
+  return runningSaves.get(deps)?.get(projectId);
+}
+
 /**
  * The Save plan action: one deliberate press, one immutable checkpoint.
  *
@@ -64,23 +96,51 @@ const codeOf = (fault: unknown): string => (fault instanceof Error ? fault.messa
  * removed the setState-on-unmounted warning and makes the call a no-op, so
  * nothing outside the component can observe the difference. A guard no case can
  * redden is a line that will be maintained forever on the strength of a comment,
- * so it is gone. The `inFlight` ref below is cleared unconditionally, which is
- * the part that does have consequences.
+ * so it is gone. {@link runningSaves} is released unconditionally, which is the
+ * part that does have consequences — and it now outlives the mount, so a
+ * component that leaves mid-save is joined by whoever replaces it rather than
+ * taking the lock and the answer with it.
  */
 export function useSavedPlanSave(
   deps: SaveDeps,
   projectId: string,
 ): { readonly state: SavedPlanSaveState; readonly save: () => void } {
-  const [state, setState] = useState<SavedPlanSaveState>({ kind: 'idle' });
-  // The in-flight flag is a ref and not the `state` above, because two presses
-  // in one React batch both read the same rendered state and would both pass a
-  // `state.kind !== 'saving'` test. A ref is written before the await and read
-  // synchronously, which is the only ordering that makes the guard true.
-  const inFlight = useRef(false);
+  // Seeded rather than always `idle`: a shelf mounted while its project's save
+  // is still running must draw the same disabled button the departed one drew,
+  // from its very first paint.
+  const [state, setState] = useState<SavedPlanSaveState>(() =>
+    runningFor(deps, projectId) === undefined ? { kind: 'idle' } : { kind: 'saving' },
+  );
+  const receive = useCallback((next: SavedPlanSaveState) => {
+    setState(next);
+  }, []);
+
+  // Join a save this mount did not start. The subscription is dropped on the way
+  // out so a replaced instance stops being written to; the *request* is never
+  // touched, because a plan the user asked to save is not un-saved by a resize.
+  useEffect(() => {
+    const running = runningFor(deps, projectId);
+    if (running === undefined) return;
+    setState({ kind: 'saving' });
+    running.waiting.add(receive);
+    return () => {
+      running.waiting.delete(receive);
+    };
+  }, [deps, projectId, receive]);
 
   const save = useCallback(() => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    // The lock is a map entry and not the `state` above, because two presses in
+    // one React batch both read the same rendered state and would both pass a
+    // `state.kind !== 'saving'` test. The entry is written before the await and
+    // read synchronously, which is the only ordering that makes the guard true.
+    let byProject = runningSaves.get(deps);
+    if (byProject === undefined) {
+      byProject = new Map<string, RunningSave>();
+      runningSaves.set(deps, byProject);
+    }
+    if (byProject.has(projectId)) return;
+    const running: RunningSave = { waiting: new Set([receive]) };
+    byProject.set(projectId, running);
     setState({ kind: 'saving' });
     void deps
       .save(projectId)
@@ -91,14 +151,13 @@ export function useSavedPlanSave(
       })
       .catch((fault: unknown): SavedPlanSaveState => ({ kind: 'error', code: codeOf(fault) }))
       .then((next) => {
-        // Cleared before the state write and never conditionally: a component
-        // that unmounts mid-save and is mounted again from the same `deps`
-        // would otherwise hold a ref saying a request is running that finished
-        // long ago, and its Save button would never work again.
-        inFlight.current = false;
-        setState(next);
+        // Released before the state writes and never conditionally: the entry
+        // outlives every component, so a lock left latched here is a project
+        // whose Save button never works again for the rest of the session.
+        byProject.delete(projectId);
+        for (const waiting of running.waiting) waiting(next);
       });
-  }, [deps, projectId]);
+  }, [deps, projectId, receive]);
 
   return { state, save };
 }

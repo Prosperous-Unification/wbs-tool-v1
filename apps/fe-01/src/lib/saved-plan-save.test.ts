@@ -160,6 +160,85 @@ describe('the Save plan action', () => {
   });
 
   /**
+   * Sol I1, the half a component-local guard cannot cover.
+   *
+   * `ProjectPage` moves one `SavedPlanShelf` between the app-header row and the
+   * cards renderer's toolbar sheet, so crossing 768px wide or 500px tall
+   * unmounts the shelf and mounts a fresh one. A `useRef(false)` guard is
+   * component-local, so the replacement starts with the lock open while the
+   * first request is still running, and the reader's second press writes a
+   * second immutable checkpoint of the same plan for one user action. The
+   * window is a resize, not a rare race.
+   */
+  itDom('holds the save lock across a remount while the request is still running', async () => {
+    const fake = deferredSave();
+    const held = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+    act(() => {
+      held.result.current.save();
+    });
+    expect(fake.calls).toHaveLength(1);
+
+    held.unmount();
+    const replaced = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+
+    // The replacement knows a save is running: the button it draws is disabled
+    // for the same reason the departed one's was.
+    expect(replaced.result.current.state).toEqual({ kind: 'saving' });
+    act(() => {
+      replaced.result.current.save();
+    });
+    expect(fake.calls).toHaveLength(1);
+
+    // And the lock lifts when the request lands, not when a component does.
+    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    act(() => {
+      replaced.result.current.save();
+    });
+    expect(fake.calls).toHaveLength(2);
+  });
+
+  /**
+   * Sol I1's second window. `SavedPlansPanel` refreshes the shelf when the save
+   * state turns `saved`, because be-01 broadcasts nothing on save (TASK-255) —
+   * that effect is the only thing that puts the reader's own checkpoint on their
+   * own shelf. Settling into the component that has already been replaced would
+   * leave the new row invisible until somebody edited the project.
+   */
+  itDom('settles into the component that replaced the one that pressed Save', async () => {
+    const fake = deferredSave();
+    const held = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+    act(() => {
+      held.result.current.save();
+    });
+    held.unmount();
+
+    const replaced = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+
+    expect(replaced.result.current.state).toEqual({ kind: 'saved', savedPlan: ROW });
+  });
+
+  /**
+   * The lock is per project and per API, never global: two projects saving at
+   * once is an ordinary thing for a reader with two tabs' worth of work, and a
+   * shared flag would silently drop the second save.
+   */
+  itDom('locks one project at a time', async () => {
+    const fake = deferredSave();
+    const one = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+    const two = renderHook(() => useSavedPlanSave(fake.deps, 'p2'));
+
+    act(() => {
+      one.result.current.save();
+      two.result.current.save();
+    });
+
+    expect(fake.calls).toEqual([['p1'], ['p2']]);
+    expect(two.result.current.state).toEqual({ kind: 'saving' });
+    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+  });
+
+  /**
    * The two refusals arrive as states rather than throws, because 8.5 says them
    * in different words and a `quota` without its sentence names no limit.
    */
