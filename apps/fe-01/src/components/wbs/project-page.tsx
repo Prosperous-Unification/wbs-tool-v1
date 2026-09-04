@@ -948,15 +948,28 @@ export function ProjectPage({
         rather than drawn dead — and `projectId` is a `string` here, so absence
         is the type as well as the taste.
 
-        `key={selected}` remounts it per project. The panel pins its compare
-        pair once, on the first shelf that arrives (AC #4: a comparison must not
-        be swapped under the reader), and that pin is `useState` — kept across a
-        project switch it would hold a saved-plan id belonging to the project
-        just left, and the first compare of the new project would ask be-01
-        about a checkpoint that is not in it.
+        The key remounts it per project. The panel pins its compare pair once,
+        on the first shelf that arrives (AC #4: a comparison must not be swapped
+        under the reader), and that pin is `useState` — kept across a project
+        switch it would hold a saved-plan id belonging to the project just left,
+        and the first compare of the new project would ask be-01 about a
+        checkpoint that is not in it.
+
+        **Prefixed, and the bare `key={selected}` this carried in the toolbar is
+        a bug in this row.** `ProjectNameField` two slots up is keyed
+        `rename.projectId`, and these are static JSX children — one array, one
+        key map. While a rename is armed on the open project both keys are that
+        project's id, React reports "Encountered two children with the same key,
+        `p2`", and the omission it warns about is real: cancelling the rename
+        left the field mounted with its draft intact. Four cases in
+        `project-page.test.tsx` went red on it at `c1b51324` (`cancels on
+        Escape`, `a blur that changed nothing cancels`, `an emptied draft
+        cancels`, `a draft armed for another project does not follow the
+        create`) — all four are cancels, because a cancel is the update whose
+        whole job is to unmount that child.
       */}
       {selected !== null && (
-        <SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />
+        <SavedPlanShelf key={`saved-plans-${selected}`} projectId={selected} deps={savedPlans} />
       )}
     </div>
   );
