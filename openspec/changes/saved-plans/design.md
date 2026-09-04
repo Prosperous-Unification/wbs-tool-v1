@@ -366,14 +366,25 @@ one line.
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A-1 | Name is optional; save writes immediately with the server timestamp as the default name, and naming is an edit afterwards, not a modal                                                    | users routinely rename within a minute of saving                                                                                                                      |
 | A-2 | Save is fail-fast at 5 s, never queued or chunked                                                                                                                                         | normal projects miss the 5 s bound routinely, seen as `snapshot_busy` on first attempt                                                                                |
-| A-3 | 8 MiB per body, 100 saved plans or 64 MiB per project                                                                                                                                     | a normal project exceeds 8 MiB in one body — measure against the largest real plan before the limit ships                                                             |
+| A-3 | 8 MiB per body, 100 saved plans or 64 MiB per project — **measured, holds** (9.1)                                                                                                        | a normal project exceeds 8 MiB in one body — measure against the largest real plan before the limit ships                                                             |
 | A-4 | `current` is projected, never stored, and consumes no quota                                                                                                                               | users expect a comparison they looked at to be retrievable later                                                                                                      |
 | A-5 | Cross-version diffs normalise forward only                                                                                                                                                | a future schema removes a field rather than adding one                                                                                                                |
 | A-6 | The domain term is **Saved plan**, not "snapshot"                                                                                                                                         | CONTEXT.md's Plan document entry drops `snapshot` from its _Avoid_ list                                                                                               |
 | A-8 | "Creator" for permission is a nullable `created_by_id` reference beside `created_by`; a saved plan whose creator's account is gone is renameable and deletable by the project owner alone | owners routinely need to tidy up plans left by departed accounts and find the fallback insufficient, or a deployment wants creator rights to survive account deletion |
 
 Origin and full argument: `notes/wbs-brief-2026-09-03-plan-snapshots.md` §5 in
-the ops workspace; A-6 is decided here, and A-8 below.
+the ops workspace; A-6 is decided here, A-3 and A-8 below.
+
+### A-3, measured (TASK-232 run 11, 2026-09-04)
+
+The largest real plan body is **50,975 bytes — 0.61% of 8 MiB**, over all 161
+projects in the deployed database, measured by running the save path's own
+functions rather than an estimate of them (`readPlanInput` → `planInputRowsOf` →
+`canonicalisePlanInput` → `serialiseCanonicalPlanInput` → `bodyByteLength`).
+That body is 63 work items at 809 bytes each, so 8 MiB is roughly **10,300 work
+items in one project**; the whole corpus holds 927 across 161. The limit binds
+nothing that exists and is not close to binding. Full table and the caveat about
+which file holds the real data: `tasks.md` 9.1.
 
 ### A-8, decided here (TASK-231 run 14, 2026-09-04)
 

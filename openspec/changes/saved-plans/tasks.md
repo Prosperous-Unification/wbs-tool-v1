@@ -688,8 +688,41 @@ Two constraints the mount carries, each measured rather than argued:
   A `list` assertion cannot see this — the shelf re-reads on a project change by
   itself, so the whole file still passed 46/46 against one.
 
-- [ ] 9.1 Measure the largest real plan's body size against the 8 MiB limit and
+- [x] 9.1 Measure the largest real plan's body size against the 8 MiB limit and
       record the number (A-3's falsifier).
+
+      **50,975 bytes — 0.61% of the limit, 164.6× headroom** (2026-09-04,
+      h2puni). Measured over all **161** projects in the deployed database by
+      running the save path itself: `SavedPlanCaptureRepository.readPlanInput`,
+      `planInputRowsOf`, `canonicalisePlanInput`, `serialiseCanonicalPlanInput`
+      and `bodyByteLength`, in that order, against a copy of the file. Nothing
+      in the measurement reimplements a shape, so every number below is a number
+      a save would have measured for itself.
+
+      | Project | Work items | Body bytes | % of 8 MiB |
+      | --- | --- | --- | --- |
+      | `ustsu` | 63 | 50,975 | 0.6077% |
+      | `claire cloud probe 15 Aug — A scheduling` | 79 | 39,197 | 0.4673% |
+      | `TASK-239 offscreen 2026-09-03T2231` | 60 | 18,774 | 0.2238% |
+      | `Core plan 0829085303` | 44 | 15,546 | 0.1853% |
+
+      **A-3 is not falsified, and the density says by how much.** The largest
+      body is 809 bytes per work item; 8 MiB is therefore about **10,300 work
+      items in one project**, against a corpus whose largest is 63 and whose 161
+      projects hold 927 between them. The limit binds no real project and would
+      need a two-order-of-magnitude change in how the tool is used before it did.
+
+      **Which database is the real one, because the deployment's names invert
+      the usual reading.** `be-01-green` (the `wbs.` origin) mounts
+      `/home/puni1/wbs/data/wbs.db`, which is 36 KiB, was last written on
+      2026-08-24, and holds **five tables** — `__drizzle_migrations`,
+      `event_log`, `event_sequencer`, `examples`, `sqlite_sequence` — and no
+      `project` table at all, so the measurement run against it dies on `no such
+      table: project`. The 35-table database with every real project in it is
+      `dev-be-01-blue`'s `/home/puni1/wbs-dev/data/wbs.db` (27 MB, written
+      within the hour). A measurement pointed at the "prod" path alone would
+      have reported zero projects and called the limit unreachable on no
+      evidence.
 - [ ] 9.2 Gate: `bunx nx run-many -t test lint typecheck` on h2puni plus
       `bun x @fission-ai/openspec validate --all --json`, output recorded in
       verify.md with the failure-proof table filled in.
