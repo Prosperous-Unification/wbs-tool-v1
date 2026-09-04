@@ -246,7 +246,7 @@ describe('toolsFromDocument, on the committed document', () => {
    * project's gate can see is a count that drifts silently; the routes landed at
    * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
    */
-  it('is 27 tools, so a route that appears must be decided about', () => {
+  it('is 28 tools, so a route that appears must be decided about', () => {
     // **51 to 19 with `plan-commands`.** Every single-item plan and directory
     // write is excluded — a model gets one write tool, `commands`, and cannot
     // pick the slow path — and the batch route arrives. What stays: the reads,
@@ -293,7 +293,23 @@ describe('toolsFromDocument, on the committed document', () => {
     // This drift arrived as a red in `mcp-01` from a change gated on `-p be-01`
     // for sixteen runs — the third time this comment records that failure mode.
     // The whole-workspace gate caught it; the per-project one could not.
-    expect(tools).toHaveLength(27);
+    //
+    // **27 to 28 with the saved-plan comparison.** One route arrives,
+    // `getApiProjectsByIdSaved-plansCompare` from
+    // `GET /api/projects/{id}/saved-plans/compare`, and `EXCLUDED_PATHS` stays
+    // at five. It is a read, so no exclusion class reaches it, and the decision
+    // is that it belongs for the reason stated two paragraphs up and now paid
+    // for: the list and single reads were admitted because "an agent asked to
+    // compare two snapshots has to list them and read one before it can name an
+    // id" — this is the route that then answers the comparison, and without it
+    // an agent would have to re-derive the diff from two full plan bodies it
+    // has no contract for.
+    //
+    // This one was *not* found four chunks late. It landed on
+    // `change/saved-plans-ui` and the first whole-repo run this branch ever had
+    // — CI on PR 202, because h2puni was saturated — failed here on its first
+    // attempt, which is the gate working as the comment above says it should.
+    expect(tools).toHaveLength(28);
     expect(EXCLUDED_PATHS).toHaveLength(5);
   });
 
