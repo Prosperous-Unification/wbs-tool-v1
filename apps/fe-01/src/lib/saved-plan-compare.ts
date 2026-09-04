@@ -37,7 +37,10 @@ export function sameSide(left: SavedPlanSideRef, right: SavedPlanSideRef): boole
  * `current`/`current` pair whose schedule is missing would render nothing about
  * a plan that has no dates. Refusing the request closes both at the source.
  */
-export function compareRefusal(left: SavedPlanSideRef, right: SavedPlanSideRef): 'same_side' | null {
+export function compareRefusal(
+  left: SavedPlanSideRef,
+  right: SavedPlanSideRef,
+): 'same_side' | null {
   return sameSide(left, right) ? 'same_side' : null;
 }
 
@@ -169,8 +172,7 @@ export function resolveSideSchedules(
  */
 export function sideScheduleWords(ref: SavedPlanSideRef, view: SideScheduleView): string | null {
   if (view.kind !== 'absent') return null;
-  const base =
-    ref === 'current' ? 'the live plan cannot be scheduled' : 'no schedule was saved';
+  const base = ref === 'current' ? 'the live plan cannot be scheduled' : 'no schedule was saved';
   return view.reason === null ? base : `${base} (${view.reason})`;
 }
 
@@ -244,7 +246,9 @@ export function groupByCategory(
 ): readonly DiffCategoryGroup[] {
   const byCategory = new Map<PlanDiffCategoryView, PlanDifferenceView[]>();
   for (const difference of differences) {
-    const category = Object.hasOwn(CATEGORY_RANK, difference.category) ? difference.category : 'other';
+    const category = Object.hasOwn(CATEGORY_RANK, difference.category)
+      ? difference.category
+      : 'other';
     const bucket = byCategory.get(category);
     if (bucket === undefined) byCategory.set(category, [difference]);
     else bucket.push(difference);

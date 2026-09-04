@@ -30,8 +30,10 @@ const row = (over: Partial<SavedPlanListEntryView> = {}): SavedPlanListEntryView
 
 const NO_SCHEDULE = row({ scheduleBytes: null, scheduleAbsentReason: 'infeasible' });
 const SAVED: SavedPlanSideRef = { saved: 'sp1' };
-const diff = (schedule: PlanDifferenceView[] = [], input: PlanDifferenceView[] = []): PlanDiffView =>
-  ({ input, schedule });
+const diff = (
+  schedule: PlanDifferenceView[] = [],
+  input: PlanDifferenceView[] = [],
+): PlanDiffView => ({ input, schedule });
 const dates = (path: string, left: unknown, right: unknown): PlanDifferenceView => ({
   category: 'dates',
   path,
@@ -76,17 +78,27 @@ describe('each side’s schedule state', () => {
   it('lets a schedule.present row settle both sides, whichever way round', () => {
     const rows = [row()];
     expect(
-      resolveSideSchedules(SAVED, 'current', diff([
-        dates('schedule.present', true, false),
-        dates('schedule.absentReason', undefined, 'infeasible'),
-      ]), rows),
+      resolveSideSchedules(
+        SAVED,
+        'current',
+        diff([
+          dates('schedule.present', true, false),
+          dates('schedule.absentReason', undefined, 'infeasible'),
+        ]),
+        rows,
+      ),
     ).toEqual({ left: { kind: 'present' }, right: { kind: 'absent', reason: 'infeasible' } });
 
     expect(
-      resolveSideSchedules('current', SAVED, diff([
-        dates('schedule.present', false, true),
-        dates('schedule.absentReason', 'infeasible', undefined),
-      ]), rows),
+      resolveSideSchedules(
+        'current',
+        SAVED,
+        diff([
+          dates('schedule.present', false, true),
+          dates('schedule.absentReason', 'infeasible', undefined),
+        ]),
+        rows,
+      ),
     ).toEqual({ left: { kind: 'absent', reason: 'infeasible' }, right: { kind: 'present' } });
   });
 
@@ -189,7 +201,12 @@ describe('the diff, by category', () => {
     // the natural implementation — rank lookup with `?? -1` — sorts an unknown
     // category to the FRONT of the list, which is the loudest possible place
     // for the one heading this build cannot explain.
-    const rogue = { category: 'sideways', path: 'x', left: 1, right: 2 } as unknown as PlanDifferenceView;
+    const rogue = {
+      category: 'sideways',
+      path: 'x',
+      left: 1,
+      right: 2,
+    } as unknown as PlanDifferenceView;
     const known: PlanDifferenceView = { category: 'notes', path: 'y', left: 1, right: 2 };
     expect(groupByCategory([rogue, known]).map((group) => group.category)).toEqual([
       'notes',
@@ -200,6 +217,8 @@ describe('the diff, by category', () => {
   it('reports an empty comparison from both halves, not one', () => {
     expect(diffIsEmpty(diff())).toBe(true);
     expect(diffIsEmpty(diff([dates('schedule.present', true, false)]))).toBe(false);
-    expect(diffIsEmpty(diff([], [{ category: 'notes', path: 'a', left: 1, right: 2 }]))).toBe(false);
+    expect(diffIsEmpty(diff([], [{ category: 'notes', path: 'a', left: 1, right: 2 }]))).toBe(
+      false,
+    );
   });
 });
