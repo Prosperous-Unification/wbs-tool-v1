@@ -51,7 +51,12 @@ export function SavedPlanSidePicker({
   return (
     <label className="saved-plan-compare__picker">
       {label}{' '}
-      <select value={valueOf(value)} onChange={(event) => onChange(sideOf(event.target.value))}>
+      <select
+        value={valueOf(value)}
+        onChange={(event) => {
+          onChange(sideOf(event.target.value));
+        }}
+      >
         <option value={CURRENT_OPTION}>the current plan</option>
         {rows.map((row) => (
           <option key={row.id} value={row.id}>
