@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { canonicalisePlanInput, type CanonicalPlanInput } from './canonical-plan-input';
 import {
   diffPlans,
+  type PlanDiffCategory,
   type PlanDifference,
   planDiffIsEmpty,
   type PlanScheduleValue,
@@ -215,6 +216,62 @@ describe('diffPlans — 7.2, the presentation categories', () => {
       expect(differences).toHaveLength(1);
       expect(differences[0].category).toBe('freeze');
     }
+  });
+
+  /**
+   * Every category the spec's list names, reached by mutating one field.
+   *
+   * The list is presentation, so this is a legibility guard rather than the
+   * coverage bound — 7.2b is the coverage bound. It exists because a category
+   * nothing can reach is a heading a reader never sees, and because the table
+   * mapping fields to categories is the one enumeration in this module and the
+   * only thing that can silently drift from the spec's wording.
+   */
+  it('reaches every category the spec names, one field at a time', () => {
+    const cases: readonly (readonly [PlanDiffCategory, string])[] = [
+      ['renamed', 'workItems[0].name'],
+      ['reparented', 'workItems[1].parentId'],
+      ['reordered', 'workItems[0].position'],
+      ['notes', 'workItems[0].notes'],
+      ['type', 'workItems[1].typeIds[0]'],
+      ['tags', 'workItems[1].tagIds[0]'],
+      ['external-references', 'workItems[1].externalRefs[0].url'],
+      ['priority', 'workItems[1].priority'],
+      ['max-parallel', 'workItems[0].maxParallel'],
+      ['freeze', 'workItems[0].frozenNumber'],
+      ['service-assignment', 'workItems[0].serviceTeamId'],
+      ['start-no-earlier-than', 'workItems[0].startNoEarlierThan'],
+      ['uncertainty', 'stepValues[0].optimistic'],
+      ['estimates', 'stepValues[0].derived'],
+      ['actuals', 'stepValues[0].actual'],
+      ['progress', 'stepValues[0].progress'],
+      ['measures', 'measures[0].value'],
+      ['settings', 'project.estimateMethod'],
+      ['ownership', 'project.ownerId'],
+      ['priority-bands', 'priorityBands[0].label'],
+      ['capacity', 'capacity[0].people'],
+      ['registry', 'tags[0].name'],
+    ];
+
+    for (const [category, path] of cases) {
+      const differences = inputDiff(mutateAt(input, path));
+      expect({ path, categories: differences.map((d) => d.category) }).toEqual({
+        path,
+        categories: [category],
+      });
+    }
+  });
+
+  it('groups dependency and assignment changes as themselves', () => {
+    const noDeps: CanonicalPlanInput = { ...input, dependencies: [] };
+    const noAssignments: CanonicalPlanInput = { ...input, assignments: [] };
+
+    expect(diffPlans(side(), side(noDeps)).input.map((d) => d.category)).toEqual(
+      input.dependencies.map(() => 'removed'),
+    );
+    expect(
+      diffPlans(side(), side(noAssignments)).input.every((d) => d.category === 'removed'),
+    ).toBe(true);
   });
 });
 
