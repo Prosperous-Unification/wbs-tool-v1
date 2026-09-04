@@ -376,6 +376,58 @@ describe('the saved-plan routes', () => {
   });
 
   /**
+   * A plan this build cannot read is a refusal about the **build**, not a crash
+   * and not a slur on the plan.
+   *
+   * Gemini's F-02 on PR 202, restored after run 14 deleted it and run 15
+   * corrected what it should assert. Every byte is intact and every hash agrees;
+   * only `input_schema_version` names a schema this reader does not know.
+   * `assertKnownBodyVersion` throws `UnknownSavedPlanBodyVersionError` out of
+   * `readOfStored`, and until the `onError` arm existed no route caught it, so
+   * Elysia answered **500** — an unmodelled status for a database state the
+   * domain anticipates by name, which R5 forbids.
+   *
+   * **501 and not the 422 `corrupt` the first version of this case asserted.**
+   * `saved-plan-integrity.ts` argues the difference and is right: `corrupt`
+   * says *this plan's bytes are damaged*, and here nothing is damaged — every
+   * record at that version is unreadable by this node, and the one at fault is
+   * the reader. A 422 would send an operator looking for lost bytes instead of
+   * an upgrade.
+   *
+   * A version from the future is the case a real deployment meets: a newer node
+   * writes a plan, an older one is asked to read it. Written straight into the
+   * column rather than through a migration, because the point is the *reader's*
+   * behaviour.
+   *
+   * Both read routes, because the throw is in the path they share and a repair
+   * that covered only compare would leave the single-plan read at 500.
+   */
+  it('refuses a plan written by a newer node instead of crashing on it', async () => {
+    const id = await savedIdOf(await save('ada'));
+    const ahead = openConnection(path);
+    ahead.db.run(`UPDATE saved_plan SET input_schema_version = 9999 WHERE id = '${id}'`);
+    ahead.close();
+
+    const compared = await as(
+      tokens['ada'],
+      `/api/projects/${projectId}/saved-plans/compare?left=${id}&right=current`,
+    );
+    expect(compared.status).toBe(501);
+    expect(await compared.json()).toEqual({
+      error: 'unsupported_body_version',
+      savedPlanId: id,
+      body: 'input',
+      version: 9999,
+      // Named rather than matched loosely: the answer has to say what this
+      // build *does* know, or an operator cannot tell how far behind it is.
+      supported: [1],
+    });
+
+    const read = await as(tokens['ada'], `/api/saved-plans/${id}`);
+    expect(read.status).toBe(501);
+  });
+
+  /**
    * `current` is a reserved literal, not a lookup, and this is the case that
    * says so about the literal rather than about a status.
    *

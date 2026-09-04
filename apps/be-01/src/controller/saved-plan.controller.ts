@@ -9,6 +9,7 @@ import type {
   SavedPlanSideRef,
   SavedPlanTouchResult,
 } from '../service/saved-plan.service';
+import { UnknownSavedPlanBodyVersionError } from '../service/saved-plan-integrity';
 
 /**
  * A function rather than a constant, for `project.controller.ts`'s reason:
@@ -60,6 +61,62 @@ function statusForTouch(outcome: Exclude<SavedPlanTouchResult['outcome'], 'touch
 }
 
 /**
+ * The one error these routes catch: a stored body at a schema version this
+ * build does not know. Gemini's F-02 on PR 202.
+ *
+ * **The finding is real and the mechanism the review named is not.**
+ * `PlanInputVersionError` is unreachable from compare — `readOfStored` refuses
+ * an unsupported version before anything normalises forward. What actually
+ * escapes is {@link UnknownSavedPlanBodyVersionError}, thrown out of
+ * `readOfStored`, caught by nobody, and answered **500** by Elysia. It reaches
+ * every route that reads a stored plan, not compare alone: `GET
+ * /saved-plans/:id` gets it too.
+ *
+ * **Answered here rather than folded into the read outcome, and 501 rather than
+ * the 422 the first version of this repair proposed.** `saved-plan-integrity.ts`
+ * argues the distinction and it is the whole of the fix: `corrupt` and the
+ * schedule refusals are facts about *one record* — these bytes are damaged,
+ * these dates belong to another project — and a route answers them about that
+ * plan. An unknown body version is a fact about the **build**: every record at
+ * that version is unreadable here and nothing about this one is wrong.
+ * Answering `corrupt` would tell a reader their saved plan is damaged when the
+ * plan is intact and the server is old, and would send an operator looking for
+ * bytes that were never lost.
+ *
+ * 501 for the meaning HTTP already gives it — the server does not implement
+ * what the request needs. Modelled, so R5's rule against unmodelled statuses
+ * for anticipated database states is satisfied, and distinct from the 503 a
+ * retry may clear: this one clears when the node is upgraded, not when it is
+ * asked again.
+ *
+ * `undefined` for everything else, which is `work-item.controller.ts`'s
+ * convention: an error these routes do not model must not be flattened into one
+ * they do.
+ *
+ * A named handler and not an inline arrow, because inline it is a 30-line
+ * comment inside a method chain and Prettier reparenthesises the whole builder
+ * around it — 293 changed lines for a 45-line repair, and a diff nobody can
+ * review is a worse gate than no diff at all.
+ */
+function refuseUnknownBodyVersion({
+  error,
+  set,
+}: {
+  error: unknown;
+  set: { status?: number | string };
+}): unknown {
+  if (!(error instanceof UnknownSavedPlanBodyVersionError)) return undefined;
+  set.status = 501;
+  return {
+    error: 'unsupported_body_version',
+    savedPlanId: error.savedPlanId,
+    body: error.body,
+    version: error.version,
+    supported: error.supported,
+  };
+}
+
+/**
  * Save, list, read, rename, delete and compare, over HTTP (tasks 6.1, 7.3b).
  *
  * **Two prefixes' worth of paths on one instance, deliberately.** A plan is
@@ -106,6 +163,7 @@ export function savedPlanController(
   const signedIn = { caller: 'signed-in' } as const;
   return new Elysia({ prefix: '/api' })
     .use(callerGuard(auth))
+    .onError(refuseUnknownBodyVersion)
     .post(
       '/projects/:id/saved-plans',
       async ({ params, body, user, set }) => {
