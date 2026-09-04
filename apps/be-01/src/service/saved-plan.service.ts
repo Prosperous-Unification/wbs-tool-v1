@@ -23,6 +23,7 @@ import type {
 } from '../repository/saved-plan';
 import { bodyByteLength } from '../repository/saved-plan';
 import type { PlanInputReads, SavedPlanCaptureRepository } from '../repository/saved-plan-capture';
+import { defaultSavedPlanName } from './saved-plan-default-name';
 import { planInputRowsOf } from './saved-plan-input';
 import type { SavedPlanIntegrityRefusal } from './saved-plan-integrity';
 import {
@@ -52,7 +53,20 @@ export type SavedPlanScheduleAbsentReason = 'pending' | 'infeasible' | 'unavaila
 /** What one save asks for. The bodies are read, never passed in. */
 export interface SavedPlanSaveRequest {
   readonly projectId: string;
-  readonly name: string;
+  /**
+   * Optional, per assumption A-1: "save writes immediately with the server
+   * timestamp as the default name, and naming is an edit afterwards, not a
+   * modal". Absent means {@link defaultSavedPlanName} over this save's
+   * `created_at` — chosen **here** and never by a caller, because no clock but
+   * the one that stamps the record may name it.
+   *
+   * `undefined` rather than `null`, and that is the narrower of the two on
+   * purpose: `null` in this codebase means "no such thing" as a stored fact
+   * (see {@link SavedPlanSaveRequest.createdById}), whereas an absent name is a
+   * caller declining to choose one and getting a real name anyway. No saved
+   * plan is ever nameless.
+   */
+  readonly name?: string;
   /** The saver's display name, stored by value — never a `users` reference. */
   readonly createdBy: string;
   /**
@@ -592,7 +606,11 @@ export class SavedPlanService {
     const record: SavedPlanWrite = {
       id: this.opts.newId(),
       projectId: request.projectId,
-      name: request.name,
+      // A-1's default, off the `createdAt` above rather than a second clock
+      // read: the name and the timestamp it claims to be are one value. `??`
+      // and not `||`, so a caller who genuinely sends `''` is refused by the
+      // route's `minLength: 1` instead of being quietly renamed here.
+      name: request.name ?? defaultSavedPlanName(createdAt),
       createdBy: request.createdBy,
       createdById: request.createdById,
       createdAt,

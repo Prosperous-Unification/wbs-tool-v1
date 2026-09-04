@@ -11,6 +11,7 @@ import { ProjectRepository } from '../repository/project';
 import { UserRepository } from '../repository/user';
 import { AuthService } from '../service/auth.service';
 import { ProjectService } from '../service/project.service';
+import { defaultSavedPlanName } from '../service/saved-plan-default-name';
 import { TEST_JWT_KEY } from '../testing/auth-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
@@ -137,6 +138,45 @@ describe('the saved-plan routes', () => {
     expect(((await read.json()) as { savedPlan: { createdBy: string } }).savedPlan.createdBy).toBe(
       'ada',
     );
+  });
+
+  /**
+   * A-1 end to end: "save writes immediately with the server timestamp as the
+   * default name, and naming is an edit afterwards, not a modal".
+   *
+   * The assertion is deliberately **against the record's own `createdAt`** and
+   * not against a literal or a regular expression. A name merely *shaped* like a
+   * timestamp would pass a pattern match while naming a different instant than
+   * the date column beside it; only reading both out of one response can tell
+   * those apart. `defaultSavedPlanName` is imported rather than re-spelled here
+   * so the two cannot drift into agreeing by coincidence.
+   */
+  it('names a plan saved without one from the same clock that stamped it', async () => {
+    const res = await as(tokens['ada'], `/api/projects/${projectId}/saved-plans`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(201);
+
+    const { savedPlan } = (await res.json()) as {
+      savedPlan: { name: string; createdAt: number };
+    };
+    expect(savedPlan.name).toBe(defaultSavedPlanName(savedPlan.createdAt));
+  });
+
+  /**
+   * The other half of optional, and the one that keeps it from being a hole:
+   * `minLength: 1` still applies to a name that is sent. An empty string is a
+   * caller mistake, not A-1's "no name given" — defaulting it would replace
+   * what somebody typed rather than fill in what they omitted, and would make
+   * `{}` and `{ name: '' }` indistinguishable to a client debugging a form.
+   */
+  it('refuses an empty name rather than defaulting it', async () => {
+    const res = await as(tokens['ada'], `/api/projects/${projectId}/saved-plans`, {
+      method: 'POST',
+      body: JSON.stringify({ name: '' }),
+    });
+    expect(res.status).toBe(422);
   });
 
   it('lists a project’s plans to any authenticated account', async () => {
