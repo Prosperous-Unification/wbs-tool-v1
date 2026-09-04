@@ -2790,13 +2790,7 @@ function PlanRow({
  * create or a move can renumber rows this component never touched, and guessing
  * which would be a second implementation of the derivation as well.
  */
-export function WbsTable({
-  projectId,
-  projectName,
-  api,
-  subscribe,
-  planActions,
-}: WbsTableProps) {
+export function WbsTable({ projectId, projectName, api, subscribe, planActions }: WbsTableProps) {
   /**
    * The project this render belongs to, readable by work that outlives the
    * render which started it.

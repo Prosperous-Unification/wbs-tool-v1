@@ -958,9 +958,7 @@ export function ProjectPage({
               compare of the new project would ask be-01 about a checkpoint
               that is not in it.
             */
-            planActions={
-              <SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />
-            }
+            planActions={<SavedPlanShelf key={selected} projectId={selected} deps={savedPlans} />}
           />
         )}
       </main>

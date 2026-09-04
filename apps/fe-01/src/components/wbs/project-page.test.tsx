@@ -422,9 +422,7 @@ describe('the saved-plan shelf is on the project page', () => {
     expect(shelfDisclosure?.closest('[data-toolbar], [data-toolbar-sheet]')).not.toBeNull();
     // Beside its four siblings, in one row, rather than merely somewhere on the
     // page: `data-export` is the nearest of them and the cheapest to name.
-    expect(
-      shelfDisclosure?.parentElement?.querySelector('[data-export]'),
-    ).not.toBeNull();
+    expect(shelfDisclosure?.parentElement?.querySelector('[data-export]')).not.toBeNull();
 
     fireEvent.click(chip);
 
