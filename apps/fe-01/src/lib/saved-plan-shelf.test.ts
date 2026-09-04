@@ -19,8 +19,15 @@ describe('reading a project’s shelf', () => {
     // before this function, and each is asserted against its own input — so a
     // build where the probe is never invoked passed all of them. This is the
     // assertion neither of them can make: the answer is *used*.
-    // Negative: delete the `if (!available)` line and this reddens on `list`
-    // having been called once.
+    // Negative, MEASURED on h2puni at b9940187 and reverted with dirty=0
+    // re-asserted: delete the `if (!available)` line and this file is 4 pass /
+    // 1 fail, the one being this case. It reddens on the *returned state* —
+    // `{ kind: 'ready', rows: [ROW] }` where `{ kind: 'unavailable' }` was
+    // expected — so `resolves.toEqual` throws and the spy assertion below never
+    // runs. Stated because the obvious guess is the other way round. The spy is
+    // still not redundant: it is the only thing that would catch a build that
+    // answered `unavailable` and asked for the list anyway, which is a shape no
+    // assertion on the return value can see.
     const list = vi.fn(() => Promise.resolve([ROW]));
     await expect(
       readShelf({ available: () => Promise.resolve(false), list }, 'p1'),
@@ -64,6 +71,9 @@ describe('reading a project’s shelf', () => {
   it('shows whatever was thrown when something throws a non-Error', async () => {
     // Every throw in the API layer is an Error carrying be-01's code. On the day
     // one is not, showing what arrived beats erasing it behind 'unknown'.
+    // Negative, MEASURED and reverted with dirty=0 re-asserted: `String(fault)`
+    // replaced by the literal `'unknown'` is 4 pass / 1 fail, the one being this
+    // case. The arm is load-bearing rather than defensive decoration.
     await expect(
       readShelf(
         {
