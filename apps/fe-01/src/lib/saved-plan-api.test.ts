@@ -226,9 +226,9 @@ describe('comparing', () => {
       Promise.resolve(response(200, JSON.stringify({ diff: { input: [], schedule: [] } }))),
     );
     vi.stubGlobal('fetch', fetched);
-    await expect(
-      httpSavedPlanApi('t').compare('p1', { saved: 'sp1' }, 'current'),
-    ).resolves.toEqual({ outcome: 'compared', diff: { input: [], schedule: [] } });
+    await expect(httpSavedPlanApi('t').compare('p1', { saved: 'sp1' }, 'current')).resolves.toEqual(
+      { outcome: 'compared', diff: { input: [], schedule: [] } },
+    );
     expect(fetched.mock.calls[0]?.[0]).toBe(
       '/api/projects/p1/saved-plans/compare?left=sp1&right=current',
     );
@@ -249,9 +249,9 @@ describe('comparing', () => {
         ),
       ),
     );
-    await expect(
-      httpSavedPlanApi('t').compare('p1', 'current', { saved: 'sp2' }),
-    ).resolves.toEqual({ outcome: 'corrupt', savedPlanId: 'sp2', refusal: 'unreadable' });
+    await expect(httpSavedPlanApi('t').compare('p1', 'current', { saved: 'sp2' })).resolves.toEqual(
+      { outcome: 'corrupt', savedPlanId: 'sp2', refusal: 'unreadable' },
+    );
   });
 
   it('separates a missing side from a missing project', async () => {
@@ -263,9 +263,9 @@ describe('comparing', () => {
         Promise.resolve(response(404, JSON.stringify({ error: 'not_found', savedPlanId: 'sp9' }))),
       ),
     );
-    await expect(
-      httpSavedPlanApi('t').compare('p1', 'current', { saved: 'sp9' }),
-    ).resolves.toEqual({ outcome: 'not_found', savedPlanId: 'sp9' });
+    await expect(httpSavedPlanApi('t').compare('p1', 'current', { saved: 'sp9' })).resolves.toEqual(
+      { outcome: 'not_found', savedPlanId: 'sp9' },
+    );
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.resolve(response(404, JSON.stringify({ error: 'not_found' })))),

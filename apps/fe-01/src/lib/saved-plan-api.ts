@@ -295,7 +295,8 @@ export function httpSavedPlanApi(token: string): SavedPlanApi {
         `/api/projects/${encodeURIComponent(projectId)}/saved-plans/compare?${query.toString()}`,
         { headers },
       );
-      if (res.ok) return { outcome: 'compared', diff: ((await res.json()) as { diff: PlanDiffView }).diff };
+      if (res.ok)
+        return { outcome: 'compared', diff: ((await res.json()) as { diff: PlanDiffView }).diff };
       const text = await res.text();
       let body: { error?: string; savedPlanId?: string; refusal?: string } = {};
       try {
