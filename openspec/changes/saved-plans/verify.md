@@ -540,3 +540,118 @@ At `7734769b`, h2puni `/home/puni1/gate-task232`, `dirty=0`:
 0 fail**. **This gate is narrower than the one above on purpose**: the diff is
 one test file plus one comment, so the whole-project suite was not re-run here.
 `7fc09526` remains the last whole-project observation.
+
+## 9.2 — the first whole-repo signal this branch ever had, and it is red
+
+**Run 12, 2026-09-04.** CI on PR 202 at `9ee94b38`, run
+[33864337961](https://github.com/Prosperous-Unification/wbs-tool-v1/actions/runs/33864337961).
+Both jobs failed. That is 9.2's answer: not a green tick, three separate reds,
+each recorded below with what it proves rather than summarised as "CI failed".
+
+**Everything else on the branch is green, and those numbers matter** so the reds
+are read as three defects rather than a broken branch: `domain` 371/0 (36,417
+`expect()` calls), `be-01` 1322/0 across 112 files, `gw-01` 65/0, `contracts`
+12/0, `auth` 23/0, and every `lint`, `typecheck` and `build` target in the
+workspace exit 0 — including `fe-01:lint` (one warning, no errors),
+`fe-01:typecheck` and `fe-01:build`.
+
+### Reds 1 and 2 — `mcp-01`'s tool-count drift guards. Fixed at `f0897a42`.
+
+`apps/mcp-01/src/openapi-tools.test.ts`, 104 pass / 2 fail:
+
+| Test                                                                                          | Assertion      | Expected | Received |
+| --------------------------------------------------------------------------------------------- | -------------- | -------- | -------- |
+| `is 27 tools, so a route that appears must be decided about` (`:296`)                         | `toHaveLength` | 27       | 28       |
+| `the README names the tools that exist > counts them the same way the document does` (`:440`) | `toBe`         | 28       | 27       |
+
+The two reds are one fact seen from both ends: the document derives 28 tools and
+two hand-written numbers still said 27.
+
+**Exactly one route arrives on this branch.** `git diff origin/main...HEAD --
+apps/be-01/openapi.json` adds one `operationId` and removes none:
+`getApiProjectsByIdSaved-plansCompare`, from
+`GET /api/projects/{id}/saved-plans/compare`. The same diff also drops three
+`"required": ["name"]` clauses — A-1, be-01 defaulting the saved-plan name — but
+a required-ness change adds no tool. The other five saved-plan routes were
+already on `main` and already inside the 27.
+
+**The decision the guard demands, made rather than deferred:** the compare route
+belongs. It is a read, so none of the five `EXCLUDED_PATHS` classes reaches it —
+not `/api/auth/*`, not `/internal/*`, and unlike `/health`, `/metrics` and
+`/api/smoke/echo` it carries a plan. `EXCLUDED_PATHS` stays at five. It is also
+the route the existing admissions already pointed at: the list and single reads
+were let in because "an agent asked to compare two snapshots has to list them
+and read one before it can name an id", and this is what then answers the
+comparison. Without it an agent would have to re-derive the diff from two full
+plan bodies it has no contract for.
+
+**The guard worked exactly as its own comment says it should.** That comment
+records three separate times that count drift arrived "as a red four chunks
+late", because the change was gated `-p be-01` while the drift test lives in
+`mcp-01`. This time it was caught on the first whole-repo run the branch ever
+had — the run that only happened because h2puni was saturated and 9.2 was handed
+to CI.
+
+### Red 3 — `pixels`, four layout tests. Open.
+
+279 passed, 4 failed, 12.5m:
+
+| #   | Spec                                                                                         | Assertion                | Expected | Received |
+| --- | -------------------------------------------------------------------------------------------- | ------------------------ | -------- | -------- |
+| 1   | `header.spec.ts:272` — gives the table the height the chrome stopped taking                  | `>= FRAME_BEFORE + GAIN` | >= 634   | 601      |
+| 2   | `header.spec.ts:289` — ends the frame at the bottom of the window                            | `belowFrame <= 16`       | <= 16    | 76       |
+| 3   | `plan-surface.spec.ts:278` — ends the chart at the window's bottom however short the plan is | `belowChart <= 16`       | <= 16    | 76       |
+| 4   | `plan-surface.spec.ts:318` — still ends the chart at the bottom when the plan is long        | same chain               | —        | —        |
+
+**Diagnosis, and it is a fault in this branch rather than a stale baseline.**
+`project-page.tsx` mounts the shelf as a `shrink-0` sibling of the table inside
+`<main>`:
+
+```tsx
+<div className="mt-2 max-h-64 shrink-0 overflow-y-auto">
+  <SavedPlansPanel key={selected} projectId={selected} deps={savedPlans} />
+```
+
+`shrink-0` was chosen to stop a thirty-checkpoint history squeezing the table,
+and that reasoning is right and is written out beside the code. What it missed
+is that the same `shrink-0` **guarantees** the shelf takes its height out of the
+one column whose invariant is that it reaches the window's bottom. The gap is
+the same 60px in tests 2 and 3 (76 − 16) because it is one shelf measured twice:
+at rest the panel is roughly 68px, plus `mt-2`'s 8px.
+
+**Raising those numbers would be the wrong repair, because the four tests encode
+a product invariant** — "the frame is the thing that scrolls", and
+`plan-surface.spec.ts:300` adds "what reaches the bottom is the chart itself,
+not a control strip that parted company with it". A shelf that pushes the chart
+up is precisely the control strip that test was written against. The repair
+belongs in the mount: the shelf must stop consuming the main column's height at
+rest — inside the scrolling frame, or behind an overlay/disclosure that is out
+of the flex chain until it is opened.
+
+### `fe-01:test` — red, and its reason is not recoverable from this run's log
+
+The `fe-01:test` target is marked ❌ and the job ends `Process completed with
+exit code 1`, but the group's captured output is cut mid-token (`at WbsTable
+(…/wbs-table.tsx`) and no vitest summary survives anywhere in the log — no
+`Test Files`, no `Tests`, not one `×`. Both `gh api
+.../jobs/100995637561/logs` (5,224 lines) and `gh run view --log-failed`
+(13,512 lines) end at the same truncation, so this is GitHub's per-group output
+cap and not a fetch artefact. Everything before the cut is `stderr` noise:
+expected `GanttDataError` output from the **passing** "a chart that cannot be
+drawn" cases, and React `act(...)` warnings from `wbs-table.tsx:1260`.
+
+**Said plainly rather than guessed at: what failed there is not yet known.** The
+four `pixels` failures are a plausible sibling but run in a different runner and
+prove nothing about this one. It was not reproduced this run because h2puni was
+unusable — load1 141.19 at 10:56Z, 453 MB free — and this box may not run tests.
+The next run reproduces the `fe-01` target on h2puni once
+`monitoring/status.json` reads `ok: true`, or reads it out of the CI re-run that
+`f0897a42` triggers.
+
+### The bottleneck, measured a second time on the same day
+
+Run 11 measured three lanes gating concurrently driving h2puni to load1 110 with
+2% memory available. This run measured the same box again at 10:56Z: **load1
+141.19, 453 MB free of 15.6 GB** — twenty minutes after `monitoring/status.json`
+had recovered to `ok: true` with load1 3.77. A build host that swings between
+3.77 and 141 inside twenty minutes is not one any lane can plan a gate against.
