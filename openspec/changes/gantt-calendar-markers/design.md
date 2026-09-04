@@ -22,16 +22,16 @@ states the fact this feature turns on: a cell either is a date or is not one.
 
 Three options were real:
 
-| option | why not |
-|---|---|
-| **Hide** the marker affordance on an undated plan | The user sees no difference between "not supported here" and "not implemented". Silent absence is the least debuggable failure this product has. |
-| **Synthesise** a date from the workday number | Requires inventing a project start date. The stored date would then be a date the axis can never show back, and every later dated render would move it. This is R5's "default the unknown away". |
-| **Refuse, with a reason** ✔ | The click lands, nothing is written, and the message names the missing project start date — which is also the fix. |
+| option                                            | why not                                                                                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Hide** the marker affordance on an undated plan | The user sees no difference between "not supported here" and "not implemented". Silent absence is the least debuggable failure this product has.                                                 |
+| **Synthesise** a date from the workday number     | Requires inventing a project start date. The stored date would then be a date the axis can never show back, and every later dated render would move it. This is R5's "default the unknown away". |
+| **Refuse, with a reason** ✔                       | The click lands, nothing is written, and the message names the missing project start date — which is also the fix.                                                                               |
 
 **Chosen: refuse with a reason.** The refusal is a product statement, not an
 error path, so it is a message on the cell surface and not a thrown exception.
 
-This is hard to reverse (it defines what a marker's date *means*), surprising
+This is hard to reverse (it defines what a marker's date _means_), surprising
 (a visible-but-refused control is not the default UI instinct), and had real
 alternatives — so it gets an ADR, filed by tasks slice 1. Do not restate the
 table above in it; the ADR carries the decision and this file carries the
@@ -186,15 +186,15 @@ The byte-comparison above is what is actually available.
 Carried from the design interview with what would falsify each. Numbering is
 stable; the spec's requirements implement them.
 
-| # | Assumption | Falsified by |
-|---|---|---|
-| 1 | Undated plans refuse the click with a reason, rather than hiding it. | Dany wanting markers on undated plans, or a decision to give every project a start date. |
-| 2 | Many markers per date, one band, collapsing to a count past what fits. | A treatment that cannot express more than one per day at the 4px rung. |
-| 3 | Project-scoped child table plus one content-free `calendar_markers_changed`. | A requirement for per-marker deltas, or for markers to outlive their project. |
-| 4 | Automatic colour is deterministic from the marker id over a fixed palette; custom colours are contrast-validated. | An accessibility rule the fixed palette cannot meet, or colour needing to carry category rather than identity. |
-| 5 | Dates are project-local `IsoDate`s — no time, no per-user timezone. | Markers needing to align with an external calendar's instants (out of scope in the brief). |
-| 6 | Edit and delete follow project write permission, with no separate marker role. | A need for per-marker ownership. |
-| 7 | The chip plus a behind-the-bars rule (treatment B), with the rule dropped at 4px above a density threshold. | Measured smear at 4px below the threshold, which would make chips-only the 4px behaviour at every density. |
+| #   | Assumption                                                                                                        | Falsified by                                                                                                   |
+| --- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1   | Undated plans refuse the click with a reason, rather than hiding it.                                              | Dany wanting markers on undated plans, or a decision to give every project a start date.                       |
+| 2   | Many markers per date, one band, collapsing to a count past what fits.                                            | A treatment that cannot express more than one per day at the 4px rung.                                         |
+| 3   | Project-scoped child table plus one content-free `calendar_markers_changed`.                                      | A requirement for per-marker deltas, or for markers to outlive their project.                                  |
+| 4   | Automatic colour is deterministic from the marker id over a fixed palette; custom colours are contrast-validated. | An accessibility rule the fixed palette cannot meet, or colour needing to carry category rather than identity. |
+| 5   | Dates are project-local `IsoDate`s — no time, no per-user timezone.                                               | Markers needing to align with an external calendar's instants (out of scope in the brief).                     |
+| 6   | Edit and delete follow project write permission, with no separate marker role.                                    | A need for per-marker ownership.                                                                               |
+| 7   | The chip plus a behind-the-bars rule (treatment B), with the rule dropped at 4px above a density threshold.       | Measured smear at 4px below the threshold, which would make chips-only the 4px behaviour at every density.     |
 
 Assumptions 1–6 were opened in the design interview under the 2026-09-03
 standing rule that unresolved product choices become documented assumptions
