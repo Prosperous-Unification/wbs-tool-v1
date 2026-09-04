@@ -159,7 +159,7 @@ describe('the saved-plans panel', () => {
     const wiring = fakeDeps([ROW]);
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
-    const picker = screen.getByLabelText(/Compare/) as HTMLSelectElement;
+    const picker: HTMLSelectElement = screen.getByLabelText(/Compare/);
     expect(picker.value).toBe(ROW.id);
 
     wiring.setShelf([NEWER, ROW]);

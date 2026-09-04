@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type {
   SavedPlanApi,
@@ -41,6 +41,9 @@ export const browserSavedPlansDeps = (token: string): SavedPlansPanelDeps => ({
   ...browserSaveDeps(token),
   compare: (projectId, left, right) => httpSavedPlanApi(token).compare(projectId, left, right),
 });
+
+/** One frozen empty shelf, so "no rows" has a stable identity. */
+const EMPTY_ROWS: readonly SavedPlanListEntryView[] = [];
 
 /** 8.5's copy for the save half, in one place so the surface and its cases cannot drift. */
 export const SAVE_BUSY = 'This plan is being written to. Press Save again in a moment.';
@@ -96,8 +99,19 @@ export function SavedPlansPanel({
 }) {
   const shelf = useSavedPlanShelf(deps, projectId);
   const { state: saveState, save } = useSavedPlanSave(deps, projectId);
-  const rows: readonly SavedPlanListEntryView[] =
-    shelf.state.kind === 'ready' ? shelf.state.rows : [];
+  /**
+   * The shelf's rows, or none — memoised, because the empty case is a literal.
+   *
+   * Without the memo the `[]` is a new array every render, and every effect
+   * below that reads `rows` re-runs on every render of the page around it. That
+   * is not a style point: the derived-default draft of `left` below put a fresh
+   * `{ saved }` object in this same position and the render loop it caused
+   * never terminated, so the case measuring it could not be run at all.
+   */
+  const rows: readonly SavedPlanListEntryView[] = useMemo(
+    () => (shelf.state.kind === 'ready' ? shelf.state.rows : EMPTY_ROWS),
+    [shelf.state],
+  );
 
   const { refresh } = shelf;
   useEffect(() => {

@@ -93,8 +93,8 @@ export interface ShelfWatchDeps extends ShelfDeps {
  * *plan's*, so a collaborator editing the plan re-reads the shelf and the user's
  * own checkpoint does not. Without a caller-driven read, pressing Save leaves
  * the new row invisible until somebody edits the project — the one moment the
- * shelf is most obviously wrong. `refresh` is `read` itself, so the superseded
- * -answer guard covers a refresh racing a broadcast for free.
+ * shelf is most obviously wrong. `refresh` is `read` itself, so the guard
+ * against a superseded answer covers a refresh racing a broadcast for free.
  */
 export function watchShelf(
   deps: ShelfWatchDeps,
