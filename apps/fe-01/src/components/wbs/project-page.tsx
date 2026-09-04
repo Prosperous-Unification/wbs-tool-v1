@@ -16,6 +16,7 @@ import { subscribeToProject } from '@/lib/project-stream';
 import { cn } from '@/lib/utils';
 import { httpProjectApi, type ProjectApi, type ProjectListEntry } from '@/lib/wbs-api';
 
+import { useClosedByPointerOutside } from './close-on-outside-pointer';
 import { type BesideAnchorRect, HoverCard } from './hover-card';
 import { entryMeta, matchingProjects, projectCardMeta } from './project-picker';
 import {
@@ -319,6 +320,14 @@ export function ProjectPage({
    * keyboard. See {@link ProjectPage}'s `choose`.
    */
   const pickerBox = useRef<HTMLInputElement | null>(null);
+  /**
+   * The saved-plan shelf's disclosure, closed by a pointer landing outside it.
+   *
+   * Held here rather than at the `<details>` — the shelf renders only once a
+   * project is selected, and a hook called inside that conditional would be a
+   * hook the first render does not make.
+   */
+  const shelfDisclosure = useClosedByPointerOutside();
   const [projects, setProjects] = useState<ProjectListEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -845,8 +854,12 @@ export function ProjectPage({
         so without it the table's own height would push this box past the
         bottom of the screen and the frame would never be the thing that
         scrolls.
+
+        `relative` is the saved-plan shelf's anchor: the shelf is absolutely
+        positioned out of this column (see below), and this is the ancestor it
+        is positioned against.
       */}
-      <main className="flex min-h-0 flex-1 flex-col px-4 py-2">
+      <main className="relative flex min-h-0 flex-1 flex-col px-4 py-2">
         {error !== null && (
           <p role="alert" className="text-destructive mb-2 text-sm">
             {error}
@@ -864,17 +877,43 @@ export function ProjectPage({
           />
         )}
         {/*
-          The saved-plan shelf, below the plan it is a history of.
+          The saved-plan shelf, below the plan it is a history of — and
+          **outside this column's flow entirely**.
 
-          **Bounded and `shrink-0`, and both are the flex chain rather than
-          taste.** `<main>` hands its height to the one `flex-1` child, and
-          `table-frame.ts` needs that child to be the table so the frame stays
-          the thing that scrolls. A sibling with `min-height: auto` — the flex
-          default — refuses to shrink below its own content, so a project with
-          thirty checkpoints would push the table's share towards nothing and
-          the heading row would go with it. `max-h-64` caps what the shelf can
-          take and `overflow-y-auto` gives the overflow somewhere to go, so a
-          long history scrolls inside its own box and the table keeps the rest.
+          **Why it is `absolute` and not a flex sibling.** It shipped as an
+          `mt-2 max-h-64 shrink-0` sibling of the table, and `shrink-0` did
+          exactly what it says: it took ~76px off the one column whose whole
+          invariant is reaching the bottom of the window. Four browser
+          measurements said so at once — `header.spec.ts:272` wanted the frame
+          >= 634 and got 601, `header.spec.ts:289` and `plan-surface.spec.ts:278`
+          both wanted <= 16px under the surface and got 76, and
+          `plan-surface.spec.ts:318` said the same for a plan that fills the
+          frame. Raising those thresholds is the wrong repair:
+          `plan-surface.spec.ts:300` exists to say that what reaches the bottom
+          must be the chart itself, "not a control strip that parted company
+          with it".
+
+          Nor does moving the shelf *above* the table help — `header.spec.ts:272`
+          measures the frame's own `clientHeight`, so height lost anywhere in the
+          column fails it just the same. The shelf has to cost the column zero
+          height at rest, which leaves the two shapes that do: inside the
+          scrolling frame, or out of the flex chain. Inside the frame is ruled
+          out too — `plan-surface.spec.ts:288` requires
+          `frame.scrollHeight === frame.clientHeight` on a short plan, and a
+          shelf in there is content the frame would have to scroll.
+
+          So: `absolute`, anchored to `<main>`'s bottom-right, collapsed to its
+          `<summary>` chip until opened, and opening upward (`bottom-full`) so
+          the panel never needs room below it either. The wrapper is
+          `pointer-events-none` and only the disclosure takes clicks back, so the
+          chart's control strip underneath keeps every pixel it had.
+          `<details>` + `useClosedByPointerOutside` is the same shape the plan
+          toolbar's Views, Columns, Facets and Export menus already use.
+
+          It stays the **last** child of `<main>`, after the table: the shelf is
+          a history of the plan and reads as a footnote to it, and document order
+          is what a screen reader and `project-page.test.tsx` both go by,
+          whatever the positioning does.
 
           `key={selected}` remounts it per project. The panel pins its compare
           pair once, on the first shelf that arrives (AC #4: a comparison must
@@ -884,8 +923,18 @@ export function ProjectPage({
           be-01 about a checkpoint that is not in it.
         */}
         {selected !== null && (
-          <div className="mt-2 max-h-64 shrink-0 overflow-y-auto">
-            <SavedPlansPanel key={selected} projectId={selected} deps={savedPlans} />
+          <div className="pointer-events-none absolute right-4 bottom-2 z-40">
+            <details ref={shelfDisclosure} data-saved-plans className="pointer-events-auto relative">
+              <summary className="border-input bg-background h-8 cursor-pointer rounded-md border px-2 py-1 text-xs shadow-sm select-none">
+                Saved plans
+              </summary>
+              <div
+                data-saved-plans-panel
+                className="bg-popover absolute right-0 bottom-full z-50 mb-1 max-h-64 w-96 overflow-y-auto rounded-md border p-3 text-sm shadow-md"
+              >
+                <SavedPlansPanel key={selected} projectId={selected} deps={savedPlans} />
+              </div>
+            </details>
           </div>
         )}
       </main>

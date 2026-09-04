@@ -395,9 +395,26 @@ describe('the saved-plan shelf is on the project page', () => {
     // Before a project is picked there is no history to show — and no project
     // id to ask be-01 about, which is the honest reason the panel is absent
     // rather than empty.
-    expect(screen.queryByRole('heading', { name: 'Saved plans' })).toBeNull();
+    expect(screen.queryByText('Saved plans', { selector: 'summary' })).toBeNull();
 
     await selectProject('p2');
+
+    /*
+      The shelf is a disclosure now, and closed is its rest state.
+
+      It costs the plan column zero height there, which is the point: as an
+      `mt-2 shrink-0` flex sibling it took ~76px off the one column that has to
+      reach the bottom of the window, and four browser measurements failed at
+      once (`header.spec.ts:272`/`:289`, `plan-surface.spec.ts:278`/`:318`).
+      jsdom lays nothing out, so those four stay the real guard; what this file
+      can hold is the half that survives without layout — the wrapper is out of
+      flow, and the panel is behind a chip rather than in the column.
+    */
+    const chip = await screen.findByText('Saved plans', { selector: 'summary' });
+    const wrapper = chip.closest('details')?.parentElement;
+    expect(wrapper?.className).toContain('absolute');
+
+    fireEvent.click(chip);
 
     const heading = await screen.findByRole('heading', { name: 'Saved plans' });
     const main = document.querySelector('main');
