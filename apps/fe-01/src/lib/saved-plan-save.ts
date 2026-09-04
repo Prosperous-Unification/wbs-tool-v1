@@ -72,6 +72,37 @@ function runningFor(deps: SaveDeps, projectId: string): RunningSave | undefined 
 }
 
 /**
+ * The answer to a save that landed with nobody listening, held until somebody
+ * mounts to hear it.
+ *
+ * A resize unmounts the shelf and mounts its replacement, and the request in
+ * between belongs to neither. Without this the reader's own checkpoint stays off
+ * their own shelf — be-01 broadcasts nothing on save (TASK-255), so the panel's
+ * completion effect is the only thing that puts it there — and the replacement
+ * can be stranded in `saving` by the same window.
+ *
+ * Written only when the settle finds an empty waiting set, which is exactly the
+ * case where every listener has gone, and taken once.
+ */
+const unclaimedAnswers = new WeakMap<SaveDeps, Map<string, SavedPlanSaveState>>();
+
+function takeUnclaimed(deps: SaveDeps, projectId: string): SavedPlanSaveState | undefined {
+  const byProject = unclaimedAnswers.get(deps);
+  const answer = byProject?.get(projectId);
+  byProject?.delete(projectId);
+  return answer;
+}
+
+function leaveUnclaimed(deps: SaveDeps, projectId: string, answer: SavedPlanSaveState): void {
+  let byProject = unclaimedAnswers.get(deps);
+  if (byProject === undefined) {
+    byProject = new Map<string, SavedPlanSaveState>();
+    unclaimedAnswers.set(deps, byProject);
+  }
+  byProject.set(projectId, answer);
+}
+
+/**
  * The Save plan action: one deliberate press, one immutable checkpoint.
  *
  * **The name is not this hook's to supply, and it does not have one to pass.**
@@ -115,16 +146,39 @@ export function useSavedPlanSave(
     setState(next);
   }, []);
 
-  // Join a save this mount did not start. The subscription is dropped on the way
-  // out so a replaced instance stops being written to; the *request* is never
-  // touched, because a plan the user asked to save is not un-saved by a resize.
+  /**
+   * Join a save this mount did not start, or collect the answer to one that
+   * landed while nobody was mounted to hear it.
+   *
+   * **The `else` branch is not defensive, it is the only thing standing between
+   * the seed above and a permanently disabled button** (Gemini, round 15). A
+   * passive effect runs after commit and paint, so a request that settles in
+   * that window finds `waiting` without this mount's `receive` in it, deletes
+   * its entry, and leaves the effect looking at nothing while the state seeded
+   * at render still says `saving`. Returning early there stranded the component
+   * in `saving` for the rest of the session, drawing a dead Save button and
+   * never running the panel's completion refresh. The settle now leaves its
+   * answer behind when it has no listener, and this picks it up.
+   *
+   * The cleanup re-reads the entry rather than closing over the one above,
+   * because this mount's own `save()` creates it *after* the effect has run —
+   * without that, a component that pressed Save and then left stayed in the
+   * waiting set forever, which is precisely how the answer failed to reach its
+   * replacement.
+   */
   useEffect(() => {
     const running = runningFor(deps, projectId);
-    if (running === undefined) return;
-    setState({ kind: 'saving' });
-    running.waiting.add(receive);
+    if (running === undefined) {
+      const unclaimed = takeUnclaimed(deps, projectId);
+      setState((current) =>
+        unclaimed ?? (current.kind === 'saving' ? { kind: 'idle' } : current),
+      );
+    } else {
+      setState({ kind: 'saving' });
+      running.waiting.add(receive);
+    }
     return () => {
-      running.waiting.delete(receive);
+      runningFor(deps, projectId)?.waiting.delete(receive);
     };
   }, [deps, projectId, receive]);
 
@@ -155,6 +209,10 @@ export function useSavedPlanSave(
         // outlives every component, so a lock left latched here is a project
         // whose Save button never works again for the rest of the session.
         byProject.delete(projectId);
+        if (running.waiting.size === 0) {
+          leaveUnclaimed(deps, projectId, next);
+          return;
+        }
         for (const waiting of running.waiting) waiting(next);
       });
   }, [deps, projectId, receive]);

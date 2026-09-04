@@ -219,6 +219,35 @@ describe('the Save plan action', () => {
   });
 
   /**
+   * Gemini round 15, and the half of I1 the first fix left open.
+   *
+   * A resize unmounts the shelf and mounts its replacement, and a request that
+   * lands *between* the two belongs to neither. The answer must wait for
+   * whoever arrives, because the panel's completion effect is the only thing
+   * that puts the reader's own checkpoint on their own shelf — be-01 broadcasts
+   * nothing on save (TASK-255). Losing it here is the same invisible checkpoint
+   * the whole finding is about, arriving through a narrower door.
+   */
+  itDom('hands a save that landed with nobody mounted to the next mount', async () => {
+    const fake = deferredSave();
+    const held = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+    act(() => {
+      held.result.current.save();
+    });
+    held.unmount();
+
+    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    const arrived = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+
+    expect(arrived.result.current.state).toEqual({ kind: 'saved', savedPlan: ROW });
+
+    // Taken once. A third mount is a fresh reader, not a second confirmation of
+    // somebody else's save, and would otherwise refresh the shelf for nothing.
+    const later = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
+    expect(later.result.current.state).toEqual({ kind: 'idle' });
+  });
+
+  /**
    * The lock is per project and per API, never global: two projects saving at
    * once is an ordinary thing for a reader with two tabs' worth of work, and a
    * shared flag would silently drop the second save.
