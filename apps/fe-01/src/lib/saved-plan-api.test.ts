@@ -143,6 +143,44 @@ describe('saving', () => {
     expect(fetched.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ name: 'before the re-plan' }));
   });
 
+  /**
+   * A-1: an unnamed save sends **no `name` key**, and the server names the
+   * record from the clock that stamps its `created_at`.
+   *
+   * Asserted on the serialised body rather than on the parsed object, because
+   * the defect this guards against is a key that is *present and empty*.
+   * `JSON.parse(body).name === undefined` passes for `{"name":""}` under a
+   * `?? ''`; the byte comparison does not. `''` is a 422 at the route, so that
+   * regression would turn A-1's normal path into a refusal the user cannot act
+   * on.
+   */
+  it('sends no name at all when the caller chose none, rather than an empty one', async () => {
+    const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+      Promise.resolve(response(201, JSON.stringify({ savedPlan: ROW }))),
+    );
+    vi.stubGlobal('fetch', fetched);
+    await expect(httpSavedPlanApi('t').save('p1')).resolves.toEqual({
+      outcome: 'saved',
+      savedPlan: ROW,
+    });
+    expect(fetched.mock.calls[0]?.[1]?.body).toBe('{}');
+  });
+
+  /**
+   * The other half of the same rule, and the reason `save` does not narrow
+   * `name` to a non-empty type: a caller that really does hand this layer `''`
+   * is *not* silently promoted to the default. The empty string goes to be-01
+   * and comes back a 422, which is where `minLength: 1` is stated once.
+   */
+  it('passes an empty name through to the route that refuses it', async () => {
+    const fetched = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+      Promise.resolve(response(422, JSON.stringify({ error: 'validation' }))),
+    );
+    vi.stubGlobal('fetch', fetched);
+    await expect(httpSavedPlanApi('t').save('p1', '')).rejects.toThrow('validation');
+    expect(fetched.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ name: '' }));
+  });
+
   it('models snapshot_busy rather than throwing it', async () => {
     // 8.5: this refusal has to say "the plan is being written to, try again",
     // and a thrown code arrives at the surface as an error nobody can act on.

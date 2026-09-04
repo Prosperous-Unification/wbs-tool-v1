@@ -188,11 +188,21 @@ export interface SavedPlanApi {
   /**
    * Writes a checkpoint immediately.
    *
-   * `name` is required by be-01 and defaulted by the *caller*, not here: the
-   * default is the server's timestamp for the record it is about to create, and
-   * this layer has no clock worth trusting for that.
+   * **`name` is optional, and omitting it is the normal path** — assumption
+   * A-1. An earlier revision of this comment said the default was "defaulted by
+   * the *caller*, not here", and then said in its own next clause why no caller
+   * on this side of the wire can do it: the default is the server's timestamp
+   * for the record it is about to create, and no clock in a browser is that
+   * clock. be-01 now supplies it (`defaultSavedPlanName`, off the same
+   * `created_at` it writes), so the two ends agree instead of each correctly
+   * refusing.
+   *
+   * Absent means **the key is not sent at all**, not sent as `null` or `''`:
+   * `minLength: 1` still guards a name that is sent, so `''` is a 422 and never
+   * a silent default, and that distinction only survives if this layer omits
+   * rather than empties.
    */
-  save(projectId: string, name: string): Promise<SavedPlanSaveResult>;
+  save(projectId: string, name?: string): Promise<SavedPlanSaveResult>;
   rename(savedPlanId: string, name: string): Promise<SavedPlanTouchResultView>;
   remove(savedPlanId: string): Promise<SavedPlanTouchResultView>;
   compare(
@@ -241,7 +251,12 @@ export function httpSavedPlanApi(token: string): SavedPlanApi {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/saved-plans`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ name }),
+        // `{}` and not `{ name: undefined }` — those serialise to the same
+        // bytes today, but the second one is a shape somebody later "tidies"
+        // into `{ name: name ?? '' }`, which is a 422 the user cannot read. The
+        // conditional spread says the intent the wire cannot: no name was
+        // chosen, so the server chooses.
+        body: JSON.stringify(name === undefined ? {} : { name }),
       });
       if (res.ok) {
         return {
