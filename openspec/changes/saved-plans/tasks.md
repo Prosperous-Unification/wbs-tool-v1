@@ -723,6 +723,7 @@ Two constraints the mount carries, each measured rather than argued:
       within the hour). A measurement pointed at the "prod" path alone would
       have reported zero projects and called the limit unreachable on no
       evidence.
+
 - [ ] 9.2 Gate: `bunx nx run-many -t test lint typecheck` on h2puni plus
       `bun x @fission-ai/openspec validate --all --json`, output recorded in
       verify.md with the failure-proof table filled in.
