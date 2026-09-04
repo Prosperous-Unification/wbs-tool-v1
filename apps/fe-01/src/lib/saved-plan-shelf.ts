@@ -89,9 +89,9 @@ export interface ShelfWatchDeps extends ShelfDeps {
  *
  * **It also returns `refresh`, and the reason is a hole in the broadcast rather
  * than a convenience.** `saved-plan.controller.ts` publishes nothing: not on
- * save, not on rename, not on delete. The broadcast this watch listens to is the
- * *plan's*, so a collaborator editing the plan re-reads the shelf and the user's
- * own checkpoint does not. Without a caller-driven read, pressing Save leaves
+ * save, not on rename, not on delete. The broadcast this watch listens to belongs
+ * to the plan, so a collaborator editing the plan re-reads the shelf and the
+ * user's own checkpoint does not. Without a caller-driven read, pressing Save leaves
  * the new row invisible until somebody edits the project — the one moment the
  * shelf is most obviously wrong. `refresh` is `read` itself, so the guard
  * against a superseded answer covers a refresh racing a broadcast for free.
