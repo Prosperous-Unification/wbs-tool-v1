@@ -24,8 +24,8 @@ const planName = () => t.Object({ name: t.String({ minLength: 1 }) });
  * because rename and save disagree here and the disagreement is the point: a
  * rename with no name is a caller asking for nothing and is refused, while a
  * save with no name is A-1's normal path and gets the server's timestamp
- * ({@link SavedPlanService.save}). `minLength: 1` still applies to a name that
- * *is* sent, so `""` is a 422 on both routes and never a silent default.
+ * ({@link SavedPlanService.save}). `minLength: 1` still applies to any name a
+ * caller does send, so `""` is a 422 on both routes and never a silent default.
  */
 const saveBody = () => t.Object({ name: t.Optional(t.String({ minLength: 1 })) });
 

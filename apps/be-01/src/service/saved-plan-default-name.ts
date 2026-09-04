@@ -33,7 +33,10 @@ function pad(value: number): string {
  */
 export function defaultSavedPlanName(createdAt: number): string {
   const at = new Date(createdAt * 1000);
-  const date = `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}`;
+  // `String(...)` and not the bare number: `restrict-template-expressions` is
+  // on here, and the year is the one field `pad` does not render — four digits,
+  // never two.
+  const date = `${String(at.getUTCFullYear())}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}`;
   const time = `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`;
   return `${date} ${time} UTC`;
 }

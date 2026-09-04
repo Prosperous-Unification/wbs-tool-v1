@@ -37,7 +37,7 @@ describe('the default name a save falls back to', () => {
     const seconds = 1_788_507_612;
     const utc = new Date(seconds * 1000);
     expect(defaultSavedPlanName(seconds)).toBe(
-      `${utc.getUTCFullYear()}-${String(utc.getUTCMonth() + 1).padStart(2, '0')}-` +
+      `${String(utc.getUTCFullYear())}-${String(utc.getUTCMonth() + 1).padStart(2, '0')}-` +
         `${String(utc.getUTCDate()).padStart(2, '0')} ` +
         `${String(utc.getUTCHours()).padStart(2, '0')}:` +
         `${String(utc.getUTCMinutes()).padStart(2, '0')}:` +
