@@ -397,6 +397,13 @@ At `a10ad8cd`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
 | `nx run-many -t test lint typecheck -p domain` | exit 0 — **371 pass / 0 fail** across 27 files |
 | `nx format:check --all`                        | exit 0, zero files                             |
 
+Re-run whole at the run's final head `ab14f1fa`, `dirty=0`:
+`nx run-many -t test lint typecheck -p be-01 domain` exit 0 — **domain 371 pass
+/ 0 fail, be-01 1310 pass / 0 fail**, lint and typecheck 0 for both; `nx
+format:check --all` exit 0; `bun x @fission-ai/openspec validate --all --json`
+**35 valid / 0 invalid**. So the be-01 figure is observed at the head this run
+ends on, not relayed from the earlier chunk.
+
 ### Slice 7 after this chunk
 
 7.1, 7.2, 7.2b, 7.2c, 7.3, 7.3a and 7.4 are done. **7.3b — the compare route on
