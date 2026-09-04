@@ -406,9 +406,9 @@ describe('the saved-plan shelf is on the project page', () => {
     // the only assertion that holds whatever the markup between them becomes.
     const grid = document.querySelector('[data-grid]');
     if (grid === null) throw new Error('the table did not render');
-    expect(grid.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(
-      0,
-    );
+    expect(
+      grid.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeGreaterThan(0);
     // The shelf's own read landed, so this is the wired panel and not an empty
     // heading: `before the re-plan` is the row the fake answers with.
     //
