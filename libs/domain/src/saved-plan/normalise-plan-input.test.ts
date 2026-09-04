@@ -119,7 +119,7 @@ describe('normalising a stored plan input forward — 7.4', () => {
    */
   it('catches a step that mutates the body it was given', () => {
     const mutating: PlanInputUpgrade = (body) => {
-      (body as Record<string, unknown>)['tampered'] = true;
+      body['tampered'] = true;
       return body;
     };
     const parsed = JSON.parse(bytes) as Record<string, unknown>;
