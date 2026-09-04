@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useLayoutEffect, useState } from 'react';
 
 import type { SavedPlanApi, SavedPlanListEntryView } from './saved-plan-api';
 import { httpSavedPlanApi } from './saved-plan-api';
@@ -165,8 +165,35 @@ export function useSavedPlanSave(
    * without that, a component that pressed Save and then left stayed in the
    * waiting set forever, which is precisely how the answer failed to reach its
    * replacement.
+   *
+   * **`useLayoutEffect`, and that word is the fix for round 16's Important**
+   * (Sol; found independently by reading the same sequence). A *passive* effect
+   * runs after paint, so between the replacement's commit and the flush the
+   * waiting set still held the departed mount's `receive` and nothing else. A
+   * settle in that window found `waiting.size > 0`, skipped
+   * {@link leaveUnclaimed}, and delivered the whole terminal answer —
+   * `saved`, `busy`, `quota` or `error` — to a component React had already
+   * unmounted, where `setState` is a no-op. The replacement then found neither a
+   * running save nor an unclaimed answer and fell back to `idle`: not a dead
+   * button any more, but the authoritative timestamp and every refusal message
+   * silently dropped, and the panel's completion refresh never run.
+   *
+   * Subscribing in a *layout* effect closes that window at its source rather
+   * than compensating for it. Layout cleanup and layout setup both run
+   * synchronously inside the commit, so no microtask — and a settling promise is
+   * one — can observe the moment between them. By the time any answer can
+   * arrive, the departed mount has left the waiting set and the replacement is
+   * in it. `unclaimedAnswers` then covers only what it says: a save that landed
+   * with genuinely nobody mounted.
+   *
+   * No case can redden this word, and that is stated rather than hidden: the
+   * interleaving it removes is not constructible through `renderHook`, which
+   * flushes effects inside `act`. It is kept — unlike the unmount guard deleted
+   * above — because it is not a guard. It is where the subscription lives, it
+   * runs on every mount, and the alternative is a lost confirmation nobody can
+   * see. `cell-input.tsx` picks the same hook for the same kind of reason.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const running = runningFor(deps, projectId);
     if (running === undefined) {
       const unclaimed = takeUnclaimed(deps, projectId);
@@ -192,27 +219,45 @@ export function useSavedPlanSave(
     }
     if (byProject.has(projectId)) return;
     const running: RunningSave = { waiting: new Set([receive]) };
+    const held = byProject;
     byProject.set(projectId, running);
     setState({ kind: 'saving' });
-    void deps
-      .save(projectId)
+
+    /** One exit for every way a save can end, so no path can skip the release. */
+    const settle = (next: SavedPlanSaveState): void => {
+      // Released before the state writes and never conditionally: the entry
+      // outlives every component, so a lock left latched here is a project
+      // whose Save button never works again for the rest of the session.
+      held.delete(projectId);
+      if (running.waiting.size === 0) {
+        leaveUnclaimed(deps, projectId, next);
+        return;
+      }
+      for (const waiting of running.waiting) waiting(next);
+    };
+
+    // `deps.save` is an injected boundary, and a synchronous throw from it used
+    // to escape between the `set` above and the `.then` below — leaving the lock
+    // latched with no settle to release it, which is the dead-Save-button state
+    // for the rest of the session (Gemini, round 15; Sol M2, round 16). The
+    // production path cannot do it (`httpSavedPlanApi.save` is `async`, so it
+    // rejects instead), but the type says nothing of the sort and the cost of
+    // saying so here is one `try`.
+    let request: ReturnType<SaveDeps['save']>;
+    try {
+      request = deps.save(projectId);
+    } catch (fault: unknown) {
+      settle({ kind: 'error', code: codeOf(fault) });
+      return;
+    }
+    void request
       .then((result): SavedPlanSaveState => {
         if (result.outcome === 'saved') return { kind: 'saved', savedPlan: result.savedPlan };
         if (result.outcome === 'snapshot_busy') return { kind: 'busy' };
         return { kind: 'quota', refusal: result.refusal };
       })
       .catch((fault: unknown): SavedPlanSaveState => ({ kind: 'error', code: codeOf(fault) }))
-      .then((next) => {
-        // Released before the state writes and never conditionally: the entry
-        // outlives every component, so a lock left latched here is a project
-        // whose Save button never works again for the rest of the session.
-        byProject.delete(projectId);
-        if (running.waiting.size === 0) {
-          leaveUnclaimed(deps, projectId, next);
-          return;
-        }
-        for (const waiting of running.waiting) waiting(next);
-      });
+      .then(settle);
   }, [deps, projectId, receive]);
 
   return { state, save };

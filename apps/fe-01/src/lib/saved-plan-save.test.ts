@@ -248,6 +248,39 @@ describe('the Save plan action', () => {
   });
 
   /**
+   * Sol M2 / Gemini m1, round 16: the injected boundary is allowed to be rude.
+   *
+   * The lock is written before `deps.save` is called, so a synchronous throw
+   * used to escape with no settle behind it to release the entry — and that
+   * entry outlives every mount, so the project's Save button was dead for the
+   * rest of the session. The production API is `async` and cannot do this; the
+   * `SaveDeps` type permits it, which is the whole reason this case exists.
+   */
+  itDom('releases the lock when the injected save throws instead of rejecting', () => {
+    let attempts = 0;
+    const deps: SaveDeps = {
+      save: () => {
+        attempts += 1;
+        throw new Error('boom');
+      },
+    };
+    const { result } = renderHook(() => useSavedPlanSave(deps, 'p1'));
+
+    act(() => {
+      result.current.save();
+    });
+    expect(result.current.state).toEqual({ kind: 'error', code: 'boom' });
+
+    // Counted, not inferred from the state: a latched lock leaves the same
+    // `error` on screen and refuses the second press silently, so only the
+    // attempt count can tell a released lock from a dead button.
+    act(() => {
+      result.current.save();
+    });
+    expect(attempts).toBe(2);
+  });
+
+  /**
    * The lock is per project and per API, never global: two projects saving at
    * once is an ordinary thing for a reader with two tabs' worth of work, and a
    * shared flag would silently drop the second save.

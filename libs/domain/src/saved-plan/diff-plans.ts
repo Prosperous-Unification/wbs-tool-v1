@@ -353,25 +353,7 @@ function categoryFor(collection: string, field: string): PlanDiffCategory {
 }
 
 /**
- * How a row present on only one side is grouped.
- *
- * The spec reserves `added` and `removed` for **work items** and gives every
- * other named collection its own heading, and that distinction is load-bearing
- * rather than cosmetic: in a relationship collection — `dependencies`,
- * `assignments`, `personTeams`, `teamServices`, `workItemTeams`,
- * `workItemServices` — every field is part of the row key, so *changing* an
- * edge is necessarily one row gone and one row arrived and can never surface as
- * a changed field. Hard-coding the generic pair here therefore left
- * `dependencies`, `ownership` and `service-assignment` unreachable for the only
- * operation those rows have, and filed a rewired dependency under the same
- * heading as a new work item.
- *
- * A collection with no heading of its own keeps the generic pair: `workItems`,
- * which is what the spec names, and `steps`/`stepValues`, which are work-item
- * structure rather than a domain of their own.
- */
-/**
- * The three collections whose *presence* heading is not their *field* heading.
+ * The four collections whose *presence* heading is not their *field* heading.
  *
  * `COLLECTION_CATEGORIES` answers "a field of this row changed"; a row arriving
  * or leaving is a different question and the spec answers it differently in
@@ -394,6 +376,27 @@ const PRESENCE_CATEGORIES: Readonly<Record<string, PlanDiffCategory | undefined>
   externalSystems: 'registry',
 };
 
+/**
+ * How a row present on only one side is grouped.
+ *
+ * The spec reserves `added` and `removed` for **work items** and gives every
+ * other named collection its own heading, and that distinction is load-bearing
+ * rather than cosmetic: in a relationship collection — `dependencies`,
+ * `assignments`, `personTeams`, `teamServices`, `workItemTeams`,
+ * `workItemServices` — every field is part of the row key, so *changing* an
+ * edge is necessarily one row gone and one row arrived and can never surface as
+ * a changed field. Hard-coding the generic pair here therefore left
+ * `dependencies`, `ownership` and `service-assignment` unreachable for the only
+ * operation those rows have, and filed a rewired dependency under the same
+ * heading as a new work item.
+ *
+ * A collection with no heading of its own keeps the generic pair: `workItems`,
+ * which is what the spec names, and `steps`/`stepValues`, which are work-item
+ * structure rather than a domain of their own.
+ *
+ * {@link PRESENCE_CATEGORIES} comes first, for the four rows whose presence and
+ * whose fields are filed in different places.
+ */
 function presenceCategory(collection: string, generic: 'added' | 'removed'): PlanDiffCategory {
   return PRESENCE_CATEGORIES[collection] ?? COLLECTION_CATEGORIES[collection] ?? generic;
 }
