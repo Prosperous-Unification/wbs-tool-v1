@@ -603,15 +603,17 @@ comparison UI) and start only after slice 6 is merged.
       `created_at` it writes, `useSavedPlanSave` sends no name and no modal
       precedes the press. The rename-as-edit half has an API client method and
       **no surface** — that is what is left of 8.2.)_
-- [ ] 8.3 The comparison surface: two side pickers, each a saved plan or
+- [x] 8.3 The comparison surface: two side pickers, each a saved plan or
       `current`; the diff rendered by category; **the absent reason rendered per
       side**, "no schedule was saved" only for a _saved_ side with no body, and
       `current` + `infeasible` saying the live plan cannot be scheduled —
       nothing about `current` was ever saved, so the saved-side copy would state
       the wrong fact about a cyclic live plan.
-      _(Model landed in `saved-plan-compare.ts`: per-side resolution, the two
-      sentences, category grouping, and `current`/`current` refused. The two
-      pickers and the rendering are what remain.)_
+      _(Model in `lib/saved-plan-compare.ts` — per-side resolution, the two
+      sentences, category grouping, `current`/`current` refused — and the
+      surface in `components/wbs/saved-plan-compare.tsx`: two pickers, the two
+      halves rendered apart by category, each side's absence sentence. Both
+      gated.)_
 - [ ] 8.4 **Stale but not replaced.** A broadcast arrives while a comparison is
       open: the refresh affordance appears and the rendered comparison does not
       change until it is used. Negative: refetch into the open comparison and
@@ -620,6 +622,14 @@ comparison UI) and start only after slice 6 is merged.
       being written to and to try again; a quota refusal names the limit reached.
 
 ## 9. Close
+
+**NOTHING IN SLICE 8 IS MOUNTED YET.** `SavedPlanList`, `useSavedPlanSave`,
+`useSavedPlanShelf` and `SavedPlanComparison` all pass their own cases and no
+screen renders any of them — `grep` for their names outside their own files and
+their cases returns nothing. Every 8.x tick above is a tick on a component that
+works, not on a surface a user can reach. Slice 9 cannot close over that, so the
+mount is a prerequisite of 9.2's gate rather than a follow-up to it.
+
 
 - [ ] 9.1 Measure the largest real plan's body size against the 8 MiB limit and
       record the number (A-3's falsifier).
