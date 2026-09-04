@@ -335,6 +335,86 @@ describe('the saved-plan routes', () => {
   });
 
   /**
+   * The two cases above, crossed — and the crossing is the defect.
+   *
+   * Each of them alone passed on the old code: the cross-project test used a
+   * *healthy* foreign plan and the corrupt test used a plan in *this* project.
+   * `sideOf` read and verified the bytes first and checked the project second,
+   * so the one combination neither covered — a corrupt plan in another project
+   * — left as the 422 above, naming a foreign id and reporting its condition,
+   * where every foreign plan is promised the same 404 an id that never existed
+   * gets. Sol's I2 on PR 202.
+   *
+   * A prober with a list of ids and no access to project A could therefore sort
+   * them into "exists here and is damaged" and "unknown", which is exactly the
+   * distinction the plain 404 above exists to deny them.
+   *
+   * Watched: with the `principalsOf` scope check removed from `sideOf`, this
+   * fails on `expected 422 to be 404`.
+   */
+  it('does not admit that another project’s plan exists, even when it is damaged', async () => {
+    const foreign = await savedIdOf(await save('ada'));
+    const other = await as(tokens['owner'], '/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Somebody else’s shed' }),
+    });
+    const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+
+    const damaged = openConnection(path);
+    damaged.db.run(`UPDATE saved_plan_body SET bytes = bytes || ' ' WHERE kind = 'input'`);
+    damaged.close();
+
+    const res = await as(
+      tokens['ada'],
+      `/api/projects/${otherId}/saved-plans/compare?left=${foreign}&right=current`,
+    );
+    expect(res.status).toBe(404);
+    // Byte-for-byte what the healthy foreign plan answers above: a caller
+    // cannot tell the two apart, which is the whole property.
+    expect(await res.json()).toEqual({ error: 'not_found', savedPlanId: foreign });
+  });
+
+  /**
+   * A plan this node cannot bring forward is a refusal, not a crash.
+   *
+   * Every byte is intact and every hash agrees; only `input_schema_version`
+   * says something this build cannot reach. `normalisePlanInputForward` throws
+   * `PlanInputVersionError` for it, `sideOf` did not catch it, and Elysia
+   * answered **500** — an unmodelled status for a database state the domain
+   * anticipates by name, which R5 forbids. Gemini's F-02 on PR 202.
+   *
+   * A version from the future is the case a real deployment meets: a newer node
+   * writes a plan, an older one is asked to compare it. Written directly rather
+   * than through a migration, because the point is the *reader's* behaviour.
+   *
+   * Watched: with the `PlanInputVersionError` catch removed from `sideOf`, this
+   * fails on `expected 500 to be 422`.
+   */
+  it('refuses a plan written by a newer node instead of crashing on it', async () => {
+    const id = await savedIdOf(await save('ada'));
+    const ahead = openConnection(path);
+    ahead.db.run(`UPDATE saved_plan SET input_schema_version = 9999 WHERE id = '${id}'`);
+    ahead.close();
+
+    const res = await as(
+      tokens['ada'],
+      `/api/projects/${projectId}/saved-plans/compare?left=${id}&right=current`,
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      error: string;
+      savedPlanId: string;
+      refusal: { reason: string; versionReason: string };
+    };
+    expect(body.error).toBe('corrupt');
+    expect(body.savedPlanId).toBe(id);
+    // Which of the three version faults it is, because they call for different
+    // operator actions: this one says a newer node wrote the plan.
+    expect(body.refusal.reason).toBe('input_version_unreadable');
+    expect(body.refusal.versionReason).toBe('from-the-future');
+  });
+
+  /**
    * `current` is a reserved literal, not a lookup, and this is the case that
    * says so about the literal rather than about a status.
    *

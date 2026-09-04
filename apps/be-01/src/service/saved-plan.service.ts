@@ -5,6 +5,7 @@ import {
   diffPlans,
   normalisePlanInputForward,
   type PlanDiff,
+  PlanInputVersionError,
   type PlanScheduleValue,
   type PlanSide,
   type Schedule,
@@ -504,16 +505,66 @@ export class SavedPlanService {
       const side = await this.projectCurrentPlan(projectId);
       return side === null ? { outcome: 'no_project' } : { outcome: 'side', side };
     }
+    /*
+      **Scope before bytes**, and the order is the finding.
+
+      This check used to sit *after* `read`, which verifies every stored byte
+      and can answer `corrupt`. A corrupt saved plan belonging to **another**
+      project therefore left here as 422 `corrupt` — naming the foreign id and
+      its condition — where every foreign plan is promised the same
+      indistinguishable 404 an unknown id gets. Sol's I2 on PR 202: the path's
+      project id was authoritative on the healthy path and not on the error
+      paths, which is where a prober would look.
+
+      `principalsOf` is the right read for it and already exists for exactly
+      this shape of question: one header row, no bodies parsed, no hashes
+      recomputed. It is what `refuseUnauthorisedTouch` authorises rename and
+      delete off, and for the reason stated there — a plan too damaged to open
+      must still be answerable *about*.
+
+      No second scope check after the read: `project_id` is written once and
+      never updated (`saved-plan.ts`: "No `UPDATE` is issued here, ever", and
+      rename touches `name` alone), so the two reads cannot disagree about
+      which project owns a plan.
+    */
+    const principals = await this.opts.plans.principalsOf(ref.savedPlanId);
+    if (principals === null || principals.projectId !== projectId) {
+      return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
+    }
     const found = await this.read(ref.savedPlanId);
     if (found.outcome === 'not_found')
       return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
     if (found.outcome === 'corrupt') {
       return { outcome: 'corrupt', savedPlanId: ref.savedPlanId, refusal: found.refusal };
     }
-    if (found.plan.projectId !== projectId) {
-      return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
+    /*
+      `planSideOfRead` normalises the stored input forward, and that throws.
+
+      `normalisePlanInputForward` refuses a version it cannot bring to this
+      build's — unparseable, from the future, or with no upgrade step — by
+      throwing `PlanInputVersionError`, and nothing caught it here. Elysia
+      answered **500** for a database state the code anticipates by name, which
+      R5 forbids: a plan this node cannot read is a modelled refusal, not a
+      crash. Gemini's F-02 on PR 202. It joins the other three integrity
+      refusals and leaves as the same 422 the route already sends for `corrupt`.
+    */
+    try {
+      return { outcome: 'side', side: planSideOfRead(found.plan) };
+    } catch (failure) {
+      if (!(failure instanceof PlanInputVersionError)) throw failure;
+      return {
+        outcome: 'corrupt',
+        savedPlanId: ref.savedPlanId,
+        refusal: {
+          reason: 'input_version_unreadable',
+          savedPlanId: ref.savedPlanId,
+          body: 'input',
+          storedVersion: failure.storedVersion,
+          readerVersion: failure.readerVersion,
+          versionReason: failure.reason,
+        },
+      };
     }
-    return { outcome: 'side', side: planSideOfRead(found.plan) };
   }
 
   /**

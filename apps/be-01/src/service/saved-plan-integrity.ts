@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import type { PlanInputNormaliseFailure } from '@wbs/domain';
+
 /** Which of a saved plan's two sides a refusal is about. */
 export type SavedPlanBodyKind = 'input' | 'schedule';
 
@@ -45,6 +47,34 @@ export type SavedPlanIntegrityRefusal =
       readonly scheduleInputSha256: string;
       /** The input hash this record actually holds. */
       readonly inputSha256: string;
+    }
+  | {
+      /**
+       * The input's bytes are intact and this reader cannot bring them forward.
+       *
+       * The fourth reason a stored plan cannot be handed back, and the only one
+       * that is not about damage: every hash agrees, and
+       * `normalisePlanInputForward` still refuses because the stored
+       * `input_schema_version` is unparseable, newer than this build, or has no
+       * upgrade step to the current one. It threw `PlanInputVersionError` out of
+       * the compare path and Elysia answered **500** — an unmodelled crash for a
+       * database state the code already anticipates, which R5 forbids. Gemini
+       * F-02 on PR 202.
+       *
+       * `versionReason` is `PlanInputVersionError.reason` verbatim, because the
+       * three cases are different operational facts: `from-the-future` means a
+       * newer node wrote it and this one should be upgraded, `no-upgrade-path`
+       * means the migration chain has a hole, and `not-a-version` means the
+       * column holds something that was never a version.
+       */
+      readonly reason: 'input_version_unreadable';
+      readonly savedPlanId: string;
+      readonly body: 'input';
+      /** The version stored beside the bytes. */
+      readonly storedVersion: number;
+      /** The version this build reads. */
+      readonly readerVersion: number;
+      readonly versionReason: PlanInputNormaliseFailure;
     };
 
 /**
