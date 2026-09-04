@@ -30,9 +30,9 @@ describe('reading a project’s shelf', () => {
 
   it('reads the rows once the node says it has the routes', async () => {
     const list = vi.fn(() => Promise.resolve([ROW]));
-    await expect(
-      readShelf({ available: () => Promise.resolve(true), list }, 'p1'),
-    ).resolves.toEqual({ kind: 'ready', rows: [ROW] });
+    await expect(readShelf({ available: () => Promise.resolve(true), list }, 'p1')).resolves.toEqual(
+      { kind: 'ready', rows: [ROW] },
+    );
     expect(list).toHaveBeenCalledWith('p1');
   });
 
