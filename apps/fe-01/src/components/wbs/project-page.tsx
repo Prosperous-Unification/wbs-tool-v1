@@ -924,7 +924,11 @@ export function ProjectPage({
         */}
         {selected !== null && (
           <div className="pointer-events-none absolute right-4 bottom-2 z-40">
-            <details ref={shelfDisclosure} data-saved-plans className="pointer-events-auto relative">
+            <details
+              ref={shelfDisclosure}
+              data-saved-plans
+              className="pointer-events-auto relative"
+            >
               <summary className="border-input bg-background h-8 cursor-pointer rounded-md border px-2 py-1 text-xs shadow-sm select-none">
                 Saved plans
               </summary>
