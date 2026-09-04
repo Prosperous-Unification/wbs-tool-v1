@@ -1,5 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -129,7 +128,7 @@ describe('the saved-plans panel', () => {
     expect(screen.queryByText(NEWER.name)).toBeNull();
 
     wiring.setShelf([NEWER, ROW]);
-    await userEvent.click(screen.getByRole('button', { name: 'Save plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save plan' }));
     await flush();
 
     expect(wiring.save).toHaveBeenCalledWith('p1');
@@ -192,7 +191,7 @@ describe('the saved-plans panel', () => {
     await flush();
     const calls = wiring.compare.mock.calls.length;
 
-    await userEvent.selectOptions(screen.getByLabelText(/Compare/), 'current');
+    fireEvent.change(screen.getByLabelText(/Compare/), { target: { value: 'current' } });
     await flush();
 
     expect(screen.getByText('Pick two different plans to compare.')).toBeTruthy();
