@@ -223,6 +223,19 @@ export interface WbsTableProps {
    * socket; supplied in the app.
    */
   subscribe?: (projectId: string, handlers: SubscriptionHandlers) => ProjectStream;
+  /**
+   * The saved-plan shelf, for the phone's `Plan actions` sheet — and rendered
+   * **only** there, in the `cards` arm below.
+   *
+   * A `ReactNode` the page hands down rather than a component this file builds:
+   * the shelf needs the checkpoint routes and the project the picker has open,
+   * and both live in `ProjectPage`. Threading them here would give the table
+   * two more props it never reads.
+   *
+   * Optional because the table is driven by a fake in tests and mounted on its
+   * own in several of them. Absent, the sheet is exactly what it was.
+   */
+  savedPlansShelf?: ReactNode;
 }
 
 export interface SubscriptionHandlers {
@@ -2772,7 +2785,13 @@ function PlanRow({
  * create or a move can renumber rows this component never touched, and guessing
  * which would be a second implementation of the derivation as well.
  */
-export function WbsTable({ projectId, projectName, api, subscribe }: WbsTableProps) {
+export function WbsTable({
+  projectId,
+  projectName,
+  api,
+  subscribe,
+  savedPlansShelf,
+}: WbsTableProps) {
   /**
    * The project this render belongs to, readable by work that outlives the
    * render which started it.
@@ -11437,6 +11456,17 @@ export function WbsTable({ projectId, projectName, api, subscribe }: WbsTablePro
                   Reset layout
                 </Button>
               )}
+              {/*
+                The saved-plan shelf, which on a phone lives here and nowhere
+                else — the header's project row cannot afford it, and
+                `SavedPlanShelf` carries the 21.4px that says so.
+
+                Last in the sheet and not in `toolbarControls`, for that
+                array's own reason turned around: it is rendered by *both*
+                faces, and this control is on this one only. Above `md` the
+                shelf is in the app header, and this arm is not rendered at all.
+              */}
+              {savedPlansShelf}
             </div>
           </PlanToolbarSheet>
         </div>

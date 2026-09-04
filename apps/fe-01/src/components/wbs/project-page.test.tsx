@@ -414,9 +414,11 @@ describe('the saved-plan shelf is on the project page', () => {
       with a named margin for exactly one more control, and `gantt.spec.ts:2605`
       needs that bar to be **one** row at 768 before the drag that adds `Reset
       layout` makes it two. Both went red at `14a1a070` (2 failed / 281 passed).
-      The header's project row is the fourth and the settled one: `flex-nowrap`
-      above `md` with a `max-w` picker that absorbs the width, outside `<main>`
-      entirely, and one bar at every width instead of a row and a phone sheet.
+      The header's project row is the fourth and the settled one **above `md`**:
+      `flex-nowrap` with a `max-w` picker that absorbs the width, outside
+      `<main>` entirely. Below `md` it is the phone's `Plan actions` sheet
+      instead, because the line this row takes there costs 36px that
+      `mobile.spec.ts:850` cannot spare — the case below holds that half.
 
       jsdom lays nothing out, so those six measurements stay the real guard for
       the pixels. What this file can hold is where the chip lives, which is what
@@ -545,6 +547,44 @@ describe('the saved-plan shelf is on the project page', () => {
     // of somebody else's plan.
     for (const [projectId, left] of compared) {
       if (projectId === 'p1') expect(left).toEqual({ saved: 'sp9' });
+    }
+  });
+
+  itDom('leaves the header alone on a cards viewport, where the sheet has it', async () => {
+    /*
+      **The one pixel red slice 9 ended on, held as a placement rule.**
+
+      `mobile.spec.ts:850` asks the card sheet's trigger to be above the sheet
+      it opens, and at `5e59b29d` it was 13.39px below it. Measured on h2puni
+      rather than argued: the `85vh` cap puts the sheet's top at 126.6 on a
+      390×844 phone, a card's trigger sits 55px under `[data-plan-cards]`'s own
+      top edge at the scroll ceiling, and that scroller started at 195 — so the
+      goal was unreachable and the shelf's line in the header was 36 of the
+      missing 21.4px. Off that row the header measured 137 → 101 and the
+      scroller 195 → 159.
+
+      jsdom lays nothing out, so this cannot assert those numbers. What it can
+      assert is the fact they follow from, which is also the thing a later edit
+      would silently undo: below the renderer's breakpoint the header carries no
+      shelf — and with the sheet shut there is **no shelf in the document at
+      all**, which is what tells a mount apart from a `hidden md:block` pair
+      that leaves a second copy in the DOM for every `[data-saved-plans]`
+      selector to find. `plan-cards.test.tsx` holds the other half, that the
+      sheet is where it went.
+    */
+    const wide = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
+    try {
+      pageWith(fakeProjects(TWO));
+      await selectProject('p2');
+
+      // The project's own controls are still there — this is the shelf leaving
+      // the row, not the row leaving the header.
+      expect(screen.getByRole('button', { name: 'New project' }).closest('header')).not.toBeNull();
+      expect(document.querySelectorAll('header [data-saved-plans]')).toHaveLength(0);
+      expect(document.querySelectorAll('[data-saved-plans]')).toHaveLength(0);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: wide, configurable: true });
     }
   });
 });

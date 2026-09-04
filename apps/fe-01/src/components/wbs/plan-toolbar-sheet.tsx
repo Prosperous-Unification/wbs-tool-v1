@@ -25,6 +25,16 @@ import { Modal, ModalContent, ModalHeader, ModalTitle, ModalTrigger } from '@/co
  *   the **React** tree, so every click inside that steps dialog arrives here
  *   even though the modal is nowhere near this element in the DOM — and would
  *   close the sheet under it, mid-click, on the way to adding a step.
+ * - **A click inside a disclosure the sheet is *hosting*.** The saved-plan
+ *   shelf is on this sheet at a phone width, and its panel is a surface of its
+ *   own that opens *in place*: reading a plan's history, picking a checkpoint
+ *   and asking what changed since it are all clicks on `<button>`s inside this
+ *   sheet, and every one of them would close the sheet the panel is drawn in.
+ *   That is not the rule's case — taking one of these does not act on the plan
+ *   behind the sheet, so there is nothing behind the sheet to go back to.
+ *   Marked by the shelf's own `data-saved-plans`, for the reason
+ *   {@link TAKES_THE_FOCUS} is a DOM attribute: the thing that knows lives with
+ *   the thing it is about, and a list of labels here would go stale.
  *
  * @param target What was clicked — `event.target`, not the handler's element.
  * @param surface The sheet's own surface, which is `event.currentTarget`.
@@ -32,6 +42,7 @@ import { Modal, ModalContent, ModalHeader, ModalTitle, ModalTrigger } from '@/co
 function closingControlIn(target: EventTarget | null, surface: Element): HTMLButtonElement | null {
   if (!(target instanceof Element)) return null;
   if (target.closest('[data-modal-surface]') !== surface) return null;
+  if (target.closest('[data-saved-plans]') !== null) return null;
   const control = target.closest('button');
   if (control?.getAttribute('aria-haspopup') !== null) return null;
   return control;

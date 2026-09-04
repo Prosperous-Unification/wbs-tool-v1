@@ -1079,6 +1079,54 @@ describe('a picker open on a card', () => {
 });
 
 describe('the toolbar sheet', () => {
+  /**
+   * The saved-plan shelf is on this sheet at a phone width, and its panel opens
+   * **in place** — so every control in it is a `<button>` inside the sheet's
+   * own surface, which is exactly what `closingControlIn` closes the sheet for.
+   *
+   * That rule is right about the toolbar and wrong about this: taking a control
+   * on the toolbar acts on the plan behind the sheet, and the plan is what
+   * wants looking at next. Reading a project's history does not — the thing to
+   * look at is the panel, which the close would take away mid-click. Hence the
+   * `[data-saved-plans]` exemption beside the `aria-haspopup` one.
+   *
+   * A stand-in shelf rather than the real one, and it carries the two facts the
+   * rule turns on: the mark, and a plain `<button>` under it. `SavedPlanShelf`
+   * lives in `project-page.tsx` with the checkpoint routes, and pulling it in
+   * here would make this a test of that wiring instead of of this rule.
+   */
+  itDom('keeps itself open while a shelf on it is being read', async () => {
+    const api = fakeApi();
+    widthIs(PHONE);
+    render(
+      <WbsTable
+        projectId="p1"
+        api={api}
+        savedPlansShelf={
+          <details data-saved-plans open>
+            <summary>Saved plans</summary>
+            <button type="button">Compare</button>
+          </details>
+        }
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Plan actions' })).toBeInTheDocument();
+    });
+
+    // The shelf reaches the phone at all, which is AC #2 on the surface this
+    // whole task exists for.
+    expect(screen.queryByRole('button', { name: 'Compare' })).toBeNull();
+    openTheSheet();
+    const sheet = await screen.findByRole('dialog', { name: 'Plan actions' });
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Compare' }));
+
+    // Still open, and still holding the shelf that was being read.
+    expect(screen.getByRole('dialog', { name: 'Plan actions' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compare' })).toBeInTheDocument();
+  });
+
   itDom('holds the toolbar, which is nowhere on the page until it is opened', async () => {
     const api = fakeApi();
     widthIs(PHONE);
