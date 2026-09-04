@@ -178,10 +178,12 @@ export function SavedPlansPanel({
           code: result.savedPlanId === null ? 'not_found' : `not_found (${result.savedPlanId})`,
         };
       })
-      .catch((fault: unknown): SavedPlanComparisonState => ({
-        kind: 'error',
-        code: fault instanceof Error ? fault.message : String(fault),
-      }))
+      .catch(
+        (fault: unknown): SavedPlanComparisonState => ({
+          kind: 'error',
+          code: fault instanceof Error ? fault.message : String(fault),
+        }),
+      )
       .then((next) => {
         if (!cancelled) setComparison(next);
       });
