@@ -170,8 +170,8 @@ describe('what a comparison renders', () => {
         })}
       />,
     );
-    const lines = [...screen.getByLabelText('The plan').querySelectorAll('li')].map((item) =>
-      item.textContent,
+    const lines = [...screen.getByLabelText('The plan').querySelectorAll('li')].map(
+      (item) => item.textContent,
     );
     expect(lines).toEqual([
       'workItems[w2] absent → 1 field',
