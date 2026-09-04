@@ -143,6 +143,62 @@ describe('what a comparison renders', () => {
     expect(screen.getByLabelText('The schedule').textContent).toContain('schedule.body.start');
   });
 
+  itDom('says what each difference went from and to, not just where it was', () => {
+    // I6. The panel used to render `difference.path` alone, so a rename read
+    // `workItems[w1].name` and an estimate change named a field without either
+    // number — the server computed both sides and the surface threw them away.
+    //
+    // Literal expected text rather than a call to `diffValueWords`: a case that
+    // recomputes the thing it is checking goes green whatever the renderer does
+    // (F-06's fault, on this same file).
+    render(
+      <SavedPlanComparison
+        state={ready({
+          diff: {
+            input: [
+              {
+                category: 'renamed',
+                path: 'workItems[w1].name',
+                left: 'Design',
+                right: 'Design v2',
+              },
+              { category: 'estimates', path: 'workItems[w1].estimateDays', left: 3, right: 5.5 },
+              { category: 'added', path: 'workItems[w2]', left: undefined, right: { id: 'w2' } },
+            ],
+            schedule: [],
+          },
+        })}
+      />,
+    );
+    const lines = [...screen.getByLabelText('The plan').querySelectorAll('li')].map((item) =>
+      item.textContent,
+    );
+    expect(lines).toEqual([
+      'workItems[w2] absent → 1 field',
+      'workItems[w1].name "Design" → "Design v2"',
+      'workItems[w1].estimateDays 3 → 5.5',
+    ]);
+  });
+
+  itDom('keeps the arrow out of the values it separates', () => {
+    // A stored string containing the separator must still read as one value.
+    // If the line were formatted as a single string, nothing downstream could
+    // tell this note's own arrow from the one between the sides.
+    render(
+      <SavedPlanComparison
+        state={ready({
+          diff: {
+            input: [{ category: 'notes', path: 'workItems[w1].notes', left: 'a → b', right: 'c' }],
+            schedule: [],
+          },
+        })}
+      />,
+    );
+    expect(
+      [...document.querySelectorAll('.saved-plan-compare__value')].map((node) => node.textContent),
+    ).toEqual(['"a → b"', '"c"']);
+  });
+
   itDom('draws no heading for a half with nothing in it', () => {
     render(
       <SavedPlanComparison

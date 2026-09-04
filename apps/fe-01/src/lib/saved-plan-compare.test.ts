@@ -11,6 +11,7 @@ import {
   COMPARE_SAME_SIDE,
   compareRefusal,
   diffIsEmpty,
+  diffValueWords,
   groupByCategory,
   resolveSideSchedules,
   sameSide,
@@ -235,5 +236,61 @@ describe('the diff, by category', () => {
     expect(diffIsEmpty(diff([], [{ category: 'notes', path: 'a', left: 1, right: 2 }]))).toBe(
       false,
     );
+  });
+});
+
+describe('how one side of a difference reads', () => {
+  it('gives a scalar back exactly, because the scalar IS the change', () => {
+    // The whole point of I6: a rename is only worth a line if the line carries
+    // the two names. A number is not quoted and a string is, so `"12"` on a
+    // renamed field is distinguishable from `12` on a changed estimate.
+    expect(diffValueWords('Design')).toBe('"Design"');
+    expect(diffValueWords('')).toBe('""');
+    expect(diffValueWords(12)).toBe('12');
+    expect(diffValueWords(0)).toBe('0');
+    expect(diffValueWords(-1.5)).toBe('-1.5');
+    expect(diffValueWords(true)).toBe('true');
+    expect(diffValueWords(false)).toBe('false');
+  });
+
+  it('keeps a missing field and an emptied field apart', () => {
+    // Two different facts. `undefined` is the counterpart side of an added or
+    // removed row, and every field one side never carried; `null` is a field
+    // the side carries with nothing in it, which is what `scheduleAbsentReason`
+    // stores on a plan that scheduled cleanly. One word for both would report a
+    // deleted field and a cleared field as the same change.
+    expect(diffValueWords(undefined)).toBe('absent');
+    expect(diffValueWords(null)).toBe('none');
+  });
+
+  it('renders a composite by shape and never by its JSON', () => {
+    // An added work item arrives here as the whole row. Serialised it is longer
+    // than the panel; clipped mid-object it looks like data and parses as none.
+    expect(diffValueWords({ id: 'w1', name: 'Design' })).toBe('2 fields');
+    expect(diffValueWords({ id: 'w1' })).toBe('1 field');
+    expect(diffValueWords({})).toBe('no fields');
+    expect(diffValueWords(['a', 'b', 'c'])).toBe('3 entries');
+    expect(diffValueWords(['a'])).toBe('1 entry');
+    expect(diffValueWords([])).toBe('no entries');
+  });
+
+  it('clips a long string inside its own quotes', () => {
+    // Inside, so a clipped note cannot be read as the whole stored note: the
+    // closing quote is the promise that the value ended, and an ellipsis
+    // outside it would break that promise silently.
+    const long = 'x'.repeat(200);
+    const words = diffValueWords(long);
+    expect(words).toBe(`"${'x'.repeat(80)}…"`);
+    expect(words.endsWith('…"')).toBe(true);
+    // A string that exactly fills the budget is NOT clipped — an off-by-one
+    // here would put an ellipsis on a value that is whole.
+    expect(diffValueWords('y'.repeat(80))).toBe(`"${'y'.repeat(80)}"`);
+  });
+
+  it('says something rather than throwing on a value JSON cannot hold', () => {
+    // Unreachable from be-01, which answers JSON. It exists because the
+    // alternative to a sentence here is an exception inside a `.map()`, which
+    // takes down every other difference in the panel.
+    expect(diffValueWords(() => 1)).toBe('a value');
   });
 });

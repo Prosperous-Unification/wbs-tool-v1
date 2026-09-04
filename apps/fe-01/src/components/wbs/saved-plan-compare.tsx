@@ -8,6 +8,7 @@ import type { SideSchedules } from '../../lib/saved-plan-compare';
 import {
   COMPARE_SAME_SIDE,
   diffIsEmpty,
+  diffValueWords,
   groupByCategory,
   sideScheduleWords,
 } from '../../lib/saved-plan-compare';
@@ -169,6 +170,37 @@ function SideSummary({
   );
 }
 
+/**
+ * One difference: what it is, and what it went from and to.
+ *
+ * The path alone was the whole line until now, and a path is not an answer —
+ * `workItems[w1].name` says a name changed and refuses to say to what, which is
+ * the one thing a reader opens a comparison to learn. Both sides come down the
+ * wire on every difference; be-01 computed them and this surface was dropping
+ * them on the floor.
+ *
+ * The left and right sides are separate elements rather than one formatted
+ * string so the arrow between them is a sibling, not a delimiter inside a value:
+ * a stored string containing `→` would otherwise be indistinguishable from the
+ * separator when anything reads the line back.
+ */
+function Difference({ difference }: { difference: PlanDifferenceView }) {
+  return (
+    <li className="saved-plan-compare__difference">
+      <span className="saved-plan-compare__path">{difference.path}</span>{' '}
+      <span className="saved-plan-compare__change">
+        <span className="saved-plan-compare__value saved-plan-compare__value--left">
+          {diffValueWords(difference.left)}
+        </span>
+        {' → '}
+        <span className="saved-plan-compare__value saved-plan-compare__value--right">
+          {diffValueWords(difference.right)}
+        </span>
+      </span>
+    </li>
+  );
+}
+
 /** One half of the diff, by category, or nothing when the half is empty. */
 function DiffHalf({
   title,
@@ -186,9 +218,7 @@ function DiffHalf({
           <h5>{group.category}</h5>
           <ul>
             {group.differences.map((difference) => (
-              <li key={difference.path} className="saved-plan-compare__difference">
-                {difference.path}
-              </li>
+              <Difference key={difference.path} difference={difference} />
             ))}
           </ul>
         </div>

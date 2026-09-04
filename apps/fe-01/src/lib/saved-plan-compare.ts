@@ -263,3 +263,60 @@ export function groupByCategory(
 export function diffIsEmpty(diff: PlanDiffView): boolean {
   return diff.input.length === 0 && diff.schedule.length === 0;
 }
+
+/** Longest a single side's text may run before it is clipped. */
+const MAX_VALUE_CHARS = 80;
+
+const clip = (text: string): string =>
+  text.length <= MAX_VALUE_CHARS ? text : `${text.slice(0, MAX_VALUE_CHARS)}…`;
+
+/** `no fields` / `1 field` / `4 fields`, without an English plural rule at each call site. */
+const countWords = (count: number, one: string, many: string): string => {
+  if (count === 0) return `no ${many}`;
+  return `${String(count)} ${count === 1 ? one : many}`;
+};
+
+/**
+ * One side of a difference, as a phrase short enough to sit on the line beside
+ * its path.
+ *
+ * `PlanDifference.left` and `.right` are `unknown` because `diffPlans` walks the
+ * two sides structurally: a leaf is whatever the plan stored there, and an
+ * `added`/`removed` row is the whole row object. So this has to answer for four
+ * kinds of value, and the rule is **scalars exactly, composites by shape**.
+ *
+ * - A scalar is the thing the reader came for. `workItems[w1].name` is only
+ *   worth rendering because `"Design" → "Design v2"` is the change; the path on
+ *   its own names a field and reports nothing about it.
+ * - A composite is rendered as `4 fields` / `2 entries` rather than as its JSON.
+ *   A serialised work item is longer than the panel and would push every other
+ *   difference off the screen, and a JSON string clipped mid-object is worse
+ *   than a count: it looks like data and is not parseable as any. The category
+ *   heading already says `added` or `removed` and the path already names the
+ *   row, so the count is the only part not said twice. Naming a composite's own
+ *   changed fields is a different feature — the walk would have to descend, and
+ *   `diffPlans` deliberately does not descend into an added row.
+ *
+ * **`absent` and `none` are two different facts, not one hedged one.** A field
+ * missing from a side reads `absent` (`undefined`: the row does not carry it,
+ * which is every `added`/`removed` counterpart and every field one side never
+ * had); a field the side carries with an empty value reads `none` (`null`, which
+ * `scheduleAbsentReason` and friends store on purpose). Collapsing them would
+ * report a deleted field and a cleared field as the same change.
+ *
+ * Long strings are clipped at {@link MAX_VALUE_CHARS} with an ellipsis INSIDE
+ * the quotes, so a clipped note cannot be read as the whole stored note.
+ */
+export function diffValueWords(value: unknown): string {
+  if (value === undefined) return 'absent';
+  if (value === null) return 'none';
+  if (typeof value === 'string') return `"${clip(value)}"`;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (Array.isArray(value)) return countWords(value.length, 'entry', 'entries');
+  if (typeof value === 'object') return countWords(Object.keys(value).length, 'field', 'fields');
+  // Nothing a JSON body can hold reaches here; a function or a symbol would.
+  // Said rather than thrown: a comparison must still draw its other rows.
+  return 'a value';
+}
