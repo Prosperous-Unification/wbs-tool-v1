@@ -1,0 +1,326 @@
+import { describe, expect, it } from 'bun:test';
+
+import { canonicalisePlanInput, type CanonicalPlanInput } from './canonical-plan-input';
+import {
+  diffPlans,
+  type PlanDifference,
+  type PlanScheduleValue,
+  type PlanSide,
+  type PlanSideSchedule,
+  planDiffIsEmpty,
+} from './diff-plans';
+import { planFixtureRows, reversed } from './plan-fixture';
+
+const input = canonicalisePlanInput(planFixtureRows);
+
+/** A stored schedule body in the shape `buildScheduleBody` writes. */
+const scheduleBody: PlanScheduleValue = {
+  version: 1,
+  algorithmId: 'levelled-v1',
+  workItems: {
+    w1: { startOffset: 0, endOffset: 3, startsOn: '2026-09-07', endsOn: '2026-09-09' },
+    w2: { startOffset: 3, endOffset: 5, startsOn: '2026-09-10', endsOn: '2026-09-11' },
+  },
+  slices: {
+    'w2:s1': { startOffset: 3, endOffset: 4, startsOn: '2026-09-10', endsOn: '2026-09-10' },
+  },
+  waitingForPerson: 1,
+  waitingForCapacity: 0,
+};
+
+const present: PlanSideSchedule = {
+  present: true,
+  algorithmId: 'levelled-v1',
+  body: scheduleBody,
+};
+
+function side(
+  over: CanonicalPlanInput = input,
+  schedule: PlanSideSchedule = present,
+): PlanSide {
+  return { input: over, schedule };
+}
+
+/** Deep clone through JSON — the values are already JSON by construction. */
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Every leaf path of a value, **derived from the value**.
+ *
+ * This is the whole point of tasks 7.2b and 7.2c: an enumerated field list here
+ * stays green for every field the capture gains later, which is how a changed
+ * tag, external reference, note or `start_no_earlier_than` would come to
+ * compare as "no change" while being faithfully stored.
+ */
+function leafPaths(value: unknown, prefix = ''): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => leafPaths(v, `${prefix}[${i}]`));
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).flatMap(([k, v]) =>
+      leafPaths(v, prefix === '' ? k : `${prefix}.${k}`),
+    );
+  }
+  return [prefix];
+}
+
+/** Read a leaf by the path {@link leafPaths} produced. */
+function segments(path: string): (string | number)[] {
+  return path
+    .split(/[.[\]]/)
+    .filter((s) => s !== '')
+    .map((s) => (/^\d+$/.test(s) ? Number(s) : s));
+}
+
+function readAt(root: unknown, path: string): unknown {
+  return segments(path).reduce<unknown>(
+    (node, seg) => (node as Record<string | number, unknown>)[seg],
+    root,
+  );
+}
+
+/** Return a copy with one leaf changed to a value it certainly did not hold. */
+function mutateAt<T>(root: T, path: string): T {
+  const copy = clone(root);
+  const segs = segments(path);
+  const last = segs[segs.length - 1] as string | number;
+  const parent = segs
+    .slice(0, -1)
+    .reduce<unknown>((node, seg) => (node as Record<string | number, unknown>)[seg], copy) as Record<
+    string | number,
+    unknown
+  >;
+  const before = parent[last];
+  parent[last] =
+    typeof before === 'number'
+      ? before + 1
+      : typeof before === 'boolean'
+        ? !before
+        : before === null
+          ? 'was-null'
+          : `${String(before)}~changed`;
+  return copy;
+}
+
+/** The last path segment, which is the field name a difference must name. */
+function fieldOf(path: string): string {
+  const segs = segments(path);
+  return String(segs[segs.length - 1]);
+}
+
+function names(differences: readonly PlanDifference[], field: string): boolean {
+  return differences.some((d) => fieldOf(d.path) === field);
+}
+
+describe('diffPlans — 7.1, the two sides', () => {
+  it('reports nothing when a plan is re-serialized unchanged', () => {
+    expect(planDiffIsEmpty(diffPlans(side(), side()))).toBe(true);
+  });
+
+  it('reports nothing when the same plan arrives in the opposite row order', () => {
+    const other = canonicalisePlanInput(reversed(planFixtureRows));
+
+    expect(planDiffIsEmpty(diffPlans(side(), side(other)))).toBe(true);
+  });
+
+  it('is one function in both directions: swapping the sides swaps left and right', () => {
+    const changed = mutateAt(input, 'project.name');
+    const forward = diffPlans(side(), side(changed)).input;
+    const back = diffPlans(side(changed), side()).input;
+
+    expect(back.map((d) => d.path)).toEqual(forward.map((d) => d.path));
+    expect(back.map((d) => [d.left, d.right])).toEqual(
+      forward.map((d) => [d.right, d.left]),
+    );
+  });
+});
+
+describe('diffPlans — 7.2, the presentation categories', () => {
+  function inputDiff(next: CanonicalPlanInput): readonly PlanDifference[] {
+    return diffPlans(side(), side(next)).input;
+  }
+
+  it('reports an added and a removed work item as added and removed, not as changed', () => {
+    const added: CanonicalPlanInput = {
+      ...input,
+      workItems: [
+        ...input.workItems,
+        { ...input.workItems[0], id: 'w9', name: 'New work' },
+      ],
+    };
+
+    const forward = inputDiff(added);
+    expect(forward).toHaveLength(1);
+    expect(forward[0]).toMatchObject({ category: 'added', path: 'workItems[w9]' });
+
+    const back = diffPlans(side(added), side()).input;
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ category: 'removed', path: 'workItems[w9]' });
+  });
+
+  it('separates renamed, reparented and reordered', () => {
+    const [first] = input.workItems;
+    const moved: CanonicalPlanInput = {
+      ...input,
+      workItems: input.workItems.map((row) =>
+        row.id === first.id
+          ? { ...row, name: `${row.name} v2`, parentId: 'w-elsewhere', position: row.position + 5 }
+          : row,
+      ),
+    };
+
+    const byCategory = new Map(inputDiff(moved).map((d) => [d.category, d.path]));
+    expect(byCategory.get('renamed')).toBe(`workItems[${first.id}].name`);
+    expect(byCategory.get('reparented')).toBe(`workItems[${first.id}].parentId`);
+    expect(byCategory.get('reordered')).toBe(`workItems[${first.id}].position`);
+  });
+
+  it('reports freeze, which the category list omitted until spec named it', () => {
+    const [first] = input.workItems;
+    const withFreeze = (value: string | null): CanonicalPlanInput => ({
+      ...input,
+      workItems: input.workItems.map((row) =>
+        row.id === first.id ? { ...row, frozenNumber: value } : row,
+      ),
+    });
+
+    // set, cleared, and changed — all three the spec names.
+    for (const [left, right] of [
+      [withFreeze(null), withFreeze('7')],
+      [withFreeze('7'), withFreeze(null)],
+      [withFreeze('7'), withFreeze('8')],
+    ] as const) {
+      const differences = diffPlans(side(left), side(right)).input;
+      expect(differences).toHaveLength(1);
+      expect(differences[0].category).toBe('freeze');
+    }
+  });
+});
+
+describe('diffPlans — 7.2b, the diff-completeness property', () => {
+  /**
+   * Mutate **any single field** of the canonical plan input in turn and require
+   * the diff to be non-empty and to name that field. The field set is read off
+   * the value, so a capture field added later is covered without an edit here.
+   */
+  it('names every field of the canonical plan input that can differ', () => {
+    const paths = leafPaths(input);
+    expect(paths.length).toBeGreaterThan(80);
+
+    const missed: string[] = [];
+    for (const path of paths) {
+      const differences = diffPlans(side(), side(mutateAt(input, path))).input;
+      if (differences.length === 0 || !names(differences, fieldOf(path))) missed.push(path);
+    }
+
+    expect(missed).toEqual([]);
+  });
+
+  it('covers the registry rows a label resolves through', () => {
+    expect(leafPaths(input).some((p) => p.startsWith('tags['))).toBe(true);
+    expect(leafPaths(input).some((p) => p.startsWith('workItemTypes['))).toBe(true);
+    expect(leafPaths(input).some((p) => p.startsWith('externalSystems['))).toBe(true);
+  });
+});
+
+describe('diffPlans — 7.2c, the schedule side', () => {
+  /**
+   * The motivating case: two saves whose **input bodies are byte-identical**
+   * and whose schedules differ because `schedule()`'s semantics changed. An
+   * input-only diff reports "no change" here, which is the feature's own
+   * question answered wrongly.
+   */
+  it('reports differing dates between byte-identical inputs', () => {
+    const later: PlanSideSchedule = {
+      present: true,
+      algorithmId: 'levelled-v2',
+      body: mutateAt(scheduleBody, 'workItems.w1.endsOn'),
+    };
+
+    const diff = diffPlans(side(), side(input, later));
+
+    expect(diff.input).toEqual([]);
+    expect(names(diff.schedule, 'endsOn')).toBe(true);
+    expect(names(diff.schedule, 'algorithmId')).toBe(true);
+  });
+
+  it('names every field of the stored schedule body that can differ', () => {
+    const paths = leafPaths(scheduleBody);
+    const missed: string[] = [];
+    for (const path of paths) {
+      const mutated: PlanSideSchedule = {
+        present: true,
+        algorithmId: 'levelled-v1',
+        body: mutateAt(scheduleBody, path),
+      };
+      const differences = diffPlans(side(), side(input, mutated)).schedule;
+      if (differences.length === 0 || !names(differences, fieldOf(path))) missed.push(path);
+    }
+
+    expect(missed).toEqual([]);
+  });
+
+  it('reports the algorithm identity, which is a header column and not a body key', () => {
+    const other: PlanSideSchedule = { ...present, algorithmId: 'levelled-v2' };
+    const diff = diffPlans(side(), side(input, other));
+
+    expect(diff.schedule.map((d) => d.path)).toEqual(['schedule.algorithmId']);
+  });
+
+  it('reports absence and its reason per side', () => {
+    const absent: PlanSideSchedule = { present: false, absentReason: 'pending' };
+    const infeasible: PlanSideSchedule = { present: false, absentReason: 'infeasible' };
+
+    const againstPresent = diffPlans(side(), side(input, absent)).schedule;
+    expect(names(againstPresent, 'present')).toBe(true);
+    expect(names(againstPresent, 'absentReason')).toBe(true);
+
+    const betweenReasons = diffPlans(side(input, absent), side(input, infeasible)).schedule;
+    expect(betweenReasons.map((d) => d.path)).toEqual(['schedule.absentReason']);
+    expect(betweenReasons[0]).toMatchObject({ left: 'pending', right: 'infeasible' });
+  });
+
+  it('reports nothing on the schedule half when both sides are absent for the same reason', () => {
+    const absent: PlanSideSchedule = { present: false, absentReason: 'pending' };
+
+    expect(diffPlans(side(input, absent), side(input, absent)).schedule).toEqual([]);
+  });
+});
+
+describe('diffPlans — the catch-all', () => {
+  /**
+   * A field with no listed category is still reported, under `other`, naming
+   * the field. This is what keeps the category table presentation rather than
+   * coverage: a capture field added later cannot become invisible.
+   */
+  it('reports an unlisted field under other, naming it', () => {
+    const withNewField = {
+      ...input,
+      project: { ...input.project, someLaterField: 'a' },
+    } as unknown as CanonicalPlanInput;
+    const changed = {
+      ...input,
+      project: { ...input.project, someLaterField: 'b' },
+    } as unknown as CanonicalPlanInput;
+
+    const differences = diffPlans(side(withNewField), side(changed)).input;
+
+    expect(differences).toHaveLength(1);
+    expect(differences[0].path).toBe('project.someLaterField');
+  });
+
+  it('reports a whole collection the field list gains later', () => {
+    const withCollection = (rows: unknown[]): CanonicalPlanInput =>
+      ({ ...input, laterCollection: rows }) as unknown as CanonicalPlanInput;
+
+    const differences = diffPlans(
+      side(withCollection([{ id: 'x', value: 1 }])),
+      side(withCollection([{ id: 'x', value: 2 }])),
+    ).input;
+
+    expect(differences).toHaveLength(1);
+    expect(differences[0]).toMatchObject({ category: 'other', path: 'laterCollection[#0].value' });
+  });
+});
