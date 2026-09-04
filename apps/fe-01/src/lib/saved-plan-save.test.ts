@@ -44,7 +44,7 @@ const deferredSave = (): {
         rejectWith = reject;
       });
     },
-  } as SaveDeps;
+  };
   const flush = async (): Promise<void> => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
