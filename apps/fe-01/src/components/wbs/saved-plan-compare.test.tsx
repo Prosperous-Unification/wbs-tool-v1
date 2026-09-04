@@ -133,6 +133,12 @@ describe('what a comparison renders', () => {
     // The schedule difference is in the OTHER section. Concatenating the halves
     // would put a changed start date under the same heading as a changed note,
     // which is the distinction this panel exists to make.
+    //
+    // Negative, MEASURED on h2puni at caf9678e and reverted with dirty=0
+    // re-asserted: render `[...diff.input, ...diff.schedule]` as one half and
+    // this file is 8 pass / 1 fail — this case, `[ 'added', 'dates', 'notes' ]`
+    // where `[ 'added', 'notes' ]` was expected. The `dates` heading is the
+    // schedule difference, arriving in the plan's own list.
     expect(plan.textContent).not.toContain('schedule.body.start');
     expect(screen.getByLabelText('The schedule').textContent).toContain('schedule.body.start');
   });
