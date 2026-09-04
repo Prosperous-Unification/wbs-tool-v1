@@ -536,7 +536,7 @@ comparison UI) and start only after slice 6 is merged.
       `schedule()`'s semantics changed between them. Negative: build `diffPlans`
       over the inputs alone and watch every schedule mutation report "no change"
       — which is what the pre-6056baf2 signature would have shipped.
-- [ ] 7.3 `projectCurrentPlan()` materialises the live plan through
+- [x] 7.3 `projectCurrentPlan()` materialises the live plan through
       `canonicalisePlanInput`, writes nothing, and consumes no quota. **It reuses
       `SavedPlanCaptureRepository.readPlanInput` — 3.1's read set, both halves,
       inside one `BEGIN DEFERRED` snapshot — rather than reads of its own.** Spec
@@ -550,7 +550,7 @@ comparison UI) and start only after slice 6 is merged.
       live plan that never existed — the display-side twin of the defect 3.2
       exists to catch. Test: compare against `current`, assert no row was
       written, and assert the `current` value carries the registry rows by value.
-- [ ] 7.3a **`current` carries a schedule, produced here.** `projectCurrentPlan()`
+- [x] 7.3a **`current` carries a schedule, produced here.** `projectCurrentPlan()`
       returns the third side-field 7.1 takes as well as the input: `schedule()`'s
       return over the values it just captured, run **outside** the read snapshot
       as 3.3 requires of the save path, labelled with the algorithm identity

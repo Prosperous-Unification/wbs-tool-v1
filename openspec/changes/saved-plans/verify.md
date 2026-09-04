@@ -280,3 +280,69 @@ the capture gains.
 7.3 (`projectCurrentPlan()`), 7.3a (`current`'s own schedule), 7.3b (the compare
 route) and 7.4 (cross-version normalisation). All four are `apps/be-01` work;
 nothing in `libs/domain` blocks them.
+
+## TASK-232 run 1 chunk 2 — `current` as a comparison side (7.3, 7.3a)
+
+`SavedPlanService.projectCurrentPlan(projectId)` returns a `PlanSide` or `null`.
+It is built on `captureAndAttempt`, **the save path's own capture**, rather than
+on reads of its own — which is what 7.3 requires and what the two defects below
+turn on.
+
+### What reuse buys, stated as the failures it prevents
+
+Both are invisible to the domain diff's completeness properties, because those
+mutate `CanonicalPlanInput` values directly and never run this path:
+
+1. A `current` assembled from the live projection's twelve awaited reads lacks
+   the registry and junction rows **by value**, so every saved-vs-current
+   comparison reports the saved side's tags, types and external systems as
+   removed. The assertion that catches it compares the projected input's
+   **bytes** against what a `save()` of the same project stored — not a field
+   list somebody has to remember to extend.
+2. A `current` whose schedule is the absent reason `unavailable` — which spec's
+   stored-schedule bound lawfully permits until 7.3a exists — answers "no
+   schedule was saved" about the live side of this feature's primary direction.
+
+Reuse also gives `current` the one `BEGIN DEFERRED` read snapshot, without which
+a torn `current` renders a comparison against a live plan that never existed.
+
+### The schedule side
+
+`schedule()`'s return over the values just captured, computed **outside** the
+read snapshot as the save path already arranges, labelled with the algorithm
+identity currently in force, with `ScheduleCycleError` mapping to `infeasible`
+on 5.4's derivation. The body is round-tripped through `serialiseScheduleBody`
+rather than handed over as the built object: the live side must compare against
+a stored side on identical serialization terms, or every difference the
+serializer normalises away is reported as a real one.
+
+### 3.3's handle-liveness assertion, on this scheduling call
+
+3.3's spy covers the save path only. The new suite samples the open-connection
+count from **inside** the scheduling callback — a reading taken before and after
+stays green under exactly the arrangement it forbids — and pairs it with the
+instrument's own proof that a held handle reads as 1, so the zero is a release
+rather than a counter that never increments.
+
+### Watched red, measured
+
+Returning `{ present: false, absentReason: 'unavailable' }` from
+`projectCurrentPlan` before the real branch — defect (2) above, written out —
+turns **2 of the 9 cases red**: the algorithm-identity case and the cycle case.
+Reverted, `dirty=0` re-asserted.
+
+**Not run this chunk, and not claimed:** the negative for 7.3's reuse (build
+`current` from the projection instead of the capture) and the negative for the
+liveness sample (schedule inside the held snapshot). Both are named here so the
+next run does them rather than inheriting a green it did not earn.
+
+### Gate
+
+At `5103e0b3`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
+`--skip-nx-cache`, `TMPDIR=/home/puni1/gate-tmp`:
+
+| Gate | Result |
+| --- | --- |
+| `bun test src/service/saved-plan-current.db.test.ts` | exit 0 — **9 pass / 0 fail** |
+| `nx run-many -t lint typecheck -p be-01 domain` | exit 0 after the import-sort autofix |
+| `nx run-many -t test -p be-01` (whole suite) | exit 0 — **1310 pass / 0 fail** across 111 files in 102.5s; 1301 before this chunk |
