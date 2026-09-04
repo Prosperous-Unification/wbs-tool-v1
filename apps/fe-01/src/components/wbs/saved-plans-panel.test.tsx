@@ -233,7 +233,7 @@ describe('the saved-plans panel', () => {
     const wiring = fakeDeps([ROW]);
     wiring.compare.mockResolvedValue({
       outcome: 'compared',
-      diff: { input: [{ category: 'items', path: 'the first answer', left: 1, right: 2 }], schedule: [] },
+      diff: { input: [{ category: 'notes', path: 'the first answer', left: 1, right: 2 }], schedule: [] },
     });
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
@@ -245,7 +245,7 @@ describe('the saved-plans panel', () => {
     wiring.setShelf([NEWER, ROW]);
     wiring.compare.mockResolvedValue({
       outcome: 'compared',
-      diff: { input: [{ category: 'items', path: 'the second answer', left: 3, right: 4 }], schedule: [] },
+      diff: { input: [{ category: 'notes', path: 'the second answer', left: 3, right: 4 }], schedule: [] },
     });
     await act(async () => {
       wiring.broadcast();
@@ -266,7 +266,7 @@ describe('the saved-plans panel', () => {
     const wiring = fakeDeps([ROW]);
     wiring.compare.mockResolvedValue({
       outcome: 'compared',
-      diff: { input: [{ category: 'items', path: 'the first answer', left: 1, right: 2 }], schedule: [] },
+      diff: { input: [{ category: 'notes', path: 'the first answer', left: 1, right: 2 }], schedule: [] },
     });
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
@@ -274,7 +274,7 @@ describe('the saved-plans panel', () => {
     wiring.setShelf([NEWER, ROW]);
     wiring.compare.mockResolvedValue({
       outcome: 'compared',
-      diff: { input: [{ category: 'items', path: 'the second answer', left: 3, right: 4 }], schedule: [] },
+      diff: { input: [{ category: 'notes', path: 'the second answer', left: 3, right: 4 }], schedule: [] },
     });
     await act(async () => {
       wiring.broadcast();
