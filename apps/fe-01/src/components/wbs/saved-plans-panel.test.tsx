@@ -211,8 +211,10 @@ describe('the saved-plans panel', () => {
     // What survives is the comparison beside it, and both picker selections.
     expect(list).toHaveBeenCalledTimes(2);
     expect(screen.getByText('No differences.')).toBeTruthy();
-    expect(screen.getByLabelText(/Compare/).value).toBe(NEWER.id);
-    expect(screen.getByLabelText(/^with/).value).toBe(ROW.id);
+    const leftPicker: HTMLSelectElement = screen.getByLabelText(/Compare/);
+    const rightPicker: HTMLSelectElement = screen.getByLabelText(/^with/);
+    expect(leftPicker.value).toBe(NEWER.id);
+    expect(rightPicker.value).toBe(ROW.id);
   });
 
   itDom('compares the newest saved plan against the current one by default', async () => {
