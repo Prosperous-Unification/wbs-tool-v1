@@ -170,9 +170,7 @@ export function useSavedPlanSave(
     const running = runningFor(deps, projectId);
     if (running === undefined) {
       const unclaimed = takeUnclaimed(deps, projectId);
-      setState((current) =>
-        unclaimed ?? (current.kind === 'saving' ? { kind: 'idle' } : current),
-      );
+      setState((current) => unclaimed ?? (current.kind === 'saving' ? { kind: 'idle' } : current));
     } else {
       setState({ kind: 'saving' });
       running.waiting.add(receive);
