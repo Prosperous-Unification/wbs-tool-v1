@@ -629,8 +629,23 @@ comparison UI) and start only after slice 6 is merged.
       already been swapped, which is the bug this task names. Take `asked` back
       out and the second fails looking for the second answer's diff path: an
       offer that does nothing.
-- [ ] 8.5 Typed refusals surface as themselves: `snapshot_busy` says the plan is
-      being written to and to try again; a quota refusal names the limit reached.
+- [x] 8.5 Typed refusals surface as themselves, on both sides of the panel.
+      **Save half** (run 9): `snapshot_busy` says the plan is being written to
+      and to press Save again in a moment; a quota refusal carries be-01's own
+      sentence about the limit and invites no retry, because no retry clears it.
+      **Compare half** (run 10): `not_found` and `corrupt` each keep their type
+      all the way to the words. Until then the panel flattened both into
+      `{ kind: 'error', code }`, so a plan a collaborator had just deleted was
+      reported to the reader as a code in brackets. `not_found` with an id says
+      the plan was deleted and to pick another; with no id it says the project
+      has no saved plans, and offers no pick, because no choice among these
+      pickers can fix a refusal about the project. `corrupt` names the plan and
+      be-01's refusal word and sends the reader at the other picker rather than
+      at the same button, since rereading stored bytes gives the same answer.
+      **Negative watched:** put the flattening back and all three compare cases
+      fail on the whole sentence rather than on a fragment of it — the rendered
+      alert is still be-01's outcome word in brackets where the reader should
+      have been told the plan was deleted.
 
 ## 9. Close
 
