@@ -337,8 +337,9 @@ describe('the saved-plan routes', () => {
   /**
    * The two cases above, crossed — and the crossing is the defect.
    *
-   * Each of them alone passed on the old code: the cross-project test used a
-   * *healthy* foreign plan and the corrupt test used a plan in *this* project.
+   * Each of them alone passed on the old code: the cross-project test used
+   * a *healthy* foreign plan and the corrupt test used a plan in *this*
+   * project.
    * `sideOf` read and verified the bytes first and checked the project second,
    * so the one combination neither covered — a corrupt plan in another project
    * — left as the 422 above, naming a foreign id and reporting its condition,

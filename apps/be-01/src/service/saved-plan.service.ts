@@ -528,7 +528,10 @@ export class SavedPlanService {
       which project owns a plan.
     */
     const principals = await this.opts.plans.principalsOf(ref.savedPlanId);
-    if (principals === null || principals.projectId !== projectId) {
+    // `?.` covers both refusals in one read, and they are the same refusal: a
+    // plan that is not there and a plan that is somebody else's are both
+    // `not_found` here, deliberately, so neither can be told from the other.
+    if (principals?.projectId !== projectId) {
       return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
     }
     const found = await this.read(ref.savedPlanId);
