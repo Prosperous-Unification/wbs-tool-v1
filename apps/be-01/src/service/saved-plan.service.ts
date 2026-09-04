@@ -491,7 +491,8 @@ export class SavedPlanService {
       return side === null ? { outcome: 'no_project' } : { outcome: 'side', side };
     }
     const found = await this.read(ref.savedPlanId);
-    if (found.outcome === 'not_found') return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
+    if (found.outcome === 'not_found')
+      return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
     if (found.outcome === 'corrupt') {
       return { outcome: 'corrupt', savedPlanId: ref.savedPlanId, refusal: found.refusal };
     }

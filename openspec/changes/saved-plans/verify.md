@@ -451,7 +451,7 @@ and the failure is the cross-project case alone.
 **The second negative is the finding.** With that branch gone the whole
 permission matrix stayed green — all eight rows, both columns. A status matrix
 cannot see this exposure, because the caller is authenticated and lawfully reads
-project A: what leaks is project B's live plan, named as the *other side*, at
+project A: what leaks is project B's live plan, named as the _other side_, at
 status 200 in both builds. The task's wording ("watch the matrix's anonymous and
 third-party cases fail") holds for the anonymous half only. On this codebase's
 read rule an authenticated third party is a lawful 200 on `read` and stays 200
@@ -466,9 +466,9 @@ Both files were restored and `dirty=0` re-asserted before the gate below.
 At `d8fe88c1`, h2puni `/home/puni1/gate-task232`, `dirty=0`, `NX_DAEMON=false`,
 `--skip-nx-cache`, `--parallel=1`, `TMPDIR=/home/puni1/gate-tmp`:
 
-| Gate                                                   | Result                                                    |
-| ------------------------------------------------------ | --------------------------------------------------------- |
-| `nx run-many -t test lint typecheck -p be-01 domain`   | exit 0 — domain **371 pass / 0 fail**, be-01 **1314 pass / 0 fail** across 111 files |
+| Gate                                                 | Result                                                                               |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `nx run-many -t test lint typecheck -p be-01 domain` | exit 0 — domain **371 pass / 0 fail**, be-01 **1314 pass / 0 fail** across 111 files |
 
 The first attempt at `5744c156` failed twice and both were real: an
 `emit-openapi-cli` guard ("the routes moved and the document did not") caught
