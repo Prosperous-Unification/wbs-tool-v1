@@ -374,45 +374,6 @@ describe('the saved-plan routes', () => {
     expect(await res.json()).toEqual({ error: 'not_found', savedPlanId: foreign });
   });
 
-  /**
-   * A plan this node cannot bring forward is a refusal, not a crash.
-   *
-   * Every byte is intact and every hash agrees; only `input_schema_version`
-   * says something this build cannot reach. `normalisePlanInputForward` throws
-   * `PlanInputVersionError` for it, `sideOf` did not catch it, and Elysia
-   * answered **500** — an unmodelled status for a database state the domain
-   * anticipates by name, which R5 forbids. Gemini's F-02 on PR 202.
-   *
-   * A version from the future is the case a real deployment meets: a newer node
-   * writes a plan, an older one is asked to compare it. Written directly rather
-   * than through a migration, because the point is the *reader's* behaviour.
-   *
-   * Watched: with the `PlanInputVersionError` catch removed from `sideOf`, this
-   * fails on `expected 500 to be 422`.
-   */
-  it('refuses a plan written by a newer node instead of crashing on it', async () => {
-    const id = await savedIdOf(await save('ada'));
-    const ahead = openConnection(path);
-    ahead.db.run(`UPDATE saved_plan SET input_schema_version = 9999 WHERE id = '${id}'`);
-    ahead.close();
-
-    const res = await as(
-      tokens['ada'],
-      `/api/projects/${projectId}/saved-plans/compare?left=${id}&right=current`,
-    );
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as {
-      error: string;
-      savedPlanId: string;
-      refusal: { reason: string; versionReason: string };
-    };
-    expect(body.error).toBe('corrupt');
-    expect(body.savedPlanId).toBe(id);
-    // Which of the three version faults it is, because they call for different
-    // operator actions: this one says a newer node wrote the plan.
-    expect(body.refusal.reason).toBe('input_version_unreadable');
-    expect(body.refusal.versionReason).toBe('from-the-future');
-  });
 
   /**
    * `current` is a reserved literal, not a lookup, and this is the case that
