@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { Project, ProjectStore } from '../repository';
-import { type RecordingBroadcaster } from '../testing/broadcast-fixture';
+import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { projectRow } from '../testing/project-fixture';
-import type { ProjectEvent } from './broadcast';
+import { DeferringBroadcaster, type ProjectEvent } from './broadcast';
 import type { WorkItemService } from './work-item.service';
 
 const OWNER = 'owner-account';
@@ -125,5 +125,46 @@ describe('what a project subscriber receives', () => {
     await service.remove(strip, OWNER, null);
 
     expect(broadcast.published).toEqual([]);
+  });
+});
+
+/**
+ * The nested-hold guard, which R5 requires a negative test for because
+ * TASK-256 changed what it inspects.
+ *
+ * It used to read instance state, so it caught two *concurrent* batches and
+ * that is the failure it was written for — `plan-commands.ts`'s `Proof:`
+ * comment names one, watched 2026-09-02. Making the queue per-caller retired
+ * that symptom: concurrent batches now get a store each and never meet here.
+ * What is left is the case the guard is actually still needed for, and it is a
+ * different one — a hold opened *inside* another hold's own context, which
+ * `AsyncLocalStorage` would answer by shadowing the parent's store. The parent
+ * would then commit having been told nothing about what the child announced,
+ * which is the same silent drop this whole task is about, one level in.
+ *
+ * So the guard's reachable path narrowed and its test had to follow. Without
+ * one, deleting the two lines leaves the suite green.
+ */
+describe('DeferringBroadcaster refuses a nested hold', () => {
+  it('throws rather than shadowing the outer hold, and the outer queue survives', async () => {
+    const inner = recordingBroadcaster();
+    const broadcaster = new DeferringBroadcaster(inner);
+
+    let nested: unknown;
+    const { pending } = await broadcaster.hold(async () => {
+      await broadcaster.publish('p-1', { type: 'directory_changed' });
+      nested = await broadcaster
+        .hold(() => Promise.resolve(undefined))
+        .then(() => undefined)
+        .catch((error: unknown) => error);
+    });
+
+    expect(nested).toBeInstanceOf(Error);
+    expect((nested as Error).message).toBe('a batch is already holding announcements');
+    // The outer batch still owns everything it queued: a shadowing store would
+    // have handed it an empty one and sent nothing.
+    expect(pending).toEqual([{ projectId: 'p-1', event: { type: 'directory_changed' } }]);
+    // And nothing escaped to the inner broadcaster while the hold was open.
+    expect(inner.published).toEqual([]);
   });
 });

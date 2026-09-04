@@ -217,6 +217,14 @@ export class DeferringBroadcaster implements Broadcaster {
    * told nothing about the writes the child announced.
    */
   async hold<T>(step: () => Promise<T>): Promise<{ result: T; pending: HeldAnnouncement[] }> {
+    // Proof: deleting these two lines makes `broadcast.test.ts`'s
+    // `DeferringBroadcaster refuses a nested hold` fail on
+    // `expect(nested).toBeInstanceOf(Error)` — the inner hold succeeds and
+    // returns, shadowing the outer store. Watched 2026-09-04, 6 pass / 1 fail.
+    // The check needed its own test once TASK-256 changed what it inspects:
+    // reading instance state it caught two *concurrent* batches, which is the
+    // failure `plan-commands.ts` names, and per-caller queues retired that
+    // symptom entirely.
     if (this.scope.getStore() !== undefined)
       throw new Error('a batch is already holding announcements');
     const held: HeldAnnouncement[] = [];

@@ -60,7 +60,7 @@ let seededBy: string;
  * The one broadcaster in the process, and the wrapper over it, held apart so a
  * test can open a batch's hold on the same object the routes publish through.
  *
- * `services.ts:186` gives `StepService` `announcements` — the shared
+ * `services.ts` gives `StepService` `announcements` — the shared
  * {@link DeferringBroadcaster} — so a fixture that hands it a private recorder
  * is not wiring this app builds, and cannot see a batch capture a step event.
  * That divergence is exactly what hid TASK-256.
@@ -112,7 +112,7 @@ beforeEach(async () => {
     history: testHistoryService(),
     auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
     projects: new ProjectService({ projects }),
-    // The shared wrapper, as `services.ts:186` wires it — not a private
+    // The shared wrapper, as `services.ts` wires `StepService` — not a private
     // recorder. See {@link writes}.
     steps: new StepService({ projects, steps: stepStore, broadcast: writes.announcements }),
     workItems: new WorkItemService({
