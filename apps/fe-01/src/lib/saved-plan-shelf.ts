@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { SavedPlanListState } from '../components/wbs/saved-plan-list';
 import { subscribeToProject } from './project-stream';
@@ -86,12 +86,21 @@ export interface ShelfWatchDeps extends ShelfDeps {
  * Returns the stop. Call it and no further state arrives — including from a read
  * already in flight, which is the trap `project-stream.ts` names in its own
  * `unsubscribe`: the loop that outlived its subscriber.
+ *
+ * **It also returns `refresh`, and the reason is a hole in the broadcast rather
+ * than a convenience.** `saved-plan.controller.ts` publishes nothing: not on
+ * save, not on rename, not on delete. The broadcast this watch listens to is the
+ * *plan's*, so a collaborator editing the plan re-reads the shelf and the user's
+ * own checkpoint does not. Without a caller-driven read, pressing Save leaves
+ * the new row invisible until somebody edits the project — the one moment the
+ * shelf is most obviously wrong. `refresh` is `read` itself, so the superseded
+ * -answer guard covers a refresh racing a broadcast for free.
  */
 export function watchShelf(
   deps: ShelfWatchDeps,
   projectId: string,
   onState: (state: SavedPlanListState) => void,
-): () => void {
+): { stop: () => void; refresh: () => void } {
   let stopped = false;
   let generation = 0;
   let stream: { unsubscribe(): void } | null = null;
@@ -114,10 +123,21 @@ export function watchShelf(
 
   read();
 
-  return () => {
-    stopped = true;
-    stream?.unsubscribe();
-    stream = null;
+  return {
+    stop: () => {
+      stopped = true;
+      stream?.unsubscribe();
+      stream = null;
+    },
+    // Not `read` directly. `read`'s `stopped` guard already suppresses the
+    // state *and* the resubscribe — it returns before both — so this changes no
+    // observable state. What it stops is the pair of requests: a stopped watch
+    // that is refreshed anyway asks the server the capability question and the
+    // list, and throws both answers away. A `refresh` handed to a component
+    // outlives that component by exactly as long as its last save takes.
+    refresh: () => {
+      if (!stopped) read();
+    },
   };
 }
 
@@ -164,16 +184,39 @@ export const browserShelfDeps = (token: string): ShelfWatchDeps => ({
  * that never reaches the socket, and would need `eslint-disable` to say so.
  * Keeping it honest means the linter checks this array rather than trusting it.
  */
-export function useSavedPlanShelf(deps: ShelfWatchDeps, projectId: string): SavedPlanListState {
+export function useSavedPlanShelf(
+  deps: ShelfWatchDeps,
+  projectId: string,
+): { readonly state: SavedPlanListState; readonly refresh: () => void } {
   const [state, setState] = useState<SavedPlanListState>({ kind: 'loading' });
+  /**
+   * The current watch's `refresh`, held in a ref so callers get one identity.
+   *
+   * A `refresh` that changed on every project change would go into the
+   * dependency array of every effect and callback that saves, and each of those
+   * would then re-run on a change it does not care about. The ref is written
+   * inside the effect that creates the watch, so the stable function always
+   * forwards to the live one — and to nothing at all before the first effect
+   * runs, which is a press that cannot happen because nothing is rendered yet.
+   */
+  const live = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     // Re-seeded on every subscribe, not just the first: on mount this is what
     // `useState` already holds, but on a change of project it is the difference
     // between "reading p2" and "here are p1's plans, mislabelled".
     setState({ kind: 'loading' });
-    return watchShelf(deps, projectId, setState);
+    const watch = watchShelf(deps, projectId, setState);
+    live.current = watch.refresh;
+    return () => {
+      live.current = null;
+      watch.stop();
+    };
   }, [deps, projectId]);
 
-  return state;
+  const refresh = useCallback(() => {
+    live.current?.();
+  }, []);
+
+  return { state, refresh };
 }

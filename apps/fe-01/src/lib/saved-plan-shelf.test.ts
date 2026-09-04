@@ -180,7 +180,7 @@ describe('watching a project’s shelf', () => {
     // the ordinary case for a component that unmounts, not a rare one.
     const stream = fakeStream();
     const onState = vi.fn();
-    const stop = watchShelf(
+    const { stop } = watchShelf(
       {
         available: () => Promise.resolve(true),
         list: () => Promise.resolve([ROW]),
@@ -197,7 +197,7 @@ describe('watching a project’s shelf', () => {
 
   it('unsubscribes the stream it opened when the caller stops', async () => {
     const stream = fakeStream();
-    const stop = watchShelf(
+    const { stop } = watchShelf(
       {
         available: () => Promise.resolve(true),
         list: () => Promise.resolve([ROW]),
@@ -209,6 +209,52 @@ describe('watching a project’s shelf', () => {
     await settled();
     stop();
     expect(stream.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads on a caller’s refresh, which no broadcast would have caused', async () => {
+    // **The hole this exists to fill.** `saved-plan.controller.ts` publishes
+    // nothing — not on save, not on rename, not on delete — so the broadcast
+    // this watch listens to is the *plan's*, and a user's own checkpoint is the
+    // one change that never reaches it. The assertion is on `list` being asked
+    // a second time with no broadcast fired at all: a build whose refresh did
+    // nothing would still pass every other case in this file, because every
+    // other case gets its second read from the stream.
+    const stream = fakeStream();
+    const list = vi.fn(() => Promise.resolve([ROW]));
+    const watch = watchShelf(
+      { available: () => Promise.resolve(true), list, subscribe: stream.subscribe },
+      'p1',
+      vi.fn(),
+    );
+    await settled();
+    expect(list).toHaveBeenCalledTimes(1);
+
+    watch.refresh();
+    await settled();
+    expect(list).toHaveBeenCalledTimes(2);
+    // And it re-used the subscription rather than opening a second one: the
+    // `stream ??=` in `read` is what makes a refresh cheap.
+    expect(stream.subscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks nothing at all when a stopped watch is refreshed', async () => {
+    // A `refresh` handed to a component outlives that component by as long as
+    // its last save takes, so this is the ordinary path and not a rare one. The
+    // state guards in `read` already make it unobservable; what they do not do
+    // is stop the two requests. Negative: drop the `if (!stopped)` and this
+    // reddens on `available`, with the probe and the list both asked on behalf
+    // of a reader who has gone.
+    const stream = fakeStream();
+    const available = vi.fn(() => Promise.resolve(true));
+    const list = vi.fn(() => Promise.resolve([ROW]));
+    const watch = watchShelf({ available, list, subscribe: stream.subscribe }, 'p1', vi.fn());
+    await settled();
+    watch.stop();
+
+    watch.refresh();
+    await settled();
+    expect(available).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(1);
   });
 
   it('does not let a slow read overwrite the answer to a newer question', async () => {
@@ -307,19 +353,19 @@ describe('the shelf as React state', () => {
     // Before the first read resolves. `loading` and not an empty `ready`: "no
     // plans saved yet" is a claim about the project, and this component has not
     // yet been told anything about the project.
-    expect(held.result.current).toEqual({ kind: 'loading' });
+    expect(held.result.current.state).toEqual({ kind: 'loading' });
 
     await flush();
-    expect(held.result.current).toEqual({ kind: 'ready', rows: [ROW] });
+    expect(held.result.current.state).toEqual({ kind: 'ready', rows: [ROW] });
   });
 
   itDom('stops watching when the component unmounts', async () => {
     // **The case only a renderer can make.** `watchShelf` already proves the
-    // stop it returns silences an in-flight read; what nothing else proves is
-    // that the effect *returns* it. Negative: delete the `return` in front of
-    // `watchShelf(...)` in the effect and this reddens — the subscription
-    // outlives the component and every later broadcast writes state into
-    // something nobody is rendering.
+    // stop it hands back silences an in-flight read; what nothing else proves
+    // is that the effect's cleanup *calls* it. Negative: drop the
+    // `watch.stop()` from the returned cleanup and this reddens — the
+    // subscription outlives the component and every later broadcast writes
+    // state into something nobody is rendering.
     //
     // Asserted on `unsubscribe` and on the silence after it, never on
     // `held.result.current`: React freezes an unmounted hook's last value, so a
@@ -337,6 +383,40 @@ describe('the shelf as React state', () => {
     expect(wiring.list).toHaveBeenCalledTimes(1);
   });
 
+  itDom('hands back one refresh identity that always drives the live watch', async () => {
+    // Two facts in one case because they are one design decision. The identity
+    // is stable so that a `save` callback taking `refresh` as a dependency does
+    // not re-create itself on every project change; the ref is what keeps that
+    // stable function pointed at the *current* watch, so a refresh after a
+    // project change re-reads p2 and not the closed-over p1.
+    //
+    // Negative: return `watch.refresh` from the hook directly instead of the
+    // `useCallback` and the identity assertion reddens; drop the
+    // `live.current = watch.refresh` and the second project's `list` is never
+    // asked a second time.
+    const first = fakeDeps([ROW]);
+    const other: SavedPlanListEntryView = { ...ROW, id: 'sp2', name: 'after the re-plan' };
+    const second = fakeDeps([other]);
+    const held = renderHook(({ deps, id }) => useSavedPlanShelf(deps, id), {
+      initialProps: { deps: first.deps, id: 'p1' },
+    });
+    await flush();
+    const refresh = held.result.current.refresh;
+
+    held.rerender({ deps: second.deps, id: 'p2' });
+    await flush();
+    expect(held.result.current.refresh).toBe(refresh);
+    expect(second.list).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      refresh();
+    });
+    await flush();
+    expect(second.list).toHaveBeenCalledTimes(2);
+    // The watch p1 left behind is not driven by it: that one was stopped.
+    expect(first.list).toHaveBeenCalledTimes(1);
+  });
+
   itDom('goes back to loading rather than showing the last project’s rows', async () => {
     // AC #4, read side. The first read of `p2` resolves a request later, and
     // leaving `p1`'s rows up until then states — with a name, an author and a
@@ -350,14 +430,14 @@ describe('the shelf as React state', () => {
       initialProps: { deps: first.deps, id: 'p1' },
     });
     await flush();
-    expect(held.result.current).toEqual({ kind: 'ready', rows: [ROW] });
+    expect(held.result.current.state).toEqual({ kind: 'ready', rows: [ROW] });
 
     held.rerender({ deps: second.deps, id: 'p2' });
-    expect(held.result.current).toEqual({ kind: 'loading' });
+    expect(held.result.current.state).toEqual({ kind: 'loading' });
     // And the first project's socket is closed rather than left open behind it.
     expect(first.unsubscribe).toHaveBeenCalledTimes(1);
 
     await flush();
-    expect(held.result.current).toEqual({ kind: 'ready', rows: [other] });
+    expect(held.result.current.state).toEqual({ kind: 'ready', rows: [other] });
   });
 });
