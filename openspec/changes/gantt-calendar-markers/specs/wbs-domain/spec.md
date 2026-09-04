@@ -19,8 +19,8 @@ and a restore that resurrected deleted markers would be inventing state.
 
 - **WHEN** a project's schedule is requested, then five markers are added on
   dates inside its span, then the schedule is requested again
-- **THEN** the two responses are byte-identical, including
-  `scheduler_algorithm_id` and every start, finish and critical-path flag
+- **THEN** the two responses are byte-identical — every start, finish and
+  critical-path flag among them
 
 #### Scenario: a marker is not a work item
 
@@ -36,29 +36,45 @@ and a restore that resurrected deleted markers would be inventing state.
 
 ### Requirement: The header day cell is the marker's interaction surface
 
-Each dated axis cell SHALL accept a click that opens a marker composer for
-that cell's date, and SHALL reopen an existing marker on that date for rename,
-recolour or delete. The cell SHALL be the existing axis `<span>` carrying
+Each dated axis cell SHALL accept a click that opens a **day sheet** for that
+cell's date. The cell SHALL be the existing axis `<span>` carrying
 `data-axis-day` and `data-axis-date`; no SVG hit-testing SHALL be introduced.
+
+The day sheet SHALL list every marker already on that date, each row offering
+rename, recolour and delete, and SHALL always offer one **add** action that
+opens an empty composer on the same date. A date is not a unique key, so
+clicking a populated cell SHALL NOT be an edit of "the" marker: with two
+markers on a date there is no such thing, and a sheet that picked one would be
+choosing arbitrarily.
+
+On a date with no markers the sheet SHALL open with the composer already open
+and its name field focused, so the common case stays one click and a name.
 
 The composer SHALL take the date from the cell's `data-axis-date` and never
 recompute it from a pixel offset.
 
 The click SHALL NOT displace the existing hover day-surface: hover opens the
-day card, click opens the composer.
+day card, click opens the day sheet.
 
-#### Scenario: clicking a dated cell opens the composer on that date
+#### Scenario: clicking an empty dated cell goes straight to a name field
 
-- **WHEN** the axis cell whose `data-axis-date` is `2026-09-17` is clicked
-- **THEN** a composer opens reporting `2026-09-17`, with an empty name and a
-  colour already chosen
+- **WHEN** the axis cell whose `data-axis-date` is `2026-09-17` has no markers
+  and is clicked
+- **THEN** the day sheet opens reporting `2026-09-17` with the composer already
+  open, an empty name field focused, and a colour already chosen
 
-#### Scenario: clicking a cell that already has a marker edits it
+#### Scenario: clicking a populated cell lists what is there and offers another
 
-- **WHEN** a marker named `Client demo` exists on `2026-09-17` and that cell is
-  clicked
-- **THEN** the composer opens on the existing marker with its name and colour,
-  offering delete
+- **WHEN** markers `Client demo` and `Ops freeze` both exist on `2026-09-17`
+  and that cell is clicked
+- **THEN** the sheet lists both with their colours, each offering rename,
+  recolour and delete, and offers an add action
+
+#### Scenario: a single existing marker is still a list, not an edit
+
+- **WHEN** exactly one marker exists on `2026-09-17` and that cell is clicked
+- **THEN** the sheet lists that one marker and still offers the add action, so
+  a second marker on that date is reachable in one click
 
 #### Scenario: hover and click do not fight
 
@@ -144,6 +160,36 @@ reads. A marker SHALL NOT compute its own x.
   day
 - **THEN** no rules are drawn, and every chip remains
 
+### Requirement: The downloaded chart carries its markers
+
+The standalone SVG export SHALL draw every marker chip the live axis shows, in
+the same colours and at the same day positions.
+
+`buildStandaloneGanttSvg` nests the live chart SVG but **rebuilds the axis
+band from pixel arithmetic** (`gantt-panel.tsx:1789`), so without this
+requirement the body rule would cross into the download — it lives inside the
+nested chart SVG — while the chip that names it would not. A coloured line
+with nothing saying what it marks is worse than no line: the reader sees a
+date they cannot identify and has no way to find out.
+
+`StandaloneGanttSvgInput` SHALL therefore carry the markers explicitly, the
+same way it already carries `dayPx` rather than assuming a rung, and for the
+same reason: the two halves of one downloaded file must not be able to
+disagree.
+
+#### Scenario: a downloaded chart shows chip and rule together
+
+- **WHEN** a plan with two markers is exported
+- **THEN** the SVG contains a chip for each at its day's x, in its colour, and
+  each rule has the chip that names it
+
+#### Scenario: the export drops nothing the screen shows
+
+- **WHEN** a plan with markers is exported at 4px per day with rules suppressed
+  by the density threshold
+- **THEN** the SVG shows the same chips and the same absence of rules as the
+  screen
+
 ### Requirement: Automatic colour is deterministic from the marker's identity
 
 A new marker SHALL receive a colour derived deterministically from its own id
@@ -152,7 +198,21 @@ of existing markers. Deleting a marker SHALL NOT change the colour of any
 other.
 
 A user-chosen colour SHALL override the automatic one and SHALL be rejected if
-it fails the contrast bar against either theme's chart background.
+it fails the contrast bar in **either** theme. The bar is two numbers, because
+a marker is two things:
+
+- **3:1** for the chip fill and the body rule against the chart background —
+  WCAG 1.4.11, the non-text bar, which is what these are.
+- **4.5:1** for the chip's label text against the chip fill — WCAG 1.4.3.
+
+The check SHALL run at submit, in be-01, not only in the composer. A colour
+refused only by the UI is refused only for clients that ask nicely.
+
+#### Scenario: the API refuses what the composer would have refused
+
+- **WHEN** a custom colour below 3:1 in dark theme is posted directly to the
+  API, bypassing the composer
+- **THEN** the write is refused and no row is written
 
 #### Scenario: colour survives a deletion
 

@@ -70,17 +70,29 @@ is what the rest is allowed to assume.
       keyed on an index passed in by the caller, watched failing the deletion
       case. That negative is the whole slice — a colour function tested only
       for "returns something in the palette" cannot fail.
-- [ ] 3.2 Contrast evidence for every palette entry against both themes' chart
-      background — test: `libs/domain/src/marker-color.test.ts`, a table case
-      asserting each entry clears the bar in light and dark. Negative: one
+- [ ] 3.2 The palette itself — **eight named hex entries, written into
+      `marker-color.ts` as a literal**, each clearing **3:1** against both
+      themes' chart background (WCAG 1.4.11, the non-text bar these are) and
+      carrying a label colour clearing **4.5:1** against its own fill (1.4.3).
+      Test: `libs/domain/src/marker-color.test.ts`, a table case over every
+      entry asserting both ratios in light and dark. Negative: one
       deliberately-failing colour appended to the palette fixture, watched
-      failing, and removed. Without it the assertion loop can pass over an
-      empty palette.
-- [ ] 3.3 `validateCustomColor(hex)` refusing a colour below the bar and
-      **naming the failing theme** — test: same file, a colour that passes
-      light and fails dark, asserting the refusal names dark. Negative: the
-      validator returning `true` unconditionally, watched failing. This is the
-      guard that keeps an unreadable marker out of storage.
+      failing, and removed — without it the assertion loop passes over an empty
+      palette. Eight rather than "a fixed palette": a count the test can iterate
+      is checkable, an adjective is not.
+- [ ] 3.3 `validateCustomColor(hex)` refusing a colour below either bar and
+      **naming the failing theme and the failing ratio** — test: same file, a
+      colour that clears 3:1 in light and fails it in dark, asserting the
+      refusal names dark and `3:1`; a second whose label contrast fails 4.5:1.
+      Negative: the validator returning `true` unconditionally, watched failing.
+- [ ] 3.4 `validateCustomColor` wired into **both** write paths — the be-01
+      create/recolour handlers and the composer — test: the controller test
+      from 4.1 posts a sub-bar colour straight to the API, bypassing the
+      composer, and asserts refusal with no row; `gantt-panel.test.tsx` asserts
+      the composer refuses before submitting. Negative: the server-side call
+      removed, watched writing the row while the UI test stayed green. A
+      validator unit-tested but never called is the shape 3.1–3.3 would
+      otherwise ship: green tests over a guard on no production path.
 
 ## 4. The API
 
@@ -115,23 +127,41 @@ is what the rest is allowed to assume.
 - [ ] 5.2 Markers stay out of a saved plan — test:
       `apps/be-01/src/repository/saved-plan-capture.db.test.ts`, a new case:
       capture a project with markers and a copy with none, assert the
-      `input_sha256` values are equal.
+      `input_sha256` values are equal. **This assertion passes on `main`
+      today** — `saved-plan-capture.ts:47-65` queries a hardcoded table set
+      that does not include `calendar_marker`, so equality holds before a line
+      of this feature is written, and the check as stated cannot fail. Negative:
+      `calendar_marker` added to that hardcoded query and its rows folded into
+      the serialized capture payload, watched failing on unequal `input_sha256`,
+      then removed. `Proof:` comment naming the added query. Without that
+      injection this is 5.1's own trap committed one slice later.
 
 ## 6. The click surface
 
 - [ ] 6.1 The dated axis cell accepts a click and opens the composer on that
       cell's `data-axis-date` — test: `gantt-panel.test.tsx`, click the cell
       whose `data-axis-date` is `2026-08-19` (past the first weekend) and
-      assert the composer reports that date. The date comes from the attribute;
-      negative: the composer taking the date from `day.offset` through its own
-      arithmetic instead, watched failing on that fixture, where offset and
-      workday differ.
+      assert the composer reports that date.
+      **The injected fault must be workday arithmetic, not "its own
+      arithmetic".** On the Monday-2026-08-10 fixture that cell's `offset` is 9
+      and its `workday` is 7, and `addCalendarDays(startDate, 9)` returns
+      `2026-08-19` — the correct answer — so a negative that recomputes the
+      date from `offset` calendar-wise passes with the fault in. Negative:
+      the composer reading `addWorkdays(startDate, day.offset)` (`2026-08-21`),
+      watched failing; a second pass reading `day.workday` (`2026-08-17`), also
+      watched failing. `Proof:` comment naming both dates.
 - [ ] 6.2 Hover and click coexist — test: same file, pointer-over then click on
       one cell, asserting the day surface opened and the composer opened and
       neither closed the other. The existing `showDaySurface` timer is the
       thing at risk.
-- [ ] 6.3 Clicking a cell that already carries a marker opens it for edit with
-      its name and colour and offers delete — test: same file.
+- [ ] 6.3 The day sheet: clicking a populated cell lists every marker on that
+      date with rename, recolour and delete per row, plus an add action — test:
+      same file, three cases: two markers on one date (both listed, add
+      offered), exactly one marker (still a list, add still offered), and no
+      markers (composer already open, name field focused). The one-marker case
+      is the point of the slice — an implementation that shortcut a single
+      marker straight to edit would pass the two-marker case and make a second
+      marker unreachable, which is the conflict this resolves.
 
 ## 7. The undated-plan refusal
 
@@ -141,15 +171,26 @@ is what the rest is allowed to assume.
       future change that gave every project a start date would break this test
       loudly rather than making the refusal unreachable and untested.
 - [ ] 7.2 Clicking an undated plan's cell is refused with a message naming the
-      missing project start date, and writes nothing — test: same file.
-      Negative: the refusal branch removed, watched failing on both halves
-      (a composer opened, a marker written). A refusal proved only by "no
-      composer appeared" would also pass against a cell that is simply inert,
-      which is the defect this requirement forbids.
+      missing project start date, and no composer opens — test: same file, two
+      assertions: the refusal message is present **and** names the missing
+      start date, and no composer is in the document.
+      **A click writes nothing even when it succeeds** — it opens a composer,
+      and only a submit writes — so "a marker was written" is not observable
+      here and is deliberately not asserted; the storage half of this guarantee
+      is 7.4's. Negative: the refusal branch removed, watched failing on both
+      remaining halves (a composer opened, and no message was rendered).
 - [ ] 7.3 Giving that project a start date turns the same cell live — test:
       same file, re-render with a start date and assert the click opens the
       composer. This is what proves 7.2 refused for the stated reason and not
-      because the click handler was never wired.
+      because the click handler was never wired: a refusal proved only by "no
+      composer appeared" also passes against a cell that is simply inert, which
+      is the defect this requirement forbids.
+- [ ] 7.4 No marker can reach storage against a workday number — test:
+      `apps/be-01/src/controller/calendar-marker.controller.db.test.ts`, a
+      create submitted for a project with no start date, asserting refusal and
+      no row. Negative: the server-side check removed, watched writing a row.
+      The client refusal is a UI affordance; this is the one that holds when
+      the request does not come from the panel.
 
 ## 8. Drawing
 
@@ -171,6 +212,18 @@ is what the rest is allowed to assume.
       same file at 28px per day, more markers on one date than the band shows.
 - [ ] 8.5 A marker outside the current horizon draws nothing and is still
       returned by the API — test: same file plus the controller test from 4.1.
+- [ ] 8.6 The standalone SVG export carries the chips — `markers` added to
+      `StandaloneGanttSvgInput` (`gantt-panel.tsx:1614`) and drawn in the axis
+      rebuild at `:1789` — test: same file, export a plan with two markers and
+      assert a chip per marker at its day's x in its colour. **The rule needs
+      no work and that is the trap:** the body rule lives inside the nested
+      live chart SVG and carries over for free, so an export left unchanged
+      produces a coloured line with no chip naming it. Negative: `markers`
+      passed but the axis-rebuild loop left untouched, watched failing with the
+      rule present and no chip — which is exactly the half-exported state.
+- [ ] 8.7 The export matches the screen at 4px above the density threshold —
+      test: same file, chips present and no rules, matching 8.3's live
+      behaviour.
 
 ## 9. Live update and end-to-end
 

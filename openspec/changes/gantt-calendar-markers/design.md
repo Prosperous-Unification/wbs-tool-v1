@@ -76,8 +76,8 @@ every rung; the chip itself degrades to a coloured tick at 4px.
 
 **Density.** At 4px, many rules become a smear. The threshold is a named
 constant — `MARKER_RULE_MAX_PER_100PX` — checked against markers within the
-viewport, and below it the rules are dropped and the chips kept (treatment A
-as the 4-rung fallback). A named constant with a pixel assertion is testable;
+viewport, and **above** it the rules are dropped and the chips kept (treatment
+A as the 4-rung fallback). A named constant with a pixel assertion is testable;
 "looks busy" is not.
 
 ## 4. Geometry comes from the existing scale
@@ -140,10 +140,18 @@ No deterministic entity palette exists in the repo today (`libs/domain` and the
 WBS components have only UI chrome and theming), so the palette is new work
 and needs its own contrast evidence against both themes.
 
-A custom colour is validated for contrast against both themes' chart
-background at submit and refused with the failing theme named. Validating at
-render instead would leave an unreadable marker stored and blame the reader's
-theme.
+**The bar is two numbers, not an adjective.** A marker is two things at once,
+so it clears two WCAG thresholds: **3:1** for the chip fill and the body rule
+against the chart background (1.4.11, the non-text bar these are), and
+**4.5:1** for the chip's label text against its own fill (1.4.3). The palette
+is eight named entries so a test can iterate it; "a fixed accessible palette"
+is not something an assertion can count.
+
+A custom colour is validated against both bars in both themes **at submit, in
+be-01**, and refused with the failing theme and ratio named. Validating in the
+composer alone refuses the colour only for clients that ask nicely; validating
+at render instead would leave an unreadable marker stored and blame the
+reader's theme.
 
 ## 7. Broadcast
 
@@ -185,10 +193,20 @@ stable; the spec's requirements implement them.
 | 3 | Project-scoped child table plus one content-free `calendar_markers_changed`. | A requirement for per-marker deltas, or for markers to outlive their project. |
 | 4 | Automatic colour is deterministic from the marker id over a fixed palette; custom colours are contrast-validated. | An accessibility rule the fixed palette cannot meet, or colour needing to carry category rather than identity. |
 | 5 | Dates are project-local `IsoDate`s — no time, no per-user timezone. | Markers needing to align with an external calendar's instants (out of scope in the brief). |
-| 6 | Edit and delete follow project write permission; export renders markers as the axis shows them. | A need for per-marker ownership, or an export consumer that cannot carry an overlay. |
+| 6 | Edit and delete follow project write permission, with no separate marker role. | A need for per-marker ownership. |
 | 7 | The chip plus a behind-the-bars rule (treatment B), with the rule dropped at 4px above a density threshold. | Measured smear at 4px below the threshold, which would make chips-only the 4px behaviour at every density. |
 
 Assumptions 1–6 were opened in the design interview under the 2026-09-03
 standing rule that unresolved product choices become documented assumptions
 rather than blocking questions. Assumption 7 resolves what AC #1 left open,
 and §2 is the argument for it.
+
+**Assumption 6 was narrowed after the Gemini planning review.** Its first half
+also claimed "export renders markers as the axis shows them", which the code
+falsified: `buildStandaloneGanttSvg` (`gantt-panel.tsx:1738`) nests the live
+chart SVG but **rebuilds the axis band from pixel arithmetic** at `:1789`, and
+`StandaloneGanttSvgInput` at `:1614` has no marker field. So the export would
+have carried the body rule — which rides inside the nested SVG — while
+dropping the chip that names it. That is not an assumption anyone can hold; it
+is a requirement with a mechanism, and it is now one (spec, "The downloaded
+chart carries its markers", tasks 8.6–8.7).
