@@ -694,9 +694,39 @@ export function ProjectPage({
    * `min-w-0` on the box and on the group is what lets the picker be the part
    * that gives way: without it a flex item refuses to shrink below its content
    * and the bar wraps at the width the longest project name asks for.
+   *
+   * **`basis-full md:basis-0` is what keeps a phone from scrolling sideways,
+   * and it is the whole of the five red pixel cases at `22464b72`.** Those five
+   * read as a "phone family" and are one defect measured five times: the page
+   * is 415px wide in a 390px viewport, 25px over, in
+   * `gantt.spec.ts:1449`, `header.spec.ts:345`, `mobile.spec.ts:255`, `:404`
+   * and `:965` — every one of them an overflow assertion, and none of them the
+   * 44px touch-target assertion that sits two lines above one of them and
+   * passed.
+   *
+   * The mechanism is `flex-1`'s `flex-basis: 0%`. {@link AppHeader} wraps below
+   * `md`, but a zero-basis item never *asks* for a line: it is handed whatever
+   * is left over — about 135px beside the brand and the account group — and
+   * `min-w-0` lets it be squeezed to that. Its own children then decide the
+   * width, and three of the four are `shrink-0` (`✎`, `+`,
+   * {@link SavedPlanShelf}, ~160px with the gaps). What does not fit does not
+   * wrap; it paints past the viewport. The shelf did not create that squeeze,
+   * it exceeded it — at ~76px of `shrink-0` children the group still fit.
+   *
+   * A full basis below `md` makes the group ask for its own line, which the
+   * header was already willing to give it, and 358px is enough for all four
+   * controls with the picker taking the rest. Above `md` the header is
+   * `flex-nowrap` and nothing changes: `md:basis-0` is `flex-1` again, and the
+   * picker's `max-w` slack still absorbs a new control at every laptop width
+   * (`header.spec.ts`, "keeps the header to one row at every laptop width").
+   *
+   * `grow shrink basis-full` rather than `flex-1 basis-full` so that no two
+   * utilities set `flex-basis` and the cascade decides which wins; jsdom cannot
+   * measure any of this, so the browser is the only oracle and the classes had
+   * better not be ambiguous before it runs.
    */
   const projectControls = (
-    <div className="flex min-w-0 flex-1 items-center gap-1">
+    <div className="flex min-w-0 shrink grow basis-full items-center gap-1 md:basis-0">
       {rename === null ? (
         <>
           <span className="relative inline-block max-w-72 min-w-0 flex-1">
