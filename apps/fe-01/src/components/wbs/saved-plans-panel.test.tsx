@@ -220,4 +220,74 @@ describe('the saved-plans panel', () => {
     expect(alert.textContent).toContain('stored_plan_unreadable');
     expect(alert.textContent).toContain(ROW.id);
   });
+  itDom('offers a refresh when the plan changes, and leaves the comparison alone', async () => {
+    /*
+      8.4, both halves in one case, because they are one promise: the affordance
+      appears **and** the diff on screen does not move until it is used.
+
+      The two answers are told apart by their `path`, so "did not change" is an
+      assertion about what is rendered rather than about a call count. A call
+      count would go green on a comparison that re-ran and happened to return
+      the same thing.
+    */
+    const wiring = fakeDeps([ROW]);
+    wiring.compare.mockResolvedValue({
+      outcome: 'compared',
+      diff: { input: [{ category: 'items', path: 'the first answer', left: 1, right: 2 }], schedule: [] },
+    });
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+    expect(screen.getByText('the first answer')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Compare again' })).toBeNull();
+
+    // The plan moved: a collaborator saved, and be-01 published on the plan's
+    // stream. The next comparison would say something else.
+    wiring.setShelf([NEWER, ROW]);
+    wiring.compare.mockResolvedValue({
+      outcome: 'compared',
+      diff: { input: [{ category: 'items', path: 'the second answer', left: 3, right: 4 }], schedule: [] },
+    });
+    await act(async () => {
+      wiring.broadcast();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByRole('button', { name: 'Compare again' })).toBeTruthy();
+    // Still the reader's comparison. Losing your place in a diff to somebody
+    // else's save is exactly what AC #4 forbids.
+    expect(screen.getByText('the first answer')).toBeTruthy();
+    expect(screen.queryByText('the second answer')).toBeNull();
+  });
+
+  itDom('brings the comparison up to date when the refresh is used', async () => {
+    // The other half of the offer. An affordance that appears and does nothing
+    // is worse than none: it tells the reader their diff is stale and gives
+    // them no way out of it.
+    const wiring = fakeDeps([ROW]);
+    wiring.compare.mockResolvedValue({
+      outcome: 'compared',
+      diff: { input: [{ category: 'items', path: 'the first answer', left: 1, right: 2 }], schedule: [] },
+    });
+    render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
+    await flush();
+
+    wiring.setShelf([NEWER, ROW]);
+    wiring.compare.mockResolvedValue({
+      outcome: 'compared',
+      diff: { input: [{ category: 'items', path: 'the second answer', left: 3, right: 4 }], schedule: [] },
+    });
+    await act(async () => {
+      wiring.broadcast();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Compare again' }));
+    await flush();
+
+    expect(screen.getByText('the second answer')).toBeTruthy();
+    expect(screen.queryByText('the first answer')).toBeNull();
+    // The offer is spent: the comparison on screen was made from the shelf that
+    // is on screen, so there is nothing left to bring up to date.
+    expect(screen.queryByRole('button', { name: 'Compare again' })).toBeNull();
+  });
 });

@@ -142,6 +142,18 @@ export function SavedPlansPanel({
   }, [left, rows]);
 
   const [comparison, setComparison] = useState<SavedPlanComparisonState>({ kind: 'idle' });
+  /**
+   * How many times the reader has asked for the comparison to be brought up to
+   * date — and the **only** thing that re-runs one they are already reading.
+   *
+   * A counter rather than a boolean, so two refreshes in a row are two runs: a
+   * flag would flip true, re-run, flip false, and a second click while the
+   * first request was in flight would change nothing. It is in the compare
+   * effect's dependency array beside the pair, which is what makes 8.4's
+   * "does not change until it is used" a fact about the code rather than a
+   * promise about the shelf.
+   */
+  const [asked, setAsked] = useState(0);
   useEffect(() => {
     if (left === null) return;
     const refusal = compareRefusal(left, right);
@@ -192,11 +204,30 @@ export function SavedPlansPanel({
     };
     // `rows` is deliberately absent. It is read for the schedule fallback and
     // the side names, and a broadcast that changes it must not re-run a
-    // comparison the reader is looking at (AC #4, and 8.4's refresh affordance
-    // is what will offer them the newer one). The pair and the project are the
-    // whole question this effect asks.
+    // comparison the reader is looking at (AC #4). `asked` is how they get the
+    // newer one: the affordance below bumps it, this effect re-runs, and the
+    // `rows` it closes over are that render's — which is to say, current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deps, projectId, left, right]);
+  }, [deps, projectId, left, right, asked]);
+
+  /**
+   * Whether the shelf has moved under a comparison that is on screen.
+   *
+   * Identity and not contents, and that is the honest test rather than a lazy
+   * one: `rows` is a fresh array per read, and the shelf reads exactly when
+   * something happened to it — on mount, on a project change, on a broadcast,
+   * and on the refresh a save triggers. Comparing ids instead would call a
+   * broadcast "nothing changed" whenever the *list* was untouched, which is
+   * wrong for the commonest reason the reader needs this: `right` is usually
+   * `current`, the broadcast is the plan's own stream (be-01 publishes nothing
+   * about saved plans at all), so the thing that went stale is the side the
+   * shelf cannot describe.
+   *
+   * Only over `ready`. There is nothing to leave alone while a comparison is
+   * loading, refused or failed, and offering to refresh one of those would be
+   * a second control for what the pickers already do.
+   */
+  const stale = comparison.kind === 'ready' && comparison.rows !== rows;
 
   const words = saveWords(saveState);
   return (
@@ -238,6 +269,31 @@ export function SavedPlansPanel({
         <div className="saved-plans-panel__compare">
           <SavedPlanSidePicker label="Compare" value={left} rows={rows} onChange={setLeft} />
           <SavedPlanSidePicker label="with" value={right} rows={rows} onChange={setRight} />
+          {/*
+            8.4's affordance, and it is an offer rather than a replacement. The
+            comparison below is still the one the reader asked for; this says
+            the plan moved and hands them the button. Swapping it for them is
+            what AC #4 forbids — somebody reading a diff would lose their place
+            to a collaborator's save.
+
+            `status` and not `alert`: nothing is wrong, and an assertive region
+            would interrupt a screen reader mid-diff to say so. The sentence and
+            the button are siblings so the live region announces the fact rather
+            than reading out a control the reader has not reached yet.
+          */}
+          {stale && (
+            <div className="saved-plans-panel__stale">
+              <p role="status">This plan has changed since the comparison below was made.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setAsked((n) => n + 1);
+                }}
+              >
+                Compare again
+              </button>
+            </div>
+          )}
           <SavedPlanComparison state={comparison} />
         </div>
       )}
