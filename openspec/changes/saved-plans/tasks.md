@@ -614,10 +614,21 @@ comparison UI) and start only after slice 6 is merged.
       surface in `components/wbs/saved-plan-compare.tsx`: two pickers, the two
       halves rendered apart by category, each side's absence sentence. Both
       gated.)_
-- [ ] 8.4 **Stale but not replaced.** A broadcast arrives while a comparison is
+- [x] 8.4 **Stale but not replaced.** A broadcast arrives while a comparison is
       open: the refresh affordance appears and the rendered comparison does not
-      change until it is used. Negative: refetch into the open comparison and
-      watch the test catch the swap.
+      change until it is used — test: `saved-plans-panel.test.tsx` `offers a
+      refresh when the plan changes, and leaves the comparison alone` and
+      `brings the comparison up to date when the refresh is used`. Staleness is
+      `comparison.rows !== rows`, identity rather than contents: the shelf reads
+      exactly when something happened to it, and `right` is usually `current`,
+      so the side that went stale is the one the shelf cannot describe. The
+      refresh is a counter (`asked`) in the compare effect's dependency array,
+      not a flag — two clicks are two runs. **Both negatives watched:** put
+      `rows` back into that dependency array and both cases fail on `Unable to
+      find an accessible element with the role "button" and name "Compare
+      again"` — the comparison had already been swapped, which is the bug this
+      task names; take `asked` back out and the second fails on `Unable to find
+      an element with the text: the second answer`, an offer that does nothing.
 - [ ] 8.5 Typed refusals surface as themselves: `snapshot_busy` says the plan is
       being written to and to try again; a quota refusal names the limit reached.
 
