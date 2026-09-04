@@ -374,7 +374,6 @@ describe('the saved-plan routes', () => {
     expect(await res.json()).toEqual({ error: 'not_found', savedPlanId: foreign });
   });
 
-
   /**
    * `current` is a reserved literal, not a lookup, and this is the case that
    * says so about the literal rather than about a status.
