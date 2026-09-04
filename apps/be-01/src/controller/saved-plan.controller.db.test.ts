@@ -295,14 +295,20 @@ describe('the saved-plan routes', () => {
   });
 
   /**
-   * `current` is a reserved literal, not a lookup — and this is the case that
-   * tells the two apart.
+   * `current` is a reserved literal, not a lookup, and this is the case that
+   * says so about the literal rather than about a status.
    *
-   * The project has **no saved plans at all**. A build that resolved every side
-   * by id would answer 404 here, because there is no plan called `current`; a
-   * build that reserves the literal captures the live plan twice and reports no
-   * difference. Every other compare case in this file has a saved plan to fall
-   * back on and cannot separate them.
+   * The project has **no saved plans at all** and both sides are `current`, so
+   * nothing else is moving: a build that resolved every side by id answers 404
+   * here because no plan is called `current`, and a build that reserves the
+   * literal captures the live plan twice and reports no difference.
+   *
+   * **Measured, and it is not the only case that moves.** Deleting the reserved
+   * literal turns eight of this file's tests red, because every other compare
+   * case passes `right=current` too. So this one is not the sole detector; what
+   * it is, is the only one whose failure is unambiguous — the others could go
+   * red for any reason a side fails to resolve, while this one has no saved
+   * plan in it to fail on.
    */
   it('reads `current` as the live plan and never as a saved-plan id', async () => {
     const { status, body } = await compareOf('ada', 'current', 'current');
