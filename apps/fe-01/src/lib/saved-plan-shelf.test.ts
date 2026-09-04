@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SavedPlanListEntryView } from './saved-plan-api';
-import { readShelf } from './saved-plan-shelf';
+import { readShelf, watchShelf } from './saved-plan-shelf';
 
 const ROW: SavedPlanListEntryView = {
   id: 'sp1',
@@ -84,5 +84,174 @@ describe('reading a project’s shelf', () => {
         'p1',
       ),
     ).resolves.toEqual({ kind: 'error', code: 'a bare string' });
+  });
+});
+
+describe('watching a project’s shelf', () => {
+  /** Resolves once everything already queued as a microtask has run. */
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const fakeStream = () => {
+    let fire: (() => void) | undefined;
+    const unsubscribe = vi.fn();
+    return {
+      unsubscribe,
+      broadcast: () => fire?.(),
+      subscribe: vi.fn((_projectId: string, onChange: () => void) => {
+        fire = onChange;
+        return { unsubscribe };
+      }),
+    };
+  };
+
+  it('emits the first read and subscribes once', async () => {
+    const stream = fakeStream();
+    const onState = vi.fn();
+    watchShelf(
+      {
+        available: () => Promise.resolve(true),
+        list: () => Promise.resolve([ROW]),
+        subscribe: stream.subscribe,
+      },
+      'p1',
+      onState,
+    );
+    await settled();
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(onState).toHaveBeenCalledWith({ kind: 'ready', rows: [ROW] });
+    expect(stream.subscribe).toHaveBeenCalledTimes(1);
+    expect(stream.subscribe).toHaveBeenCalledWith('p1', expect.any(Function));
+  });
+
+  it('re-reads and emits again when the project changes', async () => {
+    // The payload is ignored on purpose, exactly as subscribeToProject ignores
+    // it: a saved plan is immutable but the *list* is not, and re-reading is one
+    // request and always right.
+    const stream = fakeStream();
+    const onState = vi.fn();
+    const list = vi.fn(() => Promise.resolve([ROW]));
+    watchShelf(
+      { available: () => Promise.resolve(true), list, subscribe: stream.subscribe },
+      'p1',
+      onState,
+    );
+    await settled();
+    stream.broadcast();
+    await settled();
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(onState).toHaveBeenCalledTimes(2);
+    // Still one subscription. A re-read that resubscribed would double the
+    // fan-out on every edit, and the second socket would be invisible from here.
+    expect(stream.subscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('never subscribes to a node that cannot answer the question', async () => {
+    // 6.4's reasoning one level up. There is nothing to listen for: the list has
+    // no route on this node, so a socket opened here is a reconnect loop behind
+    // a surface that can never render rows.
+    // Negative: drop the `if (state.kind === 'unavailable') return;` line and
+    // this reddens on subscribe having been called once.
+    const stream = fakeStream();
+    const onState = vi.fn();
+    watchShelf(
+      {
+        available: () => Promise.resolve(false),
+        list: () => Promise.resolve([ROW]),
+        subscribe: stream.subscribe,
+      },
+      'p1',
+      onState,
+    );
+    await settled();
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(onState).toHaveBeenCalledWith({ kind: 'unavailable' });
+    expect(stream.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('emits nothing after the caller stops, including from a read in flight', async () => {
+    // The trap project-stream.ts names in its own unsubscribe: the loop that
+    // outlived its subscriber. Stopping between the request and its answer is
+    // the ordinary case for a component that unmounts, not a rare one.
+    const stream = fakeStream();
+    const onState = vi.fn();
+    const stop = watchShelf(
+      {
+        available: () => Promise.resolve(true),
+        list: () => Promise.resolve([ROW]),
+        subscribe: stream.subscribe,
+      },
+      'p1',
+      onState,
+    );
+    stop();
+    await settled();
+    expect(onState).not.toHaveBeenCalled();
+    expect(stream.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes the stream it opened when the caller stops', async () => {
+    const stream = fakeStream();
+    const stop = watchShelf(
+      {
+        available: () => Promise.resolve(true),
+        list: () => Promise.resolve([ROW]),
+        subscribe: stream.subscribe,
+      },
+      'p1',
+      vi.fn(),
+    );
+    await settled();
+    stop();
+    expect(stream.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a slow read overwrite the answer to a newer question', async () => {
+    // Two broadcasts in quick succession leave two reads in flight, and whichever
+    // resolves LAST wins unless the older one is dropped. That is roughly a coin
+    // flip in the wild, and losing it shows the reader a list from before the
+    // change that prompted the refresh — AC #4's "collaboration updates do not
+    // replace the user's active comparison unexpectedly", one surface down.
+    // Negative: drop `mine !== generation` from the guard and this reddens with
+    // the stale rows as the last emission.
+    //
+    // Reachable only from the second read onwards, which is why the first one is
+    // released first: reads after the first start from the subscription, and the
+    // subscription does not exist until a read has resolved.
+    const stream = fakeStream();
+    const onState = vi.fn();
+    const stale: SavedPlanListEntryView = { ...ROW, id: 'stale', name: 'before the refresh' };
+    const pending: ((rows: SavedPlanListEntryView[]) => void)[] = [];
+    const release = (rows: SavedPlanListEntryView[]) => {
+      const next = pending.shift();
+      if (!next) throw new Error('no read was in flight');
+      next(rows);
+    };
+    const list = vi.fn(
+      () => new Promise<SavedPlanListEntryView[]>((resolve) => pending.push(resolve)),
+    );
+    watchShelf(
+      { available: () => Promise.resolve(true), list, subscribe: stream.subscribe },
+      'p1',
+      onState,
+    );
+    await settled();
+    release([ROW]);
+    await settled();
+
+    stream.broadcast();
+    await settled();
+    stream.broadcast();
+    await settled();
+    expect(pending).toHaveLength(2);
+
+    // The newer question is answered first, the older one second.
+    const newer = pending.pop();
+    if (!newer) throw new Error('the second refresh never asked');
+    newer([ROW]);
+    await settled();
+    release([stale]);
+    await settled();
+
+    expect(onState).toHaveBeenLastCalledWith({ kind: 'ready', rows: [ROW] });
   });
 });

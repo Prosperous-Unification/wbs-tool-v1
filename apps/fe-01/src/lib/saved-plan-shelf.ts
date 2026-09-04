@@ -54,3 +54,65 @@ export async function readShelf(deps: ShelfDeps, projectId: string): Promise<Sav
  * showing whatever arrived beats erasing it.
  */
 const codeOf = (fault: unknown): string => (fault instanceof Error ? fault.message : String(fault));
+
+/**
+ * The broadcast, narrowed to the two things a shelf watch uses.
+ *
+ * `subscribeToProject` takes an options object and hands back a stream with
+ * `seen` as well as `unsubscribe`; sequence reporting belongs to whoever reads
+ * the *plan*, not to this. Naming only what is used keeps the fake in the cases
+ * two lines long and keeps this file from acquiring an opinion about sequences.
+ */
+export interface ShelfWatchDeps extends ShelfDeps {
+  subscribe(projectId: string, onChange: () => void): { unsubscribe(): void };
+}
+
+/**
+ * A project's shelf, read now and re-read whenever the project changes.
+ *
+ * **The payload is ignored, exactly as `subscribeToProject` ignores it.** A
+ * saved plan is immutable, but the *list* is not: another collaborator saving or
+ * deleting one changes it, and re-reading is one request and always right.
+ *
+ * **A node that cannot answer is never subscribed to.** Same reasoning as
+ * `readShelf`'s own order, one level up: there is no point listening for changes
+ * to a list this node has no route to return, and a socket opened for a shelf
+ * that can never render is a reconnect loop nobody can see.
+ *
+ * Returns the stop. Call it and no further state arrives — including from a read
+ * already in flight, which is the trap `project-stream.ts` names in its own
+ * `unsubscribe`: the loop that outlived its subscriber.
+ */
+export function watchShelf(
+  deps: ShelfWatchDeps,
+  projectId: string,
+  onState: (state: SavedPlanListState) => void,
+): () => void {
+  let stopped = false;
+  let generation = 0;
+  let stream: { unsubscribe(): void } | null = null;
+
+  const read = (): void => {
+    const mine = ++generation;
+    void readShelf(deps, projectId).then((state) => {
+      // Two guards, and they are different facts. `stopped` is "nobody is
+      // listening any more"; `mine !== generation` is "somebody is, but they
+      // have since asked a newer question". A broadcast that lands while the
+      // first read is still in flight produces both reads, and without the
+      // second guard whichever resolves last wins — which is the older answer
+      // roughly as often as not.
+      if (stopped || mine !== generation) return;
+      onState(state);
+      if (state.kind === 'unavailable') return;
+      stream ??= deps.subscribe(projectId, read);
+    });
+  };
+
+  read();
+
+  return () => {
+    stopped = true;
+    stream?.unsubscribe();
+    stream = null;
+  };
+}
