@@ -195,8 +195,85 @@ describe('the saved-plan routes', () => {
   });
 
   /**
+   * Task 7.3b — the compare route answers a diff, and `current` is a side.
+   *
+   * The assertion is deliberately *not* on the diff's contents: 7.1's and 7.2's
+   * suites own what `diffPlans` reports, and repeating a field list here would
+   * be a second place to forget to update. What only a request can reach is
+   * that the two sides were resolved and handed to the diff at all — a saved
+   * plan against itself is empty on both halves, and against `current` after an
+   * edit it is not.
+   */
+  const compareOf = async (
+    who: string,
+    left: string,
+    right: string,
+  ): Promise<{ status: number; body: unknown }> => {
+    const res = await as(
+      tokens[who],
+      `/api/projects/${projectId}/saved-plans/compare?left=${left}&right=${right}`,
+    );
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('compares a saved plan with itself and reports no difference', async () => {
+    const id = await savedIdOf(await save('ada'));
+    const { status, body } = await compareOf('ada', id, id);
+    expect(status).toBe(200);
+    const { diff } = body as { diff: { input: unknown[]; schedule: unknown[] } };
+    expect(diff.input).toEqual([]);
+    expect(diff.schedule).toEqual([]);
+  });
+
+  it('compares a saved plan with `current`', async () => {
+    const id = await savedIdOf(await save('ada'));
+    const { status, body } = await compareOf('ada', id, 'current');
+    expect(status).toBe(200);
+    // Both halves present is the whole assertion: `current` resolved through
+    // 7.3's capture rather than answering "no plan", and 7.3a gave it a
+    // schedule side to compare against the saved one.
+    const { diff } = body as { diff: { input: unknown[]; schedule: unknown[] } };
+    expect(Array.isArray(diff.input)).toBe(true);
+    expect(Array.isArray(diff.schedule)).toBe(true);
+  });
+
+  /**
+   * The cross-project refusal, and the reason the compare route may carry a
+   * project id at all.
+   *
+   * Without it a caller who may read project A's plans names one of them as the
+   * left side and `current` on project B as the right, and the answer contains
+   * project B's live plan — which is exactly the exposure 7.3b's negative
+   * names, reached through the *side* rather than through the guard. The status
+   * is a plain 404 with no hint that the plan exists somewhere else.
+   */
+  it('refuses a saved plan that belongs to another project', async () => {
+    const foreign = await savedIdOf(await save('ada'));
+    const other = await as(tokens['owner'], '/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Somebody else’s shed' }),
+    });
+    const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+
+    const res = await as(
+      tokens['ada'],
+      `/api/projects/${otherId}/saved-plans/compare?left=${foreign}&right=current`,
+    );
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found', savedPlanId: foreign });
+  });
+
+  it('answers 404 when the compare route names a project that is not there', async () => {
+    const res = await as(
+      tokens['ada'],
+      '/api/projects/does-not-exist/saved-plans/compare?left=current&right=current',
+    );
+    expect(res.status).toBe(404);
+  });
+
+  /**
    * Task 6.2's matrix: every caller a saved-plan route can have, against all
-   * **five** routes, on a project that is unrestricted and then restricted.
+   * **six** routes, on a project that is unrestricted and then restricted.
    *
    * **The cell that carries the task is `restricted` × `ada`.** She created the
    * plans and does not own the project, so on a restricted project `canEdit` is
@@ -212,6 +289,23 @@ describe('the saved-plan routes', () => {
    * the permission rule, so a restricted project answers an unauthenticated
    * caller 401 and never 403 — a 403 there would tell a stranger the project
    * exists.
+   *
+   * **`compare` is the sixth column and the reason 7.3b extends this table
+   * rather than testing its route alone.** It is the only route that can hand
+   * back a restricted project's *live* plan, through the `current` side, and it
+   * is therefore the only route whose guard has to be proved against the same
+   * four callers as the five that came before. The cell that carries it is
+   * `restricted` × `anonymous`: 401, from the guard, before the project is read
+   * and long before `current` is captured. Drop `signedIn` from the route and
+   * that cell answers 200 with the live plan of a project its caller never
+   * authenticated to see.
+   *
+   * The `restricted` × `mallory` cell reads 200, and that is this codebase's
+   * read rule rather than an oversight: `canEdit` restricts *writing*, and the
+   * `read` column beside it has said 200 there since 6.2. What stops a third
+   * party reaching another project's live plan is not this row — it is the
+   * cross-project refusal proved above, which is the other half of 7.3b's
+   * negative and the half a status matrix cannot see.
    */
   describe('the permission matrix', () => {
     type Actor = 'anonymous' | 'owner' | 'ada' | 'mallory';
@@ -221,26 +315,30 @@ describe('the saved-plan routes', () => {
       read: number;
       rename: number;
       delete: number;
+      compare: number;
     }
 
     const ACTORS: readonly Actor[] = ['anonymous', 'owner', 'ada', 'mallory'];
 
     const MATRIX: Record<'unrestricted' | 'restricted', Record<Actor, Row>> = {
       unrestricted: {
-        anonymous: { save: 401, list: 401, read: 401, rename: 401, delete: 401 },
-        owner: { save: 201, list: 200, read: 200, rename: 200, delete: 204 },
-        ada: { save: 201, list: 200, read: 200, rename: 200, delete: 204 },
+        anonymous: { save: 401, list: 401, read: 401, rename: 401, delete: 401, compare: 401 },
+        owner: { save: 201, list: 200, read: 200, rename: 200, delete: 204, compare: 200 },
+        ada: { save: 201, list: 200, read: 200, rename: 200, delete: 204, compare: 200 },
         // The ordinary write rule would let her save — the project is open —
         // and the creator-or-owner rule still refuses her the other two.
-        mallory: { save: 201, list: 200, read: 200, rename: 403, delete: 403 },
+        mallory: { save: 201, list: 200, read: 200, rename: 403, delete: 403, compare: 200 },
       },
       restricted: {
-        anonymous: { save: 401, list: 401, read: 401, rename: 401, delete: 401 },
-        owner: { save: 201, list: 200, read: 200, rename: 200, delete: 204 },
+        // 401 before the project is read and before `current` is captured. This
+        // is the cell 7.3b's negative moves: with the guard gone it is 200 and
+        // carries the restricted project's live plan.
+        anonymous: { save: 401, list: 401, read: 401, rename: 401, delete: 401, compare: 401 },
+        owner: { save: 201, list: 200, read: 200, rename: 200, delete: 204, compare: 200 },
         // Refused a new plan and allowed to rename and delete her own: the two
         // rules disagreeing about one caller is the point of the whole column.
-        ada: { save: 403, list: 200, read: 200, rename: 200, delete: 204 },
-        mallory: { save: 403, list: 200, read: 200, rename: 403, delete: 403 },
+        ada: { save: 403, list: 200, read: 200, rename: 200, delete: 204, compare: 200 },
+        mallory: { save: 403, list: 200, read: 200, rename: 403, delete: 403, compare: 200 },
       },
     };
 
@@ -257,7 +355,7 @@ describe('the saved-plan routes', () => {
 
     for (const column of ['unrestricted', 'restricted'] as const) {
       for (const actor of ACTORS) {
-        it(`${column}: ${actor} against all five routes`, async () => {
+        it(`${column}: ${actor} against all six routes`, async () => {
           // Seeded before the project is restricted, because on a restricted
           // project `ada` could not create them — and a matrix whose rename and
           // delete targets were the owner's would be asking a different
@@ -293,6 +391,14 @@ describe('the saved-plan routes', () => {
             ).status,
             delete: (await request(actor, `/api/saved-plans/${toDelete}`, { method: 'DELETE' }))
               .status,
+            // `toRead` against `current`: the direction that reaches the live
+            // plan, so the cell moves when the guard does.
+            compare: (
+              await request(
+                actor,
+                `/api/projects/${projectId}/saved-plans/compare?left=${toRead}&right=current`,
+              )
+            ).status,
           };
 
           expect(row).toEqual(MATRIX[column][actor]);

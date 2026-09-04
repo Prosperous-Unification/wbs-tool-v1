@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 
 import {
   canonicalisePlanInput,
+  type PlanDiff,
+  diffPlans,
+  normalisePlanInputForward,
   type PlanScheduleValue,
   type PlanSide,
   type Schedule,
@@ -121,6 +124,39 @@ export interface SavedPlanRead {
   readonly input: SavedPlanReadBody;
   readonly schedule: SavedPlanReadSchedule;
 }
+
+/**
+ * Which side of a comparison a caller named (task 7.3b).
+ *
+ * A tagged union rather than `string | 'current'`, because the two are not the
+ * same kind of thing and a plan whose id happened to be the literal `current`
+ * would otherwise silently address the live plan.
+ */
+export type SavedPlanSideRef =
+  | { readonly kind: 'current' }
+  | { readonly kind: 'saved'; readonly savedPlanId: string };
+
+/**
+ * What a comparison answers.
+ *
+ * The refusals name the *side* that produced them, because the two sides fail
+ * independently and a caller shown "not found" with no id cannot tell which of
+ * its two pickers to correct.
+ */
+export type SavedPlanCompareOutcome =
+  | { readonly outcome: 'compared'; readonly diff: PlanDiff }
+  | { readonly outcome: 'no_project' }
+  | { readonly outcome: 'not_found'; readonly savedPlanId: string }
+  | {
+      readonly outcome: 'corrupt';
+      readonly savedPlanId: string;
+      readonly refusal: SavedPlanIntegrityRefusal;
+    };
+
+/** One resolved side, or the refusal {@link SavedPlanCompareOutcome} carries out. */
+type SavedPlanSideOutcome =
+  | { readonly outcome: 'side'; readonly side: PlanSide }
+  | Exclude<SavedPlanCompareOutcome, { outcome: 'compared' }>;
 
 /**
  * The three answers a read has.
@@ -406,6 +442,66 @@ export class SavedPlanService {
   }
 
   /**
+   * Compares two sides of one project's plan (task 7.3b's service half).
+   *
+   * **Both sides are resolved against `projectId`, and a saved plan that
+   * belongs elsewhere answers `not_found`.** The project id is not decoration
+   * on this route the way it would be on {@link read}: `current` has no id of
+   * its own and can only mean "the live plan of the project named in the path",
+   * so the path's project is load-bearing here. Once it is, a side that names a
+   * plan of some *other* project has to be refused rather than compared, or the
+   * route quietly compares two projects and reports every work item of each as
+   * added and removed — and, worse, a caller who may read project A's plans
+   * could name one of them beside `current` on project B.
+   *
+   * `not_found` rather than a distinct "wrong project": the caller learns
+   * exactly what a caller naming a plan id that does not exist learns, which is
+   * the same rule {@link read}'s single-prefix URL enforces structurally.
+   *
+   * **The stored side is parsed here and normalised forward** (task 7.4), never
+   * rewritten. {@link readOfStored} has already refused a version outside
+   * `SUPPORTED_INPUT_BODY_VERSIONS`, so today's normalisation is the identity
+   * and its three refusals are unreachable from this path — stated rather than
+   * claimed as coverage. It is called anyway because the day a second version
+   * exists is the day this call is the only thing standing between an old body
+   * and a diff that reports a removed field as a change nobody made.
+   */
+  async compare(
+    projectId: string,
+    left: SavedPlanSideRef,
+    right: SavedPlanSideRef,
+  ): Promise<SavedPlanCompareOutcome> {
+    const leftSide = await this.sideOf(projectId, left);
+    if (leftSide.outcome !== 'side') return leftSide;
+    const rightSide = await this.sideOf(projectId, right);
+    if (rightSide.outcome !== 'side') return rightSide;
+    return { outcome: 'compared', diff: diffPlans(leftSide.side, rightSide.side) };
+  }
+
+  /**
+   * One side of {@link compare}, or the refusal that stands in for it.
+   *
+   * `current` answering `null` is `no_project`: {@link projectCurrentPlan}
+   * returns it when the project is gone, which is the same fact the route's own
+   * project read would have found a moment earlier.
+   */
+  private async sideOf(projectId: string, ref: SavedPlanSideRef): Promise<SavedPlanSideOutcome> {
+    if (ref.kind === 'current') {
+      const side = await this.projectCurrentPlan(projectId);
+      return side === null ? { outcome: 'no_project' } : { outcome: 'side', side };
+    }
+    const found = await this.read(ref.savedPlanId);
+    if (found.outcome === 'not_found') return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
+    if (found.outcome === 'corrupt') {
+      return { outcome: 'corrupt', savedPlanId: ref.savedPlanId, refusal: found.refusal };
+    }
+    if (found.plan.projectId !== projectId) {
+      return { outcome: 'not_found', savedPlanId: ref.savedPlanId };
+    }
+    return { outcome: 'side', side: planSideOfRead(found.plan) };
+  }
+
+  /**
    * Renames a saved plan, if `actorId` may touch it. Writes `name` and nothing
    * else — the repository's one `UPDATE` is the whole of the write.
    *
@@ -574,6 +670,28 @@ export class SavedPlanService {
  * inferred from a missing body row. Inferring it the other way would turn a
  * body a cascade half-deleted into a legitimately schedule-less plan.
  */
+/**
+ * A verified read, as a comparison side (task 7.3b).
+ *
+ * The bytes are parsed here and **nowhere else**: {@link SavedPlanService.read}
+ * hands over the stored bytes unparsed on purpose, so the one place that turns
+ * them into values is the one place that also runs them forward through
+ * {@link normalisePlanInputForward}. Splitting those two apart is how a body
+ * comes to be diffed at its stored shape against a reader that has moved on.
+ */
+function planSideOfRead(plan: SavedPlanRead): PlanSide {
+  return {
+    input: normalisePlanInputForward(JSON.parse(plan.input.bytes), plan.input.schemaVersion),
+    schedule: plan.schedule.present
+      ? {
+          present: true,
+          algorithmId: plan.schedule.algorithmId,
+          body: JSON.parse(plan.schedule.body.bytes) as PlanScheduleValue,
+        }
+      : { present: false, absentReason: plan.schedule.absentReason },
+  };
+}
+
 function readOfStored(stored: StoredSavedPlan): SavedPlanReadOutcome {
   const header = stored.header;
   // Task 5.5, and **before** the hash check on purpose: a body this reader
