@@ -212,3 +212,71 @@ names is met and proved. 6.4's two halves are both client-side and `apps/fe-01`
 has no saved-plan code at all, so the one open item is a client rendering with
 no client to render it — its mechanism is settled in its own checkbox so 8.1
 lands it in one pass.
+
+## TASK-232 run 1 — slice 7's diff (7.1, 7.2, 7.2b, 7.2c)
+
+Gate at `ce239c72`, on h2puni `/home/puni1/gate-task232`, `dirty=0`,
+`NX_DAEMON=false`, `--skip-nx-cache`, `--parallel=1`,
+`TMPDIR=/home/puni1/gate-tmp`, head asserted with `rev-parse` after the reset:
+
+| Gate | Result |
+| --- | --- |
+| `nx run-many -t test lint typecheck -p domain` | exit 0 — **363 pass / 0 fail** across 26 files |
+| `nx format:check --all` | exit 0, zero files |
+
+### The finding: "names the field" is the wrong assertion, "covers the leaf" is the right one
+
+7.2b and 7.2c say the property must assert the diff "names the field". Taken
+literally — the reported path's last segment equals the mutated leaf's last
+segment — the property fails on 32 leaves that the comparison reports
+**correctly**, and the first draft did fail on exactly those:
+
+- **Key fields.** Mutating `workItems[…].id`, `steps[…].id`,
+  `stepValues[…].stepId` and their kin makes the row a _different row_, so the
+  diff reports it removed and re-added. That is the truthful reading and the one
+  that keeps a large plan legible; a difference literally named `.id` would be a
+  claim that one row changed identity in place.
+- **Nested arrays.** `typeIds[0]`, `tagIds[1]`, `externalRefs[0].url` are
+  reported at the field that holds them, because the field of
+  `CanonicalWorkItem` is `typeIds`, not `typeIds[0]`, and spec bounds coverage
+  by _that_ field list.
+
+So the assertion is now: some reported difference's named-segment chain is a
+**prefix** of the mutated leaf's. It is not a loosening — a field the comparison
+drops produces no covering difference at all, which is what the two watched
+negatives assert directly (drop `frozenNumber`, drop a tag id; each mutant is
+built in the suite rather than by editing `diffPlans`, so the negative stays
+permanently).
+
+### What the coverage bound actually is
+
+Both halves are walked structurally, so neither is an enumeration:
+
+- **Input half** — every leaf of `CanonicalPlanInput`, over a hundred of them
+  from the shared fixture, derived from the value. A capture field added later
+  is compared without an edit to `diffPlans`; at worst it groups under `other`,
+  which the catch-all cases assert for both a new _field_ and a whole new
+  _collection_.
+- **Schedule half** — every leaf of the stored body, plus `present`,
+  `absentReason` and the header `algorithmId`. The motivating case is asserted
+  directly: byte-identical inputs whose schedules differ report the dates and
+  the changed identity while the input half reports nothing.
+
+The one enumeration in the module is `ROW_KEYS`, a **collection→key** map, and
+coverage does not depend on it: a collection with no entry falls back to
+positional comparison, which still reports every difference, just less legibly.
+The category table is likewise presentation only; every category the spec names
+is asserted reachable, one field at a time.
+
+### Shared fixture
+
+`canonical-plan-input.test.ts`'s inline plan moved to `plan-fixture.ts` and both
+suites now import it. Copying it would have let the diff's completeness property
+drift onto a stale field set — the second copy silently stops covering anything
+the capture gains.
+
+### Still open in slice 7
+
+7.3 (`projectCurrentPlan()`), 7.3a (`current`'s own schedule), 7.3b (the compare
+route) and 7.4 (cross-version normalisation). All four are `apps/be-01` work;
+nothing in `libs/domain` blocks them.

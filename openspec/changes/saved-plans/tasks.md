@@ -500,7 +500,7 @@ comparison UI) and start only after slice 6 is merged.
 
 ## 7. The diff
 
-- [ ] 7.1 `diffPlans(left, right)` in `libs/domain`. Each side is a
+- [x] 7.1 `diffPlans(left, right)` in `libs/domain`. Each side is a
       `CanonicalPlanInput`, **its schedule body** (or the recorded absent
       reason), **and its `scheduler_algorithm_id`** — because spec requires
       schedule-side differences to be reported and a schedule is not a field of
@@ -510,13 +510,13 @@ comparison UI) and start only after slice 6 is merged.
       field set from, so a side object carrying only input + body would drop the
       one field spec names explicitly. On the `current` side these three come
       from 7.3, not from a stored record. One function, both directions.
-- [ ] 7.2 Property test: added, removed, renamed, reparented and reordered items;
+- [x] 7.2 Property test: added, removed, renamed, reparented and reordered items;
       changed uncertainty, effort, actuals, progress, measures, ownership,
       dependencies, settings, dates, **and freeze** (`frozen_number` set, cleared
       and changed — spec names it and this list omitted it). Reordering siblings
       is a _change_, and re-serializing an unchanged plan is _no_ change — assert
       both.
-- [ ] 7.2b **The diff-completeness property, which is what stops the capture
+- [x] 7.2b **The diff-completeness property, which is what stops the capture
       becoming write-only data.** Over a generated plan, mutate **any single
       field** of `CanonicalPlanInput` in turn and assert the diff is non-empty and
       names the field — with the field set **derived from the value**, not written
@@ -526,7 +526,7 @@ comparison UI) and start only after slice 6 is merged.
       "no change" while being faithfully stored. Negative: drop `frozen_number`
       and then a tag id from `diffPlans`' comparison and watch the property name
       each missing field.
-- [ ] 7.2c **The schedule-side analogue of 7.2b.** Mutate any single field of the
+- [x] 7.2c **The schedule-side analogue of 7.2b.** Mutate any single field of the
       stored schedule body in turn — dates, offsets, every `Scheduled` /
       `ScheduledSlice` key, the top-level counts, the absent reason and
       `scheduler_algorithm_id` — and assert the diff is non-empty and names it,
