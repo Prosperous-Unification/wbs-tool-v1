@@ -370,8 +370,32 @@ function categoryFor(collection: string, field: string): PlanDiffCategory {
  * which is what the spec names, and `steps`/`stepValues`, which are work-item
  * structure rather than a domain of their own.
  */
+/**
+ * The three collections whose *presence* heading is not their *field* heading.
+ *
+ * `COLLECTION_CATEGORIES` answers "a field of this row changed"; a row arriving
+ * or leaving is a different question and the spec answers it differently in
+ * exactly these cases (Sol, round 15):
+ *
+ * - `workItemServices` is a junction row, and the capture text files
+ *   `work_item_service` under **ownership** (`specs/wbs-domain/spec.md:25-29`).
+ *   `service-assignment` is defined narrowly, as the work-item fields
+ *   `service_team_id` and `service_id` (`:299-302`) — which is what the
+ *   `workItems` field table already sends there.
+ * - `tags`, `workItemTypes` and `externalSystems` are "the registry rows a label
+ *   resolves through" (`:303`). A tag *applied to a work item* changing is
+ *   `tags`; the tag row itself arriving or leaving is `registry`, which is
+ *   already how the field table treats a registry row's `name`.
+ */
+const PRESENCE_CATEGORIES: Readonly<Record<string, PlanDiffCategory | undefined>> = {
+  workItemServices: 'ownership',
+  tags: 'registry',
+  workItemTypes: 'registry',
+  externalSystems: 'registry',
+};
+
 function presenceCategory(collection: string, generic: 'added' | 'removed'): PlanDiffCategory {
-  return COLLECTION_CATEGORIES[collection] ?? generic;
+  return PRESENCE_CATEGORIES[collection] ?? COLLECTION_CATEGORIES[collection] ?? generic;
 }
 
 /**

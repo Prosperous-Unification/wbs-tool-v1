@@ -302,11 +302,30 @@ describe('diffPlans — 7.2, the presentation categories', () => {
       differences.filter((d) => d.path.startsWith(`${collection}[`)).map((d) => d.category);
 
     expect(categoriesFor('dependencies').sort()).toEqual(['dependencies', 'dependencies']);
-    expect(categoriesFor('workItemServices').sort()).toEqual([
-      'service-assignment',
-      'service-assignment',
-    ]);
+    // Ownership, not `service-assignment`: the capture files `work_item_service`
+    // under ownership, and `service-assignment` is the narrower thing — the
+    // work-item fields `service_team_id` and `service_id`.
+    expect(categoriesFor('workItemServices').sort()).toEqual(['ownership', 'ownership']);
     expect(differences.some((d) => d.category === 'added' || d.category === 'removed')).toBe(false);
+  });
+
+  /**
+   * A registry row arriving or leaving is a change to the registry, not to the
+   * work-item field that resolves through it. `tags[t1].name` is `registry`
+   * already; `workItems[w1].tagIds` is `tags`. Presence follows the row.
+   */
+  it('files a registry row that arrived or left under registry', () => {
+    for (const collection of ['tags', 'workItemTypes', 'externalSystems'] as const) {
+      const emptied: CanonicalPlanInput = { ...input, [collection]: [] };
+      const categories = diffPlans(side(), side(emptied))
+        .input.filter((d) => d.path.startsWith(`${collection}[`))
+        .map((d) => d.category);
+
+      expect({ collection, categories }).toEqual({
+        collection,
+        categories: input[collection].map(() => 'registry'),
+      });
+    }
   });
 });
 
