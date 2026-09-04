@@ -411,7 +411,13 @@ describe('the saved-plan shelf is on the project page', () => {
     );
     // The shelf's own read landed, so this is the wired panel and not an empty
     // heading: `before the re-plan` is the row the fake answers with.
-    expect(await screen.findByText(/before the re-plan/)).toBeDefined();
+    //
+    // Scoped to the list, and the ambiguity is the evidence. Unscoped this
+    // failed on `Found multiple elements with the text: /before the re-plan/` —
+    // the row **and** the comparison's side name, which is the whole panel
+    // wired rather than a heading with a list under it.
+    const shelf = await screen.findByRole('list', { name: 'Saved plans' });
+    expect(within(shelf).getByText('before the re-plan')).toBeDefined();
   });
 
   itDom('asks be-01 about the project that is now open, not the one just left', async () => {
