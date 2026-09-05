@@ -318,3 +318,33 @@ pre-validation, short-circuiting hook, which is exactly the seat v1 wanted and c
   to the `/probe/guarded-sides` fixture that returns a 401 and asserting the malformed query gets
   401 rather than 422 under Elysia. If that red does not go green, this section is wrong and the
   constraint list is right as it stands.
+
+## Measured, not only read — 2026-09-05T23:14Z on h2puni
+
+The source reading above is confirmed by behaviour. Scratch probe, three clauses, run on h2puni
+(elysia 1.4.28, bun 1.3.14), then deleted:
+
+```
+(pass) short-circuits with 401 before the query validator answers 422
+(pass) control: without the transform the same request is 422
+(pass) control: with the transform and a GOOD query the transform still fires first
+3 pass / 0 fail
+```
+
+The shape, in full:
+
+```ts
+const app = new Elysia().get('/probe', () => ({ ok: true }), {
+  query: t.Object({ left: t.String(), right: t.String() }),
+  transform: () => status(401, { error: 'unauthenticated' }),
+});
+await app.handle(new Request('http://localhost/probe?left=only-one')); // 401
+```
+
+The middle clause is the negative control and it is what makes this evidence rather than a green
+test: the identical request with the `transform` removed answers **422**, so the 401 is the hook
+short-circuiting and not the route being wrong in some other way.
+
+**Constraint 2 is closed. A per-route `transform` is a pre-validation, short-circuiting, route-local
+seat, reachable from `bindElysia`'s existing `hook` object.** Version 3 builds on it, and
+constraints 3, 4, 5 and 6 are what it still has to answer.
