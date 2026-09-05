@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  decodeSupervisorReplyFrame,
   decodeSupervisorStartFrame,
   SUPERVISOR_PROTOCOL_VERSION,
+  type SupervisorReplyBudget,
   type SupervisorStartFrame,
 } from './solver-supervisor-protocol';
 
@@ -99,5 +101,72 @@ describe('decodeSupervisorStartFrame', () => {
     expect(() => decode(frame({ request: { wireVersion: 1, objective: 'time' } }))).toThrow(
       /request objective/,
     );
+  });
+});
+
+const REPLY_BUDGET: SupervisorReplyBudget = {
+  stdoutBytes: 0,
+  stderrBytes: 0,
+  maxPayloadBytes: 64 * 1024,
+  maxStdoutBytes: 2 * 1024 * 1024,
+  maxStderrBytes: 256 * 1024,
+};
+
+describe('decodeSupervisorReplyFrame', () => {
+  it('counts decoded payload bytes against the matching stream', () => {
+    expect(
+      decodeSupervisorReplyFrame(
+        JSON.stringify({ type: 'stdout', payload: 'aGVsbG8=' }),
+        REPLY_BUDGET,
+      ),
+    ).toEqual({
+      frame: { type: 'stdout', payload: 'aGVsbG8=' },
+      budget: { ...REPLY_BUDGET, stdoutBytes: 5 },
+    });
+  });
+
+  it('rejects one oversize payload and cumulative overflow separately', () => {
+    // Production break caught: limiting the JSON/base64 characters instead of
+    // decoded bytes either rejects valid frames or admits excess child output.
+    expect(() =>
+      decodeSupervisorReplyFrame(
+        JSON.stringify({ type: 'stdout', payload: 'QUFB'.repeat(21_846) }),
+        REPLY_BUDGET,
+      ),
+    ).toThrow(/payload bytes/);
+    expect(() =>
+      decodeSupervisorReplyFrame(JSON.stringify({ type: 'stdout', payload: 'QUFB' }), {
+        ...REPLY_BUDGET,
+        stdoutBytes: 8,
+        maxStdoutBytes: 10,
+      }),
+    ).toThrow(/stdout bytes/);
+  });
+
+  it('accepts exact started and terminal frames and rejects extra evidence', () => {
+    expect(
+      decodeSupervisorReplyFrame(JSON.stringify({ type: 'started', pid: 42 }), REPLY_BUDGET),
+    ).toEqual({ frame: { type: 'started', pid: 42 }, budget: REPLY_BUDGET });
+    expect(
+      decodeSupervisorReplyFrame(
+        JSON.stringify({ type: 'terminal', exitCode: 137, deadlineKilled: false, oomKilled: true }),
+        REPLY_BUDGET,
+      ),
+    ).toEqual({
+      frame: { type: 'terminal', exitCode: 137, deadlineKilled: false, oomKilled: true },
+      budget: REPLY_BUDGET,
+    });
+    expect(() =>
+      decodeSupervisorReplyFrame(
+        JSON.stringify({
+          type: 'terminal',
+          exitCode: 137,
+          deadlineKilled: false,
+          oomKilled: true,
+          guessedReason: 'oom',
+        }),
+        REPLY_BUDGET,
+      ),
+    ).toThrow(/unknown key guessedReason/);
   });
 });
