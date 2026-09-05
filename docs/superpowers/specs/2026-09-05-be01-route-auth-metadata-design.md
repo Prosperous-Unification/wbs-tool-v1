@@ -268,3 +268,53 @@ is the alternative. Also `Caller` is not a type in this repo; it is `Authenticat
 (`service/auth.service.ts:12`), and version 2 does not put it on `RouteRequest` at all.
 
 **This version has not been reviewed. Re-run the plan gate on it before any implementation.**
+
+---
+
+# Constraint 2 is measured, and both seats were wrong about it
+
+**2026-09-05T23:15Z. Read from Elysia 1.4.28's compiled handler generator, not from its docs, and
+not from a running probe — this is a source reading and the next chunk must confirm it with a
+watched red before a design is built on it.**
+
+Both reviews said the same thing about `transform`: it runs before validation but "cannot
+short-circuit or return an early HTTP response" (Gemini, question 1) — so the only pre-validation
+seat was the pre-routing, app-level `onRequest`, and that is what made v1 and v2 both unbuildable.
+
+**The generator says otherwise.** In
+`/home/claw/wd/puni/wbs-tool-v1/node_modules/elysia/dist/compose.mjs`:
+
+- Route-local `transform` hooks are emitted at **`:524-544`**.
+- The validator block — headers, then query, body, params — begins at **`:546`** (`if (validator)`).
+  So `transform` is generated **above** validation, per route.
+- Each transform's result is wrapped: **`:541`**
+  `if(transformed instanceof ElysiaCustomStatusResponse){` + `mapResponse("transformed")` + `}`.
+- `mapResponse` (**`:362-365`**) emits a literal **`return`**:
+  ``return `return ${response}` `` — or `const _res=…; …; return _res` when an `afterResponse` hook
+  exists.
+
+So a route-level `transform` that returns an `ElysiaCustomStatusResponse` — what `status(401, …)`
+produces — **returns from the composed handler before the validator runs**. That is a per-route,
+pre-validation, short-circuiting hook, which is exactly the seat v1 wanted and could not find.
+
+**What it satisfies, from the constraint list in the task log:**
+
+- **Constraint 1** — it lives in `bindElysia`'s existing per-route `hook` object, beside the `query`
+  schema that is already passed there. `binder.contract.test.ts` constructs `bindElysia(routes)` and
+  gets it. No `app.ts` involvement.
+- **Constraint 2** — pre-validation and route-local at once, so no hand-rolled path matching and no
+  ten-hooks-per-request. The context `c` is the route's own, so the resolved caller can be assigned
+  to it rather than smuggled through a `WeakMap`.
+
+**What it does not settle, and what a v3 still owes:**
+
+- Constraint 3 stands unchanged: the in-process binder answers 400 for a malformed body before its
+  guard (`in-process/bind.ts:50`), so the auth check's position relative to `decodeBody` is its own
+  decision with its own contract clause.
+- Constraints 4, 5 and 6 stand: write-scope's home, `(method, path, exact auth)` triples, and the
+  two named refusals (`invalid_token` on `GET /api/auth/me`, the write scope on `POST
+  /api/projects/:id/opened`).
+- **This reading is not a measurement of behaviour.** The next chunk starts by adding a `transform`
+  to the `/probe/guarded-sides` fixture that returns a 401 and asserting the malformed query gets
+  401 rather than 422 under Elysia. If that red does not go green, this section is wrong and the
+  constraint list is right as it stands.
