@@ -80,13 +80,10 @@ export function bindInProcess(routes: readonly Route[]): {
  * and a throw for JSON that will not parse — the binder turns that throw into
  * the 400 the framework would have answered.
  *
- * A non-JSON content type reads as no body rather than as text, so a handler
- * receiving a string it never expects cannot be a worse failure than a field it
- * finds absent.
- *
- * **This is a known divergence from `bindElysia`, and the sentence that used to
- * justify it — "every route in this app takes JSON or nothing" — is false.**
- * Measured against the same one-route list, 2026-09-05:
+ * **The two form media types are read, and that is a correction rather than a
+ * feature.** The sentence that used to justify dropping them — "every route in
+ * this app takes JSON or nothing" — was false. Measured against one route list
+ * before the fix, 2026-09-05:
  *
  * ```
  * body                             elysia                  in-process
@@ -95,26 +92,40 @@ export function bindInProcess(routes: readonly Route[]): {
  * JSON bytes, no content-type      200 (body dropped)      200 (body dropped)
  * ```
  *
- * Elysia parses both form media types; this function drops them, so the same
- * request that creates a project under Elysia is a 422 `invalid_body` here —
- * the handler's `isFieldBag` refusing the `undefined` it was handed. The third
- * row is not a divergence: both drop it.
+ * Elysia parses both; this function dropped them, so the same request that
+ * creates a project under Elysia was a **422 `invalid_body`** here — the
+ * handler's `isFieldBag` refusing the `undefined` it was handed.
  *
- * **Which way it gets closed is an API decision, and by this branch's own rule
- * it is "match production".** `PATCH /api/projects/{id}`, `POST
- * /api/projects/{id}/saved-plans`, `PATCH /api/saved-plans/{id}` and `POST
- * /api/auth/login` declared those media types on `main` — Elysia derived them
- * from the TypeBox schemas — and the app still accepts them. So the
- * behaviour-preserving fix is to parse them here and re-declare them in the
- * document, not to refuse them under both binders: narrowing what the API takes
- * is a real change and belongs to whoever wants it, with the clients told. Same
- * argument, same words, as the 405 this binder gave up.
+ * **Parsed rather than refused, by this branch's own rule.** `PATCH
+ * /api/projects/{id}`, `POST /api/projects/{id}/saved-plans`, `PATCH
+ * /api/saved-plans/{id}` and `POST /api/auth/login` declared those media types
+ * on `main` — Elysia derived them from the TypeBox schemas — and the app still
+ * accepts them. Refusing non-JSON under both binders was the other option and
+ * is a real narrowing of the API: it belongs to whoever wants it, with the
+ * clients told. Same argument, same words, as the 405 this binder gave up.
+ *
+ * The third row above is **not** a divergence and is deliberately left alone:
+ * both binders drop a JSON body sent with no content type.
+ *
+ * Still open, and not this function's to close: the four operations lost their
+ * media-type *declarations* in the emitted document when the controllers
+ * stopped declaring TypeBox. Behaviour now matches again; the document does
+ * not.
  */
 async function decodeBody(request: Request): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'DELETE') return undefined;
   const contentType = request.headers.get('content-type') ?? '';
-  if (!contentType.includes('json')) return undefined;
-  const raw = await request.text();
-  if (raw === '') return undefined;
-  return JSON.parse(raw);
+  if (contentType.includes('json')) {
+    const raw = await request.text();
+    if (raw === '') return undefined;
+    return JSON.parse(raw);
+  }
+  // `formData()` reads both, and a file part stays a `File` rather than being
+  // coerced to its name — which is what Elysia hands a handler too, so the
+  // `typeof value !== 'string'` refusals in the controllers answer 422 for it
+  // under either binder instead of writing a filename into a column.
+  if (contentType.includes('form-urlencoded') || contentType.includes('multipart/form-data')) {
+    return Object.fromEntries(await request.formData());
+  }
+  return undefined;
 }

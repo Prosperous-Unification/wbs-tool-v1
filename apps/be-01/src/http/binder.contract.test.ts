@@ -190,6 +190,43 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     expect(await res.json()).toEqual({ received: { name: 'Strip out' } });
   });
 
+  /**
+   * A route module's body is the fields, not the encoding they arrived in —
+   * and this app already accepts both forms in production, because Elysia
+   * derived them from the TypeBox schemas the controllers used to declare.
+   *
+   * Measured before this clause was written: Elysia answered
+   * `{"name":"Sand"}` for both media types and the in-process binder dropped
+   * the body, so the request that creates a project under one binder was a 422
+   * `invalid_body` under the other. Keeping the acceptance and asserting it
+   * here is the behaviour-preserving direction — narrowing what the API takes
+   * is a real change and belongs to whoever wants it. See `decodeBody`.
+   *
+   * A JSON body sent with no content type is deliberately **not** here: both
+   * binders drop that one, so it is agreement rather than contract.
+   */
+  it.each([
+    ['x-www-form-urlencoded', () => 'name=Sand', 'application/x-www-form-urlencoded'],
+    [
+      'multipart/form-data',
+      () => {
+        const form = new FormData();
+        form.append('name', 'Sand');
+        return form;
+      },
+      undefined,
+    ],
+  ])('reads a %s body as the fields it carries', async (_label, makeBody, contentType) => {
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', {
+        method: 'POST',
+        ...(contentType === undefined ? {} : { headers: { 'content-type': contentType } }),
+        body: makeBody(),
+      }),
+    );
+    expect(await res.json()).toEqual({ received: { name: 'Sand' } });
+  });
+
   it('answers a 204 with no body at all', async () => {
     const res = await app.handle(
       new Request('http://localhost/probe/gone/7', { method: 'DELETE' }),
