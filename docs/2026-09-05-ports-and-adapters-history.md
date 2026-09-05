@@ -204,9 +204,10 @@ each fixed in the normative text:
 | **Deep generic shapes over ArkType inference have an unmeasured `tsc` cost**, and the error messages are the kind agents misread.                                                                                                                                                     | A `tsc` wall-time pin in Wave 1.1's verify table, with the fallback named. §4, §6.                                                                                                                                                          |
 | **§8–§11 kept superseded decisions inline** (D15, §9.3, "historical rationale"), which §10 itself records as having caused a copy-in error.                                                                                                                                           | Moved here. The plan is the D-table and §2–§7.                                                                                                                                                                                              |
 
-Recommended and **not** applied, because each is a design choice for Dany rather than a
-contradiction: renaming `runtime-web` (it hosts adapters be-01's `boot.ts` also uses); dropping
-the two-implementations requirement for store ports until a second real source exists, which
-would roughly halve the per-feature file fan-out the split adds (measured: the last eleven
-feature commits on `main` touched 2–4 files each; after the split a wire-visible field touches
-contracts, a core port, a core service, `store-sqlite`, `store-memory`, a kit case and fe-01).
+Two more were put to Dany the same night and decided: `runtime-web` is renamed
+`runtime-portable` (it hosts adapters be-01's `boot.ts` also uses; the old name survives in
+§8–§11 above as history); and the two-implementations requirement for store ports is
+**relaxed** — the memory source may lag behind SQLite on a named stub allowlist (plan D29),
+because the last eleven feature commits on `main` touched 2–4 files each and the requirement
+would have made a wire-visible field touch 6+ files in 5 projects for a second implementation
+nothing ships on yet.
