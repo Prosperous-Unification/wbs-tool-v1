@@ -1,3 +1,5 @@
+import type { BuiltSolverRequest } from '@wbs/contracts/solver/build-request';
+import { dispositionOfPreflightFailure } from '@wbs/contracts/solver/solver-failure-disposition';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 
@@ -7,17 +9,21 @@ import {
   reserveSolverSlot,
   type SolverSlotAdmission,
 } from '../repository/optimization-admission';
+import { releaseSolverSlot } from '../repository/optimization-drain';
 import { allocateGeneration } from '../repository/optimization-generation';
 import {
   readOptimizedPairAndSpawn,
   type SpawnRequest,
+  storeOptimizedOutcome,
 } from '../repository/optimized-schedule-cache';
 import type { SolverObjectiveName } from '../repository/schema';
 import type { OptimizedScheduleReader } from './optimized-schedule-reader';
+import { buildSolverRequestPair, type SolverRequestPair } from './solver-request-pair';
 
 export interface OptimizationCoordinatorOptions {
   readonly db: Drizzle;
   readonly contractVersion: string;
+  readonly solverVersion: string;
   readonly budgetMs: number;
   /** Stable for this backend process; generated once at coordinator boot. */
   readonly ownerId: string;
@@ -33,11 +39,14 @@ export interface OptimizationCoordinatorOptions {
 }
 
 type ReservedAdmission = Extract<SolverSlotAdmission, { kind: 'reserved' }>;
+type SolverRequest = Extract<BuiltSolverRequest, { readonly ok: true }>['request'];
 
 /** Everything the launcher needs from the read and its successful reservation. */
 export interface ReservedSpawnRequest extends SpawnRequest {
   readonly generation: number;
   readonly admission: ReservedAdmission;
+  /** The exact deterministic request written to the launcher's stdin after bind. */
+  readonly request: SolverRequest;
 }
 
 /** The launcher's small control surface before it may exec the solver. */
@@ -82,6 +91,7 @@ export class OptimizationCoordinator {
       inputHash,
       now,
     );
+    let requests: SolverRequestPair | undefined;
     const pair = readOptimizedPairAndSpawn(
       this.options.db,
       {
@@ -102,14 +112,46 @@ export class OptimizationCoordinator {
           now,
         });
         if (admission.kind === 'reserved') {
-          const child = this.options.spawn({ ...request, generation, admission });
-          const bound = bindSolverSlot(this.options.db, {
+          requests ??= buildSolverRequestPair(
+            ask.input,
+            this.options.solverVersion,
+            this.options.budgetMs,
+          );
+          const built = requests[request.objective];
+          const slot = {
             projectId: request.key.projectId,
             contractVersion: request.key.contractVersion,
             generation,
             objective: request.objective,
             budgetMs: request.key.budgetMs,
             attemptToken: admission.attemptToken,
+          };
+          if (!built.ok) {
+            try {
+              storeOptimizedOutcome(this.options.db, {
+                claim: { ...slot, ownerId: this.options.ownerId },
+                inputHash: request.key.inputHash,
+                admittedCancelEpoch: admission.admittedCancelEpoch,
+                outcome: {
+                  kind: 'failed',
+                  reason: dispositionOfPreflightFailure(built.failure),
+                },
+                now,
+              });
+            } finally {
+              releaseSolverSlot(this.options.db, slot);
+            }
+            return;
+          }
+
+          const child = this.options.spawn({
+            ...request,
+            generation,
+            admission,
+            request: built.request,
+          });
+          const bound = bindSolverSlot(this.options.db, {
+            ...slot,
             pid: child.pid,
           });
           child.verdict(bound ? 'bound' : 'abort');

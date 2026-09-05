@@ -10,6 +10,7 @@ import { openDatabase, openDrizzle } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
+import { readOptimizedPair } from '../repository/optimized-schedule-cache';
 import { solverSlot } from '../repository/schema';
 import {
   OptimizationCoordinator,
@@ -85,6 +86,7 @@ function coordinator(
   return new OptimizationCoordinator({
     db,
     contractVersion: CONTRACT,
+    solverVersion: '0.1.0',
     budgetMs: BUDGET,
     ownerId,
     now: () => 10,
@@ -128,6 +130,8 @@ describe('OptimizationCoordinator read', () => {
     ).toBeNull();
     expect(calls.map(({ objective }) => objective)).toEqual(['pri', 'time']);
     expect(calls.every(({ key }) => key.inputHash === scheduleInputHash(INPUT))).toBe(true);
+    expect(calls.map(({ request }) => request.objective)).toEqual(['pri', 'time']);
+    expect(calls[0].request.baselineOffsets).toBe(calls[1].request.baselineOffsets);
     expect(
       db
         .select({
@@ -154,6 +158,34 @@ describe('OptimizationCoordinator read', () => {
 
     // Proof: bypassing SQLite leaves zero rows; removing the full-key conflict
     // check lets green call the spawner twice more for the same generation.
+  });
+
+  it('stores both preflight refusals without creating a launcher', () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const tooLate: ScheduleInput = {
+      ...INPUT,
+      notBefore: new Map([['w-1', 50_000_000]]),
+    };
+
+    expect(
+      coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input: tooLate }),
+    ).toBeNull();
+    expect(calls).toEqual([]);
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(tooLate),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    expect(pair.pri).toMatchObject({ kind: 'failed', reason: 'horizon-overflow' });
+    expect(pair.time).toMatchObject({ kind: 'failed', reason: 'horizon-overflow' });
+
+    // Proof: passing the refusal to spawn creates two launcher calls; skipping
+    // the fenced store leaves both variants as misses and repeats on every read.
   });
 
   it('does not automatically request exact-key failed or corrupt objectives', () => {
