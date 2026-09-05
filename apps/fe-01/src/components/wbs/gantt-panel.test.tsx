@@ -5354,6 +5354,170 @@ describe('a calendar marker is a chip in the axis band, placed by its date', () 
   });
 });
 
+describe('the marker rule takes its named slot in marksOverLight', () => {
+  /**
+   * The eight marks slice 8.2 fixes the rule between, in the order
+   * `design.md` §2.1 lists them.
+   *
+   * Eight and not three: an earlier draft jumped from the rule straight to the
+   * first bar, which leaves the row hit lines and the capacity marks undecided
+   * — a rule emitted **after** those and still before every bar satisfies
+   * "before the bars" while sitting in the wrong slot, which is the same
+   * "behind the bars" error in miniature.
+   */
+  const SLOTS = [
+    'data-gantt-weekend',
+    'data-gantt-today',
+    'data-gantt-gridline',
+    'data-gantt-today-edge',
+    'data-gantt-marker-rule',
+    'data-gantt-row-line',
+    'data-gantt-capacity-link',
+    'data-gantt-bar',
+  ] as const;
+
+  /**
+   * Which kinds of mark the document holds, in paint order, one entry per
+   * **run** of a kind.
+   *
+   * Collapsing only *consecutive* repeats is the point: a kind emitted in two
+   * places appears twice and the comparison against {@link SLOTS} says so,
+   * where a `Set` or a sort would quietly forgive it.
+   */
+  const paintOrder = (): string[] => {
+    const runs: string[] = [];
+    for (const mark of document.querySelectorAll(SLOTS.map((slot) => `[${slot}]`).join(','))) {
+      const slot = SLOTS.find((candidate) => mark.hasAttribute(candidate));
+      if (slot !== undefined && runs[runs.length - 1] !== slot) runs.push(slot);
+    }
+    return runs;
+  };
+
+  /** A PALETTE entry, for the chip suite's reason — a fill be-01 would accept. */
+  const AZURE = '#5d6afe';
+  const CORAL = '#ff6b6b';
+
+  /**
+   * A plan carrying every one of the eight marks at once, drawn on the reader's
+   * Wednesday.
+   *
+   * All eight in **one** render because the assertion is about their order, and
+   * an order read off a document missing a slot is an order with a hole in it
+   * that nothing would report. The capacity link is the expensive one: it needs
+   * a named team whose slots are full, which is `sand` waiting on `strip` at
+   * `width: 2` against a two-slot team.
+   *
+   * `haul` is here for the **weekend**: the capacity pair alone runs five
+   * workdays, a calendar axis over five workdays is Monday to Friday, and the
+   * first run of this case failed on a missing `data-gantt-weekend` for exactly
+   * that reason. Nine workdays reaches the Saturday.
+   */
+  const markedChart = (markers: readonly CalendarMarkerView[]) => {
+    vi.useFakeTimers();
+    // Wednesday of the first week — offset 2 on a plan that starts Monday
+    // 2026-08-10, so today is on the chart and draws both its column and edge.
+    vi.setSystemTime(new Date(2026, 7, 12, 9, 0));
+    try {
+      render(
+        <GanttPanel
+          plan={planOf({
+            rows: [
+              rowAt('strip', 0, 3, { team: { state: 'named', name: 'Platform' } }),
+              rowAt('sand', 3, 5, { team: { state: 'named', name: 'Platform' }, maxParallel: 2 }),
+              rowAt('haul', 0, 9),
+            ],
+            slices: [
+              sliceAt('haul-dev', 'haul', 0, 9),
+              sliceAt('strip-dev', 'strip', 0, 3),
+              sliceAt('sand-dev', 'sand', 3, 5, {
+                boundBy: 'capacity',
+                capacityTeamId: 'team-platform',
+                resourcePredecessorId: 'strip-dev',
+                capacityPredecessorIds: ['strip-dev'],
+                width: 2,
+                effort: 4,
+                duration: 2,
+              }),
+            ],
+          })}
+          startDate={MONDAY_START}
+          scheduleError={null}
+          generation={0}
+          heightPx={null}
+          onPickRow={() => undefined}
+          onPointRow={() => undefined}
+          pointed={pointedAtRow(null)}
+          markers={markers}
+        />,
+      );
+    } finally {
+      // Before any assertion, for the today suite's reason: fake timers left
+      // running poison every test after this one.
+      vi.useRealTimers();
+    }
+  };
+
+  const theRule = (): Element => {
+    const rule = document.querySelector('[data-gantt-marker-rule]');
+    if (rule === null) throw new Error('no marker rule drawn');
+    return rule;
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  itDom('is emitted after today’s edge and before the row lines, the links and every bar', () => {
+    // The mechanism, and it needs its own assertion because the requirement —
+    // "a bar crossing the rule is unchanged" — cannot see it: a rule painted
+    // over the bars leaves every bar attribute exactly where it was.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(paintOrder()).toEqual([...SLOTS]);
+  });
+
+  itDom('declares pointer-events none, so a reorder cannot take the row hover with it', () => {
+    // Belt-and-braces rather than load-bearing, and asserted for that reason:
+    // the row hit lines are painted **over** this rule and Chromium hit-tests
+    // front to back, so the hover reaches `data-gantt-row-line` first whatever
+    // the rule carries. There is no behavioural half to send to a browser —
+    // the declaration is the whole claim.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(theRule().getAttribute('pointer-events')).toBe('none');
+  });
+
+  itDom('runs the full height of the body, not the band it was sampled in', () => {
+    // Nothing else in 8.2 or 8.2a can see this. Order, pointer behaviour, the
+    // count and the colour are all true of a rule one row tall, and 8.2a
+    // samples one short strip in one empty row band — so a rule drawn through
+    // that band alone passes every other check while vanishing from the rest of
+    // the chart. Three rows here, so a rule truncated to one row and a rule
+    // running the body are different numbers.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(theRule().getAttribute('y1')).toBe('0');
+    expect(theRule().getAttribute('y2')).toBe('3');
+  });
+
+  itDom('draws one rule per marked day, in the first marker’s colour', () => {
+    // Two markers, one day, two colours. One rule, because the rule says "this
+    // day is marked" and a second line at the same x is invisible ink drawn
+    // twice — and the colour is the **first** by `(created_at, id)`, which is
+    // the order be-01 sends and `markersByDate` preserves.
+    //
+    // The count alone cannot see which colour won, which is why the stroke is
+    // asserted beside it.
+    markedChart([
+      { id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE },
+      { id: 'm-freeze', date: '2026-08-13', name: 'Freeze', color: CORAL },
+    ]);
+
+    expect(document.querySelectorAll('[data-gantt-marker-rule="3"]')).toHaveLength(1);
+    expect(theRule().getAttribute('stroke')).toBe(AZURE);
+  });
+});
+
 describe('the dates a bar says are printed by shortIsoDate and nothing else', () => {
   itDom('prints a day in another year with that year on it', () => {
     // `shortIsoDate` drops the year only when it matches the reader's own, so a

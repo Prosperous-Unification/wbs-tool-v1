@@ -3537,6 +3537,63 @@ function GanttChart({
         )}
 
         {/*
+                A marked day, down the whole body — the chip in the axis band
+                says *which* day and this says *where it falls* against the
+                work, which is the question a marker is added to answer.
+
+                **Its slot is here, and "behind the bars" would not have said
+                so.** This layer paints thirteen kinds of mark in one order
+                (`design.md` §2.1) and "behind the bars" fixes the rule against
+                exactly one of them, leaving the other twelve to whoever edits
+                next. Emitted after {@link data-gantt-today-edge} and before the
+                row hit lines, the capacity links and every bar: over the
+                calendar's own furniture, because a marker is a fact about the
+                calendar that the reader put there and the gridlines are not;
+                under everything that carries a row's work, because a rule that
+                covered a bar would trade the sentence it is drawn to support
+                for a stripe across it.
+
+                `pointerEvents="none"` is belt-and-braces rather than load-
+                bearing: the row hit lines at slot 8 are painted **over** this
+                and take the pointer first whatever the rule declares. It is
+                here so a future reorder that moves the rule above them does
+                not silently take the row hover with it.
+
+                One rule per marked **date**, not per marker, in the colour of
+                that date's first marker by `(created_at, id)` — which is the
+                order be-01 sends and the order {@link markersByDate} preserves.
+                Two markers on a day are two chips and one rule: the rule says
+                the day is marked, and a second line at the same x would be
+                invisible and would double the ink at every zoom rung.
+
+                A date off the drawn horizon draws nothing, for the chip's
+                reason — see the `null` arm in the band below and task 8.5.
+              */}
+        {[...markersByDate].map(([date, standing]) => {
+          const offset = axisOffsetOf(axis, date);
+          if (offset === null) return null;
+          return (
+            <line
+              key={date}
+              x1={offset}
+              y1={0}
+              x2={offset}
+              y2={rowCount}
+              data-gantt-marker-rule={offset}
+              // The **first** marker's fill, through the one spelling of
+              // "what colour is this marker" the chart has: a second
+              // `?? automaticColor(id)` here is a rule free to disagree
+              // with the chip standing on it. See {@link markerFill}.
+              stroke={markerFill(standing[0])}
+              pointerEvents="none"
+              // The gridlines' reason: user space is one unit per day, so an
+              // unscaled stroke would be a day wide at every rung.
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })}
+
+        {/*
                 Every row's own line, as a hit surface and nothing else.
 
                 Dany, 2026-09-01: _"when i hover over gantt chart rows they must
@@ -4071,6 +4128,7 @@ function GanttChart({
       drawnLinks,
       drawnPoolWaits,
       endTouchPress,
+      markersByDate,
       onPickRow,
       pad,
       placed,
