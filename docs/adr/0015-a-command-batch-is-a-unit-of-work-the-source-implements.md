@@ -8,8 +8,9 @@ ADR 0007 made a command batch an outer `BEGIN IMMEDIATE` over the stores' own SQ
 transactions, which nest as savepoints. That is a fact about `bun:sqlite`, and a data source
 that is a file, an HTTP API or a document store has no savepoints. We keep the behaviour and
 move the mechanism: core owns a `UnitOfWork` port whose contract is **terminal atomicity** —
-once `run` settles, every write made inside it is observable through every store's reads or
-none is — and each source meets it its own way. The SQLite adapter meets it exactly as ADR 0007
+once `run` settles, every write made by its batch is observable through the stores' reads or
+none is; explicitly declared post-rollback repair is a separate surviving act — and each
+source meets it its own way. The SQLite adapter meets it exactly as ADR 0007
 describes; the in-memory source meets it by staging and swapping. A conformance case
 (`unitOfWorkConformance`) asserts the contract against every source, so a source that cannot
 roll back is not a slower source, it is a failing one.
@@ -25,7 +26,7 @@ Two things the first draft of this ADR got wrong, corrected on review (plan §8)
   lock while a batch is open; the code has only publication taking it, so a route write or a
   retention prune can land inside an open batch and be rolled back with it. The lock leaves
   core and becomes the source's **write coordinator**: a queue of turns that every mutating
-  adapter method asks through the **gate** it was built with, and that `run` takes one turn
+  transactional adapter method asks through the **gate** it was built with, and that `run` takes one turn
   of for the whole batch. Its key is the source's choice — the process for one-connection
   SQLite, the project for a Postgres advisory lock, nothing where each transaction has its own
   connection.
@@ -42,28 +43,39 @@ And one thing the second draft got wrong, corrected on the third review (plan §
   a `Scope` whose stores are the same adapter classes built so their writes are already the
   batch's own — an open gate for SQLite, the transaction client for Postgres, the staged clone
   for memory — and the batch runner builds its services over `scope.stores`. Nothing that holds
-  a turn ever asks for one; everything else waits. The deadlock has no code path left to live
-  in, and the kit's case (h) watches for its return.
+  a turn ever asks for one; outside transactional writers wait. Case (h) is the planned
+  production-call-path negative; the next review found that repair still violated this rule.
 
 `run` takes an act that returns a `Decision` — commit or roll back, with the value either way,
 and an optional `afterRollback` that runs before the turn is released — because a refusal in
 this codebase is a returned value, not a throw, and undo discards its stale journal entry in
-exactly that window, through the ordinary journal store rather than the scope's, whose write
-was just rolled back. A thrown error rolls back and rethrows.
+exactly that window. **Corrected on the 2026-09-06 repository review (D28):** the callback
+receives a fresh admitted scope over the surviving transactional state and uses its journal.
+The ordinary journal reacquires the coordinator the callback holds and deadlocks; the old
+memory scope writes into a discarded clone. A thrown batch error rolls back and rethrows.
+The callback runs outside the transaction catch, so its own failure propagates without a
+second rollback; if transaction failure and rollback both fail, both errors are retained.
 
-The coordinator carries one more guarantee than atomicity: it is what makes the batch's
-**ambient announcement context** portable. `DeferringBroadcaster` holds announcements in an
-`AsyncLocalStorage`; behind the `AsyncContext` port the browser adapter is a single slot, and
-a single slot is correct only because the coordinator admits one writer at a time **and**
-because ownership never travels through it — the slot carries announcements and nothing else,
-so nothing outside the batch can publish while it is open. Kit cases (f) and (g) in the plan
-assert exactly that, and the slot throws on overlap so a coordinator fault is loud.
+**Announcements also have explicit ownership (D24, superseding D15).** Per-store admission
+cannot prevent an ordinary route from completing its write, releasing the turn, and
+publishing after the next batch opens its hold. The review's probe observed exactly that
+order and the following refusal dropped the committed route's event. A single browser slot
+therefore is not a valid substitute for today's `AsyncLocalStorage`.
+
+Build a fresh collector and `servicesOver(scope.stores, { ...shared, broadcast: collector })`
+per batch; ordinary services receive the direct broadcaster. Flush only the batch's own
+events after commit and coordinator release; discard only those events after rollback. This
+works in either runtime without an `AsyncContext` port. Composition cases (f), (g) and (l)
+cover outside writers on both sides of the admission window and post-commit events from a
+preceding batch. The clock, replay buffer, throttle and optimizer wiring remain shared.
 
 Why this is believed to be a port and not SQLite renamed: a Postgres source has the
 mirror-image bug — a service built over the pool, called inside a transaction, writes outside
 it and survives the rollback — and `scope.stores` bound to the transaction client is the same
-line that fixes both; its coordinator is a per-project advisory lock, so batches on one project
-still take turns while different projects run in parallel. A file source has no transactions
+line that fixes both. Its coordinator must survive transaction rollback until repair ends:
+a transaction-level advisory lock is insufficient, so a future adapter retains a session-level
+project lock and its borrowed connection through repair and releases both afterward. Batches
+on one project still take turns. A file source has no transactions
 at all, and meets terminal atomicity by staging, acting and one atomic rename, which is the
 memory source with a persist hook. Neither is built; both fit the three interfaces without
 core changing.
@@ -73,6 +85,11 @@ core changing.
 **Transactions stay SQL-only; swappability promised only among SQL sources.** Rejected
 because "the repository layer must not care about the source" was the requirement, and a
 port that only SQL can implement is drizzle's shape with a different name.
+
+**A shared announcement slot under the write coordinator.** Rejected after the observed
+write-before-next-batch publication race. Holding the coordinator across network delivery
+would serialize unrelated writes behind gateway latency. Binding the collector to the scoped
+service graph preserves explicit ownership without extending that critical section.
 
 **Push atomicity into the stores as aggregate-level methods** (`applyPlanBatch`). Rejected
 for the same reason ADR 0007 rejected the unit-of-work rewrite: it replaces the per-command
@@ -84,12 +101,18 @@ service layer.
 ADR 0007 is not superseded; it becomes the SQLite adapter's documentation. The saved-plan
 repositories, which open their own connection per call and check quota inside their own
 transaction, are **independent operations** of the source: never enlisted in a batch and
-never taking a turn, so an open batch neither delays nor undoes them; the kit holds every
-source to that. `EventLogRepo` is a port of the source like the stores (`EventLogStore`),
+never taking a coordinator turn. Existing bounded database contention may return
+`snapshot_busy`; an independently successful save survives either batch outcome. `Scope`
+contains only `TransactionalStores`; the source separately composes `HistoryStores` (D27).
+The memory source holds history outside its cloned/swapped transactional tables, and case (j)
+tests successful independent saves against both commit and rollback. This addresses a
+conditional design risk, not a measured data-loss bug in an implemented memory source.
+`EventLogRepo` is a port of the source like the stores (`EventLogStore`),
 because replay and retention read and prune through it. The batch runner composes its
-services per batch over `scope.stores`; for SQLite that graph is built once at `open`, since
-the admitted stores never change, and the only per-instance state a batch service holds is
-its own collector, which is per batch by design.
+services per batch over `scope.stores` with that batch's collector. SQLite's admitted store
+adapters can be built once at `open`; its scoped service graph is rebuilt because announcement
+ownership changes for every batch. The conformance checks must prove behavior through these
+callers; declarations that a store is gated do not establish that its write waits.
 
 The set of stores a source offers is a composition, not one record: a source without
 accounts is certified for the ports it has, and the composition root's type says which

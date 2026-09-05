@@ -8,7 +8,7 @@ be-01's store ports, services, use cases and HTTP endpoints move into `libs/core
 import `@wbs/domain`, `@wbs/contracts`, `@wbs/validation` and the `StandardSchemaV1` type, and
 **nothing with a runtime**: no `elysia`, `drizzle-orm`, `bun:sqlite`, `jose` or `node:*`, and
 no `Bun`/`process`/`fetch`/timer/`Buffer` globals. Every runtime concern — password hashing,
-token signing, digests, ambient batch context, timers, push transport, the schedule engine —
+token signing, digests, timers, push transport, the schedule engine —
 arrives through `composeServices({ source, runtime, shared })`, so core is
 **`runtime:isomorphic`**. Dependency direction is stated as **rings** on Nx projects, and
 **every project carries exactly one**: `ring:domain` (`domain`, `contracts`, `validation`,
@@ -21,14 +21,22 @@ SQLite adapters live in `libs/store-sqlite`, the in-memory source in `libs/store
 browser adapters for the runtime ports in `libs/runtime-web`, and `apps/be-01` keeps only the
 Elysia adapter, the composition root with the Bun runtime adapters, and the migrate CLIs.
 The HTTP contract is split along the same line: an endpoint's **shape** — method, path,
-operation id, policies, schemas, document — lives in `@wbs/contracts` so fe-01, mcp-01 and the
-OpenAPI emitter read it from the domain ring, and core binds a handler to each shape; the
+operation id, policies, validators with generated document schemas, modeled reply statuses —
+lives in `@wbs/contracts` so fe-01, mcp-01 and the OpenAPI emitter read it from the domain
+ring, and core binds a handler to each shape; the
 table with handlers cannot cross the ring boundary, the shapes can (plan D21). We chose
 packages over folder conventions because the folder convention
 had already held for a year and still let seven values leak from repositories into services
 with nothing to say so: a rule enforced by a linter across a package boundary fails on the
 import, a rule stated in a comment fails in review or not at all.
 Plan: `docs/2026-09-05-ports-and-adapters-plan.md`.
+
+The 2026-09-06 review corrects two parts of that seam before implementation. `SchemaShape`
+pairs a Standard Schema validator with a JSON Schema descriptor generated from the same
+ArkType declaration: Standard Schema cannot provide the document emitter's metadata by itself
+(plan D25). Replies pair status with schema, including modeled 429/503 refusals; unexpected
+account-store faults still throw (D26). Announcement ownership is explicit in each batch's
+service graph, so core needs no ambient-context runtime port (D24; ADR 0015).
 
 `libs/domain` and `libs/contracts` are conceptually core's innermost ring and stay **separate
 Nx projects**: fe-01 imports one from 11 files and gw-01 the other from 4, and a boundary the
@@ -54,9 +62,10 @@ than a peer implementation the conformance kit holds to the same contract.
 
 **Core as `runtime:bun`, keeping `node:crypto`, `node:async_hooks` and `jose` as imports.**
 The first review's recommendation and this ADR's own second draft. Rejected by Dany the same
-day: every one of those is a wrapper-sized port except `AsyncLocalStorage`, and that one has a
-correct browser adapter under the source's write coordinator (plan §3.4). The cost was one
-extra day in Wave 2; the alternative left "runs in any runtime" as a claim.
+day in favor of an isomorphic core. Runtime wrappers are injected; the later proposal to
+replace `AsyncLocalStorage` with a single browser slot was itself rejected after the review
+reproduced an outside publication entering a following batch's queue. A collector bound to
+one batch's service graph removes the need for that runtime dependency (D24).
 
 **One `@wbs/core` project holding domain and contracts as subpaths.** Rejected because Nx
 boundaries are per project: fe-01 depending on core for `@wbs/core/domain` would be free to

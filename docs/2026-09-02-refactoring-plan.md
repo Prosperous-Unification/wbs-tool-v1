@@ -18,6 +18,13 @@ Vocabulary: **module / interface / seam / adapter / depth / leverage / locality*
 in `.claude/skills/improve-codebase-architecture/LANGUAGE.md`; domain nouns from
 `CONTEXT.md`.
 
+**Current follow-up, 2026-09-06:** [§67](#67--review-follow-up--2026-09-06) adds eleven
+implementation findings as ten ordered slices, including two defects in W2-1's completed
+optimizations. The five design findings are incorporated in the
+[ports-and-adapters plan §11](2026-09-05-ports-and-adapters-plan.md#11--repository-review-incorporated--2026-09-06).
+Earlier measurements and completion entries below remain historical evidence, not proof
+that these newly tested windows are covered. All §67 implementation slices are **not started**.
+
 ## 0 · What the review is optimising for
 
 Three costs decide whether an agent can change this repo without breaking it. Every item
@@ -142,7 +149,7 @@ shipped, or a request counter on the fake API. **Inject the fault the check is a
 
 | Id    | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Files                                                                                                  | Effort | Probe                                                                              |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------ | ---------------------------------------------------------------------------------- |
-| W2-1  | **Half done, 2026-09-02** — see §25. Concurrent identical reads now share one request. Narrowing _which_ reads a write triggers is not done, and the reason is recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | `lib/wbs-api.ts`, `lib/project-stream.ts:113`, `wbs-table.tsx:3671–3775`, `directory-page.tsx:256,342` | 1d     | "a peer edit costs 2 requests, not 8" — fails today                                |
+| W2-1  | **Reopened, 2026-09-06 — §67 R1.** The deduplication (§25) and scope narrowing (§60) both shipped, but their overlap windows lose refreshes: a pre-edit GET is reused after a newer event, and a tree-only generation drops pending steps/directory. One invalidation coordinator fixes both before the generated client replaces this code.                                                                                                                                                                                                                                                                                                                                       | `lib/wbs-api.ts`, `lib/project-stream.ts:113`, `wbs-table.tsx:3671–3775`, `directory-page.tsx:256,342` | 1d     | "a peer edit costs 2 requests, not 8" — fails today                                |
 | W2-2  | **Done, 2026-09-02** — see §28. All three memoised, with the label closures stabilised first, and a layout-count probe that took three attempts to stop being vacuous.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `wbs-table.tsx:10233, :10519, :10617`                                                                  | 0.5d   | `layOutGantt` call count across a keystroke: unchanged                             |
 | W2-3  | **Two thirds measured and refused, 2026-09-02 — see §35.** `Promise.all` over the nine `tree()` reads buys **nothing** (`bun:sqlite` is synchronous: 14.40 ms either way), and the duplicate `deriveNumbers` is ~5% for a widened interface. The snapshot is the real item and is **architecture**, so it needs an OpenSpec change. Original: `PlanCommandRunner.execute` opens a plan snapshot before the loop; `contextFor`, `holdsStep`, the four `storedX` read it; mutators update it in place; the forward guards become pure functions of the snapshot. Also `tree()`'s 13 sequential awaits → `Promise.all`, and `schedule()` stops calling `deriveNumbers` a second time. | `work-item.service.ts` (44 `listByProject` sites), `plan-commands.ts:118–166`, `schedule.ts:1967`      | 4d     | statement count for a 200-command batch: ~1,200 → ~20                              |
 | W2-4  | **Done, 2026-09-02** — see §27, §29 and §33. `dependsOn` and `topological` are linear. `eventAt` is **measured and refused**. `projectOntoWorkItems` is two loops instead of fourteen array allocations: ~8% faster, its `RangeError` cliff measured out of reach, and three defaults that read a broken index as a legal plan are now throws with all three faults watched.                                                                                                                                                                                                                                                                                                       | `work-item.service.ts:1531`, `schedule.ts:377–409, :729–735, :2130–2212`                               | 1.5d   | differential unchanged; `eventsVisited` bound now also counts moves                |
@@ -153,9 +160,9 @@ shipped, or a request counter on the fake API. **Inject the fault the check is a
 | W2-9  | **Done, 2026-09-02** — see §47 and §60. `addWorkdays` and `workdaysBetween` are closed form: **16.1× measured** at offset 250, behind a differential against the walk they replaced (3,500 exhaustive pairs plus 1,500 random). And `calendarScale` now remembers each whole workday's calendar offset for the life of one placement: **113 conversions became 12** on a 40-row plan, watched.                                                                                                                                                                                                                                                                                     |
 | W2-10 | **Half done, 2026-09-02** — see §55. `/directory` and a vendor chunk are out of the first bundle: 796.82 kB became 511.85 + 269.37 + 15.43, with the `manualChunks` rule asserted both ways. `GanttPanel`/`PlanCards` are **refused** — a `lazy()` boundary there turns 2,063 synchronous assertions into `waitFor`s.                                                                                                                                                                                                                                                                                                                                                              |
 | W2-11 | **Done bar a refusal, 2026-09-02** — see §57. The ⋯ menu's open id and the phone toolbar's open state are both out of the render path: opening `Plan actions` cost **5 card renders and now costs 0**, watched. The `PlanCard` shell itself is **refused with measurements**: at rest nothing else re-renders the list — a keystroke, a focus move and a field sheet are 0 renders each — and every prop the call site hands `PlanCards` is a fresh identity per render, so a `memo` shell would be a check that cannot fail until W4-4 stabilises them.                                                                                                                           | `plan-cards.tsx:1988–2557`                                                                             | 1.5d   | `cardTrioOf` spy delta when one menu opens                                         |
-| W2-12 | **Done, 2026-09-02** — see §24, §65 and §66. Ten of the twelve are in; the remaining two are **refused with the code as evidence** (one of them was not the fault the review described) and the `<td>` transition is left to Dany's eye, which is not a refactor's call.                                                                                                                                                                                                                                                                                                                                                                                                           | as named                                                                                               | 1d     | each a one-line spy or count                                                       |
+| W2-12 | **Original work done, 2026-09-02** — §24, §65, §66. **Follow-up, 2026-09-06: §67 R8.** The replay buffer's expiry fix stands, but its bounded-work claim is withdrawn: every record enumerates all subscription keys.                                                                                                                                                                                                                                                                                                                                                                                                                                                              | as named                                                                                               | 1d     | each a one-line spy or count                                                       |
 | W2-13 | **Done, 2026-09-02** — see §48. The roster rides the plan's own stream; the panel opens nothing and is presentational. It also fixes the caveat that panel documented — a dropped connection used to freeze the roster until a reload.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| W2-14 | **Done bar one refusal, 2026-09-02** — see §49. `socketWriter` reads what Bun's `send` answers (nothing did), counts drops and backpressure into `libs/observability`'s first-ever `Counter` callers, and presence is a per-project index behind a thousand-sequence differential. `/metrics/snapshot` is **kept**: the swap's drain polls it.                                                                                                                                                                                                                                                                                                                                     |
+| W2-14 | **Original work done, 2026-09-02** — §49. **Follow-up, 2026-09-06: §67 R7.** Project rosters are indexed and frame outcomes counted, but every membership change still sends to all connections. Target delivery to affected projects; keep the deploy's `/metrics/snapshot`.                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Wave 3 — reuse: one implementation behind N names (≈ 12 days)
 
@@ -198,8 +205,10 @@ The structural moves. Each one turns a read set from "the file" into "the concep
 - **JSON-RPC envelope, Biome, oxlint, tsgo** — audit §7's verdicts stand; nothing changed.
 - **Prettier direct instead of `nx format:check --all`** — withdrawn; re-measured at 17.7s vs
   18.9s on a different file set.
-- **Memoising rows or cells in `WbsTable`** — refused by `pointed-row-render-cost`; the
-  `live.current` architecture makes a `memo` silently stale on the first missed key.
+- **Memoising rows or cells while they depend implicitly on `live.current`** — refused by
+  `pointed-row-render-cost`; a `memo` becomes silently stale on the first missed key.
+  §67 R10 may replace those dependencies explicitly before adding viewport rendering;
+  inserting memoization into the present contract remains out.
 - **Generalising `effective-tag`'s walk into one a type dimension could reuse** — ADR 0009's
   absence is load-bearing. `effective-tag.ts:215`'s O(depth²) rebuild is a real cost and a
   fix must keep the ADR 0008 order, provenance and per-tag `fromId` shape, and re-watch its
@@ -2460,8 +2469,9 @@ map keeps the name too. Nothing in the process sweeps a key nobody touches.
 
 `sweepOneOther` evicts one **other** subscription per write and drops it when nothing is left,
 rotating **by name** rather than by index because the key list moves as subscriptions come and go.
-That is `login-throttle.ts`'s bargain from §24, applied to the same class of fault: bounded work
-per operation, and a sweep that visits every subscription once per K writes across K live ones, so
+The intended bargain was bounded work per operation. **Correction, 2026-09-06 (§67 R8):** the
+eviction count is bounded, but building/filtering all keys and finding the previous key is O(K)
+per record. The sweep visits every subscription once per K writes across K live ones, so
 an abandoned project drains within one lap of whatever traffic is left rather than never.
 
 It changes no answer — `since` and `covers` evict before answering, and `oldestSeq` has no
@@ -2522,3 +2532,227 @@ asks for it shortened, dropped on the pinned columns, and behind `prefers-reduce
 a motion change, this repository's own record says settled rules get reversed once they are drawn,
 and the palette browser cases measure computed colours that a transition moves mid-animation. It
 wants his eye and a browser gate, not a refactor's judgement.
+
+## 67 · Review follow-up — 2026-09-06
+
+**Intent.** Correct inconsistencies exposed by overlapping requests and multi-team labels,
+bound authentication/network work, and make plan reads and realtime delivery scale with the
+project being used. Preserve focused edits, typed refusals, undo staleness and independent
+saved-plan history. Package extraction does not by itself reduce query, rendering or traffic
+costs. This update plans the fixes; it changes no runtime behavior and claims no new gate pass.
+
+Review scope was current code at `main` `2c839252` plus the documentation branch at
+`6dec1ec1`. The branch was documentation-only. Review IDs I1–I11 below identify implementation
+findings; review D1–D5 identify design findings, distinct from the other plan's decision IDs.
+The design findings are owned by that plan's §11, D24–D28 and ADR 0014/0015; they are not a
+second implementation backlog here. Transient probe files are not prerequisites: the fault
+arrangements and observed results needed to reproduce them are recorded below.
+
+### Order, scope and proof discipline
+
+1. R1 first, before replacing the frontend client. R2–R5 are independent correctness and
+   admission fixes; land R2 before the store move and R3/R5 before the auth endpoint move.
+2. R6–R9 remove global work and unbounded waits. Coordinate R6/R8/R9 with the other plan's
+   Wave 2 so a seam has one owner. R4/R7 remain gateway-local; they do not add gw-01 to that
+   plan's HTTP extraction.
+3. R10 starts with a browser baseline and explicit row dependencies, after R1 and the
+   relevant W4-4 extraction. Preserve W4-4's existing `live` contract during mechanical moves;
+   changing it is R10's own observable architecture slice.
+4. Each slice starts with its production-call-path negative, implements the fix, then injects
+   the named fault and records the actual failure in its OpenSpec `verify.md` before writing
+   `Proof:`. Requests that change behavior/contracts/architecture get their own OpenSpec
+   change; only a fix restoring an already-precise spec may use R4's documented exception.
+5. Run the touched suites and the workspace gate for each implementation change. Shared
+   table/CSS work also runs the whole browser gate on ports verified to belong to this
+   checkout. None of the checks below is claimed to have run against an implemented fix.
+
+### Consistency slices — all not started
+
+**R1 · I1 + I2 · One plan-refresh module owns invalidations.** Needs: before
+`http-endpoint-port` Wave 1.4; folds into W4-4's `use-plan-read`. Estimated implementation
+effort: 1–2 days, including browser regression coverage.
+
+Files: `apps/fe-01/src/lib/{wbs-api,project-stream}.ts`,
+`apps/fe-01/src/components/wbs/wbs-table.tsx`, their existing tests; extract the coordinator
+beside `project-stream.ts`. The interface accepts an invalidation's resource scope and event
+sequence; it owns the running read, pending scope union and installed resource generations.
+The table consumes installed snapshots and stale status, not transport-promise ownership.
+
+First hold a tree GET whose response contains sequence A, commit/notify B, then resolve A.
+Require a trailing read to install B without a third event. Sharing a URL alone must not
+merge invalidations across generations. Next hold `step_renamed`'s steps response, deliver
+`tree_replaced`, then resolve the renamed step: it must install even if the tree has a newer
+generation. Repeat for directory and initial full-load scopes; superseded/failed reads cannot
+clear stale status or advance the stream beyond installed state. Preserve teardown and
+cross-project guards. Only then route mutations and socket callbacks through the module and
+remove URL-only deduplication/resource cancellation from their old sites.
+
+Negatives: restore path-only sharing of the pre-edit GET; separately restore one generation
+that drops the earlier wider scope. Both must fail in their held-response windows. Existing
+observations: dedup served `[1, 1]` from one request; the mounted table kept `Dev` after the
+peer renamed it. Removing the competing tree event made the latter control pass.
+
+**R2 · I3 · Team removal stamps every affected work item once.** Needs: before store-port
+wrapping/moves. Estimated effort: 0.5 day.
+
+Files: `apps/be-01/src/repository/{directory,work-item}.ts`,
+`repository/directory.db.test.ts`, and `service/undo.db.test.ts`. Seed a row with two teams
+where the removed team is not the legacy `serviceTeamId`; create an undo entry, remove that
+team through the production directory path, and require changed revision/audit fields and
+the appropriate stale-undo refusal. Derive the affected set from `work_item_team`, bump/stamp
+each surviving work item exactly once, and clean the legacy column separately in the same
+transaction. Also cover removing the first team and a no-op/not-found removal.
+
+Negative: restore revision filtering by the legacy singleton. Observed current failure:
+`['aaa', 'team'] → ['aaa']` while revision stayed `1`; the existing single-team case missed it.
+
+**R3 · I4 · Account-store faults remain server failures.** Needs: before auth's Wave 1 move.
+Estimated effort: 0.5 day.
+
+Files: `apps/be-01/src/service/auth.service.ts`,
+`controller/{auth.integration,oidc.integration}.test.ts`. Use one valid token, first with a
+healthy user store and then with a thrown lookup/identity-resolution fault. Require the
+healthy response, modeled invalid-token response for bad credentials, and propagated server
+failure for storage faults. Catch only modeled verification/claim failures; account
+resolution runs outside that catch in both password-session and OIDC paths.
+
+Negative: put account resolution back inside the broad catch. Observed through `/api/auth/me`:
+the same valid token changed from 200 to 401 `invalid_token` when the repository threw.
+
+**R4 · I5 · Validate decoded WebSocket frames at ingress.** Gateway-local, independent of
+the HTTP extraction. Estimated effort: 0.5 day.
+
+Files: `apps/gw-01/src/controller/ws.controller.ts`, `apps/gw-01/src/app.ts`, their unit and
+integration tests; shared frame declarations in `libs/contracts` where applicable. Define
+the ArkType inbound union, including resume-point value types, and validate decoded input
+once before record indexing or control dispatch. `null`, numbers, strings, arrays and
+malformed controls return `invalid_payload`; valid frames keep their behavior. The real
+socket remains usable for a subsequent ping after a refused frame.
+
+Negative: restore the unchecked `JSON.parse` cast. Direct production-handler probes for
+`null`, `42` and `"text"` threw `TypeError` and sent no error frame; the real-socket regression
+is still to be written, so process termination is not claimed.
+
+### Traffic and query slices — all not started
+
+**R5 · I6 · Reserve login capacity before password verification.** Needs: before auth's
+Wave 1 move. Estimated effort: 0.5–1 day.
+
+Files: `apps/be-01/src/controller/auth.controller.ts`,
+`service/login-throttle.ts`, their tests and boot configuration if a global limit is added.
+Reserve per-account/IP in-flight capacity before the first verification `await`; release it
+on every success, refusal or thrown error while preserving the existing failure-window
+semantics. Add a positive, bounded global verification limit at composition, with a small
+injected cap in tests. Avoid turning capacity exhaustion into a storage or auth failure.
+
+Negative: move reservation after verification. Hold 20 verifications for one username/IP and
+assert the admitted count **while pending**, before releasing any. The current controller
+admitted all 20 despite its five-failure limit, and later answered 401 to all. Also test that
+settled/thrown attempts release capacity and that different accounts share the global cap.
+
+**R6 · I7 · Query assignments and assigned names within the requested project.** Needs:
+before the store move; complements W2-3 without reviving its rejected `Promise.all` change.
+Estimated effort: 0.5–1 day.
+
+Files: `apps/be-01/src/repository/directory.ts`, `service/work-item.service.ts`, store ports
+and their fakes/tests. Add a project-scoped assignment projection and an indexed bounded
+lookup for single work items. Join only assigned people/name fields for `tree()`, instead of
+calling global `listPeople()` and reading every membership. Update callers and fakes together;
+the interface must express project/single-row scope instead of requiring an arbitrary large
+`IN` list. Confirm index use against the real migrated schema.
+
+Negative: restore the unfiltered assignment query or the global people read. Populate many
+unrelated projects and use the existing DB logger/query-plan seam to assert that their rows
+are not scanned/materialized by a tiny plan read or one assignment write. Observed query for
+one work item: `select work_item_id, step_id, person_id from assignment`, with no predicate.
+
+**R7 · I8 · Send presence changes only to affected projects.** Gateway-local follow-up to
+W2-14; the existing project-content isolation tests stay. Estimated effort: 0.5–1 day.
+
+Files: `apps/gw-01/src/service/presence.ts`, `app.ts`, `presence.test.ts` and fan-out/presence
+integration tests. Have join/move/leave mutations identify affected projects; notify their
+members, send a newcomer its own initial state, and preserve connection-to-project lookup
+for disconnects. A move notifies both old and new projects. Multiple tabs still deduplicate
+names while retaining separate connections; unchanged membership does not broadcast globally.
+
+Negative: restore `broadcast()` over every connection. With 1,000 connections across 100
+projects, adding one connection with no project currently sends 1,001 frames. Assert that
+unrelated sockets receive zero frames at that instant, without a retrying absence matcher.
+Replica deployment still requires shared fan-out/presence; it is a later capacity change,
+not something the package split silently enables.
+
+**R8 · I9 · Make replay-buffer sweep work bounded, not just its eviction count.** Needs:
+one owner with Wave 2's broadcaster/source changes. Estimated effort: 0.5 day.
+
+Files: `apps/be-01/src/service/replay-buffer.ts`, `replay-buffer.test.ts` and broadcaster
+tests. Keep a persistent map iterator or explicit rotation queue; do not materialize/filter
+all keys or search for the previous key on every record. Preserve rotation through deletions,
+per-subscription expiry and replay coverage. Measure expiry bursts before replacing array
+shifts with a deque; add a byte budget as a separate behavior slice if retained whole-plan
+payloads exceed the measured memory budget, not an unmeasured default.
+
+Negative: restore the key-array sweep. Instrument work through the production record path
+at 100, 1,000 and 10,000 subscriptions; visits per sweep must be bounded independently of K.
+The current implementation visited exactly K keys. One local run of 1,000 records took
+3.16/29.52/226.44 ms at those counts; this is not a production latency guarantee. Retain the
+existing expiration negatives so optimizing work cannot silently keep abandoned payloads.
+
+**R9 · I10 · Give gateway requests an overall deadline and bounded attempts.** Needs: one
+owner with Wave 2's runtime injection. Estimated effort: 1 day for deadline coverage;
+durable background delivery is a separate change if latency measurements justify it.
+
+Files: `apps/be-01/src/service/{push-client,gateway-broadcaster}.ts`,
+`apps/gw-01/src/service/forward-client.ts`, `apps/gw-01/src/app.ts` resume path, their tests.
+Inject attempt/overall budgets and cancellation through the transport; every attempt,
+backoff and response-body read must fit the overall budget. Handle modeled transient network
+failures within that budget. Keep database commit and the write lock independent of gateway
+delivery: a delivery failure cannot report an already-committed edit as refused. Bound any
+later delivery worker's concurrency/queue and use the durable event log, never an unbounded
+fire-and-forget promise per edit.
+
+Negatives: omit cancellation from a hung header response and, separately, a stalled body;
+remove the overall deadline so individually bounded retries exceed it. Use an injected clock
+and literal advances, require termination at the configured deadline and no later attempt.
+The current push supplied no abort signal and remained pending with `maxRetries=0`; that
+probe demonstrates a missing application deadline, not an OS/network timeout measurement.
+
+### Frontend rendering slice — not started
+
+**R10 · I11 · Bound mounted cells and isolate search work.** Needs: R1 and W4-4's relevant
+row/filter extraction. Estimated effort: 2–4 days after the browser baseline.
+
+Files: `apps/fe-01/src/components/wbs/wbs-table.tsx`, the extracted `use-plan-filter` and
+row/cell modules, `pointed-row-render-cost` tests and the keyboard/hover/browser suites.
+Start by recording Chromium cold/warm mount and input-to-paint measurements at 100/500/1,000
+rows, two/eight steps and sparse/dense dependencies; record concrete budgets in the change's
+intent before optimizing. The review's 100-row jsdom fixture mounted 1,500 cells and one
+Find keystroke called the production cell-style function 1,515 times (94 ms search, 560 ms
+mount); the larger fixtures were not completed and these are not browser benchmarks.
+
+Make each row/cell's render dependencies explicit, retaining peer-edit and focus behavior;
+then isolate/defer filtering and virtualize by viewport with overscan and a pinned active
+editor. Mounted cells must depend on visible rows/columns plus the explicit editor allowance,
+not the total project size. Keep selection, keyboard traversal, drag targets, accessible
+row numbering, variable row heights and table/Gantt row alignment correct. This is a new
+contract-changing slice, not a memo wrapper around today's mutable `live` reads.
+
+Negatives: restore full row mounting while retaining the fixed viewport, and restore search
+state in the all-cells parent; count actual mounted cells/render calls and measure in the
+browser. Inject a missed row dependency and require the peer-edit/focus regression to fail.
+Run the full browser gate, including shared CSS, rather than only the new cost tests.
+
+### Coverage and verification state
+
+All eleven implementation findings map to R1–R10 above. The five remaining findings map to
+the other plan's §11: repair deadlock → D28, announcement capture → D24, document capability
+→ D25, missing reply statuses → D26, independent memory history → D27. That memory risk was
+conditional on which tables the future source clones; no implemented memory-source data loss
+was observed. Its fix makes that boundary explicit before the source is built.
+
+Review evidence: 50 existing realtime tests passed (3,090 assertions), and 15 existing backend
+tests passed (30 assertions); the new scoped-refresh reproduction failed and its control
+passed. Repository/controller probes observed the revision, query, auth and login outcomes
+above. Bun printed an internal `directory mismatch` diagnostic after the backend probes,
+which completed with explicit output; the exit code alone was not used as proof. Full
+workspace, browser, deployment and representative load gates were not run for that review.
+This documentation update does not promote those observations into passing fix verifications.

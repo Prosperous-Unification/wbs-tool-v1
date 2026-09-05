@@ -961,7 +961,7 @@ _Avoid_: orphan row, legacy row, anonymous row
 **Port**:
 An interface core owns and an adapter satisfies: every store, the unit of work, the gate, the
 clock, the broadcaster, the identity resolver, and every runtime concern — password hashing,
-token signing, digest, async context, timers, push transport, scheduler. Named for what the
+token signing, digest, timers, push transport, scheduler. Named for what the
 caller wants, never for what implements it. ADR 0014.
 _Avoid_: abstraction, contract (for this), interface (alone)
 
@@ -987,36 +987,35 @@ kits, and not otherwise.
 _Avoid_: backend, database, persistence layer, data layer
 
 **Write coordinator**:
-The source's queue of turns: every mutating adapter method asks for one through its gate, and
-a unit of work takes one for a whole batch, so no outside write can land inside an open batch.
+The source's queue of turns: every transactional writer asks for one through its gate, and
+a unit of work holds one through its batch and any repair; independent saved-plan operations
+are outside this queue.
 Keyed as the source needs — the process for one-connection SQLite, the project for a Postgres
 advisory lock. Nothing that holds a turn ever asks for another.
 _Avoid_: write lock (as the port's name), mutex, semaphore, re-entrant lock
 
 **Gate**:
 What a store adapter asks for a turn through. Either the source's write coordinator, or the
-open gate, which grants at once because the caller already holds the batch's turn. A store
+open gate, which grants at once because the caller already holds an admitted turn. A store
 does not know which it has.
 _Avoid_: lock handle, guard, admission
 
 **Scope**:
-The stores as seen from inside an open batch: the same adapter classes, built over the open
-gate, the transaction client or the staged copy, so their writes are the batch's own. Handed
-to the batch by the unit of work; the batch's services are built over it. ADR 0015.
+The transactional stores a caller may use during one admitted turn, belonging either to a
+batch or to its post-rollback repair. Independent saved-plan operations are outside that
+scope; a repair belongs to the surviving state, not the refused batch. ADR 0015.
 _Avoid_: transaction context, batch context, ambient stores
 
 **Unit of work**:
-The port a command batch runs inside: once `run` settles, everything written through it is
-observable through the stores' own reads or none of it is. Terminal atomicity, not isolation
-— a concurrent reader may see in-flight rows. SQLite meets it with ADR 0007's outer
-transaction; the contract is the behaviour, not the mechanism. ADR 0015.
+The port that makes a batch's writes observable together or leaves none of them after it
+settles; an explicitly declared post-rollback repair is a separate surviving act. It promises
+terminal atomicity, not isolation from concurrent readers. ADR 0015.
 _Avoid_: outer transaction (as the port's name), transaction handle, session
 
 **Endpoint shape**:
-One HTTP route stated as data — method, path, operation id, request policies, Standard Schema
-types for params, query, body and response, and its documentation — with no handler. Lives
-in the domain ring, so a client, an OpenAPI document and an MCP tool derive from it without
-reaching core.
+One HTTP route's contract — method, path, operation id, request policies, request and response
+validators, matching document schemas, and modeled refusal statuses — with no handler. A client,
+an OpenAPI document and an MCP tool share this contract.
 _Avoid_: route (for this), spec, contract (alone)
 
 **Endpoint**:
@@ -1026,10 +1025,10 @@ endpoint.
 _Avoid_: controller, route handler, resolver
 
 **Refusal**:
-The one envelope every endpoint answers a non-2xx with: a code and the detail that code
-carries, as one union a client narrows by the code. A validation failure and a domain refusal
-look the same to a client; the code is what it branches on. `engine_unavailable` is one: a
-project's chosen schedule engine has no adapter here, and nothing schedules in its place.
+An endpoint's modeled rejection, carrying a code and its detail, including validation,
+throttling and temporary unavailability; redirects and unexpected failures are not refusals.
+`engine_unavailable` means the project's chosen schedule engine has no adapter here and
+nothing schedules in its place.
 _Avoid_: error response, problem, fault (for this)
 
 **Request policy**:

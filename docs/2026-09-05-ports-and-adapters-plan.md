@@ -6,8 +6,13 @@ implementation and an endpoint table that is the one contract fe-01, be-01 and m
 Settled in a grilling session on 2026-09-05, revised the same day after two codex reviews (§8),
 then revised again the same evening when Dany lifted the backward-compatibility constraint and
 asked for every runtime dependency to arrive by injection (§9), and a third time on 2026-09-06
-after a review found the plan's own contradictions (§10). **Not started.** Four OpenSpec
-changes, one per wave plus the namespacing change, created when each starts.
+after a review found the plan's own contradictions (§10). The repository-wide review accepted
+on 2026-09-06 is incorporated in §11 and in the seams below; it supersedes D15's ambient
+context and corrects rollback, schema emission and independent history. **Not started.** Four
+OpenSpec changes, one per wave plus the namespacing change, created when each starts. The
+implementation fixes have their own ordered backlog in
+[`2026-09-02-refactoring-plan.md` §67](2026-09-02-refactoring-plan.md#67--review-follow-up--2026-09-06);
+Wave 0 checks those overlaps too.
 
 Vocabulary: **port / adapter / source / unit of work / write coordinator / gate / scope /
 endpoint / endpoint shape / request policy / conformance kit / ring** as defined in
@@ -53,29 +58,36 @@ rather than inherit.
 
 | #   | Question                                                              | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | --- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | What does "swappable source" require of ADR 0007's outer transaction? | A behavioural **unit of work** port. Contract: **terminal atomicity** — once `run` settles, either every write inside it is observable through every store's reads or none is. **Isolation is not promised.** ADR 0015.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| D1  | What does "swappable source" require of ADR 0007's outer transaction? | A behavioural **unit of work** port. **Terminal atomicity** for the batch's writes: once `run` settles, all of `act`'s writes are observable or none are. Explicit post-rollback repair and independent history are separate acts (D27, D28). **Isolation is not promised.** ADR 0015.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | D2  | Where do the pieces live?                                             | Four packages: `libs/core`, `libs/store-sqlite`, `libs/store-memory`, `apps/be-01`. Direction enforced by Nx ring tags + ESLint. ADR 0014.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | D3  | What is the framework-independent controller?                         | **Endpoints as data** — an `EndpointShape` (method, path, operation id, request policies, Standard Schema types, document) in `@wbs/contracts`, and an `Endpoint` in core that binds a pure handler to one shape (D21). **ArkType from Wave 1**, unknown keys **rejected on every route**, **one refusal envelope** for every endpoint, and the OpenAPI document **emitted from the specs**. (Backward compatibility is not a constraint — Dany, §9.)                                                                                                                                                                                                                                                   |
 | D4  | Second adapters as living proof?                                      | **No** second HTTP adapter (Dany: "good idea, overkill for now"). The store kit gets two implementations by tightening the in-memory fixtures. HTTP characterization tests stay **local to the Elysia adapter**; an exported HTTP kit is written the day a second adapter exists.                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| D5  | Scope across apps                                                     | **be-01 and fe-01's API client.** gw-01's `ws.controller.ts` is already framework-free, its upgrade lives in `gw-01/app.ts` and is not an endpoint, and Nx forbids app→app imports. A shared `libs/http-elysia` is a later decision. mcp-01's tools regenerate from the new document; its code is untouched.                                                                                                                                                                                                                                                                                                                                                                                            |
+| D5  | Scope across apps                                                     | **be-01, fe-01's API client, and mcp-01's tool-schema derivation.** gw-01's WebSocket upgrade and services are outside this extraction; refactoring R4/R7 remain separate. mcp-01's authentication/server runtime stays unchanged. A shared Elysia adapter is a later decision.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | D6  | The seven value leaks                                                 | Vocabulary moves to core/domain. `isForeignKeyViolation` is replaced by **reference-specific** store outcomes (`unknown_step`, `unknown_person`, …) that the adapter returns **only after proving that reference absent**; any other FK failure stays a thrown unknown. No blanket `unknown_reference`. **Confirmed by Dany after review.**                                                                                                                                                                                                                                                                                                                                                             |
 | D7  | Order                                                                 | Wave 0 collision gate → Wave 1 HTTP + shared contract → Wave 2 stores, unit of work, runtime ports, kits → Wave 3 extraction and rings. Each its own OpenSpec change and PR.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | D8  | Packaging                                                             | This document + four OpenSpec changes: `http-endpoint-port`, `store-port-and-unit-of-work`, `core-lib-extraction`, `repo-namespacing`, each created when its wave starts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | D9  | Records                                                               | ADR 0014 and 0015 `proposed` now, `accepted` by the merging PR of their wave. CONTEXT.md terms written now.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| D10 | What runtime does core promise?                                       | **`runtime:isomorphic`.** Core imports `@wbs/domain`, `@wbs/contracts`, `@wbs/validation` and the `StandardSchemaV1` type, and **nothing with a runtime**. Every Node, Bun or third-party runtime concern arrives through `composeServices(ports)`: `PasswordHasher`, `TokenCodec`, `Digest`, `AsyncContext`, `Timers`, `PushTransport`, `Scheduler`. §3.4 has the table.                                                                                                                                                                                                                                                                                                                               |
+| D10 | What runtime does core promise?                                       | **`runtime:isomorphic`.** Runtime concerns arrive through `composeServices({ source, runtime, shared })`: `PasswordHasher`, `TokenCodec`, `Digest`, `Timers`, `PushTransport`, `Scheduler`. Announcements are owned by the scoped service graph, with no ambient-context port (D24). §3.4.                                                                                                                                                                                                                                                                                                                                                                                                              |
 | D11 | Who coordinates writes?                                               | The **source** owns a **write coordinator**: a queue of turns, keyed however that source needs — process-wide for one-connection SQLite (today's `WriteLock`, moved inside the adapter), per project for a Postgres source (`pg_advisory_xact_lock`), a no-op where every transaction has its own connection. Every mutating adapter method asks it for a turn; `UnitOfWork.run` takes **one** turn for the whole batch. **There is no re-entrancy**: the batch's own writes never ask (D20), outsiders wait. `WriteLock` leaves core.                                                                                                                                                                  |
-| D12 | Saved plans and the unit of work                                      | Saved-plan capture and write are **independent operations** of the source, never enlisted in a command batch and **never taking a turn**: they run on their own connection, so an open batch neither delays nor undoes them. Their kit cases say so.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D12 | Saved plans and the source                                            | **Independent history ports**, never enlisted in a command batch or queued on its coordinator. Existing bounded contention remains `snapshot_busy`. A successful save survives either outcome of a concurrent batch. Memory history lives outside staged transactional state (D27); post-rollback journal repair is transactional-store work, not history (D28).                                                                                                                                                                                                                                                                                                                                        |
 | D13 | **New.** What is the contract between fe-01 and be-01?                | **The endpoint shapes.** Every `EndpointShape`, its `P, Q, B, R` types and `RefusalCode` live in `@wbs/contracts`; be-01 binds handlers to those shapes, fe-01 derives a typed client from the same shapes. A renamed field breaks fe-01's typecheck, not a screen. fe-01's four hand-written API modules are replaced. (Revised by D21: the table with handlers cannot cross the ring boundary; the shapes can.)                                                                                                                                                                                                                                                                                       |
 | D14 | **New.** How is dependency direction stated across packages?          | **Rings**, as Nx tags, and **every project has exactly one**: `ring:domain` (`domain`, `contracts`, `validation`, `observability`, `config`), `ring:application` (`core`), `ring:adapter` (`store-*`, `runtime-web`, `auth`, `realtime`, `solver-py`, `be-01`, `fe-01`, `gw-01`, `mcp-01`). Each ring depends only inward; fe-01 additionally only on `ring:domain` and `runtime:browser` adapters. `domain` and `contracts` stay **separate Nx projects** because fe-01 and gw-01 import them and a boundary is per project. A totality test asserts one tag per axis per project (§3.5 #12).                                                                                                          |
-| D15 | **New.** Ambient batch context in the browser                         | `AsyncContext` is a port (Dany: option 1). Bun/Node adapt `AsyncLocalStorage`; the browser adapter is a single slot that **throws on overlap**. Correct **because of D20**: ownership of the batch's writes is explicit, so the coordinator keeps outsiders out and only the batch's own writes can publish while it is open. Had ownership been ambient, the slot would have admitted outsiders (§10). Two kit cases prove it.                                                                                                                                                                                                                                                                         |
-| D16 | **New.** Which validator, where?                                      | **ArkType everywhere, both ends of the wire.** Every schema in the repo is an ArkType type exposed as `StandardSchemaV1`; `@sinclair/typebox` is banned repo-wide by lint once Wave 1 deletes Elysia's `t`. The derived client validates **responses** against the spec's `R` type, replacing fe-01's thirteen `as` casts in `wbs-api.ts`. Config, WS frames and the internal contract already use it.                                                                                                                                                                                                                                                                                                  |
+| D15 | Ambient batch context in the browser                                  | **Superseded by D24 (§11).** The previously selected `AsyncContext` port and single-slot browser adapter are removed from this design. Per-store admission cannot stop an already-committed route from publishing during the following batch.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| D16 | Which validator, where?                                               | **ArkType everywhere, both ends of the wire.** `SchemaShape` pairs a `StandardSchemaV1` validator with a generated JSON Schema descriptor (D25); client validation covers successful and refusal responses by status (D26). TypeBox is banned once Wave 1 removes it. This is a target state; R4 in the refactoring follow-up closes the current WS frame-validation gap.                                                                                                                                                                                                                                                                                                                               |
 | D17 | **New.** Can the whole product run in a browser?                      | **Yes, by construction, not by this plan's waves.** Core and the memory source are isomorphic (D10); `clientFromShapes(shapes, transport)` takes an in-process transport that calls `endpoint.handle` directly; the broadcaster gets an in-tab adapter; persistence is a third source the kit certifies — `store-indexeddb`, or the memory source with a persist hook (§7 Q7). A browser source has **no accounts**, so `Stores` is a composition and the kits are per port (D22); it has no Python solver, so a project stored on that engine is **refused** with `engine_unavailable`, never silently rescheduled (D23). Widening fe-01's ring constraint to `ring:application` is the day it starts. |
 | D18 | **New.** One repo, several products                                   | **Namespace by directory, project name and tag; aliases stay.** `apps/wbs/*`, `libs/wbs/*`, project names `wbs-*`, tag `product:wbs`, rule `product:X → product:X \| product:shared`; `@wbs/*` aliases unchanged; `tools/*` is infra. Its own change after Wave 3, verified by a prod dry-run because Dockerfile build contexts move. **Eighteen** files outside `apps/` name an app path (measured 2026-09-06, §4); the change's first task is that list.                                                                                                                                                                                                                                              |
 | D19 | **New.** Ring in the names?                                           | **In the directory, never in the name.** `libs/wbs/{domain,application,adapters}/…`, `apps/wbs/…`; project names and aliases stay short (`wbs-domain`, `@wbs/core`). The `ring:` tag is the enforced truth and a test asserts directory ring = tag, so the path cannot lie. Rejected: `wbs-adapter-01-fe-01` and `wbs-domain-contracts` — a ring is an attribute, a name is an identity; a lib that moves rings would churn every import; contracts' ring is still the open question.                                                                                                                                                                                                                   |
-| D20 | **New (§10).** How does a store know a write is the batch's own?      | **Through `scope`, never ambiently.** `UnitOfWork.run` hands `act` a `Scope` whose `stores` are the same adapter classes built so their writes are already inside the batch: an open **gate** for one-connection SQLite, the transaction client for Postgres, the staged clone for memory. The batch runner builds its services with `servicesOver(scope.stores, shared)`; route writes, retention and saved plans use the ordinary stores, which take turns. For SQLite that graph is built once at `open`. The alternative — an owner token in `AsyncContext` — was rejected because the single-slot browser adapter hands the token to everyone (§10).                                               |
+| D20 | How does a store know a write is the batch's own?                     | **Through `scope`, never ambiently.** `UnitOfWork.run` supplies admitted transactional stores; the runner builds its scoped services with that batch's collector (D24). SQLite reuses admitted store adapters, not a service graph holding another batch's collector. Public transactional stores take turns; independent history does not (D27). Repair receives its own live admitted scope (D28).                                                                                                                                                                                                                                                                                                    |
 | D21 | **New (§10).** Where does the endpoint table live?                    | **Split.** `EndpointShape<P,Q,B,R>` — everything but the handler — in `@wbs/contracts` (`ring:domain`), so fe-01, mcp-01 and `documentFromShapes` read it without touching core. `Endpoint = EndpointShape & { handle }` in core. The table fe-01 derives its client from is the shapes; the table be-01 mounts is the endpoints; one test asserts every shape has exactly one endpoint bound to it.                                                                                                                                                                                                                                                                                                    |
-| D22 | **New (§10).** One `Stores` record or a composition?                  | **A composition, and kits per port.** `Stores = PlanStores & DirectoryStores & AccountStores & HistoryStores`; `sourceConformance` is the composition of one kit per port (`stepStoreConformance(openStores)`, …); `composeServices` accepts a source without `AccountStores` and omits `AuthService`, and the type says so. A source is certified for the ports it implements, and the certificate names them.                                                                                                                                                                                                                                                                                         |
+| D22 | Stores: one record or a composition?                                  | **A composition, kits per port.** `Stores = TransactionalStores & HistoryStores`; transactional stores contain plan, directory and available account ports. `Scope` excludes history. `composeServices` accepts a source without account ports and omits auth in its type; each certificate names the kits actually run. D27 keeps independent history outside every staged write set.                                                                                                                                                                                                                                                                                                                  |
 | D23 | **New (§10).** A project's engine is not available here               | **Refuse.** `Scheduler.schedule` answers `{ ok: false; error: 'engine_unavailable'; engine }` when the project's stored engine has no adapter in this composition; every caller of the schedule surfaces it as a `Refusal`. Never fall back: dates from an engine the project did not choose are a wrong plan with no mark on it in any export (R5).                                                                                                                                                                                                                                                                                                                                                    |
+| D24 | Who owns announcements?                                               | **The service graph of one batch.** Build a fresh collector and scoped services per batch; ordinary services hold the direct broadcaster. Flush only after commit and release, drop only that batch's events on refusal. No `AsyncContext` or single-slot browser adapter. Supersedes D15; review D2.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D25 | How can shapes emit documents?                                        | **Validator + generated document descriptor.** `SchemaShape<T>` carries `StandardSchemaV1<T>` and JSON Schema from one ArkType declaration. Conversion stays at the declaration boundary; unsupported conversion fails explicitly. `documentFromShapes` consumes descriptors without validator introspection; review D3.                                                                                                                                                                                                                                                                                                                                                                                |
+| D26 | Which replies does the contract admit?                                | **Status-specific success and refusal variants.** Include modeled 429 throttling and 503 contention/dependency failure, preserve empty 204/302 semantics and validate both response arms. Unexpected account-store errors propagate rather than become 401; review D4.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| D27 | Which state does a batch own?                                         | **Transactional stores only.** Independent history is composed at the source, excluded from `Scope`, and held outside memory's staged tables. A successful concurrent history mutation survives commit and rollback; contention is a typed refusal. Corrects the conditional risk in review D5.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D28 | How does repair run after rollback?                                   | **A fresh admitted scope over surviving transactional state**, passed to `afterRollback` before releasing the coordinator. Never public gated stores or the discarded memory scope. A repair failure is propagated outside the transaction catch, so it cannot trigger another rollback; review D1.                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+## 2 · Target layout
 
 ```
 libs/domain         @wbs/domain          ring:domain       runtime:isomorphic   vocabulary, tree rules, derivation, the TS schedule engine (a pure function; its Scheduler adapter lives in runtime-web and boot.ts), saved-plan shape
@@ -85,21 +97,22 @@ libs/observability  @wbs/observability   ring:domain       runtime:isomorphic   
 libs/config         @wbs/config          ring:domain       runtime:isomorphic   ArkType-validated env shapes; no I/O
 libs/core           @wbs/core            ring:application  runtime:isomorphic
   ports/            one file per port: *Store, EventLogStore, SavedPlanStore, SavedPlanCaptureStore, UnitOfWork, Gate, Clock,
-                    Broadcaster, IdentityResolver, PasswordHasher, TokenCodec, Digest, AsyncContext, Timers, PushTransport, Scheduler
-  services/         every class now in apps/be-01/src/service, bodies changed only where a port replaces a global
+                    Broadcaster, IdentityResolver, PasswordHasher, TokenCodec, Digest, Timers, PushTransport, Scheduler
+  services/         the application services, runtime dependencies injected and announcements scoped per batch (D24)
   use-cases/        runCommandBatch, savePlan (authorization + announcement, out of the controller), replay, retentionSweep
   http/             Endpoint = EndpointShape & { handle }, HttpReply, the binding table, mountable by any adapter
   kits/             one kit per port, sourceConformance = their composition; unitOfWorkConformance(open); schedulerConformance(engine); brokenSource(source, faults)
-  compose.ts        composeServices({ source, runtime, shared }) and servicesOver(stores, shared) — one graph, saved plans and the command runner included
+  compose.ts        composeServices({ source, runtime, shared }) — one root graph; servicesOver(stores, shared) — each batch's scoped graph
 libs/store-sqlite   @wbs/store-sqlite    ring:adapter      runtime:bun          drizzle adapters, schema.ts, db.ts (openConnection, pragmas, the write coordinator), scheduleInputHash, migrate*.ts
 libs/store-memory   @wbs/store-memory    ring:adapter      runtime:isomorphic   the in-memory source, promoted from apps/be-01/src/testing/*-fixture.ts; a persist hook is where a file source starts
-libs/runtime-web    @wbs/runtime-web     ring:adapter      runtime:isomorphic   Digest over crypto.subtle, the single-slot AsyncContext, tsScheduler, in-tab Broadcaster; the "any trigger, any runtime" proof test
+libs/runtime-web    @wbs/runtime-web     ring:adapter      runtime:isomorphic   Digest over crypto.subtle, tsScheduler, in-tab Broadcaster; the "any trigger, any runtime" proof test
 libs/auth           @wbs/auth            ring:adapter      runtime:bun          jose and node:crypto behind TokenCodec and the OIDC store (§7 Q5)
 libs/realtime       @wbs/realtime        ring:adapter      runtime:browser      unchanged
 libs/solver-py      —                    ring:adapter      runtime:bun          the Python engine, mounted as a Scheduler adapter in boot.ts
 apps/be-01                               ring:adapter      runtime:bun          elysia adapter, boot.ts (config, logger, the runtime adapters, composition), migrate-*-cli.ts
 apps/fe-01                               ring:adapter      runtime:browser      the derived typed client replaces lib/{api,wbs-api,saved-plan-api}.ts
-apps/gw-01, apps/mcp-01                  ring:adapter      runtime:bun          untouched (D5)
+apps/gw-01                               ring:adapter      runtime:bun          unchanged by extraction; separate R4/R7 fixes in the refactoring plan
+apps/mcp-01                              ring:adapter      runtime:bun          tool schemas derive from shapes; authentication/server runtime unchanged (D5)
 ```
 
 Every project in the workspace appears above or is `scope:infra` under `tools/`. A ring the
@@ -159,12 +172,18 @@ interface EndpointShape<Path extends string, Q, B, R, Pol extends readonly Reque
   path: Path; // params are derived from it: ParamsOf<'/api/projects/:id'> = { id: string }
   operationId: string; // mcp-01 refuses to invent one
   policies: Pol; // applied in order, before parsing
-  params?: StandardSchemaV1<ParamsOf<Path>>; // refines the derived names; cannot add or drop one
-  query?: StandardSchemaV1<Q>;
-  body?: StandardSchemaV1<B>; // ArkType, unknown keys rejected
-  response: StandardSchemaV1<R>; // the client validates against it (D16)
-  document: { summary: string; refusals: readonly RefusalCode[] };
+  params?: SchemaShape<ParamsOf<Path>>; // refines the derived names; cannot add or drop one
+  query?: SchemaShape<Q>;
+  body?: SchemaShape<B>; // ArkType, unknown keys rejected
+  response: SchemaShape<R>; // the client validates with response.validator (D16)
+  refusals: readonly { status: RefusalStatus; schema: SchemaShape<Refusal> }[];
+  document: { summary: string };
 }
+interface SchemaShape<T> {
+  validator: StandardSchemaV1<T>;
+  jsonSchema: JsonSchema; // JSON Schema descriptor generated from the same declaration
+}
+type RefusalStatus = 400 | 401 | 403 | 404 | 409 | 422 | 429 | 503;
 type RequestPolicy =
   | { kind: 'origin'; when: 'always-unsafe-with-session-cookie' | 'always' }
   | { kind: 'identity'; require: 'signed-in' | 'read-scope' | 'write-scope' | 'internal' };
@@ -182,14 +201,33 @@ interface EndpointInput<S> {
   request: { url: URL; method: string; headers: Headers }; // the OIDC callback re-reads the raw request
 }
 type HttpReply<S> =
-  | { ok: true; status: 200 | 201 | 204 | 302; body: ResponseOf<S> | typeof EMPTY; headers?: Header[] }
-  | { ok: false; status: 400 | 401 | 403 | 404 | 409 | 422; refusal: Refusal; headers?: Header[] };
+  | { ok: true; status: 200 | 201; body: ResponseOf<S>; headers?: Header[] }
+  | { ok: true; status: 204 | 302; body: typeof EMPTY; headers?: Header[] }
+  | RefusalReplyOf<S>; // status + refusal body derived together from S['refusals']
 type Header = [name: string, value: string]; // ordered multimap: three Set-Cookie on the callback
 ```
 
 The types are shaped so the three ways a hand-written spec can lie are unrepresentable: a
 path and its params schema cannot disagree, a 200 cannot carry a refusal, and a handler on an
 unauthenticated route cannot read a principal. `EMPTY ≠ JSON null`.
+
+`SchemaShape` is authored once with ArkType; its JSON Schema descriptor is generated at the
+declaration boundary, never maintained as a second handwritten contract. `JsonSchema` is the
+standard serializable document type, not an invented validator interface. Standard Schema
+provides validation/type inference, **not** document introspection; the
+[complete interface](https://standardschema.dev/schema) has no JSON Schema conversion method.
+The generator checks the declaration's input/output direction and fails explicitly on a
+schema it cannot represent. `documentFromShapes` reads descriptors; the HTTP adapter and
+client read validators. A library swap changes declarations and this conversion boundary,
+not the emitter or client. Nested command unions and MCP's inline object-body requirement
+are the first emitter tests (D25).
+
+`RefusalReplyOf<S>` derives its status/body pairs from the shape's literal refusal variants;
+it cannot attach a throttling body to an unrelated status. Login throttling declares 429,
+saved-plan contention declares 503 `snapshot_busy`, and failed dependency health declares 503. Redirects are successful control replies with `EMPTY` and `Location`; unexpected
+exceptions still throw to the error boundary rather than becoming an invalid-session
+refusal. Both ends validate refusal bodies as well as successful bodies. These cases belong
+in the Wave 1 adapter matrix before the existing routes are moved (D26).
 
 - **Adapter phases are specified.** Policies run in `onRequest`, before Elysia parses a body —
   today's write-scope guard depends on that (`app.ts:174`). Negative: policies moved after
@@ -221,10 +259,15 @@ unauthenticated route cannot read a principal. `EMPTY ≠ JSON null`.
   `Refusal` union, and the detail narrows with the code. Negative: a response field renamed
   in one shape → fe-01 `typecheck` red at the screen that read it.
 - **Both ends validate (D16).** `clientFromShapes` parses every response with the shape's
-  `response` schema before handing it to a screen, so a be-01 that answers a shape the
+  status-specific validator before handing it to a screen, so a be-01 that answers a shape the
   contract does not declare is a typed client error at the boundary rather than an
   `undefined` three renders later. Negative: a response field's type changed in be-01 only →
   the client refuses the response in fe-01's tests.
+- **Refresh semantics survive the client replacement.** §67's R1 in the refactoring plan
+  owns invalidation generations, pending resource scopes and the mandatory trailing read.
+  `clientFromShapes` cannot reintroduce URL-only sharing of a GET started before an edit.
+  Carry its held-response and overlapping-scope regressions through Wave 1.4 unchanged in
+  behavior; the generated transport does not own the table's invalidation policy.
 - **Transport is a parameter.** `transport` is `fetch` in production and an in-process
   `(shape, input) => endpointFor(shape).handle(input)` for tests and for the browser-only
   mode (D17). The same fake serves fe-01's unit tests; the two hand-written fakes are deleted.
@@ -235,18 +278,19 @@ unauthenticated route cannot read a principal. `EMPTY ≠ JSON null`.
 
 - Every `*Store` port stays, one file per port under `core/ports/`. **Added:** `EventLogStore`
   (renamed from `EventLogRepo`), `SavedPlanStore`, `SavedPlanCaptureStore`, `Gate`. `Stores`
-  is a **composition** (D22): `PlanStores & DirectoryStores & AccountStores & HistoryStores`,
+  is a **composition** (D22): `TransactionalStores & HistoryStores`, where
+  `TransactionalStores = PlanStores & DirectoryStores & AccountStores`,
   so a source can implement a subset and the type of `composeServices` says what is then
   missing from the graph (`auth` is absent when `AccountStores` is). The `Source` port is
   `{ stores: Stores; uow: UnitOfWork; open(); health(); close() }`.
 - **Write coordinator (D11).** A queue of turns the source owns, keyed as the source needs:
   process-wide for one-connection SQLite, per project for Postgres, a no-op where every
-  transaction has its own connection. Every mutating adapter method asks it for a turn through
+  transaction has its own connection. Every mutating transactional adapter method asks it for a turn through
   the **gate** it was constructed with; `UnitOfWork.run` takes one turn for the whole batch.
   This closes the pre-existing gap in §0. Negative, the one D11 hangs on: suspend a real batch
   after its first write, start `StepService.add` from outside, refuse the batch → the step
-  **is** stored and its event is consistent. Watched failing with the gate removed from
-  `StepRepository.insert` (today's shape).
+  **is** stored and its event is consistent. The implementer must watch this fail with the
+  gate removed from `StepRepository.insert` (today's shape); this is a planned proof.
 
   ```ts
   interface Gate {
@@ -259,18 +303,19 @@ unauthenticated route cannot read a principal. `EMPTY ≠ JSON null`.
   ever asks for one. `run` hands `act` a `Scope` whose `stores` are the same adapter classes
   built so their writes are already the batch's own — `buildStores(db, OPEN)` for SQLite,
   `buildStores(tx)` over the transaction client for Postgres, `buildStores(() => staged, OPEN)`
-  for memory. The batch runner does `servicesOver(scope.stores, shared)`, where `shared` is
-  the clock, the `DeferringBroadcaster`, the replay buffer and the optimizer wiring — one
-  instance per process, never rebuilt. For SQLite the admitted stores and the services over
-  them are built **once at `open`**; the memory source rebuilds per batch because its
-  `scope.stores` point at a fresh clone. Route writes, the retention sweep and saved plans use
-  `source.stores`, whose gate is the coordinator. `Scope` exposes the whole `Stores` record
-  (§7 Q3 answered): one type for both callers of `servicesOver`; which stores a batch may use
-  is the kit's job, not the type's. **Why not an owner token in `AsyncContext`:** in Bun an
-  outsider would read `undefined` and wait, correct; in the browser the single slot hands the
-  batch's token to everyone while the batch is open, so the outsider is admitted inside it —
-  the very fault D11 exists to stop. D15's argument for the slot holds only because ownership
-  does not travel through it.
+  for memory. `buildStores` constructs only `TransactionalStores`; independent saved-plan
+  ports are composed into the public source separately. `Scope` exposes the transactional
+  subset, so a command cannot accidentally enlist a saved-plan operation (D27).
+
+  The batch runner builds `servicesOver(scope.stores, { ...shared, broadcast: collector })`
+  with a fresh announcement collector per batch (D24). Ordinary services receive the direct
+  broadcaster. The clock, throttle, replay buffer and optimizer wiring remain shared; the
+  scoped graph and collector are built per batch. SQLite's admitted **store adapters** can
+  still be built once at `open`; its service graph cannot be reused with another batch's
+  collector. Memory's adapters point at its fresh staged transactional state. Route writes
+  and retention use coordinator-gated public transactional stores; saved plans use the
+  independent history ports and never ask this coordinator for a turn.
+
 - **`UnitOfWork.run` protocol**, because refusals here are **returned values**:
 
   ```ts
@@ -278,80 +323,92 @@ unauthenticated route cannot read a principal. `EMPTY ≠ JSON null`.
     run<T>(act: (scope: Scope) => Promise<Decision<T>>): Promise<T>;
   }
   interface Scope {
-    stores: Stores; // already inside the batch; never take a turn
+    stores: TransactionalStores; // already admitted; never take a turn
   }
   type Decision<T> =
     | { commit: true; value: T }
-    | { commit: false; value: T; afterRollback?: () => Promise<void> };
+    | { commit: false; value: T; afterRollback?: (scope: Scope) => Promise<void> };
   ```
 
   A thrown error rolls back and rethrows. `afterRollback` runs before the turn is released —
-  undo's stale-journal discard needs that window (`plan-commands.ts:222–236`), and it writes
-  through `source.stores.journal`, not `scope.stores.journal`: the batch's journal write was
-  just rolled back, this one must stay.
+  undo's stale-journal discard needs that window (`plan-commands.ts:222–236`). The callback
+  receives a **new admitted scope over the surviving state**, and writes through that
+  scope's journal. An ordinary public store would reacquire the held coordinator and
+  deadlock; the old memory scope would write into the discarded clone. The repair is a
+  separate surviving act, explicitly excluded from the batch's atomic write set. A failed
+  repair is rethrown without issuing another rollback on an already closed transaction (D28).
 
-  SQLite, memory and Postgres in one shape each:
+  SQLite and memory sketches; Postgres's additional lifetime requirement follows:
 
   ```ts
   // store-sqlite: same connection, savepoints nest as ADR 0007 measured
   run: (act) =>
     coordinator.enter(async () => {
       db.run('BEGIN IMMEDIATE');
+      let decision: Decision<T>;
       try {
-        const decision = await act({ stores: admitted });
-        if (decision.commit) {
-          db.run('COMMIT');
-          return decision.value;
-        }
-        db.run('ROLLBACK');
-        await decision.afterRollback?.();
-        return decision.value;
+        decision = await act({ stores: admitted });
+        db.run(decision.commit ? 'COMMIT' : 'ROLLBACK');
       } catch (cause) {
-        db.run('ROLLBACK');
+        try {
+          db.run('ROLLBACK');
+        } catch (rollbackCause) {
+          throw new AggregateError([cause, rollbackCause], 'batch and rollback failed');
+        }
         throw cause;
       }
-    });
-  // store-memory: stage, act, swap
-  run: (act) =>
-    coordinator.enter(async () => {
-      const staged = structuredClone(tables);
-      const decision = await act({ stores: buildStores(() => staged, OPEN) });
-      if (decision.commit) tables = staged;
-      else await decision.afterRollback?.();
+      // Outside the transaction catch: failure here must not attempt a second rollback.
+      if (!decision.commit) await decision.afterRollback?.({ stores: admitted });
       return decision.value;
     });
-  // a future store-postgres: the transaction client is the scope
+  // store-memory: only transactionalTables are cloned; historyTables stay independent
   run: (act) =>
-    db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(${projectId})`); // the coordinator, per project
-      const decision = await act({ stores: buildStores(tx) });
-      if (!decision.commit) tx.rollback();
+    coordinator.enter(async () => {
+      const staged = structuredClone(transactionalTables);
+      const decision = await act({ stores: buildStores(() => staged, OPEN) });
+      if (decision.commit) transactionalTables = staged;
+      else await decision.afterRollback?.({ stores: buildStores(() => transactionalTables, OPEN) });
       return decision.value;
     });
   ```
 
-  The Postgres sketch is not a promise of a Postgres source. It is here because it is the
-  evidence that the port is not SQLite in disguise: the same three interfaces, and the only
-  file that changes is the source's own.
+  A future Postgres source binds scope stores to its borrowed transaction client. Its
+  coordinator must outlive that transaction through post-rollback repair: a transaction-level
+  advisory lock alone is released too early. Retain a session-level project lock on the
+  borrowed connection, finish the transaction, run repair on admitted live stores, then
+  release the lock and connection, with cleanup failures surfaced. This is a design
+  requirement for a future adapter, not a Postgres implementation in these waves.
 
 - **Terminal atomicity, tested in the window it lives in.** `unitOfWorkConformance`:
-  (a) three writes across three stores, the third refused via `Decision` → none observable
+  (a) three writes across three stores, the third refused via `Decision` → none of those writes observable
   after `run`; (b) the same with the third **throwing**; (c) a committed batch observable
-  through all three; (d) the D11 suspension case, against **both** sources and both
-  `AsyncContext` adapters; (e) a retention prune started while a batch is suspended is **not**
+  through all three; (d) the D11 suspension case against **both** sources;
+  (e) a retention prune started while a batch is suspended is **not**
   undone by the rollback; (f) a publish from inside a suspended batch is held by that batch
   and released after commit; (g) a write started from outside while a batch is suspended
   publishes **after** the batch's release, never inside it; (h) **the deadlock negative**: a
-  `scope` store written inside `run` completes within the timeout — watched timing out with
-  `admitted` built over the coordinator instead of `OPEN`; (i) every value in `source.stores`
-  was built over the coordinator — a walk that fails on the first store built over `OPEN`.
-  (f) and (g) are D15's proof that a single-slot `AsyncContext` is correct; they run against
-  both adapters.
+  `scope` store written inside `run` completes within the timeout — inject `admitted` built
+  over the coordinator instead of `OPEN`; (i) every public transactional store takes a turn —
+  call its write during a suspended batch and observe it wait, then inject `OPEN` and observe
+  the premature write. History ports are excluded by D27. Publication cases (f), (g) and
+  (l) exercise the scoped service composition over each source, not a pure store kit.
 - **Saved plans (D12)**: coherent capture, fail-fast contention, header+body atomic, quota
   checked inside the write, all independent of any open batch and **taking no turn** — they
-  run on their own connection, and case (j) asserts a save during a suspended batch neither
-  waits for it nor is undone by it. `saved-plan-in-transaction.db.test.ts:120` becomes a kit
-  case.
+  run on their own connection. Case (j) asserts the save never waits in the batch coordinator:
+  it succeeds independently or reports the existing bounded `snapshot_busy` contention.
+  A successful save must survive both batch **commit and rollback**. In memory, `historyTables`
+  are never cloned or replaced with `transactionalTables`; in SQLite the existing contention
+  behavior stays modeled. `saved-plan-in-transaction.db.test.ts:120` becomes a kit case.
+- **New failure windows (D24, D27, D28).** Case (k): refuse an undo, discard its journal entry
+  through the repair scope while a second write waits, then let that write proceed. Inject
+  the public journal (timeout), the discarded memory journal (entry remains), and a repair
+  throw (original error survives, no second rollback; later writes still proceed). Case (l):
+  commit an ordinary route write, admit a following batch before the route publishes, then
+  refuse the batch — the route event still leaves, exactly once. Also cover a first batch's
+  post-commit events while the next batch is open. Inject a process-wide announcement slot.
+  Case (j)'s memory negative puts history back in the swapped clone and must lose the
+  concurrent successful save on **commit**. These are planned negatives; record observed
+  failures in the change's `verify.md` before writing `Proof:` comments.
 - **Reference-specific outcomes (D6).** Negative: FK failure on a **person** while the step
   exists → throws; step deleted → `unknown_step`.
 - **Kits per port (D22).** `stepStoreConformance(openStores)`, `workItemStoreConformance`, …,
@@ -375,7 +432,7 @@ than by a list of project names (`package.json:11` today).
 `composeServices({ source, runtime, shared })` builds **one** graph — saved plans and the
 command runner included — and is grouped rather than flat so a new port widens one of three
 records instead of a 25-field argument. `servicesOver(stores, shared)` is the half of it the
-batch runner calls with `scope.stores` (D20). Use-case entrypoints are what a non-HTTP caller
+batch runner calls with `scope.stores` and a per-batch `broadcast` in `shared` (D20, D24). Use-case entrypoints are what a non-HTTP caller
 invokes; `savePlan` carries the authorization and announcement the controller holds today
 (`saved-plan.controller.ts:210–222`). Config loading, the logger adapter and the Bun runtime
 adapters live in `boot.ts`; the browser adapters live in `libs/runtime-web`, which is also
@@ -390,38 +447,34 @@ the split is free.
 
 ### 3.4 Runtime ports (D10; built in Wave 2 while the code still lives in be-01)
 
-| Today                                                                                                                 | Port                                                                                                                                                                                                                        | Bun/Node adapter                                                                         | Browser adapter                                                                      | Size                                     |
-| --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------- |
-| `Bun.password.hash/verify` (`auth.service.ts:76,84`)                                                                  | `PasswordHasher { hash; verify }`                                                                                                                                                                                           | `Bun.password`                                                                           | none needed (no accounts offline)                                                    | 20 lines                                 |
-| `SignJWT` / `jwtVerify` from `jose` (`auth.service.ts:129,167`)                                                       | `TokenCodec { sign(claims, ttl); verify(token) }`                                                                                                                                                                           | `jose`                                                                                   | `jose` (isomorphic)                                                                  | 30 lines                                 |
-| `createHash('sha256')` (`saved-plan.service.ts:342`, `saved-plan-integrity.ts`)                                       | `Digest { sha256(bytes): Promise<string> }`                                                                                                                                                                                 | `node:crypto`                                                                            | `crypto.subtle`                                                                      | 15 lines, 2 files                        |
-| `createHash('sha256')` in `domain/canonical-schedule-input.ts:246` (`scheduleInputHash`)                              | **none** — a `ring:domain` module cannot import a core port. The hash is synchronous and its only caller is `store-sqlite/optimized-schedule-cache.ts`; it **moves there**. `canonicalScheduleInput` stays in domain, pure. | —                                                                                        | —                                                                                    | 1 function moved                         |
-| `Buffer.byteLength` (`saved-plan.ts:173`)                                                                             | none — `TextEncoder`                                                                                                                                                                                                        | —                                                                                        | —                                                                                    | 1 line                                   |
-| `fetch`, `setTimeout`, `setInterval` defaults (`push-client`, `retention-timer`, `saved-plan-retry`)                  | `PushTransport`, `Timers` — already injected; the **global defaults are removed** so the root must pass them                                                                                                                | globals                                                                                  | globals                                                                              | 3 files                                  |
-| `AsyncLocalStorage` (`broadcast.ts:225`)                                                                              | `AsyncContext<T> { run(value, fn); get() }` — announcements only, never ownership (D20)                                                                                                                                     | `AsyncLocalStorage`                                                                      | single slot, **throws on overlap**; correct under D11 + D20                          | 1 file + kit (f),(g)                     |
-| TS engine in `@wbs/domain/schedule` and the Python solver in `libs/solver-py`, chosen per project by `ScheduleEngine` | `Scheduler { schedule(input): Promise<Scheduled \| { ok: false; error: 'engine_unavailable'; engine }> }`                                                                                                                   | both engines as adapters in `boot.ts`; `schedulerConformance` holds them to one contract | `tsScheduler` in `runtime-web`; the Python engine answers `engine_unavailable` (D23) | `optimizer-wiring.ts` already half of it |
+| Today                                                                                                                 | Port                                                                                                                                                                                                                        | Bun/Node adapter                                                                         | Browser adapter                                                                      | Size                                          |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------- |
+| `Bun.password.hash/verify` (`auth.service.ts:76,84`)                                                                  | `PasswordHasher { hash; verify }`                                                                                                                                                                                           | `Bun.password`                                                                           | none needed (no accounts offline)                                                    | 20 lines                                      |
+| `SignJWT` / `jwtVerify` from `jose` (`auth.service.ts:129,167`)                                                       | `TokenCodec { sign(claims, ttl); verify(token) }`                                                                                                                                                                           | `jose`                                                                                   | `jose` (isomorphic)                                                                  | 30 lines                                      |
+| `createHash('sha256')` (`saved-plan.service.ts:342`, `saved-plan-integrity.ts`)                                       | `Digest { sha256(bytes): Promise<string> }`                                                                                                                                                                                 | `node:crypto`                                                                            | `crypto.subtle`                                                                      | 15 lines, 2 files                             |
+| `createHash('sha256')` in `domain/canonical-schedule-input.ts:246` (`scheduleInputHash`)                              | **none** — a `ring:domain` module cannot import a core port. The hash is synchronous and its only caller is `store-sqlite/optimized-schedule-cache.ts`; it **moves there**. `canonicalScheduleInput` stays in domain, pure. | —                                                                                        | —                                                                                    | 1 function moved                              |
+| `Buffer.byteLength` (`saved-plan.ts:173`)                                                                             | none — `TextEncoder`                                                                                                                                                                                                        | —                                                                                        | —                                                                                    | 1 line                                        |
+| `fetch`, `setTimeout`, `setInterval` defaults (`push-client`, `retention-timer`, `saved-plan-retry`)                  | `PushTransport`, `Timers` — already injected; the **global defaults are removed** so the root must pass them                                                                                                                | globals                                                                                  | globals                                                                              | 3 files                                       |
+| `AsyncLocalStorage` in the current broadcaster                                                                        | **No runtime port (D24).** Replace ambience with a collector bound to the batch service graph                                                                                                                               | Same pure collector                                                                      | Same pure collector                                                                  | broadcaster + composition cases (f), (g), (l) |
+| TS engine in `@wbs/domain/schedule` and the Python solver in `libs/solver-py`, chosen per project by `ScheduleEngine` | `Scheduler { schedule(input): Promise<Scheduled \| { ok: false; error: 'engine_unavailable'; engine }> }`                                                                                                                   | both engines as adapters in `boot.ts`; `schedulerConformance` holds them to one contract | `tsScheduler` in `runtime-web`; the Python engine answers `engine_unavailable` (D23) | `optimizer-wiring.ts` already half of it      |
 
 `@wbs/auth` is `runtime:bun` today; whatever core needs from it moves behind `TokenCodec` or
 `@wbs/auth` becomes isomorphic — decided at Wave 2 by what it actually holds.
 
-**Why `AsyncContext` can be a single slot in the browser.** Browsers have no
-`AsyncLocalStorage` and TC39's `AsyncContext` has not shipped. A publish is caused by a write;
-under D11 every outside write waits for a turn and under D20 the batch's own writes are the
-only ones that do not; so while a batch is open nothing else can publish and the slot cannot
-be shared. The ambience only ever has to span the awaits inside **one** batch, and it carries
-**only announcements** — the moment it also carried "who owns the coordinator", the slot
-would answer that question wrongly for every outsider (§10). The slot throws on overlap so a
-coordinator bug is loud rather than a mis-attributed announcement. A shared worker serving
-several tabs would break the assumption and would need the announcements passed through
-`scope` as well (ADR 0012's shape); that is the door left open, not a promise — and D20 has
-already opened it half way, since `servicesOver(scope.stores, shared)` could take a
-batch-scoped broadcaster in `shared` and make the port unnecessary.
+**Announcements are explicit (D24).** A route may finish its store write just before the
+next batch opens, then publish while that batch is suspended. Serializing store methods does
+not serialize the publication after them. Bind a fresh collector to the batch's services and
+the direct broadcaster to ordinary services; no shared ambient slot exists. The collector is
+pure code in either runtime, so `AsyncLocalStorage` leaves with no replacement runtime port.
+Cases (f), (g) and (l) check the actual service composition; (l) includes the previous batch's
+post-commit publication, not only a route started during a hold.
 
-**Validation is a boundary, not a port.** Contracts declares its ~35 schemas as ArkType values
-and exposes them only as `StandardSchemaV1`. The adapter and `documentFromShapes` see the interface,
-so swapping the library never touches them — but the declarations are authored code, and
-swapping ArkType for Zod means rewriting them. Injection cannot remove that cost; it removes
-every other file's knowledge of which library it was.
+**Validation and document generation are separate capabilities (D25).** The declaration
+boundary produces `SchemaShape` with both a Standard Schema validator and a matching JSON
+Schema descriptor. The emitter reads only the descriptor. Replacing ArkType changes the
+schema declarations and their conversion boundary; it does not change the adapter, client
+or document emitter. Unsupported conversion throws rather than producing a permissive
+schema. §3.1 carries the schema and status-specific refusal tests.
 
 ### 3.5 Enforcement negatives (Wave 3, each watched on its own line before the rule is believed)
 
@@ -461,28 +514,44 @@ seam-shaped item into this plan's design. The change's intent names the window i
 Wave 1 now touches `openapi.json`, mcp-01's tool tests and fe-01's client, so `plan-json-import`
 in particular should merge first or be rebased onto the endpoint table.
 
+The 2026-09-06 follow-up in the refactoring plan (§67) is another collision ledger. Land R1
+before replacing fe-01's client and carry its refresh negatives through Wave 1. R3 and R5
+touch auth: land them before the auth controller move or name them as owned slices of Wave 1.
+R2 and R6 touch stores: land them before Wave 2 wraps/moves those methods. R8 and R9 touch
+publication/runtime seams and must have one owner across their fixes and Wave 2. R4 and R7
+are gateway-local and do not widen D5; R10 is frontend rendering work, separate from the core
+extraction. A fix already merged stays closed; the collision gate records the commit rather
+than implementing it again.
+
 ### Wave 1 — `http-endpoint-port` (~5 days be-01 + ~2 days fe-01)
 
-1. `EndpointShape`, `ParamsOf`, `RequestPolicy`, the `Refusal` union and `RefusalDetail` in
+1. `SchemaShape`, `EndpointShape`, `ParamsOf`, `RequestPolicy`, the `Refusal` union and `RefusalDetail` in
    `@wbs/contracts`; `Endpoint`, `bind`, `HttpReply`, `EndpointInput`, `PrincipalOf`,
    `IdentityResolver` in be-01 (moving to core in Wave 3); the Elysia `mount(endpoints, ports)`
    adapter with the policy runner in `onRequest`. Type-level negatives first: a handler reading
    `params.foo` on a path without `:foo`, a `{ ok: true, refusal }` reply, a handler reading
    `principal` on a route with no identity policy — each must fail `tsc`. Adapter-local tests:
    policy matrix, pre-parse ordering, ordered `Set-Cookie` (`getSetCookie()` length 3), `EMPTY`
-   vs JSON `null`, 302 + Location, the envelope.
+   vs JSON `null`, 302 + Location, the envelope, 429 login throttling, 503 `snapshot_busy`
+   and failed dependency health. The reply's status and schema must agree at both ends;
+   an injected account-store failure must remain an unexpected failure, never a 401.
 2. Move controllers one at a time, smallest first: `smoke` → `step` → `work-item` → `history`
    → `solution` → `saved-plan` → `project` → `directory` → `internal` → `auth`. Each move: the
    controller's tests pass, rewritten only where the wire changed and each rewrite named in
    `verify.md`; one direct `endpoint.handle(literal)` test per refusal path added.
-3. `documentFromShapes` in contracts; the binding test (every shape has one endpoint);
+3. Generate JSON Schema descriptors beside the ArkType declarations; unsupported conversion
+   fails explicitly. `documentFromShapes` in contracts consumes those descriptors; prove
+   nested command unions, optional fields and MCP inline object bodies before broad migration.
+   The binding test (every shape has one endpoint);
    `@elysiajs/openapi`, `hand-parsed-body.ts`, `plan-command-schema.ts` deleted;
    `openapi.json` becomes a build output and leaves git; reachability test; mcp-01 derives its
    tools from the shapes, its `openapi-tools.test.ts` green with the derived tool names pinned
    to the new `operationId`s.
 4. `clientFromShapes`; fe-01's three API modules and two fakes replaced; the `error ===`
    branches become one `switch` over the `Refusal` union; `bun run e2e` green (the browser gate
-   is the wire's oracle).
+   is the wire's oracle). Preserve refactoring R1's invalidation coordinator: hold an old
+   response across a new event and require a trailing read; overlap full/step/tree scopes and
+   require all pending resources to install. URL-only in-flight sharing is the injected fault.
 5. `/health` and `/metrics` as shapes. `callerGuard` and `app.ts`'s inline `onRequest` deleted.
 
 **Negatives, minimum:** identity policy deleted → 401 matrix; origin policy deleted on a
@@ -490,27 +559,38 @@ project POST → foreign-origin write lands; policies after parsing → 422 wher
 one mount skipped → reachability 404; a shape with no endpoint → binding test red;
 `operationId` dropped → mcp-01 refuses; a response field renamed → fe-01 typecheck red;
 `onUndeclaredKey` set to `'delete'` → `number_is_derived` case fails through the adapter; the
-three type-level negatives of step 1, each watched as a `tsc` error at the line it names.
+three type-level negatives of step 1, each watched as a `tsc` error at the line it names;
+drop a nested schema property/union arm → document/MCP fixture fails; make unsupported
+conversion return `{}` → conversion refusal test fails; map throttling or `snapshot_busy`
+to 400 → adapter status/body matrix fails; skip refusal validation → client accepts a
+malformed 429/503 body; reintroduce either R1 race → held-response/scoped-refresh test fails.
 
 ### Wave 2 — `store-port-and-unit-of-work` (~6 days; Wave 0 gate first)
 
 1. `Gate` port and `OPEN`; the write coordinator inside `store-sqlite`'s `db.ts`; a `gate`
-   argument on every repository constructor and every mutating method wrapped in
+   argument on every transactional repository constructor and every mutating method wrapped in
    `this.gate.enter`; the D11 suspension negative (d) written first and watched failing with
    the gate removed from one method.
-2. `servicesOver(stores, shared)` factored out of `buildServices`; `admitted = buildStores(db,
-OPEN)` built once at `open`; `UnitOfWork.run` with `Scope`, `Decision` and `afterRollback`;
-   `PlanCommandRunner` and undo's `walk` moved onto it, undo's discard through
-   `source.stores.journal`; the deadlock negative (h) watched timing out with `admitted` built
-   over the coordinator; the walk (i) watched failing on one store built over `OPEN`.
-   `unitOfWorkConformance` (a)–(j) watched failing against `brokenSource`.
+2. `servicesOver(stores, shared)` factored out of `buildServices`; admitted SQLite store
+   adapters built once at `open`, scoped services and a fresh collector built per batch.
+   `UnitOfWork.run` with `Scope`, `Decision` and `afterRollback(scope)`;
+   `PlanCommandRunner` and undo's `walk` moved onto it, undo's discard through the callback's
+   fresh admitted live journal. Keep repair outside the transaction catch. Write cases (h),
+   (i), (k), (l) first: ordinary gated repair deadlocks; staged repair vanishes; a repair throw
+   must survive without a second rollback; a shared collector captures an outside event.
+   `unitOfWorkConformance` (a)–(k), plus the scoped-publication case (l), each watched
+   failing on its named fault against both sources; see §3.2 for the admission boundary.
 3. `EventLogStore`, `SavedPlanStore`, `SavedPlanCaptureStore` ports; `Stores` as the D22
-   composition; the D12 cases including (j), saved plans take no turn.
+   composition split into `TransactionalStores` and independent `HistoryStores`; the D12
+   cases including (j), saved plans take no turn and successful saves survive both batch
+   outcomes. Memory clones/swaps only transactional tables; swapping history too is the
+   commit-window negative. Account-store optionality remains typed as D22 requires.
 4. Reference-specific outcomes per method; `isForeignKeyViolation` deleted from `service/`.
 5. One kit per port assembled from the `.db.test.ts` files under the admission rule;
    `sourceConformance` as their composition with a report naming the kits that ran; SQLite
    green; memory source tightened until green.
 6. The runtime ports of §3.4 with their Bun adapters in `boot.ts`; global defaults removed;
+   ambient announcements replaced by the pure scoped collector (D24), no `AsyncContext` port;
    `scheduleInputHash` moved from `libs/domain` to `store-sqlite/optimized-schedule-cache.ts`
    so domain imports no `node:*`; `Scheduler` with both engines, the `engine_unavailable`
    refusal (D23) surfaced as a `Refusal` by every caller and watched as a 4xx through the
@@ -529,7 +609,8 @@ OPEN)` built once at `open`; `UnitOfWork.run` with `Scope`, `Decision` and `afte
    all fourteen.
 4. `composeServices({ source, runtime, shared })` and the four use-case entrypoints; the "any
    trigger, any runtime" proof is a test in `libs/runtime-web` that composes core over the
-   memory source with the **browser** adapters for `Digest`, `AsyncContext` and `Scheduler` and
+   memory source with the **browser** adapters for `Digest` and `Scheduler`, a batch-owned
+   announcement collector, and
    runs a command batch, a saved-plan save with a refused actor, one replay, one retention
    sweep and one `engine_unavailable` refusal without HTTP.
 5. Docs: `LLM_README.md`, ADR 0014 / 0015 → `accepted`, refactoring plan cross-reference.
@@ -555,7 +636,8 @@ negatives 10–11 are written first.
 ## 5 · Non-goals
 
 - A second HTTP adapter, and an exported HTTP kit before one exists.
-- gw-01's services and mcp-01's code (D5). A shared `libs/http-elysia` is a later decision.
+- gw-01's services and mcp-01's authentication/server runtime (D5). mcp-01's tool-schema
+  derivation changes in Wave 1. A shared `libs/http-elysia` is a later decision.
 - Isolation across a source's concurrent readers (D1).
 - Building the browser-only mode (D17). This plan makes it possible and names what it
   needs; nothing here builds it, and the fe-01 ring constraint stays at `ring:domain` until
@@ -571,28 +653,28 @@ negatives 10–11 are written first.
 
 ## 6 · Risks and how each is checked
 
-| Risk                                                                                  | Check                                                                                                                                                                                 |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A store write inside `run` waits for the turn `run` already holds (deadlock)          | No re-entrancy to get wrong: `scope.stores` never ask (D20). Kit (h) watched timing out with `admitted` built over the coordinator                                                    |
-| An admitted store leaks outside `run` and writes without a turn                       | Kit (i) walks `source.stores` and fails on the first one built over `OPEN`; `run` is the only caller of `buildStores(…, OPEN)`, asserted by grep in `verify.md`                       |
-| A service rebuilt per batch loses state a batch should share                          | Measured 2026-09-06: the only mutable per-instance field in a batch service is `WorkItemService.collector`, which is per-batch by design; throttle, buffer and timer live in `shared` |
-| The browser `AsyncContext` slot mis-attributes a publish                              | Kit cases (f) and (g) against the slot adapter; the slot throws on overlap; ownership never travels through it (D20)                                                                  |
-| Elysia's inference of `params`/`body` lost at the adapter, handlers typed `unknown`   | `EndpointShape` is generic over its path and schemas; the three type-level negatives of Wave 1.1 watched as `tsc` errors                                                              |
-| The wire change breaks a client the plan forgot                                       | fe-01 through `clientFromShapes` and `bun run e2e`; mcp-01 through its tool tests; gw-01 forwards bodies opaquely (`forward-client.test.ts` in the gate)                              |
-| A project has no ring, so a constraint silently never fires                           | The totality test (§3.5 #12), watched failing on a project with zero tags on an axis                                                                                                  |
-| A kit case passes both sources for the wrong reason                                   | Every case watched failing against `brokenSource(memory, fault)` with the fault it names                                                                                              |
-| Terminal atomicity tested after the fact misses in-flight visibility                  | Cases (d)–(g) assert **during** a suspended batch; isolation is documented as not promised (D1)                                                                                       |
-| Wave 2 collides with an open change on the source seam                                | Wave 0 gate, re-run before each change; `recordEventIn(tx)` reconciled into `UnitOfWork.scope` or waited for                                                                          |
-| Extraction leaves guards aimed at old folders                                         | §3.5 negatives 7 and 8; `eslint.config.js` has no `apps/be-01/src/repository` path left                                                                                               |
-| Swapping the validation library later is dearer than it looks                         | Stated in §3.4: the ~35 declarations are the cost; everything else sees `StandardSchemaV1`                                                                                            |
-| Whole-workspace gate diverges from per-project runs (2026-08-30 import-sort incident) | Every wave's `verify.md` records the **workspace** gate                                                                                                                               |
+| Risk                                                                                  | Check                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A batch or repair store waits for its already-held turn                               | Scopes use admitted stores (D20, D28). Cases (h) and (k) inject a coordinator-gated batch write or repair and must time out; repair through the discarded memory scope must leave the journal entry behind.                           |
+| An admitted store leaks outside its admitted turn                                     | Case (i) invokes each public transactional write while a batch is suspended and observes it wait; inject OPEN to expose the early write. Scope lifetime excludes public access; independent history is explicitly outside this check. |
+| A service rebuilt per batch loses shared state                                        | Share clock, throttle, replay buffer and optimizer wiring; rebuild only the scoped graph/collector. Composition tests assert one shared instance and distinct batch collectors (D24).                                                 |
+| A previous route or batch publishes during a following batch                          | Case (l) injects a shared collector; the already-committed event must still leave exactly once after the unrelated batch refuses. No ambient slot exists in either runtime (D24).                                                     |
+| Elysia's inference of `params`/`body` lost at the adapter, handlers typed `unknown`   | `EndpointShape` is generic over its path and schemas; the three type-level negatives of Wave 1.1 watched as `tsc` errors                                                                                                              |
+| The wire change breaks a client the plan forgot                                       | fe-01 through `clientFromShapes` and `bun run e2e`; mcp-01 through its tool tests; gw-01 forwards bodies opaquely (`forward-client.test.ts` in the gate)                                                                              |
+| A project has no ring, so a constraint silently never fires                           | The totality test (§3.5 #12), watched failing on a project with zero tags on an axis                                                                                                                                                  |
+| A kit case passes both sources for the wrong reason                                   | Every case watched failing against `brokenSource(memory, fault)` with the fault it names                                                                                                                                              |
+| A test misses the window where concurrent work changes ownership                      | Cases (d)–(g), (j)–(l) observe suspended operations, both outcomes of a concurrent save, and the write-before-next-batch publication window. Isolation is not promised (D1).                                                          |
+| Wave 2 collides with an open change on the source seam                                | Wave 0 gate, re-run before each change; `recordEventIn(tx)` reconciled into `UnitOfWork.scope` or waited for                                                                                                                          |
+| Extraction leaves guards aimed at old folders                                         | §3.5 negatives 7 and 8; `eslint.config.js` has no `apps/be-01/src/repository` path left                                                                                                                                               |
+| The emitter requires capabilities a validator does not expose                         | SchemaShape carries generated JSON Schema separately from StandardSchemaV1; nested-union/MCP fixtures and unsupported-conversion negative at the declaration boundary (D25).                                                          |
+| Whole-workspace gate diverges from per-project runs (2026-08-30 import-sort incident) | Every wave's `verify.md` records the **workspace** gate                                                                                                                                                                               |
 
 ## 7 · Open questions for the implementer
 
 1. `Identity` shape returned by `IdentityResolver`: the same as `userFromHeaders` today.
 2. `STEP_POSITION_STEP` and `stepIsInUse`: `@wbs/domain` (facts about steps) rather than core.
-3. ~~Whether `Scope` exposes all stores or only the mutating ones~~ — settled by D20: all,
-   one type for both callers of `servicesOver`; the kit says which a batch may use.
+3. ~~Whether `Scope` exposes all stores~~ — corrected by D27: transactional stores only.
+   Independent history stays at the composition root; it cannot be enlisted by a command.
 4. Whether `dual-optimized-scheduler`'s `recordEventIn(tx)` becomes `scope.stores.eventLog.record` —
    decided at Wave 0 by which lands first.
 5. Whether `@wbs/auth` becomes isomorphic or is absorbed behind `TokenCodec` — decided at
@@ -601,7 +683,8 @@ negatives 10–11 are written first.
    directory is `libs/wbs/domain/…`, applied in the namespacing change.
 7. Whether `store-indexeddb` or the memory source with a `persist` hook is the browser mode's
    persistence. Not this plan's to decide; the kit is the same either way. The hook shape is
-   in §3.2: stage, act, swap, then one atomic write of the whole document.
+   in §3.2: stage, act, persist atomically, then expose the committed state; failed persistence
+   cannot expose a successful commit. Independent history must stay outside that write set.
 8. Where `contracts` sits once the endpoint types join it: `ring:domain` today because fe-01
    and gw-01 import it; an `interface` ring between domain and application is the alternative
    if HTTP shapes in the domain ring start to grate.
@@ -641,6 +724,10 @@ are marked so.
 
 ## 9 · Second revision (2026-09-05, evening): compatibility lifted, everything injected
 
+Historical rationale: §11 supersedes this revision's choice of a single-slot `AsyncContext`
+and its claim that Standard Schema alone supplies document metadata. The current contracts
+are in §3.1–§3.4 and D24–D28.
+
 Dany, after reading the review disposition: backward compatibility is **not** a constraint —
 be-01 and fe-01 may both change to serve modularity — and every runtime dependency of core
 should arrive by injection. What that changed, in the order it was discussed:
@@ -659,11 +746,11 @@ should arrive by injection. What that changed, in the order it was discussed:
    `AsyncLocalStorage`, which is ambient context rather than a wrapper. Two options were laid
    out — an `AsyncContext` port with a single-slot browser adapter, or removing the ambience by
    passing the batch `Scope` everywhere as ADR 0012 did for stamps — and **Dany chose the
-   port** (D15). §3.4 explains why the single slot is correct in a browser and only because of
-   D11, and kit cases (f) and (g) prove it.
+   port** (D15 at that revision). The later review found the write-before-next-batch window
+   those cases missed; D24 supersedes this choice and case (l) tests that window.
 4. **What core still imports, and why those are not injected.** `jose` leaves behind
-   `TokenCodec`. `@wbs/validation` is reached only through the `StandardSchemaV1` type, so the
-   library is swappable everywhere except the ~35 declarations themselves. `@wbs/contracts` is
+   `TokenCodec`. At this revision the plan exposed validation only through `StandardSchemaV1`;
+   D25 later added generated document descriptors and the conversion boundary. `@wbs/contracts` is
    types. `@wbs/domain` is core's own vocabulary — injecting it would be injecting the subject
    matter — **except the schedule engine**, which already has two implementations (TypeScript
    and the Python solver) behind a stored per-project choice, and therefore becomes the
@@ -699,6 +786,11 @@ should arrive by injection. What that changed, in the order it was discussed:
    an attribute, a name is an identity (D19).
 
 ## 10 · Third revision (2026-09-06): the plan's own contradictions
+
+Historical disposition: D24–D28 in §11 correct the remaining publication window, rollback
+repair, document-emission capability and independent-state boundary. In particular, the
+then-current claim that SQLite reuses the batch service graph is replaced by reuse of store
+adapters only; the graph now binds a fresh collector for each batch.
 
 A review of the v3.1 branch against the code, before any OpenSpec change existed. Five design
 holes, each of which would have surfaced as a failing lint or a hung test in the wave it
@@ -740,3 +832,35 @@ things and not one.
 connection would sleep the whole thread in SQLite's busy handler while the first finishes,
 stalling every read; the async queue is the writer lane of a pool without the stall. A reader
 pool pays only with worker threads and is the SQLite adapter's private option later.
+
+## 11 · Repository review incorporated — 2026-09-06
+
+The user asked to add the repository-wide review's fixes to the plans. These are corrections
+to the proposed design, not completed runtime changes. The review covered documentation
+branch `6dec1ec1` over `main` `2c839252`; its eleven implementation findings are owned by
+the [refactoring plan §67](2026-09-02-refactoring-plan.md#67--review-follow-up--2026-09-06).
+Review D1–D5 below are finding IDs, not this plan's decision IDs. D24–D28 and the normative
+seams/waves above incorporate all five; ADR 0014/0015 remain `proposed` until implementation.
+
+| Review finding                                                             | Decision and implementation location                                                                                                                             | Required negative                                                                                                                                                                                               |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1: post-rollback journal repair reacquires its held coordinator           | **D28**, §3.2, Wave 2.2, ADR 0015. Pass a new admitted live scope to `afterRollback`; keep repair outside the transaction catch.                                 | Case (k): inject ordinary gated repair (deadlock), discarded memory scope (discard vanishes), or a repair throw (preserve that error, no second rollback, later writes proceed).                                |
+| D2: an already-committed route publishes into the next batch's shared slot | **D24 supersedes D15**, §3.2/§3.4, Wave 2.2, ADR 0014/0015. Bind a fresh collector to each batch's service graph; ordinary services hold the direct broadcaster. | Case (l): outside write commits before the next hold, its publication resumes during the hold, and the batch refuses; the outside event still leaves once. Include a preceding batch's post-commit events.      |
+| D3: Standard Schema cannot emit the promised documents alone               | **D25**, §3.1/§3.4, Wave 1.1/1.3, ADR 0014. Carry a generated JSON Schema descriptor beside each validator.                                                      | Drop a nested command-union arm/property or emit `{}` for unsupported conversion; document/MCP and refusal fixtures must fail. Never maintain two handwritten schema truths.                                    |
+| D4: the reply union excludes modeled 429/503 responses                     | **D26**, §3.1, Wave 1.1/1.5, ADR 0014. Derive status/body variants together and validate refusal responses too.                                                  | Throttled login, busy capture and failed health dependencies must keep their declared statuses; malformed refusal bodies fail client validation. Repository exceptions remain unexpected failures.              |
+| D5: committing a memory clone can overwrite an independent saved plan      | **D27**, §3.2, Wave 2.3, ADR 0015. History lives outside transactional state and Scope. This was a conditional design risk; the source is not implemented.       | Case (j): put history into the cloned/swapped tables, save independently during a suspended batch, then commit; the lost successful save must fail the case. Also retain rollback and bounded contention cases. |
+
+Two mechanisms were reproduced with today's production `WriteLock`, not an implemented new
+source: nested public-store admission stayed blocked; an async route write followed by the
+next batch captured and dropped the route event under a single shared slot. The Standard
+Schema capability was checked against its [complete interface](https://standardschema.dev/schema).
+429/503 paths were read in the current controllers. The memory case remains an inference
+about the old whole-state sketch and is now an explicit exclusion in the design.
+
+The kit must be measured through real composition and in the relevant window. Counting the
+number of evictions does not bound key enumeration (refactoring R8); reading after every
+request settles cannot see an invalidation lost during a held response (R1); reserving login
+capacity after verification cannot constrain pending work (R5). The moved code carries those
+production-path negatives with it, and each wave's `verify.md` records the observed failures
+before any `Proof:` is written. This update changes documents only and does not certify the
+future adapters, their throughput, or the browser's rendering latency.
