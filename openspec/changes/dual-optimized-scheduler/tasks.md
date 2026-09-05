@@ -2802,12 +2802,11 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
 - [x] 5.1 New versioned package with a lock file, OR-Tools CP-SAT declared, one
       `solve` entrypoint over stdin/stdout. No import surface, no daemon, no
       port. Version readable by the coordinator for `contractVersion`. The
-      entrypoint calls `prctl(PR_SET_PDEATHSIG, SIGKILL)` **before** reading
-      stdin, so a reparented child dies with its parent rather than waiting to
-      be found. In production this is a **re-assertion**, not the first
-      install: 6.2b's launcher wrapper sets it before the bind and the setting
-      survives the `exec` onto the same pid (Fable r14 Minor 4). It is kept as
-      defence in depth for the direct-spawn smoke test, where no launcher ran.
+      entrypoint calls `prctl(PR_SET_PDEATHSIG, SIGKILL)` before reading stdin.
+      It remains defence in depth for the direct-spawn package smoke only;
+      production runs behind Docker and does not rely on this relationship.
+      The host supervisor's disconnect kill and persistent deadline timer own
+      production orphan handling (`supervisor-amendment.md`).
 
       **Landed** at `libs/solver-py/`, distribution `wbs-solver`, import
       package `wbs_solver`. Three things this item left open had to be decided,
@@ -3013,34 +3012,22 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       | pool members = first `poolIds` entry only | 3 fail, incl. `TwoPoolSlice` × 2 |
       | edge constraint deleted | 6 fail, incl. `IntraItemStepOrder` × 2 |
 
-- [ ] 5.4b **Bounded CPU and memory per child, with values** (Sol r12
-      Important 4; Sol r13 Important 3). The process ceiling bounds processes, not resources:
-      CP-SAT starts its own search workers and grows until something kills
-      it. Production solves set `num_search_workers` from
-      `solverSearchWorkers` (default 2); the pinned determinism config keeps 1. Every child runs under `solverMemoryLimitMb` (default 512 MB),
-      enforced outside the solve — a per-child cgroup/systemd `MemoryMax=`
-      scope as the deployment mechanism, with the coordinator classifying a
-      crossing as `oom` only from the scope's `memory.events`
-      `oom`/`oom_kill` evidence (or the systemd kill result), because
-      CP-SAT allocates in native C++ and an overrun can abort with no
-      catchable Python exception; the wrapper's `RLIMIT_AS` pre-exec is a
-      best-effort backstop only (address space, not RSS) and does not by
-      itself classify. A native abort with no OOM evidence is
-      `internal-error`, never `oom`. Record the implied fleet worst case
-      (16 × 2 = 32 CP-SAT search workers, ~8 GB solver RSS) as a deployment
-      obligation beside the ceilings.
-      **Proven by** `solver-resource-limits.proc.test.ts`: the effective
-      `num_search_workers` read from a real spawned production solve equals
-      `solverSearchWorkers`; a fixture that forces native CP-SAT allocation
-      past the limit is killed, the scope's `memory.events` evidence
-      produces the `oom` classification, the coordinator survives, the slot
-      is released, and exactly one `failed` marker with `failureReason:
-'oom'` is stored; a separate generic crash without OOM evidence is
-      stored `internal-error`, never `oom`.
-      **Watched red:** remove the memory limit and the overrun case must
-      grow past the ceiling without producing `oom`; remove the
-      `num_search_workers` setting and the effective-configuration assertion
-      must fail.
+- [ ] 5.4b **Bounded CPU and memory per child, with values.** Implement the
+      host-owned boundary in `supervisor-amendment.md`: production requests 2
+      CP-SAT search workers and 512 MiB, the supervisor refuses values above
+      its own 2-worker/512-MiB/128-PID caps and 16-container global cap, and
+      Docker enforces per-container memory plus equal memory-swap. `RLIMIT_AS`
+      remains a loose backstop only. `OOMKilled=true` in the terminal frame is
+      the only generic native-failure evidence for `oom`; a deadline-timer kill
+      is `timeout`; another non-zero exit is `internal-error`.
+      **Proven by** `solver-resource-limits.proc.test.ts` on h2puni: a real
+      native allocation crosses the Docker limit, the terminal evidence stores
+      exactly one `oom` marker, the coordinator survives, and the slot releases;
+      a generic crash stores `internal-error`. Reject an above-cap request
+      before `docker create`. **Watched red:** remove Docker memory, worker-count
+      propagation, or the host-owned request caps and the corresponding case
+      alone fails. Record the worst case: 32 search workers and ~8 GiB solver
+      RSS at the full 16.
 - [x] 5.5 **Proven by** the determinism case under the pinned config only —
       `num_search_workers=1`, fixed `random_seed`, and CP-SAT's
       **deterministic** time limit, never a wall-clock assertion. Production is
@@ -3448,14 +3435,19 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       target runs the Python suite in the gate. **Both scripts are proved from
       the built image (Fable r14 Important 3):** the existing direct spawn of
       the solve entrypoint stays as the package smoke test, and a second proof
-      spawns `wbs-solver-launcher` and drives the production path through a
-      real bind. Without it a green gate coexists with an image whose launcher
+      drives `wbs-solver-launcher` through the host supervisor, its real Docker
+      container, and a successful bind. Deploy tooling installs the lingering
+      restart-always supervisor service, its runtime directory, host-owned
+      image mapping, and the directory-only backend mount. Without this a green
+      gate coexists with an image whose launcher
       is absent, which fails every production solve at bind time — the exact
       packaging failure this task exists to close.
       **Watched red (two):** build the image without the package; the spawn proof
       must fail with `internal-error` rather than silently falling back. Then
       build it with the solve entrypoint but **without** the launcher: the
-      smoke test still passes and the launcher-path proof must fail.
+      smoke test still passes and the launcher-path proof must fail. A missing
+      supervisor, stale prod mapping, incompatible dev mapping, or socket-file
+      mount instead of directory mount must fail deployment before swap.
 
 ## 6. OptimizationCoordinator — admission, spawn, cancel, restart
 
@@ -3555,42 +3547,39 @@ SLOT_RECLAIM_MARGIN_MS` **from the admitting coordinator's own budget**.
       the solve contract accordingly, and 5.11 installs and proves both scripts.
       _Assumption, falsifiable:_ if the launcher ever needs a dependency the
       solver distribution must not carry, split it into its own version-pinned
-      package and give 5.11 a second install proof. After 6.2's `starting` insert the coordinator spawns a small
-      **lifecycle launcher** — a distinct entrypoint, not `wbs-solver`
-      itself — with `--attempt-token` and `--child-deadline-epoch-ms` as
-      **argv**, never as request fields — both are clock/identity derived and
-      would destabilise the golden corpus and reopen the no-clock rule. The
-      launcher's **lifecycle wrapper** (distinct from the deterministic
-      solve, which still reads no clock, database or environment) arms that
-      absolute instant, installs `PR_SET_PDEATHSIG`, re-checks `getppid()`,
-      then blocks on stdin for the bind verdict **before reading the
-      request**. The coordinator binds with
+      package and give 5.11 a second install proof. After 6.2's `starting`
+      insert, the coordinator opens one connection to the host supervisor and
+      sends the bounded `start` frame from `supervisor-amendment.md`. The
+      supervisor authenticates the caller with `SO_PEERCRED`, selects the
+      host-owned image mapping, applies its caps, creates and starts the
+      non-networked Docker container, and returns the container init PID. The
+      launcher receives `--attempt-token` and `--child-deadline-epoch-ms` as
+      argv, never request fields, and blocks before reading the request. The
+      coordinator binds with
       `UPDATE solver_slot SET pid=:pid, lifecycle='running' WHERE <key> AND
 attempt_token=:token AND lifecycle='starting'` (with `:pid` the
-      launcher's); one row means `bound`, after which the launcher
-      **`exec`s `wbs-solver` in place** — the same pid — so `wbs-solver`
-      first exists only after its row is `running`; zero rows means `abort`
-      plus kill and no further admission on that token. The launcher exits
-      **without `exec`ing** on `abort`, a closed stdin, or
-      `BIND_TIMEOUT_MS = 5000`, so no `wbs-solver` process is ever created.
+      container init); one row means `bound`, after which the supervisor sends
+      the verdict plus exact request and the launcher `exec`s `wbs-solver`;
+      zero rows means `abort` plus the ordered kill/wait/inspect/remove path.
+      The launcher exits without `exec`ing on `abort`, closed stdin,
+      `BIND_TIMEOUT_MS = 5000`, or a spent child deadline.
       **Proven by** `optimization-spawn-handshake.proc.test.ts`, a real
       two-coordinator process test that pauses the owner between the
       `starting` insert and the bind while time advances past the row's
       stored `admittedDeadlineAt` (not merely past the reclaim margin), lets
       the peer reclaim and admit a replacement whose launcher binds and
-      `exec`s `wbs-solver`, and samples the real OS `wbs-solver` process
-      count throughout: the delayed bind matches zero rows, its launcher
-      exits without `exec`ing so no `wbs-solver` is created, and the sampled
-      count of live `wbs-solver` processes never exceeds the `running` row
-      count nor 4 per project / 16 globally.
+      `exec`s `wbs-solver`, and samples Docker plus SQLite throughout: the
+      delayed bind matches zero rows and exits without a solve; live managed
+      containers never exceed unreleased `starting` plus `running` rows, and
+      solve-start state never exceeds `running` rows, at most 4/16.
       **Watched red:** let the launcher `exec` `wbs-solver` without waiting
       for the bind verdict — or drop the `lifecycle='starting'` predicate
       from the CAS — and the paused-owner case must show two live
       `wbs-solver` processes against one reclaimed slot.
       **Second case, the verdict that never arrives:** the test above proves
       only the _zero-row_ path, where a live coordinator writes `abort`. Add a
-      case whose coordinator neither binds nor aborts and stays alive, so
-      `PR_SET_PDEATHSIG` never fires: assert the launcher exits on its own
+      case whose coordinator neither binds nor aborts but keeps the connection
+      open: assert the launcher exits on its own
       after `BIND_TIMEOUT_MS = 5000` with stdin still open, that no
       `wbs-solver` process is created for that token, and that the `starting`
       row is reclaimed by `admittedDeadlineAt` and not by a live holder.
@@ -3609,9 +3598,12 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       with the non-positive remainder — the test must show either a
       `wbs-solver` process or an unbounded one.
 - [ ] 6.5 Restart: nothing resumed, no queue rebuilt. Orphan handling is not a
-      PID search — 5.1's `PR_SET_PDEATHSIG` kills the child, slot expiry
-      restores capacity, and the container/cgroup boundary is recorded as a
-      deployment obligation. Startup **does** run 3.9b's
+      PID search. Coordinator socket EOF makes the supervisor kill that exact
+      managed container; its persistent per-attempt systemd timer retains the
+      child-deadline kill across a supervisor-process restart. The
+      restart-always supervisor kills and inspects every managed orphan before
+      listening. A coordinator seeing EOF without a terminal frame keeps the
+      slot counted until the deadline margin. Startup **does** run 3.9b's
       `reconcileOptimizationDrains()` once before serving and then on its
       interval; that is the only startup sweep, and it resumes no solve
       (Sol r12 Critical 3).
@@ -3631,15 +3623,17 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       `now > admittedDeadlineAt` — never by a missed heartbeat — rather than
       leaking capacity forever.
 - [ ] 6.8 **Proven by** `optimization-orphan.proc.test.ts`, a **real
-      process-boundary test**, not a mocked restart: spawn an inert child that
-      calls `PR_SET_PDEATHSIG`, kill the coordinator process, and observe (a)
-      the child terminates and (b) the slot is reclaimed once its stored
-      `admittedDeadlineAt` passes and the count recovers.
+      process-boundary test**, not a mocked restart: start an inert managed
+      container, kill the coordinator, and observe (a) socket EOF makes the
+      supervisor kill/wait/inspect/remove that exact container and (b) the slot
+      remains counted until termination is proven. Separately restart the
+      supervisor mid-attempt and prove its systemd timer still kills at
+      `childDeadlineAt` and its pre-listen sweep clears the orphan.
 - [ ] 6.9 **Negative checks, watched red** — remove the dequeue generation
       re-check and watch 6.6's stale-entry case fail; remove the toggle
       re-check and watch the toggled-OFF case fail; move admission back into an
-      in-memory counter and watch 6.7's two-instance case fail; drop
-      `PR_SET_PDEATHSIG` and watch 6.8 fail. Four faults, four `Proof:`
+      in-memory counter and watch 6.7's two-instance case fail; drop the
+      supervisor's disconnect kill and watch 6.8 fail. Four faults, four `Proof:`
       comments, because one check passing does not prove the others exist.
 - [ ] 6.8b **Restart semantics, one implementable rule** (Sol r10 Important 7).
       `optimization-restart.db.test.ts`: (a) an in-flight child is never
@@ -3719,11 +3713,12 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       all carry it, and 6.2b's bind CAS is the first statement that presents
       it. The two deadlines are deliberately different:
       `childDeadlineAt = startedAt + budgetMs + 5000`, armed for that earlier
-      instant **twice — inside the child and outside it (self-found, round 10)**: the wrapper passes `childDeadlineAt − now` as CP-SAT's
+      instant **twice — inside the child and outside it (self-found, round
+      10)**: the wrapper passes `childDeadlineAt − now` as CP-SAT's
       `max_time_in_seconds` so a progressing solve stops itself and returns a
-      publishable partial, and the per-child systemd scope (the same scope
-      5.4b's memory limit requires) carries `RuntimeMaxSec` for that instant so
-      the child is `SIGKILL`ed whether or not it can act. **A Python `SIGALRM`
+      publishable partial, and the host supervisor creates a transient systemd
+      user timer that runs `docker kill <exact-id>` at `childDeadlineAt` even
+      if the supervisor process restarts. **A Python `SIGALRM`
       alone is not sufficient and must not be written as the mechanism:**
       `wbs-solver` is a Python package, the handler runs only when the
       interpreter regains the GIL, and `CpSolver.Solve()` is one long native
@@ -3736,8 +3731,8 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       row can release capacity — the exit half of 6.2b's ceiling, which would
       otherwise rest on a wedged process honouring its own bound.
       **Watched red:** arm the deadline only in-process, run a fixture whose
-      native solve ignores it past `admittedDeadlineAt`, and assert the live
-      `wbs-solver` count exceeds the `running` row count. **`SLOT_HEARTBEAT_TTL_MS` is struck (Sol r9
+      native solve ignores it past `admittedDeadlineAt`, and assert a live
+      managed container exists without an unreleased row. **`SLOT_HEARTBEAT_TTL_MS` is struck (Sol r9
       Critical 4):** a TTL derived from the observing coordinator's current
       `solverBudgetMs`, or added to a refreshed `heartbeatAt`, is not the admitted
       child's absolute deadline, and across a 60 s/120 s blue-green overlap it
@@ -3746,13 +3741,13 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       `heartbeatAt` survives for cancellation observation and diagnostics only.
       **Watched red:** change the observing coordinator's configured budget and
       assert neither row's expiry moves.
-      `PR_SET_PDEATHSIG` is followed by a `getppid()` re-check so a parent dying
-      inside that window is not missed. **Watched red:** a real child is observed
-      gone before a sweep at `admittedDeadlineAt` deletes its slot and admits a
-      replacement; arming the child at `admittedDeadlineAt` must make that test
-      fail. An old owner's late heartbeat, release and write each match zero
-      rows; sampled OS process count never exceeds 4 per project or 16 globally
-      across rapid generations under two coordinators.
+      Coordinator loss is the supervisor's socket-EOF kill path; supervisor
+      loss is covered by the persistent deadline timer and pre-listen orphan
+      sweep. **Watched red:** the managed container is gone before a sweep at
+      `admittedDeadlineAt` deletes its slot and admits a replacement; arming the
+      timer at `admittedDeadlineAt` must fail. An old owner's late heartbeat,
+      release and write each match zero rows; live managed containers never
+      exceed all unreleased rows or 4/16 across two coordinators.
 
 ## 7. Failure path and events
 
