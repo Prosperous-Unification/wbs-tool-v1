@@ -80,9 +80,35 @@ export function bindInProcess(routes: readonly Route[]): {
  * and a throw for JSON that will not parse — the binder turns that throw into
  * the 400 the framework would have answered.
  *
- * A non-JSON content type reads as no body rather than as text: every route in
- * this app takes JSON or nothing, so a handler receiving a string it never
- * expects would be a worse failure than a field it finds absent.
+ * A non-JSON content type reads as no body rather than as text, so a handler
+ * receiving a string it never expects cannot be a worse failure than a field it
+ * finds absent.
+ *
+ * **This is a known divergence from `bindElysia`, and the sentence that used to
+ * justify it — "every route in this app takes JSON or nothing" — is false.**
+ * Measured against the same one-route list, 2026-09-05:
+ *
+ * ```
+ * body                             elysia                  in-process
+ * x-www-form-urlencoded            200 {"name":"Sand"}     200 (body dropped)
+ * multipart/form-data              200 {"name":"Sand"}     200 (body dropped)
+ * JSON bytes, no content-type      200 (body dropped)      200 (body dropped)
+ * ```
+ *
+ * Elysia parses both form media types; this function drops them, so the same
+ * request that creates a project under Elysia is a 422 `invalid_body` here —
+ * the handler's `isFieldBag` refusing the `undefined` it was handed. The third
+ * row is not a divergence: both drop it.
+ *
+ * **Which way it gets closed is an API decision, and by this branch's own rule
+ * it is "match production".** `PATCH /api/projects/{id}`, `POST
+ * /api/projects/{id}/saved-plans`, `PATCH /api/saved-plans/{id}` and `POST
+ * /api/auth/login` declared those media types on `main` — Elysia derived them
+ * from the TypeBox schemas — and the app still accepts them. So the
+ * behaviour-preserving fix is to parse them here and re-declare them in the
+ * document, not to refuse them under both binders: narrowing what the API takes
+ * is a real change and belongs to whoever wants it, with the clients told. Same
+ * argument, same words, as the 405 this binder gave up.
  */
 async function decodeBody(request: Request): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'DELETE') return undefined;
