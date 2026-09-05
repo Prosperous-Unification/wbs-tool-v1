@@ -5,7 +5,7 @@
  * through, so `"  Dev  "`, `"Dev"` and `"Dev "` are one name and a name of only
  * spaces is refused rather than stored. Two identical copies stood in
  * `directory.service.ts` and `step.service.ts` until 2026-09-02; a third rule
- * with the same tail lives in `work-item.controller.ts` and is deliberately
+ * with the same tail lives in `work-item.routes.ts` and is deliberately
  * **not** this one — it also enforces a length ceiling and belongs at the
  * request boundary.
  *

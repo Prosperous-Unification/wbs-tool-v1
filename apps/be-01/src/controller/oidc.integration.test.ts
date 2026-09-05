@@ -14,7 +14,7 @@ import { testSavedPlanService } from '../testing/saved-plan-fixture';
 import { testStepService } from '../testing/step-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
 import { testWrites } from '../testing/writes-fixture';
-import * as authModule from './auth.controller';
+import * as authModule from './auth.routes';
 
 const now = Date.UTC(2026, 7, 23);
 

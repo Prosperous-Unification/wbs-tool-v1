@@ -68,7 +68,7 @@ protected `/api` route. gw-01 accepts the fixed identity only in explicit local
 mode; OIDC mode requires the `__Host-wbs_access` httpOnly cookie and the exact
 configured Origin (`apps/gw-01/src/app.ts`). Query parameters never establish
 WebSocket identity. **`POST /api/auth/register` is mounted in every mode**
-(`apps/be-01/src/controller/auth.controller.ts`) and answers 404 unless
+(`apps/be-01/src/controller/auth.routes.ts`) and answers 404 unless
 `AUTH_PASSWORD_REGISTER=true` — the auth mode does not gate it, and that flag is
 not `AUTH_PASSWORD_LOGIN`. Where the flag is on, registration is open to the
 internet, which is the trade that was made knowingly.

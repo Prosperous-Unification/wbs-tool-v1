@@ -8,10 +8,10 @@ import {
   ThreePointEstimate,
 } from '@wbs/domain';
 import { parseOrThrow, ValidationError } from '@wbs/validation';
-import { Elysia } from 'elysia';
 
-import { callerGuard } from '../middleware/caller';
-import { handParsedBody } from '../openapi/hand-parsed-body';
+import { callerGuard } from '../http/caller';
+import { handParsedBody } from '../http/elysia/hand-parsed-body';
+import { ok, respond, type Route, type RouteHandler, type RouteResponse } from '../http/route';
 import type { AuthService } from '../service/auth.service';
 import {
   PLAN_COMMAND_KINDS,
@@ -32,14 +32,21 @@ import { BadLadder, ladderOf } from './priority-ladder-body';
 import { statusForRefusal } from './refusal-status';
 
 /**
- * These routes validate their bodies by hand rather than with an Elysia schema.
+ * These routes validate their bodies by hand, and did so while the framework
+ * was still here.
  *
- * The reason is a rule the schema cannot express here: a request that carries a
- * `number` must be *refused*, and Elysia strips unknown properties before the
- * handler runs — so the same check written after `{ body: t.Object(...) }` never
- * fires and reads as though it works. Numbers are derived, and a client sending
- * one is working from an assumption this API does not hold; accepting and
- * ignoring it would let that assumption survive until the number silently moved.
+ * The reason is a rule an Elysia schema could not express: a request that
+ * carries a `number` must be *refused*, and Elysia strips unknown properties
+ * before the handler runs — so the same check written after
+ * `{ body: t.Object(...) }` never fires and reads as though it works. Numbers
+ * are derived, and a client sending one is working from an assumption this API
+ * does not hold; accepting and ignoring it would let that assumption survive
+ * until the number silently moved.
+ *
+ * That is why this file was the cheapest of the four remaining controllers to
+ * move onto the framework-free shape and was moved first: it declared no body
+ * hook at all, so nothing had to be re-implemented by hand on the way across —
+ * only the `.onError` boundary these parsers throw into became {@link refusing}.
  */
 class BadRequest extends Error {
   constructor(
@@ -403,7 +410,7 @@ function asOptionalPriority(value: unknown, field: string): number | null | unde
  *
  * The ceiling is {@link MOST_PEOPLE_AT_ONCE}, and it moved into `libs/domain` in
  * `capacity-per-project`: three boundaries state it now, this file's copy and
- * `directory.controller.ts`'s agreed by luck, and the third would have been where
+ * `directory.routes.ts`'s agreed by luck, and the third would have been where
  * they drifted. The argument for the number is on the constant.
  *
  * `Number.isSafeInteger` covers the fraction, the `NaN`, the infinity and the
@@ -491,15 +498,15 @@ function parsePatch(body: unknown): {
  * reason is a dead end for the person reading it — the whole point of this
  * change is that a refusal says why out loud.
  */
-function answerUndo(outcome: UndoOutcome, set: { status?: number | string }) {
-  if (outcome.ok) return { done: outcome.value.done, detail: outcome.value.detail };
+function answerUndo(outcome: UndoOutcome): RouteResponse {
+  if (outcome.ok) return ok({ done: outcome.value.done, detail: outcome.value.detail });
   // 409 is the default here, which is the sentence above made an argument:
   // `nothing_to_undo` and `stale_undo` are both states of the plan.
-  set.status = statusForRefusal(outcome.reason, 409);
+  const status = statusForRefusal(outcome.reason, 409);
   if (outcome.reason === 'forbidden' || outcome.reason === 'not_found') {
-    return { error: outcome.reason };
+    return respond(status, { error: outcome.reason });
   }
-  return { error: outcome.reason, detail: outcome.detail };
+  return respond(status, { error: outcome.reason, detail: outcome.detail });
 }
 
 const isStrategy = (value: string | null): value is DeleteStrategy =>
@@ -798,64 +805,103 @@ function parseBatch(body: unknown): PlanCommand[] {
  */
 const statusForBatch = (reason: string): number => statusForRefusal(reason, 400);
 
-export function workItemController(
+/**
+ * The `onError` boundary these routes carried, as a value the handler returns.
+ *
+ * Every parser above throws — `BadRequest` for a field this API judges itself,
+ * `ValidationError` for the one body the shared arktype schema judges — and
+ * Elysia turned both into a 400 through a plugin-local `.onError`. A route
+ * module cannot register a lifecycle hook with a framework it does not import,
+ * so the boundary becomes {@link refusing}, which wraps each handler.
+ *
+ * A wrapper and not a `try` inside each handler: five handlers each opening
+ * with the same catch is the copied-guard shape `http/caller.ts` was written to
+ * end, and one of the five quietly answering a 500 where the others answer 400
+ * would read exactly like the rest.
+ *
+ * Anything else rethrows. `onError` returned `undefined` for an unrecognised
+ * error, which is how Elysia is told to carry on to its own 500 handler; a
+ * rethrow is that same decision spelled in the language the route shape has.
+ */
+function refusalFor(error: unknown): RouteResponse | null {
+  if (error instanceof BadRequest) {
+    if (error.at === undefined) return respond(400, { error: error.reason });
+    return respond(
+      400,
+      error.kind === undefined
+        ? { error: error.reason, at: error.at }
+        : { error: error.reason, at: error.at, kind: error.kind },
+    );
+  }
+  // The shared schema's refusal is a 400 here rather than a 500: the two
+  // tiers validate with the same arktype schema, so this is a client that
+  // bypassed fe-01 rather than a fault in either.
+  if (error instanceof ValidationError) return respond(400, { error: 'invalid_estimate' });
+  return null;
+}
+
+/** {@link refusalFor} applied to one handler. */
+function refusing(handler: RouteHandler): RouteHandler {
+  return async (req) => {
+    try {
+      return await handler(req);
+    } catch (error) {
+      const refusal = refusalFor(error);
+      if (refusal === null) throw error;
+      return refusal;
+    }
+  };
+}
+
+export function workItemRoutes(
   auth: AuthService,
   workItems: WorkItemService,
   commands: PlanCommandRunner,
-) {
-  const signedIn = { caller: 'signed-in' } as const;
-  return new Elysia({ prefix: '/api' })
-    .use(callerGuard(auth))
-    .onError(({ error, set }) => {
-      if (error instanceof BadRequest) {
-        set.status = 400;
-        if (error.at === undefined) return { error: error.reason };
-        return error.kind === undefined
-          ? { error: error.reason, at: error.at }
-          : { error: error.reason, at: error.at, kind: error.kind };
-      }
-      // The shared schema's refusal is a 400 here rather than a 500: the two
-      // tiers validate with the same arktype schema, so this is a client that
-      // bypassed fe-01 rather than a fault in either.
-      if (error instanceof ValidationError) {
-        set.status = 400;
-        return { error: 'invalid_estimate' };
-      }
-      return undefined;
-    })
-    .get(
-      '/projects/:id/work-items',
-      async ({ params, user, set }) => {
-        const tree = await workItems.tree(params.id);
-        if (tree === null) {
-          set.status = 404;
-          return { error: 'not_found' };
-        }
-        // Carried on the tree rather than fetched from a route of its own. The
-        // tree is already read after every change this client makes and after
-        // every event from anybody else, which is exactly when the answer can
-        // have changed — a second endpoint would be a second round trip asking
-        // the same question at the same moments. It is per **account**, which is
-        // why it is added here and not inside `tree`: the broadcast reuses that
-        // read and has nobody to answer for.
-        return { ...tree, ...(await workItems.undoState(params.id, user.id)) };
-      },
-      signedIn,
-    )
-    .post(
-      '/projects/:id/commands',
-      async ({ params, body, user, set }) => {
-        const outcome = await commands.run(params.id, user.id, parseBatch(body));
-        if (!outcome.ok) {
-          set.status = statusForBatch(outcome.reason);
-          // The refusal's own fields beside the code, as the single route
-          // carried them: `taken`'s `name`, `in_use`'s `usage`.
-          return { ...outcome.detail, error: outcome.reason, at: outcome.at, kind: outcome.kind };
-        }
-        return { results: outcome.results, undoable: outcome.undoable, redoable: outcome.redoable };
-      },
-      {
-        ...signedIn,
+): Route[] {
+  const guard = callerGuard(auth);
+  return [
+    {
+      method: 'GET',
+      path: '/api/projects/:id/work-items',
+      handler: refusing(
+        guard('signed-in', async ({ params }, user) => {
+          const tree = await workItems.tree(params['id']);
+          if (tree === null) return respond(404, { error: 'not_found' });
+          // Carried on the tree rather than fetched from a route of its own. The
+          // tree is already read after every change this client makes and after
+          // every event from anybody else, which is exactly when the answer can
+          // have changed — a second endpoint would be a second round trip asking
+          // the same question at the same moments. It is per **account**, which is
+          // why it is added here and not inside `tree`: the broadcast reuses that
+          // read and has nobody to answer for.
+          return ok({ ...tree, ...(await workItems.undoState(params['id'], user.id)) });
+        }),
+      ),
+    },
+    {
+      method: 'POST',
+      path: '/api/projects/:id/commands',
+      handler: refusing(
+        guard('signed-in', async ({ params, body }, user) => {
+          const outcome = await commands.run(params['id'], user.id, parseBatch(body));
+          if (!outcome.ok) {
+            // The refusal's own fields beside the code, as the single route
+            // carried them: `taken`'s `name`, `in_use`'s `usage`.
+            return respond(statusForBatch(outcome.reason), {
+              ...outcome.detail,
+              error: outcome.reason,
+              at: outcome.at,
+              kind: outcome.kind,
+            });
+          }
+          return ok({
+            results: outcome.results,
+            undoable: outcome.undoable,
+            redoable: outcome.redoable,
+          });
+        }),
+      ),
+      documentation: {
         detail: {
           summary: 'Apply a batch of commands to a project, all or none',
           description: `**The one way to write to a plan.** An ordered list of up to 200 commands — every
@@ -881,19 +927,25 @@ beside the code, as its route did: \`taken\` the surviving \`name\`, \`in_use\` 
           ),
         },
       },
-    )
-    .post(
-      '/directory/commands',
-      async ({ body, user, set }) => {
-        const outcome = await commands.runDirectory(user.id, parseBatch(body));
-        if (!outcome.ok) {
-          set.status = statusForBatch(outcome.reason);
-          return { ...outcome.detail, error: outcome.reason, at: outcome.at, kind: outcome.kind };
-        }
-        return { results: outcome.results };
-      },
-      {
-        ...signedIn,
+    },
+    {
+      method: 'POST',
+      path: '/api/directory/commands',
+      handler: refusing(
+        guard('signed-in', async ({ body }, user) => {
+          const outcome = await commands.runDirectory(user.id, parseBatch(body));
+          if (!outcome.ok) {
+            return respond(statusForBatch(outcome.reason), {
+              ...outcome.detail,
+              error: outcome.reason,
+              at: outcome.at,
+              kind: outcome.kind,
+            });
+          }
+          return ok({ results: outcome.results });
+        }),
+      ),
+      documentation: {
         detail: {
           summary: 'Apply a batch of directory commands, all or none',
           description: `The directory — teams, people, tags, services — has no project, so its batches
@@ -907,15 +959,24 @@ index. Answers \`{ results: [{ index, ref?, id?, entity? }] }\`.`,
           ),
         },
       },
-    )
-    .post(
-      '/projects/:id/undo',
-      async ({ params, user, set }) => answerUndo(await commands.undo(params.id, user.id), set),
-      signedIn,
-    )
-    .post(
-      '/projects/:id/redo',
-      async ({ params, user, set }) => answerUndo(await commands.redo(params.id, user.id), set),
-      signedIn,
-    );
+    },
+    {
+      method: 'POST',
+      path: '/api/projects/:id/undo',
+      handler: refusing(
+        guard('signed-in', async ({ params }, user) =>
+          answerUndo(await commands.undo(params['id'], user.id)),
+        ),
+      ),
+    },
+    {
+      method: 'POST',
+      path: '/api/projects/:id/redo',
+      handler: refusing(
+        guard('signed-in', async ({ params }, user) =>
+          answerUndo(await commands.redo(params['id'], user.id)),
+        ),
+      ),
+    },
+  ];
 }

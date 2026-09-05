@@ -318,22 +318,33 @@ const failureText = (thrown: unknown, fallback: string): string =>
   thrown instanceof Error ? thrown.message : fallback;
 
 /**
- * The statuses be-01 refuses a **malformed** request with, and the only ones
- * that reach here without a word of be-01's own.
+ * How be-01 refuses a **malformed** request, in the words `send` throws.
  *
  * A set rather than a match on `http_4\d\d`, which was the first shape and is
  * wrong: 401 and 403 are the same family and say nothing about the value that
  * was sent, and a sentence claiming "that change was not valid" over an expired
  * session would send the reader looking for a typo. be-01's own words —
- * `forbidden`, `not_found` — already cover those; these two are what an ArkType
- * schema refusal leaves, because Elysia answers it with its own JSON body and
- * no `error` field for `send` to read.
+ * `forbidden`, `not_found` — already cover those.
+ *
+ * Three entries, because a malformed body now arrives two ways:
+ *
+ * - `http_400` / `http_422` — a refusal carrying **no `error` field** for
+ *   `send` to read, so the status is all it has. That was every schema refusal
+ *   while the controllers declared TypeBox to Elysia, which answered them with
+ *   its own validation report.
+ * - `invalid_body` — be-01's own word, and what the migrated controllers
+ *   answer now that they check their bodies themselves instead of declaring a
+ *   validator. Same refusal, same 422, a word instead of silence.
+ *
+ * The old two stay: routes this branch has not migrated still answer the
+ * Elysia way, and a proxy in front of be-01 can put a 400 on the wire with no
+ * JSON at all. This list is what the reader sees, not a census of be-01.
  *
  * **One list, two decisions**: the sentence below, and whether {@link run}
  * reads the plan again — see the note at its call site, which is why this
- * cannot be two literal entries in the table.
+ * cannot be three literal entries in the table.
  */
-const INVALID_REQUEST = new Set(['http_400', 'http_422']);
+const INVALID_REQUEST = new Set(['http_400', 'http_422', 'invalid_body']);
 
 /**
  * What a request be-01 could not read says.
@@ -395,7 +406,7 @@ const PLAN_REFUSALS: RefusalWords = {
     // why the sentence has to say what happened rather than name the code.
     has_children:
       'A row with work under it runs no people of its own — set People at once on the rows beneath it.',
-    // {@link INVALID_REQUEST}'s two, worded from the one list that also decides
+    // {@link INVALID_REQUEST}'s three, worded from the one list that also decides
     // whether the plan is read again.
     ...Object.fromEntries([...INVALID_REQUEST].map((code) => [code, INVALID_REFUSAL])),
   },

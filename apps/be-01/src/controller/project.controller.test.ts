@@ -504,6 +504,34 @@ describe('projects', () => {
     });
   });
 
+  /**
+   * The same array hole as `saved-plan.controller.db.test.ts` asserts, on the
+   * second site that regressed. A PATCH is the quieter of the two: every field
+   * reads as absent, so the route answered **200 and an empty patch** where
+   * `t.Object(...)` answered 422 — a caller sending a malformed body was told
+   * its edit succeeded.
+   *
+   * The create route is asserted beside it because it shares the predicate and
+   * answered 422 only by accident: `name` is required, so an array missed it.
+   * That is luck, not a rule, and a rule is what the assertion is for.
+   */
+  it('refuses a JSON array body on both project writes', async () => {
+    const { register, send } = buildHarness();
+    const token = await register('owner');
+    const create = await send('/api/projects', token, created('Arrayed'));
+    const { project } = (await create.json()) as { project: { id: string } };
+
+    for (const body of ['[]', '[{"name":"from an array"}]']) {
+      expect(
+        (await send(`/api/projects/${project.id}`, token, { method: 'PATCH', body })).status,
+      ).toBe(422);
+      expect((await send('/api/projects', token, { method: 'POST', body })).status).toBe(422);
+    }
+
+    const read = await send(`/api/projects/${project.id}`, token);
+    expect(((await read.json()) as { project: { name: string } }).project.name).toBe('Arrayed');
+  });
+
   it('answers a create with the project it wrote and its starting steps', async () => {
     const { register, send } = buildHarness();
     const token = await register('owner');

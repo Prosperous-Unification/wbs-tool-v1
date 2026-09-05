@@ -7,7 +7,7 @@ import { createLogger } from '@wbs/observability';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { bootBe01, type RunningBe } from './boot';
-import type { OidcRouteOptions } from './controller/auth.controller';
+import type { OidcRouteOptions } from './controller/auth.routes';
 import { runMigrations } from './repository/migrate';
 import type { AuthenticatedUser } from './service/auth.service';
 import type { GatewayBroadcaster } from './service/gateway-broadcaster';

@@ -1,6 +1,6 @@
-import { Elysia, t } from 'elysia';
-
-import { callerGuard } from '../middleware/caller';
+import { callerGuard } from '../http/caller';
+import { HISTORY_QUERY } from '../http/elysia/query-schemas';
+import { ok, respond, type Route } from '../http/route';
 import type { PlanEventFilter } from '../repository';
 import type { AuthService } from '../service/auth.service';
 import type { HistoryService } from '../service/history.service';
@@ -46,51 +46,45 @@ function filterFrom(query: Record<string, string | undefined>): PlanEventFilter 
  * nothing on screen is stale because somebody's edit was recorded, and a plan
  * edited all week would put a thousand rows nobody asked for into every tree read.
  *
- * Registered after `projectController`, whose prefix it shares: `/:id/history`
+ * Registered after the project routes, whose prefix it shares: `/:id/history`
  * cannot be shadowed by anything that route declares, and adjacency is what
  * makes that checkable at a glance.
  *
  * Open to every authenticated account, like every other read. `HistoryService`
  * owns the absent-project answer so there is one copy of the rule.
+ *
+ * The query schema is `HISTORY_QUERY`, and it lives beside the Elysia binder
+ * rather than here. It was written out as a plain JSON Schema object in this
+ * file first, and that **failed**: six of this route's tests and the committed
+ * document diff went red, because Elysia's validator needs TypeBox's `Kind`
+ * symbol and only `t` attaches it. The schema refuses nothing at runtime, but
+ * its *type* is the framework's, so it is a binder concern — which is what
+ * keeps `elysia` out of this directory.
  */
-export function historyController(auth: AuthService, history: HistoryService) {
-  return new Elysia({ prefix: '/api/projects' }).use(callerGuard(auth)).get(
-    '/:id/history',
-    async ({ params, query, set }) => {
-      const outcome = await history.read(params.id, filterFrom(query));
-      if (!outcome.ok) {
-        set.status = 404;
-        return { error: outcome.reason };
-      }
-      return { events: outcome.value };
-    },
+export function historyRoutes(auth: AuthService, history: HistoryService): Route[] {
+  const guard = callerGuard(auth);
+  return [
     {
-      caller: 'signed-in',
-      // Declared as a schema rather than left to the handler's raw `query`, which
-      // is how `?cascade=true` is read two controllers over. The reason is the
-      // committed document: Elysia derives a route's parameters from the route
-      // and from this, and **replaces** anything hand-written in `detail`, so a
-      // query string described only in prose would be a document that omits half
-      // the contract. Both are optional strings and neither is refused — the
-      // parsing that gives them meaning is `filterFrom`, and its readings are
-      // deliberately not 400s.
-      query: t.Object({
-        workItemId: t.Optional(
-          t.String({
-            description:
-              'One work item’s own events. Absent is every item’s, and the plan-wide events with them.',
-          }),
-        ),
-        kind: t.Optional(
-          t.String({
-            description:
-              'Comma-separated kinds to keep — `estimate,clear_estimate` is the history of estimate changes. Absent, or naming nothing, is every kind. An unrecognised kind answers nothing rather than 400.',
-          }),
-        ),
+      method: 'GET',
+      path: '/api/projects/:id/history',
+      handler: guard('signed-in', async ({ params, query }) => {
+        const outcome = await history.read(params['id'], filterFrom(query));
+        return outcome.ok ? ok({ events: outcome.value }) : respond(404, { error: outcome.reason });
       }),
-      detail: {
-        summary: 'One plan’s history — every command run on it, newest first',
-        description: `The plan's own record, per **project** and not per account: two people editing one
+      preflight: guard.preflight('signed-in'),
+      documentation: {
+        // Declared as a schema rather than left to the handler's raw `query`, which
+        // is how `?cascade=true` is read two route modules over. The reason is the
+        // committed document: Elysia derives a route's parameters from the route
+        // and from this, and **replaces** anything hand-written in `detail`, so a
+        // query string described only in prose would be a document that omits half
+        // the contract. Both are optional strings and neither is refused — the
+        // parsing that gives them meaning is `filterFrom`, and its readings are
+        // deliberately not 400s.
+        query: HISTORY_QUERY,
+        detail: {
+          summary: 'One plan’s history — every command run on it, newest first',
+          description: `The plan's own record, per **project** and not per account: two people editing one
 plan produce two undo stacks and one history. It is append-only, it is not pruned
 by anybody's undo, and events older than 365 days are removed by the retention
 sweep. Snapshots, when they exist, are the permanent record; this is the recent one.
@@ -109,7 +103,8 @@ incomplete, deliberately, until that is decided.
 
 A project this account cannot see does not exist to it — \`not_found\`, 404. An
 empty \`events\` array is a plan nobody has edited, which is not the same answer.`,
+        },
       },
     },
-  );
+  ];
 }

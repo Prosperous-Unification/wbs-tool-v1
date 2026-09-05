@@ -1,7 +1,7 @@
 import type { Logger } from '@wbs/observability';
 
 import { buildApp } from './app';
-import type { OidcRouteOptions } from './controller/auth.controller';
+import type { OidcRouteOptions } from './controller/auth.routes';
 import { readDeployedCommit } from './deployed-commit';
 import { drizzleOuterTransaction, openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
