@@ -575,20 +575,37 @@ in both slices rather than implied by position.
       unavailable state — `role="button"`, `tabIndex={0}`,
       `aria-disabled="true"`, the same Enter and Space handlers, an accessible
       name naming the missing project start date, and no `aria-haspopup` or
-      `aria-expanded` — test: same file, **four** cases: the cell is focusable
-      and carries `aria-disabled="true"`; Enter on it opens no sheet and puts
-      the refusal in the live region; **Space on it does the same**; and it
-      carries neither `aria-haspopup` nor `aria-expanded`.
+      `aria-expanded` — test: same file, **five** cases: the cell is focusable
+      and carries `role="button"` and `aria-disabled="true"`; **its accessible
+      name contains both its workday position and the words naming the missing
+      project start date**, located by role and name rather than by test id;
+      Enter on it opens no sheet and puts the refusal in the live region;
+      **Space on it does the same**; and it carries neither `aria-haspopup` nor
+      `aria-expanded`.
+      **The role and the name are assertions, not preamble** — an
+      implementation with the tab stop and both handlers but a missing or
+      generic accessible name, and with no `role="button"` at all, passed every
+      case this slice named until now, because none of them looked (round-8 Sol
+      review, Important). The name is half the contract: §6's own argument for
+      giving these cells a tab stop is that a row of stops all announced
+      "button" is worse than no stop, so a generic name is the failure mode the
+      contract exists to prevent, not a cosmetic gap.
       **Space is a case here and not only in 6.4**, because this branch is a
       separate one: three cases covering focusability, Enter and ARIA leave a
       defect that ignores Space on the **undated** branch green, while 6.4's
       dated-cell Space test keeps passing and hides it (round-7 Sol review,
       Important). This slice promises "the same Enter and Space handlers" and
       until now proved only one of them.
-      Negatives, two: `tabIndex` removed from the undated branch, watched
+      Negatives, four: `tabIndex` removed from the undated branch, watched
       failing the Enter case, because an unfocusable element never receives the
-      key; and **Space removed from the undated branch only**, watched failing
-      the Space case while Enter, the ARIA cases and all of 6.4 stay green.
+      key; **Space removed from the undated branch only**, watched failing the
+      Space case while Enter, the ARIA cases and all of 6.4 stay green;
+      `role="button"` removed from the undated branch, watched failing the
+      role/name case at the point where it locates the cell by role; and the
+      `aria-label` replaced by the bare generic string `Day`, watched failing
+      the name half while the role, both key cases and both ARIA-absence cases
+      stay green — a removal and a generic label are different defects and the
+      generic one is the likelier.
       **Why this slice exists:** an earlier draft made the undated cell inert
       (no role, no tab stop, no key handler) _and_ required 6.5's live-region
       announcement — a contradiction, since the only element that fires the
@@ -767,6 +784,29 @@ in both slices rather than implied by position.
       every rung, watched failing **only** the 12px case while all four
       original cases stay green — which is the measurement that the other four
       cannot see the scope at all.
+      **A sixth case, because "in the viewport" is in the measure and nothing
+      tested it.** Every case above puts all of its occupied dates inside the
+      same 100px viewport with no scrolling, so an implementation that counts
+      **every occupied date in the horizon** — ignoring the viewport entirely —
+      passes all five whenever the fixture's horizon happens to equal its
+      viewport, which is every fixture as written (round-8 Sol review,
+      Important). The chart is a horizontal scrollport and already tracks
+      `scrollLeft` (`gantt-panel.tsx:2169`, `:3699`, `:3723`), so the fixture is
+      buildable: at 4px, **six occupied dates visible in the 100px viewport and
+      several more occupied dates outside it**, asserted to draw six rules
+      (`6 > 6` is false, so no suppression); then **scrolled to a region where
+      seven are visible**, asserted to draw none.
+      **Two faults, because the two halves fail differently and one fault
+      cannot catch both.** Fourth negative: the in-viewport filter dropped from
+      the numerator so the whole horizon is counted, watched failing the
+      **unscrolled** half — the off-screen dates push the count past six and
+      suppress six rules that should draw. That fault leaves the scrolled half
+      green, since a horizon count is already over the threshold there and
+      suppressing is the expected answer, which is why the scrolled half needs
+      its own: fifth negative, the density computed once at mount and not
+      recomputed when `scrollLeft` changes, watched failing the **scrolled**
+      half with six rules still drawn where none should be, while the
+      unscrolled half and all five earlier cases stay green.
 - [ ] 8.4 Overflow collapses to a count with the list on hover or tap —
       `MARKER_BAND_MAX_PER_CELL` is **3** at 28px, **2** at 12px and **1** at
       4px, and the collapsed cell renders `+N` for the markers it did not show —
@@ -792,6 +832,26 @@ in both slices rather than implied by position.
       produces a coloured line with no chip naming it. Negative: `markers`
       passed but the axis-rebuild loop left untouched, watched failing with the
       rule present and no chip — which is exactly the half-exported state.
+      **A chip is not a name, and an export has no hover — so the export also
+      carries a legend.** The on-screen answer to "which marker is this rule?"
+      is the chip's hover/tap list (`design.md` §2), and a downloaded SVG has
+      no pointer at all; at 4px the chip is a coloured tick, so even a chip
+      that survived would name nothing. An export of unlabelled coloured shapes
+      passes every count/position/colour assertion while delivering exactly the
+      "unidentified coloured line" `spec.md` says is worse than no line
+      (round-8 Sol review, Important). **Decided: a legend block below the
+      chart** — one row per marker, swatch, `date` and `name`, in the list's
+      `(date, created_at, id)` order — rather than a `<title>` element, because
+      `<title>` is a tooltip and a hover mechanism again, invisible in a PNG
+      conversion or a printed page, which is what a downloaded chart is for.
+      Assumption, falsifiable: nobody wants a chart exported _without_ the
+      marker names; if Dany asks for a bare chart, the legend becomes a flag on
+      the export call rather than an unconditional block.
+      Second case: export a plan with two markers **at 28px and again at 4px**
+      and assert each marker's `name` appears as text in the exported markup at
+      both rungs. Second negative: the legend block dropped while the chips are
+      still drawn, watched failing both rungs while the chip count, position
+      and colour assertions stay green.
 - [ ] 8.7 The export matches the screen at 4px above the density threshold —
       test: same file, chips present and no rules, matching 8.3's live
       behaviour. Two renderers agreeing is only a guarantee if a test can see

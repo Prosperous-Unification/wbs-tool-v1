@@ -370,11 +370,26 @@ same way it already carries `dayPx` rather than assuming a rung, and for the
 same reason: the two halves of one downloaded file must not be able to
 disagree.
 
+**A chip is a position and a colour, not a name.** On screen the name lives in
+the chip's hover list, and at 4px the chip is a coloured tick; a downloaded
+file has no pointer and no 4px exemption. So the export SHALL also carry a
+**legend**: one row per marker, its swatch, its `date` and its `name`, in the
+list's `(date, created_at, id)` order, at every rung. Every marker name SHALL
+appear as text in the exported markup. A tooltip mechanism does not satisfy
+this — it is the hover answer again, and it is invisible in a printed page or
+a rasterised copy, which is what a downloaded chart is for.
+
 #### Scenario: a downloaded chart shows chip and rule together
 
 - **WHEN** a plan with two markers is exported
 - **THEN** the SVG contains a chip for each at its day's x, in its colour, and
   each rule has the chip that names it
+
+#### Scenario: a downloaded chart names its markers at every rung
+
+- **WHEN** a plan with two markers is exported at 28px per day and again at 4px
+- **THEN** both markers' names appear as text in the exported markup at both
+  rungs
 
 #### Scenario: the export drops nothing the screen shows
 
