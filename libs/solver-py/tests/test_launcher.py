@@ -92,7 +92,7 @@ class LauncherProcess(unittest.TestCase):
             launcher._apply_address_space_limit(512)
         setrlimit.assert_called_once_with(
             launcher.resource.RLIMIT_AS,
-            (512 * 1024 * 1024, 512 * 1024 * 1024),
+            (512 * 4 * 1024 * 1024, 512 * 4 * 1024 * 1024),
         )
 
     def test_abort_never_execs_the_solver(self) -> None:
