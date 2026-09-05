@@ -23,22 +23,26 @@ sequence by design — so whole-body equality is guaranteed to fail for a reason
 that has nothing to do with the schedule. A test that compared whole bodies
 would fail honestly and mean nothing.
 
-The projection SHALL carry **every** schedule-bearing field and not a summary of
-them: each work item's whole `schedule`, every slice with its `boundBy`,
-`personId` and resource predecessors, `scheduleError`, and both waiting counts.
-`seq` is the only exclusion. A projection of start, finish and the critical flag
-alone would stay identical while a marker fault moved float, a slice's binding
-reason or a waiting count — which is the first thing such a fault would move,
-because a resource floor changes _what_ bound a slice before it changes _when_
-the slice runs (round-4 Sol review).
+The projection SHALL be **the entire schedule response with `seq` deleted**, and
+SHALL NOT be an enumerated list of fields. Two rounds of review each named a set
+of schedule-bearing fields and each set was short — the round-4 answer listed
+every work item's whole `schedule` and every slice and still omitted
+`workItems[].dates`, which the payload carries separately from `schedule`, and
+the scheduling inputs the same read returns (`teamCapacities`, `priorityBands`,
+`estimateMethod`, `pertWeights`, `estimateRounding`, `depReach`, `startDate`,
+`projectRevision`) (round-5 Sol review). A list maintained by hand against a
+growing payload will be short again at the next field, so the contract is the
+complement: `seq` is the single exclusion, it is excluded because a marker
+broadcast advances it by design, and the comparison SHALL assert alongside the
+equality that `seq` did advance — which proves the deletion removed a moving
+field rather than masking a stale one.
 
 #### Scenario: the schedule projection is identical with markers and without
 
 - **WHEN** a project's schedule is requested, then five markers are added on
   dates inside its span, then the schedule is requested again
-- **THEN** the canonical projection — every work item's whole schedule, every
-  slice with its binding reason and resource predecessors, `scheduleError` and
-  both waiting counts, in a fixed order — is identical, while `seq` has advanced
+- **THEN** the whole response body with `seq` deleted is identical, while `seq`
+  itself has advanced
 
 #### Scenario: a marker is not a work item
 
@@ -387,24 +391,36 @@ every marker on one date the same colour, which is exactly the identity a
 stacked band needs to tell apart.
 
 A user-chosen colour SHALL override the automatic one and SHALL be rejected if
-it fails the contrast bar in **either** theme. The bar is two numbers, because
-a marker is two things:
+it fails the contrast bar against **any** backdrop it is drawn on. The bar is
+two numbers, because a marker is two things:
 
-- **3:1** for the chip fill and the body rule against the chart background —
+- **3:1** for the chip fill and the body rule against what is behind them —
   WCAG 1.4.11, the non-text bar, which is what these are.
 - **4.5:1** for the chip's label text against the chip fill — WCAG 1.4.3.
 
-**The body rule SHALL be opaque**, and that is what makes the first bar
-checkable. A rule at some reduced opacity is a _different_ colour once
-composited, and it composites over a different fill in every column the chart
-draws — weekend bands, zebra rows, the pointed row's light, today's tint and the
-base. A hex clearing 3:1 against the base does not clear it after alpha blending
-over any of the others, so the contract as drafted was unverifiable in four of
-its five cases and the opacity itself was never given a number (round-4 Sol
-review). Opaque is the cheap end of Sol's two remedies and costs nothing the
-design wanted: the rule is 1px and already sits behind every bar, so its width
+**The body rule SHALL be opaque**, and that settles the rule's own colour: a
+rule at some reduced opacity is a _different_ colour once composited, and the
+opacity was never given a number (round-4 Sol review). Opaque costs nothing the
+design wanted — the rule is 1px and already sits behind every bar, so its width
 and its paint slot supply the de-emphasis the opacity was for. The chip fill was
 always opaque.
+
+**Opacity was only half of it, and the backdrop is the other half.** An opaque
+rule still crosses four translucent area fills — the weekend column, the zebra
+band, the pointed row's light and today's tint — and a hex clearing 3:1 against
+the base background does not thereby clear it over any of those composites
+(round-5 Sol review). The rule's backdrop set SHALL therefore be **every
+composite of those four fills over `--background`, in each theme — 16 per theme,
+32 in all** — and every palette entry and every accepted custom colour SHALL
+clear 3:1 against all of them. Gridlines and today's leading edge are excluded
+by name: both are 1px strokes at a single `x` which the 1px rule covers exactly,
+so what a reader compares the rule against is the area fill beside it. The
+chip's backdrop set is the **4** composites of the weekend and today columns
+over the base, per theme: the chip sits in the axis band and meets no row fill.
+
+A refusal SHALL name the **backdrop** it failed and not merely the theme, since
+a colour can clear the bare dark background and fail dark-over-weekend, and a
+message naming only "dark" sends the user hunting a fill it never named.
 
 **The label ink SHALL be black or white, whichever contrasts more with the chip
 fill**, and that choice SHALL be a **total function with no refusal arm**.
@@ -430,8 +446,8 @@ refused only by the UI is refused only for clients that ask nicely.
 
 #### Scenario: the API refuses what the composer would have refused
 
-- **WHEN** a custom colour below 3:1 in dark theme is posted directly to the
-  API, bypassing the composer
+- **WHEN** a custom colour below 3:1 against some dark backdrop is posted
+  directly to the API, bypassing the composer
 - **THEN** the write is refused and no row is written
 
 #### Scenario: colour survives a deletion
@@ -490,8 +506,11 @@ caller overwrite a marker it cannot otherwise address.
 
 #### Scenario: an unreadable custom colour is refused
 
-- **WHEN** a custom colour below the contrast bar in dark theme is submitted
-- **THEN** the marker is not written and the composer names the failing theme
+- **WHEN** a custom colour below the contrast bar over some backdrop is
+  submitted — one below it on the bare dark background, and one clearing every
+  bare background and failing only over a composite
+- **THEN** neither marker is written and the composer names the failing backdrop
+  in each case
 
 ### Requirement: A marker's date is a project-local calendar date
 
@@ -555,6 +574,10 @@ A marker SHALL NOT be addressable as a work item. The guarantee is that the two
 **route families are disjoint**, not that the two id spaces are: a marker route
 SHALL read and write only the marker table, and a work-item route SHALL read and
 write only the work-item tables. Creating a marker SHALL add no `work_item` row.
+The disjointness SHALL be verified as a **reach** — no SQL statement issued by
+any marker route names `work_item` — and not as a source-level import check on
+the marker repository, which a read placed in the handler satisfies while
+reading the table anyway (round-5 Sol review).
 
 The id-space form of this rule was rejected as unsatisfiable, and the reason is
 worth keeping (round-4 Sol review). Marker and work-item ids are independent text

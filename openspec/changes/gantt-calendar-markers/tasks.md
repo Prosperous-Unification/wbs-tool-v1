@@ -133,15 +133,30 @@ in both slices rather than implied by position.
       code agreeing with itself).
 - [ ] 3.2 The palette itself, **and it lands before 3.1** — eight named hex
       entries, written into `marker-color.ts` as a literal, each clearing
-      **3:1** against `--background` in both themes (`apps/fe-01/src/styles.css:100`
-      light, `:131` dark — WCAG 1.4.11, the non-text bar these are) and carrying
-      a label colour clearing **4.5:1** against its own fill (1.4.3). The eight
-      values and their measured ratios go into `verify.md`: they are a measured
-      result, which is why `design.md` names the bars and the backgrounds and
-      leaves the hexes to this slice.
+      **3:1** against **every backdrop of `design.md` §6's enumerated set** —
+      not against `--background` alone (round-5 Sol review, Important 8) —
+      and carrying a label colour clearing **4.5:1** against its own fill
+      (1.4.3). The body rule crosses four translucent area fills that the base
+      background does not account for: the weekend column
+      `fill-muted-foreground/10` (`gantt-panel.tsx:2883`), the zebra band
+      `fill-muted/40` (`:2903`), the pointed row's light `fill-(--grid-dep-lit)`
+      (`:3983`) and today's column `fill-sky-500/15` (`:2950`). All four
+      co-occur, so the backdrop is any of the **16 composites** of that set over
+      `--background` (`apps/fe-01/src/styles.css:100` light, `:131` dark — WCAG
+      1.4.11, the non-text bar these are), in each theme: **32 backdrops per
+      entry**. The eight values and all 32 measured ratios each go into
+      `verify.md`: they are a measured result, which is why `design.md` names
+      the bars and the backdrops and leaves the hexes to this slice.
       Test: `libs/domain/src/marker-color.test.ts`, `expect(PALETTE).toHaveLength(8)`
-      **first**, then a table case over every entry asserting both ratios in
-      light and dark. The length assertion is not decoration: without it the
+      **first**, then a table case over every entry × every backdrop asserting
+      both ratios. The backdrops are **computed, not pasted**: the test
+      composites the four fill values over each base with the standard
+      source-over formula and asserts `expect(backdrops).toHaveLength(16)` per
+      theme, so a fill dropped from the set fails on a count rather than
+      silently shrinking the bar. The four fill colours and
+      `--grid-dep-lit` are read from `styles.css`, the same way the two bases
+      are, so a theme change that darkened a band breaks this test rather than
+      the chart. The length assertion is not decoration: without it the
       ratio loop passes over an empty or one-entry palette, and the
       `palette.length` divisor in 3.1 would then make a constant function its
       own vectors could not distinguish from a correct one. Negative: one of the eight entries
@@ -150,12 +165,25 @@ in both slices rather than implied by position.
       `toHaveLength(8)` first and the run would never reach the ratio loop, so
       the observed failure would be an array length and not a contrast: a
       negative that fails earlier than the line it names proves nothing about
-      that line. Eight rather than "a fixed palette": a count the
+      that line. **Second negative, for the backdrop set and not for the
+      palette:** the composite loop replaced by the two bases alone, watched
+      failing `toHaveLength(16)` — and then, with the loop restored, an entry
+      replaced by a colour that clears 3:1 against bare dark `--background` and
+      fails it over the dark **weekend + today** composite, watched failing on
+      that backdrop while the bare-base assertion stays green. That second half
+      is the only thing that proves the widened set is load-bearing; without it
+      a 32-backdrop loop whose extra 30 rows never bind is 30 rows of
+      decoration. Eight rather than "a fixed palette": a count the
       test can iterate is checkable, an adjective is not.
-- [ ] 3.3 `validateCustomColor(hex)` refusing a colour below either bar and
-      **naming the failing theme and the failing ratio** — test: same file, a
-      colour that clears 3:1 in light and fails it in dark, asserting the
-      refusal names dark and `3:1`; a second whose label contrast fails 4.5:1.
+- [ ] 3.3 `validateCustomColor(hex)` refusing a colour below either bar **over
+      the same 32 backdrops 3.2 measures**, and **naming the failing backdrop
+      and the failing ratio** — the theme alone no longer identifies it, since
+      a colour can clear bare dark and fail dark-over-weekend, and a refusal
+      that said only "dark" would send the user hunting a fill it never named.
+      Test: same file, a colour that clears 3:1 in light and fails it in dark,
+      asserting the refusal names the dark base and `3:1`; a second that clears
+      every base and fails only over a composite, asserting the refusal names
+      that composite; a third whose label contrast fails 4.5:1.
       Negative: the validator returning `true` unconditionally, watched failing.
 - [ ] 3.4 `validateCustomColor` wired into **both** write paths — the be-01
       create/recolour handlers and the composer — test: the controller test
@@ -283,13 +311,27 @@ in both slices rather than implied by position.
       other's; a rename naming the other project's marker id is refused with
       both rows unchanged; and — replacing the round-3 cross-route id
       assertions — a **structural** pair: creating, renaming and deleting a
-      marker leaves the `work_item` row count and contents unchanged, and the
-      marker repository module imports no work-item table.
+      marker leaves the `work_item` row count and contents unchanged, and
+      **no statement issued by any marker route names the `work_item` table**.
       Negative: the `project_id` predicate dropped from the list query, watched
       returning the other project's markers. An isolation test written only
       against a single seeded project passes with no predicate at all. Second
       negative, for the structural half: a `work_item` read added inside the
-      marker list handler, watched failing the import assertion.
+      marker list handler, watched failing the reach assertion.
+      **The structural assertion and its fault have to land in the same place,
+      and until the round-5 Sol review (Important 10) they did not.** The
+      assertion read the marker _repository_ source for a work-item import
+      while the fault was injected in the _handler_ — which can import
+      `WorkItemRepository` and read through it with the repository source
+      staying clean, so the negative could not fail the assertion and the pair
+      proved nothing. The assertion is therefore a **runtime SQL reach**, the
+      same oracle 5.1a(c) uses and for the same reason: open the app's
+      repository as `openDrizzle(path, { logQuery(query) { statements.push(query) } })`
+      (drizzle's own hook, `project.db.test.ts:439-444`), drive create, list,
+      rename and delete through the real routes, and assert no logged statement
+      names `work_item`. A source scan is bounded by the file it scans; a SQL
+      log is transitive and catches the read wherever in the
+      controller→service→repository path somebody puts it.
       **Why the id form went:** ids are independent text primary keys and 4.4
       lets the client supply the marker id, so a client can submit an existing
       work item's id and "no marker id resolves through the work-item routes"
@@ -311,25 +353,34 @@ in both slices rather than implied by position.
       test: `apps/be-01/src/controller/calendar-marker-identity.db.test.ts`.
       Capture the schedule for a seeded project, create five markers on dates
       inside its span, capture again, assert equality.
-      **Compare a canonical projection, not the response bytes.**
-      `GET /projects/:id/work-items` spreads `tree()`, which carries the event
-      `seq` (`work-item.service.ts:1147-1159`), and marker broadcasts advance
-      it by design — a whole-body comparison is guaranteed to fail for a reason
-      that is not the schedule. **The projection is every schedule-bearing
-      field, not three of them** (corrected after the round-4 Sol review, which
-      was right that a three-field projection cannot see the fields a scheduler
-      regression moves first): every `workItems[].schedule` in full — all eight
-      of `Scheduled` (`schedule.ts:116-124`), rows in ascending work-item id
-      order — plus `slices` in ascending **`id`** order (`IdentifiedSlice`
-      carries `id`, which is `sliceKey`'s string on the wire; there is no
-      `sliceKey` property and sorting by one would not typecheck —
-      `work-item.service.ts:555-557`) carrying the complete
-      `ScheduledSlice` including `boundBy`, `personId`,
-      `resourcePredecessorId` and sorted `capacityPredecessorIds`
-      (`work-item.service.ts:555`), plus `scheduleError`, `waitingForPerson`
-      and `waitingForCapacity` (`work-item.service.ts:1157-1200`). `seq` is the
-      only exclusion, and the test asserts alongside it that `seq` **did**
-      advance, so it also proves it compared the right thing.
+      **The projection is the whole response body with `seq` deleted — an
+      enumerated field list is what went wrong three rounds running.** Rounds 3
+      and 4 each named a set of schedule-bearing fields and each set was
+      incomplete: the round-4 answer listed every `workItems[].schedule` and the
+      slices and still omitted `workItems[].dates`, which `NumberedWorkItem`
+      carries **separately from `schedule`** (`work-item.service.ts:512-525` —
+      `schedule` is spans in workdays, `dates` is the calendar those spans land
+      on, and a regression that moved only the calendar would pass), and still
+      omitted the scheduling inputs the same read returns —
+      `teamCapacities`, `priorityBands`, `estimateMethod`, `pertWeights`,
+      `estimateRounding`, `depReach`, `startDate` and `projectRevision`
+      (`:1246-1293`). A list that has to be maintained against a growing
+      payload is a list that will be short again at the next field. So:
+      **deep-equal the entire `GET /projects/:id/work-items` body, minus one
+      deleted key.**
+      **`seq` is the single exclusion and it is justified rather than
+      asserted.** `tree()` carries the broadcast event `seq`
+      (`work-item.service.ts:1147-1159`) and a marker mutation advances it by
+      design, so a literal whole-body comparison is guaranteed to fail for a
+      reason that is not the schedule. It is deleted from both captures, and the
+      test asserts alongside the equality that `seq` **did** advance — which
+      proves the deletion removed a moving field rather than masking a stale
+      one. Every other field is compared, including the ones nobody thought of
+      while writing this line: the claim being sold is "a marker moves nothing
+      but `seq`", and that is exactly what a minus-one-key comparison states.
+      `projectRevision` is deliberately **inside** the comparison, not outside
+      it: markers never touch the project row (`:1293`), so it must not move,
+      and holding it proves that rather than assuming it.
       Negative: **not** "marker dates appended to `notBefore`" — that is not
       compilable, since `notBefore` is `Map<string, number>` keyed by work-item
       id (`work-item.service.ts:1410-1420`) and a marker has no such id.
@@ -338,18 +389,40 @@ in both slices rather than implied by position.
       projection, then removed. `Proof:` comment naming the seeded id and the
       injected floor. Without a compilable injection this test cannot fail and
       is the sixteenth check again.
-- [ ] 5.1a The scheduler seam is **structurally** free of markers — test: same
-      file, two assertions read off the source rather than a response, because
-      the guarantee being sold is a source-level one and two equal captures
+- [ ] 5.1a The scheduler seam is free of markers **at the seam and at the
+      inputs** — test: same file, three assertions, because two equal captures
       cannot prove a path is absent (a path that is a no-op on the fixture
-      passes). (a) The single production call site is
+      passes) and a source scan of the engine cannot either.
+      (a) The single production call site is
       `schedule(rows, edges, slices, notBefore, slotsOf, project.depReach)` at
       `work-item.service.ts:1458` — assert it still passes exactly those six
       arguments. (b) Assert `libs/domain/src/schedule.ts` contains no import
       from the marker module and no occurrence of the marker type name.
-      Negative: a seventh argument threaded through the adapter and ignored by
-      the engine, watched failing (a) while 5.1's capture comparison stays
-      green — which is the whole reason this slice exists.
+      (c) — **and this is the one that closes the hole (a) and (b) leave open,
+      raised by the round-5 Sol review as Critical 1.** The six arguments are
+      not built in `schedule.ts`; they are built in `WorkItemService.tree()` —
+      `rows` at `:1298`, `edges` at `:1314`, `slotsOf` at `:1391`, `slices` at
+      `:1400`, `notBefore` at `:1415`, and `project.depReach` off the project
+      row. Marker-derived data can therefore be folded into `notBefore`,
+      `slices` or `slotsOf` while the call site still passes **six** arguments
+      and `schedule.ts` still contains **no** marker name, and (a) and (b) both
+      stay green. So (c) is a **runtime reach assertion, not a source scan**:
+      drive `GET /projects/:id/work-items` against a project **with markers**
+      through a repository opened as
+      `openDrizzle(path, { logQuery(query) { statements.push(query) } })` —
+      drizzle's own hook, already used this way for statement counting at
+      `project.db.test.ts:439-444` — and assert **no logged statement names
+      `calendar_marker`**. A static scan of one file is bounded by that file; a
+      SQL log is transitive, so it holds however many helpers the fold is
+      hidden behind.
+      Negatives, **two, because Sol's objection needs both an ordering input
+      and a resource input** (one alone leaves the other path unproven), each
+      watched failing (c) while (a) stays green — which is the whole reason
+      this slice exists: (i) a marker-derived floor written into `notBefore`
+      for a seeded work item, read from `calendar_marker` inside `tree()`;
+      (ii) a marker-derived entry folded into `slotsOf` before `slicesOf` is
+      called, read from the same table. `Proof:` comment naming the logged
+      statement each was caught by.
 - [ ] 5.2 Markers stay out of a saved plan — test:
       `apps/be-01/src/repository/saved-plan-capture.db.test.ts`, a new case:
       capture a project with markers and a copy with none, assert the
@@ -448,10 +521,22 @@ in both slices rather than implied by position.
       `date: null`, **not** routed through the panel. Asserted directly so a
       future change that gave every project a start date would break this test
       loudly rather than making the refusal unreachable and untested.
-      Negative: `workdayAxis` changed to synthesise a date from the project's
-      creation timestamp, watched failing — the plausible "helpful" change that
-      would make every refusal in section 7 unreachable while every one of its
-      tests kept passing, because a live cell refuses nothing.
+      Negative: `date: null` replaced with
+      `date: addWorkdays('2026-01-01', workday)` inside `workdayAxis`, watched
+      failing — the plausible "helpful" change that would make every refusal in
+      section 7 unreachable while every one of its tests kept passing, because
+      a live cell refuses nothing.
+      **Named as a fixed synthetic origin and not as "the project's creation
+      timestamp", which was not compilable** (round-5 Sol review, Important
+      14): `workdayAxis(horizon: number)` takes a number and nothing else
+      (`gantt-panel.tsx:1047`), and `GanttProps` carries no creation timestamp
+      (`:1993-2117` — and `createdAt` and `creation` each appear **zero** times
+      in the whole module, which is the check that settles it rather than a
+      reading of one interface), so that fault could only be written by widening two
+      interfaces — a different change, not a mutation of this one. A literal
+      origin needs no new input and no new import: `addWorkdays` is already
+      imported into this module at `:4` for `calendarAxis`, and the mutated
+      cell's `date` is non-null, which is what the assertion tests.
 - [ ] 7.2 Clicking an undated plan's cell is refused with a message naming the
       missing project start date, and no composer opens — test: same file, two
       assertions: the refusal message is present **and** names the missing
@@ -619,15 +704,31 @@ in both slices rather than implied by position.
       create, rename, recolour and delete, each carrying no payload. Negative:
       the delete path left unbroadcast, watched failing.
 - [ ] 9.2 `e2e/gantt.spec.ts`: click a day, name a marker, see the chip and the
-      rule; reload and see them still there; delete and see them gone. Plus the
-      **visible focus ring** moved down from 6.4: tab to a dated cell and assert
-      a computed focus indicator, which jsdom cannot see at all. The one test
-      that judges pixels — jsdom asserts positions, a browser judges appearance.
+      rule; reload and see them still there; delete and see them gone. The one
+      test that judges pixels — jsdom asserts positions, a browser judges
+      appearance.
       Negative: the rule's `stroke` bound to the chart background colour,
       watched failing the "see the rule" step while every jsdom position
       assertion in section 8 stays green — an element present at the right `x`
       with the wrong paint is precisely what only a browser catches, and this
       slice had no injected fault at all (round-4 Sol review).
+- [ ] 9.2a The **visible focus ring** on a dated axis cell — its own slice, in
+      the same file, because sharing 9.2's meant sharing 9.2's negative and the
+      negative there mutates the marker rule's stroke, which the focus ring
+      cannot observe: the ring had no injected fault of its own (round-5 Sol
+      review, Important 16). Test: tab to a dated cell and assert the computed
+      focus indicator **as a transition** — read `outline-style`,
+      `outline-width` and `box-shadow` off the cell before it is focused and
+      again while it holds focus, and assert they differ and that the focused
+      reading is not `none`/`0px`. A static "the outline is not none" passes
+      against a global reset that outlines everything permanently, which is not
+      a focus indicator.
+      Negative: the `focus-visible` classes removed from the dated cell,
+      watched failing on the two readings being equal — while 9.2's round trip
+      and every jsdom assertion in section 6 stay green, since neither can see
+      a computed style (jsdom computes none). Kept separate from 9.2's stroke
+      mutation on purpose: two guarantees in one slice share whichever fault is
+      injected, and the one that shares gets no proof.
 - [ ] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it

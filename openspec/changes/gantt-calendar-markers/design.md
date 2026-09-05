@@ -303,7 +303,7 @@ is a visible bug with no error message.
 
 No deterministic entity palette exists in the repo today (`libs/domain` and the
 WBS components have only UI chrome and theming), so the palette is new work
-and needs its own contrast evidence against both themes.
+and needs its own contrast evidence against every backdrop enumerated below.
 
 **The bar is two numbers, not an adjective.** A marker is two things at once,
 so it clears two WCAG thresholds: **3:1** for the chip fill and the body rule
@@ -312,11 +312,54 @@ against the chart background (1.4.11, the non-text bar these are), and
 is eight named entries so a test can iterate it; "a fixed accessible palette"
 is not something an assertion can count.
 
-**The two backgrounds are named, not "both themes".** Contrast is measured
-against `--background` in `apps/fe-01/src/styles.css` — `oklch(1 0 0)` at
+**The backgrounds are named, not "both themes" — and there are more than two.**
+The base is `--background` in `apps/fe-01/src/styles.css` — `oklch(1 0 0)` at
 `:100` for light and `oklch(0.129 0.042 264.695)` at `:131` for dark. The test
 reads those two values, so a theme change that broke the palette breaks the
 test rather than the chart.
+
+**But the body rule is not drawn on `--background`.** It sits at slot 7 of
+§2.1's paint order, over four **area fills** that the base background alone
+does not account for (round-5 Sol review, Important 8 — making the rule opaque
+closed the alpha question and left this one, and the document read as if it had
+closed both):
+
+| fill              | class                      | where                  |
+| ----------------- | -------------------------- | ---------------------- |
+| weekend column    | `fill-muted-foreground/10` | `gantt-panel.tsx:2883` |
+| zebra row band    | `fill-muted/40`            | `:2903`                |
+| pointed row light | `fill-(--grid-dep-lit)`    | `:3983`                |
+| today's column    | `fill-sky-500/15`          | `:2950`                |
+
+All four are translucent and all four can co-occur at one `(x, row)` — today
+can fall on a Saturday, any row can be pointed, every other row is banded — so
+the backdrop a rule is read against is any of the **16 composites** of that set
+over the base, in each theme: **32 backdrops, not 2**. The 3:1 bar is measured
+against every one of them.
+
+**Gridlines (slot 5) and today's leading edge (slot 6) are deliberately
+excluded, and this is the exclusion rather than an omission.** Both are 1px
+strokes at a single `x`, not area fills. The marker rule is itself 1px at that
+same `x` and paints after them, so it covers such a stroke exactly; what a
+reader's eye compares the rule against is the pixels _beside_ it, and those are
+area fills. A rule sharing a gridline's `x` is therefore a legibility question
+already answered by the four rows above.
+
+**Whether 32 backdrops is satisfiable is a measurement, not a promise.** The
+four fills are low-alpha tints, so a palette entry clearing 3:1 against the
+base will very likely clear it against the composites — and "very likely" is
+the adjective this section refuses. Slice 3.2 measures all 32 and records them;
+an entry that fails one is replaced before it lands. The alternative considered
+and rejected was a background-coloured **casing** under the rule — a 3px stroke
+in `--background` beneath the 1px marker stroke, which would make the base the
+only backdrop by construction. It is rejected because at the 4px rung a 3px
+casing consumes most of a day cell, erasing the weekend and today shading a
+reader navigates by, to buy an assurance the measurement gives for free.
+
+**The chip's own bar is measured against fewer.** The chip sits in the axis
+header band, not the body: it contends with the weekend column and today's
+column and with neither row fill, so its backdrop set is the **4 composites**
+of those two over the base, per theme.
 
 **The hash is named too:** 32-bit **FNV-1a** over the id's UTF-8 bytes, taken
 `mod 8`. Any stable function would satisfy "deterministic", which is why naming
@@ -333,8 +376,10 @@ pinned vectors are then computed **from that landed palette and that hash** and
 recorded as data; they cannot be written before 3.2, which is why 3.2 now runs
 first.
 
-A custom colour is validated against both bars in both themes **at submit, in
-be-01**, and refused with the failing theme and ratio named. Validating in the
+A custom colour is validated against both bars over **every backdrop enumerated
+above** **at submit, in be-01**, and refused with the failing backdrop and ratio
+named — the backdrop rather than the theme, because a colour can clear bare dark
+and fail dark-over-weekend. Validating in the
 composer alone refuses the colour only for clients that ask nicely; validating
 at render instead would leave an unreadable marker stored and blame the
 reader's theme.
