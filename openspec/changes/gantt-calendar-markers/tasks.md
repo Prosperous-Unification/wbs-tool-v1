@@ -1029,7 +1029,7 @@ in both slices rather than implied by position.
       origin needs no new input and no new import: `addWorkdays` is already
       imported into this module at `:4` for `calendarAxis`, and the mutated
       cell's `date` is non-null, which is what the assertion tests.
-- [ ] 7.2 Clicking an undated plan's cell is refused with a message naming the
+- [x] 7.2 Clicking an undated plan's cell is refused with a message naming the
       missing project start date, and no composer opens — test: same file, three
       assertions: the refusal message is present **and** names the missing
       start date, no composer is in the document, and **the fake API received no
@@ -1074,6 +1074,27 @@ in both slices rather than implied by position.
       message replaced by a generic "this day cannot carry a calendar marker"
       → **183 / 2**, the same two cases, on that generic string failing to
       match `/project start date/`.
+      **THE THIRD ASSERTION LANDED (chunk 39, 899dbc52) and 7.2 is ticked.**
+      7.2a gave `ProjectApi` its writer and 3.5 gave the composer the save that
+      uses it, so the fault this assertion exists to catch is injectable at last.
+      The refusal fixture now takes an `onCreateMarker` wired to `fakeProjectApi`
+      and the click case asserts **two** oracles — the recorder's call log and
+      the fake's own store, because a recorder that logged without performing
+      would show an empty log either way.
+      It is the **last** assertion in the case on purpose: the message and
+      composer halves have to be seen green in the same run for the negative to
+      say anything, and an assertion placed above them would fail first and
+      prove less.
+      SECOND NEGATIVE WATCHED, and it is the one the first cannot reach because
+      it leaves the refusal branch intact: the undated **click** arm also
+      issuing `onCreateMarker({ markerId: newMarkerId(), date: '2026-08-19',
+    name: 'synthesised' })` → **195 pass / 1 fail on `gantt-panel.test.tsx`,
+      this case alone**, on `expected [['p1', {…}]] to deeply equal []` — the
+      no-create assertion, with the message and composer assertions green above
+      it in the same run and both keyboard cases untouched (the fault was put in
+      the click handler alone, so the arm it isolates is the arm it names).
+      Test count is **unchanged at 2250**: this chunk added assertions to an
+      existing case rather than a case, which is what the slice asked for.
 - [x] 7.2a The client's calendar-marker **write seam** — `ProjectApi` gains the
       marker methods be-01 has carried since section 4, so 7.2's third
       assertion and 6.3's `PATCH`-body oracle have a call log to read. Its own
