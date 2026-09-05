@@ -97,6 +97,9 @@ function coordinator(
     kill: () => undefined,
   }),
   runChild: typeof runSolverChildLifecycle = () => new Promise(() => undefined),
+  onChildError: (error: unknown) => void = (error) => {
+    throw error;
+  },
 ): OptimizationCoordinator {
   let token = 0;
   return new OptimizationCoordinator({
@@ -112,9 +115,7 @@ function coordinator(
       return childOf(request);
     },
     runChild,
-    onChildError: (error) => {
-      throw error;
-    },
+    onChildError,
   });
 }
 
@@ -326,6 +327,39 @@ describe('OptimizationCoordinator read', () => {
     expect(pair.time.kind).toBe('ok');
     expect(db.select().from(solverSlot).all()).toEqual([]);
     expect(instance.read({ projectId: 'p-1', objective: 'time', input: INPUT })).not.toBeNull();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('stores an internal failure and releases admission when process creation throws', () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const errors: unknown[] = [];
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => {
+        throw new Error('launcher is absent');
+      },
+      () => new Promise(() => undefined),
+      (error) => void errors.push(error),
+    );
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(INPUT),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    expect(pair.pri).toMatchObject({ kind: 'failed', reason: 'internal-error' });
+    expect(pair.time).toMatchObject({ kind: 'failed', reason: 'internal-error' });
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+    expect(errors).toHaveLength(2);
+
+    expect(instance.read({ projectId: 'p-1', objective: 'time', input: INPUT })).toBeNull();
     expect(calls).toHaveLength(2);
   });
 });

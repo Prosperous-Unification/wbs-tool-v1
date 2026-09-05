@@ -196,23 +196,37 @@ export class OptimizationCoordinator {
             return;
           }
 
-          const child = this.options.spawn({
+          const launch = {
             ...request,
             generation,
             admission,
             request: built.request,
             input: ask.input,
-          });
+          };
+          let child: ReservedSolverChild;
+          try {
+            child = this.options.spawn(launch);
+          } catch (error) {
+            try {
+              storeOptimizedOutcome(this.options.db, {
+                claim: { ...slot, ownerId: this.options.ownerId },
+                inputHash: request.key.inputHash,
+                admittedCancelEpoch: admission.admittedCancelEpoch,
+                outcome: { kind: 'failed', reason: 'internal-error' },
+                now: this.options.now(),
+              });
+            } finally {
+              releaseSolverSlot(this.options.db, slot);
+            }
+            this.options.onChildError(error);
+            return;
+          }
           const bound = bindSolverSlot(this.options.db, {
             ...slot,
             pid: child.pid,
           });
           child.verdict(bound ? 'bound' : 'abort');
-          if (bound)
-            this.runChild(
-              { ...request, generation, admission, request: built.request, input: ask.input },
-              child,
-            );
+          if (bound) this.runChild(launch, child);
           else child.kill();
         }
       },
