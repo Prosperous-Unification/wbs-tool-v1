@@ -103,6 +103,54 @@ export interface RouteResponse {
 
 export type RouteHandler = (req: RouteRequest) => Promise<RouteResponse>;
 
+/**
+ * A refusal the binder answers **before its derived validation** — `null` for
+ * "carry on".
+ *
+ * **Not before the body parser, and the difference is not a detail.** Elysia's
+ * order is `parse` then `transform`, so a malformed body answers 400 there and
+ * this never runs at all. The in-process binder runs this
+ * ahead of `decodeBody` because it has no earlier seat to use. Every route
+ * declaring one today is a `GET`, where that difference cannot be observed;
+ * a body-taking route that declared one would answer 401 under one binder and
+ * 400 under the other, which is why `in-process/bind.ts` says so at the call
+ * site. The route shape already treats a malformed body as the binder's own
+ * refusal — see {@link RouteRequest.body}.
+ *
+ * The request it is handed carries no `body`, under **either** binder: Elysia
+ * has parsed one by this point and the in-process binder has not, so passing
+ * the parsed value where it exists would let one preflight observe two
+ * different requests. Nothing this app declares reads it.
+ *
+ * Only `status` and `body` of the returned refusal reach the wire under
+ * `bindElysia` — `status(…)` carries no headers and no `Set-Cookie`. Every
+ * refusal `callerGuard` produces is `respond(…)`, which sets neither. A
+ * preflight that needed a header would have to be answered somewhere else, and
+ * this comment is the place that says so before somebody writes one.
+ *
+ * This is a check, not a declaration. It carries no service and names no
+ * requirement the binder has to interpret: whatever produced it closed over
+ * everything it needs, which is why neither binder's signature grows an
+ * `AuthService` and why {@link Route} stays a data type.
+ *
+ * **It is an ordering hint and never a boundary.** A route that omits it is
+ * refused exactly where it is refused without it — inside its own handler, by
+ * the same guard. Forgetting one moves a 401 later; it cannot open a route.
+ * That is the whole reason this field is optional and nothing else in the app
+ * was deleted to make room for it: three earlier designs made the route list
+ * the *authority* for auth, and each one then owed a proof that its table
+ * covered every requirement the mechanisms it replaced had covered.
+ *
+ * What it exists for: a binder that derives a validator from
+ * {@link Route.documentation}'s `query` runs that validator before the handler,
+ * so an unauthenticated caller sending a malformed query learned the shape of
+ * the query before being told it may not ask — 422 under Elysia, 401 under the
+ * in-process binder, for one route list. Only a framework-derived refusal can
+ * get in front of a handler guard, so only routes carrying a query schema can
+ * have the defect, which is the set `app.routes.test.ts` checks.
+ */
+export type RoutePreflight = (req: RouteRequest) => Promise<RouteResponse | null>;
+
 export interface Route {
   method: HttpMethod;
   /**
@@ -112,6 +160,14 @@ export interface Route {
    */
   path: string;
   handler: RouteHandler;
+  /**
+   * See {@link RoutePreflight}. Declared on the **route** rather than attached
+   * to the handler function, because six saved-plan handlers are wrapped —
+   * `refusingUnknownBodyVersion(guard(…))` — and a marker hung on the guarded
+   * function would be dropped by the wrapper silently, with every clause still
+   * green.
+   */
+  preflight?: RoutePreflight;
   /**
    * Opaque per-route documentation, handed to a binder that can publish an
    * OpenAPI document and ignored by one that cannot. The values are typed

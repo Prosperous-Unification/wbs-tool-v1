@@ -47,13 +47,17 @@ export function bindInProcess(routes: readonly Route[]): {
         const params = matchPath(route.path, url.pathname);
         if (params === null || route.method !== method) continue;
 
-        let body: unknown;
-        try {
-          body = await decodeBody(request);
-        } catch {
-          return toResponse(respond(400, { error: 'invalid_body' }));
-        }
-
+        // Before `decodeBody`, mirroring the Elysia binder's `transform`, which
+        // is emitted above the validator block. The two are **not** in the same
+        // position relative to the body: Elysia's `parse` runs before any
+        // `transform`, so a malformed body there answers 400 and no preflight
+        // runs. That difference is dormant — every route declaring a preflight
+        // today is a GET, where `decodeBody` returns `undefined` without
+        // reading anything — and it is written here rather than left to be
+        // rediscovered, because a body-taking route that declares one would
+        // answer 401 here and 400 under Elysia. The shipped app answers 401
+        // first for those (`app.ts:170-187` with `requiresWriteScope`), which
+        // is an app-level property this fixture does not reproduce.
         const req: RouteRequest = {
           method,
           path: url.pathname,
@@ -63,9 +67,20 @@ export function bindInProcess(routes: readonly Route[]): {
           // duplicated parameter from answering two different things.
           query: Object.fromEntries(url.searchParams),
           headers: Object.fromEntries(request.headers),
-          body,
+          body: undefined,
           url: request.url,
         };
+
+        if (route.preflight !== undefined) {
+          const refusal = await route.preflight(req);
+          if (refusal !== null) return toResponse(refusal);
+        }
+
+        try {
+          req.body = await decodeBody(request);
+        } catch {
+          return toResponse(respond(400, { error: 'invalid_body' }));
+        }
         return toResponse(await route.handler(req));
       }
       // One pass, and one answer: an unknown path and a known path reached with

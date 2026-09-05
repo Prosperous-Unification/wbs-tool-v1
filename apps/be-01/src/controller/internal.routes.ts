@@ -81,8 +81,29 @@ export function internalRoutes(deps: InternalDeps): Route[] {
 /**
  * The refusal, as a value rather than a `Response`.
  *
- * Returned before the body is parsed, so an unauthenticated caller learns
- * nothing about which bodies this surface accepts.
+ * **It is not returned before the body is parsed, and this comment used to say
+ * it was.** Both binders decode first and answer the parser's 400, so a caller
+ * with no secret does learn that this surface reads JSON. Measured at
+ * `2026-09-05`, with the well-formed request as the control that proves the
+ * secret check itself works:
+ *
+ * ```
+ * POST /internal/forward, no x-internal-auth      elysia   in-process
+ *   body `{not json`                              400      400
+ *   body `{}`                                     401      401
+ * ```
+ *
+ * The two binders agree, so this is **not** the 401-before-422 divergence
+ * `Route.preflight` closes — it is one ordering, wrong in the same way under
+ * both, and it predates this branch: the check sat behind Elysia's parser in
+ * `internal.controller.ts` too. `Route.preflight` cannot fix it either, because
+ * Elysia parses before any route-local `transform` runs.
+ *
+ * Closing it means an app-level pre-parse check for `/internal/*`, beside the
+ * one `requiresWriteScope` already performs for `/api/` writes
+ * (`app.ts:170-193`) — a change to a shipped auth boundary, which is its own
+ * task with its own gate rather than a line in this one. Written down here,
+ * where the promise was made, instead of left as a comment that lies.
  */
 function requireInternalAuth(req: RouteRequest, secret: string): RouteResponse | null {
   // Lowercased, because that is the one spelling every binder guarantees --

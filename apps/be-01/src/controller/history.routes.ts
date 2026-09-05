@@ -71,6 +71,7 @@ export function historyRoutes(auth: AuthService, history: HistoryService): Route
         const outcome = await history.read(params['id'], filterFrom(query));
         return outcome.ok ? ok({ events: outcome.value }) : respond(404, { error: outcome.reason });
       }),
+      preflight: guard.preflight('signed-in'),
       documentation: {
         // Declared as a schema rather than left to the handler's raw `query`, which
         // is how `?cascade=true` is read two route modules over. The reason is the

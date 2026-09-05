@@ -1,6 +1,12 @@
 import { userFromHeaders } from '../middleware/authenticated';
 import type { AuthenticatedUser, AuthService } from '../service/auth.service';
-import { respond, type RouteHandler, type RouteRequest, type RouteResponse } from './route';
+import {
+  respond,
+  type RouteHandler,
+  type RoutePreflight,
+  type RouteRequest,
+  type RouteResponse,
+} from './route';
 
 /**
  * What a route requires of whoever called it.
@@ -48,14 +54,51 @@ export type AuthenticatedHandler = (
  * The wrapped handler is handed the account **already narrowed to non-null**,
  * so it cannot forget the case: there is no `null` in the type to forget.
  */
-export function callerGuard(auth: AuthService) {
-  return (requires: CallerRequirement, handler: AuthenticatedHandler): RouteHandler =>
-    async (req) => {
-      const user = await userFromHeaders(auth, req.headers);
-      if (user === null) return respond(401, { error: 'unauthenticated' });
-      if (requires === 'read-scope' && !user.scopes.includes('read')) {
-        return respond(403, { error: 'insufficient_scope' });
-      }
-      return handler(req, user);
-    };
+export interface CallerGuard {
+  (requires: CallerRequirement, handler: AuthenticatedHandler): RouteHandler;
+  /**
+   * The same refusal, as a {@link RoutePreflight} a route declares so a binder
+   * answers it before validating anything — see {@link RoutePreflight} for why
+   * that ordering needed a seat at all.
+   *
+   * A member of the guard rather than a free function, and returning `null`
+   * where the guard would have called the handler, so the two share one
+   * **refusal implementation** — there is no second copy of "401
+   * `unauthenticated`, then 403 `insufficient_scope`" that could drift.
+   *
+   * They do not share one `userFromHeaders` call, and that is worth saying
+   * plainly rather than letting "one implementation" imply it: a route that
+   * declares this and keeps its guard authenticates **twice** on an admitted
+   * request, once here and once when the handler rechecks. That is the price of
+   * the guard staying — the check the caller cannot skip is still the handler's
+   * — and it is the same double-check every write already pays through
+   * `app.ts`'s `onRequest`.
+   */
+  preflight(requires: CallerRequirement): RoutePreflight;
+}
+
+export function callerGuard(auth: AuthService): CallerGuard {
+  const refuse = async (
+    req: RouteRequest,
+    requires: CallerRequirement,
+  ): Promise<AuthenticatedUser | RouteResponse> => {
+    const user = await userFromHeaders(auth, req.headers);
+    if (user === null) return respond(401, { error: 'unauthenticated' });
+    if (requires === 'read-scope' && !user.scopes.includes('read')) {
+      return respond(403, { error: 'insufficient_scope' });
+    }
+    return user;
+  };
+  const isRefusal = (outcome: AuthenticatedUser | RouteResponse): outcome is RouteResponse =>
+    'status' in outcome;
+
+  const guard: CallerGuard = (requires, handler) => async (req) => {
+    const outcome = await refuse(req, requires);
+    return isRefusal(outcome) ? outcome : handler(req, outcome);
+  };
+  guard.preflight = (requires) => async (req) => {
+    const outcome = await refuse(req, requires);
+    return isRefusal(outcome) ? outcome : null;
+  };
+  return guard;
 }

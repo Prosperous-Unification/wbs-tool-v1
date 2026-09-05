@@ -17,6 +17,7 @@ import { solutionRoutes } from './controller/solution.routes';
 import { stepRoutes } from './controller/step.routes';
 import { workItemRoutes } from './controller/work-item.routes';
 import { bindElysia } from './http/elysia/bind';
+import type { Route } from './http/route';
 import { userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
@@ -144,6 +145,68 @@ export interface AppOptions {
   version?: string;
 }
 
+/**
+ * Every route list this app mounts, in mount order — the one place they are
+ * assembled.
+ *
+ * Exported so a test can read the same lists the app runs rather than rebuilding
+ * the wiring beside it. That distinction is the whole value: a check that
+ * assembles its own lists proves a property of the check's list, and the routes
+ * it forgot to include are exactly the ones it cannot speak for. `app.routes.test.ts`
+ * still asserts these cover every path Elysia ended up with, because a factory
+ * dropped from this array would otherwise be invisible here too.
+ *
+ * **Order is behaviour, not style.** Elysia matches in registration order, and
+ * two adjacencies below are load-bearing rather than tidy.
+ */
+export function mountedRouteLists(
+  opts: AppOptions,
+  commands: PlanCommandRunner,
+): readonly (readonly Route[])[] {
+  return [
+    smokeRoutes(),
+    authRoutes(opts.auth, opts.oidc),
+    solutionRoutes(opts.auth, opts.projects),
+    projectRoutes(opts.auth, opts.projects, opts.workItems),
+    // After `projectRoutes`, whose `/api/projects` paths it extends: the
+    // saved-plan collection is one segment longer than anything that
+    // route list declares, so neither can shadow the other, and adjacency is
+    // what makes that checkable at a glance.
+    savedPlanRoutes(
+      opts.auth,
+      opts.savedPlans,
+      opts.projects,
+      // The shared wrapper, like every other publisher. TASK-255 handed
+      // this route the inner broadcaster instead, because a save
+      // committing while an unrelated batch held was queued into that
+      // batch and dropped when it refused; the hold was instance state on
+      // the one shared wrapper, so "no batch is open" was being read as
+      // "this route is not part of a batch". A hold is per-caller now
+      // (TASK-256) and those are the same question again, so the special
+      // case is gone rather than merely redundant — see
+      // `DeferringBroadcaster`.
+      opts.writes.announcements,
+    ),
+    stepRoutes(opts.auth, opts.steps),
+    workItemRoutes(opts.auth, opts.workItems, commands),
+    directoryRoutes(opts.auth, opts.directory),
+    // After `projectRoutes`, whose prefix it shares: Elysia matches in
+    // registration order, `/:id/history` cannot be shadowed by anything that
+    // route declares, and adjacency is what makes that checkable at a glance.
+    historyRoutes(opts.auth, opts.history),
+    internalRoutes({
+      secret: opts.internalAuthSecret,
+      // A deliberate pure ack, not a stub. Every mutation in this product is
+      // an HTTP call to be-01; a client message arriving over the socket is
+      // acknowledged and carried no further, because there is no message the
+      // socket is the authority for. The test asserting a forward records no
+      // event and pushes nothing is what keeps this honest.
+      onForward: () => Promise.resolve({ push_responses: [] }),
+      onResume: (points) => opts.replay.replay(points),
+    }),
+  ];
+}
+
 export function buildApp(opts: AppOptions) {
   const logger = createLogger({ service: 'be-01', version: opts.version });
   const commands = new PlanCommandRunner({
@@ -191,52 +254,10 @@ export function buildApp(opts: AppOptions) {
         }
         return undefined;
       })
-      .use(bindElysia(smokeRoutes()))
-      .use(bindElysia(authRoutes(opts.auth, opts.oidc)))
-      .use(bindElysia(solutionRoutes(opts.auth, opts.projects)))
-      .use(bindElysia(projectRoutes(opts.auth, opts.projects, opts.workItems)))
-      // After `projectRoutes`, whose `/api/projects` paths it extends: the
-      // saved-plan collection is one segment longer than anything that
-      // route list declares, so neither can shadow the other, and adjacency is
-      // what makes that checkable at a glance.
       .use(
-        bindElysia(
-          savedPlanRoutes(
-            opts.auth,
-            opts.savedPlans,
-            opts.projects,
-            // The shared wrapper, like every other publisher. TASK-255 handed
-            // this route the inner broadcaster instead, because a save
-            // committing while an unrelated batch held was queued into that
-            // batch and dropped when it refused; the hold was instance state on
-            // the one shared wrapper, so "no batch is open" was being read as
-            // "this route is not part of a batch". A hold is per-caller now
-            // (TASK-256) and those are the same question again, so the special
-            // case is gone rather than merely redundant — see
-            // `DeferringBroadcaster`.
-            opts.writes.announcements,
-          ),
-        ),
-      )
-      .use(bindElysia(stepRoutes(opts.auth, opts.steps)))
-      .use(bindElysia(workItemRoutes(opts.auth, opts.workItems, commands)))
-      .use(bindElysia(directoryRoutes(opts.auth, opts.directory)))
-      // After `projectController`, whose prefix it shares: Elysia matches in
-      // registration order, `/:id/history` cannot be shadowed by anything that
-      // route declares, and adjacency is what makes that checkable at a glance.
-      .use(bindElysia(historyRoutes(opts.auth, opts.history)))
-      .use(
-        bindElysia(
-          internalRoutes({
-            secret: opts.internalAuthSecret,
-            // A deliberate pure ack, not a stub. Every mutation in this product is
-            // an HTTP call to be-01; a client message arriving over the socket is
-            // acknowledged and carried no further, because there is no message the
-            // socket is the authority for. The test asserting a forward records no
-            // event and pushes nothing is what keeps this honest.
-            onForward: () => Promise.resolve({ push_responses: [] }),
-            onResume: (points) => opts.replay.replay(points),
-          }),
+        mountedRouteLists(opts, commands).reduce(
+          (app, list) => app.use(bindElysia(list)),
+          new Elysia(),
         ),
       )
       .get('/health', ({ set }) => {

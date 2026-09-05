@@ -142,6 +142,7 @@ function routes(auth: AuthService): Route[] {
             : respond(422, { error: 'invalid_query' }),
         ),
       ),
+      preflight: guard.preflight('signed-in'),
       documentation: { query: COMPARE_QUERY },
     },
     {
@@ -424,6 +425,32 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
       authorization: 'Bearer alice-token',
     });
     expect(res.status).toBe(422);
+  });
+
+  /**
+   * The clause `Route.preflight` exists for, and the one divergence this suite
+   * could not see until `/probe/guarded-sides` was added: a guarded route that
+   * also carries a `documentation.query` had two orderings, because only a
+   * framework-derived validator can get in front of a handler guard. Elysia
+   * answered 422 here and the in-process binder answered 401, so an
+   * unauthenticated caller learned the shape of the query under one binder and
+   * not the other.
+   *
+   * 401 is the answer both owe. It is what `main` gave, it is what `app.ts`
+   * already answers before parsing a body for every write (`app.ts:170-187`),
+   * and the alternative — writing the difference down as agreed-to-differ — is
+   * the shape chunk 8 rejected for the trailing slash: a contract recording two
+   * answers for one route list is a record of a bug.
+   *
+   * The signed-in clause immediately above is the negative control. It sends
+   * the identical malformed query **with** a valid token and still expects 422,
+   * so a preflight that refused everything, or a binder that stopped running
+   * the validator at all, fails there rather than passing both.
+   */
+  it('answers 401 before 422 for an unauthenticated caller with a bad query', async () => {
+    const res = await get('/probe/guarded-sides?left=only-one');
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'unauthenticated' });
   });
 });
 

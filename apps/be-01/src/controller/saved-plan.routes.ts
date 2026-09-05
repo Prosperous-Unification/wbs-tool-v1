@@ -352,6 +352,7 @@ export function savedPlanRoutes(
           );
         }),
       ),
+      preflight: guard.preflight('signed-in'),
       documentation: { query: COMPARE_QUERY },
     },
     {
