@@ -399,7 +399,7 @@ describe('assertTierEnvAllowed', () => {
     expect(() => {
       assertTierEnvAllowed(
         'be',
-        'PORT=3100\nLOG_LEVEL=info\nGW_URL=x\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\nSOLVER_BUDGET_MS=120000\nSOLVER_SEARCH_WORKERS=2\n',
+        'PORT=3100\nLOG_LEVEL=info\nGW_URL=x\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\nSOLVER_BUDGET_MS=120000\nSOLVER_SEARCH_WORKERS=2\nSOLVER_MEMORY_LIMIT_MB=512\n',
       );
     }).not.toThrow();
   });

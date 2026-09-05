@@ -56,6 +56,8 @@ class LauncherProcess(unittest.TestCase):
             str(deadline),
             "--search-workers",
             "2",
+            "--memory-limit-mb",
+            "512",
         ]
 
     def test_reports_the_lightweight_distribution_version_before_lifecycle_setup(self) -> None:
@@ -84,6 +86,14 @@ class LauncherProcess(unittest.TestCase):
         )
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout, request)
+
+    def test_memory_limit_is_converted_to_a_hard_address_space_backstop(self) -> None:
+        with mock.patch.object(launcher.resource, "setrlimit") as setrlimit:
+            launcher._apply_address_space_limit(512)
+        setrlimit.assert_called_once_with(
+            launcher.resource.RLIMIT_AS,
+            (512 * 1024 * 1024, 512 * 1024 * 1024),
+        )
 
     def test_abort_never_execs_the_solver(self) -> None:
         done = subprocess.run(

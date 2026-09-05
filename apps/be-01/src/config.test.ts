@@ -29,6 +29,16 @@ describe('BeConfig', () => {
     );
   });
 
+  it('defaults each solver child to 512 MB and rejects an unbounded value', () => {
+    expect(loadConfig(VALID).SOLVER_MEMORY_LIMIT_MB).toBe(512);
+    expect(loadConfig({ ...VALID, SOLVER_MEMORY_LIMIT_MB: '768' }).SOLVER_MEMORY_LIMIT_MB).toBe(
+      768,
+    );
+    expect(() => loadConfig({ ...VALID, SOLVER_MEMORY_LIMIT_MB: '0' })).toThrow(
+      'SOLVER_MEMORY_LIMIT_MB must be greater than zero',
+    );
+  });
+
   it('accepts a complete environment', () => {
     const parsed = BeConfig(VALID);
     expect(parsed).toMatchObject({ PORT: 3100, DB_PATH: '/srv/wbs/data/wbs.db' });
