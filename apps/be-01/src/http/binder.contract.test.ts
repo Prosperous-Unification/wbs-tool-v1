@@ -122,6 +122,28 @@ function routes(auth: AuthService): Route[] {
         ),
       documentation: { query: COMPARE_QUERY },
     },
+    /**
+     * `/probe/sides` with the guard the real compare route actually carries.
+     *
+     * The unguarded probe above cannot see the property below it, and that is a
+     * structural blind spot rather than a missing case: a `documentation.query`
+     * schema and an authentication guard are two refusals racing each other, and
+     * a fixture with only one of them has no race to observe. Sol's review found
+     * the real route's ordering because it read the route module; this fixture
+     * exists so the suite finds it next time.
+     */
+    {
+      method: 'GET',
+      path: '/probe/guarded-sides',
+      handler: guard('signed-in', ({ query }, user) =>
+        Promise.resolve(
+          query['left'] && query['right']
+            ? ok({ id: user.id })
+            : respond(422, { error: 'invalid_query' }),
+        ),
+      ),
+      documentation: { query: COMPARE_QUERY },
+    },
     {
       method: 'GET',
       path: '/probe/guarded',
@@ -315,5 +337,36 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     const res = await get('/probe/sides?left=a&right=b');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ left: 'a', right: 'b' });
+  });
+
+  /**
+   * A guarded route refuses a malformed query to a caller who **is** signed in,
+   * under either binder. Both genuinely do this, so it is a contract.
+   *
+   * **What is deliberately not asserted here, and why.** The unauthenticated
+   * case of the same route is a real divergence — Elysia answers **422** because
+   * its `documentation.query` hook validates before the handler runs, and the
+   * in-process binder answers **401** because the route module puts the guard
+   * outermost. Measured at this head against the fixture above. It is not
+   * written as a clause because chunk 8 settled that a contract recording two
+   * different answers is a record of a bug rather than a contract, and it is not
+   * written as a passing clause because no honest fix fits in a patch: making
+   * the two properties `t.Optional` so only the handler refuses was **measured**
+   * to flip the document's `"required": true` to `false` on both parameters, and
+   * `detail.parameters` was measured in chunk 12 to be replaced wholesale. The
+   * fix is route-level auth metadata both binders honour before validation —
+   * Elysia's `onRequest` runs ahead of its validator, `beforeHandle` does not.
+   * The task log carries the sizing.
+   *
+   * The fixture is landed ahead of that fix on purpose: `/probe/sides` is
+   * unguarded, and an unguarded probe has no race between a schema refusal and a
+   * guard, which is structurally why this suite could not see the divergence
+   * until a human reviewer read the route module.
+   */
+  it('refuses a bad query on a guarded route to a signed-in caller', async () => {
+    const res = await get('/probe/guarded-sides?left=only-one', {
+      authorization: 'Bearer alice-token',
+    });
+    expect(res.status).toBe(422);
   });
 });
