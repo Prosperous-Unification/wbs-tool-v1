@@ -25,23 +25,28 @@ EXIT_ABORTED = 75
 MAX_VERDICT_BYTES = 16
 
 
-def _arguments(argv: Sequence[str]) -> tuple[str, int] | None:
-    if len(argv) != 4:
+def _arguments(argv: Sequence[str]) -> tuple[str, int, int] | None:
+    if len(argv) != 6:
         return None
     values: dict[str, str] = {}
     for index in range(0, len(argv), 2):
         flag, value = argv[index], argv[index + 1]
-        if flag not in {"--attempt-token", "--child-deadline-epoch-ms"} or flag in values:
+        if flag not in {
+            "--attempt-token",
+            "--child-deadline-epoch-ms",
+            "--search-workers",
+        } or flag in values:
             return None
         values[flag] = value
     token = values.get("--attempt-token", "")
     try:
         deadline = int(values.get("--child-deadline-epoch-ms", ""))
+        search_workers = int(values.get("--search-workers", ""))
     except ValueError:
         return None
-    if token == "" or deadline < 0:
+    if token == "" or deadline < 0 or search_workers <= 0:
         return None
-    return token, deadline
+    return token, deadline, search_workers
 
 
 def _install_parent_guard() -> None:
@@ -82,11 +87,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if parsed is None:
         print(
             "wbs-solver-launcher: usage: wbs-solver-launcher "
-            "--attempt-token TOKEN --child-deadline-epoch-ms EPOCH_MS",
+            "--attempt-token TOKEN --child-deadline-epoch-ms EPOCH_MS "
+            "--search-workers COUNT",
             file=sys.stderr,
         )
         return EXIT_BAD_PROTOCOL
-    _, child_deadline_at = parsed
+    _, child_deadline_at, search_workers = parsed
 
     _install_parent_guard()
     remaining = child_deadline_at - time.time_ns() // 1_000_000
@@ -105,7 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # deadline. Production also puts the same instant on the external scope;
     # SIGALRM alone cannot bound a native CP-SAT call that holds the GIL.
     signal.setitimer(signal.ITIMER_REAL, remaining / 1_000)
-    os.execvp("wbs-solver", ["wbs-solver"])
+    os.execvp("wbs-solver", ["wbs-solver", "--search-workers", str(search_workers)])
     raise AssertionError("os.execvp returned")
 
 

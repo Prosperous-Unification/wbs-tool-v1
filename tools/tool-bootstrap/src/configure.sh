@@ -308,6 +308,7 @@ LOG_LEVEL=info
 GW_URL=http://gw-01.internal:3200
 DB_PATH=/data/wbs.db
 SOLVER_BUDGET_MS=60000
+SOLVER_SEARCH_WORKERS=2
 ENVFILE
 log "  $WBS_ROOT/gw-01.env"
 cat > "$WBS_ROOT/gw-01.env" <<'ENVFILE'

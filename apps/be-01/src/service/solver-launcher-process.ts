@@ -53,6 +53,8 @@ export interface SolverLauncherRequest {
   readonly attemptToken: string;
   /** The absolute deadline stamped by admission, sent as process metadata. */
   readonly childDeadlineAt: number;
+  /** CP-SAT search workers, configured per release and kept off the wire. */
+  readonly searchWorkers: number;
   /** The deterministic solver request. It contains neither token nor clock. */
   readonly request: object;
 }
@@ -101,6 +103,8 @@ export function spawnSolverLauncher(
       request.attemptToken,
       '--child-deadline-epoch-ms',
       String(request.childDeadlineAt),
+      '--search-workers',
+      String(request.searchWorkers),
     ],
     stdin: 'pipe',
     stdout: 'pipe',

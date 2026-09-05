@@ -41,7 +41,7 @@ from typing import BinaryIO, Sequence, TextIO
 
 from . import __version__
 from .lifecycle import set_parent_death_signal
-from .solve import SolveFailed, solve_request
+from .solve import SolveFailed, SolverConfig, solve_request
 from .validate import RequestRejected, validate_request
 
 EXIT_OK = 0
@@ -51,6 +51,18 @@ EXIT_INTERNAL = 70
 def read_request(stream: BinaryIO) -> bytes:
     """Read the whole request. Named so the ordering test can watch it."""
     return stream.read()
+
+
+def _solver_config(argv: Sequence[str]) -> SolverConfig | None:
+    if not argv:
+        return SolverConfig()
+    if len(argv) != 2 or argv[0] != "--search-workers":
+        return None
+    try:
+        workers = int(argv[1])
+    except ValueError:
+        return None
+    return SolverConfig(num_search_workers=workers) if workers > 0 else None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -69,8 +81,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         # parser somewhere else.
         print(__version__, file=stdout)
         return EXIT_OK
-    if argv:
-        print(f"wbs-solver: unexpected arguments {argv!r}; usage: wbs-solver [--version]", file=stderr)
+    config = _solver_config(argv)
+    if config is None:
+        print(
+            "wbs-solver: unexpected arguments "
+            f"{argv!r}; usage: wbs-solver [--version | --search-workers COUNT]",
+            file=stderr,
+        )
         return EXIT_BAD_REQUEST
 
     try:
@@ -80,7 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_BAD_REQUEST
 
     try:
-        response = solve_request(request)
+        response = solve_request(request, config)
     except SolveFailed as exc:
         # The two outcomes the wire cannot carry: a later-stage INFEASIBLE,
         # which is the solver holding a counterexample to its own answer, and a

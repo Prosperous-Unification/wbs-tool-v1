@@ -16,4 +16,5 @@ deadline_epoch_ms="$(( $(date +%s) * 1000 + 30000 ))"
   cat "$request"
 } | docker run --rm --interactive --entrypoint wbs-solver-launcher "$image" \
   --attempt-token 0123456789abcdef0123456789abcdef \
-  --child-deadline-epoch-ms "$deadline_epoch_ms" >/dev/null
+  --child-deadline-epoch-ms "$deadline_epoch_ms" \
+  --search-workers 2 >/dev/null
