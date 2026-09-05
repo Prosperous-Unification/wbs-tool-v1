@@ -18,7 +18,7 @@ An unauthenticated caller sending a malformed query learns the shape of the quer
 it may not ask. Under the in-process binder they are told 401, as they were on `main`. The two
 binders answer differently, which is the one thing this refactor claims cannot happen.
 
-**Cause is structural, not a missing case.** The guard lives *inside* the handler, so it runs after
+**Cause is structural, not a missing case.** The guard lives _inside_ the handler, so it runs after
 whatever validation the binder did on the way in. Elysia derives a validator from
 `documentation.query` and runs it before the handler; the in-process binder has no query validator
 at all, so its first refusal is the guard's. Same route list, two orderings, because the ordering is
@@ -79,7 +79,7 @@ neither binder owns a copy of it.
   right stays right.
 - **Elysia** (`http/elysia/bind.ts`): in `onRequest`, which runs **ahead of** the derived validator.
   `app.ts` already uses `onRequest` for `hasInvalidCookieOrigin`, so the seam is proven in this
-  codebase rather than assumed. `beforeHandle` runs *after* validation and cannot carry this.
+  codebase rather than assumed. `beforeHandle` runs _after_ validation and cannot carry this.
 
 **The guards then come out of the handler wrappers.** `guard('signed-in', async ({ params }, user) =>
 …)` becomes `auth: 'signed-in'` on the route plus a handler reading `req.caller`. 23 call sites
@@ -123,7 +123,7 @@ A so they are in place before a single site moves:
    `req.caller` without `auth:` declared is a type error rather than a runtime `undefined`.
 
 Control 1 is the load-bearing one; control 2 catches only the handlers that read the caller, and a
-route guarded purely to *be* guarded reads nothing.
+route guarded purely to _be_ guarded reads nothing.
 
 ## Gates
 
@@ -137,7 +137,7 @@ cheap, sharp check and it runs in chunk A.
 Is `Route.auth` the right home, or should the route list stay auth-free and the app compose a
 guarded list — `withAuth(routes)` returning a new list whose handlers are wrapped — so the ordering
 is decided once at wiring time instead of by each binder? The wrapper keeps the binders ignorant,
-which is attractive; the objection is that a wrapper *is* a handler, so it lands back inside the
+which is attractive; the objection is that a wrapper _is_ a handler, so it lands back inside the
 handler and after Elysia's validator, which is the bug. State plainly if that objection is wrong.
 
 ---
@@ -176,7 +176,7 @@ route. Three ways to go, and the choice belongs in the review rather than in a f
 
 - **Subsume it.** `Route.auth` gains `'write-scope'`, every write route declares it, and
   `requiresWriteScope` is deleted. Most honest, largest chunk B, and the migration's silent-loss risk
-  applies to a *security* boundary rather than only to 401 ordering — which raises the bar on the
+  applies to a _security_ boundary rather than only to 401 ordering — which raises the bar on the
   route-list control, not the design.
 - **Leave it beside.** `Route.auth` covers `signed-in`/`read-scope`, `requiresWriteScope` keeps the
   write boundary. Smallest change; the cost is two mechanisms answering the same question in two
@@ -197,8 +197,8 @@ in place unedited because it is what the seat reviewed.**
 
 ## What killed version 1
 
-1. **`onRequest` is not a route-level hook.** It is application/plugin level and runs *before Elysia
-   matches a route*, so a `bindElysia`-registered one would have to re-implement path matching,
+1. **`onRequest` is not a route-level hook.** It is application/plugin level and runs _before Elysia
+   matches a route_, so a `bindElysia`-registered one would have to re-implement path matching,
    would fire once per mounted controller on every request, and has no channel to hand a resolved
    caller to `ctx`.
 2. **Neither binder receives `AuthService`,** and `Route` cannot carry a service without breaking
@@ -313,7 +313,7 @@ pre-validation, short-circuiting hook, which is exactly the seat v1 wanted and c
   decision with its own contract clause.
 - Constraints 4, 5 and 6 stand: write-scope's home, `(method, path, exact auth)` triples, and the
   two named refusals (`invalid_token` on `GET /api/auth/me`, the write scope on `POST
-  /api/projects/:id/opened`).
+/api/projects/:id/opened`).
 - **This reading is not a measurement of behaviour.** The next chunk starts by adding a `transform`
   to the `/probe/guarded-sides` fixture that returns a 401 and asserting the malformed query gets
   401 rather than 422 under Elysia. If that red does not go green, this section is wrong and the
@@ -355,7 +355,7 @@ Not yet measured; recorded so version 3 does not re-derive it.
 
 The in-process binder answers **400 `invalid_body`** for an unauthenticated caller sending malformed
 JSON, because `decodeBody` runs before the handler's guard (`http/in-process/bind.ts:50-55`). Both
-seats found this. The open question was which answer is *right*, and `app.ts` already decides it for
+seats found this. The open question was which answer is _right_, and `app.ts` already decides it for
 the shipped app:
 
 - `requiresWriteScope` (`app.ts:276`) is true for any `DELETE|PATCH|POST|PUT` under `/api/` that is
@@ -371,8 +371,8 @@ the in-process binder's 400 is the divergent one — the mirror of the query cas
 the correct binder.
 
 **So the auth check goes ahead of `decodeBody` in `bindInProcess`, and ahead of the validator in
-`bindElysia`.** One rule, stated once: *a route's auth requirement is answered before anything the
-binder does with the request body or query.* Version 3 should assert it as a contract clause with
+`bindElysia`.** One rule, stated once: _a route's auth requirement is answered before anything the
+binder does with the request body or query._ Version 3 should assert it as a contract clause with
 both a malformed-query and a malformed-body case, since those are the two orderings that have now
 each caught one binder.
 
@@ -395,8 +395,8 @@ auth check goes in that same object as a **`transform`**, which is route-local, 
 derived validator, and short-circuits when it returns `status(401, …)` — measured above with a
 negative control. `bindInProcess` runs the same check after `matchPath` and **before `decodeBody`**.
 
-**The rule, stated once, and the contract clause that holds it:** *a route's auth requirement is
-answered before the binder touches the request's body or query.* Two clauses assert it, because the
+**The rule, stated once, and the contract clause that holds it:** _a route's auth requirement is
+answered before the binder touches the request's body or query._ Two clauses assert it, because the
 two orderings have each caught one binder: a malformed **query** (Elysia answered 422, constraint 2)
 and a malformed **body** (in-process answers 400, constraint 3). `app.ts:170-187` already makes 401
 the shipped answer for the second, so the target is 401 both times.
@@ -486,7 +486,7 @@ the old mechanism covered", and each one was refused on that question — the wr
 `POST /api/projects/:id/opened`, the pre-shared secret on `/internal/*`, `GET /api/auth/me`'s
 `invalid_token`, the coverage of `/health`.
 
-**None of that is what item 2 is.** Item 2 is an *ordering* defect on one route:
+**None of that is what item 2 is.** Item 2 is an _ordering_ defect on one route:
 
 ```
 GET /api/projects/:id/saved-plans/compare?left=a   unauthenticated
@@ -499,7 +499,7 @@ stays, `requiresWriteScope` stays, `app.ts`'s `onRequest` stays.** Nothing is de
 requirement moves, and no table claims to cover anything.
 
 **The property that makes this sound, and that v1–v3 could not have:** the declaration is a
-*hint about when*, never *whether*. A route that carries it is refused earlier; a route that omits
+_hint about when_, never _whether_. A route that carries it is refused earlier; a route that omits
 it is refused exactly where it is refused today, by its own handler guard. Forgetting the hint
 degrades ordering on that one route. Forgetting a row in v3's quadruple table opened a route.
 That is the whole difference, and it is why v4 needs no coverage proof, no predicate diff, and no
@@ -620,7 +620,7 @@ means something reached the emitter that should not have. `bun x prettier --chec
 
 ## The question for the reviewer
 
-Control 1 asserts the pairing rather than the requirement, so a *future* guarded route that adds a
+Control 1 asserts the pairing rather than the requirement, so a _future_ guarded route that adds a
 refusing query schema is caught, but a guarded route with no schema is left at today's ordering
 forever. That is deliberate — the ordering is unobservable without a validator in front of it — but
 it means this design closes the defect class rather than making auth uniformly first. If that is the
