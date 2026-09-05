@@ -18,6 +18,13 @@ import {
 } from '../repository/optimized-schedule-cache';
 import type { SolverObjectiveName } from '../repository/schema';
 import type { OptimizedScheduleReader } from './optimized-schedule-reader';
+import {
+  runSolverChildLifecycle,
+  type SolverChildLifecycleOptions,
+  type SolverChildLifecycleResult,
+} from './solver-child-lifecycle';
+import { evaluateSolverOutcome, type SolverProcessOutcome } from './solver-exit-outcome';
+import type { SpawnedSolverLauncher } from './solver-launcher-process';
 import { buildSolverRequestPair, type SolverRequestPair } from './solver-request-pair';
 
 export interface OptimizationCoordinatorOptions {
@@ -36,6 +43,8 @@ export interface OptimizationCoordinatorOptions {
    * counted `starting` row. Slice 6.2b binds that row to the launcher PID.
    */
   readonly spawn: ReservedSpawner;
+  readonly runChild?: (options: SolverChildLifecycleOptions) => Promise<SolverChildLifecycleResult>;
+  readonly onChildError: (error: unknown) => void;
 }
 
 type ReservedAdmission = Extract<SolverSlotAdmission, { kind: 'reserved' }>;
@@ -47,14 +56,12 @@ export interface ReservedSpawnRequest extends SpawnRequest {
   readonly admission: ReservedAdmission;
   /** The exact deterministic request written to the launcher's stdin after bind. */
   readonly request: SolverRequest;
+  /** The canonical input used to materialise and independently revalidate the response. */
+  readonly input: ScheduleInput;
 }
 
-/** The launcher's small control surface before it may exec the solver. */
-export interface ReservedSolverChild {
-  readonly pid: number;
-  readonly verdict: (verdict: 'bound' | 'abort') => void;
-  readonly kill: () => void;
-}
+/** The bound launcher and the streams its lifecycle drains immediately. */
+export type ReservedSolverChild = SpawnedSolverLauncher;
 
 export type ReservedSpawner = (request: ReservedSpawnRequest) => ReservedSolverChild;
 
@@ -67,7 +74,52 @@ export type ReservedSpawner = (request: ReservedSpawnRequest) => ReservedSolverC
  * explicit Retry because {@link readOptimizedPairAndSpawn} admits only misses.
  */
 export class OptimizationCoordinator {
+  private readonly inFlight = new Set<Promise<void>>();
+
   constructor(private readonly options: OptimizationCoordinatorOptions) {}
+
+  /** Await children already launched by this coordinator; used by shutdown and deterministic tests. */
+  async drain(): Promise<void> {
+    await Promise.all([...this.inFlight]);
+  }
+
+  private runChild(request: ReservedSpawnRequest, child: ReservedSolverChild): void {
+    const slot = {
+      projectId: request.key.projectId,
+      contractVersion: request.key.contractVersion,
+      generation: request.generation,
+      objective: request.objective,
+      budgetMs: request.key.budgetMs,
+      attemptToken: request.admission.attemptToken,
+      admittedCancelEpoch: request.admission.admittedCancelEpoch,
+    };
+    const execute = this.options.runChild ?? runSolverChildLifecycle;
+    const tracked = execute({
+      db: this.options.db,
+      slot,
+      child,
+      now: this.options.now,
+      onExit: (exit) => {
+        const outcome: SolverProcessOutcome =
+          exit.code === 0
+            ? { kind: 'response', stdout: exit.stdout }
+            : { kind: 'failed', reason: 'internal-error' };
+        storeOptimizedOutcome(this.options.db, {
+          claim: { ...slot, ownerId: this.options.ownerId },
+          inputHash: request.key.inputHash,
+          admittedCancelEpoch: request.admission.admittedCancelEpoch,
+          outcome: evaluateSolverOutcome(request.input, request.request, outcome),
+          now: this.options.now(),
+        });
+      },
+    })
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        this.options.onChildError(error);
+      })
+      .finally(() => this.inFlight.delete(tracked));
+    this.inFlight.add(tracked);
+  }
 
   /**
    * The reader wired into {@link WorkItemService}. It is an arrow so handing it
@@ -149,13 +201,19 @@ export class OptimizationCoordinator {
             generation,
             admission,
             request: built.request,
+            input: ask.input,
           });
           const bound = bindSolverSlot(this.options.db, {
             ...slot,
             pid: child.pid,
           });
           child.verdict(bound ? 'bound' : 'abort');
-          if (!bound) child.kill();
+          if (bound)
+            this.runChild(
+              { ...request, generation, admission, request: built.request, input: ask.input },
+              child,
+            );
+          else child.kill();
         }
       },
     );

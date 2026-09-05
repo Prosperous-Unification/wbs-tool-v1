@@ -17,6 +17,7 @@ import {
   type ReservedSolverChild,
   type ReservedSpawnRequest,
 } from './optimization-coordinator';
+import { runSolverChildLifecycle } from './solver-child-lifecycle';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const CONTRACT = '7+0.1.0';
@@ -42,6 +43,17 @@ const INPUT: ScheduleInput = {
 };
 
 const dirs: string[] = [];
+
+function stream(text: string): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(text));
+      controller.close();
+    },
+  });
+}
+
+const never = new Promise<number>(() => undefined);
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -78,9 +90,13 @@ function coordinator(
   ownerId = 'blue',
   childOf: (request: ReservedSpawnRequest) => ReservedSolverChild = () => ({
     pid: 100 + calls.length,
+    stdout: stream(''),
+    stderr: stream(''),
+    exited: never,
     verdict: () => undefined,
     kill: () => undefined,
   }),
+  runChild: typeof runSolverChildLifecycle = () => new Promise(() => undefined),
 ): OptimizationCoordinator {
   let token = 0;
   return new OptimizationCoordinator({
@@ -94,6 +110,10 @@ function coordinator(
     spawn: (request) => {
       calls.push(request);
       return childOf(request);
+    },
+    runChild,
+    onChildError: (error) => {
+      throw error;
     },
   });
 }
@@ -239,6 +259,9 @@ describe('OptimizationCoordinator read', () => {
       ).toMatchObject({ kind: 'reserved' });
       return {
         pid: 42,
+        stdout: stream(''),
+        stderr: stream(''),
+        exited: Promise.resolve(0),
         verdict: (verdict) => void verdicts.push(verdict),
         kill: () => void (killed += 1),
       };
@@ -259,5 +282,50 @@ describe('OptimizationCoordinator read', () => {
 
     // Proof: dropping the bind CAS or sending `bound` unconditionally lets
     // both delayed launchers exec against replacement-owned reservations.
+  });
+
+  it('runs bound children through evaluation, the token-fenced store, and release', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const response = `${JSON.stringify({
+      wireVersion: 1,
+      status: 'feasible',
+      offsets: { 'w-1\u0000step-dev': 0 },
+      objectiveValues: {
+        makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
+        priority: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
+        movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
+      },
+    })}\n`;
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => ({
+        pid: 100 + calls.length,
+        stdout: stream(response),
+        stderr: stream(''),
+        exited: Promise.resolve(0),
+        verdict: () => undefined,
+        kill: () => undefined,
+      }),
+      runSolverChildLifecycle,
+    );
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await instance.drain();
+
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(INPUT),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    expect(pair.pri.kind).toBe('ok');
+    expect(pair.time.kind).toBe('ok');
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+    expect(instance.read({ projectId: 'p-1', objective: 'time', input: INPUT })).not.toBeNull();
+    expect(calls).toHaveLength(2);
   });
 });
