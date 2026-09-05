@@ -363,6 +363,25 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * guard, which is structurally why this suite could not see the divergence
    * until a human reviewer read the route module.
    */
+  /**
+   * A known path reached with the wrong verb is "no such route" under either
+   * binder, and the status is asserted rather than the body — Elysia answers its
+   * own `NOT_FOUND` string and the in-process binder answers
+   * `{ error: 'not_found' }`, which is the excluded framework-owned category this
+   * suite already names for Elysia's 404.
+   *
+   * The in-process binder answered **405** until the Gemini review measured it.
+   * Whether a route list treats a wrong verb as a missing route is the route
+   * list's property, so both binders owe the same status, and 404 is the one this
+   * API ships. `bind.ts`'s note argues the direction.
+   */
+  it('answers a known path with the wrong verb as 404 under either binder', async () => {
+    expect(
+      (await app.handle(new Request('http://localhost/probe/plain', { method: 'POST' }))).status,
+    ).toBe(404);
+    expect((await get('/probe/nope')).status).toBe(404);
+  });
+
   it('refuses a bad query on a guarded route to a signed-in caller', async () => {
     const res = await get('/probe/guarded-sides?left=only-one', {
       authorization: 'Bearer alice-token',

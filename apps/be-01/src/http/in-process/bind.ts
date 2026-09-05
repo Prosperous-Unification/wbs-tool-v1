@@ -16,6 +16,24 @@ import { type HttpMethod, matchPath, respond, type Route, type RouteRequest } fr
  * chain, no plugins, no OpenAPI document: those are app-level concerns that
  * `app.ts` still composes on Elysia, and the honest scope of this file is the
  * route list.
+ *
+ * **A known path reached with the wrong verb answers 404, not 405.** This binder
+ * answered 405 until the Gemini review measured the disagreement it created:
+ *
+ * ```
+ * POST /probe/plain   elysia 404 NOT_FOUND   in-process 405 {"error":"method_not_allowed"}
+ * GET  /probe/nope    elysia 404 NOT_FOUND   in-process 404 {"error":"not_found"}
+ * ```
+ *
+ * 405 is the better HTTP and that is not the question. Whether a route list
+ * answers a wrong verb as "no such route" is a property of the route list, so
+ * both binders owe the same status — the same reading chunk 8 applied to the
+ * trailing slash, which it *closed* by normalising `matchPath` rather than
+ * recording as a difference. The value is 404 because 404 is what this API
+ * ships: `app.ts` runs on Elysia, Elysia answers 404, and a refactor whose whole
+ * claim is that it changed no behaviour does not get to improve a status on the
+ * way past. Moving the app to 405 is a real API change and belongs to whoever
+ * wants it, with the clients told.
  */
 export function bindInProcess(routes: readonly Route[]): {
   handle: (request: Request) => Promise<Response>;
@@ -25,15 +43,9 @@ export function bindInProcess(routes: readonly Route[]): {
       const url = new URL(request.url);
       const method = request.method.toUpperCase() as HttpMethod;
 
-      // Path first, method second, so a known path reached with the wrong verb
-      // answers 405 rather than 404 — the two are different bugs at the caller
-      // and a single pass would report both as "no such route".
-      let pathMatched = false;
       for (const route of routes) {
         const params = matchPath(route.path, url.pathname);
-        if (params === null) continue;
-        pathMatched = true;
-        if (route.method !== method) continue;
+        if (params === null || route.method !== method) continue;
 
         let body: unknown;
         try {
@@ -56,9 +68,9 @@ export function bindInProcess(routes: readonly Route[]): {
         };
         return toResponse(await route.handler(req));
       }
-      return pathMatched
-        ? toResponse(respond(405, { error: 'method_not_allowed' }))
-        : toResponse(respond(404, { error: 'not_found' }));
+      // One pass, and one answer: an unknown path and a known path reached with
+      // the wrong verb are both 404. See the note on this function.
+      return toResponse(respond(404, { error: 'not_found' }));
     },
   };
 }
