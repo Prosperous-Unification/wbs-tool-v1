@@ -343,7 +343,8 @@ in both slices rather than implied by position.
       case per row of the spec's eight-row refusal table — including both
       `name` boundaries, an empty string and `MARKER_NAME_MAX + 1 = 121` code
       points, with a 120-point name accepted so the cap is tested at its value
-      and not merely well past it — each asserting the
+      and not merely well past it, and **both boundary fixtures built from
+      astral characters** — each asserting the
       **exact status and reason code** for that failure and the failing field
       named, and that the stored marker is byte-identical to before the call.
       **Not "the project's existing refusal shape"**, which names nothing:
@@ -356,6 +357,17 @@ in both slices rather than implied by position.
       `malformed` and `contrast` rows while the three shared-arm rows stay
       green — which is what proves the table tests the default rather than the
       shared ladder.
+      **Why astral, and it is the difference between testing the cap and
+      testing nothing:** the spec counts `MARKER_NAME_MAX` in Unicode **code
+      points** "so an emoji costs one", and ASCII or BMP fixtures cannot tell
+      that apart from `name.length` — 120 ASCII characters are 120 UTF-16 units
+      too, so the broken implementation accepts and rejects exactly where the
+      correct one does and both boundary cases pass (round-7 Sol review,
+      Important). The fixtures are therefore **120 and 121 astral characters**
+      (a surrogate pair each, so `name.length` reads 240 and 242), and the
+      third negative is **code-point counting replaced by `name.length`**,
+      watched failing the 120-character **acceptance** case — which is the
+      direction that matters: a user is refused a name the spec allows.
       Negative: the rename writing before validating, watched leaving the new
       name behind after a refused call. "Refused" and "unchanged" are two claims
       and the second is the one a partial write breaks.
@@ -563,12 +575,20 @@ in both slices rather than implied by position.
       unavailable state — `role="button"`, `tabIndex={0}`,
       `aria-disabled="true"`, the same Enter and Space handlers, an accessible
       name naming the missing project start date, and no `aria-haspopup` or
-      `aria-expanded` — test: same file, three cases: the cell is focusable and
-      carries `aria-disabled="true"`; Enter on it opens no sheet and puts the
-      refusal in the live region; and it carries neither `aria-haspopup` nor
-      `aria-expanded`. Negative: `tabIndex` removed from the undated branch,
-      watched failing the Enter case, because an unfocusable element never
-      receives the key.
+      `aria-expanded` — test: same file, **four** cases: the cell is focusable
+      and carries `aria-disabled="true"`; Enter on it opens no sheet and puts
+      the refusal in the live region; **Space on it does the same**; and it
+      carries neither `aria-haspopup` nor `aria-expanded`.
+      **Space is a case here and not only in 6.4**, because this branch is a
+      separate one: three cases covering focusability, Enter and ARIA leave a
+      defect that ignores Space on the **undated** branch green, while 6.4's
+      dated-cell Space test keeps passing and hides it (round-7 Sol review,
+      Important). This slice promises "the same Enter and Space handlers" and
+      until now proved only one of them.
+      Negatives, two: `tabIndex` removed from the undated branch, watched
+      failing the Enter case, because an unfocusable element never receives the
+      key; and **Space removed from the undated branch only**, watched failing
+      the Space case while Enter, the ARIA cases and all of 6.4 stay green.
       **Why this slice exists:** an earlier draft made the undated cell inert
       (no role, no tab stop, no key handler) _and_ required 6.5's live-region
       announcement — a contradiction, since the only element that fires the
@@ -687,14 +707,26 @@ in both slices rather than implied by position.
       (`design.md` §2.1 carries the full thirteen-row table) — test:
       `gantt-panel.test.tsx`, one assertion over the DOM order of
       `data-gantt-weekend`, `data-gantt-today`, `data-gantt-gridline`,
-      `data-gantt-today-edge`, `data-gantt-marker-rule` and the first
+      `data-gantt-today-edge`, `data-gantt-marker-rule`,
+      `data-gantt-row-line`, `data-gantt-capacity-link` and the first
       `data-gantt-bar`, asserting exactly that sequence; a second asserting the
       rule carries `pointer-events: none`; plus a bar crossing the rule keeping
       its `x`, `width` and
       critical-path class **unchanged from the same plan with no marker**.
-      Negative: the rule emitted at the top of `marksOverLight`, watched failing
-      the sequence while the unchanged-bar half stays green — which is the point,
-      because a rule above the gridlines is still behind every bar.
+      **The two marks between the rule and the bars are in the sequence for the
+      same reason the sequence exists at all.** An earlier draft jumped from
+      `data-gantt-marker-rule` straight to the first bar, which leaves slots 8
+      and 9 of the thirteen-row table undecided: a rule emitted **after** the
+      row hit lines and capacity marks but still before the bars satisfies
+      every named assertion while violating the slot this slice is about
+      (round-7 Sol review, Important). Skipping them repeats in miniature the
+      "behind the bars" error the slice opens by rejecting.
+      Negatives, two: the rule emitted at the top of `marksOverLight`, watched
+      failing the sequence while the unchanged-bar half stays green — which is
+      the point, because a rule above the gridlines is still behind every bar;
+      and the rule emitted **immediately before the bars**, after the row hit
+      lines and capacity marks, watched failing the sequence while both the
+      unchanged-bar half and a "before every bar" assertion stay green.
       **Plus the shared-date colour, which nothing else tests:** two markers on
       one date with distinct colours, asserting exactly one rule element at that
       offset and its `stroke` equal to the **first** marker's colour by
@@ -719,11 +751,22 @@ in both slices rather than implied by position.
       density counted over markers instead of occupied dates, watched failing
       the seven-markers-one-date case while every other case stays green — which
       is the one the old wording would have shipped.
-      **No 12px case asserts unreachability**, deliberately: 100px spans 8.3
-      days there and holds up to nine rules, so the threshold is reachable and
-      the old claim that it was not was false. Suppression is scoped to the 4px
-      rung, and a 12px case asserting "rules always draw" would be asserting the
-      rung scope, not the constant.
+      **A fifth case at 12px, and it is the one that proves the rung scope.**
+      An earlier draft declined a 12px case on the grounds that it would assert
+      the rung scope rather than the constant — which is true, and is exactly
+      why it was needed: with only the four cases above, an implementation that
+      drops the `dayPx === 4` guard and suppresses at **every** rung passes all
+      four. The 4px cases are unchanged by definition, and the 28px case is
+      green because 3.6 days hold at most four rules, so the threshold is never
+      reached there and suppression never fires whether it is scoped or not
+      (round-7 Sol review, Critical). At 12px a 100px viewport spans 8.3 days,
+      so the threshold **is** reachable: **seven distinct occupied dates within
+      100px at 12px, asserted to draw seven rules and no suppression** —
+      `7 > 6`, so an unscoped implementation suppresses and the case fails.
+      Third negative: the `dayPx === 4` guard dropped so suppression applies at
+      every rung, watched failing **only** the 12px case while all four
+      original cases stay green — which is the measurement that the other four
+      cannot see the scope at all.
 - [ ] 8.4 Overflow collapses to a count with the list on hover or tap —
       `MARKER_BAND_MAX_PER_CELL` is **3** at 28px, **2** at 12px and **1** at
       4px, and the collapsed cell renders `+N` for the markers it did not show —
