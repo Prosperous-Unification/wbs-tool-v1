@@ -55,6 +55,8 @@ export interface SolverLauncherRequest {
   readonly childDeadlineAt: number;
   /** CP-SAT search workers, configured per release and kept off the wire. */
   readonly searchWorkers: number;
+  /** Address-space backstop; the external scope remains the RSS authority. */
+  readonly memoryLimitMb: number;
   /** The deterministic solver request. It contains neither token nor clock. */
   readonly request: object;
 }
@@ -105,6 +107,8 @@ export function spawnSolverLauncher(
       String(request.childDeadlineAt),
       '--search-workers',
       String(request.searchWorkers),
+      '--memory-limit-mb',
+      String(request.memoryLimitMb),
     ],
     stdin: 'pipe',
     stdout: 'pipe',

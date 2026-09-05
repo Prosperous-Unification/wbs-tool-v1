@@ -16,10 +16,15 @@ export const BeConfig = type({
   AUTH_MODE: "'local'|'oidc'",
   'SOLVER_BUDGET_MS?': 'string.integer.parse',
   'SOLVER_SEARCH_WORKERS?': 'string.integer.parse',
+  'SOLVER_MEMORY_LIMIT_MB?': 'string.integer.parse',
 });
-export type BeConfig = Omit<typeof BeConfig.infer, 'SOLVER_BUDGET_MS' | 'SOLVER_SEARCH_WORKERS'> & {
+export type BeConfig = Omit<
+  typeof BeConfig.infer,
+  'SOLVER_BUDGET_MS' | 'SOLVER_SEARCH_WORKERS' | 'SOLVER_MEMORY_LIMIT_MB'
+> & {
   SOLVER_BUDGET_MS: number;
   SOLVER_SEARCH_WORKERS: number;
+  SOLVER_MEMORY_LIMIT_MB: number;
 };
 
 export const loadConfig = (
@@ -33,9 +38,14 @@ export const loadConfig = (
   if (solverSearchWorkers <= 0) {
     throw new Error('SOLVER_SEARCH_WORKERS must be greater than zero');
   }
+  const solverMemoryLimitMb = config.SOLVER_MEMORY_LIMIT_MB ?? 512;
+  if (solverMemoryLimitMb <= 0) {
+    throw new Error('SOLVER_MEMORY_LIMIT_MB must be greater than zero');
+  }
   return {
     ...config,
     SOLVER_BUDGET_MS: solverBudgetMs,
     SOLVER_SEARCH_WORKERS: solverSearchWorkers,
+    SOLVER_MEMORY_LIMIT_MB: solverMemoryLimitMb,
   };
 };

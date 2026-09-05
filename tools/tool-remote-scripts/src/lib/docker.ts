@@ -217,6 +217,7 @@ const APP_ENV_ALLOWED_KEYS: Record<Tier, readonly string[]> = {
     'AUTH_MODE',
     'SOLVER_BUDGET_MS',
     'SOLVER_SEARCH_WORKERS',
+    'SOLVER_MEMORY_LIMIT_MB',
   ],
   gw: ['PORT', 'LOG_LEVEL', 'BE_URL', 'AUTH_MODE'],
   fe: [],

@@ -41,6 +41,7 @@ try {
           attemptToken: request.admission.attemptToken,
           childDeadlineAt: request.admission.childDeadlineAt,
           searchWorkers: cfg.SOLVER_SEARCH_WORKERS,
+          memoryLimitMb: cfg.SOLVER_MEMORY_LIMIT_MB,
           request: request.request,
         }),
     },
