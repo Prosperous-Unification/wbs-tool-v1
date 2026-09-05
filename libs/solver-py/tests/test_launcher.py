@@ -54,6 +54,8 @@ class LauncherProcess(unittest.TestCase):
             "0123456789abcdef0123456789abcdef",
             "--child-deadline-epoch-ms",
             str(deadline),
+            "--search-workers",
+            "2",
         ]
 
     def test_reports_the_lightweight_distribution_version_before_lifecycle_setup(self) -> None:

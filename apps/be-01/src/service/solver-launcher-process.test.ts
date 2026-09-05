@@ -66,6 +66,7 @@ describe('spawnSolverLauncher', () => {
       {
         attemptToken: 'attempt-1',
         childDeadlineAt: 12_345,
+        searchWorkers: 3,
         request: { wireVersion: 1, objective: 'pri' },
       },
       (options) => {
@@ -82,6 +83,8 @@ describe('spawnSolverLauncher', () => {
           'attempt-1',
           '--child-deadline-epoch-ms',
           '12345',
+          '--search-workers',
+          '3',
         ],
         stdin: 'pipe',
         stdout: 'pipe',
@@ -101,6 +104,7 @@ describe('spawnSolverLauncher', () => {
       {
         attemptToken: 'attempt-1',
         childDeadlineAt: 12_345,
+        searchWorkers: 2,
         request: { wireVersion: 1, objective: 'time', nested: { value: 'one\nline' } },
       },
       () => fake.process,
@@ -121,6 +125,7 @@ describe('spawnSolverLauncher', () => {
       {
         attemptToken: 'attempt-1',
         childDeadlineAt: 12_345,
+        searchWorkers: 2,
         request: { wireVersion: 1 },
       },
       () => fake.process,
@@ -140,6 +145,7 @@ describe('spawnSolverLauncher', () => {
       {
         attemptToken: 'attempt-1',
         childDeadlineAt: 12_345,
+        searchWorkers: 2,
         request: { wireVersion: 1 },
       },
       () => fake.process,

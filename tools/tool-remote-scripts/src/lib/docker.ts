@@ -209,7 +209,15 @@ export function tierEnvFiles(tier: Tier, layout: EnvLayout = CURRENT_ENV): strin
  * this check existed).
  */
 const APP_ENV_ALLOWED_KEYS: Record<Tier, readonly string[]> = {
-  be: ['PORT', 'LOG_LEVEL', 'GW_URL', 'DB_PATH', 'AUTH_MODE', 'SOLVER_BUDGET_MS'],
+  be: [
+    'PORT',
+    'LOG_LEVEL',
+    'GW_URL',
+    'DB_PATH',
+    'AUTH_MODE',
+    'SOLVER_BUDGET_MS',
+    'SOLVER_SEARCH_WORKERS',
+  ],
   gw: ['PORT', 'LOG_LEVEL', 'BE_URL', 'AUTH_MODE'],
   fe: [],
 };

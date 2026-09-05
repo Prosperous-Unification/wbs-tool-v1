@@ -40,6 +40,7 @@ try {
         spawnSolverLauncher({
           attemptToken: request.admission.attemptToken,
           childDeadlineAt: request.admission.childDeadlineAt,
+          searchWorkers: cfg.SOLVER_SEARCH_WORKERS,
           request: request.request,
         }),
     },

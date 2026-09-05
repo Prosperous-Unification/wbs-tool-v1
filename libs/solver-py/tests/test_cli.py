@@ -178,6 +178,30 @@ class AnsweredRequests(unittest.TestCase):
         self.assertEqual(sorted(response["offsets"].values()), [0, 10, 20])
         self.assertEqual(response["wireVersion"], 1)
 
+    def test_search_workers_are_process_metadata_and_reach_the_solver_config(self) -> None:
+        request = (FIXTURES / "valid-quantised-baseline.json").read_bytes()
+        out, err = io.StringIO(), io.StringIO()
+        seen: list[int] = []
+
+        def answer(parsed: object, config: object) -> dict[str, object]:
+            seen.append(config.num_search_workers)
+            return {"wireVersion": 1, "status": "infeasible"}
+
+        with (
+            mock.patch.object(cli, "read_request", return_value=request),
+            mock.patch.object(cli, "solve_request", side_effect=answer),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
+            code = cli.main(["--search-workers", "3"])
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(seen, [3])
+
+    def test_non_positive_search_worker_count_is_refused_before_reading(self) -> None:
+        with mock.patch.object(cli, "read_request") as read:
+            self.assertEqual(cli.main(["--search-workers", "0"]), cli.EXIT_BAD_REQUEST)
+        read.assert_not_called()
+
     def test_an_infeasible_plan_is_a_response_and_not_a_failure(self) -> None:
         """`valid-two-slices.json` is schema-valid with a width-5 slice on a
         capacity-2 pool. Stage 1 INFEASIBLE is a typed outcome the wire carries,

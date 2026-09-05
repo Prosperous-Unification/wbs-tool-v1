@@ -15,9 +15,14 @@ export const BeConfig = type({
   JWT_SIGNING_KEY_CURRENT: 'string>=32',
   AUTH_MODE: "'local'|'oidc'",
   'SOLVER_BUDGET_MS?': 'string.integer.parse',
+  'SOLVER_SEARCH_WORKERS?': 'string.integer.parse',
 });
-export type BeConfig = Omit<typeof BeConfig.infer, 'SOLVER_BUDGET_MS'> & {
+export type BeConfig = Omit<
+  typeof BeConfig.infer,
+  'SOLVER_BUDGET_MS' | 'SOLVER_SEARCH_WORKERS'
+> & {
   SOLVER_BUDGET_MS: number;
+  SOLVER_SEARCH_WORKERS: number;
 };
 
 export const loadConfig = (
@@ -27,5 +32,13 @@ export const loadConfig = (
   const config = defineConfig(BeConfig, envSource);
   const solverBudgetMs = config.SOLVER_BUDGET_MS ?? 60_000;
   if (solverBudgetMs <= 0) throw new Error('SOLVER_BUDGET_MS must be greater than zero');
-  return { ...config, SOLVER_BUDGET_MS: solverBudgetMs };
+  const solverSearchWorkers = config.SOLVER_SEARCH_WORKERS ?? 2;
+  if (solverSearchWorkers <= 0) {
+    throw new Error('SOLVER_SEARCH_WORKERS must be greater than zero');
+  }
+  return {
+    ...config,
+    SOLVER_BUDGET_MS: solverBudgetMs,
+    SOLVER_SEARCH_WORKERS: solverSearchWorkers,
+  };
 };

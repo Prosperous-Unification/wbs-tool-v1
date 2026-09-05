@@ -21,6 +21,16 @@ describe('BeConfig', () => {
     expect(loadConfig({ ...VALID, SOLVER_BUDGET_MS: '120000' }).SOLVER_BUDGET_MS).toBe(120_000);
   });
 
+  it('defaults production solves to two search workers and accepts a positive override', () => {
+    expect(loadConfig(VALID).SOLVER_SEARCH_WORKERS).toBe(2);
+    expect(
+      loadConfig({ ...VALID, SOLVER_SEARCH_WORKERS: '3' }).SOLVER_SEARCH_WORKERS,
+    ).toBe(3);
+    expect(() => loadConfig({ ...VALID, SOLVER_SEARCH_WORKERS: '0' })).toThrow(
+      'SOLVER_SEARCH_WORKERS must be greater than zero',
+    );
+  });
+
   it('accepts a complete environment', () => {
     const parsed = BeConfig(VALID);
     expect(parsed).toMatchObject({ PORT: 3100, DB_PATH: '/srv/wbs/data/wbs.db' });
