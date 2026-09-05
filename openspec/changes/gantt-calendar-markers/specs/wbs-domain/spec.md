@@ -402,6 +402,12 @@ name would recolour a marker when it is renamed; hashing the date would give
 every marker on one date the same colour, which is exactly the identity a
 stacked band needs to tell apart.
 
+Storage MAY hold no colour, meaning "automatic", but the API SHALL NOT return
+one: every marker in every response SHALL carry a resolved colour, the stored
+one where there is one and the automatic one where there is not. A client is
+never asked to know the palette, and the two rules above are observable through
+the API only because of this.
+
 A user-chosen colour SHALL override the automatic one and SHALL be rejected if
 it fails the contrast bar against **any** backdrop it is drawn on. The bar is
 two numbers, because a marker is two things:

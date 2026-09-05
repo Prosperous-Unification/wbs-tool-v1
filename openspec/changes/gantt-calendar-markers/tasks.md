@@ -284,6 +284,17 @@ in both slices rather than implied by position.
       Negative: the `id` key dropped from the real `ORDER BY`, watched failing
       against SQLite rather than a stub — the tie-break is the database's, so a
       fake repository proves nothing about it.
+      **This slice also houses 3.1's two caller-injected faults, and it has to
+      say so** — 3.1(b) and 3.1(c) cannot live in `marker-color.test.ts`
+      (`automaticColor(markerId: string)` sees neither a name nor a date), so
+      this file carries their cases and this slice is where the implementer
+      finds that out (round-7 Gemini review, Minor 1). Two more assertions on
+      the round trip, both on markers with **automatic** colours: **rename
+      stability** — create, read the colour, rename, read again, assert equal,
+      which 3.1(b)'s `marker.name`-for-`marker.id` fault fails; and **same-date
+      distinctness** — two markers created on one date, assert their colours
+      differ, which 3.1(c)'s `marker.date` fault fails. Neither needs a fault of
+      its own here: they are 3.1's oracles, and 3.1 names the mutations.
 - [ ] 4.2 Write permission — every mutation refused for a read-only actor with
       the same status the project's other writes use — test: same file, a
       read-only actor against each of the four mutations, asserting the status

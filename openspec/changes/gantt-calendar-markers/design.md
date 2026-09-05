@@ -254,6 +254,16 @@ derived value at insert. Materialising would freeze today's palette into
 storage: a palette change would then have to migrate rows, and a marker whose
 colour was never chosen would be indistinguishable from one that was.
 
+**Nullable in the column, never null in the response.** The nullability stops
+at the repository: every route in the table below resolves it on the way out,
+`color: row.color ?? automaticColor(row.id)`, so `spec.md`'s "a marker SHALL
+consist of a project, an `IsoDate`, a name, and a colour" holds for every
+marker the API returns and no client has to know the palette. This was implied
+rather than stated, and it is load-bearing twice over: it is what makes 3.1's
+two caller-injected faults observable through the API at all — a response that
+returned `null` would leave the rename-stability and same-date-distinctness
+cases nothing to read (round-7 Gemini review, Minor 2).
+
 `date` is `text`, matching how the rest of the schema stores an `IsoDate`, and
 is indexed with `project_id` because "this project's markers, by date" is the
 only read.
