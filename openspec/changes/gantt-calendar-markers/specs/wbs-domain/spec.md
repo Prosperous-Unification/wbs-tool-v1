@@ -267,6 +267,29 @@ different zooms is worse than a treatment that is one.
 Nothing SHALL be drawn over a bar. Bar fill and the critical-path
 `stroke-foreground [stroke-width:2]` SHALL keep full contrast.
 
+**"Fully opaque over it" is false of one bar kind, and the guarantee SHALL be
+stated as it actually holds** (round-12 Sol review, Important). An **assumed**
+bar carries `[fill-opacity:0.35]` by design (`ASSUMED_BAR_CLASSES`,
+`gantt-panel.tsx:706`), so a rule painted behind one shows through it exactly as
+the gridlines, zebra band and weekend column beneath it already do. That is the
+treatment's purpose and this feature SHALL NOT special-case it: masking the rule
+under assumed bars alone would give the marker a paint privilege none of the
+five existing marks has. So the guarantee is **geometry and class, plus pixels
+over opaque bars**: no bar's `x`, `width`, fill class or critical-path stroke
+SHALL change, and an **opaque** bar's pixels SHALL be identical with and without
+the marker. Over an assumed bar the rule is visible through the translucency,
+and any pixel difference SHALL be confined to that bar's own footprint.
+
+**The rule SHALL be 1px on screen at every rung, and that needs a mechanism
+rather than a width** (round-12 Sol review, Important). The chart's SVG user
+space is days by rows and is stretched non-uniformly to `dayPx`
+(`viewBox` days×rows with `preserveAspectRatio="none"`, `gantt-panel.tsx:3940-3943`),
+so a stroke of one user unit is **a day wide** — 28, 12 or 4 CSS pixels across
+the ladder. Today's leading edge already carries `vectorEffect="non-scaling-stroke"`
+for precisely this reason (`gantt-panel.tsx:2984-2995`). The marker rule SHALL
+carry the same, and the 1px width SHALL be asserted as a **computed** width at
+more than one rung rather than assumed from a declaration.
+
 **"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
 after the weekend columns (`data-gantt-weekend`), the zebra row bands, the
@@ -338,8 +361,20 @@ interval bounds.
 #### Scenario: the rule sits behind the bars
 
 - **WHEN** a marker's rule crosses a bar
-- **THEN** the rule element precedes the bar element in paint order, and the
-  bar is fully opaque over it
+- **THEN** the rule element precedes the bar element in paint order, the bar's
+  geometry, fill class and critical-path stroke are unchanged, and an opaque
+  bar's pixels are identical with and without the marker
+
+#### Scenario: an assumed bar keeps its deliberate translucency
+
+- **WHEN** a marker's rule crosses an assumed bar
+- **THEN** the bar still carries `[fill-opacity:0.35]`, the rule still precedes
+  it in paint order, and any pixel difference lies inside that bar's footprint
+
+#### Scenario: the rule is 1px at every rung
+
+- **WHEN** the same marker is rendered at 28px and at 4px per day
+- **THEN** its rule's computed stroke width is 1 CSS pixel at both rungs
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 

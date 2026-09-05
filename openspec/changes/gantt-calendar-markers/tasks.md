@@ -278,6 +278,21 @@ in both slices rather than implied by position.
       with the server calls intact the API refuses the colour either way, so a
       "the user sees a refusal" assertion is green under the fault and only
       "nothing invalid left the client" is not.
+      **"Nothing left the client" is not the whole composer contract either**
+      (round-12 Sol review, Important). 3.3 proves `validateCustomColor` names
+      the failing backdrop, and this slice's only composer oracle is the absent
+      request — so **a composer that calls the validator, suppresses the request
+      and then renders a generic "invalid colour" passes every named test here
+      while violating both composer scenarios**, which require the user to be
+      told which fill the colour failed over. Fourth case: submit 3.3's fourth
+      colour — the one failing only over the light pointed-row light under the
+      today tint — and assert the **rendered** refusal text names that backdrop
+      and `3:1`. Fourth fault, and it is a **consumer** fault rather than
+      another removal: the composer discarding the validator's backdrop name and
+      substituting a fixed string, while still suppressing the request — watched
+      failing the new case alone, with the three request-body assertions above
+      staying green. The 19-of-20 colour is deliberate: a message naming the
+      dark base could be produced by a composer that only knows about themes.
 - [ ] 3.5 The composer issues the id, so the previewed colour is the created
       one — the composer generates a v4 UUID, renders `automaticColor(id)` as
       the swatch, and sends that `id` in the create body — test:
@@ -372,9 +387,16 @@ in both slices rather than implied by position.
       omitting `id` is issued one by `Clock.newId()` (asserted through the fake
       clock the suite already injects); a create repeating an existing id is
       refused with no row added and the existing marker's name, date and colour
-      unchanged. Negative for the last: the insert written as an upsert, watched
-      overwriting the existing row. A duplicate-id test that only asserts an
-      error status passes against an upsert that already destroyed the row.
+      unchanged. Negatives, two. For the last: the insert written as an upsert,
+      watched overwriting the existing row — a duplicate-id test that only
+      asserts an error status passes against an upsert that already destroyed
+      the row. And for the first, **the server fault `design.md` §6.1 named and
+      no slice owned** (round-12 Sol review, Minor): the create ignoring the
+      supplied `id` and calling `clock.newId()`, watched failing the exact-id
+      case. §6.1 named it while 3.5 requires a **front-end** fault and delegates
+      the server half here, so until now it was owed by neither slice and the
+      exact-id case was a positive with nothing watching it. It belongs here
+      because this is the only file that executes be-01 code.
 - [ ] 4.5 Refusals name their field and apply nothing — test: same file, one
       case per row of the spec's eight-row refusal table — including both
       `name` boundaries, an empty string and `MARKER_NAME_MAX + 1 = 121` code
@@ -601,6 +623,23 @@ in both slices rather than implied by position.
       one-marker path shortcut straight to that marker's editor, watched failing
       the one-marker case while the two-marker case stays green — which is
       exactly how this defect would ship.
+      **The three cases prove the rows and the actions are PRESENT and nothing
+      invokes them** (round-12 Sol review, Important). Rename and recolour are
+      offered here and proved nowhere on the client: 4.1 proves the be-01 routes
+      and the browser round trip creates and deletes, so **a sheet whose rename
+      and recolour handlers are inert passes every named test in this plan**.
+      Two more cases, each driving the action from the sheet: rename a listed
+      marker and assert both the new name in the reopened list and the outgoing
+      `PATCH` body carrying `{ name }` and nothing else; recolour one and assert
+      the chip's new `stroke`/fill and a `PATCH` body carrying `{ color }`. The
+      oracle is the fake API's recorded request as well as the DOM, for 3.4's
+      reason: a handler that repaints optimistically and sends nothing is green
+      on a DOM-only assertion. Negatives, one dead handler at a time: the rename
+      action's `onClick` emptied, watched failing the rename case while the
+      recolour case, the delete path and all three listing cases stay green; and
+      the recolour action's emptied, watched failing only the recolour case. One
+      fault for both would not distinguish them, which is the state this slice
+      is in now.
 - [ ] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
       Enter and Space handlers, a visible focus ring, `aria-haspopup="dialog"`,
       an `aria-expanded` tracking the sheet, and an `aria-label` naming the
@@ -828,6 +867,41 @@ in both slices rather than implied by position.
       one — the count alone cannot see which colour won. The
       unchanged-bar half is the requirement; the sequence is the mechanism, and
       it needs its own assertion because the requirement cannot see it.
+      **The unchanged-bar half compares three attributes, and the bar layer has
+      a fourth state it cannot see** (round-12 Sol review, Important). An
+      **assumed** bar is `[fill-opacity:0.35]` by design
+      (`ASSUMED_BAR_CLASSES`, `gantt-panel.tsx:706`), so a rule behind one shows
+      through it and the old "the bar is fully opaque over it" wording was false
+      of that bar kind — while `x`, `width` and the critical-path class, the
+      three things this slice compares, are all unchanged. Two cases: a rule
+      crossing an **opaque** bar in detail mode, whose bar-footprint pixels are
+      asserted **identical** with and without the marker; and a rule crossing an
+      **assumed** bar, asserting the bar still carries `[fill-opacity:0.35]`,
+      that the rule still precedes it, and that every pixel that differs lies
+      inside that bar's footprint. Third negative: the assumed arm of
+      `barClasses` emptied so the bar paints opaque — the mutation
+      `gantt-panel.tsx:701-706` already documents as watched on 2026-08-12 —
+      caught by the assumed case's fill-opacity assertion while the opaque
+      case, the sequence and all three attribute comparisons stay green. The
+      opaque case is what stops the guarantee being weakened to "no attribute
+      moved"; the assumed case is what stops it being restated as a falsehood.
+- [ ] 8.2a The rule is 1px on screen at every rung, and the mechanism is
+      `vector-effect: non-scaling-stroke` — test: `gantt-panel.test.tsx`, the
+      same marker rendered at 28px and at 4px per day, asserting
+      `getComputedStyle(rule).strokeWidth` is `1px` at both. **A declared width
+      proves nothing here**: the chart's user space is days by rows stretched
+      non-uniformly to `dayPx` (`viewBox` days×rows with
+      `preserveAspectRatio="none"`, `gantt-panel.tsx:3940-3943`), so one user
+      unit is a whole day — 28, 12 or 4 CSS pixels — and the today edge already
+      carries `vectorEffect="non-scaling-stroke"` for exactly this reason, with
+      the comment at `:2984-2986` spelling it out. Nothing in this plan named
+      the property, so a rule declared `strokeWidth={1}` would render a day wide
+      at 28px and still pass every order, colour, count and pointer assertion in
+      8.2 (round-12 Sol review, Important). Negative: `vectorEffect` removed
+      from the rule alone, watched failing **both** rungs while every assertion
+      in 8.2 and 8.3 stays green. Two rungs rather than one because a single
+      rung cannot distinguish a non-scaling stroke from a width that happens to
+      equal that rung's day pixels.
 - [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
       **6**, and the measure is `occupiedDatesInViewport / viewportWidthPx * 100`
       compared with `>` (`design.md` §3: 100px is 25 days at that rung, so six is

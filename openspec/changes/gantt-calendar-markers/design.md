@@ -455,12 +455,16 @@ notes:
 - **A colliding id is refused, not merged.** The primary key conflict answers a
   refusal with no row written, and the composer retries with a fresh id. Ids are
   v4 UUIDs, so a collision is a bug or an attack and never traffic.
-- **The proof is that the preview and the creation agree.** The slice asserts the
-  swatch rendered before submit equals the colour of the chip rendered after,
-  with the fault being the server ignoring the supplied `id` and calling
-  `clock.newId()` — watched failing because the two colours differ. Without that
-  fault the assertion passes against a composer that previews the right colour
-  by luck one time in eight.
+- **The proof is that the preview and the creation agree, and it takes two
+  slices.** The client half is 3.5: the swatch rendered before submit equals the
+  colour of the chip rendered after, faulted by the composer generating a fresh
+  UUID at submit. The server half is 4.4: a create carrying an `id` stores that
+  exact id, faulted by **the server ignoring the supplied `id` and calling
+  `clock.newId()`**. This document named only the server fault while 3.5 requires
+  a front-end one, so the server fault was owed by neither slice until round 12
+  (Sol review, Minor); it is now 4.4's, named there. Without both, the assertion
+  passes against a composer that previews the right colour by luck one time in
+  eight.
 
 ### 6.2 The click surface is a control, so it has a control's contract
 
