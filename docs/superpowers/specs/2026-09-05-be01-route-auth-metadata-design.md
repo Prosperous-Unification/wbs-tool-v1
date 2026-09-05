@@ -378,3 +378,93 @@ each caught one binder.
 
 Confirm with a watched red before building on it: the current suite has no unauthenticated
 malformed-body clause at all.
+
+---
+
+# Version 3 — the `transform` seat, with identity and capability as separate fields
+
+**Supersedes versions 1 and 2. 2026-09-05T23:18Z. Not reviewed; gate this before implementing.**
+
+Versions 1 and 2 failed on feasibility. That question is now closed by measurement, so v3 is a set of
+scoped decisions against the six constraints in the task log.
+
+## The seat (constraints 1 and 2, closed)
+
+`bindElysia` already builds a per-route `hook` object and passes `documentation.query` in it. The
+auth check goes in that same object as a **`transform`**, which is route-local, runs before the
+derived validator, and short-circuits when it returns `status(401, …)` — measured above with a
+negative control. `bindInProcess` runs the same check after `matchPath` and **before `decodeBody`**.
+
+**The rule, stated once, and the contract clause that holds it:** *a route's auth requirement is
+answered before the binder touches the request's body or query.* Two clauses assert it, because the
+two orderings have each caught one binder: a malformed **query** (Elysia answered 422, constraint 2)
+and a malformed **body** (in-process answers 400, constraint 3). `app.ts:170-187` already makes 401
+the shipped answer for the second, so the target is 401 both times.
+
+## Identity and capability are two fields, not one union (constraint 4)
+
+`requiresWriteScope` conflates them, and the review found the seam: `POST /api/projects/:id/opened`
+requires `write` scope from the path predicate while its route declares only `guard('signed-in')`,
+and `GET /api/projects/:id/export` requires `read` scope. A single `auth` union would force those
+into one axis and lose one of them.
+
+```ts
+// http/route.ts — framework-free, data only
+export type RouteIdentity = 'open' | 'signed-in';
+export type RouteScope = 'read' | 'write';
+
+export interface Route {
+  …
+  /** Required, no default. A route that declares nothing does not compile. */
+  identity: RouteIdentity;
+  /** The capability this route needs; absent means none beyond identity. */
+  scope?: RouteScope;
+}
+```
+
+`requiresWriteScope` (`app.ts:276`) and its `onRequest` branch are deleted, and the app-level hook
+keeps only `hasInvalidCookieOrigin`.
+
+**The migration is provable rather than asserted.** Evaluate the old predicate over every route in
+the assembled lists and diff it against the declared `scope: 'write'` set. Equal sets means the
+deletion changed nothing; any difference is a route whose requirement moved, named. That check is
+written first, runs in the same chunk, and is the answer to "does the table cover what the predicate
+covered".
+
+## Controls (constraint 5)
+
+1. **`identity` is required.** Not optional, no default. This is the discriminated-union point from
+   both reviews in the only form that also covers the 13 handlers that never read the caller.
+2. **The suite asserts `(method, path, identity, scope)` quadruples** for every route, not the set of
+   open paths. A method collision on one path and a `read`→`signed-in` downgrade both move a row.
+   Sol's `GET /api/projects/:id/export` and Gemini's `POST /api/auth/login` are the two cases this
+   exists for.
+3. **A coverage clause** proves the quadruple table names every mounted route, including `/health`,
+   attached to Elysia outside any route list (`app.ts:242`).
+
+## The two named refusals stay (constraint 6)
+
+- **`GET /api/auth/me` answers `{ error: 'invalid_token' }`** (`auth.routes.ts:249`), which
+  `bin/dev-be-probe.sh:8` and `tools/tool-devsync/src/be-probe.test.ts:41` read. It declares
+  `identity: 'open'` and keeps checking its own token, so nothing intercepts it. A clause asserts the
+  body, not just the status.
+- **`POST /api/projects/:id/opened` keeps `scope: 'write'`**, asserted today by
+  `oidc.integration.test.ts:446`. It is a row in the quadruple table and in the predicate diff.
+
+## The guards stay
+
+`callerGuard` is not deleted and the 28 handler guards do not move. They are defence in depth once
+the binder answers first, and removing them is what made v1 two chunks with a security-shaped
+failure mode. Deleting them is its own change, after this one, with the quadruple table already in
+place to catch a route that loses a requirement.
+
+Note the gap this leaves, honestly: `callerGuard` knows `signed-in` and `read-scope` only
+(`caller.ts:22`), so it is **not** defence in depth for `scope: 'write'`. That boundary rests on the
+binder check and the predicate diff alone.
+
+## Size
+
+One chunk: `route.ts` gains two types and a required field, every route literal gains one to two
+lines, both binders gain the check, `app.ts` loses `requiresWriteScope`, the suite gains two ordering
+clauses, three controls and the predicate diff. `openapi.json` is expected unchanged — if it moves,
+something reached the document that should not have.
