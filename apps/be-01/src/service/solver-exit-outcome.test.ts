@@ -31,6 +31,17 @@ const built = buildSolverRequest(INPUT, 'pri', {
 if (!built.ok) throw new Error('fixture request refused');
 const REQUEST = built.request;
 
+const DEADLINED_INPUT: ScheduleInput = {
+  ...INPUT,
+  deadlines: new Map([['w-1', 0]]),
+};
+const deadlined = buildSolverRequest(DEADLINED_INPUT, 'pri', {
+  baselineOffsets: { 'w-1\u0000dev': 0 },
+  solverVersion: '0.1.0',
+  budgetMs: 60_000,
+});
+if (!deadlined.ok) throw new Error('fixture deadline request refused');
+
 const response = (offset = 0, reportedOffset = offset): string =>
   `${JSON.stringify({
     wireVersion: 1,
@@ -77,6 +88,12 @@ describe('evaluateSolverOutcome', () => {
     );
     expect(
       evaluateSolverOutcome(INPUT, REQUEST, { kind: 'response', stdout: response(1, 0) }),
+    ).toEqual({ kind: 'failed', reason: 'invalid-output' });
+    expect(
+      evaluateSolverOutcome(DEADLINED_INPUT, deadlined.request, {
+        kind: 'response',
+        stdout: response(),
+      }),
     ).toEqual({ kind: 'failed', reason: 'invalid-output' });
   });
 

@@ -2,7 +2,10 @@ import type { BuiltSolverRequest } from '@wbs/contracts/solver/build-request';
 import { materialiseOptimized } from '@wbs/contracts/solver/materialise-optimized';
 import { publishOptimizedResult } from '@wbs/contracts/solver/optimized-result';
 import { parseSolverResponse } from '@wbs/contracts/solver/parse-solver-response';
-import { revalidateSolverResult } from '@wbs/contracts/solver/revalidate-solver-result';
+import {
+  revalidateOptimizedDeadlines,
+  revalidateSolverResult,
+} from '@wbs/contracts/solver/revalidate-solver-result';
 import {
   dispositionOfParseFailure,
   dispositionOfRevalidationFailure,
@@ -65,6 +68,13 @@ export function evaluateSolverOutcome(
       input.reach,
       response.offsets,
     );
+    const deadlines = revalidateOptimizedDeadlines(request, optimized);
+    if (!deadlines.ok) {
+      return {
+        kind: 'failed',
+        reason: dispositionOfRevalidationFailure(deadlines.failure),
+      };
+    }
     const weights = new Map(request.slices.map((slice) => [slice.key, slice.priorityWeight]));
     const weightOf = (key: string): number => {
       const weight = weights.get(key);
