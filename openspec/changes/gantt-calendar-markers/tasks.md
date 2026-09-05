@@ -1029,7 +1029,23 @@ in both slices rather than implied by position.
       equality fails on the tag, not on a width. And the browser case SHALL
       also assert computed `stroke-opacity` and `opacity` are both `'1'`,
       watched with `strokeOpacity={0.4}`, which fails that equality while the
-      two width assertions and the painted-column bound stay green — a fault
+      two width assertions and the painted-column bound stay green.
+      **Two equalities on the rule are not opacity either** (round-19 Gemini
+      review, Critical), because neither one can see the two places the alpha
+      actually lives: CSS `opacity` does **not** inherit, so
+      `<g opacity={0.5}>` around the rule leaves the rule computing `'1'`; and
+      `stroke-opacity` is a separate channel from the colour, so a `stroke` of
+      `oklch(… / 0.4)` — the form this stylesheet's tokens already take —
+      leaves it computing `'1'` too. The painted-column oracle cannot help: a
+      washed-out stroke still changes RGBA, so the run is still 1 or 2. So the
+      browser case SHALL assert three things, not one: `stroke-opacity` is
+      `'1'`, the computed `stroke` resolves to a colour with **no alpha
+      component** (an `rgb(…)` serialization rather than `rgba(…)`/`… / α`), and
+      **every element from the rule up to the chart `<svg>` inclusive** computes
+      `opacity` `'1'`. Two more watched negatives: the stroke given an
+      alpha-bearing colour of the same hue, and an `<g opacity={0.5}>` inserted
+      around the rule — each failing exactly one of the three while the widths,
+      the tag and both column sets stay green — a fault
       that isolates cleanly because opacity moves what a column looks like, not
       how many columns there are. Five assertions, four jobs: the tag is the
       element, the attribute is the mechanism, the computed width is the value,
@@ -1076,7 +1092,30 @@ in both slices rather than implied by position.
       differ and the lower half of the bound, added in round 16 for a different
       reason, is what fails it. Third negative, therefore: **the coincident
       untagged 2px line**, watched failing this bound at 0 while the tag, both
-      width assertions, the opacity assertions and 8.2's count all stay green. **And the predicate has to be spelled out**
+      width assertions, the opacity assertions and 8.2's count all stay green.
+      **And that toggle alone is still not the binding, because it can only see
+      the element it hides** (round-19 Gemini review, Critical). Move the
+      auxiliary line one pixel over instead of stacking it — an untagged 1px
+      line at the next column — and hiding the tagged rule leaves a delta of
+      exactly **one** column, which is inside the bound, while two adjacent
+      hairlines paint a 2px rule. Coincident and adjacent are the two halves of
+      one hole: the toggle measures the tagged element's own ink and is blind to
+      every other element's, and the marker-presence clip measures the marker's
+      total ink and cannot attribute it. Neither bound closes the other, and
+      "1 or 2" cannot tell one anti-aliased hairline from two abutting ones.
+      So take **three** clips at each rung — marker absent, marker present,
+      marker present with the queried rule hidden — and derive two column sets:
+      `totalInk`, the columns differing between absent and present, and
+      `ruleInk`, the columns differing between present and rule-hidden. Then
+      assert **both**: `ruleInk` is a contiguous run 1 or 2 columns wide, and
+      `totalInk` and `ruleInk` are **the same set**. The second assertion is an
+      equality rather than a bound, which is why the 1-or-2 slack cannot hide
+      inside it: the adjacent line makes `totalInk` two columns and `ruleInk`
+      one, the coincident line makes `ruleInk` empty, and a correct renderer
+      makes them identical because the rule is the only marker ink in a row band
+      with no bar and no chip in it. Fourth negative, therefore: **the adjacent
+      untagged 1px line**, watched failing the set equality while `ruleInk`'s
+      own bound, the tag, both width assertions and 8.2's count all stay green. **And the predicate has to be spelled out**
       (round-16, both seats, Important): draw each clip into an in-page 2D
       canvas and read it with `getImageData`, the way
       `apps/fe-01/e2e/measure-ink.ts:78` already reads a painted pixel and three

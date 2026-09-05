@@ -451,9 +451,14 @@ interval bounds.
   columns **that element alone** paints — the same clip taken with it visible
   and with it hidden — is 1 or 2 CSS pixels wide at both rungs, a hairline
   rather than the 28 and 4 a scaling stroke would paint
-- **AND** the delta is read from that element's own visibility rather than from
-  the marker's presence, so that a second, untagged rule primitive drawn beside
-  it cannot supply the pixels the first one is credited with
+- **AND** the columns the marker adds in that band and the columns that element
+  alone paints are **the same set**, so that no second rule primitive — stacked
+  on it or abutting it — can supply ink the marker is credited with while the
+  assertions read only the tagged one
+- **AND** the rule's `stroke` resolves to a colour carrying no alpha, and every
+  element from the rule up to the chart `<svg>` computes an `opacity` of `1`,
+  since neither `stroke-opacity` on the rule nor `opacity` on the rule can see
+  an alpha in the colour or an `opacity` on an ancestor
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 
