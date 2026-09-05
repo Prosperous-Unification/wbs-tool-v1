@@ -58,6 +58,10 @@ export class OptimizationCoordinator {
     readonly objective: SolverObjectiveName;
     readonly input: ScheduleInput;
   }) => {
+    if (ask.input.slices.length === 0 || ask.input.slices.every((slice) => slice.days === 0)) {
+      return null;
+    }
+
     const inputHash = scheduleInputHash(ask.input);
     const now = this.options.now();
     const generation = allocateGeneration(

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
-import { allocateGeneration } from '../repository/optimization-generation';
+import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
 import type { SpawnRequest } from '../repository/optimized-schedule-cache';
 import { solverSlot } from '../repository/schema';
 import { OptimizationCoordinator } from './optimization-coordinator';
@@ -85,6 +85,27 @@ function coordinator(
 }
 
 describe('OptimizationCoordinator read', () => {
+  it('bypasses allocation and both solvers when the canonical plan has no work', () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: SpawnRequest[] = [];
+    const empty: ScheduleInput = { ...INPUT, rows: [], slices: [] };
+    const zeroDuration: ScheduleInput = {
+      ...INPUT,
+      slices: INPUT.slices.map((slice) => ({ ...slice, days: 0 })),
+    };
+
+    for (const input of [empty, zeroDuration]) {
+      expect(coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input })).toBeNull();
+      expect(calls).toEqual([]);
+      expect(db.select().from(solverSlot).all()).toEqual([]);
+      expect(readGeneration(db, 'p-1', CONTRACT)).toBeNull();
+    }
+
+    // Proof: deleting the zero-work guard creates generation 1 and two slot
+    // rows on the first cold read, despite there being nothing to optimize.
+  });
+
   it('requests both absent objectives once while Fast remains the immediate answer', () => {
     const { path, db } = database();
     seedProject(path);
