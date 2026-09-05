@@ -23,19 +23,28 @@ sequence by design — so whole-body equality is guaranteed to fail for a reason
 that has nothing to do with the schedule. A test that compared whole bodies
 would fail honestly and mean nothing.
 
+The projection SHALL carry **every** schedule-bearing field and not a summary of
+them: each work item's whole `schedule`, every slice with its `boundBy`,
+`personId` and resource predecessors, `scheduleError`, and both waiting counts.
+`seq` is the only exclusion. A projection of start, finish and the critical flag
+alone would stay identical while a marker fault moved float, a slice's binding
+reason or a waiting count — which is the first thing such a fault would move,
+because a resource floor changes *what* bound a slice before it changes *when*
+the slice runs (round-4 Sol review).
+
 #### Scenario: the schedule projection is identical with markers and without
 
 - **WHEN** a project's schedule is requested, then five markers are added on
   dates inside its span, then the schedule is requested again
-- **THEN** the canonical projection — every work item's start, finish and
-  critical-path flag, in a fixed order — is identical, while `seq` has
-  advanced
+- **THEN** the canonical projection — every work item's whole schedule, every
+  slice with its binding reason and resource predecessors, `scheduleError` and
+  both waiting counts, in a fixed order — is identical, while `seq` has advanced
 
 #### Scenario: a marker is not a work item
 
 - **WHEN** a marker is created on a project
-- **THEN** the project's work-item count is unchanged, and the marker's id
-  matches no `work_item` row
+- **THEN** the project's work-item count and rows are unchanged, and the domain
+  scheduler's call site gains no argument
 
 #### Scenario: markers stay out of a saved plan
 
@@ -107,10 +116,28 @@ Its accessible name SHALL name the **date** and, when markers exist, their
 count. A row of tab stops all announced as "button" is less usable than no tab
 stop at all.
 
-An **undated** cell SHALL carry none of this: no role, no tab stop, no key
-handler. It is not a control, and the refusal below is for the pointer user who
-can still click it. That refusal SHALL be rendered into a live region so it is
-announced and not merely drawn.
+An **undated** cell SHALL be a keyboard-operable control announcing an
+unavailable state. It SHALL carry `role="button"`, `tabIndex={0}`,
+`aria-disabled="true"`, the same Enter and Space handlers, and an accessible
+name naming its position and the missing project start date. Activating it —
+by pointer, Enter or Space — SHALL emit the refusal below into a live region.
+
+`aria-disabled` rather than the `disabled` attribute, and this is the whole
+point: a genuinely disabled control is removed from the tab order, and a user
+who cannot reach it is never told why it does nothing. An earlier draft gave
+the undated cell no role, no tab stop and no key handler and *also* required
+the refusal to be announced in a live region — which cannot both be true,
+because the only element that fires the refusal was unreachable by the users
+the live region exists for (corrected after the round-4 Sol review).
+
+It SHALL NOT carry `aria-haspopup` or `aria-expanded`: no sheet opens.
+
+#### Scenario: the keyboard reaches the refusal
+
+- **WHEN** an undated plan is rendered, a cell is focused and Enter is pressed
+- **THEN** the cell carries `role="button"`, `tabIndex={0}` and
+  `aria-disabled="true"`, no sheet opens, and the refusal text appears in the
+  live region
 
 #### Scenario: the keyboard opens the day sheet
 
@@ -122,10 +149,11 @@ announced and not merely drawn.
 - **WHEN** a dated cell with two markers is focused
 - **THEN** its accessible name names that cell's date and reports two markers
 
-#### Scenario: undated cells are not in the tab order
+#### Scenario: undated cells are focusable but announce themselves unavailable
 
 - **WHEN** a plan with no start date is rendered
-- **THEN** no axis cell is focusable, and none carries `role="button"`
+- **THEN** every axis cell is focusable and carries `aria-disabled="true"`, and
+  none carries `aria-haspopup` or `aria-expanded`
 
 ### Requirement: An undated plan refuses the click and says why
 
@@ -200,7 +228,7 @@ wrong at one end of it whichever value it took.
 
 A marker SHALL be drawn as a chip in the axis band anchored to its day. The
 chart body SHALL carry **one 1px vertical rule per occupied date**, not one per
-marker, drawn **behind** the bars at reduced opacity.
+marker, drawn **behind** the bars, opaque (see the contrast bar below).
 
 **One per date, because per-marker is not drawable.** Markers sharing a date
 share an axis offset, so N per-marker rules would be N coincident 1px lines and
@@ -366,6 +394,25 @@ a marker is two things:
   WCAG 1.4.11, the non-text bar, which is what these are.
 - **4.5:1** for the chip's label text against the chip fill — WCAG 1.4.3.
 
+**The body rule SHALL be opaque**, and that is what makes the first bar
+checkable. A rule at some reduced opacity is a *different* colour once
+composited, and it composites over a different fill in every column the chart
+draws — weekend bands, zebra rows, the pointed row's light, today's tint and the
+base. A hex clearing 3:1 against the base does not clear it after alpha blending
+over any of the others, so the contract as drafted was unverifiable in four of
+its five cases and the opacity itself was never given a number (round-4 Sol
+review). Opaque is the cheap end of Sol's two remedies and costs nothing the
+design wanted: the rule is 1px and already sits behind every bar, so its width
+and its paint slot supply the de-emphasis the opacity was for. The chip fill was
+always opaque.
+
+**The label ink SHALL be black or white, whichever contrasts more with the chip
+fill**, and be-01 SHALL evaluate the 4.5:1 bar against that choice. Without a
+named ink algorithm the server cannot check a text bar from a fill colour at
+all — it does not know what the text will be painted in — so a fill is refused
+when **neither** black nor white reaches 4.5:1 against it, and accepted
+otherwise with the better of the two recorded as the ink the client must draw.
+
 The check SHALL run at submit, in be-01, not only in the composer. A colour
 refused only by the UI is refused only for clients that ask nicely.
 
@@ -492,9 +539,24 @@ Markers SHALL be scoped to one project. A read of one project SHALL return none
 of another's, and a mutation naming a marker of another project SHALL be refused
 with no row changed.
 
-A marker SHALL NOT be addressable as a work item: no marker id SHALL resolve
-through the work-item routes, and no work-item id SHALL resolve through the
-marker routes.
+A marker SHALL NOT be addressable as a work item. The guarantee is that the two
+**route families are disjoint**, not that the two id spaces are: a marker route
+SHALL read and write only the marker table, and a work-item route SHALL read and
+write only the work-item tables. Creating a marker SHALL add no `work_item` row.
+
+The id-space form of this rule was rejected as unsatisfiable, and the reason is
+worth keeping (round-4 Sol review). Marker and work-item ids are independent text
+primary keys and the client supplies the marker id, so a client may legitimately
+submit a string equal to an existing work item's id — at which point "no marker
+id resolves through the work-item routes" is false by construction, and a test
+using distinct fixture ids passes only because no row anywhere holds the id it
+asks for. Disjointness would have to be enforced by a shared allocator or a
+cross-table check on every write, which buys nothing: the harm the rule guards
+against is a marker reaching work-item code, and route disjointness forbids that
+directly.
+
+The client-supplied marker id SHALL be a syntactically valid UUID v4 and SHALL
+be refused otherwise, with no row written.
 
 The list SHALL be **totally** ordered, by `(date, created_at, id)`. `(date,
 created_at)` alone ties for two markers created inside the same millisecond, and
@@ -538,11 +600,16 @@ name.
 - **THEN** only that project's markers are returned, and a rename naming the
   other project's marker is refused with both rows unchanged
 
-#### Scenario: a marker is not addressable as a work item
+#### Scenario: the marker routes touch no work-item row
 
-- **WHEN** a marker's id is requested through the work-item routes, and a work
-  item's id through the marker routes
-- **THEN** both are refused, and neither resolves to the other kind of row
+- **WHEN** a marker is created, renamed and deleted
+- **THEN** the `work_item` row count and contents are unchanged throughout, and
+  the marker routes issue no query against a work-item table
+
+#### Scenario: a malformed marker id is refused with no row written
+
+- **WHEN** a create supplies an `id` that is not a valid UUID v4
+- **THEN** it is refused naming the `id` field, and the marker count is unchanged
 
 #### Scenario: same-millisecond markers keep one order
 

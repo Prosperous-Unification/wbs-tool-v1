@@ -198,12 +198,22 @@ in both slices rather than implied by position.
       path the repo's Elysia rule names — a throw here answers a client-side
       mistake with a 500. R5's "malformed trusted data throws" governs data
       already inside the trust boundary and does not reach an inbound body.
-      Same
-      file, one more case: a create issued from a process at `TZ=Pacific/Auckland`
-      at an instant whose UTC date is the day before, asserting the stored date
-      is the one submitted. The whole timezone requirement is "no instant is
-      converted anywhere on the path", and a test run only at UTC cannot observe
-      a conversion that is the identity there.
+- [ ] 4.3a No instant is converted **on the client**, which is the only layer
+      that can convert one — test: `gantt-panel.test.tsx` under a faked
+      `TZ=Pacific/Auckland` at an instant whose UTC date is the day before,
+      click the cell whose `data-axis-date` is `2026-08-19`, and assert the
+      **outgoing create body** carries `date: '2026-08-19'`. Negative: the
+      click handler routed through `new Date(...).toISOString().slice(0, 10)`,
+      watched failing with `2026-08-18` in the request.
+      **This moved down a layer after the round-4 Sol review**, which was right
+      that the round-3 version proved nothing. That version posted the literal
+      string `'2026-08-19'` to the controller under a non-UTC `TZ` and asserted
+      the same string came back — but be-01 stores the text it is given, so the
+      assertion holds whatever the client does, and the fault the requirement
+      is about (a `Date` round-trip turning the clicked day into its UTC
+      neighbour) is entirely client-side and never reached. The server half is
+      already covered: 4.3 rejects `2026-09-17T00:00:00Z`, so no instant can
+      enter storage as a date at all.
 - [ ] 4.4 The client-supplied `id`, its fallback and its collision — test: same
       file, three cases: a create carrying an `id` stores that exact id; a create
       omitting `id` is issued one by `Clock.newId()` (asserted through the fake
@@ -222,11 +232,28 @@ in both slices rather than implied by position.
 - [ ] 4.6 Project isolation, and a marker is not a work item — test: same file,
       two seeded projects each with markers: listing one returns none of the
       other's; a rename naming the other project's marker id is refused with
-      both rows unchanged; a marker id requested through the work-item routes is
-      refused; a work-item id requested through the marker routes is refused.
+      both rows unchanged; and — replacing the round-3 cross-route id
+      assertions — a **structural** pair: creating, renaming and deleting a
+      marker leaves the `work_item` row count and contents unchanged, and the
+      marker repository module imports no work-item table.
       Negative: the `project_id` predicate dropped from the list query, watched
       returning the other project's markers. An isolation test written only
-      against a single seeded project passes with no predicate at all.
+      against a single seeded project passes with no predicate at all. Second
+      negative, for the structural half: a `work_item` read added inside the
+      marker list handler, watched failing the import assertion.
+      **Why the id form went:** ids are independent text primary keys and 4.4
+      lets the client supply the marker id, so a client can submit an existing
+      work item's id and "no marker id resolves through the work-item routes"
+      becomes false by construction; the round-3 test passed only because its
+      fixture ids matched no row anywhere, which is a test of nothing (round-4
+      Sol review).
+- [ ] 4.6a The client-supplied `id` must be a UUID v4 — test: same file, a
+      create with `id: 'marker-1'` and one with a v1-shaped UUID each refused
+      naming the `id` field, with the marker count unchanged after each.
+      Negative: the UUID check replaced by a non-empty-string check, watched
+      letting `'marker-1'` through and writing a row. This does **not** make the
+      id spaces disjoint — nothing does, and the spec says so — it bounds the
+      shape of what a client may name.
 
 ## 5. The schedule identity guarantee
 
@@ -321,15 +348,39 @@ in both slices rather than implied by position.
 - [ ] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
       Enter and Space handlers, a visible focus ring, `aria-haspopup="dialog"`,
       an `aria-expanded` tracking the sheet, and an `aria-label` naming the
-      date and the marker count — test: `gantt-panel.test.tsx`, four cases:
-      Enter opens the sheet, Space opens the sheet, a cell with two markers has
-      an accessible name naming its date and reporting two, and an **undated**
-      plan's cells are not focusable and carry no `role`. Negative: the Space
-      handler removed, watched failing — a keyboard test written only for Enter
-      passes against a `keydown` that forwards every key, and one written only
-      for `tabIndex` passes against a focusable element nothing activates. The
-      `<span>` is a `<span>` today because it was hover-only; a click without
-      this contract ships a control no keyboard reaches (WCAG 2.1.1).
+      date and the marker count — test: `gantt-panel.test.tsx`, six cases, and
+      the extra two are the ones the round-4 Sol review found unasserted: Enter
+      opens the sheet; Space opens the sheet; a cell with two markers has an
+      accessible name naming its date and reporting two; the cell carries
+      `tabIndex={0}` and `aria-haspopup="dialog"`; `aria-expanded` is `false`
+      before the sheet opens and `true` after — **the transition, not the
+      attribute**, because an `aria-expanded` hard-coded to either value passes
+      a single-state assertion; and the same cell after the sheet closes is
+      `false` again. Negative: the Space handler removed, watched failing — a
+      keyboard test written only for Enter passes against a `keydown` that
+      forwards every key, and one written only for `tabIndex` passes against a
+      focusable element nothing activates. The `<span>` is a `<span>` today
+      because it was hover-only; a click without this contract ships a control
+      no keyboard reaches (WCAG 2.1.1).
+      **The visible focus ring is not in this slice** — jsdom computes no
+      styles, so a focus-ring assertion here would pass against no ring at all.
+      It moves to 9.2's browser test.
+- [ ] 6.4a The **undated** cell is a keyboard-operable control announcing an
+      unavailable state — `role="button"`, `tabIndex={0}`,
+      `aria-disabled="true"`, the same Enter and Space handlers, an accessible
+      name naming the missing project start date, and no `aria-haspopup` or
+      `aria-expanded` — test: same file, three cases: the cell is focusable and
+      carries `aria-disabled="true"`; Enter on it opens no sheet and puts the
+      refusal in the live region; and it carries neither `aria-haspopup` nor
+      `aria-expanded`. Negative: `tabIndex` removed from the undated branch,
+      watched failing the Enter case, because an unfocusable element never
+      receives the key.
+      **Why this slice exists:** an earlier draft made the undated cell inert
+      (no role, no tab stop, no key handler) *and* required 6.5's live-region
+      announcement — a contradiction, since the only element that fires the
+      refusal was unreachable by exactly the users the live region serves. It
+      is `aria-disabled`, not `disabled`, because a disabled control leaves the
+      tab order and a user who cannot reach it is never told why it is dead.
 - [ ] 6.5 The refusal is announced, not only drawn — the undated-plan message
       from 7.2 rendered into a live region — test: same file, assert the
       message's container carries the live-region role the app already uses for
@@ -377,17 +428,28 @@ in both slices rather than implied by position.
 
 ## 8. Drawing
 
-- [ ] 8.0 `axisOffsetOf(axis, date)` — `todayOffset` (`gantt-panel.tsx:841`)
+- [ ] 8.0 `axisOffsetOf(axis, date)` — `todayOffset` (`gantt-panel.tsx:872`,
+      body `axis.find((day) => day.date === today)?.offset ?? null`)
       generalised to any `IsoDate`, with today rewired as its first caller so
       there is one lookup rather than two that can disagree — test:
       `gantt-panel.test.tsx`, a date present in the axis, one absent (null),
       and today's existing assertions still green through the new callee.
       **`CalendarScale` is not the seam:** `startOf`/`endOf` are
       `(workday: number) => number` (`gantt-geometry.ts:864-880`), so an
-      absolute date is already past that conversion. Negative: the helper
-      reimplemented as `calendarDaysBetween(origin, date)`, watched failing
-      against an axis whose first cell was normalised off a weekend start —
-      the second-scale drift `todayOffset`'s own docstring warns about.
+      absolute date is already past that conversion.
+      **The negative needs a hand-made axis, and the round-3 version did not
+      have one.** `todayOffset` takes `(axis, today)` and no `origin`, so
+      "reimplemented as `calendarDaysBetween(origin, date)`" is not observable
+      against the stated seam: on any ordinary axis the stored `offset` equals
+      the calendar distance from `axis[0].date`, so both implementations return
+      the same number and the mutant passes (found by the round-4 Sol review).
+      Negative: build an axis whose matching cell's `offset` differs from
+      **both** its array index and its calendar distance from `axis[0].date` —
+      e.g. `[{2026-08-10, offset 0}, {2026-08-11, offset 7}, {2026-08-12,
+      offset 9}]`, where looking up `2026-08-12` must give **9**, not 2 —
+      then swap the lookup for `calendarDaysBetween(axis[0].date, date)` and
+      watch it fail. This is the second-scale drift `todayOffset`'s own
+      docstring warns about, made observable.
 - [ ] 8.1 The chip in the axis band, placed by `axisOffsetOf` — test:
       `gantt-panel.test.tsx`, a marker on `2026-08-19` asserted at the calendar
       x, not the workday x. Negative: the chip placed by workday number,
@@ -489,14 +551,27 @@ in both slices rather than implied by position.
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it
       re-reads comes from `readScopeFor` (`:280`), so a test that mounted the
-      panel could not deliver the event. Adding a `calendar_markers_changed` arm
-      to `readScopeFor` is part of this slice — test: the existing `WbsTable`
-      stream harness in `gantt-panel.test.tsx`, deliver the event with the
-      marker list changed underneath, and assert the new chip appears with no
-      remount and no reload. Negative: that arm removed, watched failing. 9.1 counts emissions, which is a broadcast into
-      an empty room until something acts on it — this slice is the half that
-      makes the content-free event design work at all, and it was specified
-      backend-side with nothing proving the client side.
+      panel could not deliver the event.
+      **`readScopeFor` needs no arm, and this is the second correction to this
+      slice.** Read it: `wbs-table.tsx:280-286` matches `tree_replaced` and the
+      three step events and **returns `'all'` for everything else**, and its
+      JSDoc says that is deliberate — "a new `ProjectEvent` added in be-01 is
+      correct here before anybody edits this". So `calendar_markers_changed`
+      already takes the full read, an added arm would be dead code, and the
+      round-3 negative ("that arm removed, watched failing") was not a
+      compilable mutation: there is no arm to remove and deleting nothing
+      changes nothing (found by the round-4 Sol review).
+      Test: the existing `WbsTable` stream harness in `gantt-panel.test.tsx`,
+      deliver the event with the marker list changed underneath, and assert the
+      new chip appears with no remount and no reload. Negative, and it is a real
+      one-line mutation: add `if (changed === 'calendar_markers_changed') return
+      'tree';` to `readScopeFor` — a narrow scope that excludes the marker
+      read — watched failing with the stale chip still on screen. That is also
+      the realistic future defect, somebody narrowing the new event for speed.
+      9.1 counts emissions, which is a broadcast into an empty room until
+      something acts on it — this slice is the half that makes the content-free
+      event design work at all, and it was specified backend-side with nothing
+      proving the client side.
 
 ## Gate
 

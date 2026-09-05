@@ -28,7 +28,7 @@ reopens an existing marker to rename, recolour or delete.
 
 **Markers are drawn in two layers.** A coloured chip in the axis band, plus one
 1px rule per date in its first marker's colour down the chart body **behind**
-the bars at reduced opacity — so bars and their critical-path stroke keep full
+the bars — so bars and their critical-path stroke keep full
 contrast and nothing needs a z-order table.
 
 **The undated plan refuses, out loud.** `workdayAxis` cells carry no

@@ -52,8 +52,8 @@ so a marker confined to the header band contends with today and weekend only.
 
 Drawing a rule down the body is what makes a marker useful — it is how a
 reader sees which bars cross the date — and it is also what puts the marker
-into the bar layer's argument. Painting the rule **behind** the bars at
-reduced opacity settles that argument: nothing is drawn over a bar, so bar fill
+into the bar layer's argument. Painting the rule **behind** the bars settles
+that argument: nothing is drawn over a bar, so bar fill
 and the critical-path stroke keep full contrast, and the rule stays legible in
 the gaps between bars, which is where a date is actually traced. Paint order is
 the whole mechanism; there is no z-index to tune.
