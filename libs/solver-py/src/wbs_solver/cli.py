@@ -35,63 +35,18 @@ response `$comment`). Diagnostics go to stderr.
 
 from __future__ import annotations
 
-import ctypes
 import json
-import os
-import signal
 import sys
 from typing import BinaryIO, Sequence, TextIO
 
 from . import __version__
+from .lifecycle import set_parent_death_signal
 from .solve import SolveFailed, solve_request
 from .validate import RequestRejected, validate_request
 
 EXIT_OK = 0
 EXIT_BAD_REQUEST = 64
 EXIT_INTERNAL = 70
-
-# linux/prctl.h. Not importable from anywhere in the stdlib, so it is written
-# out with its provenance rather than looked up.
-PR_SET_PDEATHSIG = 1
-
-
-def set_parent_death_signal() -> bool:
-    """Ask the kernel to SIGKILL this process when its parent dies.
-
-    Returns True when the flag was installed, False when the platform has no
-    such call. On Linux a failure is raised rather than reported: the ceiling
-    described in this module's docstring is only sound if this worked, and a
-    silent no-op there would be the ceiling quietly ceasing to exist.
-
-    Off Linux it is a no-op with a note on stderr. macOS has no equivalent and
-    developer machines are not where the ceiling is enforced; a hard failure
-    would make the package unrunnable on the only machines that read its
-    tracebacks.
-    """
-    if sys.platform != "linux":
-        print(
-            f"wbs-solver: PR_SET_PDEATHSIG unavailable on {sys.platform}; "
-            "this process will not die with its parent",
-            file=sys.stderr,
-        )
-        return False
-
-    libc = ctypes.CDLL(None, use_errno=True)
-    prctl = libc.prctl
-    prctl.restype = ctypes.c_int
-    prctl.argtypes = [
-        ctypes.c_int,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-    ]
-    ctypes.set_errno(0)
-    if prctl(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0) != 0:
-        err = ctypes.get_errno()
-        raise OSError(err, f"prctl(PR_SET_PDEATHSIG, SIGKILL) failed: {os.strerror(err)}")
-    return True
-
 
 def read_request(stream: BinaryIO) -> bytes:
     """Read the whole request. Named so the ordering test can watch it."""

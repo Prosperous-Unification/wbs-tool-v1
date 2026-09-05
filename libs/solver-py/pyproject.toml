@@ -3,10 +3,10 @@
 #
 # WHY THIS SHAPE
 #
-# No import surface, no daemon, no port. be-01 spawns a process, writes one
-# JSON request, reads one JSON response, and the process exits. So this file
-# declares exactly one runtime contract — the console script — and the package
-# exports nothing a caller could reach any other way.
+# No import surface, no daemon, no port. be-01 spawns the lightweight lifecycle
+# console script, completes its SQLite bind, then that process execs the solve
+# console script in place. The solver reads one JSON request, writes one JSON
+# response, and exits; the package exports nothing callers use as a library.
 #
 # `version` is NOT dynamic and NOT a placeholder. It is `0.1.0` because the
 # golden request corpus was checked in carrying `solverVersion: "0.1.0"` and
@@ -52,11 +52,10 @@ dependencies = [
 ]
 
 [project.scripts]
-# The solve entrypoint. `wbs-solver-launcher` (6.2b) is a second console script
-# in this same distribution and is deliberately absent until that task lands —
-# 5.11's second watched red is an image carrying this script without that one,
-# so declaring it early would make that red unreachable.
+# The solve entrypoint and its lightweight pre-bind lifecycle gate. They ship
+# from one version-locked distribution, while only `wbs-solver` imports CP-SAT.
 wbs-solver = "wbs_solver.cli:main"
+wbs-solver-launcher = "wbs_solver.launcher:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "wbs_solver.__version__" }
