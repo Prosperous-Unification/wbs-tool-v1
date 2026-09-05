@@ -348,7 +348,7 @@ describe('the generation predicate on the read', () => {
     const db = tempDb();
     try {
       const first = prepared(db.path);
-      const second = allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, HASH, 2);
+      const second = allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, 'h2', 2);
       expect(second).toBeGreaterThan(first);
 
       storeRow(db.path, {
@@ -1829,10 +1829,10 @@ describe("4.2's injected spawner, asserted on the calls and not on the clock", (
    * 4.2's eviction half, and the honest reading of "a failed row is overwritten
    * by the next run for that key". Nothing UPDATEs it: the primary key omits
    * `generation` and 4.1's insert is `onConflictDoNothing`, so the replacement
-   * path is `allocateGeneration`'s delete and nothing else. A Retry allocates,
-   * the prior rows go — `failed` ones included, because the delete is scoped by
-   * project and contract version and says nothing about status — and the very
-   * next read asks for both objectives again.
+   * path is `allocateGeneration`'s delete and nothing else. A changed input
+   * allocates, the prior rows go — `failed` ones included, because the delete
+   * is scoped by project and contract version and says nothing about status —
+   * and a read of the old hash asks for both objectives again.
    */
   it('clears every prior row for the project when a generation is allocated, failed ones included', () => {
     const db = tempDb();
@@ -1850,7 +1850,7 @@ describe("4.2's injected spawner, asserted on the calls and not on the clock", (
 
       const settled = recorder();
       readAndSpawn(db.path, settled.spawn);
-      allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, HASH, 2);
+      allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, 'h2', 2);
 
       const after = recorder();
       const pair = readAndSpawn(db.path, after.spawn);
