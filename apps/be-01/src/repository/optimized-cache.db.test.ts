@@ -491,7 +491,10 @@ describe('a plan-infeasible row, as far as its codec exists', () => {
     const db = tempDb();
     try {
       const generation = prepared(db.path);
-      const certificate = { dtoVersion: 1, items: [{ workItemId: 'a', deadline: 10 }] };
+      const certificate = {
+        dtoVersion: 1,
+        items: [{ ownerWorkItemId: 'parent', boundWorkItemId: 'a', effectiveDeadlineOffset: 10 }],
+      };
       storeRow(db.path, {
         objective: 'time',
         generation,
@@ -504,7 +507,7 @@ describe('a plan-infeasible row, as far as its codec exists', () => {
 
       expect(outcome.kind).toBe('plan-infeasible');
       if (outcome.kind !== 'plan-infeasible') throw new Error('unreachable');
-      expect(outcome.certificate).toEqual(certificate);
+      expect(outcome.certificate).toEqual({ items: certificate.items });
     } finally {
       db.cleanup();
     }
@@ -527,6 +530,32 @@ describe('a plan-infeasible row, as far as its codec exists', () => {
       expect(outcome.kind).toBe('corrupt');
       if (outcome.kind !== 'corrupt') throw new Error('unreachable');
       expect(outcome.reason).toMatch(/dtoVersion/);
+      expect(storedRowCount(db.path)).toBe(1);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('reads a malformed certificate item as corrupt and keeps the row', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      storeRow(db.path, {
+        objective: 'time',
+        generation,
+        status: 'plan-infeasible',
+        resultJson: JSON.stringify({
+          dtoVersion: 1,
+          items: [{ ownerWorkItemId: 'a', boundWorkItemId: 'a', effectiveDeadlineOffset: '10' }],
+        }),
+        failureReason: null,
+      });
+
+      const outcome = read(db.path).time;
+
+      expect(outcome.kind).toBe('corrupt');
+      if (outcome.kind !== 'corrupt') throw new Error('unreachable');
+      expect(outcome.reason).toMatch(/effectiveDeadlineOffset/);
       expect(storedRowCount(db.path)).toBe(1);
     } finally {
       db.cleanup();
@@ -1053,6 +1082,25 @@ describe("4.1's conditional write, with all four conditions composed", () => {
       expect(pair.pri.kind).toBe('failed');
       if (pair.pri.kind !== 'failed') throw new Error('unreachable');
       expect(pair.pri.reason).toBe('timeout');
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('stores a plan-infeasible row carrying its versioned certificate', () => {
+    const db = tempDb();
+    try {
+      admitted(db.path);
+      const certificate = {
+        items: [
+          { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 10 },
+        ],
+      };
+
+      expect(commit(db.path, { kind: 'plan-infeasible', certificate })).toBe('stored');
+
+      const pair = read(db.path);
+      expect(pair.pri).toMatchObject({ kind: 'plan-infeasible', certificate });
     } finally {
       db.cleanup();
     }

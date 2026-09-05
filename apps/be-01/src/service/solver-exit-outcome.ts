@@ -3,6 +3,10 @@ import { materialiseOptimized } from '@wbs/contracts/solver/materialise-optimize
 import { publishOptimizedResult } from '@wbs/contracts/solver/optimized-result';
 import { parseSolverResponse } from '@wbs/contracts/solver/parse-solver-response';
 import {
+  type PlanInfeasibleResult,
+  planInfeasibleResultOf,
+} from '@wbs/contracts/solver/plan-infeasible';
+import {
   revalidateOptimizedDeadlines,
   revalidateSolverResult,
 } from '@wbs/contracts/solver/revalidate-solver-result';
@@ -23,8 +27,9 @@ export type SolverProcessOutcome =
   | { readonly kind: 'response'; readonly stdout: string }
   | { readonly kind: 'failed'; readonly reason: SolverFailureReason };
 
-/** Stage-one infeasibility needs slice 7's certificate codec before it can be stored. */
-export type EvaluatedSolverOutcome = OutcomeToStore | { readonly kind: 'plan-infeasible' };
+export type EvaluatedSolverOutcome =
+  | OutcomeToStore
+  | { readonly kind: 'plan-infeasible'; readonly certificate: PlanInfeasibleResult };
 
 /**
  * Turn one classified child outcome into the exact cache value it earned.
@@ -48,9 +53,11 @@ export function evaluateSolverOutcome(
   }
   const response = parsed.response;
   if (response.status !== 'feasible') {
-    return response.status === 'unknown'
-      ? { kind: 'failed', reason: 'no-solution' }
-      : { kind: 'plan-infeasible' };
+    if (response.status === 'unknown') return { kind: 'failed', reason: 'no-solution' };
+    const certificate = planInfeasibleResultOf(input);
+    return certificate.items.length === 0
+      ? { kind: 'failed', reason: 'invalid-output' }
+      : { kind: 'plan-infeasible', certificate };
   }
 
   const checked = revalidateSolverResult(request, response);

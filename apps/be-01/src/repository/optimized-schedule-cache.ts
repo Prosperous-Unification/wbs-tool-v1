@@ -3,6 +3,11 @@ import {
   encodeOptimizedResult,
   type OptimizedResult,
 } from '@wbs/contracts/solver/optimized-result';
+import {
+  decodePlanInfeasible,
+  encodePlanInfeasible,
+  type PlanInfeasibleResult,
+} from '@wbs/contracts/solver/plan-infeasible';
 import { type Schedule } from '@wbs/domain';
 import { type ScheduleInput, scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { and, desc, eq } from 'drizzle-orm';
@@ -82,7 +87,7 @@ export type CachedOutcome =
     }
   | {
       readonly kind: 'plan-infeasible';
-      readonly certificate: Record<string, unknown>;
+      readonly certificate: PlanInfeasibleResult;
       readonly generation: number;
       readonly createdAt: number;
     }
@@ -169,23 +174,16 @@ function decodePayload(
     }
   }
 
-  const value = parsed.value;
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return corrupt(
-      new Error('stored certificate: payload is not an object'),
+  try {
+    return {
+      kind: 'plan-infeasible',
+      certificate: decodePlanInfeasible(parsed.value),
       generation,
       createdAt,
-    );
+    };
+  } catch (error) {
+    return corrupt(error, generation, createdAt);
   }
-  const certificate = value as Record<string, unknown>;
-  if (typeof certificate['dtoVersion'] !== 'number') {
-    return corrupt(
-      new Error('stored certificate: dtoVersion is missing or not a number'),
-      generation,
-      createdAt,
-    );
-  }
-  return { kind: 'plan-infeasible', certificate, generation, createdAt };
 }
 
 /**
@@ -562,7 +560,8 @@ export function optimizationStillEnabled(db: Reader, projectId: string): boolean
  */
 export type OutcomeToStore =
   | { readonly kind: 'ok'; readonly result: OptimizedResult }
-  | { readonly kind: 'failed'; readonly reason: SolverFailureReason };
+  | { readonly kind: 'failed'; readonly reason: SolverFailureReason }
+  | { readonly kind: 'plan-infeasible'; readonly certificate: PlanInfeasibleResult };
 
 /**
  * One finished attempt's commit, carrying every fact the four predicates and
@@ -660,7 +659,11 @@ export function storeOptimizedOutcome(
         generation: claim.generation,
         status: outcome.kind,
         resultJson:
-          outcome.kind === 'ok' ? JSON.stringify(encodeOptimizedResult(outcome.result)) : null,
+          outcome.kind === 'ok'
+            ? JSON.stringify(encodeOptimizedResult(outcome.result))
+            : outcome.kind === 'plan-infeasible'
+              ? JSON.stringify(encodePlanInfeasible(outcome.certificate))
+              : null,
         failureReason: outcome.kind === 'failed' ? outcome.reason : null,
         createdAt: write.now,
       })

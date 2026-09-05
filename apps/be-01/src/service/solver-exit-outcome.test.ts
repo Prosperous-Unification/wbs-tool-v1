@@ -113,6 +113,23 @@ describe('evaluateSolverOutcome', () => {
         kind: 'response',
         stdout: '{"wireVersion":1,"status":"infeasible"}\n',
       }),
-    ).toEqual({ kind: 'plan-infeasible' });
+    ).toEqual({ kind: 'failed', reason: 'invalid-output' });
+    expect(
+      evaluateSolverOutcome(DEADLINED_INPUT, deadlined.request, {
+        kind: 'response',
+        stdout: '{"wireVersion":1,"status":"infeasible"}\n',
+      }),
+    ).toEqual({
+      kind: 'plan-infeasible',
+      certificate: {
+        items: [
+          {
+            ownerWorkItemId: 'w-1',
+            boundWorkItemId: 'w-1',
+            effectiveDeadlineOffset: 0,
+          },
+        ],
+      },
+    });
   });
 });

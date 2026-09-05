@@ -49,6 +49,7 @@
       "@wbs/contracts/solver/optimized-result": [
         "libs/contracts/solver/src/optimized-result-dto.ts"
       ],
+      "@wbs/contracts/solver/plan-infeasible": ["libs/contracts/solver/src/plan-infeasible-dto.ts"],
       "@wbs/contracts/solver/materialise-optimized": [
         "libs/contracts/solver/src/materialise-optimized.ts"
       ],
