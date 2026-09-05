@@ -953,6 +953,22 @@ in both slices rather than implied by position.
       checking — its docstring at `:258-267` says so and records it watched both
       ways on 2026-08-09. The equality against `'non-scaling-stroke'` fails
       either way; the sentence is what the failure output will say.
+      **The jsdom tier SHALL also assert the declared width is `1`, and without
+      it the browser bound is vacuous against the requirement it exists to
+      prove** (round-16, both seats, Critical). Relaxing the browser oracle to
+      1-or-2 columns opened a renderer that passes everything while being
+      wrong: `strokeWidth={2}` **with** `vector-effect="non-scaling-stroke"`
+      paints two CSS columns at both rungs, so it satisfies the browser bound,
+      the attribute assertion above, 8.2's order and colour checks and 9.2's
+      "see the rule" step — every named test in the plan — while the
+      requirement says one pixel. So: assert the rule's `stroke-width` is `1`
+      in the same jsdom case, with a **`strokeWidth={2}` declaration** as its
+      watched negative, failing that equality while the attribute assertion and
+      the whole browser tier stay green. That is the division of labour the two
+      tiers have: jsdom pins the declared width **and** the mechanism, and the
+      browser proves the mechanism actually holds at the rungs — a hairline
+      rather than a day. Neither half is the requirement on its own, which is
+      why the plan stopped trying to make one of them carry it.
       Test, browser tier: `apps/fe-01/e2e/gantt.spec.ts`, the same marker at
       28px and at 4px per day. **The oracle is the painted columns, NOT
       `boundingBox().width`** (round-14 Sol review, Critical). The rule is a
@@ -967,8 +983,20 @@ in both slices rather than implied by position.
       Instead clip a screenshot to a short horizontal strip crossing the rule in
       a row band with no bar in it, the way `apps/fe-01/e2e/hover-cards.spec.ts:148`
       clips a strip, take it with and without the marker at each rung, and
-      assert the run of columns that differ is **at most 2** columns wide at
-      both. Second negative: the property removed, watched turning that run into
+      assert the run of columns that differ is **1 or 2** columns wide at
+      both — bounded on **both** sides, because "at most 2" is satisfied by
+      **zero** and a rule that never paints at all would pass it (round-16
+      Gemini review, Minor). **And the predicate has to be spelled out**
+      (round-16, both seats, Important): draw each clip into an in-page 2D
+      canvas and read it with `getImageData`, the way
+      `apps/fe-01/e2e/measure-ink.ts:78` already reads a painted pixel and three
+      other e2e specs copy; a **column differs** iff at least one pixel in it
+      has any RGBA channel unequal to the corresponding baseline pixel; and the
+      differing columns SHALL form **one contiguous run**. Without those three
+      sentences the count is not reproducible — `hover-cards.spec.ts:148` is the
+      precedent for _clipping_, not for column diffing, and there is no PNG
+      decoder in the workspace to fall back on.
+      Second negative: the property removed, watched turning that run into
       **28** columns at the 28px rung and **4** at the 4px rung — which is why
       two rungs rather than one, since a single rung cannot tell a non-scaling
       stroke from a width that happens to equal that rung's day pixels, and why

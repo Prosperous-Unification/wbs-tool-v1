@@ -326,9 +326,14 @@ pixel boundary and rasterizes at partial coverage into the two columns it
 straddles — and nothing in the component sets `shape-rendering` to opt out.
 "Exactly one painted column" would therefore fail the correct renderer, which is
 the same shape of error as the bounding box it replaced. The requirement is a
-hairline against a day: **at most 2 painted columns**, against the 28 and 4 a
-scaling stroke paints. Telling 1 CSS pixel from 2 is not this proof's job; the
-declared width and the mechanism are the jsdom tier's.
+hairline against a day: **1 or 2 painted columns**, against the 28 and 4 a
+scaling stroke paints — bounded on both sides, since "at most 2" is satisfied by
+a rule that never paints at all. Telling 1 CSS pixel from 2 is not this proof's
+job; the declared width and the mechanism are the jsdom tier's, and **the
+declared width SHALL be asserted there** (round-16 review, Critical) — a
+`strokeWidth={2}` rule carrying `non-scaling-stroke` paints two columns at every
+rung and would otherwise satisfy every check in this design while violating this
+requirement.
 
 **"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
@@ -415,9 +420,10 @@ interval bounds.
 #### Scenario: the rule is 1px at every rung
 
 - **WHEN** the same marker is rendered at 28px and at 4px per day
-- **THEN** its rule carries `vector-effect: non-scaling-stroke`, and the run of
-  painted columns it adds to the chart is at most 2 CSS pixels wide at both
-  rungs — a hairline rather than the 28 and 4 a scaling stroke would paint
+- **THEN** its rule declares a stroke width of 1, carries
+  `vector-effect: non-scaling-stroke`, and the run of painted columns it adds to
+  the chart is 1 or 2 CSS pixels wide at both rungs — a hairline rather than the
+  28 and 4 a scaling stroke would paint
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 
