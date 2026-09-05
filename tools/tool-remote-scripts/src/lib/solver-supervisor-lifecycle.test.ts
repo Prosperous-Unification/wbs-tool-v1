@@ -36,6 +36,7 @@ class FakeDriver implements ManagedContainerDriver {
   readonly writes: string[] = [];
   managed = [CONTAINER_ID];
   inspectCount = 0;
+  naturalExit = true;
 
   list(argv: readonly string[]): Promise<readonly string[]> {
     this.events.push(`list:${argv.join(' ')}`);
@@ -50,6 +51,7 @@ class FakeDriver implements ManagedContainerDriver {
   attach(argv: readonly string[]): Promise<ManagedContainerAttachment> {
     this.events.push(`attach:${argv.slice(1).join(' ')}`);
     return Promise.resolve({
+      closed: this.naturalExit ? Promise.resolve() : new Promise<void>(() => undefined),
       write: (text): Promise<void> => {
         this.writes.push(text);
         this.events.push(`write:${text.trim()}`);
@@ -94,9 +96,19 @@ class FakeDriver implements ManagedContainerDriver {
   }
 }
 
-function channel(control: SupervisorControl, events: string[]): SupervisorAttemptChannel {
+function channel(
+  controls: readonly SupervisorControl[],
+  events: string[],
+): SupervisorAttemptChannel {
+  let index = 0;
   return {
-    nextControl: (): Promise<SupervisorControl> => Promise.resolve(control),
+    nextControl: (): Promise<SupervisorControl> => {
+      const control = controls.at(index);
+      index += 1;
+      return control === undefined
+        ? new Promise<SupervisorControl>(() => undefined)
+        : Promise.resolve(control);
+    },
     send: (frame: SupervisorReplyFrame): Promise<void> => {
       events.push(`send:${frame.type}`);
       return Promise.resolve();
@@ -111,7 +123,7 @@ describe('the managed solver lifecycle', () => {
       START,
       { image: IMAGE, pidsLimit: 128, maxManagedContainers: 16 },
       driver,
-      channel('bound', driver.events),
+      channel(['bound'], driver.events),
     );
 
     expect(terminal).toEqual({
@@ -146,7 +158,7 @@ describe('the managed solver lifecycle', () => {
         START,
         { image: IMAGE, pidsLimit: 128, maxManagedContainers: 16 },
         driver,
-        channel(control, driver.events),
+        channel([control], driver.events),
       );
 
       expect(driver.writes).toEqual([]);
@@ -160,6 +172,27 @@ describe('the managed solver lifecycle', () => {
       ]);
     });
   }
+
+  it('kills on post-bind socket EOF before waiting or removing', async () => {
+    const driver = new FakeDriver();
+    driver.naturalExit = false;
+    await runManagedSolverAttempt(
+      START,
+      { image: IMAGE, pidsLimit: 128, maxManagedContainers: 16 },
+      driver,
+      channel(['bound', 'eof'], driver.events),
+    );
+
+    expect(driver.writes).toHaveLength(2);
+    // Proof: dropping the post-bind control race leaves no kill before wait.
+    expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
+      'kill',
+      'wait',
+      'inspect2',
+      'send',
+      'rm',
+    ]);
+  });
 
   it('sweeps every labelled orphan before returning', async () => {
     const driver = new FakeDriver();
@@ -187,7 +220,7 @@ describe('the managed solver lifecycle', () => {
         START,
         { image: IMAGE, pidsLimit: 128, maxManagedContainers: 1 },
         driver,
-        channel('bound', driver.events),
+        channel(['bound'], driver.events),
       );
     } catch (error) {
       rejection = error;

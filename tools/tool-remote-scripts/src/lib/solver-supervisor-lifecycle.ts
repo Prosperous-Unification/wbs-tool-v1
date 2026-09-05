@@ -10,6 +10,8 @@ import type { SupervisorReplyFrame, SupervisorStartFrame } from './solver-superv
 export type SupervisorControl = 'bound' | 'abort' | 'kill' | 'eof' | 'timeout';
 
 export interface ManagedContainerAttachment {
+  /** Resolves when `docker attach` closes because the child stopped. */
+  readonly closed: Promise<void>;
   write(text: string): Promise<void>;
 }
 
@@ -97,6 +99,13 @@ export async function runManagedSolverAttempt(
   if (control === 'bound') {
     await attachment.write('bound\n');
     await attachment.write(`${JSON.stringify(frame.request)}\n`);
+    const completion = await Promise.race([
+      attachment.closed.then(() => 'closed' as const),
+      channel.nextControl(),
+    ]);
+    if (completion !== 'closed') {
+      await driver.kill(exactManagedContainerArgs('kill', containerId));
+    }
   } else {
     await driver.kill(exactManagedContainerArgs('kill', containerId));
   }
