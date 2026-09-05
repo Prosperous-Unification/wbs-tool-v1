@@ -136,25 +136,34 @@ in both slices rather than implied by position.
       **3:1** against **every backdrop of `design.md` §6's enumerated set** —
       not against `--background` alone (round-5 Sol review, Important 8) —
       and carrying a label colour clearing **4.5:1** against its own fill
-      (1.4.3). The body rule crosses four translucent area fills that the base
+      (1.4.3). The body rule crosses four area fills that the base
       background does not account for: the weekend column
       `fill-muted-foreground/10` (`gantt-panel.tsx:2883`), the zebra band
       `fill-muted/40` (`:2903`), the pointed row's light `fill-(--grid-dep-lit)`
-      (`:3983`) and today's column `fill-sky-500/15` (`:2950`). All four
-      co-occur, so the backdrop is any of the **16 composites** of that set over
+      (`:3983`) and today's column `fill-sky-500/15` (`:2950`). Three are
+      translucent tints; **the pointed row's light is opaque** —
+      `color-mix(in oklab, var(--ring) 20%, var(--background))`
+      (`styles.css:259`) over two opaque inputs (`--ring` at `:118` light,
+      `:149` dark) — so it _replaces_ what is beneath it rather than
+      compositing over it, and treating all four as tints was this section's
+      own first-draft error. Paint order is weekend, zebra, pointed, today, so
+      the set is the **8** composites of the three tints without the pointed
+      light, plus the **2** with it (which erase the weekend and zebra beneath
+      and take only the optional today tint on top) — **10 per theme** over
       `--background` (`apps/fe-01/src/styles.css:100` light, `:131` dark — WCAG
-      1.4.11, the non-text bar these are), in each theme: **32 backdrops per
-      entry**. The eight values and all 32 measured ratios each go into
+      1.4.11, the non-text bar these are): **20 backdrops per
+      entry**. The eight values and all 20 measured ratios each go into
       `verify.md`: they are a measured result, which is why `design.md` names
       the bars and the backdrops and leaves the hexes to this slice.
       Test: `libs/domain/src/marker-color.test.ts`, `expect(PALETTE).toHaveLength(8)`
       **first**, then a table case over every entry × every backdrop asserting
       both ratios. The backdrops are **computed, not pasted**: the test
-      composites the four fill values over each base with the standard
-      source-over formula and asserts `expect(backdrops).toHaveLength(16)` per
-      theme, so a fill dropped from the set fails on a count rather than
-      silently shrinking the bar. The four fill colours and
-      `--grid-dep-lit` are read from `styles.css`, the same way the two bases
+      composites the three tints over each base with the standard source-over
+      formula, takes the resolved `--grid-dep-lit` as an opaque surface in its
+      own right, and asserts `expect(backdrops).toHaveLength(10)` per theme, so
+      a fill dropped from the set fails on a count rather than
+      silently shrinking the bar. All four fill colours are read from
+      `styles.css`, the same way the two bases
       are, so a theme change that darkened a band breaks this test rather than
       the chart. The length assertion is not decoration: without it the
       ratio loop passes over an empty or one-entry palette, and the
@@ -167,16 +176,16 @@ in both slices rather than implied by position.
       negative that fails earlier than the line it names proves nothing about
       that line. **Second negative, for the backdrop set and not for the
       palette:** the composite loop replaced by the two bases alone, watched
-      failing `toHaveLength(16)` — and then, with the loop restored, an entry
+      failing `toHaveLength(10)` — and then, with the loop restored, an entry
       replaced by a colour that clears 3:1 against bare dark `--background` and
       fails it over the dark **weekend + today** composite, watched failing on
       that backdrop while the bare-base assertion stays green. That second half
       is the only thing that proves the widened set is load-bearing; without it
-      a 32-backdrop loop whose extra 30 rows never bind is 30 rows of
+      a 20-backdrop loop whose extra 18 rows never bind is 18 rows of
       decoration. Eight rather than "a fixed palette": a count the
       test can iterate is checkable, an adjective is not.
 - [ ] 3.3 `validateCustomColor(hex)` refusing a colour below either bar **over
-      the same 32 backdrops 3.2 measures**, and **naming the failing backdrop
+      the same 20 backdrops 3.2 measures**, and **naming the failing backdrop
       and the failing ratio** — the theme alone no longer identifies it, since
       a colour can clear bare dark and fail dark-over-weekend, and a refusal
       that said only "dark" would send the user hunting a fill it never named.

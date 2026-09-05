@@ -331,11 +331,25 @@ closed both):
 | pointed row light | `fill-(--grid-dep-lit)`    | `:3983`                |
 | today's column    | `fill-sky-500/15`          | `:2950`                |
 
-All four are translucent and all four can co-occur at one `(x, row)` — today
-can fall on a Saturday, any row can be pointed, every other row is banded — so
-the backdrop a rule is read against is any of the **16 composites** of that set
-over the base, in each theme: **32 backdrops, not 2**. The 3:1 bar is measured
-against every one of them.
+**Three of the four are translucent tints; the pointed row's light is not.**
+`--grid-dep-lit` is `color-mix(in oklab, var(--ring) 20%, var(--background))`
+(`styles.css:259`) over two opaque inputs (`--ring` at `:118` light, `:149`
+dark), so it is an **opaque** colour that already resolves per theme — it
+_replaces_ what is under it rather than compositing over it. That changes the
+count, and the first draft of this section got it wrong by treating all four as
+tints.
+
+The four can co-occur at one `(x, row)` — today can fall on a Saturday, any row
+can be pointed, every other row is banded — and paint order is weekend, zebra,
+pointed, today. So:
+
+- **pointed row absent:** base, then optional weekend, zebra and today tints —
+  2 × 2 × 2 = **8** composites.
+- **pointed row present:** its opaque light erases the weekend and zebra beneath
+  it, leaving only the optional today tint on top — **2** composites.
+
+**10 backdrops per theme, 20 in all — not 2, and not the 16/32 this section
+first claimed.** The 3:1 bar is measured against every one of them.
 
 **Gridlines (slot 5) and today's leading edge (slot 6) are deliberately
 excluded, and this is the exclusion rather than an omission.** Both are 1px
@@ -345,10 +359,12 @@ reader's eye compares the rule against is the pixels _beside_ it, and those are
 area fills. A rule sharing a gridline's `x` is therefore a legibility question
 already answered by the four rows above.
 
-**Whether 32 backdrops is satisfiable is a measurement, not a promise.** The
-four fills are low-alpha tints, so a palette entry clearing 3:1 against the
-base will very likely clear it against the composites — and "very likely" is
-the adjective this section refuses. Slice 3.2 measures all 32 and records them;
+**Whether 20 backdrops is satisfiable is a measurement, not a promise.** Three
+of the fills are low-alpha tints, so a palette entry clearing 3:1 against the
+base will very likely clear it against those composites — and "very likely" is
+the adjective this section refuses, which is doubly true of the pointed row's
+light, an opaque 20% mix toward `--ring` that is a genuinely different surface.
+Slice 3.2 measures all 20 and records them;
 an entry that fails one is replaced before it lands. The alternative considered
 and rejected was a background-coloured **casing** under the rule — a 3px stroke
 in `--background` beneath the 1px marker stroke, which would make the base the

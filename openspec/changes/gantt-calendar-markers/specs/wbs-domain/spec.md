@@ -406,13 +406,17 @@ and its paint slot supply the de-emphasis the opacity was for. The chip fill was
 always opaque.
 
 **Opacity was only half of it, and the backdrop is the other half.** An opaque
-rule still crosses four translucent area fills — the weekend column, the zebra
-band, the pointed row's light and today's tint — and a hex clearing 3:1 against
-the base background does not thereby clear it over any of those composites
-(round-5 Sol review). The rule's backdrop set SHALL therefore be **every
-composite of those four fills over `--background`, in each theme — 16 per theme,
-32 in all** — and every palette entry and every accepted custom colour SHALL
-clear 3:1 against all of them. Gridlines and today's leading edge are excluded
+rule still crosses four area fills — the weekend column, the zebra band, the
+pointed row's light and today's tint — and a hex clearing 3:1 against the base
+background does not thereby clear it over any of those (round-5 Sol review).
+Three of the four are translucent tints; **the pointed row's light is opaque**,
+a `color-mix(in oklab, var(--ring) 20%, var(--background))` over two opaque
+inputs, so it replaces what is beneath it rather than compositing over it. Paint
+order is weekend, zebra, pointed, today, so the rule's backdrop set SHALL be the
+**8** composites of the three tints over `--background` plus the **2** in which
+the pointed light stands as its own surface under the optional today tint —
+**10 per theme, 20 in all** — and every palette entry and every accepted custom
+colour SHALL clear 3:1 against all of them. Gridlines and today's leading edge are excluded
 by name: both are 1px strokes at a single `x` which the 1px rule covers exactly,
 so what a reader compares the rule against is the area fill beside it. The
 chip's backdrop set is the **4** composites of the weekend and today columns
