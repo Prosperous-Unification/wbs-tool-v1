@@ -839,7 +839,7 @@ in both slices rather than implied by position.
       opening the sheet, watched failing on the surface assertion — without it
       the case passes against an implementation that never opened the surface
       at all.
-- [ ] 6.3 The day sheet: clicking a populated cell lists every marker on that
+- [x] 6.3 The day sheet: clicking a populated cell lists every marker on that
       date with rename, recolour and delete per row, plus an add action — test:
       same file, three cases: two markers on one date (both listed, add
       offered), exactly one marker (still a list, add still offered), and no
@@ -878,6 +878,24 @@ in both slices rather than implied by position.
       failing that case while rename, recolour, delete, the three listing cases
       and 6.1's empty-date composer all stay green — 6.1 cannot cover it,
       because it never goes through the sheet.
+      **TICKED (run 19), and one sentence of it is corrected rather than met.**
+      All six named cases plus delete shipped across chunks 32, 33, 35, 36 and
+      37, each with the dead-handler negative this slice asks for, each failing
+      its own case alone: rename 192/1, recolour 193/1 with the rename case
+      green, delete 194/1, and the Add's own before them.
+      **The correction is the oracle's layer.** This slice says "the outgoing
+      `PATCH` body carrying `{ name }` and nothing else"; what shipped asserts
+      the recorded `ProjectApi` call and the fake's own store. That is not a
+      weaker assertion at the wrong place, it is the only assertion available at
+      this one: `GanttPanel` reports a write upward and never builds a request,
+      so there is no `PATCH` body inside its reach to read. The body is
+      `wbs-api.ts`'s, and 7.2a proves it there in `lib/wbs-api.test.ts` — five
+      cases including the rename that carried a colour too, which is exactly the
+      "`{ name }` and nothing else" this sentence wanted. Asserting a body here
+      would have meant giving the panel a `fetch` to inspect, which is the
+      framework knowledge the seam exists to keep out of it.
+      Delete has no body clause and never needed one. The chip assertion landed
+      as written: the row's chip is azure before the gesture and teal after.
 - [x] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
       Enter and Space handlers, a visible focus ring, `aria-haspopup="dialog"`,
       an `aria-expanded` tracking the sheet, and an `aria-label` naming the
