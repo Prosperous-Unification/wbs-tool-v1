@@ -201,8 +201,9 @@ in both slices rather than implied by position.
       that said only "dark" would send the user hunting a fill it never named.
       Test: same file, a colour that clears 3:1 in light and fails it in dark,
       asserting the refusal names the dark base and `3:1`; and a second that
-      clears every base and fails only over a composite, asserting the refusal
-      names that composite.
+      clears every base and fails only over the **dark weekend + today**
+      composite — the same surface 3.2's second negative uses — asserting the
+      refusal names that composite.
       **There is no third case, and there cannot be: the 4.5:1 label bar is
       unfailable.** The ink is black or white, whichever contrasts more, and the
       two contrasts multiply to exactly 21 for every fill luminance, so the
@@ -224,11 +225,31 @@ in both slices rather than implied by position.
       checked exactly those two surfaces and skipped the other 18 passed every
       named case** — "the same 20 backdrops 3.2 measures" was maintained by this
       sentence and by nothing executable (round-9 Sol review, Important).
-      Negatives, two: the validator returning `true` unconditionally, watched
-      failing; and **one entry deleted from `MARKER_BACKDROPS`**, watched
-      failing the table case — a fault the two colour cases cannot see, because
-      a colour that fails over the dark base still fails with 19 entries in the
-      table.
+      **Fourth case, because the table case proves the table and not the
+      validator.** The deep-equality assertion and its deletion fault both live
+      on `MARKER_BACKDROPS` itself, so **a validator that merely imports the
+      table and then measures only the two entries the colour cases exercise
+      passes all three** — the table is complete, the two named surfaces still
+      refuse, and production skips 18 (round-11 Sol review, Important). The
+      observer therefore has to be a **validator result** over an entry no other
+      case names: a colour that clears 3:1 over 19 of the 20 backdrops and fails
+      only over the **light theme's pointed-row light under the today tint**,
+      asserted refused with the refusal naming that backdrop. That entry is one
+      of the two the pointed light contributes as its own opaque surface, so it
+      is a third distinct surface and neither case above can stand in for it —
+      and it is the entry a validator that composites the three tints over
+      `--background` and stops there never builds at all.
+      Negatives, three: the validator returning `true` unconditionally, watched
+      failing; **one entry deleted from `MARKER_BACKDROPS`**, watched failing the
+      table case — a fault the two colour cases cannot see, because a colour that
+      fails over the dark base still fails with 19 entries in the table; and
+      **the validator's loop narrowed to the two backdrops the first two cases
+      name**, the bare dark base and the dark weekend + today composite, watched
+      failing the fourth case alone. That third fault leaves `MARKER_BACKDROPS`
+      byte-identical, so the deep-equality case stays green — which is what makes
+      it the fault that separates "the table holds 20 entries" from "the
+      validator measures against 20", and the deletion fault above cannot
+      substitute for it because it moves the table rather than the loop.
 - [ ] 3.4 `validateCustomColor` wired into **all three** call sites — the be-01
       create handler, the be-01 recolour handler and the composer — test: the
       controller test from 4.1 posts a sub-bar colour straight to the API,
@@ -418,6 +439,20 @@ in both slices rather than implied by position.
       becomes false by construction; the round-3 test passed only because its
       fixture ids matched no row anywhere, which is a test of nothing (round-4
       Sol review).
+      **Third case, and it covers the only mutating route the two above do not:
+      a cross-project DELETE.** Both cases here exercise rename, and rename and
+      recolour reach the server as two bodies through one `PATCH` — so scoping
+      that patch scopes both, and the delete is left as a separate route with a
+      separate predicate that nothing named. **A delete matched on marker id
+      alone removes project B's row through project A's route while every case
+      above passes** (round-11 Sol review, Important). Case: `DELETE` on project
+      A naming project B's marker id, asserting `not_found`, that B's row is
+      still returned by B's list, and that A's own markers are unchanged. Third
+      negative, and it must be the delete path's own: the `project_id` predicate
+      dropped from the **delete** statement only, watched failing this case with
+      B's row gone, while the list query, the patch route and both cases above
+      stay green — a fault the first negative cannot reach, because it mutates
+      the list predicate and the delete never runs through it.
 - [ ] 4.6a The client-supplied `id` must be a UUID v4 — test: same file, a
       create with `id: 'marker-1'` and one with a v1-shaped UUID each refused
       naming the `id` field, with the marker count unchanged after each.
@@ -682,14 +717,26 @@ in both slices rather than implied by position.
       imported into this module at `:4` for `calendarAxis`, and the mutated
       cell's `date` is non-null, which is what the assertion tests.
 - [ ] 7.2 Clicking an undated plan's cell is refused with a message naming the
-      missing project start date, and no composer opens — test: same file, two
+      missing project start date, and no composer opens — test: same file, three
       assertions: the refusal message is present **and** names the missing
-      start date, and no composer is in the document.
-      **A click writes nothing even when it succeeds** — it opens a composer,
-      and only a submit writes — so "a marker was written" is not observable
-      here and is deliberately not asserted; the storage half of this guarantee
-      is 7.4's. Negative: the refusal branch removed, watched failing on both
-      remaining halves (a composer opened, and no message was rendered).
+      start date, no composer is in the document, and **the fake API received no
+      create call**.
+      **"No marker is written" IS observable here, and the earlier reading that
+      it was not is what left the hole** (round-11 Sol review, Minor). The claim
+      was that a click only opens a composer and only a submit writes, so the
+      storage half belonged to 7.4 — but that argues from the correct
+      implementation, which is the one a negative is supposed to break. A click
+      path that synthesised an `IsoDate` and posted straight through would leave
+      the message rendered, no composer in the document, and this test green;
+      7.4 cannot catch it either, because its guard is the `IsoDate` validator
+      and a synthesised date is a valid one. The fake API's call log is right
+      there in the same fixture, so the assertion costs one line.
+      Negative: the refusal branch removed, watched failing on both remaining
+      halves (a composer opened, and no message was rendered). Second negative,
+      and it is the one the first cannot reach because it leaves the refusal
+      branch intact: the refusal path also issuing a create for the clicked cell
+      with today's date, watched failing the no-create assertion alone while the
+      message and composer assertions stay green.
 - [ ] 7.3 Giving that project a start date turns the same cell live — test:
       same file, re-render with a start date and assert the click opens the
       composer. This is what proves 7.2 refused for the stated reason and not
@@ -839,9 +886,19 @@ in both slices rather than implied by position.
       Minor). So each assertion here filters by `x` against the visible
       interval, and the fixture's off-screen occupied dates are expected to
       carry rules that the count ignores.
-      **Two faults, because the two halves fail differently and one fault
-      cannot catch both.** Fourth negative: the in-viewport filter dropped from
-      the numerator so the whole horizon is counted, watched failing the
+      **"The off-screen rules stay in the DOM" is a decision, and until now no
+      assertion carried it** (round-11 Sol review, Important). Every count above
+      filters by `x` to the visible interval, so a renderer that virtualizes rule
+      elements to that same interval draws six visible rules before the scroll
+      and none after — passing both halves of the sixth case while dropping every
+      off-screen rule, which is precisely the export failure the paragraph above
+      exists to forbid. So the unscrolled half also asserts the **unfiltered**
+      horizon count: every unsuppressed occupied date in the horizon carries a
+      `[data-gantt-marker-rule]` element, the off-screen ones included, so the
+      document holds strictly more rules than the six the density measure counts.
+      **Three faults, because the three failures are distinct and no one fault
+      catches two.** Fourth negative: the in-viewport filter dropped from the
+      numerator so the whole horizon is counted, watched failing the
       **unscrolled** half — the off-screen dates push the count past six and
       suppress six rules that should draw. That fault leaves the scrolled half
       green, since a horizon count is already over the threshold there and
@@ -849,7 +906,13 @@ in both slices rather than implied by position.
       its own: fifth negative, the density computed once at mount and not
       recomputed when `scrollLeft` changes, watched failing the **scrolled**
       half with six rules still drawn where none should be, while the
-      unscrolled half and all five earlier cases stay green.
+      unscrolled half and all five earlier cases stay green. Sixth negative, and
+      it is the one the two above cannot reach because both mutate the
+      **numerator** while this mutates the **render**: the rule elements filtered
+      to the visible interval at render time, watched failing the new horizon
+      assertion with the document holding exactly the six visible rules, while
+      every `x`-filtered count in this slice — and every case at 28px, 12px and
+      the two 4px rungs — stays green.
 - [ ] 8.4 Overflow collapses to a count with the list on hover or tap —
       `MARKER_BAND_MAX_PER_CELL` is **3** at 28px, **2** at 12px and **1** at
       4px, and the collapsed cell renders `+N` for the markers it did not show —
@@ -922,6 +985,18 @@ in both slices rather than implied by position.
       the name, order, date and swatch assertions all stay green — the fault
       that separates "the names are in the file" from "the names are on the
       page".
+      **Fourth case, because the chip-and-rule pairing is vacuous about rules**
+      (round-11 Sol review, Minor). It requires a chip per marker and relates
+      each _existing_ rule to a chip, so an export carrying chips, a legend and
+      **zero** rules satisfies it — 8.6's other cases assert chips and legend,
+      and 8.7 asserts rule absence only in the suppressed case, so nothing here
+      requires a rule to exist. Case: export below the density threshold and
+      assert **one rule per occupied date**, each carrying that date's x and its
+      marker's colour. Fourth negative: the marker rules stripped from the nested
+      live-chart clone while the chips and the legend are left in place, watched
+      failing this case alone while every chip, name, order, swatch and bounds
+      assertion in 8.6 stays green — the fault that separates "the export names
+      its markers" from "the export shows them".
 - [ ] 8.7 The export matches the screen at 4px above the density threshold —
       test: same file, chips present and no rules, matching 8.3's live
       behaviour. Two renderers agreeing is only a guarantee if a test can see

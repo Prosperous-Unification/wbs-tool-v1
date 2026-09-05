@@ -212,7 +212,7 @@ would discard a fact the user is entitled to record before the plan is dated.
 
 - **WHEN** a project has no start date and a cell of its workday axis is clicked
 - **THEN** no composer opens, a message names the missing project start date,
-  and no marker is written
+  and the client issues no create request
 
 #### Scenario: adding a start date enables the same cell
 
@@ -319,6 +319,16 @@ already past it.
 
 A date absent from the rendered axis SHALL return no offset and draw nothing.
 
+**The viewport scopes the density measure and nothing else.** An unsuppressed
+occupied date SHALL carry its rule whether or not it is scrolled into view: the
+chart is one full-width SVG inside an overflow scrollport, and the export clones
+it, so a renderer that virtualized rules to the visible interval would drop them
+from the downloaded chart while every viewport-scoped count still agreed
+(round-11 Sol review, Important). There SHALL therefore be no viewport
+virtualization of rule elements, and the guarantee SHALL be proved by an
+assertion over the unfiltered horizon rather than by any count the visible
+interval bounds.
+
 #### Scenario: the bar layer is untouched at the widest zoom
 
 - **WHEN** a marker is added crossing an existing bar at 28px per day
@@ -336,6 +346,13 @@ A date absent from the rendered axis SHALL return no offset and draw nothing.
 - **WHEN** the occupied dates within the viewport exceed the density threshold
   at 4px per day
 - **THEN** no rules are drawn, and every chip remains
+
+#### Scenario: an off-screen unsuppressed date still carries its rule
+
+- **WHEN** a plan at 4px per day holds occupied dates inside and outside the
+  viewport and the density measure is below the threshold
+- **THEN** every unsuppressed occupied date in the horizon carries a rule,
+  including the dates scrolled out of view
 
 #### Scenario: many markers on one date are one rule position
 
@@ -391,9 +408,10 @@ the same failure as no legend, wearing a passing test.
 
 #### Scenario: a downloaded chart shows chip and rule together
 
-- **WHEN** a plan with two markers is exported
-- **THEN** the SVG contains a chip for each at its day's x, in its colour, and
-  each rule has a chip at the same date in the same colour
+- **WHEN** a plan with two markers is exported below the density threshold
+- **THEN** the SVG contains a chip for each at its day's x, in its colour, **one
+  rule per occupied date** carrying that date and that colour, and each rule has
+  a chip at the same date in the same colour
 
 #### Scenario: a downloaded chart names its markers at every rung
 
@@ -477,6 +495,14 @@ body SVG's four fills is ever behind a chip.
 A refusal SHALL name the **backdrop** it failed and not merely the theme, since
 a colour can clear the bare dark background and fail dark-over-weekend, and a
 message naming only "dark" sends the user hunting a fill it never named.
+
+**The validator SHALL measure against every entry of that set, and that is a
+separate claim from the set being complete** (round-11 Sol review, Important). A
+validator holding the whole table and measuring only the surfaces its test cases
+name accepts a colour that fails over any of the other 18, so the guarantee SHALL
+be proved by a refusal over a backdrop no other case exercises — the two the
+pointed light contributes as its own opaque surface are the entries a validator
+that composites tints over `--background` and stops there never builds at all.
 
 **The label ink SHALL be black or white, whichever contrasts more with the chip
 fill**, and that choice SHALL be a **total function with no refusal arm**.
@@ -572,10 +598,12 @@ caller overwrite a marker it cannot otherwise address.
 #### Scenario: an unreadable custom colour is refused
 
 - **WHEN** a custom colour below the contrast bar over some backdrop is
-  submitted — one below it on the bare dark background, and one clearing every
-  bare background and failing only over a composite
-- **THEN** neither marker is written and the composer names the failing backdrop
-  in each case
+  submitted — one below it on the bare dark background, one clearing every bare
+  background and failing only over a composite, and one clearing 19 of the 20
+  backdrops and failing only over the light pointed-row light under the today
+  tint
+- **THEN** no marker is written and the composer names the failing backdrop in
+  each case
 
 ### Requirement: A marker's date is a project-local calendar date
 
@@ -634,6 +662,14 @@ room, and it passes every test that only counts emissions.
 Markers SHALL be scoped to one project. A read of one project SHALL return none
 of another's, and a mutation naming a marker of another project SHALL be refused
 with no row changed.
+
+**Every mutating route SHALL carry that scope independently, and `DELETE` is the
+one that does not share a route with the others.** Rename and recolour are two
+bodies through one `PATCH`, so scoping the patch scopes both; the delete is its
+own route with its own predicate, and a delete matched on marker id alone
+removes another project's row through this project's route while every
+rename-based isolation case still passes (round-11 Sol review, Important). The
+delete's predicate SHALL name the project as well as the marker.
 
 A marker SHALL NOT be addressable as a work item. The guarantee is that the two
 **route families are disjoint**, not that the two id spaces are: a marker route
@@ -735,6 +771,12 @@ stated. A marker of another project answers `not_found` rather than `forbidden`
 - **WHEN** two projects each hold markers and one project's markers are listed
 - **THEN** only that project's markers are returned, and a rename naming the
   other project's marker is refused with both rows unchanged
+
+#### Scenario: a delete cannot reach across projects
+
+- **WHEN** a delete on one project names a marker belonging to another project
+- **THEN** it is refused as `not_found`, that marker's row survives, and the
+  deleting project's own markers are unchanged
 
 #### Scenario: the marker routes touch no work-item row
 
