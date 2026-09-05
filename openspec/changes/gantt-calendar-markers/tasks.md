@@ -1012,9 +1012,9 @@ in both slices rather than implied by position.
       loading** (round-17 Gemini review, Important): `measure-ink.ts:78` reads a
       canvas it filled itself with `fillRect`, while `page.screenshot` hands
       back a Node `Buffer`, so the clip has to be carried into the page — set
-      `img.src` to a `data:image/png;base64,` URL built from the buffer, `await
-    img.decode()`, `ctx.drawImage(img, 0, 0)`, then `getImageData`. A
-      **column differs** iff at least one pixel in it
+      `img.src` to a `data:image/png;base64,` URL built from the buffer, await
+      `img.decode()`, call `ctx.drawImage(img, 0, 0)`, then read
+      `getImageData`. A **column differs** iff at least one pixel in it
       has any RGBA channel unequal to the corresponding baseline pixel; and the
       differing columns SHALL form **one contiguous run**. Without those three
       sentences the count is not reproducible — `hover-cards.spec.ts:148` is the
