@@ -93,10 +93,10 @@ day card, click opens the day sheet.
 
 ### Requirement: An undated plan refuses the click and says why
 
-A plan with no start date is drawn on `workdayAxis`, whose cells carry
-`date: null` and therefore emit **no** `data-axis-date`. Clicking such a cell
-SHALL be refused with a visible message naming the missing project start date
-as the reason.
+Clicking a cell that carries no date SHALL be refused with a visible message
+naming the missing project start date as the reason. A plan with no start date
+is drawn on `workdayAxis`, whose cells carry `date: null` and therefore emit
+**no** `data-axis-date`.
 
 The cell SHALL NOT be hidden and SHALL NOT be silently inert. A refusal a user
 can read is the requirement; an unexplained dead click is a defect.
