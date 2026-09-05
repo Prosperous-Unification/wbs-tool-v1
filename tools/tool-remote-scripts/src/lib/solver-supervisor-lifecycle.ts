@@ -5,6 +5,10 @@ import {
   listManagedContainersArgs,
   type ManagedContainerOptions,
 } from './solver-supervisor-command';
+import {
+  relayManagedContainerOutput,
+  type SupervisorOutputLimits,
+} from './solver-supervisor-output';
 import type { SupervisorReplyFrame, SupervisorStartFrame } from './solver-supervisor-protocol';
 
 export type SupervisorControl = 'bound' | 'abort' | 'kill' | 'eof' | 'timeout';
@@ -12,6 +16,8 @@ export type SupervisorControl = 'bound' | 'abort' | 'kill' | 'eof' | 'timeout';
 export interface ManagedContainerAttachment {
   /** Resolves when `docker attach` closes because the child stopped. */
   readonly closed: Promise<void>;
+  readonly stdout: AsyncIterable<Uint8Array>;
+  readonly stderr: AsyncIterable<Uint8Array>;
   write(text: string): Promise<void>;
 }
 
@@ -47,6 +53,7 @@ export interface SupervisorAttemptChannel {
 
 export interface SupervisorLifecycleOptions extends ManagedContainerOptions {
   readonly maxManagedContainers: number;
+  readonly outputLimits: SupervisorOutputLimits;
 }
 
 function requireHostCap(maximum: number): void {
@@ -86,6 +93,13 @@ export async function runManagedSolverAttempt(
 
   const containerId = await driver.create(buildManagedContainerArgs(frame, options));
   const attachment = await driver.attach(exactManagedContainerArgs('attach', containerId));
+  const relay = relayManagedContainerOutput(attachment, options.outputLimits, channel).then(
+    () => ({ ok: true as const }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  const relayFailure = relay.then((state) =>
+    state.ok ? new Promise<never>(() => undefined) : ('output-error' as const),
+  );
   await driver.armDeadline(buildPersistentDeadlineTimerArgs(frame, containerId));
   await driver.start(exactManagedContainerArgs('start', containerId));
 
@@ -102,6 +116,7 @@ export async function runManagedSolverAttempt(
     const completion = await Promise.race([
       attachment.closed.then(() => 'closed' as const),
       channel.nextControl(),
+      relayFailure,
     ]);
     if (completion !== 'closed') {
       await driver.kill(exactManagedContainerArgs('kill', containerId));
@@ -111,11 +126,16 @@ export async function runManagedSolverAttempt(
   }
 
   await driver.wait(exactManagedContainerArgs('wait', containerId));
+  const relayState = await relay;
   const terminal = terminalFrame(
     await driver.inspect(exactManagedContainerArgs('inspect', containerId)),
   );
   await channel.send(terminal);
   await driver.remove(exactManagedContainerArgs('rm', containerId));
+  if (!relayState.ok) {
+    const reason = relayState.error instanceof Error ? relayState.error.message : 'unknown failure';
+    throw new Error(`managed solver lifecycle: output limit failure: ${reason}`);
+  }
   return terminal;
 }
 
