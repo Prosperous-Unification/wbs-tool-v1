@@ -1,4 +1,5 @@
 import { ASSUMED_SLICE_WORKDAYS } from '@wbs/domain/assumed-duration';
+import { automaticColor, labelInk, PALETTE } from '@wbs/domain/marker-color';
 import {
   addCalendarDays,
   addWorkdays,
@@ -14,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { PriorityBandView } from '@/lib/wbs-api';
+import type { CalendarMarkerView, NewCalendarMarkerView, PriorityBandView } from '@/lib/wbs-api';
 
 import { useGanttDetail } from './gantt-detail';
 import {
@@ -839,15 +840,42 @@ export function isoToday(today: Date): IsoDate {
 }
 
 /**
- * Where today stands on the chart, or null when it does not stand on it at all.
+ * Where a calendar date stands on the chart, or null when the axis does not
+ * hold that date at all.
  *
  * **Read off the axis rather than computed a second time**, and that is the
  * whole of the design: the gridlines, the weekend bands and the day cells are
- * all `axis[k].offset`, so a marker that looks its own offset up in the same
+ * all `axis[k].offset`, so a mark that looks its own offset up in the same
  * array cannot drift from the lines it is drawn between. A parallel
- * `calendarDaysBetween(origin, today)` would be a second scale agreeing with
- * the first only for as long as nobody touched either — the failure
+ * `calendarDaysBetween(axis[0].date, date)` would be a second scale agreeing
+ * with the first only for as long as nobody touched either — the failure
  * `calendarAxis`' own docstring warns about, one layer up.
+ *
+ * **The agreement is what makes the drift invisible in ordinary tests.** On
+ * every axis {@link calendarAxis} builds, a cell's stored `offset`, its index
+ * and its calendar distance from `axis[0].date` are the same number, so the
+ * arithmetic spelling passes each of them. Only an axis whose offsets are none
+ * of those three can tell the two apart, which is what this function's own
+ * negative is built on.
+ *
+ * Null is a real answer and not an error: a date before the first cell, a date
+ * past the last, and every date on a plan with no calendar — {@link workdayAxis}
+ * gives every cell `date: null`, so the lookup finds nothing without needing to
+ * know why. What null then means is the caller's to say; {@link todayOffset}
+ * gives the three readings today has for it.
+ */
+export function axisOffsetOf(axis: readonly AxisDay[], date: IsoDate): number | null {
+  return axis.find((day) => day.date === date)?.offset ?? null;
+}
+
+/**
+ * Where today stands on the chart, or null when it does not stand on it at all.
+ *
+ * **The lookup itself is {@link axisOffsetOf}'s**, and today is only its first
+ * caller: a calendar marker asks the same question of the same array, and two
+ * spellings of one lookup are two scales that can disagree — the thing the
+ * lookup exists to prevent, reintroduced one level down. What stays here is
+ * what is true of *today* specifically and of no other date on the chart.
  *
  * **Null is a real answer in three different situations, and all three want the
  * same thing — no line:**
@@ -870,7 +898,7 @@ export function isoToday(today: Date): IsoDate {
  * needs no weekend arm of its own is a property of the axis, not an oversight.
  */
 export function todayOffset(axis: readonly AxisDay[], today: IsoDate): number | null {
-  return axis.find((day) => day.date === today)?.offset ?? null;
+  return axisOffsetOf(axis, today);
 }
 
 /**
@@ -1021,7 +1049,7 @@ export function assumedLabelFor(
  * have: a plan with no start date has no dates at all, and a weekend cell of a
  * calendar has no workday number.
  */
-interface AxisDay {
+export interface AxisDay {
   offset: number;
   /** The workday this cell is, or null on a weekend and on a plan with no calendar. */
   workday: number | null;
@@ -1031,6 +1059,80 @@ interface AxisDay {
   /** Whether the heavy gridline falls here — a Monday, or every fifth workday off a calendar. */
   heavy: boolean;
 }
+
+/**
+ * One calendar marker, as the chart draws it.
+ *
+ * The shape be-01's list route answers with, minus the `projectId` and
+ * `createdAt` no mark on this chart reads — a view type rather than a re-export
+ * so a column added to `calendar_marker` later reaches the panel only when
+ * somebody names it here.
+ *
+ * **`color` is nullable and that is the stored value, not the drawn one.**
+ * `null` means *automatic*, which {@link automaticColor} resolves from the
+ * marker's own id (`schema.ts`: the auto colour is derived on the way out and
+ * never materialised, so a marker that has never been recoloured has no fill in
+ * the database at all). {@link markerFill} is the one place that resolution
+ * happens on this side.
+ */
+/**
+ * Re-exported, not declared: the shape is what be-01 sends, so it moved to
+ * `lib/wbs-api.ts` beside the calls that fetch it (task 7.2a). This line is
+ * what keeps every importer here unchanged — and a second `interface` would be
+ * a second shape free to drift from the one the read actually answers.
+ */
+export type { CalendarMarkerView };
+
+/**
+ * The fill a marker is actually drawn in: its own colour, or the automatic one
+ * its id decides.
+ *
+ * Named rather than inlined at the chip because two marks draw one marker —
+ * the chip here and the rule down the body (task 8.2) — and a second spelling
+ * of `?? automaticColor(id)` is a chart that can disagree with itself about
+ * what colour one marker is.
+ */
+export function markerFill(marker: CalendarMarkerView): string {
+  return marker.color ?? automaticColor(marker.id);
+}
+
+/**
+ * The empty marker list, once.
+ *
+ * A module constant and not a `= []` default in the parameter list: that
+ * spelling builds a **new** array on every render, and the chip layer's memo
+ * takes `markers` as a dependency — so every unrelated re-render of the panel
+ * would rebuild every chip on a chart that has no markers at all.
+ */
+const NO_MARKERS: readonly CalendarMarkerView[] = [];
+
+/**
+ * The id a new marker is minted with when nobody injects a factory.
+ *
+ * A module constant rather than an inline `() => crypto.randomUUID()` default
+ * in the parameter list, for {@link NO_MARKERS}' reason: that spelling builds a
+ * **new** function on every render, and the composer's opener names the factory
+ * in a `useCallback` dependency array — so every unrelated re-render of the
+ * panel would rebuild it.
+ *
+ * `crypto.randomUUID` and not a hand-rolled string: 4.6a's route refuses a
+ * `markerId` that is not a UUID v4, and the platform's own generator is the one
+ * thing on this side guaranteed to answer one.
+ */
+const randomMarkerId = (): string => crypto.randomUUID();
+
+/**
+ * What an undated plan's axis cell says when it is operated.
+ *
+ * It names the **missing project start date** and not merely "this cannot be
+ * marked", because the refusal is only actionable if the reader learns which
+ * thing to go and set. A marker's date is absolute, so the marker itself is
+ * perfectly storable against an undated project (task 7.4) — what is missing
+ * is the calendar this axis would have to draw it on, and saying that is the
+ * difference between a dead control and a next step.
+ */
+const UNDATED_REFUSAL =
+  'This plan has no project start date, so its days are workday numbers rather than calendar days and cannot carry a calendar marker. Set a project start date first.';
 
 /**
  * The workday axis: one cell per whole workday the horizon reaches, printing
@@ -1043,8 +1145,19 @@ interface AxisDay {
  * The cell count is `wholeDaysCovering` and never a bare ceil: this axis's
  * horizon is the engine's own workday numbers, drift included, and one drifted
  * bit on the last finish is not a cell no work can ever stand in.
+ *
+ * **`date: null` on every cell is a guarantee and not an implementation
+ * detail**, which is why this function and {@link AxisDay} are exported for a
+ * test that calls it directly. The whole of §7's refusal hangs off it: a
+ * calendar marker is an absolute date, an undated plan has none to offer, and
+ * the cell says so by having no date rather than by anyone asking whether the
+ * project has a start. Give these cells a synthesised date — the plausible
+ * helpful change — and every refusal in section 7 becomes unreachable while
+ * each of its tests keeps passing, because a live cell refuses nothing. Routed
+ * through the panel the same assertion would go green the day some future
+ * change gave every project a start date; asserted here it breaks loudly.
  */
-function workdayAxis(horizon: number): AxisDay[] {
+export function workdayAxis(horizon: number): AxisDay[] {
   return Array.from({ length: wholeDaysCovering(horizon) }, (_, workday) => ({
     offset: workday,
     workday,
@@ -1162,6 +1275,31 @@ function spanWords(startDate: IsoDate | null, start: number, finish: number, tod
  * is prose, and it says so by rounding.
  */
 const daysNumber = (days: number): string => String(Number(days.toFixed(2)));
+
+/**
+ * What a screen reader announces when it lands on a dated axis cell.
+ *
+ * The cell's own text is a bare number — `19` — which is the one thing a
+ * reader arriving by Tab already cannot use: §6's argument for giving these
+ * cells a tab stop at all is that a row of stops announced "button" and
+ * nothing else is worse than no stop. So the name carries the day, and it
+ * carries what is already standing on it, because the marker chips are drawn
+ * in a `pointer-events-none` layer over the band and are therefore invisible
+ * to everything except sight.
+ *
+ * The count is spelled out rather than left to the chips because a cell with
+ * two markers and a cell with none are the same element to a reader otherwise
+ * — and "no calendar markers" is said out loud rather than omitted, so that
+ * silence on a cell means the name failed to build rather than that the day is
+ * empty.
+ */
+function axisCellName(date: IsoDate, markers: number, today: Date): string {
+  const day = shortIsoDate(date, today);
+  if (markers === 0) return `${day}, no calendar markers`;
+  return markers === 1
+    ? `${day}, 1 calendar marker`
+    : `${day}, ${String(markers)} calendar markers`;
+}
 
 /** `1 day`, `2 days`, `3.67 days`. */
 function dayWords(days: number): string {
@@ -1955,6 +2093,21 @@ export function GanttPanel({
   onPointRow,
   pointed,
   registerSvgDownload = () => undefined,
+  // Defaulted here for `dayPx`'s reason and taken as required below: the
+  // seventy-odd renders in `gantt-panel.test.tsx` are about bars, arrows and
+  // carets and have no markers to state, and a chart that had to be handed an
+  // empty array by every one of them would be stating an absence rather than
+  // drawing one.
+  markers = NO_MARKERS,
+  // Defaulted here beside `markers` and taken as required below, for the same
+  // reason: a chart drawn with no markers has nothing to rename, and every
+  // render in this file that is about bars would otherwise have to hand over a
+  // writer it never reaches.
+  onRenameMarker = () => undefined,
+  onRecolorMarker = () => undefined,
+  onDeleteMarker = () => undefined,
+  onCreateMarker = () => undefined,
+  newMarkerId = randomMarkerId,
 }: GanttProps) {
   // The cycle answer is a different panel rather than a branch inside one, and
   // that is what lets {@link GanttChart} hold its hooks unconditionally: this
@@ -1985,6 +2138,12 @@ export function GanttPanel({
       onPointRow={onPointRow}
       pointed={pointed}
       registerSvgDownload={registerSvgDownload}
+      markers={markers}
+      onRenameMarker={onRenameMarker}
+      onRecolorMarker={onRecolorMarker}
+      onDeleteMarker={onDeleteMarker}
+      onCreateMarker={onCreateMarker}
+      newMarkerId={newMarkerId}
     />
   );
 }
@@ -2114,6 +2273,96 @@ interface GanttProps {
    * {@link GanttChart}. The menu's refusal is that `null`, spoken.
    */
   registerSvgDownload?: (download: (() => void) | null) => void;
+  /**
+   * This project's calendar markers, in the total order be-01 answers them in
+   * (`date`, then `createdAt`, then `id`).
+   *
+   * **Non-scheduling overlays**: nothing here reaches {@link layOutGantt} or
+   * moves a bar, which is the whole of what task 5 asserts on the other side of
+   * the wire. A marker is drawn over the calendar the schedule already decided.
+   *
+   * Optional, defaulting to {@link NO_MARKERS}, for {@link GanttProps.dayPx}'s
+   * reason — and required inside {@link GanttChart}, so the default is decided
+   * once and cannot disagree with itself.
+   */
+  markers?: readonly CalendarMarkerView[];
+  /**
+   * A marker on this chart has been given a new name.
+   *
+   * Reported upward rather than written here, which is the same rule
+   * {@link GanttProps.onPickRow} and every other write on this panel follows:
+   * the list it draws arrives as {@link GanttProps.markers}, so the owner of
+   * that list is the only place a write and the redraw that follows it can
+   * agree. A panel that called `renameCalendarMarker` itself would leave the
+   * markers it is drawing stale until somebody above it happened to read them
+   * again — or would have to keep a second copy, which is two sources of truth
+   * for one list.
+   *
+   * Rename and recolour stay **two** reports for `ProjectApi`'s reason: be-01
+   * refuses a `PATCH` body naming both, so a single edit callback here would be
+   * a surface whose two-field call can only ever be refused.
+   *
+   * The name arrives trimmed and is not otherwise checked. What a name may be
+   * is be-01's rule (4.2's refusal table) and a second copy of it on this side
+   * would be free to disagree with it.
+   *
+   * Optional, defaulting to a no-op, for {@link GanttProps.dayPx}'s reason: the
+   * seventy-odd renders in `gantt-panel.test.tsx` are about bars, arrows and
+   * carets and have no markers to rename.
+   */
+  onRenameMarker?: (markerId: string, name: string) => void;
+  /**
+   * A marker on this chart has been given a new fill.
+   *
+   * Reported upward for {@link GanttProps.onRenameMarker}'s reason, and a
+   * second callback beside it rather than one edit for the same one: be-01
+   * refuses a `PATCH` body naming both a name and a colour.
+   *
+   * `string` and not `string | null`, because this surface offers the eight
+   * {@link PALETTE} fills and nothing else — a marker cannot be handed back to
+   * the automatic colour from here yet. `recolorCalendarMarker` takes the
+   * `null`; the day the sheet grows an Automatic entry this widens to match it,
+   * and until then an arm nothing can reach would be a branch no test could
+   * fail.
+   */
+  onRecolorMarker?: (markerId: string, color: string) => void;
+  /**
+   * A marker on this chart has been taken off it.
+   *
+   * Reported upward for {@link GanttProps.onRenameMarker}'s reason. No
+   * confirmation step in front of it: `undo` covers the whole plan and a
+   * marker moves nothing in the schedule (task 4, axis-1), so the cost of the
+   * mistake is one row retyped — and a dialog in front of every delete is the
+   * affordance readers learn to click through.
+   */
+  onDeleteMarker?: (markerId: string) => void;
+  /**
+   * The composer has been saved and wants this marker created.
+   *
+   * Reported upward for {@link GanttProps.onRenameMarker}'s reason. The shape
+   * is `ProjectApi`'s own `NewCalendarMarkerView` rather than three loose
+   * arguments, because the id is the load-bearing member (task 3.5) and a
+   * positional `(date, name, markerId)` is exactly the call site where an
+   * optional third argument gets dropped.
+   *
+   * No colour is ever sent: the composer previews the **automatic** colour, and
+   * automatic is the absence of a choice rather than a value — `null` and
+   * absent are one answer to the route, and 7.2a's 422 arm is what proves it.
+   */
+  onCreateMarker?: (marker: NewCalendarMarkerView) => void;
+  /**
+   * Where the composer's marker id comes from.
+   *
+   * Injected so a test can name the id, which task 3.5 needs twice over: the
+   * assertion is that the previewed colour and the created chip's colour are
+   * equal, and `automaticColor` is one of eight — so an unpinned id makes the
+   * negative pass by luck one time in eight, which is the palette's own
+   * cardinality and not a test.
+   *
+   * Defaulted to {@link randomMarkerId} at the panel's boundary and required
+   * inside {@link GanttChart}, for {@link GanttProps.dayPx}'s reason.
+   */
+  newMarkerId?: () => string;
 }
 
 /**
@@ -2127,6 +2376,23 @@ interface GanttProps {
  * The keyboard has no delay: focus is deliberate and there is no crossing.
  */
 const HOVER_OPEN_MS = 220;
+
+/**
+ * The open composer: the day it stands on, and the id the marker it is about to
+ * create will carry.
+ *
+ * **One state and not two**, which is task 3.5's whole point: the swatch the
+ * reader sees before submitting is `automaticColor(markerId)`, and the chip
+ * drawn afterwards is `automaticColor` of whatever id reached storage. Those
+ * two are the same colour only if they are the same id, so an id minted
+ * anywhere but at the opening — at submit, or in a second piece of state free
+ * to be refreshed on its own — turns the preview into a guess that is right one
+ * time in eight, the palette's own cardinality.
+ */
+interface OpenComposer {
+  date: IsoDate;
+  markerId: string;
+}
 
 /** The surface that is open: whose bar it belongs to, and the rectangle it was placed against. */
 interface OpenSurface {
@@ -2154,15 +2420,37 @@ function GanttChart({
   onPointRow,
   pointed,
   registerSvgDownload,
+  markers,
+  onRenameMarker,
+  onRecolorMarker,
+  onDeleteMarker,
+  onCreateMarker,
+  newMarkerId,
 }: Omit<
   GanttProps,
-  'scheduleError' | 'dayPx' | 'onPickDayPx' | 'labelsShown' | 'onPickLabelsShown'
+  | 'scheduleError'
+  | 'dayPx'
+  | 'onPickDayPx'
+  | 'labelsShown'
+  | 'onPickLabelsShown'
+  | 'markers'
+  | 'onRenameMarker'
+  | 'onRecolorMarker'
+  | 'onDeleteMarker'
+  | 'onCreateMarker'
+  | 'newMarkerId'
 > & {
   dayPx: DayPx;
   onPickDayPx: (dayPx: DayPx) => void;
   labelsShown: boolean;
   onPickLabelsShown: (labelsShown: boolean) => void;
   registerSvgDownload: (download: (() => void) | null) => void;
+  markers: readonly CalendarMarkerView[];
+  onRenameMarker: (markerId: string, name: string) => void;
+  onRecolorMarker: (markerId: string, color: string) => void;
+  onDeleteMarker: (markerId: string) => void;
+  onCreateMarker: (marker: NewCalendarMarkerView) => void;
+  newMarkerId: () => string;
 }) {
   // How far the chart is scrolled, in CSS pixels. Held only so the caption can
   // name the month actually on screen.
@@ -2406,6 +2694,129 @@ function GanttChart({
   // against. Separate from the bars' state and mutually exclusive with it —
   // each opener closes the other, so `getByRole('tooltip')` is singular.
   const [openDay, setOpenDay] = useState<{ offset: number; anchor: AnchorRect } | null>(null);
+  /**
+   * The calendar-marker composer's day, and it is the **date** rather than the
+   * offset the cell was drawn at.
+   *
+   * The offset is what every other piece of axis state carries, and that is the
+   * trap: past the first weekend an offset is not a workday and a workday is
+   * not a calendar day, so a composer handed `offset` would have to convert,
+   * and there are two wrong conversions that both look right on a plan starting
+   * on a Monday. Cell 9 of the 2026-08-10 fixture is 2026-08-19, its workday is
+   * 7, `addWorkdays(start, 9)` is 2026-08-21 and `addCalendarDays(start, 7)` is
+   * 2026-08-17 — three different days for one cell. The cell already knows
+   * which one it is, in the same `day.date` it publishes as `data-axis-date`,
+   * so the answer is carried and never recomputed.
+   */
+  const [composer, setComposer] = useState<OpenComposer | null>(null);
+  /**
+   * The day the open composer stands on, or `null` while none is open.
+   *
+   * Derived rather than held: the date and the id are one fact opened together
+   * (see {@link OpenComposer}), and every reader that only wants the day —
+   * `aria-expanded`, the Escape effect, the caret ref — asks for it here rather
+   * than reaching past the id it does not use.
+   */
+  const composerAt = composer?.date ?? null;
+  /**
+   * What the composer's name field says right now.
+   *
+   * Controlled for {@link draftName}'s reason, and read at save time from here
+   * rather than off the DOM: the composer is remounted by the full-screen
+   * toggle (chunk 34's CI red), and an uncontrolled field would keep or lose
+   * its text by accident of that remount rather than by a decision anything
+   * states.
+   */
+  const [composerName, setComposerName] = useState('');
+  /**
+   * Why the cell that was just operated refuses to open a composer, or `null`
+   * when nothing has been refused.
+   *
+   * Separate state from {@link composerAt} rather than a derived
+   * `startDate === null`, because the refusal is an **answer to an action**:
+   * a plan with no start date draws a whole axis of cells that cannot be
+   * marked, and rendering the sentence merely because the plan is undated
+   * would put a standing complaint on a chart nobody has asked anything of.
+   * It is cleared on the dated branch so a refusal does not outlive the plan
+   * gaining a start date and a cell then opening normally.
+   */
+  const [refusal, setRefusal] = useState<string | null>(null);
+  /**
+   * The day sheet's day — the surface a **populated** cell opens, listing every
+   * marker already standing on that date.
+   *
+   * A second piece of state beside {@link composerAt} rather than one union,
+   * because the two surfaces answer different questions and 6.3's one-marker
+   * case is exactly the confusion a single "the open editor" state invites: a
+   * day carrying one marker opens the *list*, not that marker's editor, or the
+   * second marker on that day becomes unreachable.
+   */
+  const [sheetAt, setSheetAt] = useState<IsoDate | null>(null);
+  /**
+   * Which listed marker is being renamed, or `null` while the sheet is only a
+   * list.
+   *
+   * One id rather than a flag per row: two open name fields on one day is two
+   * drafts a reader can lose track of, and the row that is not being edited has
+   * nothing to remember.
+   */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  /**
+   * What the open name field says right now.
+   *
+   * Held here rather than read off the DOM at save time, because the field is
+   * inside a list that repaints whenever the markers prop lands: an uncontrolled
+   * input would keep its text through the repaint by accident rather than by
+   * decision, and nothing would say which.
+   */
+  const [draftName, setDraftName] = useState('');
+  /**
+   * Which listed marker has its palette open, or `null` while none has.
+   *
+   * Separate from {@link renamingId} rather than one "open editor" union: the
+   * two are different questions about the same row, and a reader who opened the
+   * palette and then decided to rename should not have to close one to reach
+   * the other.
+   */
+  const [recoloringId, setRecoloringId] = useState<string | null>(null);
+  /**
+   * A sheet that closes, or opens on another day, drops the draft with it.
+   *
+   * One effect rather than a `setRenamingId(null)` beside each of the four
+   * places `sheetAt` moves: a draft that outlived its sheet would reappear on
+   * the next opening, over a row the reader had not asked to edit — and the
+   * fourth call site is the one that would be forgotten.
+   */
+  useEffect(() => {
+    setRenamingId(null);
+    setRecoloringId(null);
+  }, [sheetAt]);
+  /**
+   * Escape closes the composer, which is the only way it closes at all.
+   *
+   * A `role="dialog"` a keyboard cannot dismiss is a trap, and this one is
+   * reachable **by** keyboard as of 6.4 — Enter on an axis cell opens it — so
+   * the dismissal has to be reachable the same way. On `document` rather than
+   * on the dialog because nothing focuses the dialog yet: 6.3 is the slice that
+   * moves focus into the name field, and until it lands a listener bound to the
+   * dialog's own subtree would never receive the key.
+   *
+   * Bound only while the composer is open, so a chart with no composer holds no
+   * document listener and no other Escape handler on the page has to compete
+   * with one.
+   */
+  useEffect(() => {
+    if (composerAt === null && sheetAt === null) return;
+    const closeOnEscape = (key: KeyboardEvent) => {
+      if (key.key !== 'Escape') return;
+      setComposer(null);
+      setSheetAt(null);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [composerAt, sheetAt]);
   /** The opening that has been asked for and not yet happened. */
   const opening = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Whether the next click belongs to the touch pointer that pressed a bar. */
@@ -2714,6 +3125,135 @@ function GanttChart({
     [placed, startDate],
   );
   /**
+   * This project's markers grouped by the day they stand on, in the order
+   * `markers` arrives in — which is be-01's total order, so the sheet lists two
+   * markers on one day the same way twice running.
+   *
+   * A map and not a filter at the call site: the axis names every dated cell
+   * and the sheet lists one, and a `markers.filter(…)` in either place is a
+   * scan of every marker per day drawn.
+   */
+  const markersByDate = useMemo(() => {
+    const byDate = new Map<IsoDate, CalendarMarkerView[]>();
+    for (const marker of markers) {
+      const standing = byDate.get(marker.date);
+      if (standing === undefined) byDate.set(marker.date, [marker]);
+      else standing.push(marker);
+    }
+    return byDate;
+  }, [markers]);
+  /**
+   * What operating a dated axis cell opens: the sheet when the day already
+   * carries markers, the composer when it carries none.
+   *
+   * Shared by the click and the key handlers so the two cannot drift — 6.4's
+   * Enter and Space are the same gesture as a click and have to reach the same
+   * surface. Declared here rather than beside {@link sheetAt} because it reads
+   * {@link markersByDate}, and a `useCallback` whose dependency array names a
+   * `const` declared below it is a temporal-dead-zone throw at first render.
+   */
+  /**
+   * Opens the composer on a day, with the id its marker will be created under
+   * already minted.
+   *
+   * Shared by {@link operateDay} and the sheet's Add for the same reason those
+   * two share a surface: an empty cell and a populated day's Add both open the
+   * composer, and an id minted at one of them alone leaves the other previewing
+   * a colour it never sends. Minting **here** rather than at submit is task
+   * 3.5's requirement, and the name field is emptied in the same call so a
+   * draft cannot outlive the opening it was typed into.
+   */
+  const openComposerOn = useCallback(
+    (date: IsoDate) => {
+      setSheetAt(null);
+      setComposerName('');
+      setComposer({ date, markerId: newMarkerId() });
+    },
+    [newMarkerId],
+  );
+  const operateDay = useCallback(
+    (date: IsoDate) => {
+      setRefusal(null);
+      if ((markersByDate.get(date)?.length ?? 0) === 0) {
+        openComposerOn(date);
+        return;
+      }
+      setComposer(null);
+      setSheetAt(date);
+    },
+    [markersByDate, openComposerOn],
+  );
+  /**
+   * Puts the caret in the composer's name field the moment the composer exists.
+   *
+   * A callback ref rather than an effect keyed on {@link composerAt}: the field
+   * is mounted by the composer opening and unmounted by it closing, so the ref
+   * fires on exactly the transition an effect would have to reconstruct, and
+   * there is no window in which the state says open and the input is not yet in
+   * the document.
+   *
+   * Why at all: the cell that opened this was clicked or Entered, and a reader
+   * who then has to go and find the field with a second gesture is being asked
+   * to pay twice for one intention.
+   */
+  /**
+   * The composer opening this caret has already been spent on, so a **remount**
+   * cannot spend it twice.
+   *
+   * The date and not a boolean: moving straight from one day's composer to
+   * another's is a new opening and does deserve the caret, and the date is the
+   * only thing that tells the two apart from inside the ref.
+   */
+  const caretGivenTo = useRef<IsoDate | null>(null);
+  const focusOnOpen = useCallback(
+    (field: HTMLInputElement | null) => {
+      if (field === null) return;
+      if (caretGivenTo.current === composerAt) return;
+      caretGivenTo.current = composerAt;
+      field.focus();
+    },
+    [composerAt],
+  );
+  /**
+   * Forgets the opening the caret was spent on, so the **same** day can open a
+   * second time and be focused again.
+   *
+   * Closing is the only transition that can say this: the ref is handed `null`
+   * both when the composer closes and when a remount detaches the field, and by
+   * then the closure that receives it is the old one either way.
+   */
+  useEffect(() => {
+    if (composerAt === null) caretGivenTo.current = null;
+  }, [composerAt]);
+  /**
+   * Every dated cell's accessible name, by offset — the day it is and how many
+   * markers stand on it ({@link axisCellName}).
+   *
+   * **Memoised for `marksOverLight`'s reason and proved by its tests.** These
+   * names are the axis band's first {@link shortIsoDate} callers, and that
+   * function is the oracle the two "re-renders no Gantt mark" cases count: a
+   * name rebuilt inline in the `axis.map` below turned pointing a row from
+   * zero extra calls into five, because a light moving re-renders the band and
+   * would now recompute a string for every day of the horizon. Nothing here
+   * depends on a gesture, so nothing here should be recomputed by one.
+   *
+   * The counts come off {@link markersByDate} rather than a second pass: the
+   * day sheet needs the markers themselves anyway, and a count is that list's
+   * length. One grouping serves both, which is what keeps the cell loop from
+   * scanning `markers` per day.
+   */
+  const axisCellNames = useMemo(() => {
+    const names = new Map<number, string>();
+    for (const day of axis) {
+      if (day.date === null) continue;
+      names.set(
+        day.offset,
+        axisCellName(day.date, markersByDate.get(day.date)?.length ?? 0, today),
+      );
+    }
+    return names;
+  }, [axis, markersByDate, today]);
+  /**
    * The column today stands in, or null when today is not on this chart.
    *
    * Dany, 2026-08-19: _"on Gantt chart view I want to see the current date
@@ -2995,6 +3535,63 @@ function GanttChart({
             vectorEffect="non-scaling-stroke"
           />
         )}
+
+        {/*
+                A marked day, down the whole body — the chip in the axis band
+                says *which* day and this says *where it falls* against the
+                work, which is the question a marker is added to answer.
+
+                **Its slot is here, and "behind the bars" would not have said
+                so.** This layer paints thirteen kinds of mark in one order
+                (`design.md` §2.1) and "behind the bars" fixes the rule against
+                exactly one of them, leaving the other twelve to whoever edits
+                next. Emitted after {@link data-gantt-today-edge} and before the
+                row hit lines, the capacity links and every bar: over the
+                calendar's own furniture, because a marker is a fact about the
+                calendar that the reader put there and the gridlines are not;
+                under everything that carries a row's work, because a rule that
+                covered a bar would trade the sentence it is drawn to support
+                for a stripe across it.
+
+                `pointerEvents="none"` is belt-and-braces rather than load-
+                bearing: the row hit lines at slot 8 are painted **over** this
+                and take the pointer first whatever the rule declares. It is
+                here so a future reorder that moves the rule above them does
+                not silently take the row hover with it.
+
+                One rule per marked **date**, not per marker, in the colour of
+                that date's first marker by `(created_at, id)` — which is the
+                order be-01 sends and the order {@link markersByDate} preserves.
+                Two markers on a day are two chips and one rule: the rule says
+                the day is marked, and a second line at the same x would be
+                invisible and would double the ink at every zoom rung.
+
+                A date off the drawn horizon draws nothing, for the chip's
+                reason — see the `null` arm in the band below and task 8.5.
+              */}
+        {[...markersByDate].map(([date, standing]) => {
+          const offset = axisOffsetOf(axis, date);
+          if (offset === null) return null;
+          return (
+            <line
+              key={date}
+              x1={offset}
+              y1={0}
+              x2={offset}
+              y2={rowCount}
+              data-gantt-marker-rule={offset}
+              // The **first** marker's fill, through the one spelling of
+              // "what colour is this marker" the chart has: a second
+              // `?? automaticColor(id)` here is a rule free to disagree
+              // with the chip standing on it. See {@link markerFill}.
+              stroke={markerFill(standing[0])}
+              pointerEvents="none"
+              // The gridlines' reason: user space is one unit per day, so an
+              // unscaled stroke would be a day wide at every rung.
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })}
 
         {/*
                 Every row's own line, as a hit surface and nothing else.
@@ -3531,6 +4128,7 @@ function GanttChart({
       drawnLinks,
       drawnPoolWaits,
       endTouchPress,
+      markersByDate,
       onPickRow,
       pad,
       placed,
@@ -3861,6 +4459,10 @@ function GanttChart({
           */}
             <div
               data-gantt-axis
+              // `sticky` is already a positioned box, so it is the containing
+              // block the chip layer below is placed against — a `relative`
+              // beside it would be a second `position` on one element and which
+              // of the two won would be a question about stylesheet order.
               className="border-border bg-background sticky top-0 z-10 flex border-b"
               // The same band the SVG keeps at its left, so workday 0's cell
               // starts where the SVG's user x=0 does. Without it the whole
@@ -3901,6 +4503,87 @@ function GanttChart({
                     }, HOVER_OPEN_MS);
                   }}
                   onPointerOut={dismiss}
+                  // A click opens the composer on **this cell's own date**, and
+                  // the date is the one the cell already publishes rather than
+                  // one derived from `day.offset` — see {@link composerAt} for
+                  // the two conversions that agree with it on a Monday start
+                  // and disagree past the first weekend.
+                  //
+                  // It does **not** dismiss the hover card: the two surfaces
+                  // answer different questions about the same cell (which day
+                  // is this, versus mark this day) and the pointer that clicked
+                  // is by definition still over the cell that opened it.
+                  onClick={() => {
+                    if (day.date === null) {
+                      setRefusal(UNDATED_REFUSAL);
+                      return;
+                    }
+                    operateDay(day.date);
+                  }}
+                  // The control contract, and it ships **with** the click
+                  // rather than after it: `jsx-a11y/click-events-have-key-events`
+                  // and `no-static-element-interactions` both refuse a `<span>`
+                  // that grew an `onClick` and nothing else, so 6.1 cannot land
+                  // without this much of 6.4. Only this much — 6.4's seven
+                  // cases and 6.4a's undated ones are still owed, and both
+                  // slices stay unticked until they exist.
+                  //
+                  // Space is `preventDefault`ed because its default on a
+                  // focusable element is to scroll the page, which on an axis
+                  // inside a horizontal scroll box is the one thing a reader
+                  // operating it by keyboard would notice.
+                  //
+                  // `aria-expanded` is the **transition** and not the
+                  // attribute: it is `composerAt === day.date`, so the cell
+                  // that opened the composer says `true` and every other dated
+                  // cell on the axis says `false` at the same moment. A value
+                  // hard-coded either way would satisfy a single-state
+                  // assertion, and one derived from `composerAt !== null`
+                  // would announce the whole row as open.
+                  role="button"
+                  tabIndex={0}
+                  {...(day.date === null
+                    ? {
+                        'aria-disabled': true,
+                        // **Not a generic name.** §6's argument for giving
+                        // these cells a tab stop at all is that a row of stops
+                        // announced "button" and nothing else is worse than no
+                        // stop, so a cell that cannot be marked has to say
+                        // which cell it is and why — the workday it stands at,
+                        // and the project start date that is missing. That is
+                        // 6.4a's own contract and two Sol rounds found it
+                        // unasserted, not merely unimplemented.
+                        //
+                        // The `null` arm is the shared type's, not this axis's:
+                        // an undated cell is drawn only by `workdayAxis`, which
+                        // sets `workday` on every cell it makes. It is
+                        // `calendarAxis` that has workdayless cells, and those
+                        // are weekends — which always carry a date and so never
+                        // reach this branch.
+                        'aria-label':
+                          day.workday === null
+                            ? 'No project start date'
+                            : `Workday ${String(day.workday)}, no project start date`,
+                      }
+                    : {
+                        'aria-haspopup': 'dialog' as const,
+                        // Either surface counts as open, because a populated
+                        // cell opens the sheet and an empty one the composer —
+                        // an `aria-expanded` naming only the composer would say
+                        // `false` on exactly the cells that just opened
+                        // something.
+                        'aria-expanded': composerAt === day.date || sheetAt === day.date,
+                        'aria-label': axisCellNames.get(day.offset),
+                      })}
+                  onKeyDown={(key) => {
+                    if (key.key !== 'Enter' && key.key !== ' ') return;
+                    key.preventDefault();
+                    if (day.date === null) {
+                      setRefusal(UNDATED_REFUSAL);
+                      return;
+                    }
+                    operateDay(day.date);
+                  }}
                   // The first day of each week reads as the heading it is, over
                   // the heavier gridline under it; a weekend cell is greyed back,
                   // like the column beneath it.
@@ -3921,6 +4604,79 @@ function GanttChart({
                   {axisNumberShown(day, dayPx)}
                 </span>
               ))}
+              {/*
+              The chips, in one layer over the cells rather than inside them.
+
+              **Placed by {@link axisOffsetOf} and by nothing else**, which is
+              the whole of task 8.1. A chip drawn inside its cell's `<span>`
+              would be at the right x by construction and could never be wrong,
+              and the fault this slice exists to catch is exactly the one that
+              looks right: a marker placed at its **workday** number instead of
+              its calendar offset. Those two numbers agree until the first
+              weekend and drift by a day per weekend after it — the drift
+              `gantt-calendar-axis` was built to end — so a chart that placed
+              chips workday-wise would look correct on week one and be a day
+              early on week three.
+
+              Its own {@link CHART_PAD_PX} offset, for the band's reason: `left`
+              on an absolutely positioned child is measured from the containing
+              block's **padding** edge, so the band's own `paddingLeft` does not
+              move it and the pad has to be spent again here. Spending it on the
+              layer rather than on each chip is what keeps a chip's own `left`
+              the plain calendar x a test can read.
+
+              `pointer-events-none`: the cell underneath is the control — it
+              carries the click that opens the composer and the hover that opens
+              the day card — and a chip lying across it would eat both on
+              exactly the days that have something to say. What a chip does when
+              it is pointed at is task 8.4's, and it will need this line
+              revisited rather than kept.
+
+              Overflow is **not** here: `MARKER_BAND_MAX_PER_CELL` and the `+N`
+              collapse are task 8.4, and until they land two markers on one date
+              draw two chips at one x.
+            */}
+              <div
+                data-gantt-marker-band
+                className="pointer-events-none absolute inset-y-0"
+                style={{ left: CHART_PAD_PX }}
+              >
+                {markers.map((marker) => {
+                  const offset = axisOffsetOf(axis, marker.date);
+                  // A marker off the drawn horizon draws nothing — the axis has
+                  // no cell to stand it on, and inventing one would put it at
+                  // the edge as if it were on the last day. Task 8.5 is the case
+                  // that says so; this arm is what lets it pass silently rather
+                  // than at `NaN` pixels.
+                  if (offset === null) return null;
+                  const fill = markerFill(marker);
+                  return (
+                    <span
+                      key={marker.id}
+                      data-marker-chip={marker.id}
+                      // The x it was placed at, published beside the pixels: the
+                      // `left` below is `offset * dayPx` and a test that read
+                      // only the pixels would be reading the zoom rung as much
+                      // as the placement.
+                      data-marker-offset={offset}
+                      className="absolute bottom-0 block truncate rounded-sm px-0.5 text-[9px] leading-3"
+                      style={{
+                        left: offset * dayPx,
+                        maxWidth: dayPx,
+                        backgroundColor: fill,
+                        // **Chosen, not carried.** `labelInk` is the chooser
+                        // task 3.2a built and this is its only call site in the
+                        // application: hard-code the ink here and 3.2a's own
+                        // table stays green while every chip on the chart is
+                        // painted in a colour nothing measured.
+                        color: labelInk(fill),
+                      }}
+                    >
+                      {marker.name}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
             {/*
             The chart and the words on it, stacked: the SVG lays the geometry
@@ -4086,6 +4842,264 @@ function GanttChart({
               </HoverCard>
             );
           })()}
+        {/*
+        The calendar-marker composer.
+
+        It reports the day it was opened on twice over — once in words for a
+        reader and once as the `YYYY-MM-DD` it will send, which is the same
+        string the cell carries in `data-axis-date`. The ISO form is not
+        decoration: the words are produced by {@link shortIsoDate}, so a test
+        that read only them would be asserting about the formatter as much as
+        about the day the composer is bound to.
+
+        The rest of the editor — the name field's validation, the previewed
+        colour, the day sheet's list of existing markers — arrives with slices
+        3.5 and 6.3. What is here is what 6.1 is about: the click surface
+        reaching a composer bound to the right date.
+      */}
+        {/*
+        The refusal, drawn where the composer it stands in for would have
+        opened, so a reader who clicked a cell finds the answer in the place
+        they were looking.
+
+        **Announced as well as drawn** (task 6.5). `role="status"` and not an
+        alert, the same choice the filter note below makes: nothing is wrong —
+        the plan simply has no start date yet — and an alert interrupts. The
+        role also carries `aria-live="polite"` implicitly, so the sentence is
+        not spelled twice.
+
+        The paragraph **is** the region rather than sitting inside one: a
+        wrapper that stayed mounted while its child came and went would
+        announce on the child's insertion, which is the same event, and the
+        extra element would be one more thing that can lose the role. Mounting
+        the region with its text already in it is what the panel does
+        everywhere else it says something transient.
+      */}
+        {refusal !== null && (
+          <p
+            role="status"
+            data-marker-refusal
+            className="border-border bg-background text-muted-foreground fixed bottom-4 left-1/2 z-30 max-w-xs -translate-x-1/2 rounded-md border p-3 text-xs shadow-md"
+          >
+            {refusal}
+          </p>
+        )}
+        {composer !== null && (
+          <div
+            role="dialog"
+            aria-label={`New calendar marker on ${shortIsoDate(composer.date, today)}`}
+            data-marker-composer
+            data-composer-date={composer.date}
+            className="border-border bg-background fixed bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-md border p-3 shadow-md"
+          >
+            <p className="text-xs font-semibold">{shortIsoDate(composer.date, today)}</p>
+            <div className="mt-2 flex items-center gap-2">
+              {/*
+                The colour this marker will be created in, shown **before** it
+                is — task 3.5. It is `automaticColor` of the id in
+                {@link OpenComposer}, which is the same id the create body
+                carries, so the preview and the chip cannot be two answers.
+
+                `aria-hidden` and named in the field's own label instead: a
+                swatch is a colour, and a screen reader that stopped on an
+                unlabelled box would learn nothing a hex triple could tell it.
+              */}
+              <span
+                aria-hidden="true"
+                data-composer-swatch={composer.markerId}
+                className="border-border h-3 w-3 shrink-0 rounded-full border"
+                style={{ backgroundColor: automaticColor(composer.markerId) }}
+              />
+              <input
+                ref={focusOnOpen}
+                type="text"
+                aria-label="Marker name"
+                value={composerName}
+                onChange={(edit) => {
+                  setComposerName(edit.target.value);
+                }}
+                className="border-border w-48 rounded border px-2 py-1 text-xs"
+              />
+            </div>
+            {/*
+              The save, reporting upward for {@link GanttProps.onRenameMarker}'s
+              reason: the list this chart draws arrives as a prop, so the owner
+              of that list is the only place a create and the redraw after it
+              can agree.
+
+              The name is trimmed and not otherwise checked, the same rule the
+              sheet's rename follows — what a name may be is be-01's (4.2's
+              refusal table), and a second copy of that rule here would be free
+              to disagree with it. No colour is sent: the reader has not chosen
+              one, and an automatic colour is the absence of a choice rather
+              than a value to transmit.
+            */}
+            <button
+              type="button"
+              aria-label={`Save the new calendar marker on ${shortIsoDate(composer.date, today)}`}
+              className="mt-2 text-xs underline"
+              onClick={() => {
+                onCreateMarker({
+                  markerId: composer.markerId,
+                  date: composer.date,
+                  name: composerName.trim(),
+                });
+                setComposer(null);
+              }}
+            >
+              Save
+            </button>
+          </div>
+        )}
+        {/*
+        The day sheet — what a **populated** cell opens.
+
+        Every marker on that date, in be-01's order, each row carrying rename,
+        recolour and delete, and an Add below them. A day with exactly one
+        marker gets the same list: shortcutting one marker to its own editor
+        would read as helpful and make a second marker on that day unreachable,
+        which is the conflict 6.3 exists to settle.
+
+        **All three actions report a write now**, each proved by the call it
+        reports as well as by the DOM the answer repaints. The names are
+        per marker (`Rename Cutover`) rather than bare verbs, because a list of
+        rows announcing three identical buttons apiece is a list a screen reader
+        cannot navigate.
+      */}
+        {sheetAt !== null && (
+          <div
+            role="dialog"
+            aria-label={`Calendar markers on ${shortIsoDate(sheetAt, today)}`}
+            data-marker-sheet
+            data-sheet-date={sheetAt}
+            className="border-border bg-background fixed bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-md border p-3 shadow-md"
+          >
+            <p className="text-xs font-semibold">{shortIsoDate(sheetAt, today)}</p>
+            <ul className="mt-2 flex w-56 flex-col gap-1">
+              {(markersByDate.get(sheetAt) ?? []).map((marker) => (
+                <li
+                  key={marker.id}
+                  data-marker-row={marker.id}
+                  className="flex items-center gap-2 text-xs"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-3 shrink-0 rounded-sm"
+                    style={{ backgroundColor: markerFill(marker) }}
+                  />
+                  {renamingId === marker.id ? (
+                    <>
+                      <input
+                        type="text"
+                        aria-label={`New name for ${marker.name}`}
+                        value={draftName}
+                        onChange={(event) => {
+                          setDraftName(event.target.value);
+                        }}
+                        className="border-border grow rounded border px-1 py-0.5 text-xs"
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Save the new name for ${marker.name}`}
+                        // The write is a **report**, and the list this row is
+                        // drawn from is the owner's: the new name arrives back
+                        // through `markers`, so a handler that repainted here
+                        // as well would be showing its own guess beside the
+                        // answer. See {@link GanttProps.onRenameMarker}.
+                        onClick={() => {
+                          onRenameMarker(marker.id, draftName.trim());
+                          setRenamingId(null);
+                        }}
+                      >
+                        ✓
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="grow truncate">{marker.name}</span>
+                      <button
+                        type="button"
+                        aria-label={`Rename ${marker.name}`}
+                        // Seeded with the name it is replacing: renaming is
+                        // nearly always an edit of what is there, and a field
+                        // that opened empty would make the common gesture a
+                        // retype.
+                        onClick={() => {
+                          setRenamingId(marker.id);
+                          setDraftName(marker.name);
+                        }}
+                      >
+                        ✎
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={`Recolour ${marker.name}`}
+                    aria-expanded={recoloringId === marker.id}
+                    onClick={() => {
+                      setRecoloringId(recoloringId === marker.id ? null : marker.id);
+                    }}
+                  >
+                    ◑
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${marker.name}`}
+                    onClick={() => {
+                      onDeleteMarker(marker.id);
+                    }}
+                  >
+                    ✕
+                  </button>
+                  {recoloringId === marker.id && (
+                    <ul
+                      data-marker-palette={marker.id}
+                      className="flex w-full basis-full flex-wrap gap-1"
+                    >
+                      {PALETTE.map((entry) => (
+                        <li key={entry.name}>
+                          <button
+                            type="button"
+                            // The colour's name and the marker's, because eight
+                            // unnamed swatches per row is eight buttons a screen
+                            // reader announces identically — the same rule the
+                            // three actions above follow.
+                            aria-label={`${entry.name} for ${marker.name}`}
+                            className="border-border size-4 rounded-sm border"
+                            style={{ backgroundColor: entry.fill }}
+                            onClick={() => {
+                              onRecolorMarker(marker.id, entry.fill);
+                              setRecoloringId(null);
+                            }}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              aria-label={`Add a calendar marker on ${shortIsoDate(sheetAt, today)}`}
+              className="mt-2 text-xs underline"
+              // The sheet's own day, carried across rather than recomputed —
+              // the same rule the cell's click follows, and here there is not
+              // even an offset to be tempted by.
+              //
+              // The sheet **gives way** to the composer rather than stacking
+              // behind it: two dialogs open on one date is two things for a
+              // keyboard to be lost between, and the composer's own Escape
+              // closes both states at once either way.
+              onClick={() => {
+                openComposerOn(sheetAt);
+              }}
+            >
+              Add
+            </button>
+          </div>
+        )}
       </section>
       {/*
         The chart's controls, and they are **outside** the scroll box on

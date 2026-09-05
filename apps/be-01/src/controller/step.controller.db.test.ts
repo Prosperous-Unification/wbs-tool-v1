@@ -26,6 +26,7 @@ import { StepService } from '../service/step.service';
 import { WorkItemService } from '../service/work-item.service';
 import { TEST_JWT_KEY } from '../testing/auth-fixture';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { inMemoryCapacity, testCapacityService } from '../testing/capacity-fixture';
 import { personAdded } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -110,6 +111,7 @@ beforeEach(async () => {
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
+    calendarMarkers: testCalendarMarkerService(),
     auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
     // The shared wrapper here too, from Gemini's Minor on PR 203: this line
     // handed `ProjectService` a PRIVATE recorder, so anything it announced

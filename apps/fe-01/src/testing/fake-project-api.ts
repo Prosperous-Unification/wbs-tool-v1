@@ -3,6 +3,7 @@ import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 
 import type {
   AssumedAssigneeFlipView,
+  CalendarMarkerView,
   Days,
   EstimateMethod,
   ProjectApi,
@@ -45,6 +46,14 @@ export const QA: StepView = { id: 'step-qa', name: 'QA' };
  */
 export function fakeProjectApi(): ProjectApi & {
   rows: WorkItemView[];
+  /**
+   * The markers this fake is holding right now, readable by the test.
+   *
+   * Exposed the way {@link rows} is, and for the slice that needs it: 7.2
+   * asserts an undated plan's axis cell wrote **nothing**, and "nothing" is
+   * only observable against a list a create would have grown.
+   */
+  markers: CalendarMarkerView[];
   stack: { undoable: boolean; redoable: boolean };
   stackCalls: ('undo' | 'redo')[];
   answerStackWith: (answer: UndoResult) => void;
@@ -82,6 +91,26 @@ export function fakeProjectApi(): ProjectApi & {
   let estimateMethod: EstimateMethod = 'pert';
   let depReach: DependencyReach = 'whole-item';
   let startDate: string | null = null;
+  /**
+   * The project's calendar markers, in creation order — which is the order
+   * `listCalendarMarkers` answers in.
+   *
+   * A **store** and not a call log, and the difference is what two slices rest
+   * on: 7.2 asserts an undated plan's cell wrote nothing, and 6.3 reads the
+   * rename and recolour back off what the fake now holds. A spy that recorded
+   * arguments and kept nothing would let a composer writing to the wrong marker
+   * pass both.
+   */
+  const markers: CalendarMarkerView[] = [];
+  /** Minted here when the caller names none, as be-01 mints one. */
+  let nextMarkerId = 0;
+  const markerAt = (markerId: string): CalendarMarkerView => {
+    const found = markers.find((marker) => marker.id === markerId);
+    // The refusal be-01 answers, so a write aimed at an id nothing holds fails
+    // here rather than being silently absorbed.
+    if (found === undefined) throw new Error('not_found');
+    return found;
+  };
   /**
    * `serviceIds` present and empty on every team, never absent — be-01 sends
    * the ownership map whole ({@link TeamView.serviceIds}) and a fake that left
@@ -254,6 +283,7 @@ export function fakeProjectApi(): ProjectApi & {
 
   return {
     rows,
+    markers,
     stack,
     stackCalls,
     /** What the next undo or redo answers, for the refusals be-01 models. */
@@ -525,6 +555,37 @@ export function fakeProjectApi(): ProjectApi & {
     setStartDate(_projectId, day) {
       startDate = day;
       renumber();
+      return Promise.resolve();
+    },
+    listCalendarMarkers: () => Promise.resolve(markers.map((marker) => ({ ...marker }))),
+    createCalendarMarker(_projectId, marker) {
+      const stored: CalendarMarkerView = {
+        id: marker.markerId ?? `marker-${String(nextMarkerId++)}`,
+        date: marker.date,
+        name: marker.name,
+        // Absent and `null` are one answer — the automatic colour — because
+        // that is what the route stores for both, and a fake that kept
+        // `undefined` would hand `markerFill` something production never sees.
+        color: marker.color ?? null,
+      };
+      markers.push(stored);
+      // No `renumber()`: a marker moves nothing in the plan, which is task 4's
+      // axis-1 obligation. Recomputing here would hide a marker write that had
+      // quietly become a schedule input.
+      return Promise.resolve({ ...stored });
+    },
+    renameCalendarMarker(_projectId, markerId, name) {
+      const marker = markerAt(markerId);
+      marker.name = name;
+      return Promise.resolve({ ...marker });
+    },
+    recolorCalendarMarker(_projectId, markerId, color) {
+      const marker = markerAt(markerId);
+      marker.color = color;
+      return Promise.resolve({ ...marker });
+    },
+    deleteCalendarMarker(_projectId, markerId) {
+      markers.splice(markers.indexOf(markerAt(markerId)), 1);
       return Promise.resolve();
     },
     steps: () => Promise.resolve(stepList.map((step) => ({ ...step }))),

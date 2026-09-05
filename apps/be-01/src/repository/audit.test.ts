@@ -85,6 +85,16 @@ const FOLDER = import.meta.dir;
 // two facts, and a reader would have to pick. Nothing updates either table:
 // `saved_plan_body` is never rewritten at all, which is the whole immutability
 // property (`schema.ts`), and a rename touches the header's `name` alone.
+//
+// `calendarMarker` is the tenth, and its `created_at` is **an ordering key
+// rather than a stamp**: the list is totally ordered by `(date, created_at,
+// id)` and nothing reads that column as "when somebody did this". The other
+// three audit columns would each name a fact no rule reads. There is
+// deliberately **no per-marker role** — the change's spec says so in as many
+// words, and every mutation is gated by the project's own write permission — so
+// a `created_by` would record an author whom no later decision consults, and a
+// `updated_by` an editor of a row whose whole content a rename or a recolour
+// replaces. `project_id` already answers whose marker it is.
 const EXEMPT = new Set([
   'eventLog',
   'commandJournal',
@@ -101,6 +111,7 @@ const EXEMPT = new Set([
   'optimizedScheduleCache',
   'savedPlan',
   'savedPlanBody',
+  'calendarMarker',
 ]);
 
 /** The files that hold writes — every repository, and not this test or the helper. */

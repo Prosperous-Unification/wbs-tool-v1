@@ -35,6 +35,7 @@
       "@wbs/domain/effective-tag": ["libs/domain/src/effective-tag.ts"],
       "@wbs/domain/effective-service": ["libs/domain/src/effective-service.ts"],
       "@wbs/domain/label-mismatch": ["libs/domain/src/label-mismatch.ts"],
+      "@wbs/domain/marker-color": ["libs/domain/src/marker-color.ts"],
       "@wbs/domain/is-within": ["libs/domain/src/is-within.ts"],
       "@wbs/domain/priority-band": ["libs/domain/src/priority-band.ts"],
       "@wbs/domain/dependency-reach": ["libs/domain/src/dependency-reach.ts"],

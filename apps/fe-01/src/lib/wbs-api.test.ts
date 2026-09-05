@@ -762,3 +762,85 @@ describe('reads asked for twice at once', () => {
     await second;
   });
 });
+
+describe('the calendar-marker client', () => {
+  const MARKER = { id: 'm1', date: '2026-08-19', name: 'Launch', color: null };
+
+  it('reads the markers off the project route the panel draws from', async () => {
+    const fetched = stub(() => response(200, JSON.stringify({ markers: [MARKER] })));
+
+    await expect(httpProjectApi('t').listCalendarMarkers('p1')).resolves.toEqual([MARKER]);
+
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/projects/p1/calendar-markers');
+  });
+
+  it('sends the client-named id as `markerId`, which is the only name the route reads', async () => {
+    // The one place the wire name and the domain name differ: the path already
+    // spends `id` on the project, so the create body calls the marker's own id
+    // `markerId` and `calendar-marker.controller.ts` maps it back. A client
+    // that sent `id` would have its id silently ignored and be answered a
+    // marker under a different one — which is exactly the collision
+    // `openapi-tools.ts` refuses to ship a tool for.
+    const fetched = stub(() => response(201, JSON.stringify({ marker: MARKER })));
+
+    await expect(
+      httpProjectApi('t').createCalendarMarker('p1', {
+        markerId: 'm1',
+        date: '2026-08-19',
+        name: 'Launch',
+        color: null,
+      }),
+    ).resolves.toEqual(MARKER);
+
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/projects/p1/calendar-markers');
+    expect(fetched.mock.calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ markerId: 'm1', date: '2026-08-19', name: 'Launch', color: null }),
+    });
+  });
+
+  it('renames with a body naming the name alone, because one naming both is refused', async () => {
+    // be-01's `PATCH` takes exactly one of the two: a body carrying both asks
+    // for two writes the store applies one at a time, so it answers 422 rather
+    // than partially apply. A rename that also sent the marker's current colour
+    // would therefore never land at all.
+    const fetched = stub(() =>
+      response(200, JSON.stringify({ marker: { ...MARKER, name: 'Ship' } })),
+    );
+
+    await expect(httpProjectApi('t').renameCalendarMarker('p1', 'm1', 'Ship')).resolves.toEqual({
+      ...MARKER,
+      name: 'Ship',
+    });
+
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/projects/p1/calendar-markers/m1');
+    expect(fetched.mock.calls[0]?.[1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'Ship' }),
+    });
+  });
+
+  it('puts a marker back on the automatic colour by sending `null`, not by omitting it', async () => {
+    // `JSON.stringify` drops an `undefined` member entirely, so a recolour
+    // written as `{ color: theChoiceOrUndefined }` would send `{}` for
+    // "automatic" — a body naming neither name nor colour, which is the 422
+    // arm. `null` is a stated choice and the only way to say it on this wire.
+    const fetched = stub(() => response(200, JSON.stringify({ marker: MARKER })));
+
+    await httpProjectApi('t').recolorCalendarMarker('p1', 'm1', null);
+
+    expect(fetched.mock.calls[0]?.[1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ color: null }),
+    });
+  });
+
+  it('reads a removal answered 204 without a body rather than parsing nothing', async () => {
+    const fetched = stub(() => response(204, ''));
+
+    await expect(httpProjectApi('t').deleteCalendarMarker('p1', 'm1')).resolves.toBeUndefined();
+
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/projects/p1/calendar-markers/m1');
+    expect(fetched.mock.calls[0]?.[1]).toMatchObject({ method: 'DELETE' });
+  });
+});

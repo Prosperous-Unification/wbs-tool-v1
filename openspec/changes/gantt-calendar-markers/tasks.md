@@ -25,19 +25,19 @@ is what the rest is allowed to assume.
 
 ## 1. The decision on record
 
-- [ ] 1.1 ADR under `docs/adr/` for **refusing the marker click on an undated
+- [x] 1.1 ADR under `docs/adr/` for **refusing the marker click on an undated
       plan**, carrying the three-option table from `design.md` §1 (hide /
       synthesise a date / refuse with a reason) and the chosen option. Link it
       from the JSDoc on the refusal branch; do not copy its rationale into the
       code comment — R3. No test: an ADR is a document, and a slice that
       claimed a test for it would be the vacuous shape R5 exists to stop.
-- [ ] 1.2 `CONTEXT.md`: add **calendar marker** — "a named annotation on an
+- [x] 1.2 `CONTEXT.md`: add **calendar marker** — "a named annotation on an
       absolute calendar date, scoped to one project; not a work item and not
       visible to the scheduler". Glossary terms only, no design detail.
 
 ## 2. The table and the migration
 
-- [ ] 2.1 `calendar_marker` in `apps/be-01/src/repository/schema.ts` with the
+- [x] 2.1 `calendar_marker` in `apps/be-01/src/repository/schema.ts` with the
       columns in `design.md` §5, `project_id` cascading on project delete, and
       the `(project_id, date)` index — test:
       `apps/be-01/src/repository/calendar-marker.db.test.ts`, a round-trip, a
@@ -50,7 +50,7 @@ is what the rest is allowed to assume.
       (round-5 Sol review, Important 6). "Deliberately not
       unique" is the one property of this table nothing else in the change can
       observe, and a round-trip test passes with the uniqueness in place.
-- [ ] 2.2 The forward migration, stamped later than
+- [x] 2.2 The forward migration, stamped later than
       `20260904020000_add_saved_plan_created_by_id` — test: the existing
       migration suite plus a case in
       `apps/be-01/src/repository/calendar-marker-migration.db.test.ts` that
@@ -60,7 +60,7 @@ is what the rest is allowed to assume.
       exactly the 500 an outgoing blue/green release would answer with for the
       length of a swap, and the reason the cascade is there rather than for
       tidiness. `Proof:` comment naming the omitted clause.
-- [ ] 2.2a The migration ships its `down.sql` — `AGENTS.md` §Migrations:
+- [x] 2.2a The migration ships its `down.sql` — `AGENTS.md` §Migrations:
       "**Every migration ships a `down.sql` beside its `migration.sql`.** The
       migration lint fails without one, and `readMigrationFolders` refuses to
       run a rollback it cannot complete." Every existing folder under
@@ -75,7 +75,7 @@ is what the rest is allowed to assume.
       and is the failure the lint alone does not catch. The lint deliberately
       does not enforce additive-only on `down.sql`: reversing an additive
       change is destructive by definition, which is why it is a separate file.
-- [ ] 2.3 Stamp collision check — run `duplicateMigrationStamps` from
+- [x] 2.3 Stamp collision check — run `duplicateMigrationStamps` from
       `migrate-down.ts` over the folder set including the new one and assert it
       reports none. Negative: the new folder restamped to
       `20260904020000`, watched failing. A stamp that collides silently
@@ -89,7 +89,7 @@ vectors are computed from them; the numbering follows the reader's order — wha
 the colour function _is_, then what it draws from — and the dependency is stated
 in both slices rather than implied by position.
 
-- [ ] 3.1 `automaticColor(markerId)` — `palette[fnv1a32(id) mod palette.length]`
+- [x] 3.1 `automaticColor(markerId)` — `palette[fnv1a32(id) mod palette.length]`
       over the palette slice 3.2 lands, in a new
       `libs/domain/src/marker-color.ts`. **3.2 runs first:** the pinned vectors
       below are computed from the landed palette and the named hash, and cannot
@@ -131,7 +131,7 @@ in both slices rather than implied by position.
       `Proof:` comment naming the four vectors' source (they are recorded, not
       computed at test time — a vector recomputed by the code under test is the
       code agreeing with itself).
-- [ ] 3.2 The palette itself, **and it lands before 3.1** — eight named hex
+- [x] 3.2 The palette itself, **and it lands before 3.1** — eight named hex
       entries, written into `marker-color.ts` as a literal, each clearing
       **3:1** against **every backdrop of `design.md` §6's enumerated set** —
       not against `--background` alone (round-5 Sol review, Important 8) —
@@ -194,7 +194,7 @@ in both slices rather than implied by position.
       a 20-backdrop loop whose extra 18 rows never bind is 18 rows of
       decoration. Eight rather than "a fixed palette": a count the
       test can iterate is checkable, an adjective is not.
-- [ ] 3.2a `labelInk(fill)` — the chooser itself, which nothing above tests
+- [x] 3.2a `labelInk(fill)` — the chooser itself, which nothing above tests
       (round-19 Gemini review, Important). 3.2 asserts that each palette entry
       **carries** a label colour clearing 4.5:1: a literal checked against a
       literal. The requirement is that the ink is **chosen** — "black or white,
@@ -225,7 +225,7 @@ in both slices rather than implied by position.
       green: at the crossover the two ratios are equal and either answer passes,
       which is what proves the crossover case is a totality check and not the
       discrimination.
-- [ ] 3.3 `validateCustomColor(hex)` refusing a colour below the **3:1** bar
+- [x] 3.3 `validateCustomColor(hex)` refusing a colour below the **3:1** bar
       **over the same 20 backdrops 3.2 measures**, and **naming the failing backdrop
       and the failing ratio** — the theme alone no longer identifies it, since
       a colour can clear bare dark and fail dark-over-weekend, and a refusal
@@ -297,6 +297,21 @@ in both slices rather than implied by position.
       handler with no contrast check ships green past it, which is the gap the
       round-3 Sol review found. A validator unit-tested but never called on one
       of its call sites is the shape 3.1–3.3 would otherwise ship.
+      **Both be-01 halves are landed and watched (2026-09-05); the two composer
+      halves are not, and the box stays unticked until they are.** The create
+      arm is the contrast case 4.5 already carries — one case, not two homes for
+      one row. The recolour arm is the new case named
+      "refuses a recolour under the 3:1 bar, and leaves the stored fill behind",
+      with the row read back as
+      `color: null` afterwards because the marker is created without a fill: a
+      recolour that wrote and then refused answers the same 422. Its negative is
+      the recolour path's own — `colorProblem(color)` removed from the `PATCH`
+      handler's `color !== undefined` arm, leaving the create's call in place —
+      watched at 23 pass / 1 fail, exactly that case, `200` where `422` was owed
+      and `#ff0000` stored, while the create's contrast case and the round
+      trip's recolour stayed green. The remaining two arms are the third and
+      fourth faults below and both need the composer, which slice groups 5–9
+      build.
       **Three call sites, so three faults: the composer needs its own.** Both
       faults above are be-01 handler removals, so the composer arm of this
       slice was asserted and never proved — `validateCustomColor` can be
@@ -324,9 +339,9 @@ in both slices rather than implied by position.
       failing the new case alone, with the three request-body assertions above
       staying green. The 19-of-20 colour is deliberate: a message naming the
       dark base could be produced by a composer that only knows about themes.
-- [ ] 3.5 The composer issues the id, so the previewed colour is the created
+- [x] 3.5 The composer issues the id, so the previewed colour is the created
       one — the composer generates a v4 UUID, renders `automaticColor(id)` as
-      the swatch, and sends that `id` in the create body — test:
+      the swatch, and sends that id as `markerId` in the create body — test:
       `gantt-panel.test.tsx`, read the swatch's colour before submit and the
       created chip's colour after, and assert they are equal. Negative, and it
       must be a **front-end** fault: the composer generating a fresh UUID at
@@ -345,10 +360,48 @@ in both slices rather than implied by position.
       the assertion passes by luck one time in eight, which is the palette's own
       cardinality and not a test. See `design.md` §6.1 for why the other three
       options lost.
+      **Landed (chunk 38, b27e629f). The date and the id are ONE state**,
+      `OpenComposer { date, markerId }`, and not a second piece beside
+      `composerAt`: an id held on its own is free to be refreshed on its own,
+      which is the very fault this slice's negative injects. `composerAt` stays
+      as a derived `composer?.date ?? null`, so every reader that only wants the
+      day — `aria-expanded`, the Escape effect, the caret ref — is unchanged.
+      Minted in **one** opener shared by the empty cell and the sheet's `Add`,
+      for the reason those two already share `operateDay`: an id minted at one
+      of them alone leaves the other previewing a colour it never sends.
+      `crypto.randomUUID` is the default factory (4.6a's route refuses anything
+      that is not a v4) and it is a module constant, not an inline default —
+      the opener's `useCallback` names the factory, so a fresh function per
+      render would rebuild it every render.
+      **THE NEGATIVE'S PREDICTED FAILURE POINT IS WRONG, and the correction is
+      this slice's own.** Watched at a 196-case baseline on
+      `gantt-panel.test.tsx`: `markerId: composer.markerId` replaced by
+      `markerId: newMarkerId()` at the save → **195 pass / 1 fail, this case
+      alone** — but it fails on the **recorded create's id**, not on unequal
+      colours, because the same sentence above also asks for the exact id to be
+      asserted on the outgoing request and that assertion runs first. The fault
+      is caught; "watched failing on unequal colours" describes a test that does
+      not also assert the id, and the two instructions cannot both be true of
+      one case. The injected factory hands back `PREVIEW_ID` then `FRESH_ID`
+      (buckets 1 and 7) so a second mint is observable at all, and the case
+      asserts `automaticColor(PREVIEW_ID) !== automaticColor(FRESH_ID)` up front
+      — if the palette is ever reordered into a collision that line says so,
+      instead of the case passing while proving nothing.
+      Not done here and not this slice's: the composer sends a **trimmed** name
+      and checks nothing else, the same rule 6.3's rename follows (what a name
+      may be is 4.2's refusal table, and a second copy here would be free to
+      disagree with it). AC #1's "validates a name" therefore still has no
+      client half, and no slice owns one.
+      Gates h2puni all four rc 0 at the committed tree: `fe-01:test` 2250/0
+      across 86 files (+1 on chunk 37's 2249, exactly the new case),
+      `fe-01:typecheck`, scoped eslint, `prettier --check`. The first prettier
+      pass was rc 1 on the new test block and **all four were re-run at the
+      formatted tree**; both files md5-identical on h1claw and h2puni before the
+      commit.
 
 ## 4. The API
 
-- [ ] 4.1 `apps/be-01/src/controller/calendar-marker.controller.ts` — list,
+- [x] 4.1 `apps/be-01/src/controller/calendar-marker.controller.ts` — list,
       create, rename, recolour, delete, scoped to one project — test:
       `apps/be-01/src/controller/calendar-marker.controller.db.test.ts`, the
       five verbs round-tripped, list ordered by **`(date, created_at, id)`**,
@@ -377,13 +430,13 @@ in both slices rather than implied by position.
       distinctness** — two markers created on one date, assert their colours
       differ, which 3.1(c)'s `marker.date` fault fails. Neither needs a fault of
       its own here: they are 3.1's oracles, and 3.1 names the mutations.
-- [ ] 4.2 Write permission — every mutation refused for a read-only actor with
+- [x] 4.2 Write permission — every mutation refused for a read-only actor with
       the same status the project's other writes use — test: same file, a
       read-only actor against each of the four mutations, asserting the status
       and that no row was written. Negative: the permission check removed from
       the create path, watched failing on the create case. A permission test
       that only checks the happy path is not a permission test.
-- [ ] 4.3 A create whose `date` is not an `IsoDate` is refused with a typed
+- [x] 4.3 A create whose `date` is not an `IsoDate` is refused with a typed
       422 rather than being coerced — test: same file, `2026-9-17`, `2026-09-17T00:00:00Z` and
       `not-a-date` each rejected. Negative: the validator replaced with a
       truthiness check, watched failing on the timestamp case, which is the one
@@ -413,9 +466,30 @@ in both slices rather than implied by position.
       neighbour) is entirely client-side and never reached. The server half is
       already covered: 4.3 rejects `2026-09-17T00:00:00Z`, so no instant can
       enter storage as a date at all.
-- [ ] 4.4 The client-supplied `id`, its fallback and its collision — test: same
-      file, three cases: a create carrying an `id` stores that exact id; a create
-      omitting `id` is issued one by `Clock.newId()` (asserted through the fake
+      **The zone has to be faked on the runner's command line, not in the
+      file** (measured 2026-09-05 on the gate host, both arms). Under the `test`
+      target's own invocation, which the command line starts with `TZ=UTC`, a
+      case that assigns
+      `process.env.TZ = 'Pacific/Auckland'` and then reads
+      `new Date('2026-08-19T00:00:00')` gets
+      `2026-08-19T00:00:00.000Z`, `getTimezoneOffset()` 0 and
+      `Intl.DateTimeFormat().resolvedOptions().timeZone` still `UTC`: **the
+      assignment does nothing**, because the zone is read once before the test
+      file loads. That is the same finding `vitest.config.ts` already records
+      against `test.env`. The identical probe under `TZ=Pacific/Auckland` on the
+      command line reads `2026-08-18T12:00:00.000Z`, offset `-720`, resolved
+      `Pacific/Auckland` — which _is_ the local-midnight fault this slice has to
+      watch. So the case cannot live in `gantt-panel.test.tsx`, whose whole run
+      is pinned to UTC; it needs a file the UTC invocation does not collect plus
+      a second invocation started under the zone. Cheapest wiring that keeps the
+      gate and CI untouched: both invocations chained in the one `test` target
+      command, a `gantt-panel.zoned.test.tsx` the base config excludes, and a
+      `vitest.zoned.config.ts` that reuses the base's plugins and alias map so
+      `vite-config.test.ts`'s set comparison keeps covering it.
+- [x] 4.4 The client-supplied `markerId`, its fallback and its collision — test:
+      same file, three cases: a create carrying a `markerId` stores that exact id;
+      a create omitting `markerId` is issued one by `Clock.newId()` (asserted
+      through the fake
       clock the suite already injects); a create repeating an existing id is
       refused with no row added and the existing marker's name, date and colour
       unchanged. Negatives, two. For the last: the insert written as an upsert,
@@ -423,12 +497,13 @@ in both slices rather than implied by position.
       asserts an error status passes against an upsert that already destroyed
       the row. And for the first, **the server fault `design.md` §6.1 named and
       no slice owned** (round-12 Sol review, Minor): the create ignoring the
-      supplied `id` and calling `clock.newId()`, watched failing the exact-id
+      supplied `markerId` and calling `clock.newId()`, watched failing the
+      exact-id
       case. §6.1 named it while 3.5 requires a **front-end** fault and delegates
       the server half here, so until now it was owed by neither slice and the
       exact-id case was a positive with nothing watching it. It belongs here
       because this is the only file that executes be-01 code.
-- [ ] 4.5 Refusals name their field and apply nothing — test: same file, one
+- [x] 4.5 Refusals name their field and apply nothing — test: same file, one
       case per row of the spec's eight-row refusal table — including both
       `name` boundaries, an empty string and `MARKER_NAME_MAX + 1 = 121` code
       points, with a 120-point name accepted so the cap is tested at its value
@@ -460,7 +535,7 @@ in both slices rather than implied by position.
       Negative: the rename writing before validating, watched leaving the new
       name behind after a refused call. "Refused" and "unchanged" are two claims
       and the second is the one a partial write breaks.
-- [ ] 4.6 Project isolation, and a marker is not a work item — test: same file,
+- [x] 4.6 Project isolation, and a marker is not a work item — test: same file,
       two seeded projects each with markers: listing one returns none of the
       other's; a rename naming the other project's marker id is refused with
       both rows unchanged; and — replacing the round-3 cross-route id
@@ -471,9 +546,19 @@ in both slices rather than implied by position.
       list query, watched returning the other project's markers. An isolation
       test written only against a single seeded project passes with no predicate
       at all. **The structural half has two negatives, and they are named
-      apart** (round-14 self-review): the **list-handler read** — a `work_item`
-      read added inside the marker list handler, watched failing the reach
-      assertion — and the **recolour-branch read** described below. Round 13
+      apart** (round-14 self-review): the **list-path read** — a `work_item`
+      read added on the list path, watched failing the reach
+      assertion — and the **recolour-branch read** described below.
+      **Both are injected in `CalendarMarkerRepository`, not in the controller
+      handler this sentence used to name** (watched 2026-09-05): the handler
+      holds `auth` and a `CalendarMarkerService` and no drizzle client at all,
+      so a `work_item` read cannot be written there without first plumbing one
+      in — and the plumbing, not the read, would then be what the negative
+      tested. `listFor` is reached only by the list and `recolor` only by the
+      colour branch, so the two faults stay exactly as separate as the handler
+      sites would have been, and injecting a layer **below** the controller is
+      the stronger demonstration of why the oracle is a runtime SQL log: the
+      controller source stays clean while the read still shows up. Round 13
       added the second while this sentence still called the first "the second
       negative", leaving one label on two faults — and the verb
       list here still said "creating, renaming and deleting" while the drive
@@ -519,14 +604,29 @@ in both slices rather than implied by position.
       above passes** (round-11 Sol review, Important). Case: `DELETE` on project
       A naming project B's marker id, asserting `not_found`, that B's row is
       still returned by B's list, and that A's own markers are unchanged. Third
-      negative, and it must be the delete path's own: the `project_id` predicate
-      dropped from the **delete** statement only, watched failing this case with
-      B's row gone, while the list query, the patch route and both cases above
-      stay green — a fault the first negative cannot reach, because it mutates
-      the list predicate and the delete never runs through it.
-- [ ] 4.6a The client-supplied `id` must be a UUID v4 — test: same file, a
-      create with `id: 'marker-1'` and one with a v1-shaped UUID each refused
-      naming the `id` field, with the marker count unchanged after each.
+      negative, and it must be the delete path's own: **the delete path scoped
+      by marker id alone** — the `project_id` term dropped from _both_ of
+      `CalendarMarkerRepository.remove`'s statements, its `one(...)` guard read
+      and the `tx.delete(...)` beneath it — watched failing this case with B's
+      row gone, while the list query, the patch route and both cases above stay
+      green: a fault the first negative cannot reach, because it mutates the
+      list predicate and the delete never runs through it.
+      **The narrower form this sentence asked for until 2026-09-05 cannot fail,
+      and that is a finding rather than a wording fix.** It named the predicate
+      "dropped from the **delete** statement only". Watched: the whole file
+      stayed **23 pass / 0 fail**. `remove` reads the marker through the scoped
+      `one(tx, projectId, id)` first and returns `not_found` before the `DELETE`
+      is ever issued, so that statement's own `project_id` term is unreachable
+      defence and **no test can falsify it** while the guard read stands. It is
+      kept — a guard read is one refactor from being inlined away — but it is
+      documented as redundant rather than asserted as load-bearing. The delete
+      path's only _reachable_ scope fault is the one above, and it is the fault
+      this sentence described in prose all along ("a delete matched on marker id
+      alone").
+- [x] 4.6a The client-supplied `markerId` must be a UUID v4 — test: same file, a
+      create with `markerId: 'marker-1'` and one with a v1-shaped UUID each
+      refused naming the `markerId` field, with the marker count unchanged after
+      each.
       Negative: the UUID check replaced by a non-empty-string check, watched
       letting `'marker-1'` through and writing a row. This does **not** make the
       id spaces disjoint — nothing does, and the spec says so — it bounds the
@@ -534,7 +634,7 @@ in both slices rather than implied by position.
 
 ## 5. The schedule identity guarantee
 
-- [ ] 5.1 The canonical schedule projection is identical with and without
+- [x] 5.1 The canonical schedule projection is identical with and without
       markers —
       test: `apps/be-01/src/controller/calendar-marker-identity.db.test.ts`.
       Capture the schedule for a seeded project, create five markers on dates
@@ -580,7 +680,51 @@ in both slices rather than implied by position.
       projection, then removed. `Proof:` comment naming the seeded id and the
       injected floor. Without a compilable injection this test cannot fail and
       is the sixteenth check again.
-- [ ] 5.1a The scheduler seam is free of markers **at the seam and at the
+      **CORRECTION — that injection as worded cannot fail either, watched
+      2026-09-05 (run 8, chunk 14).** A floor whose value is a marker's date but
+      whose _presence_ does not depend on any marker existing is applied to
+      **both** captures alike, and this test compares the two captures to each
+      other rather than to a stored expectation — so the whole projection moves
+      by the same amount twice and the equality still holds. Watched: a
+      `notBefore` floor of `workdaysBetween(project.startDate, '2026-08-25')`
+      set on the seeded `Sand` row inside `tree()`, and the file stayed **1 pass
+      / 0 fail**. "Derived from a marker's date" has to mean **read from
+      `calendar_marker`**, so that the fold is absent in the first capture (no
+      markers yet) and present in the second (five markers). That makes 5.1's
+      negative the same shape as 5.1a(iii)'s and it needs the same plumbing —
+      `tree()` holds no marker client, so the injection reaches the table
+      through a repository the service already has. Do 5.1a(iii) first and
+      spend its injection on both slices.
+      **CORRECTION — `seq` is not excluded yet, and must not be.** The
+      minus-one-key form is justified by "a marker mutation advances `seq` by
+      design", which is false until slice group 9:
+      `CalendarMarkerService` is constructed from `{ projects, markers, clock }`
+      and holds no `Broadcaster`, so no marker write reaches
+      `broadcast.latestSeq`. Deleting a stationary field is strictly weaker than
+      comparing it — the exact trap this slice's own "justified rather than
+      asserted" sentence names. The test therefore compares the body with **no**
+      exclusion and goes red the moment group 9 wires the broadcast; that
+      chunk restores the deletion together with the `seq`-advanced assertion.
+      **Line citations in this slice are stale** as of `e4f8eae0`: `seq` is
+      read at `work-item.service.ts:1366` and returned at `:1655` (not
+      `:1147-1159`), the payload fields are declared around `:1217-1290`, and
+      5.1a's scheduler call site is `:1548` (not `:1458`) — where it reads
+      `optimized ?? schedule(...)` over the same six arguments 5.1a(a) names, so
+      that check stands as written once its line number is corrected.
+      `notBefore` is built at `:1484-1489`.
+      **DONE 2026-09-05 (run 9, chunk 17), and its negative is 5.1a(iii)'s
+      injection** — which is how run 8's correction resolves. Only a fold that
+      is **absent in the first capture and present in the second** can fail a
+      test that compares two captures to each other, so the injection had to be
+      conditioned on a real `calendar_marker` read; that is exactly (iii), and
+      spending it here is what the correction directed. Watched failing on
+      `latestStart` 0 → 2 for the seeded `Sand` row. **5.1a(iv) fails this case
+      too, and on a different field**: it moves `teamCapacities` and no
+      schedule field at all — which is the whole-body comparison earning its
+      keep, because every enumerated field list rounds 3 and 4 proposed was a
+      list of _schedule_ fields and (iv)'s fold walks straight through all of
+      them. `seq` stays **inside** the comparison, unchanged from chunk 14.
+- [x] 5.1a The scheduler seam is free of markers **at the seam and at the
       inputs** — test: same file, three assertions, because two equal captures
       cannot prove a path is absent (a path that is a no-op on the fixture
       passes) and a source scan of the engine cannot either.
@@ -624,7 +768,46 @@ in both slices rather than implied by position.
       alone leaves the other path unproven.
       `Proof:` comment naming, for (iii) and (iv), the logged statement each
       was caught by.
-- [ ] 5.2 Markers stay out of a saved plan — test:
+      **(a) AND (b) DONE 2026-09-05 (run 8, chunk 16); (c), (iii) and (iv)
+      remain.** (a) parses the argument list off the call site and compares it
+      as a list rather than matching a substring, because the fault it exists
+      for is an extra argument and `toContain('schedule(')` survives that. The
+      **line number is deliberately not asserted** — this slice said `:1458`
+      and the call is at `:1548`, and pinning it makes the test fail on every
+      edit above it.
+      **CORRECTION to negative (i): it does not leave 5.1 green.** Appending a
+      seventh argument is **not** "ignored by the engine" — with
+      `schedule(..., project.depReach, project.id)` the `createWorkItem`
+      command answers **500** and 5.1 dies in its own seed, so the run is
+      **0 pass / 2 fail** rather than the isolated (a) failure this slice
+      describes. (a) is still watched by it, which is what (a) needs; what is
+      wrong is the isolation claim. A negative that keeps 5.1 green has to pass
+      an argument the engine genuinely tolerates.
+      **(ii) is exactly as specified: 1 pass / 1 fail.** A
+      `import type { MarkerBackdrop } from './marker-color'` added to
+      `libs/domain/src/schedule.ts` with a dead local referencing it fails
+      (a)+(b)'s case alone while 5.1 stays green. Baseline 2 / 0, restored
+      after both.
+      **(c), (iii) AND (iv) DONE 2026-09-05 (run 9, chunk 17), which closes
+      5.1a and section 5's identity half.** (c) drives
+      `GET /api/projects/:id/work-items` against a project with five markers
+      through the app's **own** connection, opened with drizzle's `logQuery`
+      for every case in the file rather than for a second app beside it, and
+      asserts no logged statement names `calendar_marker`. `work_item` is
+      asserted **present** in the log first: without that half the assertion's
+      whole content is "the log named no marker", which a broken route
+      answering nothing passes.
+      Both injections reach the table through `WorkItemRepository` — the one
+      repository `tree()` already holds, so no plumbing had to be invented for
+      them — and **both were caught by the same logged statement**,
+      `select "date" from "calendar_marker" where "calendar_marker"."project_id" = ?`.
+      (iii) is the **ordering** input, a `notBefore` floor on the seeded `Sand`
+      row derived from the latest marker date; (iv) is the **resource** input,
+      a `marker-pool` entry folded into `slotsOf` before `slicesOf` is called.
+      Each ran **1 pass / 2 fail** — (c) red, 5.1 red, (a)+(b) green throughout,
+      which is the isolation this slice's fourth negative asks for and the one
+      (i) could not deliver. Baseline 3 / 0 restored after both.
+- [x] 5.2 Markers stay out of a saved plan — test:
       `apps/be-01/src/repository/saved-plan-capture.db.test.ts`, a new case:
       capture a project with markers and a copy with none, assert the
       `input_sha256` values are equal. **This assertion passes on `main`
@@ -639,10 +822,25 @@ in both slices rather than implied by position.
       watched failing on unequal hashes, then removed. `Proof:` comment naming
       the added read and the payload field. Without that
       injection this is 5.1's own trap committed one slice later.
+      **DONE 2026-09-05 (run 8, chunk 15), and the injection took two goes.**
+      The hash is reproduced through the product's own pipeline —
+      `planInputRowsOf` → `canonicalisePlanInput` →
+      `serialiseCanonicalPlanInput` → `bodySha256`, the composition
+      `saved-plan.service.ts:667-668` writes `input_sha256` from — rather than
+      re-serialized here, which would assert this file's own serializer.
+      **The first injection did not fail, and why is worth carrying:** marker
+      rows appended to `tags` inside `readPlanInput()` changed nothing, because
+      the payload's directory projection is **used-only** —
+      `saved-plan-input.ts:246` filters registry rows to the ids work items
+      actually reference, so rows nothing points at are dropped before the
+      digest. A fold has to reach a field the projection keeps. The watched
+      injection folds the marker dates into `project.name`, which
+      `planInputRowsOf` carries verbatim: **23 pass / 1 fail, exactly this
+      case**, on unequal hashes. Baseline 24 / 0, restored after.
 
 ## 6. The click surface
 
-- [ ] 6.1 The dated axis cell accepts a click and opens the composer on that
+- [x] 6.1 The dated axis cell accepts a click and opens the composer on that
       cell's `data-axis-date` — test: `gantt-panel.test.tsx`, click the cell
       whose `data-axis-date` is `2026-08-19` (past the first weekend) and
       assert the composer reports that date.
@@ -654,14 +852,14 @@ in both slices rather than implied by position.
       the composer reading `addWorkdays(startDate, day.offset)` (`2026-08-21`),
       watched failing; a second pass reading `day.workday` (`2026-08-17`), also
       watched failing. `Proof:` comment naming both dates.
-- [ ] 6.2 Hover and click coexist — test: same file, pointer-over then click on
+- [x] 6.2 Hover and click coexist — test: same file, pointer-over then click on
       one cell, asserting the day surface opened and the composer opened and
       neither closed the other. The existing `showDaySurface` timer is the
       thing at risk. Negative: the click handler closing the day surface before
       opening the sheet, watched failing on the surface assertion — without it
       the case passes against an implementation that never opened the surface
       at all.
-- [ ] 6.3 The day sheet: clicking a populated cell lists every marker on that
+- [x] 6.3 The day sheet: clicking a populated cell lists every marker on that
       date with rename, recolour and delete per row, plus an add action — test:
       same file, three cases: two markers on one date (both listed, add
       offered), exactly one marker (still a list, add still offered), and no
@@ -700,7 +898,25 @@ in both slices rather than implied by position.
       failing that case while rename, recolour, delete, the three listing cases
       and 6.1's empty-date composer all stay green — 6.1 cannot cover it,
       because it never goes through the sheet.
-- [ ] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
+      **TICKED (run 19), and one sentence of it is corrected rather than met.**
+      All six named cases plus delete shipped across chunks 32, 33, 35, 36 and
+      37, each with the dead-handler negative this slice asks for, each failing
+      its own case alone: rename 192/1, recolour 193/1 with the rename case
+      green, delete 194/1, and the Add's own before them.
+      **The correction is the oracle's layer.** This slice says "the outgoing
+      `PATCH` body carrying `{ name }` and nothing else"; what shipped asserts
+      the recorded `ProjectApi` call and the fake's own store. That is not a
+      weaker assertion at the wrong place, it is the only assertion available at
+      this one: `GanttPanel` reports a write upward and never builds a request,
+      so there is no `PATCH` body inside its reach to read. The body is
+      `wbs-api.ts`'s, and 7.2a proves it there in `lib/wbs-api.test.ts` — five
+      cases including the rename that carried a colour too, which is exactly the
+      "`{ name }` and nothing else" this sentence wanted. Asserting a body here
+      would have meant giving the panel a `fetch` to inspect, which is the
+      framework knowledge the seam exists to keep out of it.
+      Delete has no body clause and never needed one. The chip assertion landed
+      as written: the row's chip is azure before the gesture and teal after.
+- [x] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
       Enter and Space handlers, a visible focus ring, `aria-haspopup="dialog"`,
       an `aria-expanded` tracking the sheet, and an `aria-label` naming the
       date and the marker count — test: `gantt-panel.test.tsx`, **seven** cases,
@@ -724,6 +940,17 @@ in both slices rather than implied by position.
       the slice that can see it. The `<span>` is a `<span>` today
       because it was hover-only; a click without this contract ships a control
       no keyboard reaches (WCAG 2.1.1).
+      **Part of the implementation is already in, and it arrived with 6.1
+      because eslint would not let it arrive later** (chunk 19). A `<span>` that
+      grows an `onClick` and nothing else fails
+      `jsx-a11y/click-events-have-key-events` and
+      `jsx-a11y/no-static-element-interactions`, so `role="button"`,
+      `tabIndex={0}`, the Enter/Space `onKeyDown` and `aria-haspopup="dialog"`
+      shipped in the same commit as the click. **The slice stays unticked**: not
+      one of its seven cases exists, and `aria-expanded` and the marker count in
+      the accessible name are not implemented at all. What the plan learns is
+      that 6.1 and this slice's _implementation_ are not separable — only its
+      tests are.
       **The role is asserted here for the same reason it is in 6.4a**, and it
       was missing here for one round longer: a focusable generic `<span>`
       carrying every listed handler and ARIA attribute passed all six previous
@@ -734,7 +961,7 @@ in both slices rather than implied by position.
       **The visible focus ring is not in this slice** — jsdom computes no
       styles, so a focus-ring assertion here would pass against no ring at all.
       It moves to 9.2a's browser test.
-- [ ] 6.4a The **undated** cell is a keyboard-operable control announcing an
+- [x] 6.4a The **undated** cell is a keyboard-operable control announcing an
       unavailable state — `role="button"`, `tabIndex={0}`,
       `aria-disabled="true"`, the same Enter and Space handlers, an accessible
       name naming the missing project start date, and no `aria-haspopup` or
@@ -745,6 +972,13 @@ in both slices rather than implied by position.
       Enter on it opens no sheet and puts the refusal in the live region;
       **Space on it does the same**; and it carries neither `aria-haspopup` nor
       `aria-expanded`.
+      **The remaining two cases now wait on 6.5, not on 7.2.** Chunk 26 read
+      them as 7.2's because there was no refusal at all; chunk 27 built the
+      refusal and both keys reach it, so what is still missing is only the
+      _live region_ — which is 6.5's whole slice. Chunk 27's second case proves
+      Enter reaches the refusal; Space on the undated branch is still owed
+      here, and it is 6.4a's to write because 6.4a is the slice that promised
+      "the same Enter and Space handlers".
       **The role and the name are assertions, not preamble** — an
       implementation with the tab stop and both handlers but a missing or
       generic accessible name, and with no `role="button"` at all, passed every
@@ -775,16 +1009,34 @@ in both slices rather than implied by position.
       refusal was unreachable by exactly the users the live region serves. It
       is `aria-disabled`, not `disabled`, because a disabled control leaves the
       tab order and a user who cannot reach it is never told why it is dead.
-- [ ] 6.5 The refusal is announced, not only drawn — the undated-plan message
+- [x] 6.5 The refusal is announced, not only drawn — the undated-plan message
       from 7.2 rendered into a live region — test: same file, assert the
       message's container carries the live-region role the app already uses for
       transient status. Negative: the live-region attribute removed, watched
       failing. A message a screen reader never reaches is the silent absence
       `design.md` §1 refuses.
+      **Landed (chunk 31).** `role="status"` on the refusal paragraph itself —
+      not an alert, the same choice `gantt-panel.tsx`'s filter note makes,
+      because nothing is wrong: the plan simply has no start date yet. The
+      role carries `aria-live="polite"` implicitly, so the intent is not
+      spelled twice. The paragraph **is** the region rather than sitting
+      inside one: a wrapper kept mounted while its child came and went would
+      announce on the child's insertion — the same event — and would be one
+      more element that can lose the role.
+      This is also **6.4a's fifth case**, which is why that slice ticks with
+      it. The Enter case now locates the message _by the live-region role_ and
+      asserts the region is the refusal element, not merely near it. Two
+      negatives, against a 187 / 0 baseline on this file: `role="status"`
+      removed → **185 / 2**, the Enter and Space cases and nothing else — the
+      click case, which still queries by `data-marker-refusal`, stayed green,
+      which is exactly why it could never have caught this; and the role moved
+      to a wrapper with the message in a nested `<span>` → **186 / 1**, the
+      Enter case alone, on the identity assertion. The second is the one that
+      makes "in the region" load-bearing rather than "somewhere on screen".
 
 ## 7. The undated-plan refusal
 
-- [ ] 7.1 `workdayAxis` cells stay dateless — test: `gantt-panel.test.tsx`, a
+- [x] 7.1 `workdayAxis` cells stay dateless — test: `gantt-panel.test.tsx`, a
       direct assertion on `workdayAxis` output that every cell has
       `date: null`, **not** routed through the panel.
       **`workdayAxis` must be exported first, and it is not today.** It is a
@@ -815,7 +1067,7 @@ in both slices rather than implied by position.
       origin needs no new input and no new import: `addWorkdays` is already
       imported into this module at `:4` for `calendarAxis`, and the mutated
       cell's `date` is non-null, which is what the assertion tests.
-- [ ] 7.2 Clicking an undated plan's cell is refused with a message naming the
+- [x] 7.2 Clicking an undated plan's cell is refused with a message naming the
       missing project start date, and no composer opens — test: same file, three
       assertions: the refusal message is present **and** names the missing
       start date, no composer is in the document, and **the fake API received no
@@ -836,7 +1088,90 @@ in both slices rather than implied by position.
       branch intact: the refusal path also issuing a create for the clicked cell
       with today's date, watched failing the no-create assertion alone while the
       message and composer assertions stay green.
-- [ ] 7.3 Giving that project a start date turns the same cell live — test:
+      **TWO OF THE THREE ASSERTIONS SHIPPED IN CHUNK 27; 7.2 STAYS UNTICKED ON
+      THE THIRD**, which has no seam and cannot be given one inside this slice.
+      There is no calendar-marker writer anywhere on the client:
+      `ProjectApi` (`apps/fe-01/src/lib/wbs-api.ts:1155`) carries none, and
+      `CalendarMarker` appears in the whole of `apps/fe-01/src` only inside
+      `gantt-panel.tsx` and its test. So "the fake API received no create call"
+      has nothing to observe — and, which is the part that settles it, the fault
+      the assertion exists to catch cannot be written either: a refusal path
+      that "posted straight through" has no method to post through. An
+      assertion whose negative is uninjectable is the vacuous form this plan
+      rejects by name at 9.2b, so it is left out rather than written green.
+      **The first negative's predicted matrix is half wrong and the correction
+      is this slice's own**: "a composer opened" cannot fail, because the guard
+      that opens the composer is `day.date === null` and `setComposerAt(null)`
+      renders nothing whatever the refusal branch does. Watched at a 183 / 0
+      baseline: `setRefusal(UNDATED_REFUSAL)` neutered in **both** handlers →
+      **183 / 2**, the two new cases alone, on a `toMatch` that received
+      `undefined` instead of a string — the message half, never the composer
+      half.
+      A third negative, not in the plan before and the one that makes _naming_
+      the missing date load-bearing rather than merely _saying something_: the
+      message replaced by a generic "this day cannot carry a calendar marker"
+      → **183 / 2**, the same two cases, on that generic string failing to
+      match `/project start date/`.
+      **THE THIRD ASSERTION LANDED (chunk 39, 899dbc52) and 7.2 is ticked.**
+      7.2a gave `ProjectApi` its writer and 3.5 gave the composer the save that
+      uses it, so the fault this assertion exists to catch is injectable at last.
+      The refusal fixture now takes an `onCreateMarker` wired to `fakeProjectApi`
+      and the click case asserts **two** oracles — the recorder's call log and
+      the fake's own store, because a recorder that logged without performing
+      would show an empty log either way.
+      It is the **last** assertion in the case on purpose: the message and
+      composer halves have to be seen green in the same run for the negative to
+      say anything, and an assertion placed above them would fail first and
+      prove less.
+      SECOND NEGATIVE WATCHED, and it is the one the first cannot reach because
+      it leaves the refusal branch intact: the undated **click** arm also
+      issuing an `onCreateMarker` for a synthesised `2026-08-19` →
+      **195 pass / 1 fail on `gantt-panel.test.tsx`, this case alone**, on
+      `expected [['p1', {…}]] to deeply equal []` — the
+      no-create assertion, with the message and composer assertions green above
+      it in the same run and both keyboard cases untouched (the fault was put in
+      the click handler alone, so the arm it isolates is the arm it names).
+      Test count is **unchanged at 2250**: this chunk added assertions to an
+      existing case rather than a case, which is what the slice asked for.
+- [x] 7.2a The client's calendar-marker **write seam** — `ProjectApi` gains the
+      marker methods be-01 has carried since section 4, so 7.2's third
+      assertion and 6.3's `PATCH`-body oracle have a call log to read. Its own
+      slice and not a line inside either of them, because the cost is not the
+      method: `ProjectApi` is implemented by object literals in roughly fifteen
+      test files (`plan-cards`, `plan-cells`, `plan-dependencies`,
+      `plan-estimates`, `plan-chart-seam`, `project-page`, `app-router` and
+      more), and a required method added to the interface reddens every one of
+      them at once. That is a mechanical change across files this task
+      otherwise never touches, and folding it into a refusal slice would put a
+      fifteen-file diff behind a two-assertion test.
+      **6.3 needs this before it can start**, not only 7.2: 6.3's rename and
+      recolour cases name "the fake API's recorded request" as their oracle and
+      there is no request to record. Whichever of the two runs first should
+      land this.
+      **Landed (chunk 30). The fifteen-file estimate above was wrong, and
+      measured so: `fe-01:typecheck` named exactly two files** —
+      `testing/fake-project-api.ts` and `gantt-panel.test.tsx`. Everything else
+      goes through `testing/refusing-api.ts`, which is a `Proxy` and therefore
+      grows every method the interface grows without a line changing. The cost
+      this slice was split out for does not exist; it was split out anyway, and
+      the record of why it does not is worth more than the split.
+      Five methods, matching be-01's four routes: `listCalendarMarkers`,
+      `createCalendarMarker`, `renameCalendarMarker`, `recolorCalendarMarker`,
+      `deleteCalendarMarker`. Rename and recolour are **two calls onto one
+      `PATCH`** because the route refuses a body naming both — a single
+      `edit(name?, color?)` would be a surface whose two-field call can only
+      ever be refused. `CalendarMarkerView` moved from `gantt-panel.tsx` to
+      `lib/wbs-api.ts` (the component re-exports it, so no importer changed),
+      which is what stops the drawn shape and the fetched shape from being two
+      declarations free to disagree. Five cases in `lib/wbs-api.test.ts`, each
+      watched failing alone: the automatic colour sent as `undefined` → body
+      `{}`, the 422 arm (**the one that makes `null` load-bearing**, since
+      `JSON.stringify` drops an undefined member); the create's id sent as `id`
+      rather than `markerId`; the rename carrying a colour too; the delete
+      aimed at the collection; the list handed back unwrapped. Gates: full
+      `fe-01:test` 2241/0 across 86 files (+5), typecheck rc 0, scoped eslint
+      rc 0, `prettier --check .` rc 0.
+- [x] 7.3 Giving that project a start date turns the same cell live — test:
       same file, re-render with a start date and assert the click opens the
       composer. This is what proves 7.2 refused for the stated reason and not
       because the click handler was never wired: a refusal proved only by "no
@@ -864,7 +1199,7 @@ in both slices rather than implied by position.
 
 ## 8. Drawing
 
-- [ ] 8.0 `axisOffsetOf(axis, date)` — `todayOffset` (`gantt-panel.tsx:872`,
+- [x] 8.0 `axisOffsetOf(axis, date)` — `todayOffset` (`gantt-panel.tsx:872`,
       body `axis.find((day) => day.date === today)?.offset ?? null`)
       generalised to any `IsoDate`, with today rewired as its first caller so
       there is one lookup rather than two that can disagree — test:
@@ -887,7 +1222,7 @@ in both slices rather than implied by position.
       then swap the lookup for `calendarDaysBetween(axis[0].date, date)` and
       watch it fail. This is the second-scale drift `todayOffset`'s own
       docstring warns about, made observable.
-- [ ] 8.1 The chip in the axis band, placed by `axisOffsetOf` — test:
+- [x] 8.1 The chip in the axis band, placed by `axisOffsetOf` — test:
       `gantt-panel.test.tsx`, a marker on `2026-08-19` asserted at the calendar
       x, not the workday x. Negative: the chip placed by workday number,
       watched failing — this is the drift `gantt-calendar-axis` exists to
@@ -903,7 +1238,7 @@ in both slices rather than implied by position.
       hard-coded to white, watched failing on a marker whose colour is a light
       palette entry, where `labelInk` returns `#000000`, while 3.2a's own table
       and this slice's placement assertion stay green.
-- [ ] 8.2 The rule takes its named slot in `marksOverLight` — **not merely
+- [x] 8.2 The rule takes its named slot in `marksOverLight` — **not merely
       "behind the bars"**, which orders the marker against one of the five marks
       the body paints and leaves the other four undecided. Emitted after
       `data-gantt-today-edge` and before the row hit lines and every bar
@@ -1657,3 +1992,1117 @@ in both slices rather than implied by position.
       in `verify.md`, with the failure-proof table: for every negative named
       above, the fault injected, the test that observed it failing, and the
       result. A check with no observed failure is not done.
+
+## Implementation notes — chunk 1 (TASK-235 run 1, 2026-09-05)
+
+Two things the plan said that the code did not.
+
+**`migrate-down-cli.ts --to=<migration>` does not exist.** Slice 2.2a named it
+for the rollback case. `apps/be-01/src/repository/migrate-down.ts` exports
+`rollbackTo(dbPath, migrationsFolder, target)` and there is no CLI beside it, so
+the case calls the function. `readMigrationFolders` is also the migration lint
+the slice refers to — a missing or empty `down.sql` throws there, which is what
+makes both halves of 2.2a's negative reachable from one test file.
+
+**A bare `DELETE FROM project` does not succeed on main either.** Slice 2.2's
+cascade case was first written seeding a starting step, and it failed with
+`FOREIGN KEY constraint failed` before this change existed: `step`, `work_item`,
+`dependency` and `project_access` all reference `project` with **no** `ON DELETE`
+action at all (`schema.ts:244,277,498,1639`). The outgoing release deletes those
+itself; what it cannot delete is a table it has never heard of. The case now
+seeds a bare project, so the only reference between the delete and success is
+this migration's — and the mutation reproduces exactly that red.
+
+**A new migration folder is not a local change.** Fifteen reversal-list
+assertions in `migrate.db.test.ts` and four more files (`migrate-down`,
+`identity-migration`, `saved-plan-migration`, `saved-plan-created-by-id`,
+`project`) assert the applied set newest-first as an exact array. The four-file
+run was green while the whole-directory run was 81 red; a later slice adding a
+migration owes the same sweep.
+
+## Implementation notes — chunk 2 (TASK-235 run 2, 2026-09-05)
+
+Slices **3.1, 3.2 and 3.2a** landed, 3.2 first as the dependency order says.
+Everything is in `libs/domain/src/marker-color.ts` and its test; the measured
+results are in `verify.md`. Four things the plan got wrong or could not know:
+
+1. **The palette's luminance is forced, and the palette is at the ceiling.**
+   Clearing 3:1 against both `light:pointed+today` (L 0.7242) and
+   `dark:base+weekend+zebra+today` (L 0.02908) confines every fill to
+   `0.1872 <= L <= 0.2081`. The constraints balance at `L = 0.19744`, where the
+   best attainable worst case over the 20 is **3.129**; the landed palette
+   measures **3.108**. So "an entry that fails one is replaced before it lands"
+   (design.md §6) has no slack to work with — there is no better palette, and
+   the entries are separated by hue and chroma alone. Recorded rather than
+   discovered again by the next person who tries to widen the bar.
+2. **All eight entries take black ink, so 3.2a's palette table cannot prove the
+   chooser.** The ink crossover is `L ≈ 0.17913` and the whole window is above
+   it. The plan's first negative (`labelInk` hard-coded to `'#ffffff'`) is still
+   watched failing, but the _opposite_ constant agrees with every recorded
+   label. The discrimination is therefore carried by the sRGB cube's two ends,
+   which the plan already asked for — it is load-bearing here rather than
+   supplementary.
+3. **The crossover case cannot be "within 1e-6".** `labelInk` takes `#rrggbb`,
+   so the tightest approach to `L = sqrt(0.0525) - 0.05` is one 8-bit step:
+   `#757575` sits 0.0012 below and `#767676` above. The case brackets it with
+   both neighbours instead, which covers whichever side a strict inequality
+   would fall through, and asserts both still clear 4.5:1.
+4. **`parseHex` takes six digits only.** The three-digit form tripped
+   `@typescript-eslint/no-misused-spread` and nothing in the change uses it; a
+   validator that silently widened `#f00` would accept a shape no stored marker
+   has.
+
+Two gate traps, both already recorded by chunk 1 and both hit again:
+
+- **`tsc --build` leaves `dist/out-tsc`, and the bun runner then collects every
+  compiled test a second time.** A run straight after `nx typecheck` reported
+  729 tests across 56 files with 7 red; `rm -rf dist` first and the same tree is
+  382 across 28, all green. Delete `dist` between the typecheck and the tests,
+  not merely before them.
+- **`nx` without `NX_DAEMON=false` can exit 0 having computed nothing.** The
+  first typecheck attempt printed `Nx Daemon was not able to compute the project
+graph` and still returned `rc=0`; the target never ran. Every gate number in
+  this chunk was taken with the daemon disabled.
+
+`fe-01:typecheck` is **`Killed`** on h2puni — OOM, not a type error, the same
+class that OOM-killed `fe-01:lint` for lane a earlier today. `domain:typecheck`
+and `be-01:typecheck` both pass, and this chunk changes three files under
+`libs/domain/src`. CI is the observer for fe-01.
+
+## Implementation notes — chunk 3 (TASK-235 run 2, 2026-09-05)
+
+Slice **3.3** landed. `validateCustomColor(hex)` returns
+`{ ok, failures, message }`: every failing backdrop in `MARKER_BACKDROPS`
+order, and a message naming the **first** of them with its ratio and the bar.
+
+**The refusal names the first failure in table order, not the worst** — an
+assumption, recorded because it decides two of the four cases. Ordering by
+worst ratio would make case 1 name `dark:base+weekend+zebra+today` (the
+lightest dark surface, which any dark-failing colour fails hardest) rather than
+`dark:base`, and would make case 2 unwritable: `dark:base+weekend+today` is
+never the worst failure, because `dark:base+weekend+zebra+today` is lighter and
+always scores below it. Table order is light-then-dark and base-then-composite,
+which reads as a diagnosis. **What would falsify it:** a user report that the
+named surface is not the one they were looking at — the full `failures` array
+is already in the verdict, so the message is the only thing that would change.
+
+**Shape is a precondition, not a verdict.** `validateCustomColor` throws on a
+malformed hex rather than returning `ok: false`; the API schema and the
+composer's input refuse a typo, and folding the two together would let a
+contrast message answer one. Asserted as its own case.
+
+Three colours, all recorded in `verify.md`:
+
+| case                                 | colour               | what it proves                                                                                                                                       |
+| ------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| clears light, fails dark             | `#7a3400` (L 0.0659) | first failure is `dark:base` at 2.226                                                                                                                |
+| clears both bases, fails a composite | `#0066ff` (L 0.1672) | clears three of the six earlier dark composites and first fails at `dark:base+weekend+today` — the window for that shape is `0.16476 <= L < 0.16803` |
+| 19 of 20                             | `#ff0000` (L 0.2126) | exactly one failure, `light:pointed+today` at 2.943                                                                                                  |
+
+**Three negatives watched failing, and the separation the plan asked for holds:**
+
+- validator accepting everything → all three refusal cases red, the backdrop
+  table case green;
+- one entry deleted from `MARKER_BACKDROPS` → the table case red **alone**, both
+  colour cases green, which is the fault the colour cases cannot see;
+- the loop narrowed to the two backdrops the first two cases name →
+  `MARKER_BACKDROPS` byte-identical and the table case green, with the 19-of-20
+  case red. **It also reddens case 2**, which the plan did not predict: that
+  case asserts the complete `failures` array rather than only the first entry,
+  so a truncated loop shortens it. The discrimination the plan wanted — table
+  intact, loop wrong — still holds, and is proved by the table case staying
+  green under this fault.
+
+`@typescript-eslint/restrict-template-expressions` rejects a `number` in a
+template literal, so the message wraps both in `String(...)`. Same class as
+chunk 2's `no-misused-spread`: the domain lint config is stricter than the
+default and neither rule is autofixable.
+
+## Merge with main — chunk 4 (TASK-235 run 2, 2026-09-05), CLOSED GREEN at 9f775619
+
+**`f84b39da` is the merge of `origin/main` after PR 203 (TASK-219) landed. It
+was red at that head for nine assertions and is green at `9f775619`:
+`apps/be-01/src/repository` is 547 pass / 0 fail across 44 files on h2puni,
+`libs/domain` 506/0, `nx format:check --all` rc 0.** The paragraphs below are
+kept as the record of what the merge cost, because the same class reopens every
+time a migration folder lands beside another branch's.
+
+**The conflicts were all one shape and are resolved.** Main added two migration
+folders (`20260904100000_add_optimizer_tables`,
+`20260904140000_add_project_settings`); `20260905090000_add_calendar_marker`
+sorts newest, so it takes the head of every reverse-chronological rollback list.
+26 hunks were that literal shape, three needed the two sides genuinely merged
+(`project.db.test.ts` uses raw strings rather than constants, and
+`saved-plan-created-by-id.db.test.ts` had a one-line array on one side and a
+four-line one on the other), and `libs/domain/src/index.ts` keeps both new
+exports.
+
+**What was red — nine cases, and every one a list this branch was not named
+in.** Chunk 1 recorded that a new migration folder touches nineteen exact
+reversal-list assertions across five files; main's two folders landed between,
+so the same class reopened against assertions written after chunk 1 read them.
+`apps/be-01/src/repository` at `f84b39da` is **538 pass / 9 fail** on h2puni:
+
+| file                                         | what to change                                                                                                                |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `calendar-marker-migration.db.test.ts:149`   | `expect(reversed).toEqual([CALENDAR_MARKER])` — the named predecessor is now two folders back, not `saved_plan_created_by_id` |
+| `migrate-down.db.test.ts:484,597,704`        | `readMigrationFolders` list and two `appliedNames` lists                                                                      |
+| `optimizer-migration.db.test.ts:142,172,245` | `rollbackTo(..., OPTIMIZER_TABLES)` returns `[PROJECT_SETTINGS]` and must now return `[CALENDAR_MARKER, PROJECT_SETTINGS]`    |
+| `project-settings.db.test.ts`                | the newest-migration assertion expects `project_settings` and receives `calendar_marker`                                      |
+| `migrate-down.db.test.ts:220`                | the `LOOKUP_INDEXES` reversal list                                                                                            |
+
+Every one is additive — `CALENDAR_MARKER` at the head of a list, or one
+expectation of "the newest" moving by one. None is a behaviour change, and the
+watched mutations from chunk 1 still hold: this branch's own four migration
+faults are unaffected by any of them.
+
+**Re-gate with `rm -rf dist` first and `NX_DAEMON=false`**, for the two reasons
+chunk 2 recorded.
+
+### The half of it that was not mechanical
+
+The first resolution pass treated every list as reverse-chronological and put
+`CALENDAR_MARKER` at the head of all of them. **Three of the lists run the
+other way.** `readMigrationFolders` returns the folders on disk oldest-first and
+`appliedNames` returns them in the order they were applied, so in those three
+`calendar_marker` belongs **last**; only a `rollbackTo` result is newest-first.
+Six assertions were red for the missing entry and three for the entry being in
+the wrong place, which reads as one failure count and is two faults.
+
+Two more needed a judgement rather than an entry:
+
+- `calendar-marker-migration.db.test.ts`'s `PREVIOUS` named
+  `saved_plan_created_by_id`, and TASK-219 put two folders between. It is now
+  `project_settings`, still named rather than computed, so a third folder
+  arriving there is a red test and not a silently widened rollback.
+- `optimized-schedule-cache.db.test.ts` asserted `names.at(-1)` and
+  `names.at(-2)`, which is "the last two folders" wearing the name "immediately
+  before the project-settings migration". It is now positional against
+  `PROJECT_SETTINGS` itself, so it keeps meaning what it says as folders land
+  above it. Its `ALSO_ROLLED_BACK` gained `calendar_marker` for the same reason.
+
+## Implementation notes — chunk 5 (TASK-235 run 3, 2026-09-05)
+
+**Slice 4.1's storage half.** `CalendarMarkerRepository`
+(`apps/be-01/src/repository/calendar-marker.ts`) with `listFor`, `create`,
+`rename`, `recolor` and `remove`, the `CalendarMarkerStore` contract in
+`repository/index.ts`, and `calendar-marker-repository.db.test.ts` — twelve
+cases against real SQLite. **4.1 stays unchecked**: the HTTP half — the
+controller, `buildApp` wiring and `calendar-marker.controller.db.test.ts` — is
+not written, and 4.1's checkbox is about the routes.
+
+**Why the storage half is its own chunk rather than the first half of a big
+one.** Two of 4.1's three named assertions are _database_ claims and nothing
+above SQLite can carry them: the total order's third key is the engine's own
+tie-break, and the absent-project refusal exists to keep a foreign key from
+throwing. Both are provable now, and both would have been proved through four
+more layers if they had waited for the routes.
+
+**The ordering case's two ids are pinned twice over.**
+`b1000000-0000-4000-8000-000000000001` and
+`f1000000-0000-4000-8000-000000000002` are inserted in the reverse of their
+lexical order, so insertion order and the asserted sequence disagree and the
+`id` key is the only thing that can produce it — which is this slice's own
+finding, that two reads of a tied pair can agree with the key gone. They also
+land in **different palette buckets** (7 `magenta`, 6 `violet`), which is what
+makes 3.1(c)'s same-date distinctness assertion a real oracle rather than a
+one-in-eight coin flip. The rename-stability marker is
+`c1000000-0000-4000-8000-000000000003`, bucket 0 `crimson`.
+
+**3.1(b) and 3.1(c) are housed here, as the round-7 Gemini review required** —
+`automaticColor(markerId)` sees neither a name nor a date, so their oracles have
+to live where a marker is really renamed and where two really share a date.
+Both are cases in this file. Their _mutations_ stay 3.1's.
+
+**FOUR NEGATIVES WATCHED FAILING, each in a different place, each exactly one
+case** (h2puni, the one file, 2026-09-05):
+
+1. `asc(calendarMarker.id)` struck from the `orderBy` → only `orders a tie on
+(date, created_at) by id`, on a `toEqual` diff of the two-id sequence. 11
+   pass, 1 fail.
+2. The project-existence read inside `create`'s transaction struck → only
+   `refuses a marker on a project nothing holds, and writes nothing`, with an
+   uncaught `SQLiteError: FOREIGN KEY constraint failed` where a modelled
+   `not_found` was owed. 11 pass, 1 fail.
+3. The duplicate-id read struck → only `refuses a repeated id and leaves the
+stored marker untouched`, `SQLiteError: UNIQUE constraint failed:
+calendar_marker.id`. 11 pass, 1 fail.
+4. `one()`'s `projectId` scope dropped from the `WHERE` → only `answers
+not_found for another project's marker, and never touches it`. 11 pass, 1
+   fail.
+
+**The audit guard caught this chunk before anything else did, and that is the
+trap worth recording.** `audit.test.ts` reads every non-test file in
+`repository/` for `.insert(x)` / `.update(x)` and requires each to stamp
+`auditOnCreate` / `auditOnUpdate`. A new repository over a table with no audit
+columns is therefore **two red cases on its first run** — `stamps every insert`
+and `stamps every update` — with nothing wrong with it. The answer is the
+`EXEMPT` set, and the set is itself guarded: `exempts only tables that carry no
+audit columns` re-reads `schema.ts` and fails an exemption for a table that does
+carry them, so the escape hatch cannot silence the guard on a table that should
+be stamped. `calendarMarker` is exempt because its `created_at` is an **ordering
+key, not a stamp**, and the change's spec forbids a per-marker role, so a
+`created_by` would name an author no later decision consults.
+
+**Lint's two rules to know here:** `noUncheckedIndexedAccess` is off, so
+`array[0]` is non-nullable and both `?.` and `!` on one are
+`no-unnecessary-condition` / `no-unnecessary-type-assertion` errors. Seven of
+them, all in the new file.
+
+**GATES on h2puni (`~/t235-gate`, `NX_DAEMON=false`).** `nx run-many -t test -p
+be-01 domain` rc 0: be-01 **1530 pass / 0 fail** across 125 files against a
+measured baseline of 1518 — exactly the twelve new cases, no regression — and
+domain 506 / 0 unchanged. `nx run-many -t lint typecheck -p be-01 domain` rc 0.
+`nx format:check --all` rc 0. `rm -rf dist` before each whole-directory run, per
+chunk 1's trap.
+
+**Next chunk:** 4.1's HTTP half — `calendar-marker.controller.ts`, a
+`CalendarMarkerService` seam if one is wanted, `buildApp` wiring and
+`calendar-marker.controller.db.test.ts`. 4.2 (write permission) and 4.5 (the
+eight-row refusal table) fall out of the same file, and 3.4's two server faults
+need the create and recolour handlers to exist before either can be removed.
+
+## Implementation notes — chunk 7 (TASK-235 run 4, 2026-09-05)
+
+**Slice 4.1's HTTP half, and 4.1 is now checked.** `77ee990a` on
+`change/gantt-calendar-markers-impl`, PR 209. Four new files —
+`service/calendar-marker.service.ts`, `controller/calendar-marker.controller.ts`,
+`testing/calendar-marker-fixture.ts` and
+`controller/calendar-marker.controller.db.test.ts` — plus the wiring and a
+regenerated `apps/be-01/openapi.json`.
+
+**A service seam, not a controller talking to the store.** The previous chunk's
+note left it open. It is there because the _permission_ decision needs the
+project row and the store deliberately knows nothing about projects: putting
+`canEdit` in the controller would have made the gate a property of four call
+sites remembering it, which is the exact shape `CalendarMarkerRepository`'s own
+`WHERE`-clause scoping exists to refuse one layer down.
+
+**Reading is not gated on write permission, and that is a decision rather than
+an omission.** `projectController` already lets a non-owner read a restricted
+project (`project.controller.test.ts`, "lets a non-owner read a restricted
+project"), and a marker is part of what the axis draws. `canEdit` gates the four
+writes only.
+
+**Rename and recolour narrow through two explicit arms.** The obvious spelling —
+a `renaming`/`recoloring` flag pair and a ternary — does not typecheck without
+`body.color as string | null`, and eslint's
+`non-nullable-type-assertion-style` refuses it. Two arms (`name !== undefined &&
+color === undefined`, then the mirror) narrow naturally, and a body naming
+**both** falls to the same 422 as a body naming neither: two writes the store
+applies one at a time is a partial apply the moment the second refuses.
+
+**`calendarMarkers` is required in `AppOptions`,** for `history`'s stated reason.
+That cost 17 call sites one line and one import each — the whole of the
+69-line modified half of this diff. An optional service would have let a
+process answer 404 on every marker route, which a client cannot tell from a
+project that has no markers.
+
+**THE NEGATIVE, WATCHED THROUGH THE ROUTES.** `asc(calendarMarker.id)` struck
+from `CalendarMarkerRepository.listFor`'s `orderBy`, against real SQLite:
+3 pass / 1 fail, failing on the **first** read
+(`calendar-marker.controller.db.test.ts:232`) with
+`Expected ["b1000000-…-000000000001", "f1000000-…-000000000002"]` and
+`Received ["f1000000-…-000000000002", "b1000000-…-000000000001"]` — insertion
+order exactly, which is the flakiness the third key exists to remove and which
+an equality-of-two-reads assertion would have passed straight through. Restored:
+4 pass / 0 fail. Watched 2026-09-05.
+
+**3.1(b) and 3.1(c) are NOT duplicated here.** Chunk 5 housed them in
+`repository/calendar-marker-repository.db.test.ts`, which is where a marker is
+really renamed and where two really share a date. 4.1's paragraph asks for them
+in this file; one home is the requirement and two would be two oracles free to
+disagree.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `rm -rf dist` first):
+`test` over be-01 and domain rc 0 — be-01 **1534 pass / 0 fail across 126
+files** against chunk 5's measured 1530 / 125 baseline, exactly the four new
+cases and no regression; domain 506 / 0 unchanged. `lint` over be-01 and domain
+rc 0. `format:check --all` rc 0. `be-01:typecheck` rc 0 — **on its own**: run
+concurrently with `lint` it was `Killed`, with `free -m` showing 2.4 GB
+available of 15.6 GB while other lanes gated. That is the OOM class that killed
+`fe-01:typecheck` in run 2 and `fe-01:lint` for lane a, one project further in.
+Lint's first pass found 19 real errors — 17 import-sort (the option lines were
+inserted by script, before the anchor import rather than in sorted position) and
+the assertion above; `--fix` plus `format:write` cleared them.
+
+**`apps/be-01/openapi.json` is regenerated, not hand-edited** —
+`bun apps/be-01/src/openapi/emit-openapi-cli.ts` on h2puni, +232 lines, the two
+new paths at `/api/projects/{id}/calendar-markers` and
+`…/{markerId}`. `openapi-document.test.ts` diffs the committed document against
+the app, so a route added without this is a red with a confusing name.
+
+**Next chunk:** 4.2 (the other three mutations plus the removed-check negative),
+4.3 (`IsoDate`, typed 422) and 4.6a (UUID v4) — all in the same file, all
+validation the create and patch handlers do not do yet. 4.4, 4.5 and 4.6 follow.
+
+## Implementation notes — chunk 8 (TASK-235 run 4, 2026-09-05)
+
+**Slices 4.2, 4.3 and 4.6a, all three checked.** `82e26cb5`. One new helper in
+`calendar-marker.controller.ts` — `createProblem(body)`, returning the refusal
+table's `{ reason, field }` or `null` — and five more cases in
+`calendar-marker.controller.db.test.ts`.
+
+**Validation runs in front of the service, not inside it.** A refused body
+never reaches `CalendarMarkerService.create`, so "refused" and "unchanged" are
+one fact rather than two — a validate-after-write is what breaks the second.
+
+**`isIsoDate` rather than a regexp of this file's own.** It already rejects
+`2026-02-31`, which matches `^\d{4}-\d{2}-\d{2}$` and is not a day, and it is
+what `ProjectService.patch` answers `startDate` against. A second spelling would
+be a second rule free to disagree with the one the rest of the API applies.
+
+**The UUID check pins the version and variant nibbles, not the length.** A v1
+UUID is the same length and the same alphabet, and it carries a MAC address and
+a timestamp a marker id has no business publishing. This still does **not** make
+the id spaces disjoint — 4.4 lets a client name its own id, and route-family
+disjointness (4.6) is what forbids a marker reaching work-item code.
+
+**One `it` per fixture rather than a loop over them**, and it changed what the
+negatives prove. The first version looped inside one case; the truthiness
+negative then stopped at whichever date the loop reached first and the record
+would have named the wrong row. Split, the negative names every row it reddens.
+
+**THREE NEGATIVES WATCHED, each in a different place, baseline 9 pass / 0 fail:**
+
+- **4.3** — `isIsoDate(body.date)` replaced with `body.date`, a truthiness
+  check: **6 pass / 3 fail**, reddening all three date rows including
+  `2026-09-17T00:00:00Z`, each `201` where `422` was owed. The timestamp is the
+  row the spec names because it is the one a _plausible_ lax validator lets
+  through; the other two are not strings any check would mistake for a date.
+- **4.6a** — `UUID_V4.test(body.markerId)` replaced with `body.markerId.length > 0`:
+  **7 pass / 2 fail**, both id rows, `marker-1` among them.
+- **4.2** — the `forbidden` arm dropped from `create`'s gate in
+  `CalendarMarkerService` **only**: **8 pass / 1 fail**, failing at the create
+  assertion inside the permission case (`201` where `403` was owed) while the
+  rename, recolour and delete assertions in that same case stayed green — which
+  is what shows the four arms are four checks and not one.
+
+Restored after each: 9 pass / 0 fail.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `rm -rf dist` first):
+`test` over be-01 and domain rc 0 — be-01 **1539 pass / 0 fail across 126
+files**, exactly the five new cases over chunk 7's 1534; domain 506 / 0. `lint`
+over be-01 and domain rc 0. `be-01:typecheck` and `domain:typecheck` rc 0, run
+**one at a time** for chunk 7's OOM reason. `format:check --all` rc 0.
+`apps/be-01/openapi.json` regenerated and **byte-identical** (sha256
+`55f6b6c5…`) — this chunk added no route and changed no body schema.
+
+**Next chunk:** 4.4 (the client id, its `clock.newId()` fallback and its
+collision, two negatives), 4.5 (the eight-row table with the astral name
+boundaries, three negatives) and 4.6 (isolation and route-family disjointness
+through a drizzle `logQuery` reach assertion, three negatives).
+
+## Implementation notes — chunk 9 (TASK-235 run 4, 2026-09-05)
+
+**Slice 4.4, checked.** `4262c281`. **Test-only** — `marker.id ??
+this.clock.newId()` and the store's `taken` refusal both already shipped in
+chunks 7 and 5; what was missing was anything watching them.
+
+The app's test clock now mints exactly one id, `MINTED`. A random one would
+have made the fallback assertion "a UUID appeared", which a create ignoring the
+clock entirely also satisfies.
+
+**TWO NEGATIVES WATCHED, baseline 12 pass / 0 fail:**
+
+- **The create ignoring the supplied `id`** — `marker.id ?? this.clock.newId()`
+  replaced with `this.clock.newId()` in `CalendarMarkerService.create`:
+  **9 pass / 3 fail**. The slice's own case, `stores the exact id the create
+carried`, is one of the three; the round trip and the tie case also supply
+  ids and legitimately break with them. This is the server fault `design.md`
+  §6.1 named and no slice owned until now — 3.5 requires a _front-end_ fault
+  and delegates the server half here, and this is the only file executing be-01
+  code.
+- **The insert written as an upsert** — the duplicate-id read struck and
+  `.onConflictDoUpdate({ target: calendarMarker.id, set: marker })` in its
+  place: **11 pass / 1 fail**, exactly the collision case, which is what the
+  "and leaves the stored marker untouched" third of that assertion buys. A
+  duplicate-id test asserting only the status passes against an upsert that has
+  already destroyed the row on its way to answering.
+
+Restored after each: 12 pass / 0 fail.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `rm -rf dist` first):
+`be-01:lint` rc 0, `format:check --all` rc 0, `be-01:typecheck` rc 0,
+`test` over be-01 and domain rc 0 — be-01 **1542 pass / 0 fail across 126
+files**, exactly the three new cases over chunk 8's 1539; domain 506 / 0.
+
+**Next chunk:** 4.5 (the eight-row refusal table, the astral `MARKER_NAME_MAX`
+boundaries and the hex/contrast rows, three negatives) and 4.6 (isolation, the
+cross-project delete, and route-family disjointness through a drizzle
+`logQuery` reach assertion, three negatives). Those two close section 4.
+
+## Implementation notes — chunk 10 (TASK-235 run 5, 2026-09-05)
+
+**Slice 4.5, checked.** The eight-row refusal table is now answered row by row,
+and answering it needed three rules the routes did not have: the `name` cap, the
+hex-triple shape, and the 3:1 contrast bar.
+
+**One default, not two ladders, and this is what makes the first negative
+reachable.** `MARKER_ROUTE_DEFAULT = 422` is now a named constant and _every_
+refusal these routes answer leaves through `statusForRefusal(reason,
+MARKER_ROUTE_DEFAULT)` — the body ones included, where chunk 8 had written
+`set.status = 422` inline. With the inline spelling the route default is
+**unfalsifiable**: `taken`, `not_found` and `forbidden` each leave through their
+own shared arm, so changing the default moves no status at all and the negative
+task 4.5 names could not fail anything.
+
+**Two colour rows, two codes, in that order.** Shape is `malformed`, contrast is
+`contrast`, and `colorProblem` asks them in that sequence because
+`validateCustomColor` states well-formedness as a **precondition it does not
+check** — handed `#f00` it throws through `parseHex`, which at a boundary is a
+500 blaming the server for the client's typo. `isHexTriple` is new in
+`marker-color.ts` and shares the `HEX_TRIPLE` literal with `parseHex`, so "what
+the API accepts" and "what the domain can parse" cannot drift apart.
+
+**`MARKER_NAME_MAX` lives in the domain** (`libs/domain/src/marker-name.ts`),
+not in be-01, for the reason the colour rules do: slice 6's composer refuses an
+over-long name before sending, and two spellings of "too long" are two rules
+free to disagree about a name the user is looking at.
+
+**THE FINDING OF THE CHUNK, and it was three existing tests going red:**
+`#4c3a86` — the custom fill the round trip, the permission case and the
+collision case had all been sending since chunk 7 — **fails ten of the twenty
+backdrops** (`dark:base` at 2.166 down to `dark:base+weekend+zebra+today` at
+1.419). It was never a fill this API could accept; nothing had measured a custom
+colour until this slice. Replaced by a named `CUSTOM_FILL = '#5d6afe'`
+(`azure`, a `PALETTE` entry, clean over all twenty). The permission case is the
+one that mattered: a 403 case whose body is _independently_ refusable is not a
+permission case, and it would have started passing for the wrong reason the
+moment the gate moved.
+
+**THREE NEGATIVES WATCHED, each in a different place, baseline 20 pass / 0
+fail on the file:**
+
+- **`MARKER_ROUTE_DEFAULT` 422 → 400**: **9 pass / 11 fail** — every
+  `malformed` and `contrast` row red (both colour rows, the contrast row, both
+  name rows, the refused rename, all three date rows and both id rows), while
+  the three shared-arm rows stayed green: `taken` still 409, `not_found` still
+  404, `forbidden` still 403. That split is the whole point of the negative —
+  it proves the table tests **this route's default** rather than the shared
+  ladder underneath it.
+- **`[...name].length` → `name.length` in `isMarkerName`**: **19 pass / 1
+  fail**, and the one is the **acceptance** case — a 120-code-point name
+  refused 422 where 201 was owed. Every refusal case stayed green, because
+  those are wrong at either count. This is the direction that matters (a user
+  refused a name the spec allows) and it is only reachable because both
+  boundary fixtures are astral: 120 ASCII characters are 120 UTF-16 units too,
+  so an ASCII fixture passes over the fault in both directions (round-7 Sol
+  review).
+- **`nameProblem(name)` moved after `markers.rename(…)`**: **19 pass / 1
+  fail**, exactly `refuses an over-cap rename and leaves the stored name
+behind`, on the name diff with the status still 422. "Refused" and
+  "unchanged" are two claims and only the second reaches the row.
+
+Restored after each: 20 pass / 0 fail.
+
+**Where the eight rows live**, since the table is answered from four places and
+not one — deliberately, because two homes for a row would be two oracles free to
+disagree:
+
+| row                       | case                                                |
+| ------------------------- | --------------------------------------------------- |
+| `date` not an `IsoDate`   | 4.3's three date cases                              |
+| `markerId` not a UUID v4  | 4.6a's two id cases                                 |
+| `color` not a hex triple  | new: `rebeccapurple` and `#f00`                     |
+| `name` empty or over cap  | new: `''` and 121 astral code points                |
+| `color` under the 3:1 bar | new: `#ff0000`, failing **exactly one** backdrop    |
+| `markerId` already exists | 4.4's collision case, its assertion strengthened    |
+| absent / another project  | new: a rename of an absent marker                   |
+| `forbidden`               | 4.2's create, now `toEqual({ error: 'forbidden' })` |
+
+The last two rows of that table are assertions about **shape**, not just codes:
+`taken` and `not_found` now carry `field: 'markerId'` and `forbidden` carries no
+field at all, which is why its case is an exact-shape `toEqual` — only that can
+fail when a field appears.
+
+`#ff0000` is the contrast fixture because it fails **one** of the twenty
+(`light:pointed+today`, 2.943:1), so it also proves the server runs the whole
+loop rather than a sample of it; a colour failing ten would be refused by a
+validator that measured two.
+
+**`no-misused-spread` fired on both `[...name]` sites and the disables are a
+decision, not a silencing:** the rule is right that a ZWJ sequence is several
+code points and costs several against the cap. The spec names code points, so
+that is the unit — an `Intl.Segmenter` count would be a different cap, and one
+the composer would have to reproduce exactly for its pre-send refusal to agree
+with this one.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `rm -rf dist` first):
+`test` over be-01 and domain rc 0 — be-01 **1550 pass / 0 fail across 126
+files**, exactly the eight new cases over chunk 9's 1542 and no regression;
+domain **506 / 0** across 42 files, unchanged. `lint` over be-01 and domain
+rc 0. `be-01:typecheck` and `domain:typecheck` rc 0, run **one at a time**.
+`format:check --all` rc 0. `apps/be-01/openapi.json` regenerated and
+**byte-identical** (sha256 `55f6b6c5…`, chunk 8's) — new validation, no new
+route and no changed body schema.
+
+**Next chunk:** 4.6 — isolation over two seeded projects, the cross-project
+`DELETE`, and route-family disjointness through a drizzle `logQuery` reach
+assertion, with three negatives: the `project_id` predicate dropped from the
+list query, a `work_item` read in the list handler, and a second one in the
+**recolour** branch specifically. That closes section 4.
+
+### 2026-09-05 — run 6, chunk 11: the create body is `markerId`
+
+**The inherited CI red, fixed.** `e3a0ee37`. Not a slice — the debt chunk 7 took
+on when the routes first shipped, diagnosed by run 5 and paid here.
+
+`postApiProjectsByIdCalendar-markers: "id" is declared as both a path input and
+a body input. One would overwrite the other, so neither is sent.`
+`openapi-tools.ts` derives one MCP tool per operation from
+`apps/be-01/openapi.json` and flattens path and body inputs into a single
+argument object; `claim()` throws rather than ship a tool where one input
+silently overwrites the other. `POST /api/projects/:id/calendar-markers` spends
+`id` on the project, so 4.4's client-supplied marker id could not also be `id`.
+
+**The fix is the body field, and the obvious alternative stays ruled out.**
+Renaming the path parameter to `:projectId` cannot work — memoirist refuses two
+different parameter names in the same path position, so it would mean renaming
+`:id` across every `/api/projects/:id/...` route in be-01 (run 5 attempted it
+against the real emitter, proved it impossible, reverted). `markerId` is what
+the `PATCH` and `DELETE` paths already call this same value, so the create was
+the only route that ever called it anything else.
+
+**Wire only.** `NewCalendarMarker.id` and `CalendarMarker.id` are unchanged —
+inside the service there is no project id to collide with — and the two names
+meet in one mapping line in the `POST` handler, written as an explicit
+destructure because a spread-then-override would carry `markerId` into the
+service's object as an extra member.
+
+**The refusal envelope moved with the field**, and that is a decision rather
+than a sweep: `malformed`, `taken` and `not_found` now blame `markerId`. The
+spec requires every row to answer with exactly the field its row gives, and
+leaving `taken` at `id` would have answered a collision by naming a member no
+marker request has — the path parameter is `markerId`, the body property is now
+`markerId`, and `id` on this API means the project.
+
+**A SECOND RED THE SAME CHANGE UNCOVERED, and it is the guard working.** With
+`claim()` unblocked the four marker routes reach the tool list for the first
+time and `mcp-01`'s count guard fired, **28 to 32**, with the README count
+following. All four are admitted, `EXCLUDED_PATHS` stays at five, and the
+reasoning is recorded beside the count: the `plan-commands` exclusion looks like
+it should remove the three writes and does not, because **a marker is not a plan
+edit at all** — the spec makes that structural, and no command in the batch
+vocabulary creates, renames, recolours or deletes one, so excluding them would
+leave no way to annotate a date through MCP. The list read is admitted for the
+reason every read here is: a date is not a unique key, so an agent must list a
+day's markers before it can name an id.
+
+**NEGATIVES.** The rename's own proof is the before/after at the real head
+rather than a mutation: `mcp-01` at `85191455` was **92 pass / 1 fail** on
+exactly this error, and is **106 / 0** after. Two more watched against the
+marker route file's 20 pass / 0 fail baseline, restored to 20 / 0 after each:
+
+- **the mapping dropped** (`{ ...rest, id: markerId }` → `{ ...rest }`) gives
+  **17 / 3** — the round trip, the tie-order case and `stores the exact id the
+create carried`, which is every case whose client-supplied id has to reach
+  storage, and nothing else. It is the negative that matters, because the seam
+  is one line and a create that quietly minted its own id would answer `201`.
+- **the envelope blaming `id` again** gives **18 / 2** — exactly the `taken` and
+  `not_found` cases, which are exact-shape `toEqual`s and so are the only two
+  that can see a field name change.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `rm -rf dist` first;
+`bun install --frozen-lockfile` first, the tree had no `node_modules`):
+`test` over be-01 and domain rc 0 — be-01 **1550 pass / 0 fail across 126
+files** and domain **506 / 0** across 42, both unchanged from chunk 10, which is
+what a rename should do to a count. `mcp-01` **106 / 0**, rc 0. `lint` over
+be-01, mcp-01 and domain rc 0 (`jsdoc/no-multi-asterisks` fired once on a
+comment line beginning `*project*`; reworded, not disabled). `be-01:typecheck`,
+`mcp-01:typecheck` and `domain:typecheck` rc 0, run **one at a time**.
+`format:check --all` rc 0 after `format:write` reflowed the test file and the
+spec's refusal table. `apps/be-01/openapi.json` regenerated — **+3/-3**, the
+body property and nothing else.
+
+**Next chunk:** 4.6 — isolation over two seeded projects, the cross-project
+`DELETE`, and route-family disjointness through a drizzle `logQuery` reach
+assertion, with three negatives: the `project_id` predicate dropped from the
+list query, a `work_item` read in the list handler, and a second one in the
+**recolour** branch specifically. That closes section 4.
+
+## Implementation notes — chunk 19 (TASK-235 run 10, 2026-09-05)
+
+**Slice 6.1 checked.** The dated axis cell takes a click and opens a composer
+bound to that cell's own `data-axis-date`.
+
+The composer's state is the **date**, not the offset, and that is the slice.
+Every other piece of axis state carries `day.offset`, so a composer handed one
+would have to convert — and on a plan starting Monday 2026-08-10 there are two
+wrong conversions that both look plausible. Cell 9 is the one cell where all
+three candidates differ: its date is `2026-08-19`, its workday is 7,
+`addWorkdays(start, 9)` is `2026-08-21` and `addCalendarDays(start, 7)` is
+`2026-08-17`. `addCalendarDays(start, day.offset)` is _also_ `2026-08-19`, which
+is why neither watched fault is that one — it would pass with the fault in.
+
+**TWO NEGATIVES WATCHED**, baseline 164 pass / 0 fail on
+`gantt-panel.test.tsx`, restored to 164 / 0 after each:
+`setComposerAt(addWorkdays(startDate, day.offset))` → **163 / 1**, this case
+alone, `expected '2026-08-21' to be '2026-08-19'`;
+`setComposerAt(addCalendarDays(startDate, day.workday))` → **163 / 1**, again
+this case alone, `expected '2026-08-17' to be '2026-08-19'`.
+
+The composer reports the day twice — the ISO string in `data-composer-date` and
+the words from `shortIsoDate` in its text and its accessible name. Both are
+asserted, because a test reading only the words asserts about the formatter as
+much as about the day. The clock is pinned inside 2026 for the same reason
+`shortIsoDate` drops a matching year: read against the real clock this case
+starts failing on 1 January 2027 for a reason unconnected to the slice.
+
+**THE FINDING: 6.1 could not ship alone.** `jsx-a11y/click-events-have-key-events`
+and `jsx-a11y/no-static-element-interactions` both refuse a `<span>` that grew
+an `onClick` and nothing else, so the first lint run was **rc 1 with two errors
+on the axis cell**. The bounded answer is 6.4's control contract —
+`role="button"`, `tabIndex={0}`, an Enter/Space `onKeyDown` with Space
+`preventDefault`ed, `aria-haspopup="dialog"` on the dated branch and
+`aria-disabled` on the undated one — shipped in this commit. **6.4 and 6.4a
+stay unticked**: not one of 6.4's seven cases or 6.4a's exists, and
+`aria-expanded` and the marker count in the accessible name are not implemented.
+6.1 and 6.4's _implementation_ are not separable; only its tests are, and the
+plan sequenced them as if they were.
+
+**A SECOND FINDING, on the gate rather than the code:** `fe-01:lint` was
+**`Killed`** on the first attempt — the OOM chunk 7 met on typecheck reaches
+eslint too, on a box with 904 MB free of 15.6 GB. `NODE_OPTIONS=--max-old-space-size=3072`
+and running it alone gives rc 0. Also: the runner's path argument is relative to
+the **project** directory, so `apps/fe-01/src/...` matches nothing and exits 1
+with `No test files found` — `src/components/wbs/gantt-panel.test.tsx` is the
+form that works, and it is a substring filter either way (chunk 17).
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `rm -rf dist` first):
+full `fe-01:test` rc 0 — **2213 pass / 0 fail across 86 files**, the a11y
+attributes added to every axis cell breaking nothing; `fe-01:lint` rc 0 (one
+pre-existing `react-hooks/exhaustive-deps` warning at `wbs-table.tsx`, not this
+diff); `fe-01:typecheck` rc 0. be-01 and domain not run: nothing outside
+`apps/fe-01` changed.
+
+## Implementation notes — chunk 20 (TASK-235 run 10, 2026-09-05)
+
+**Slice 6.2 checked.** Test-only — the click handler already declined to touch
+`openDay`, so this chunk is the assertion that says so.
+
+The tooltip is asserted **twice**, before the click as well as after. Without
+the first assertion the case is green against an implementation whose hover
+never opened at all, which is the same green a click that dismissed it would
+produce — the slice's own warning, and the reason its negative is watched on the
+_second_ assertion specifically.
+
+**NEGATIVE WATCHED**, baseline 165 pass / 0 fail on `gantt-panel.test.tsx`,
+restored to 165 / 0 after: `setOpenDay(null)` inserted ahead of the handler's
+`setComposerAt` → **164 / 1**, this case alone, failing the second tooltip
+assertion with `Unable to find an accessible element with the role "tooltip"`
+while 6.1's case and every other axis case stayed green.
+
+## Implementation notes — chunk 21 (TASK-235 run 11, 2026-09-05)
+
+**Slice 8.0 checked.** `axisOffsetOf(axis, date)` is the lookup, `todayOffset`
+is now its first caller and nothing else, and the two docstrings were split
+along the seam: what is true of _any_ date on the axis moved up, what is true of
+_today_ — Dany's three null readings, and the weekend that is not one of them —
+stayed down. One lookup rather than two that can disagree is the point, and a
+`todayOffset` that still ran its own `find` would have been exactly the second
+scale this function exists instead of, one level lower.
+
+**The negative needed a hand-made axis, and the round-4 review was right about
+why.** On every axis `calendarAxis` builds, a cell's stored `offset`, its array
+index and `calendarDaysBetween(axis[0].date, date)` are the same number, so the
+arithmetic spelling is invisible to all 165 existing cases. The fixture here is
+three cells — `2026-08-10`, `2026-08-11`, `2026-08-12` carrying offsets 0, 7 and
+9 — where looking the third up must give **9** and not its index 2 and not its
+calendar distance 2. Both cells are asserted, not just the last, so returning
+the final offset in the array does not pass either.
+
+**NEGATIVE WATCHED**, baseline 165 → 167 pass / 0 fail on
+`gantt-panel.test.tsx`, restored to 167 / 0 after: the body replaced by
+`calendarDaysBetween(axis[0].date, date)` → **163 / 4**, `expected 2 to be 9` on
+the lookup case exactly as predicted.
+
+**A FINDING ABOUT THE MUTANT, worth carrying into 8.1.** The other three
+failures were not predicted and they change what the negative proves. The
+arithmetic spelling also broke `answers null for a date the axis does not hold`
+(`expected 3 to be null`) and _two_ existing today cases — `draws no marker when
+today is before the plan begins` and `draws no marker when today is past the
+last day drawn`, both `expected SVGElement{…} to be null`. So the today marker's
+**out-of-range** arms already caught this class of fault; what nothing in the
+suite could see before this slice is a **wrong offset for a date the axis does
+hold**, which is precisely the drift 8.1's chip placement depends on. The
+round-4 claim that the mutant "passes" is true of in-range dates and only those
+— the part that matters, and the part 8.0's own case now owns.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`,
+`NODE_OPTIONS=--max-old-space-size=3072`): full `fe-01:test` rc 0 — **2216 pass
+/ 0 fail across 86 files**, exactly the two new cases over chunk 20's 2214;
+`fe-01:lint` rc 0 (one pre-existing `react-hooks/exhaustive-deps` warning at
+`wbs-table.tsx:4628`, not this diff); `fe-01:typecheck` rc 0. be-01 and domain
+not run: nothing outside `apps/fe-01` changed.
+
+## Implementation notes — chunk 22 (TASK-235 run 11, 2026-09-05)
+
+**Slice 7.1 checked.** `workdayAxis` and the `AxisDay` type are exported, and
+the assertion calls the builder directly: eight cells, every `date` null, and
+the offsets `0..7` asserted alongside so "no date" cannot be passing by way of
+an empty or broken axis.
+
+**NEGATIVE WATCHED**, baseline 168 pass / 0 fail on `gantt-panel.test.tsx`,
+restored after: `date: null` replaced by `date: addWorkdays('2026-01-01',
+workday)` inside `workdayAxis` → **164 / 4**, this case among them on
+`expected false to be true`.
+
+**THE OTHER THREE FAILURES ARE THE FINDING, and they narrow the slice's claim.**
+The mutant also broke three existing cases — `the axis is a calendar > prints
+the workday offsets and no weekend at all without a start date`, `the calendar
+axis agrees with the columns > prints workday offsets, and no dates at all, on a
+plan with no start date`, and `the axis says its date… > says the workday alone
+when the plan is not on a calendar`. So the field is **not** currently
+unguarded, and the slice's justification is not "nothing else sees it". It is
+narrower and still sound: all three are _renders of an undated plan_, so they
+go with the undated render path, and the future change this slice names — every
+project given a start date — deletes the branch that makes them reachable while
+leaving `workdayAxis` in the tree with a synthesised date and section 7's
+refusals silently unreachable. The direct call survives that; a render does not.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`): full `fe-01:test` rc 0 —
+**2217 pass / 0 fail across 86 files**, exactly the one new case over chunk 21's
+2216; `fe-01:typecheck` rc 0; `prettier --check .` rc 0.
+
+**`fe-01:lint` COULD NOT BE RUN WHOLE — `Killed`, twice, and it is the box
+rather than the diff.** h2puni had 2.3 GB available of 15.6 GB (13.3 used, 10.1
+of it `shared`), and `NODE_OPTIONS=--max-old-space-size=3072` does not reach the
+linter because the target shells out to `bunx eslint`, not to node. Scoped
+instead: `bunx eslint apps/fe-01/src/components/wbs/gantt-panel.tsx
+apps/fe-01/src/components/wbs/gantt-panel.test.tsx` **rc 0**, which is the whole
+of this chunk's diff, and chunk 21's full-project run on the same two files was
+rc 0 forty minutes earlier. CI runs the whole project regardless, and that is
+the run that gates the merge.
+
+## Implementation notes — chunk 23 (TASK-235 run 12, 2026-09-05)
+
+**Slice 8.1 checked, and it is the slice that gives `GanttChart` its markers.**
+`CalendarMarkerView` (`id`, `date`, `name`, nullable `color`) is the shape
+be-01's list route answers with, minus the two columns no mark reads;
+`GanttProps.markers` is optional at the panel boundary and required inside the
+chart, the bargain `dayPx` already makes, defaulting to a module-level
+`NO_MARKERS` rather than to a `= []` that would rebuild every chip on every
+unrelated render. `markerFill(marker)` resolves `color ?? automaticColor(id)` in
+one place because two marks draw one marker — the chip here and 8.2's rule down
+the body — and a second spelling is a chart that can disagree with itself about
+what colour one marker is.
+
+**The chips are a layer over the cells, not children of them, and that is what
+makes the slice falsifiable at all.** A chip rendered inside its own axis cell
+stands at the right x by construction and the fault this slice exists to catch
+could never happen; placed by `axisOffsetOf` it can be placed by the wrong
+number, which is the point. The layer spends `CHART_PAD_PX` once so each chip's
+own `left` is the plain calendar x a test can read — `left` on an absolutely
+positioned child is measured from the containing block's _padding_ edge, so the
+band's own `paddingLeft` does not move it. The band's `sticky` is that
+containing block; a `relative` beside it would be two `position` declarations on
+one element and which of them won would be a question about stylesheet order.
+The layer is `pointer-events-none`: the cell underneath carries 6.1's click and
+6.2's hover, and a chip lying across it would eat both on exactly the days that
+have something to say. What a chip does when it is pointed at is 8.4's, and 8.4
+will need that line revisited rather than kept.
+
+**THREE NEGATIVES WATCHED**, baseline 168 → 171 pass / 0 fail on
+`gantt-panel.test.tsx`, restored to 171 / 0 after each:
+
+- the placement taken from the cell's **workday** instead of `axisOffsetOf` —
+  `axis.find((day) => day.date === marker.date)?.workday ?? null` → **170 / 1**,
+  the placement case alone, `expected '7' to be '9'`. The fixture is 6.1's cell
+  9: on a plan starting Monday `2026-08-10`, `2026-08-19` is offset **9** and
+  workday **7**, so a workday-placed chip is right in week one and two days
+  early here — the drift `gantt-calendar-axis` exists to end.
+- the label ink hard-coded to `#ffffff` → **169 / 2**, `expected 'rgb(255, 255,
+255)' to be 'rgb(0, 0, 0)'`. **Two and not one**, which is the better result:
+  the automatic-colour case asserts the ink on its own resolved fill too, so
+  both call sites of the chooser are guarded rather than only the one the slice
+  named.
+- `?? automaticColor(marker.id)` replaced by a fixed `PALETTE[0].fill` →
+  **170 / 1**, the automatic case alone, `expected 'rgb(247, 1, 0)' to be
+'rgb(3, 134, 165)'` — crimson where teal was owed.
+
+**THE FINDING, and it is about 3.2a rather than about this slice.** `labelInk`
+has exactly **one reachable branch in production**, and the third negative is
+what showed it: swapping teal for crimson moved the fill and left the ink
+assertion green. The reason is arithmetic on the bars 3.2 already set. A chip
+fill has to clear **3:1** against the base backdrop in _both_ themes, so against
+a white base `1.05 / (L + 0.05) >= 3` gives `L <= 0.30`, and against a
+near-black base `(L + 0.05) / 0.10 >= 3` gives `L >= 0.25`. Every admissible
+fill therefore has `L` in `[0.25, 0.30]`, while the chooser's own crossover is
+at `sqrt(0.0525) - 0.05 ≈ 0.179` — below that whole window. **No colour this API
+can accept will ever be given white ink.** So the assertion here catches a
+hard-coded _white_, which is what the slice asked for, and cannot catch a
+hard-coded _black_; the `#ffffff` arm is unreachable from any real marker and is
+defended only by 3.2a's own table over synthetic fills. That is not a defect — a
+total function with an unreachable arm is cheaper than a partial one with a
+refusal — but a later slice must not claim the component proves the chooser
+whole, because it proves half of it.
+
+**A PLUMBING NOTE FOR THE NEXT CHUNK THAT REACHES INTO `libs/domain`.**
+`@wbs/domain/marker-color` had no path mapping, and fe-01 needs one in **seven**
+places: `tsconfig.base.json`, `apps/fe-01/tsconfig{,.app,.spec,.e2e}.json`,
+`vite.config.ts` and the suite config beside it. The first gate run missed the
+last one and died at collect with
+`Failed to resolve import "@wbs/domain/marker-color"` — which is the slip
+`vite-config.test.ts` was written for after it happened three times in August,
+and that guard passed on the fixed tree. No nx `inputs` declaration is owed
+here: this is an import, so the project graph carries it, unlike chunk 18's
+runtime `fs` read of a domain source.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`,
+`NODE_OPTIONS=--max-old-space-size=3072`): full `fe-01:test` rc 0 — **2220 pass
+/ 0 fail across 86 files**, exactly the three new cases over chunk 22's 2217;
+`fe-01:typecheck` rc 0; `fe-01:lint` **rc 0 over the whole project**, with the
+one pre-existing `react-hooks/exhaustive-deps` warning at `wbs-table.tsx:4628`;
+`prettier --check .` rc 0 first time. **The full lint ran here with 11 GB
+free**, which confirms chunk 22's reading that the `Killed` was h2puni's memory
+pressure and not the diff. be-01 and domain not run: the only file changed
+outside `apps/fe-01` is `tsconfig.base.json`, and a path mapping added beside
+ten others changes nothing either of them compiles.
+
+## Implementation notes — chunk 24 (TASK-235 run 12, 2026-09-05)
+
+**Slice 8.5's panel half, and 8.5 stays unticked.** The return trip is asserted
+— one marker on `2026-08-19`, drawn twice: against a three-workday plan whose
+axis stops at `2026-08-12` it draws nothing, and against the ten-workday plan it
+is back at offset 9. Two horizons, one untouched fixture. The other half of the
+slice, that the marker is **still stored and still answered by the list route**,
+is not observable on the panel at any horizon; it is the be-01 controller case
+from 4.1 and it is what 8.5 is still owed.
+
+**"Draws nothing" needed the second render to mean anything**, which is the part
+of the slice's own text worth keeping: a component that had simply stopped
+drawing chips satisfies the shortened case exactly as well as one that placed
+this marker correctly and found no cell for it. The absent case also asserts
+`[data-gantt-marker-band]` is still in the tree, so what is missing is one
+marker rather than the whole layer.
+
+**NEGATIVE WATCHED**, baseline 171 → 173 pass / 0 fail on `gantt-panel.test.tsx`,
+restored to 173 / 0 after: the chip's own `if (offset === null) return null`
+weakened to `offset === undefined`, which `axisOffsetOf` never returns → **172 /
+1**, the shortened case alone, `expected <span …(3)></span> to be null`. The
+slice proposed throwing from `axisOffsetOf`'s absent-date branch instead; that
+mutant is 8.0's — it would fail 8.0's own null case first and would say nothing
+about whether the chip layer honours the answer. The guard this chunk's code
+actually owns is the one watched.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`,
+`NODE_OPTIONS=--max-old-space-size=3072`): full `fe-01:test` rc 0 — **2222 pass
+/ 0 fail across 86 files**, exactly the two new cases over chunk 23's 2220;
+`fe-01:lint` rc 0 whole; `fe-01:typecheck` rc 0; `prettier --check .` rc 0.
+Test-only outside this record: no source file changed.
+
+## Chunk 25 — slice 6.4 (TASK-235 run 13, 2026-09-05)
+
+**Slice 6.4 checked: the dated axis cell is a control a keyboard can operate,
+and it says what day it is and what is already on it.** Chunk 19 shipped half of
+this implementation because eslint would not let 6.1 land without it; what was
+missing was `aria-expanded`, the marker count in the accessible name, and all
+seven cases. All three are here.
+
+**`aria-expanded` is `composerAt === day.date` — the transition, and per cell.**
+Two wrong implementations pass a weaker test: a value hard-coded to either
+constant satisfies a single-state assertion, and one derived from
+`composerAt !== null` announces **every** dated cell on the axis as open at
+once. So the case reads both states on one cell and reads a second cell beside
+it at each state.
+
+**THE CLOSE PATH WAS OWED BY NOBODY AND IS OWED BY THIS SLICE.** 6.4 requires
+`aria-expanded` to be `false` again after the sheet closes, and until this chunk
+the composer had **no way to close at all** — no dismiss control, no Escape, and
+nothing in section 6 or 8 claims one. Escape on `document` is the answer, bound
+only while the composer is open. On `document` rather than on the dialog because
+nothing focuses the dialog yet: 6.3 is the slice that moves focus into the name
+field, and a listener on the dialog's own subtree would never receive the key
+until it lands. A `role="dialog"` reachable by keyboard — Enter on an axis cell,
+as of this slice — and dismissible only by mouse is a trap.
+
+**THE FINDING, and it is about `marksOverLight` rather than about a11y: an
+accessible name is a `shortIsoDate` caller, and `shortIsoDate` is the oracle two
+existing render-silence tests count.** The first version built each cell's name
+inline in the `axis.map`, and the gate came back **2 failed / 178 passed** — not
+on anything in this slice, but on `pointing a row re-renders no Gantt mark`
+(`expected 5 to be +0`) and `opening a bar's facts re-renders no Gantt mark`
+(`expected 14 to be 4`). A light moving re-renders the axis band, the band had
+never called `shortIsoDate` before, and it now called it once per day of the
+horizon. The names are memoised on `[axis, markers, today]` and the counts are
+folded into that same pass; both cases went back to green. **The tests were
+right and the code was wrong** — nothing in a cell's name depends on a gesture,
+so nothing in it should be recomputed by one. The `marksOverLight` discipline
+this file already documents now has a second mark under it.
+
+**6.4a STAYS UNTICKED.** Its five cases do not exist, and the undated branch has
+no `aria-label` at all — its accessible name is still the bare axis number,
+which is precisely the generic name round-8's Sol review called the failure mode
+the contract exists to prevent. The count is spoken as `no calendar markers`
+rather than omitted on an empty day, so silence on a cell means the name failed
+to build rather than that the day is empty.
+
+**TWO NEGATIVES WATCHED**, baseline 173 → 180 pass / 0 fail on
+`gantt-panel.test.tsx` (exactly the seven new cases), restored to 180 / 0 after
+each:
+
+- the axis cell's `key.key !== 'Enter' && key.key !== ' '` narrowed to
+  `key.key !== 'Enter'` → **179 / 1**, the Space case alone, `Unable to find an
+accessible element with the role "dialog"`. Enter's own case stayed green,
+  which is the point: an Enter-only test passes a handler that forwards every
+  key **and** one that handles Enter alone, and only a second key tells them
+  apart.
+- `role="button"` made conditional so only the **undated** branch keeps it →
+  **179 / 1**, the role-and-name case alone, `Unable to find an accessible
+element with the role "button" and name "19 Aug, 1 calendar marker"`, while
+  the six cases that locate the cell by `data-axis-day` stayed green. That is
+  the case's whole reason to exist: a focusable generic `<span>` carrying every
+  handler and every ARIA attribute passes the other six while never being
+  announced as a button.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`,
+`NODE_OPTIONS=--max-old-space-size=3072`, `rm -rf dist` first): full `fe-01:test`
+rc 0 — **2229 pass / 0 fail across 86 files**, exactly the seven new cases over
+chunk 24's 2222; `fe-01:typecheck` rc 0; `fe-01:lint` rc 0 whole (the one
+pre-existing `react-hooks/exhaustive-deps` warning at `wbs-table.tsx:4628`, not
+this diff); `prettier --check .` rc 0. Nothing outside `apps/fe-01` changed.
+
+## Chunk 26 — three of slice 6.4a's five cases (TASK-235 run 13, 2026-09-05)
+
+**6.4a STAYS UNTICKED, and this is the part of it that does not need slice
+7.2.** The undated cell now has an accessible name — `Workday 3, no project
+start date` — and three of the five cases stand: it is focusable and carries
+`role="button"` and `aria-disabled="true"`; it carries neither `aria-haspopup`
+nor `aria-expanded`; and it is located **by role and name**. The two missing
+cases are Enter and Space putting the refusal in the live region, and they are
+not writable: **there is no refusal and no live region in the panel at all.**
+Both are 7.2's, so 7.2 is now a prerequisite of 6.4a rather than a successor —
+the plan sequenced them the other way.
+
+**The name is the half two Sol rounds found unasserted** (rounds 8 and 9,
+Important, on this slice and on 6.4). An implementation with the tab stop, both
+handlers and every ARIA attribute passes the other two cases while announcing
+nothing but "button", and §6's own argument for giving these cells a tab stop is
+that a row of stops announced that way is worse than no stop. So the name is
+what makes the tab stop worth having, and until this chunk the undated cell's
+accessible name was its bare axis number.
+
+**NEGATIVE WATCHED**, baseline 180 → 183 pass / 0 fail on `gantt-panel.test.tsx`
+(exactly the three new cases), restored to 183 / 0 after: the undated branch's
+`aria-label` replaced by the bare generic string `Day` → **182 / 1**, the
+role-and-name case alone, `Unable to find an accessible element with the role
+"button" and name "Workday 3, no project start date"`, while the focusability,
+`aria-disabled` and both ARIA-absence assertions stayed green. A removal and a
+generic label are different defects and the slice already names the generic one
+as the likelier.
+
+**The `aria-label`'s `workday === null` arm is the shared type's, not this
+axis's.** An undated cell is drawn only by `workdayAxis`, which sets `workday`
+on every cell it makes; it is `calendarAxis` that has workdayless cells, and
+those are weekends, which always carry a date and so never reach this branch.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`,
+`NODE_OPTIONS=--max-old-space-size=3072`): full `fe-01:test` rc 0 — **2232 pass
+/ 0 fail across 86 files**, exactly the three new cases over chunk 25's 2229;
+`fe-01:typecheck` rc 0; `fe-01:lint` rc 0 whole (the same pre-existing
+`react-hooks/exhaustive-deps` warning at `wbs-table.tsx:4628`); `prettier
+--check .` rc 0. Nothing outside `apps/fe-01` changed.
+
+## Chunk 27 — slice 7.2's two writable assertions (TASK-235 run 14, 2026-09-05)
+
+**Landed.** The undated axis cell now answers when it is operated, instead of
+returning in silence. **7.2 stays unticked** on its third assertion, and the
+reason is a missing seam rather than missing work — see 7.2a, filed above.
+
+**The refusal is state, not a derivation.** `startDate === null` is true for
+every cell on an undated axis, so a message rendered from it would be a
+standing complaint on a chart nobody has asked anything of. `refusal` is set by
+the two handlers that were already refusing — the click and the Enter/Space
+keydown — and cleared on the dated branch, so a refusal cannot outlive the plan
+gaining a start date.
+
+**It names the missing thing.** "This day cannot carry a calendar marker" is a
+dead control with a caption; the sentence has to say _project start date_
+because that is the only thing the reader can go and do. The test matches on
+`/project start date/` rather than the whole sentence, so the wording stays
+editable and the contract does not.
+
+**Drawn, not announced.** The message carries `data-marker-refusal` and no
+live-region role: 6.5 is the slice that puts it where a screen reader reaches
+it, and writing the role here would tick 6.5's box with nothing having proved
+it.
+
+**THREE NEGATIVES WATCHED**, baseline 183 → 185 pass / 0 fail on
+`gantt-panel.test.tsx`, restored after each:
+
+1. `setRefusal(UNDATED_REFUSAL)` neutered in **both** handlers → **183 / 2**,
+   the two new cases alone, `.toMatch() expects to receive a string, but got
+undefined`.
+2. The message replaced by the generic `This day cannot carry a calendar
+marker.` → **183 / 2**, the same two cases, `expected 'This day cannot carry
+a calendar mark…' to match /project start date/`. This is the one that makes
+   _naming_ the date load-bearing; negative 1 passes against any message at all.
+3. Not injectible, and recorded as such: 7.2's own second negative — the
+   refusal path also issuing a create — has no method to issue one.
+
+**The plan's predicted matrix for negative 1 was half wrong**, and the
+correction is in 7.2 above: "a composer opened" cannot fail, because
+`setComposerAt` is only reached on the dated branch and `composerAt === null`
+renders nothing regardless of what the refusal branch does.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`): full `fe-01:test` rc 0 —
+**2234 pass / 0 fail across 86 files**, exactly +2 over chunk 26's 2232;
+`fe-01:typecheck` rc 0; scoped `bunx eslint` over both changed files rc 0 (the
+full-project target is the OOM-blocked one chunk 22 measured, and CI runs it);
+`prettier --write` over both files reported **unchanged**.
+
+## Chunk 28 — 6.4a's Space case (TASK-235 run 14, 2026-09-05)
+
+**Landed.** Test-only. 6.4a's fourth of five cases: Space on the **undated**
+axis cell reaches the same refusal Enter does.
+
+**6.4a still stays unticked** — its fifth case is the refusal reaching a live
+region, which is 6.5's slice and does not exist.
+
+**The plan's named negative for this case is the wrong one, and measuring it is
+what shows why.** 6.4a says "Space removed from the undated branch only,
+watched failing the Space case while Enter, the ARIA cases and all of 6.4 stay
+green". There is one shared key guard for both branches
+(`gantt-panel.tsx:4201`), so narrowing it to Enter is not a
+"from the undated branch only" mutation at all: measured, it fails **two**
+cases, 184 / 2 — this one and 6.4's own dated `opens the composer on Space`.
+Mutating the guard by text rather than by line is worse still: the identical
+guard on the bar handler (`:3606`) matches too, and the sed took both for
+183 / 3, adding an unrelated bar case.
+
+**The negative that IS isolated** is a branch-specific one: `return` on Space
+inside the undated arm of the handler, after the shared guard has admitted it.
+Watched at a 186 / 0 baseline → **185 / 1**, this case alone, on a `toMatch`
+handed `undefined`, while Enter, both ARIA cases, the name case and every one
+of 6.4's dated cases stayed green. That is the isolation 6.4a asked for; the
+guard mutation cannot deliver it because the two branches share the guard.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`): full `fe-01:test` rc 0 —
+**2235 pass / 0 fail across 86 files**, exactly +1 over chunk 27's 2234;
+`fe-01:typecheck` rc 0; scoped `bunx eslint` rc 0; `prettier --check` rc 0.
+
+## Chunk 29 — slice 7.3 (TASK-235 run 14, 2026-09-05)
+
+**Landed.** Test-only. **7.3 checked** — the same cell that was refused goes
+live once the plan has a start date, which is what makes 7.2 a refusal rather
+than an inert cell. "No composer appeared" is equally true of a click handler
+that was never wired, so 7.2's own cases cannot tell the two apart; this one
+gives the same panel a start date and shows the same click doing the thing it
+was refused.
+
+A `rerender` and not a fresh render, because a fresh one re-proves 6.1 and this
+slice is about the transition: the plan gained a calendar, so its axis did too.
+
+**Negative watched**, baseline 187 pass / 0 fail on `gantt-panel.test.tsx`,
+restored after: the click handler's dated branch neutered
+(`setComposerAt(day.date)` → `void day.date` at `gantt-panel.tsx:4148`) →
+**181 / 6**. The plan's prediction — this case failing "while 7.2's refusal case
+stays green" — **holds**: both refusal cases and the Space case stayed green.
+The other five failures are the click-to-open path's own (`6.1`'s two and three
+of `6.4`'s), which is the expected blast radius of removing it and not a
+surprise: they assert the same branch through a different door.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`): full `fe-01:test` rc 0 —
+**2236 pass / 0 fail across 86 files**, exactly +1 over chunk 28's 2235;
+`fe-01:typecheck` rc 0; scoped `bunx eslint` rc 0; `prettier --check` rc 0.

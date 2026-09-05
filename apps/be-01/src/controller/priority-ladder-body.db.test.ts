@@ -15,6 +15,7 @@ import { AuthService } from '../service/auth.service';
 import { PriorityBandService } from '../service/priority-band.service';
 import { ProjectService } from '../service/project.service';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -97,6 +98,7 @@ describe('setPriorityBands on POST /api/projects/:id/commands', () => {
       capacity: testCapacityService(),
       priorityBands: new PriorityBandService({ projects: projectStore, bands, broadcast }),
       history: testHistoryService(projectStore),
+      calendarMarkers: testCalendarMarkerService(),
       steps: testStepService(),
       workItems: testWorkItemService(),
       savedPlans: testSavedPlanService(),

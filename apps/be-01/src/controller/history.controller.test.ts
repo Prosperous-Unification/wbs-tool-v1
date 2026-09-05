@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import { buildApp } from '../app';
 import type { PlanEvent, Project, ProjectStore } from '../repository';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { inMemoryPlanEvents, testHistoryService } from '../testing/history-fixture';
@@ -69,6 +70,7 @@ describe('one plan’s history, over HTTP', () => {
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(projects, events),
+      calendarMarkers: testCalendarMarkerService(),
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),

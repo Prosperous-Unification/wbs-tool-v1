@@ -1,5 +1,6 @@
 import { type AppOptions, buildApp } from '../app';
 import { testAuthService } from './auth-fixture';
+import { testCalendarMarkerService } from './calendar-marker-fixture';
 import { testCapacityService } from './capacity-fixture';
 import { testDirectoryService } from './directory-fixture';
 import { testHistoryService } from './history-fixture';
@@ -41,6 +42,7 @@ export function testApp(overrides: Partial<AppOptions> = {}): ReturnType<typeof 
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
+    calendarMarkers: testCalendarMarkerService(),
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
     internalAuthSecret: 'x'.repeat(32),

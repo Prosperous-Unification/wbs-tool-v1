@@ -26,6 +26,7 @@ import { ProjectService } from '../service/project.service';
 import { StepService } from '../service/step.service';
 import { WorkItemService } from '../service/work-item.service';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testHistoryService } from '../testing/history-fixture';
 import { inMemoryPriorityBands, testPriorityBandService } from '../testing/priority-band-fixture';
 import { testReplay } from '../testing/replay-fixture';
@@ -85,6 +86,7 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
       }),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(),
+      calendarMarkers: testCalendarMarkerService(),
       steps: new StepService({
         projects: projectStore,
         steps: new StepRepository(db),

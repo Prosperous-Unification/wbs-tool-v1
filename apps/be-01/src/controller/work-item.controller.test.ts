@@ -5,6 +5,7 @@ import { buildApp } from '../app';
 import { ProjectService } from '../service/project.service';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { inMemoryServices } from '../testing/harness';
@@ -29,6 +30,7 @@ function buildHarness() {
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
+    calendarMarkers: testCalendarMarkerService(),
     auth: testAuthService(inMemoryUsers()),
     projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
     steps: testStepService(projectStore),

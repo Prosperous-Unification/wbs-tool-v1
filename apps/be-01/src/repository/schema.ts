@@ -2319,3 +2319,66 @@ export const savedPlanBody = sqliteTable(
 );
 
 export type SavedPlanBodyRow = typeof savedPlanBody.$inferSelect;
+
+/**
+ * A named annotation on an absolute calendar date, scoped to one project.
+ *
+ * **Not work, and not visible to the scheduler.** The alternative today is a
+ * zero-duration work item, which enters the dependency graph, the critical
+ * path, capacity and all three of Fast, PRI and Time — the reader gets a mark
+ * on the chart and the schedule gets a lie. Nothing under
+ * `libs/domain/src/schedule.ts` reads this table, and slice 5 of
+ * `openspec/changes/gantt-calendar-markers/tasks.md` is the structural proof
+ * rather than the promise.
+ *
+ * **`project_id` cascades**, for {@link savedPlan}'s stated reason: blue and
+ * green share one SQLite file through a swap, and the outgoing release's plain
+ * `DELETE FROM project` must not be blocked by a reference it cannot see. A
+ * missing cascade here is a 500 for the length of the swap, not untidiness.
+ *
+ * **The `(project_id, date)` index is deliberately not unique.** More than one
+ * marker on a day is a real plan — a demo and a deadline can land together —
+ * and design.md §5 makes the stacked-chip render carry that case. Uniqueness is
+ * the one property of this table nothing else in the change can observe, which
+ * is why `calendar-marker.db.test.ts` asserts a second same-date insert
+ * directly: a round-trip test passes with the uniqueness in place.
+ *
+ * **`color` is nullable and null means _automatic_**, derived from the id by
+ * `automaticColor` rather than materialised at insert. Materialising would
+ * freeze today's palette into storage: a palette change would then have to
+ * migrate rows, and a marker whose colour was never chosen would be
+ * indistinguishable from one that was. The nullability stops at the repository
+ * — every route resolves `row.color ?? automaticColor(row.id)` on the way out,
+ * so no client has to know the palette.
+ *
+ * `date` is `text` holding an `IsoDate` with no time component, matching how the
+ * rest of the schema stores one, and is indexed with `project_id` because "this
+ * project's markers, by date" is the only read.
+ */
+export const calendarMarker = sqliteTable(
+  'calendar_marker',
+  {
+    /**
+     * A v4 UUID **supplied by the composer**, not by the server — design.md
+     * §6.1. The colour is derived from the id, so the id has to exist before
+     * the composer can show which colour it is about to save.
+     */
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    /** An `IsoDate`, stored as the exact text given. No time component, ever. */
+    date: text('date').notNull(),
+    name: text('name').notNull(),
+    /** `NULL` means automatic — see the type doc. */
+    color: text('color'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    // The only read: one project's markers, by date. Not unique — see the type
+    // doc for why a second marker on one date is a supported plan.
+    index('calendar_marker_project_date').on(t.projectId, t.date),
+  ],
+);
+
+export type CalendarMarkerRow = typeof calendarMarker.$inferSelect;

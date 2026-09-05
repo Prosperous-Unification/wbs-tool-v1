@@ -131,6 +131,7 @@ export default defineConfig(({ command, mode }) => ({
         '../../libs/domain/src/effective-service.ts',
       ),
       '@wbs/domain/label-mismatch': resolve(__dirname, '../../libs/domain/src/label-mismatch.ts'),
+      '@wbs/domain/marker-color': resolve(__dirname, '../../libs/domain/src/marker-color.ts'),
       '@wbs/domain/is-within': resolve(__dirname, '../../libs/domain/src/is-within.ts'),
       '@wbs/contracts/ws-frames': resolve(__dirname, '../../libs/contracts/src/ws-frames.ts'),
       // The same bargain a third time: `priority-band.ts` is four pure functions

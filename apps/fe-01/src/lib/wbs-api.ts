@@ -8,6 +8,12 @@
 // and `workday`.
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
 import type { PriorityBand } from '@wbs/domain/priority-band';
+// The second exception, and the cheaper one: `IsoDate` is `export type IsoDate =
+// string` in a module with no imports of its own, so this erases entirely at
+// build time. It is here rather than restated as `string` because a marker's
+// date being absolute — never a workday number — is the whole of task 7.4, and
+// a `string` on this seam would be the one place that claim is not written down.
+import type { IsoDate } from '@wbs/domain/workday';
 
 import { type RefusalWords, sentenceForRefusal } from './refusal';
 
@@ -1146,6 +1152,39 @@ export interface PlanRead {
 }
 
 /**
+ * One calendar marker, as be-01 sends it.
+ *
+ * Lives here and not beside the chart that draws it: it is what comes back on
+ * the wire, and `gantt-panel.tsx` re-exports this same type so the component's
+ * own importers are unchanged. A second declaration there would be a second
+ * shape free to disagree with what `listCalendarMarkers` answers.
+ */
+export interface CalendarMarkerView {
+  id: string;
+  date: IsoDate;
+  name: string;
+  /** The reader's chosen hex triple, or null for the automatic colour. */
+  color: string | null;
+}
+
+/**
+ * A marker as a client asks for it, which is not the same shape as one that
+ * exists.
+ *
+ * `markerId` and not `id`, because that is the name the route reads: the path
+ * `/api/projects/:id/calendar-markers` already spends `id` on the project, so
+ * `calendar-marker.controller.ts` takes the marker's own id under `markerId`
+ * and maps it back to the domain's `id` in the one line of the `POST` handler.
+ * Optional, because be-01 mints one when the client does not name it.
+ */
+export interface NewCalendarMarkerView {
+  markerId?: string;
+  date: IsoDate;
+  name: string;
+  color?: string | null;
+}
+
+/**
  * Everything the table does to a project.
  *
  * An interface rather than bare functions so the table can be driven by a fake
@@ -1206,6 +1245,39 @@ export interface ProjectApi {
   setDepReach(projectId: string, reach: DependencyReach): Promise<void>;
   /** Puts the plan on a calendar, or `null` to take it off again. */
   setStartDate(projectId: string, startDate: string | null): Promise<void>;
+  /**
+   * The calendar markers on this project, in be-01's order.
+   *
+   * Its own read and not a member of {@link PlanRead}: a marker moves nothing
+   * in the schedule (task 4 axis-1), so folding it into the tree would make
+   * every marker write a full plan reread and every plan reread carry markers
+   * the table never looks at.
+   */
+  listCalendarMarkers(projectId: string): Promise<CalendarMarkerView[]>;
+  /** Puts a marker on an absolute date, answering the one be-01 stored. */
+  createCalendarMarker(
+    projectId: string,
+    marker: NewCalendarMarkerView,
+  ): Promise<CalendarMarkerView>;
+  /**
+   * Rename and recolour are **two calls onto one `PATCH`**, and that is the
+   * route's rule rather than this client's taste: a body naming both asks for
+   * two writes the store applies one at a time, so be-01 answers 422 rather
+   * than partially apply one of them. A single `edit(name?, color?)` here would
+   * be a surface whose two-field call can only ever be refused.
+   */
+  renameCalendarMarker(
+    projectId: string,
+    markerId: string,
+    name: string,
+  ): Promise<CalendarMarkerView>;
+  /** Sets the fill, or `null` to hand the marker back to the automatic colour. */
+  recolorCalendarMarker(
+    projectId: string,
+    markerId: string,
+    color: string | null,
+  ): Promise<CalendarMarkerView>;
+  deleteCalendarMarker(projectId: string, markerId: string): Promise<void>;
   /**
    * States how many of one team may be at work at once on this plan, or clears it
    * to unstated on `null`.
@@ -2099,6 +2171,26 @@ export function httpProjectApi(token: string): ProjectApi {
   const onRow = (workItemId: string, step: WireCommand): Promise<BatchAnswer> =>
     command(projectFor(workItemId), { ...step, workItemId });
 
+  /** The marker collection's path, once, because four calls spell it. */
+  const markersOf = (projectId: string): string => `/api/projects/${projectId}/calendar-markers`;
+
+  /**
+   * The `PATCH` both edits go through, taking exactly the one field its caller
+   * named — and only ever one, which is what the route accepts.
+   */
+  const editMarker = async (
+    projectId: string,
+    markerId: string,
+    change: { name: string } | { color: string | null },
+  ): Promise<CalendarMarkerView> => {
+    const body = await send<{ marker: CalendarMarkerView }>(
+      `${markersOf(projectId)}/${markerId}`,
+      token,
+      { method: 'PATCH', body: JSON.stringify(change) },
+    );
+    return body.marker;
+  };
+
   return {
     ...directory,
     async listProjects() {
@@ -2140,6 +2232,30 @@ export function httpProjectApi(token: string): ProjectApi {
         method: 'PATCH',
         body: JSON.stringify({ startDate }),
       });
+    },
+    async listCalendarMarkers(projectId) {
+      const body = await send<{ markers: CalendarMarkerView[] }>(markersOf(projectId), token);
+      return body.markers;
+    },
+    async createCalendarMarker(projectId, marker) {
+      const body = await send<{ marker: CalendarMarkerView }>(markersOf(projectId), token, {
+        method: 'POST',
+        body: JSON.stringify(marker),
+      });
+      return body.marker;
+    },
+    async renameCalendarMarker(projectId, markerId, name) {
+      return editMarker(projectId, markerId, { name });
+    },
+    async recolorCalendarMarker(projectId, markerId, color) {
+      // `{ color }` and never `{ name, color }`: the route takes exactly one of
+      // the two and refuses a body naming both, so a shared "edit" spelling
+      // that carried the marker's unchanged name along would be refused every
+      // time. `color: null` is a stated choice and stays on the wire.
+      return editMarker(projectId, markerId, { color });
+    },
+    async deleteCalendarMarker(projectId, markerId) {
+      await send(`${markersOf(projectId)}/${markerId}`, token, { method: 'DELETE' });
     },
     async setTeamCapacity(projectId, teamId, size) {
       await command(projectId, { kind: 'setCapacity', teamId, size });

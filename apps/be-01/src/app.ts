@@ -7,6 +7,7 @@ import {
   hasInvalidCookieOrigin,
   type OidcRouteOptions,
 } from './controller/auth.controller';
+import { calendarMarkerController } from './controller/calendar-marker.controller';
 import { directoryController } from './controller/directory.controller';
 import { historyController } from './controller/history.controller';
 import { internalController } from './controller/internal.controller';
@@ -21,6 +22,7 @@ import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
 import type { DeferringBroadcaster } from './service/broadcast';
+import type { CalendarMarkerService } from './service/calendar-marker.service';
 import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
 import type { HistoryService } from './service/history.service';
@@ -85,6 +87,14 @@ export interface AppOptions {
    * day the table ships, so the mistake would be invisible for a week.
    */
   history: HistoryService;
+  /**
+   * Required for the same reason as `history`, and for its exact failure mode: a
+   * process built without it answers 404 on every marker route, which a client
+   * cannot tell from a project that has no markers — and "none" is the answer
+   * for every project the day the table ships, so the mistake would be
+   * invisible for a week.
+   */
+  calendarMarkers: CalendarMarkerService;
   /**
    * Shared secret gw-01 presents on /internal/*. Required — a default here
    * would silently diverge from the value gw-01 loads from the environment,
@@ -221,6 +231,11 @@ export function buildApp(opts: AppOptions) {
       // registration order, `/:id/history` cannot be shadowed by anything that
       // route declares, and adjacency is what makes that checkable at a glance.
       .use(historyController(opts.auth, opts.history))
+      // After `projectController` for `savedPlanController`'s reason: every
+      // path here is one segment longer than anything that controller declares,
+      // so neither can shadow the other, and adjacency is what makes that
+      // checkable at a glance.
+      .use(calendarMarkerController(opts.auth, opts.calendarMarkers))
       .use(
         internalController({
           secret: opts.internalAuthSecret,

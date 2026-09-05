@@ -4,6 +4,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -119,6 +120,7 @@ function fixture(
     capacity: testCapacityService(),
     directory: testDirectoryService(),
     history: testHistoryService(),
+    calendarMarkers: testCalendarMarkerService(),
     internalAuthSecret: 'x'.repeat(32),
     writes: testWrites(),
     migrationsApplied: true,

@@ -29,6 +29,15 @@ export * from './label-mismatch';
 // because the solver request builder must carry the very same numbers on the
 // wire. The floor half was already wrong once for a month (2026-08-10).
 export * from './leaf-constraints';
+// A calendar marker's automatic colour, the eight-entry palette it draws from,
+// and the twenty backdrops the 3:1 bar is measured against. Pure arithmetic
+// over hex strings — the fills it measures live in fe-01's theme, and this
+// module reads none of them at run time.
+export * from './marker-color';
+// The marker name cap, counted in code points so an emoji costs one. Its own
+// module rather than a member of the colour one: the composer imports both and
+// they share nothing but the object they describe.
+export * from './marker-name';
 export * from './not-before';
 export * from './place-sibling';
 export * from './priority-band';

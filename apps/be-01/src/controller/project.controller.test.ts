@@ -6,6 +6,7 @@ import { clockOf } from '../service/clock';
 import { ProjectService } from '../service/project.service';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { inMemoryServices } from '../testing/harness';
@@ -68,6 +69,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
+    calendarMarkers: testCalendarMarkerService(),
     auth,
     projects,
     workItems: buildWorkItemService(projectStore),
