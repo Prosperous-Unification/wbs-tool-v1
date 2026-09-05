@@ -130,10 +130,17 @@ in both slices rather than implied by position.
       create/recolour handlers and the composer — test: the controller test
       from 4.1 posts a sub-bar colour straight to the API, bypassing the
       composer, and asserts refusal with no row; `gantt-panel.test.tsx` asserts
-      the composer refuses before submitting. Negative: the server-side call
-      removed, watched writing the row while the UI test stayed green. A
-      validator unit-tested but never called is the shape 3.1–3.3 would
-      otherwise ship: green tests over a guard on no production path.
+      the composer refuses before submitting. **Both server write paths, and
+      that means two cases and two faults.** Create: a sub-bar colour posted to
+      `POST`, refused with no row; negative, the create-path call removed,
+      watched writing the row while the UI test stays green. **Recolour:** a
+      stored marker sent a syntactically **valid** hex that is below 3:1 in dark
+      via `PATCH`, refused with the row byte-identical afterwards; negative, only
+      the recolour-path call removed, watched writing the colour. A malformed
+      hex does not cover this — it is refused by shape validation, so a recolour
+      handler with no contrast check ships green past it, which is the gap the
+      round-3 Sol review found. A validator unit-tested but never called on one
+      of its two paths is the shape 3.1–3.3 would otherwise ship.
 - [ ] 3.5 The composer issues the id, so the previewed colour is the created
       one — the composer generates a v4 UUID, renders `automaticColor(id)` as
       the swatch, and sends that `id` in the create body — test:
@@ -165,10 +172,17 @@ in both slices rather than implied by position.
       and a create with an out-of-horizon date accepted and returned. The third
       key is the slice's point: two markers created against a fixed clock tie on
       `(date, created_at)`, and a tie lets the order change between two reads of
-      unchanged data. Test it as such — a fixed clock, two markers on one date,
-      the list read twice, the order asserted equal and asserted to be id order.
-      Negative: the `id` key dropped from the `ORDER BY`, watched failing on the
-      tied pair. Ordering asserted only over distinct timestamps cannot fail.
+      unchanged data. **The two ids are fixed in the reverse of their lexical
+      order and inserted in that reverse order**, and the test asserts the
+      explicit lexical sequence — not merely that two reads agree. Two reads of
+      a tied pair can both come back in insertion order with `id` dropped from
+      the `ORDER BY`, so an equality-of-two-reads assertion passes with the key
+      gone whenever insertion order happens to match; that flakiness is the
+      whole finding. Test: a fixed clock, two markers on one date with those
+      ids, the list read twice, the exact sequence asserted both times.
+      Negative: the `id` key dropped from the real `ORDER BY`, watched failing
+      against SQLite rather than a stub — the tie-break is the database's, so a
+      fake repository proves nothing about it.
 - [ ] 4.2 Write permission — every mutation refused for a read-only actor with
       the same status the project's other writes use — test: same file, a
       read-only actor against each of the four mutations, asserting the status
