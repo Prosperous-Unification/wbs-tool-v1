@@ -303,11 +303,13 @@ is what the rest is allowed to assume.
       "behind the bars"**, which orders the marker against one of the five marks
       the body paints and leaves the other four undecided. Emitted after
       `data-gantt-today-edge` and before the row hit lines and every bar
-      (`design.md` §2.1 carries the full table) — test: `gantt-panel.test.tsx`,
-      one assertion over the DOM order of `data-gantt-weekend`,
-      `data-gantt-today`, `data-gantt-gridline`, `data-gantt-today-edge`,
-      `data-gantt-marker-rule` and the first bar, asserting exactly that
-      sequence; plus a bar crossing the rule keeping its `x`, `width` and
+      (`design.md` §2.1 carries the full ten-row table) — test:
+      `gantt-panel.test.tsx`, one assertion over the DOM order of
+      `data-gantt-weekend`, `data-gantt-today`, `data-gantt-gridline`,
+      `data-gantt-today-edge`, `data-gantt-marker-rule` and the first
+      `data-gantt-bar`, asserting exactly that sequence; a second asserting the
+      rule carries `pointer-events: none`; plus a bar crossing the rule keeping
+      its `x`, `width` and
       critical-path class **unchanged from the same plan with no marker**.
       Negative: the rule emitted at the top of `marksOverLight`, watched failing
       the sequence while the unchanged-bar half stays green — which is the point,

@@ -44,7 +44,7 @@ directly, not only through the panel.
 
 ## 2. Layers — why the rule goes behind the bars
 
-Today and weekend are **axis and grid** (`gantt-panel.tsx:2972`, the day rule
+Today and weekend are **axis and grid** (`gantt-panel.tsx:2968`, the day rule
 drawn `stroke-border` when heavy and `stroke-border/40` otherwise). Critical
 path is on the **bars** (`barClasses` at `:725`, `bar.critical ?
 'stroke-foreground [stroke-width:2]'` at `:3511`). They are different layers,
@@ -68,21 +68,37 @@ test that had to edit one of them would mean the layering was wrong.
 ### 2.1 "Behind the bars" is not a slot — this is
 
 **Corrected after the Sol planning review.** "Behind the bars" orders the marker
-against one of five things the body already paints, and leaves the other four
-undecided. The body's marks are emitted in source order inside
-`marksUnderLight` and `marksOverLight`, and paint order in SVG **is** source
-order, so the slot is a line number and nothing else:
+against one of the things the body paints and leaves the rest undecided. The
+body's marks are emitted in source order across two memos, `marksUnderLight`
+(`gantt-panel.tsx:2868`) and `marksOverLight` (`:2927`), with the pointed row's
+light between them at `:3981`; paint order in SVG **is** source order, so the
+slot is a line number and nothing else:
 
-| #     | mark                  | attribute                    | where                        |
-| ----- | --------------------- | ---------------------------- | ---------------------------- |
-| 1     | weekend columns       | `data-gantt-weekend`         | `gantt-panel.tsx:2879-2883`  |
-| 2     | row bands             | —                            | `:2895`                      |
-| 3     | today's tinted column | `data-gantt-today`           | `:2955`                      |
-| 4     | gridlines             | `data-gantt-gridline`        | `:2964`                      |
-| 5     | today's leading edge  | `data-gantt-today-edge`      | `:2993`                      |
-| **6** | **the marker rule**   | **`data-gantt-marker-rule`** | **new, immediately after 5** |
-| 7     | row hit lines         | —                            | after 6                      |
-| 8     | bars, critical stroke | `barClasses` `:725`, `:3511` | last                         |
+| #     | mark                                                   | attribute                    | where                          |
+| ----- | ------------------------------------------------------ | ---------------------------- | ------------------------------ |
+| 1     | weekend columns                                        | `data-gantt-weekend`         | `gantt-panel.tsx:2883`, under  |
+| 2     | zebra row bands                                        | —                            | `:2898`, under                 |
+| 3     | the pointed row's light                                | `data-gantt-row-lit`         | `:3981`, between the two memos |
+| 4     | today's tinted column                                  | `data-gantt-today`           | `:2950`, over                  |
+| 5     | gridlines                                              | `data-gantt-gridline`        | `:2968`, over                  |
+| 6     | today's leading edge                                   | `data-gantt-today-edge`      | `:2993`, over                  |
+| **7** | **the marker rule**                                    | **`data-gantt-marker-rule`** | **new, immediately after 6**   |
+| 8     | row hit lines                                          | —                            | `:3030`                        |
+| 9     | brackets, ticks, dependency and hand-off lines, carets | —                            | after 8                        |
+| 10    | bars, critical stroke                                  | `barClasses` `:725`, `:3511` | last                           |
+
+Rows 4–10 are `marksOverLight`'s own docstring (`:2915-2918`) read back as an
+order, not a reconstruction: _"today's column and edge, the gridlines, the row
+lines, the brackets and ticks, the dependency and hand-off lines, the not-before
+carets and the bars"_.
+
+**The rule needs no pointer behaviour of its own.** It sits at 7, under the row
+hit lines at 8, whose own docstring explains that they are deliberately not
+`pointer-events: none` because a surface under them would be dead in stripes.
+Nothing above the rule is removed and nothing below it is exposed, so row
+pointing is unchanged — and the rule carries `pointer-events: none` regardless,
+because the interaction surface for a marker is the axis chip and never the
+decoration in the body.
 
 **Over the today edge, not under it.** A marker on today has to be visible: the
 user just placed it, and §1 names silent absence as the least debuggable failure
@@ -95,7 +111,7 @@ stays findable and the marker is visible, which is not true the other way round.
 **Over the weekend columns for the same reason and for free:** the weekend band
 is a fill drawn first, at position 1, so anything after it is over it already.
 
-**Under the bars, which is the requirement §2 argues.** Slots 7 and 8 are
+**Under the bars, which is the requirement §2 argues.** Slots 8, 9 and 10 are
 untouched, so no bar coordinate, fill or critical-path stroke changes.
 
 ## 3. The zoom ladder is the binding constraint on labels

@@ -179,13 +179,18 @@ the bars at reduced opacity.
 Nothing SHALL be drawn over a bar. Bar fill and the critical-path
 `stroke-foreground [stroke-width:2]` SHALL keep full contrast.
 
-**"Behind the bars" SHALL NOT be the whole ordering.** The body paints five
+**"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
-after the weekend columns (`data-gantt-weekend`), the row bands, today's tinted
-column (`data-gantt-today`), the gridlines (`data-gantt-gridline`) and today's
-leading edge (`data-gantt-today-edge`), and before the row hit lines and every
-bar. Paint order in SVG is source order, so the slot is a position in
-`marksOverLight` and not a `z-index`.
+after the weekend columns (`data-gantt-weekend`), the zebra row bands, the
+pointed row's light (`data-gantt-row-lit`), today's tinted column
+(`data-gantt-today`), the gridlines (`data-gantt-gridline`) and today's leading
+edge (`data-gantt-today-edge`), and before the row hit lines, the dependency
+marks and every bar. Paint order in SVG is source order, so the slot is a
+position in `marksOverLight` and not a `z-index`.
+
+The rule SHALL carry `pointer-events: none`. A marker's interaction surface is
+the axis chip; nothing in the body may take a pointer away from the row hit
+lines, which are deliberately not `pointer-events: none` themselves.
 
 A marker on today's date SHALL therefore draw **over** today's leading edge.
 Today SHALL remain findable because it is marked twice — a tinted column a whole
