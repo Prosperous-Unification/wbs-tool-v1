@@ -1087,9 +1087,9 @@ in both slices rather than implied by position.
       prove less.
       SECOND NEGATIVE WATCHED, and it is the one the first cannot reach because
       it leaves the refusal branch intact: the undated **click** arm also
-      issuing `onCreateMarker({ markerId: newMarkerId(), date: '2026-08-19',
-    name: 'synthesised' })` → **195 pass / 1 fail on `gantt-panel.test.tsx`,
-      this case alone**, on `expected [['p1', {…}]] to deeply equal []` — the
+      issuing an `onCreateMarker` for a synthesised `2026-08-19` →
+      **195 pass / 1 fail on `gantt-panel.test.tsx`, this case alone**, on
+      `expected [['p1', {…}]] to deeply equal []` — the
       no-create assertion, with the message and composer assertions green above
       it in the same run and both keyboard cases untouched (the fault was put in
       the click handler alone, so the arm it isolates is the arm it names).
