@@ -219,8 +219,9 @@ describe('watching a project’s shelf', () => {
     // the saver waits for their own event to go out to gw-01 and come back
     // before the row they just created appears. The assertion is on `list` being asked
     // a second time with no broadcast fired at all: a build whose refresh did
-    // nothing would still pass every other case in this `describe` block, because
-    // every other case gets its second read from the stream. The hook's
+    // nothing would still pass every other case in this `describe` block: every
+    // other case that expects a second read gets it from the stream, and the one
+    // that also calls `refresh` expects no read at all. The hook's
     // refresh-identity case is the only other guard against it anywhere in the
     // file.
     const stream = fakeStream();
