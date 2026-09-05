@@ -141,3 +141,120 @@ export function decodeSupervisorStartFrame(
     request,
   };
 }
+
+export type SupervisorReplyFrame =
+  | { readonly type: 'started'; readonly pid: number }
+  | { readonly type: 'stdout' | 'stderr'; readonly payload: string }
+  | {
+      readonly type: 'terminal';
+      readonly exitCode: number;
+      readonly deadlineKilled: boolean;
+      readonly oomKilled: boolean;
+    };
+
+export interface SupervisorReplyBudget {
+  readonly stdoutBytes: number;
+  readonly stderrBytes: number;
+  readonly maxPayloadBytes: number;
+  readonly maxStdoutBytes: number;
+  readonly maxStderrBytes: number;
+}
+
+export interface DecodedSupervisorReply {
+  readonly frame: SupervisorReplyFrame;
+  readonly budget: SupervisorReplyBudget;
+}
+
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function replyDefect(message: string): Error {
+  return new Error(`supervisor reply frame: ${message}`);
+}
+
+function requireReplyKeys(value: Record<string, unknown>, expected: readonly string[]): void {
+  const unknown = Object.keys(value).filter((key) => !expected.includes(key));
+  if (unknown.length > 0) throw replyDefect(`unknown key ${unknown.sort().join(', ')}`);
+  const missing = expected.filter((key) => !Object.hasOwn(value, key));
+  if (missing.length > 0) throw replyDefect(`missing key ${missing.join(', ')}`);
+}
+
+function decodedBase64Bytes(payload: string): number {
+  if (!BASE64.test(payload)) throw replyDefect('payload is not canonical base64');
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0;
+  return (payload.length / 4) * 3 - padding;
+}
+
+export function decodeSupervisorReplyFrame(
+  raw: string,
+  budget: SupervisorReplyBudget,
+): DecodedSupervisorReply {
+  if (raw.includes('\n') || raw.includes('\r')) throw replyDefect('expected exactly one line');
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch {
+    throw replyDefect('malformed JSON');
+  }
+  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
+    throw replyDefect('payload is not an object');
+  }
+  const value = decoded as Record<string, unknown>;
+  const type = value['type'];
+
+  if (type === 'started') {
+    requireReplyKeys(value, ['type', 'pid']);
+    const pid = value['pid'];
+    if (!Number.isSafeInteger(pid) || (pid as number) < 1) {
+      throw replyDefect('pid is not a positive safe integer');
+    }
+    return { frame: { type, pid: pid as number }, budget };
+  }
+
+  if (type === 'stdout' || type === 'stderr') {
+    requireReplyKeys(value, ['type', 'payload']);
+    const payload = value['payload'];
+    if (typeof payload !== 'string') throw replyDefect('payload is not a string');
+    const payloadBytes = decodedBase64Bytes(payload);
+    if (payloadBytes > budget.maxPayloadBytes) {
+      throw replyDefect(
+        `payload bytes ${String(payloadBytes)} exceed frame limit ${String(budget.maxPayloadBytes)}`,
+      );
+    }
+    const used = type === 'stdout' ? budget.stdoutBytes : budget.stderrBytes;
+    const maximum = type === 'stdout' ? budget.maxStdoutBytes : budget.maxStderrBytes;
+    const next = used + payloadBytes;
+    if (next > maximum) {
+      throw replyDefect(`${type} bytes ${String(next)} exceed attempt limit ${String(maximum)}`);
+    }
+    return {
+      frame: { type, payload },
+      budget: {
+        ...budget,
+        ...(type === 'stdout' ? { stdoutBytes: next } : { stderrBytes: next }),
+      },
+    };
+  }
+
+  if (type === 'terminal') {
+    requireReplyKeys(value, ['type', 'exitCode', 'deadlineKilled', 'oomKilled']);
+    const exitCode = value['exitCode'];
+    if (!Number.isSafeInteger(exitCode) || (exitCode as number) < 0) {
+      throw replyDefect('exitCode is not a non-negative safe integer');
+    }
+    if (typeof value['deadlineKilled'] !== 'boolean') {
+      throw replyDefect('deadlineKilled is not boolean');
+    }
+    if (typeof value['oomKilled'] !== 'boolean') throw replyDefect('oomKilled is not boolean');
+    return {
+      frame: {
+        type,
+        exitCode: exitCode as number,
+        deadlineKilled: value['deadlineKilled'],
+        oomKilled: value['oomKilled'],
+      },
+      budget,
+    };
+  }
+
+  throw replyDefect(`unknown type ${JSON.stringify(type)}`);
+}
