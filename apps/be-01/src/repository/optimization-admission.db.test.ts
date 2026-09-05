@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from './db';
 import { runMigrations } from './migrate';
-import { reserveSolverSlot } from './optimization-admission';
+import { bindSolverSlot, reserveSolverSlot } from './optimization-admission';
 import { allocateGeneration } from './optimization-generation';
 import { optimizationGeneration, solverSlot } from './schema';
 
@@ -44,6 +44,40 @@ function prepared() {
 }
 
 describe('reserveSolverSlot', () => {
+  it('binds exactly one launcher PID to the current starting token', () => {
+    const { db, generation } = prepared();
+    expect(
+      reserveSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        ownerId: 'blue',
+        attemptToken: 'blue-token',
+        now: 10,
+      }),
+    ).toMatchObject({ kind: 'reserved' });
+    const common = {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri' as const,
+      budgetMs: BUDGET,
+    };
+
+    expect(bindSolverSlot(db, { ...common, attemptToken: 'stale-token', pid: 41 })).toBe(false);
+    expect(bindSolverSlot(db, { ...common, attemptToken: 'blue-token', pid: 42 })).toBe(true);
+    expect(bindSolverSlot(db, { ...common, attemptToken: 'blue-token', pid: 43 })).toBe(false);
+    const [bound] = db.select().from(solverSlot).all();
+    expect(bound.lifecycle).toBe('running');
+    expect(bound.pid).toBe(42);
+    expect(bound.attemptToken).toBe('blue-token');
+
+    // Proof: dropping either the token or `starting` predicate lets PID 41 or
+    // 43 claim a row that belongs to another lifecycle attempt.
+  });
+
   it('coalesces two coordinators on one full slot key', () => {
     const { db, generation } = prepared();
     const common = {

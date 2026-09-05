@@ -32,6 +32,42 @@ export type SolverSlotAdmission =
     }
   | { readonly kind: 'already-present' | 'closed' | 'project-full' | 'global-full' };
 
+export interface SolverSlotBind {
+  readonly projectId: string;
+  readonly contractVersion: string;
+  readonly generation: number;
+  readonly objective: SolverObjectiveName;
+  readonly budgetMs: number;
+  readonly attemptToken: string;
+  readonly pid: number;
+}
+
+/**
+ * Atomically gives one still-current `starting` reservation its launcher PID.
+ * A stale token or a second bind updates zero rows, which tells the caller to
+ * send `abort` and kill the launcher without executing the solver.
+ */
+export function bindSolverSlot(db: Drizzle, slot: SolverSlotBind): boolean {
+  return (
+    db
+      .update(solverSlot)
+      .set({ lifecycle: 'running', pid: slot.pid })
+      .where(
+        and(
+          eq(solverSlot.projectId, slot.projectId),
+          eq(solverSlot.contractVersion, slot.contractVersion),
+          eq(solverSlot.generation, slot.generation),
+          eq(solverSlot.objective, slot.objective),
+          eq(solverSlot.budgetMs, slot.budgetMs),
+          eq(solverSlot.attemptToken, slot.attemptToken),
+          eq(solverSlot.lifecycle, 'starting'),
+        ),
+      )
+      .returning({ attemptToken: solverSlot.attemptToken })
+      .all().length === 1
+  );
+}
+
 /**
  * Atomically reserves one `starting` solver seat without exceeding either
  * process ceiling (tasks.md 6.2's reservation half).
