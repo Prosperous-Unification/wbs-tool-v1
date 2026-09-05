@@ -74,21 +74,21 @@ body's marks are emitted in source order across two memos, `marksUnderLight`
 light between them at `:3983`; paint order in SVG **is** source order, so the
 slot is a line number and nothing else:
 
-| #      | mark                                    | attribute                    | where                          |
-| ------ | --------------------------------------- | ---------------------------- | ------------------------------ |
-| 1      | weekend columns                         | `data-gantt-weekend`         | `gantt-panel.tsx:2883`, under  |
-| 2      | zebra row bands                         | `data-gantt-band`            | `:2903`, under                 |
-| 3      | the pointed row's light                 | `data-gantt-row-lit`         | `:3983`, between the two memos |
-| 4      | today's tinted column                   | `data-gantt-today`           | `:2950`, over                  |
-| 5      | gridlines                               | `data-gantt-gridline`        | `:2968`, over                  |
-| 6      | today's leading edge                    | `data-gantt-today-edge`      | `:2993`, over                  |
-| **7**  | **the marker rule**                     | **`data-gantt-marker-rule`** | **new, immediately after 6**   |
-| 8      | row hit lines                           | `data-gantt-row-line`        | `:3032`                        |
-| 9      | capacity links, brackets, carets        | `data-gantt-capacity-link`   | `:3238` and neighbours         |
-| 10     | bar rectangles                          | `data-gantt-bar`             | `:3283`, `barClasses` `:3335`  |
-| 11     | priority caps                           | `data-priority-cap`          | `:3473`, **after** the bars    |
-| 12     | zero-duration ticks                     | `data-gantt-tick`            | `:3509`, after the caps        |
-| 13     | on-bar labels                           | `data-gantt-bar-label`       | `:3591`, last                  |
+| #     | mark                             | attribute                    | where                          |
+| ----- | -------------------------------- | ---------------------------- | ------------------------------ |
+| 1     | weekend columns                  | `data-gantt-weekend`         | `gantt-panel.tsx:2883`, under  |
+| 2     | zebra row bands                  | `data-gantt-band`            | `:2903`, under                 |
+| 3     | the pointed row's light          | `data-gantt-row-lit`         | `:3983`, between the two memos |
+| 4     | today's tinted column            | `data-gantt-today`           | `:2950`, over                  |
+| 5     | gridlines                        | `data-gantt-gridline`        | `:2968`, over                  |
+| 6     | today's leading edge             | `data-gantt-today-edge`      | `:2993`, over                  |
+| **7** | **the marker rule**              | **`data-gantt-marker-rule`** | **new, immediately after 6**   |
+| 8     | row hit lines                    | `data-gantt-row-line`        | `:3032`                        |
+| 9     | capacity links, brackets, carets | `data-gantt-capacity-link`   | `:3238` and neighbours         |
+| 10    | bar rectangles                   | `data-gantt-bar`             | `:3283`, `barClasses` `:3335`  |
+| 11    | priority caps                    | `data-priority-cap`          | `:3473`, **after** the bars    |
+| 12    | zero-duration ticks              | `data-gantt-tick`            | `:3509`, after the caps        |
+| 13    | on-bar labels                    | `data-gantt-bar-label`       | `:3591`, last                  |
 
 **Rows 2, 3 and 8–13 were wrong until the round-4 Sol review and are now read
 off the source, not off a docstring.** The zebra bands carry
@@ -96,7 +96,7 @@ off the source, not off a docstring.** The zebra bands carry
 light is at `:3983`; the row hit lines carry `data-gantt-row-line` at `:3032`;
 and — the one that matters for a "behind the bars" claim — **the bars are not
 last**. The rectangles land at `:3283`, and priority caps (`:3473`),
-zero-duration ticks (`:3509`) and on-bar labels (`:3591`) all paint *after*
+zero-duration ticks (`:3509`) and on-bar labels (`:3591`) all paint _after_
 them. `:3511` was cited as the bars' own line; it is inside the tick block.
 
 Rows 4–13 follow `marksOverLight`'s docstring (`:2915-2918`) — _"today's column
@@ -148,14 +148,14 @@ named constant with a pixel assertion is testable; "looks busy" is not.
 
 Two corrections the round-4 Sol review forced, both of which followed from
 counting the wrong thing. **The count is rule positions, not markers.** The body
-draws one rule per *occupied date* (see the spec's rendering requirement:
+draws one rule per _occupied date_ (see the spec's rendering requirement:
 per-marker rules on a shared date are coincident and only the last colour
 survives), so seven markers on one date are one rule and must not trip a
 threshold about smear. And **the window is the viewport, normalised to 100px**,
 not a sliding scan — a sliding window's answer depends on where it starts.
 Suppression runs at the 4px rung only: at 28px a 100px window spans 3.6 days
 and holds at most 4 rules, so the threshold is unreachable; at 12px it spans
-8.3 days and holds up to 9, so it *is* reachable — the earlier "unreachable at
+8.3 days and holds up to 9, so it _is_ reachable — the earlier "unreachable at
 both wider rungs" was arithmetic that had not been done — and suppression is
 withheld there deliberately, because nine rules at one per ≥12px are separate
 lines, not a wash.
@@ -442,7 +442,7 @@ same test asserts **did** advance — that assertion is what proves the comparis
 ran against a real change rather than an empty projection.
 
 **And the identity claim is structural, so one assertion is structural too.**
-Comparing two captures proves markers did not move *this* plan; it cannot prove
+Comparing two captures proves markers did not move _this_ plan; it cannot prove
 there is no path from a marker to the engine, because a path that happens to be
 a no-op on the fixture passes. The adapter seam is a single call —
 `schedule(rows, edges, slices, notBefore, slotsOf, project.depReach)` at
@@ -450,7 +450,7 @@ a no-op on the fixture passes. The adapter seam is a single call —
 assert that call site still passes exactly those six arguments, and that
 `libs/domain/src/schedule.ts` contains no import from the marker module and no
 occurrence of the marker type. A source-level assertion is unusual and is
-justified here because the guarantee being sold *is* a source-level one.
+justified here because the guarantee being sold _is_ a source-level one.
 
 Note for anyone extending this — an earlier draft of this task cited a
 `fast-golden-corpus` serializer as the oracle. **No such corpus exists in this

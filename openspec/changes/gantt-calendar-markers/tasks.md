@@ -405,7 +405,7 @@ in both slices rather than implied by position.
       watched failing the Enter case, because an unfocusable element never
       receives the key.
       **Why this slice exists:** an earlier draft made the undated cell inert
-      (no role, no tab stop, no key handler) *and* required 6.5's live-region
+      (no role, no tab stop, no key handler) _and_ required 6.5's live-region
       announcement — a contradiction, since the only element that fires the
       refusal was unreachable by exactly the users the live region serves. It
       is `aria-disabled`, not `disabled`, because a disabled control leaves the
@@ -482,8 +482,9 @@ in both slices rather than implied by position.
       the same number and the mutant passes (found by the round-4 Sol review).
       Negative: build an axis whose matching cell's `offset` differs from
       **both** its array index and its calendar distance from `axis[0].date` —
-      e.g. `[{2026-08-10, offset 0}, {2026-08-11, offset 7}, {2026-08-12,
-      offset 9}]`, where looking up `2026-08-12` must give **9**, not 2 —
+      e.g. three cells dated `2026-08-10`, `2026-08-11` and `2026-08-12`
+      carrying offsets 0, 7 and 9, where looking up the third must give **9**,
+      not its index 2 and not its calendar distance 2 —
       then swap the lookup for `calendarDaysBetween(axis[0].date, date)` and
       watch it fail. This is the second-scale drift `todayOffset`'s own
       docstring warns about, made observable.
@@ -607,9 +608,9 @@ in both slices rather than implied by position.
       Test: the existing `WbsTable` stream harness in `gantt-panel.test.tsx`,
       deliver the event with the marker list changed underneath, and assert the
       new chip appears with no remount and no reload. Negative, and it is a real
-      one-line mutation: add `if (changed === 'calendar_markers_changed') return
-      'tree';` to `readScopeFor` — a narrow scope that excludes the marker
-      read — watched failing with the stale chip still on screen. That is also
+      one-line mutation: add an arm to `readScopeFor` returning the `'tree'`
+      scope for `calendar_markers_changed`, which excludes the marker read,
+      watched failing with the stale chip still on screen. That is also
       the realistic future defect, somebody narrowing the new event for speed.
       9.1 counts emissions, which is a broadcast into an empty room until
       something acts on it — this slice is the half that makes the content-free

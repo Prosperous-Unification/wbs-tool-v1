@@ -29,7 +29,7 @@ them: each work item's whole `schedule`, every slice with its `boundBy`,
 `seq` is the only exclusion. A projection of start, finish and the critical flag
 alone would stay identical while a marker fault moved float, a slice's binding
 reason or a waiting count — which is the first thing such a fault would move,
-because a resource floor changes *what* bound a slice before it changes *when*
+because a resource floor changes _what_ bound a slice before it changes _when_
 the slice runs (round-4 Sol review).
 
 #### Scenario: the schedule projection is identical with markers and without
@@ -125,7 +125,7 @@ by pointer, Enter or Space — SHALL emit the refusal below into a live region.
 `aria-disabled` rather than the `disabled` attribute, and this is the whole
 point: a genuinely disabled control is removed from the tab order, and a user
 who cannot reach it is never told why it does nothing. An earlier draft gave
-the undated cell no role, no tab stop and no key handler and *also* required
+the undated cell no role, no tab stop and no key handler and _also_ required
 the refusal to be announced in a live region — which cannot both be true,
 because the only element that fires the refusal was unreachable by the users
 the live region exists for (corrected after the round-4 Sol review).
@@ -277,7 +277,7 @@ two inside one heavy-gridline week.
 viewport.** The measure is `occupiedDatesInViewport / viewportWidthPx * 100`,
 compared with `>` — strictly exceeding 6 suppresses, exactly 6 draws. Two
 things this makes explicit, both of which an earlier draft got wrong by
-counting *markers* over an unnamed window: seven markers on a single date are
+counting _markers_ over an unnamed window: seven markers on a single date are
 one rule position and SHALL NOT suppress anything, and the window is
 viewport-normalised rather than a sliding 100px scan, so the answer does not
 depend on where the scan starts.
@@ -285,7 +285,7 @@ depend on where the scan starts.
 Suppression SHALL apply at the 4px rung only, and the reason is arithmetic
 rather than symmetry. At 28px per day a 100px window spans 3.6 days, so it can
 hold at most 4 rule positions and the threshold is genuinely **unreachable**. At
-12px it spans 8.3 days and can hold **9**, so the threshold *is* reachable
+12px it spans 8.3 days and can hold **9**, so the threshold _is_ reachable
 there — the earlier claim that both wide rungs were unreachable was false — and
 suppression is nonetheless withheld, because at 12px nine rules are one per
 ≥12px and do not smear. The threshold exists to stop 1px lines merging into a
@@ -395,7 +395,7 @@ a marker is two things:
 - **4.5:1** for the chip's label text against the chip fill — WCAG 1.4.3.
 
 **The body rule SHALL be opaque**, and that is what makes the first bar
-checkable. A rule at some reduced opacity is a *different* colour once
+checkable. A rule at some reduced opacity is a _different_ colour once
 composited, and it composites over a different fill in every column the chart
 draws — weekend bands, zebra rows, the pointed row's light, today's tint and the
 base. A hex clearing 3:1 against the base does not clear it after alpha blending
@@ -578,16 +578,16 @@ an absent project 404 — so a marker route that said only "the existing shape"
 would have specified nothing (round-4 Sol review). The marker routes' default
 SHALL be **422**, the malformed-body answer:
 
-| failure                          | reason        | status | field   |
-| -------------------------------- | ------------- | ------ | ------- |
-| `date` is not an `IsoDate`       | `malformed`   | 422    | `date`  |
-| `id` is not a UUID v4            | `malformed`   | 422    | `id`    |
-| `color` is not a hex triple      | `malformed`   | 422    | `color` |
-| `name` is empty or over the cap  | `malformed`   | 422    | `name`  |
-| `color` fails either contrast bar | `contrast`   | 422    | `color` |
-| `id` already exists              | `taken`       | 409    | `id`    |
-| the marker is absent, or another project's | `not_found` | 404 | `id` |
-| the caller may not write the project | `forbidden` | 403  | —       |
+| failure                                    | reason      | status | field   |
+| ------------------------------------------ | ----------- | ------ | ------- |
+| `date` is not an `IsoDate`                 | `malformed` | 422    | `date`  |
+| `id` is not a UUID v4                      | `malformed` | 422    | `id`    |
+| `color` is not a hex triple                | `malformed` | 422    | `color` |
+| `name` is empty or over the cap            | `malformed` | 422    | `name`  |
+| `color` fails either contrast bar          | `contrast`  | 422    | `color` |
+| `id` already exists                        | `taken`     | 409    | `id`    |
+| the marker is absent, or another project's | `not_found` | 404    | `id`    |
+| the caller may not write the project       | `forbidden` | 403    | —       |
 
 `taken` reaches 409 through the shared `CONFLICTS` set, `not_found` through the
 shared 404 arm and `forbidden` through the shared 403 arm; only `malformed` and
