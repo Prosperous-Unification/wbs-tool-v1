@@ -55,6 +55,7 @@
       "@wbs/contracts/solver/quantised-baseline": [
         "libs/contracts/solver/src/quantised-baseline.ts"
       ],
+      "@wbs/contracts/solver/build-request": ["libs/contracts/solver/src/build-solver-request.ts"],
       "@wbs/deploy-contract": ["tools/tool-remote-scripts/src/lib/deploy-contract.ts"],
       "@wbs/tool-compose": ["tools/tool-compose/src/index.ts"],
       "@wbs/tool-env": ["tools/tool-remote-scripts/src/lib/env.ts"],
