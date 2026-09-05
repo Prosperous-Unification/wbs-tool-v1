@@ -10,6 +10,7 @@ import { openDatabase, openDrizzle } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
 import { allocateGeneration } from '../repository/optimization-generation';
 import type { SpawnRequest } from '../repository/optimized-schedule-cache';
+import { solverSlot } from '../repository/schema';
 import { OptimizationCoordinator } from './optimization-coordinator';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -17,9 +18,7 @@ const CONTRACT = '7+0.1.0';
 const BUDGET = 60_000;
 
 const INPUT: ScheduleInput = {
-  rows: [
-    { id: 'w-1', parentId: null, position: 10, frozenNumber: null, priority: null },
-  ],
+  rows: [{ id: 'w-1', parentId: null, position: 10, frozenNumber: null, priority: null }],
   edges: [],
   slices: [
     {
@@ -71,18 +70,24 @@ function seedProject(path: string): void {
 function coordinator(
   db: ReturnType<typeof openDrizzle>,
   calls: SpawnRequest[],
+  ownerId = 'blue',
 ): OptimizationCoordinator {
+  let token = 0;
   return new OptimizationCoordinator({
     db,
     contractVersion: CONTRACT,
     budgetMs: BUDGET,
+    ownerId,
+    now: () => 10,
+    attemptToken: () => `${ownerId}-token-${String(token++)}`,
     spawn: (request) => void calls.push(request),
   });
 }
 
 describe('OptimizationCoordinator read', () => {
   it('requests both absent objectives once while Fast remains the immediate answer', () => {
-    const { db } = database();
+    const { path, db } = database();
+    seedProject(path);
     const calls: SpawnRequest[] = [];
 
     expect(
@@ -90,9 +95,27 @@ describe('OptimizationCoordinator read', () => {
     ).toBeNull();
     expect(calls.map(({ objective }) => objective)).toEqual(['pri', 'time']);
     expect(calls.every(({ key }) => key.inputHash === scheduleInputHash(INPUT))).toBe(true);
+    expect(
+      db
+        .select({ ownerId: solverSlot.ownerId, attemptToken: solverSlot.attemptToken })
+        .from(solverSlot)
+        .all(),
+    ).toEqual([
+      { ownerId: 'blue', attemptToken: 'blue-token-0' },
+      { ownerId: 'blue', attemptToken: 'blue-token-1' },
+    ]);
 
-    // Proof: replacing the coordinator's spawning read with `readOptimizedPair`
-    // fails here with `Expected [ "pri", "time" ], Received []`.
+    expect(
+      coordinator(db, calls, 'green').read({
+        projectId: 'p-1',
+        objective: 'time',
+        input: INPUT,
+      }),
+    ).toBeNull();
+    expect(calls.map(({ objective }) => objective)).toEqual(['pri', 'time']);
+
+    // Proof: bypassing SQLite leaves zero rows; removing the full-key conflict
+    // check lets green call the spawner twice more for the same generation.
   });
 
   it('does not automatically request exact-key failed or corrupt objectives', () => {

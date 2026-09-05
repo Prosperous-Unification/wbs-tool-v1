@@ -2,9 +2,11 @@ import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 
 import type { Drizzle } from '../repository/db';
+import { reserveSolverSlot, type SolverSlotAdmission } from '../repository/optimization-admission';
+import { allocateGeneration } from '../repository/optimization-generation';
 import {
   readOptimizedPairAndSpawn,
-  type Spawner,
+  type SpawnRequest,
 } from '../repository/optimized-schedule-cache';
 import type { SolverObjectiveName } from '../repository/schema';
 import type { OptimizedScheduleReader } from './optimized-schedule-reader';
@@ -13,12 +15,28 @@ export interface OptimizationCoordinatorOptions {
   readonly db: Drizzle;
   readonly contractVersion: string;
   readonly budgetMs: number;
+  /** Stable for this backend process; generated once at coordinator boot. */
+  readonly ownerId: string;
+  /** Read once per plan-read admission attempt. */
+  readonly now: () => number;
+  /** Fresh 128-bit token source; the production root supplies `randomUUID`. */
+  readonly attemptToken: () => string;
   /**
-   * Admission's process boundary. Slice 6.1 owns the request; slices 6.2–6.4
-   * provide the SQLite slot and child lifecycle behind this port.
+   * The launcher boundary, called only after SQLite returned this attempt's
+   * counted `starting` row. Slice 6.2b binds that row to the launcher PID.
    */
-  readonly spawn: Spawner;
+  readonly spawn: ReservedSpawner;
 }
+
+type ReservedAdmission = Extract<SolverSlotAdmission, { kind: 'reserved' }>;
+
+/** Everything the launcher needs from the read and its successful reservation. */
+export interface ReservedSpawnRequest extends SpawnRequest {
+  readonly generation: number;
+  readonly admission: ReservedAdmission;
+}
+
+export type ReservedSpawner = (request: ReservedSpawnRequest) => void;
 
 /**
  * The synchronous plan-read half of the optimizer coordinator (tasks.md 6.1).
@@ -40,15 +58,38 @@ export class OptimizationCoordinator {
     readonly objective: SolverObjectiveName;
     readonly input: ScheduleInput;
   }) => {
+    const inputHash = scheduleInputHash(ask.input);
+    const now = this.options.now();
+    const generation = allocateGeneration(
+      this.options.db,
+      ask.projectId,
+      this.options.contractVersion,
+      inputHash,
+      now,
+    );
     const pair = readOptimizedPairAndSpawn(
       this.options.db,
       {
         projectId: ask.projectId,
-        inputHash: scheduleInputHash(ask.input),
+        inputHash,
         contractVersion: this.options.contractVersion,
         budgetMs: this.options.budgetMs,
       },
-      this.options.spawn,
+      (request) => {
+        const admission = reserveSolverSlot(this.options.db, {
+          projectId: request.key.projectId,
+          contractVersion: request.key.contractVersion,
+          generation,
+          objective: request.objective,
+          budgetMs: request.key.budgetMs,
+          ownerId: this.options.ownerId,
+          attemptToken: this.options.attemptToken(),
+          now,
+        });
+        if (admission.kind === 'reserved') {
+          this.options.spawn({ ...request, generation, admission });
+        }
+      },
     );
     const outcome = pair[ask.objective];
     return outcome.kind === 'ok' ? outcome.result.schedule : null;
