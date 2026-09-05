@@ -52,12 +52,18 @@
       "@wbs/contracts/solver/materialise-optimized": [
         "libs/contracts/solver/src/materialise-optimized.ts"
       ],
+      "@wbs/contracts/solver/parse-solver-response": [
+        "libs/contracts/solver/src/parse-solver-response.ts"
+      ],
       "@wbs/contracts/solver/quantised-baseline": [
         "libs/contracts/solver/src/quantised-baseline.ts"
       ],
       "@wbs/contracts/solver/build-request": ["libs/contracts/solver/src/build-solver-request.ts"],
       "@wbs/contracts/solver/solver-failure-disposition": [
         "libs/contracts/solver/src/solver-failure-disposition.ts"
+      ],
+      "@wbs/contracts/solver/revalidate-solver-result": [
+        "libs/contracts/solver/src/revalidate-solver-result.ts"
       ],
       "@wbs/deploy-contract": ["tools/tool-remote-scripts/src/lib/deploy-contract.ts"],
       "@wbs/tool-compose": ["tools/tool-compose/src/index.ts"],
