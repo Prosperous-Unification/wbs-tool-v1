@@ -583,11 +583,17 @@ SHALL be **422**, the malformed-body answer:
 | `date` is not an `IsoDate`                 | `malformed` | 422    | `date`  |
 | `id` is not a UUID v4                      | `malformed` | 422    | `id`    |
 | `color` is not a hex triple                | `malformed` | 422    | `color` |
-| `name` is empty or over the cap            | `malformed` | 422    | `name`  |
+| `name` is empty or over `MARKER_NAME_MAX`  | `malformed` | 422    | `name`  |
 | `color` fails either contrast bar          | `contrast`  | 422    | `color` |
 | `id` already exists                        | `taken`     | 409    | `id`    |
 | the marker is absent, or another project's | `not_found` | 404    | `id`    |
 | the caller may not write the project       | `forbidden` | 403    | —       |
+
+`MARKER_NAME_MAX` SHALL be **120** characters, counted in Unicode code points
+rather than UTF-16 units so an emoji costs one. 120 rather than 255 because the
+name is drawn in a chip in an axis cell and read in a hover list, never in a
+paragraph — it is a label, and a cap that admits a sentence invites one. Empty
+is refused by the same row: the minimum is 1.
 
 `taken` reaches 409 through the shared `CONFLICTS` set, `not_found` through the
 shared 404 arm and `forbidden` through the shared 403 arm; only `malformed` and

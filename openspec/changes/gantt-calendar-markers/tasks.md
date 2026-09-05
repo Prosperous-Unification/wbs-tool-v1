@@ -242,7 +242,10 @@ in both slices rather than implied by position.
       overwriting the existing row. A duplicate-id test that only asserts an
       error status passes against an upsert that already destroyed the row.
 - [ ] 4.5 Refusals name their field and apply nothing — test: same file, one
-      case per row of the spec's eight-row refusal table, each asserting the
+      case per row of the spec's eight-row refusal table — including both
+      `name` boundaries, an empty string and `MARKER_NAME_MAX + 1 = 121` code
+      points, with a 120-point name accepted so the cap is tested at its value
+      and not merely well past it — each asserting the
       **exact status and reason code** for that failure and the failing field
       named, and that the stored marker is byte-identical to before the call.
       **Not "the project's existing refusal shape"**, which names nothing:
@@ -299,7 +302,10 @@ in both slices rather than implied by position.
       was right that a three-field projection cannot see the fields a scheduler
       regression moves first): every `workItems[].schedule` in full — all eight
       of `Scheduled` (`schedule.ts:116-124`), rows in ascending work-item id
-      order — plus `slices` in ascending `sliceKey` order carrying the complete
+      order — plus `slices` in ascending **`id`** order (`IdentifiedSlice`
+      carries `id`, which is `sliceKey`'s string on the wire; there is no
+      `sliceKey` property and sorting by one would not typecheck —
+      `work-item.service.ts:555-557`) carrying the complete
       `ScheduledSlice` including `boundBy`, `personId`,
       `resourcePredecessorId` and sorted `capacityPredecessorIds`
       (`work-item.service.ts:555`), plus `scheduleError`, `waitingForPerson`
@@ -507,7 +513,13 @@ in both slices rather than implied by position.
       critical-path class **unchanged from the same plan with no marker**.
       Negative: the rule emitted at the top of `marksOverLight`, watched failing
       the sequence while the unchanged-bar half stays green — which is the point,
-      because a rule above the gridlines is still behind every bar. The
+      because a rule above the gridlines is still behind every bar.
+      **Plus the shared-date colour, which nothing else tests:** two markers on
+      one date with distinct colours, asserting exactly one rule element at that
+      offset and its `stroke` equal to the **first** marker's colour by
+      `(created_at, id)`. Negative: the selection inverted to the date's last
+      marker, watched failing on the `stroke` while the count of rules stays
+      one — the count alone cannot see which colour won. The
       unchanged-bar half is the requirement; the sequence is the mechanism, and
       it needs its own assertion because the requirement cannot see it.
 - [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is

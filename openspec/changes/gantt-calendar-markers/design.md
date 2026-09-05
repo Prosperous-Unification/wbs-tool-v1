@@ -148,9 +148,11 @@ named constant with a pixel assertion is testable; "looks busy" is not.
 
 Two corrections the round-4 Sol review forced, both of which followed from
 counting the wrong thing. **The count is rule positions, not markers.** The body
-draws one rule per _occupied date_ (see the spec's rendering requirement:
-per-marker rules on a shared date are coincident and only the last colour
-survives), so seven markers on one date are one rule and must not trip a
+draws one rule per _occupied date_, in the colour of that date's **first**
+marker by `(created_at, id)` — per-marker rules on a shared date would be
+coincident, so which colour survived would be an accident of iteration order,
+which is why the first is named — so seven markers on one date are one rule and
+must not trip a
 threshold about smear. And **the window is the viewport, normalised to 100px**,
 not a sliding scan — a sliding window's answer depends on where it starts.
 Suppression runs at the 4px rung only: at 28px a 100px window spans 3.6 days
@@ -173,9 +175,13 @@ answer.
 between neighbours at the rung where the smear happens, and the same ~16px
 minimum separation the gridline's own heavy/light ladder already reads at. Seven
 would put two rules inside one heavy-gridline week; six is the largest count
-that cannot. At the 12px and 28px rungs 100px holds 8 and 3.6 days, so the
-threshold is unreachable by construction there and the rules always draw — which
-is the intended behaviour and not a special case in the code.
+that cannot. Suppression is scoped to the **4px rung only**. At 28px a 100px
+window spans 3.6 days and holds at most four rule positions, so the threshold is
+unreachable by construction. At 12px it spans 8.3 days and holds up to **nine**,
+so it _is_ reachable — an earlier draft said 8 and called it unreachable, which
+was arithmetic that had not been done — and suppression is withheld there
+deliberately, because nine rules at one per ≥12px are separate lines rather than
+a wash. The rung scope is the code's one condition; reachability is not.
 
 ## 4. Geometry — the seam is `todayOffset`, not `CalendarScale`
 
@@ -379,11 +385,19 @@ The contract, on the dated cell only:
 - A visible focus ring, since the cell has no default one.
 - `aria-haspopup="dialog"` and `aria-expanded`, because what opens is a sheet.
 
-**The undated cell keeps none of it.** It carries no `data-axis-date`, gets no
-role, no tab stop and no key handler, so it is not in the tab order at all — the
-refusal in §1 is for the pointer user who can still click it. The refusal
-message is rendered into a live region so it is announced rather than merely
-drawn; a message a screen reader never reaches is the silent absence §1 refuses.
+**The undated cell keeps the control contract and drops the sheet.** It carries
+`role="button"`, `tabIndex={0}`, `aria-disabled="true"` and the same Enter and
+Space handlers, and no `aria-haspopup` or `aria-expanded`, because no sheet
+opens. Activating it by any means emits §1's refusal into a live region.
+
+An earlier draft made it inert — no role, no tab stop, no key handler — _and_
+required that live-region announcement, which cannot both be true: the only
+element that fires the refusal was unreachable by exactly the users the live
+region exists for. `aria-disabled` rather than `disabled` is the mechanism: a
+disabled control leaves the tab order, and a user who cannot reach it is never
+told why it does nothing. The "row of identical tab stops" objection above is
+answered the same way it is for dated cells — each name is distinct, naming that
+cell's workday position and the missing project start date.
 
 ## 7. Broadcast
 
@@ -430,7 +444,10 @@ because a resource floor changes what bound a slice long before it changes when
 the slice runs. The projection is therefore:
 
 - every `workItems[].schedule` in full, rows in ascending work-item id order;
-- `slices`, in ascending `sliceKey` order, each carrying its complete
+- `slices`, in ascending `id` order — `IdentifiedSlice` carries `id`, which is
+  {@link sliceKey}'s string on the wire, and **not** a `sliceKey` property
+  (`work-item.service.ts:555-557`); sorting by `s.sliceKey` would not typecheck —
+  each carrying its complete
   `ScheduledSlice` including `boundBy`, `personId`, `resourcePredecessorId` and
   `capacityPredecessorIds` sorted (`work-item.service.ts:555` —
   `IdentifiedSlice extends ScheduledSlice`);
