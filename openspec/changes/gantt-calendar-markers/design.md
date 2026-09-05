@@ -455,7 +455,10 @@ notes:
 ### 6.2 The click surface is a control, so it has a control's contract
 
 **Raised by the Sol planning review.** §1 makes a dated axis cell clickable, and
-that cell is the existing `<span>` at `gantt-panel.tsx:3879`. It is a `<span>`
+that cell is the existing `<span>` at `gantt-panel.tsx:3871` (`:3879` is its
+`data-axis-date` spread, not the element — §1 above already cites it that way,
+and this line said `:3879` for the element until the round-7 self-check). It is
+a `<span>`
 because until now it was **hover-only** — hover needs no role, no tab stop and
 no key handler, and a click does. Adding `onClick` to it without the rest ships
 a control no keyboard reaches, which fails WCAG 2.1.1 and hides the whole
