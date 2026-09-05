@@ -170,12 +170,18 @@ single value is wrong at one end of the zoom range. `MARKER_RULE_MAX_PER_100PX`
 governs the rules down the body and is a different question with a different
 answer.
 
-**Why 6, stated as arithmetic rather than taste.** 100px holds 25 days at the
-4px rung, and six rules across it is one rule per ~16px — four clear days
-between neighbours at the rung where the smear happens, and the same ~16px
-minimum separation the gridline's own heavy/light ladder already reads at. Seven
-would put two rules inside one heavy-gridline week; six is the largest count
-that cannot. Suppression is scoped to the **4px rung only**. At 28px a 100px
+**Why 6 — and it is an AVERAGE density, not a minimum separation.** 100px holds
+25 days at the 4px rung, so six rules across it average one per ~16px, about the
+spacing the gridline's own heavy/light ladder reads at. **Six occupied dates may
+still be consecutive and 4px apart**, and the threshold does not forbid that
+(round-5 Sol review, Important 5, which was right that the earlier wording read
+as a guaranteed four clear days between neighbours — it is not one). The
+threshold is a product judgement about how much ink the body carries before the
+rules stop reading as separate marks, expressed as the density measure below so
+it is testable at all; it is not an invariant about any pair. A local
+minimum-separation rule would be a different mechanism — a sliding window over
+adjacent positions — and is deliberately not what this is, because the failure
+being avoided is a wash across the chart rather than two lines touching. Suppression is scoped to the **4px rung only**. At 28px a 100px
 window spans 3.6 days and holds at most four rule positions, so the threshold is
 unreachable by construction. At 12px it spans 8.3 days and holds up to **nine**,
 so it _is_ reachable — an earlier draft said 8 and called it unreachable, which

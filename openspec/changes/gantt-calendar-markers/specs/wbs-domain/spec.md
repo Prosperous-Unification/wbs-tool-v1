@@ -407,11 +407,23 @@ and its paint slot supply the de-emphasis the opacity was for. The chip fill was
 always opaque.
 
 **The label ink SHALL be black or white, whichever contrasts more with the chip
-fill**, and be-01 SHALL evaluate the 4.5:1 bar against that choice. Without a
-named ink algorithm the server cannot check a text bar from a fill colour at
-all — it does not know what the text will be painted in — so a fill is refused
-when **neither** black nor white reaches 4.5:1 against it, and accepted
-otherwise with the better of the two recorded as the ink the client must draw.
+fill**, and that choice SHALL be a **total function with no refusal arm**.
+Without a named ink algorithm the server could not check a text bar from a fill
+colour at all — it does not know what the text will be painted in — but once the
+algorithm is named, the 4.5:1 bar is satisfied by every opaque fill and cannot
+be failed.
+
+The proof is one line of WCAG arithmetic. Contrast is
+`(L1 + 0.05) / (L2 + 0.05)`; black has relative luminance 0 and white 1, so a
+fill of luminance `L` scores `(L + 0.05) / 0.05` against black and
+`1.05 / (L + 0.05)` against white. **Their product is exactly 21 for every `L`**,
+so the larger is never below `sqrt(21) ≈ 4.583` — above 4.5, at the worst case
+`L ≈ 0.179` where the two are equal. An earlier draft required a refusal "when
+neither black nor white reaches 4.5:1"; no such fill exists, so that arm could
+never run and its negative could never fail (round-5 Sol review, Important 7).
+The contract is therefore: pick the better ink, record it, and assert in test
+that the chosen ink clears 4.5:1 — the 3:1 fill bar remains the only one a
+custom colour can fail.
 
 The check SHALL run at submit, in be-01, not only in the composer. A colour
 refused only by the UI is refused only for clients that ask nicely.
@@ -594,6 +606,11 @@ rather than UTF-16 units so an emoji costs one. 120 rather than 255 because the
 name is drawn in a chip in an axis cell and read in a hover list, never in a
 paragraph — it is a label, and a cap that admits a sentence invites one. Empty
 is refused by the same row: the minimum is 1.
+
+Every row SHALL answer with **exactly** the code, status and field its row
+gives. `forbidden` is the one row whose `field` is absent, and that absence is
+part of the contract rather than an omission: the refusal is about the caller,
+not about a field of the body.
 
 `taken` reaches 409 through the shared `CONFLICTS` set, `not_found` through the
 shared 404 arm and `forbidden` through the shared 403 arm; only `malformed` and

@@ -43,8 +43,11 @@ is what the rest is allowed to assume.
       `apps/be-01/src/repository/calendar-marker.db.test.ts`, a round-trip, a
       second marker on the same date accepted (the date is deliberately not
       unique), and `date` stored as the exact `IsoDate` text given.
-      Negative: a `unique()` added to the `(project_id, date)` index, watched
-      failing the same-date case with a constraint error. "Deliberately not
+      Negative: `index(calendar_marker_project_date, ...)` replaced with
+      `uniqueIndex(...)`, watched failing the same-date insert with a constraint
+      error. Named exactly, because Drizzle's `IndexBuilder` has **no**
+      `.unique()` method and "a `unique()` added to the index" would not compile
+      (round-5 Sol review, Important 6). "Deliberately not
       unique" is the one property of this table nothing else in the change can
       observe, and a round-trip test passes with the uniqueness in place.
 - [ ] 2.2 The forward migration, stamped later than
@@ -230,9 +233,14 @@ in both slices rather than implied by position.
       that can convert one — test: `gantt-panel.test.tsx` under a faked
       `TZ=Pacific/Auckland` at an instant whose UTC date is the day before,
       click the cell whose `data-axis-date` is `2026-08-19`, and assert the
-      **outgoing create body** carries `date: '2026-08-19'`. Negative: the
-      click handler routed through `new Date(...).toISOString().slice(0, 10)`,
-      watched failing with `2026-08-18` in the request.
+      **outgoing create body** carries `date: '2026-08-19'`. Negative: the click
+      handler routed through
+      `new Date(day.date + 'T00:00:00').toISOString().slice(0, 10)`, watched
+      failing with `2026-08-18` in the request — a **local**-midnight
+      construction, which is the fault. `new Date('2026-08-19')` on its own is
+      not: ECMAScript parses a date-only string as UTC, so that round-trip
+      returns `2026-08-19` under any `TZ` and the negative would have been green
+      (round-5 Sol review, Important 9).
       **This moved down a layer after the round-4 Sol review**, which was right
       that the round-3 version proved nothing. That version posted the literal
       string `'2026-08-19'` to the controller under a non-UTC `TZ` and asserted
@@ -298,7 +306,8 @@ in both slices rather than implied by position.
 
 ## 5. The schedule identity guarantee
 
-- [ ] 5.1 The schedule response is byte-identical with and without markers —
+- [ ] 5.1 The canonical schedule projection is identical with and without
+      markers —
       test: `apps/be-01/src/controller/calendar-marker-identity.db.test.ts`.
       Capture the schedule for a seeded project, create five markers on dates
       inside its span, capture again, assert equality.
