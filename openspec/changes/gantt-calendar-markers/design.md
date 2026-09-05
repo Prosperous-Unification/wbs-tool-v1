@@ -210,6 +210,23 @@ colour was never chosen would be indistinguishable from one that was.
 is indexed with `project_id` because "this project's markers, by date" is the
 only read.
 
+**The routes**, project-scoped like the rest of be-01's project surface:
+
+| verb     | path                                              | body                          | answers                                                 |
+| -------- | ------------------------------------------------- | ----------------------------- | ------------------------------------------------------- |
+| `GET`    | `/projects/:projectId/calendar-markers`           | —                             | the project's markers, ordered `(date, created_at, id)` |
+| `POST`   | `/projects/:projectId/calendar-markers`           | `{ id?, date, name, color? }` | the created marker                                      |
+| `PATCH`  | `/projects/:projectId/calendar-markers/:markerId` | `{ name?, color? }`           | the updated marker                                      |
+| `DELETE` | `/projects/:projectId/calendar-markers/:markerId` | —                             | no content                                              |
+
+Rename and recolour are one `PATCH` rather than two verbs: they are the same
+row's two mutable fields, and a `PATCH` that carried both would otherwise have
+no route. `id` is optional on create (§6.1) and `color` is optional throughout,
+`null` meaning automatic (above). Refusals take the project surface's existing
+refusal shape and status — a **typed 4xx**, never a throw: an inbound body is
+untrusted data at the boundary, and answering a malformed date with a 500 blames
+the server for the client's mistake.
+
 `id` is a v4 UUID **supplied by the composer** — see §6.1 for why, and for the
 `clock.newId()` fallback that keeps every other caller of the port unchanged. It
 also gives the list a total order: `(date, created_at)` is not one, because two
@@ -234,6 +251,27 @@ against the chart background (1.4.11, the non-text bar these are), and
 is eight named entries so a test can iterate it; "a fixed accessible palette"
 is not something an assertion can count.
 
+**The two backgrounds are named, not "both themes".** Contrast is measured
+against `--background` in `apps/fe-01/src/styles.css` — `oklch(1 0 0)` at
+`:100` for light and `oklch(0.129 0.042 264.695)` at `:131` for dark. The test
+reads those two values, so a theme change that broke the palette breaks the
+test rather than the chart.
+
+**The hash is named too:** 32-bit **FNV-1a** over the id's UTF-8 bytes, taken
+`mod 8`. Any stable function would satisfy "deterministic", which is why naming
+one is what makes the pinned vectors of slice 3.1 reproducible at all — two
+implementations of "some hash" produce two different correct-looking tables.
+
+**The eight hex values are deliberately not fixed here.** They are the
+deliverable of slice **3.2**, which must land them as a literal in
+`marker-color.ts` and record them, with their measured ratios against both
+backgrounds above, in `verify.md`. Writing eight unmeasured hexes into a design
+document would be asserting an accessibility result nobody had computed —
+exactly the adjective this section refuses, one level down. Slice 3.1's four
+pinned vectors are then computed **from that landed palette and that hash** and
+recorded as data; they cannot be written before 3.2, which is why 3.2 now runs
+first.
+
 A custom colour is validated against both bars in both themes **at submit, in
 be-01**, and refused with the failing theme and ratio named. Validating in the
 composer alone refuses the colour only for clients that ask nicely; validating
@@ -246,9 +284,11 @@ reader's theme.
 brief's flow is _"enter a name, accept an automatically assigned colour or
 choose one"_, so the composer shows a colour **before submit**. But the
 automatic colour is `palette[hash(id) mod 8]`, and the house pattern issues ids
-at backend write time — `this.clock.newId()`, a port on `Clock`
-(`clock.ts:34,47`), used that way by `saved-plan.service.ts:680` and
-`directory.service.ts:203,313`. At composer time there is no id, so there is
+at backend write time. `newId` is a port on `Clock` (declared `clock.ts:34`,
+defaulted to `crypto.randomUUID()` at `:47`) and is injected two ways, never
+called inline: `directory.service.ts:203,313` reach it as `this.clock.newId()`,
+while `saved-plan.service.ts:680` takes the same port through its own options
+bag as `this.opts.newId()`. At composer time there is no id, so there is
 nothing to hash and the swatch would be a guess the create could contradict.
 
 Four options were real:

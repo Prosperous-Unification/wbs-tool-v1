@@ -139,7 +139,27 @@ can read is the requirement; an unexplained dead click is a defect.
 
 No marker SHALL be creatable against a workday number. An absolute date has no
 position on an axis not made of dates, and synthesising one would put a false
-date into storage that the axis could never show back.
+date into storage that the axis could never show back. The guard is the
+`IsoDate` validator on the write path: a workday number is not an `IsoDate`, so
+nothing further is needed and no check on the project's start date SHALL be
+introduced.
+
+A project with no start date SHALL still accept a marker on a valid `IsoDate`,
+and that marker SHALL be stored and returned by the API and simply not drawn —
+the same "stored, not drawn" rule a marker outside the horizon gets. The absent
+start date is a property of the _axis_, not of the date, and refusing the write
+would discard a fact the user is entitled to record before the plan is dated.
+
+#### Scenario: an undated project still stores a real date
+
+- **WHEN** a project with no start date is sent a marker on `2026-08-19`
+- **THEN** the marker is stored and returned by the list, and no chip is drawn
+  because the axis has no dates to draw it on
+
+#### Scenario: a workday number is refused as a date
+
+- **WHEN** a create for that same project carries `7` as its date
+- **THEN** it is refused by the `IsoDate` validator with no row written
 
 #### Scenario: the workday axis refuses
 
@@ -158,6 +178,12 @@ date into storage that the axis could never show back.
 A date SHALL NOT be a unique key. Multiple markers on one date SHALL stack in
 one axis band and SHALL collapse to a count with a list on hover or tap once
 more markers exist than the band can show at the current zoom.
+
+That capacity SHALL be a named ladder rather than whatever fits:
+`MARKER_BAND_MAX_PER_CELL` is **3** at 28px per day, **2** at 12px and **1** at
+4px, and the cell SHALL render `+N` for the markers it did not show. A cell four
+pixels wide cannot hold three chips, so one constant across the ladder would be
+wrong at one end of it whichever value it took.
 
 #### Scenario: a second marker on the same date is accepted
 
