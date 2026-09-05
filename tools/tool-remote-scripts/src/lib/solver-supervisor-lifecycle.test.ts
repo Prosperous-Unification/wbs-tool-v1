@@ -18,6 +18,12 @@ import {
 const CALLER_ID = 'a'.repeat(64);
 const CONTAINER_ID = 'b'.repeat(64);
 const IMAGE = `registry.example/wbs-be-01@sha256:${'c'.repeat(64)}`;
+const OPTIONS = {
+  image: IMAGE,
+  pidsLimit: 128,
+  maxManagedContainers: 16,
+  outputLimits: { maxPayloadBytes: 3, maxStdoutBytes: 10, maxStderrBytes: 10 },
+};
 const START: SupervisorStartFrame = {
   type: 'start',
   protocolVersion: SUPERVISOR_PROTOCOL_VERSION,
@@ -31,12 +37,19 @@ const START: SupervisorStartFrame = {
   request: { wireVersion: 1, objective: 'pri', steps: [] },
 };
 
+async function* output(...values: string[]): AsyncGenerator<Uint8Array> {
+  await Promise.resolve();
+  for (const value of values) yield new TextEncoder().encode(value);
+}
+
 class FakeDriver implements ManagedContainerDriver {
   readonly events: string[] = [];
   readonly writes: string[] = [];
   managed = [CONTAINER_ID];
   inspectCount = 0;
   naturalExit = true;
+  stdout = output();
+  stderr = output();
 
   list(argv: readonly string[]): Promise<readonly string[]> {
     this.events.push(`list:${argv.join(' ')}`);
@@ -52,6 +65,8 @@ class FakeDriver implements ManagedContainerDriver {
     this.events.push(`attach:${argv.slice(1).join(' ')}`);
     return Promise.resolve({
       closed: this.naturalExit ? Promise.resolve() : new Promise<void>(() => undefined),
+      stdout: this.stdout,
+      stderr: this.stderr,
       write: (text): Promise<void> => {
         this.writes.push(text);
         this.events.push(`write:${text.trim()}`);
@@ -121,7 +136,7 @@ describe('the managed solver lifecycle', () => {
     const driver = new FakeDriver();
     const terminal = await runManagedSolverAttempt(
       START,
-      { image: IMAGE, pidsLimit: 128, maxManagedContainers: 16 },
+      OPTIONS,
       driver,
       channel(['bound'], driver.events),
     );
@@ -154,12 +169,7 @@ describe('the managed solver lifecycle', () => {
   for (const control of ['abort', 'eof', 'kill', 'timeout'] as const) {
     it(`${control} kills, waits, captures evidence, reports, then removes`, async () => {
       const driver = new FakeDriver();
-      await runManagedSolverAttempt(
-        START,
-        { image: IMAGE, pidsLimit: 128, maxManagedContainers: 16 },
-        driver,
-        channel([control], driver.events),
-      );
+      await runManagedSolverAttempt(START, OPTIONS, driver, channel([control], driver.events));
 
       expect(driver.writes).toEqual([]);
       // Proof: removing kill or moving removal before inspect changes this suffix.
@@ -176,15 +186,33 @@ describe('the managed solver lifecycle', () => {
   it('kills on post-bind socket EOF before waiting or removing', async () => {
     const driver = new FakeDriver();
     driver.naturalExit = false;
-    await runManagedSolverAttempt(
-      START,
-      { image: IMAGE, pidsLimit: 128, maxManagedContainers: 16 },
-      driver,
-      channel(['bound', 'eof'], driver.events),
-    );
+    await runManagedSolverAttempt(START, OPTIONS, driver, channel(['bound', 'eof'], driver.events));
 
     expect(driver.writes).toHaveLength(2);
     // Proof: dropping the post-bind control race leaves no kill before wait.
+    expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
+      'kill',
+      'wait',
+      'inspect2',
+      'send',
+      'rm',
+    ]);
+  });
+
+  it('kills and reports only after an output overflow is contained', async () => {
+    const driver = new FakeDriver();
+    driver.naturalExit = false;
+    driver.stdout = output('eleven bytes');
+    let rejection: unknown;
+    try {
+      await runManagedSolverAttempt(START, OPTIONS, driver, channel(['bound'], driver.events));
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).toMatch(/output limit/);
+    // Proof: dropping the relay-failure race leaves the child live and reaches wait first.
     expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
       'kill',
       'wait',
@@ -218,7 +246,7 @@ describe('the managed solver lifecycle', () => {
     try {
       await runManagedSolverAttempt(
         START,
-        { image: IMAGE, pidsLimit: 128, maxManagedContainers: 1 },
+        { ...OPTIONS, maxManagedContainers: 1 },
         driver,
         channel(['bound'], driver.events),
       );
