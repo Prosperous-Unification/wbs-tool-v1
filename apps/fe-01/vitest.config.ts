@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 
 import react from '@vitejs/plugin-react';
 import type { UserConfig } from 'vitest/config';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   // `vitest` bundles its **own** copy of vite (`vitest/node_modules/vite`), so
@@ -111,5 +111,13 @@ export default defineConfig({
     // in `**/{…,vite,vitest,…}.config.*`, which swallows that name whatever the
     // include says.
     include: ['src/**/*.{test,spec}.{ts,tsx}', '*.{test,spec}.{ts,tsx}'],
+    // `*.zoned.test.*` belongs to `vitest.zoned.config.ts`, which the `test`
+    // target runs a second time under a different `TZ`. It is excluded here
+    // rather than named out of `include` because the two configs have to
+    // disagree about exactly one thing, and a reader looking for what this run
+    // does not collect should find it beside what it does. The defaults are
+    // spread back in: dropping them would re-collect `node_modules` and, per
+    // the note on `include` above, `vite-config.test.ts`'s neighbours.
+    exclude: [...configDefaults.exclude, 'src/**/*.zoned.test.{ts,tsx}'],
   },
 });

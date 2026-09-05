@@ -29,6 +29,7 @@
     "vite.config.ts",
     "vitest.config.ts",
     "vitest.node.config.ts",
+    "vitest.zoned.config.ts",
     "vitest.node-suites.ts",
     "vite-config.test.ts",
     "playwright.config.ts",
