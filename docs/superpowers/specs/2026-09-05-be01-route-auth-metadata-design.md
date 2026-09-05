@@ -468,3 +468,161 @@ One chunk: `route.ts` gains two types and a required field, every route literal 
 lines, both binders gain the check, `app.ts` loses `requiresWriteScope`, the suite gains two ordering
 clauses, three controls and the predicate diff. `openapi.json` is expected unchanged — if it moves,
 something reached the document that should not have.
+
+---
+
+# Version 4 — the ordering hint, which is not a security boundary
+
+**Supersedes versions 1, 2 and 3. 2026-09-05T23:31Z, written against the v3 plan verdict
+(`queue/reviews/t262-item2-plan-v3-gemini.md`, CHANGES REQUIRED, two Critical). Versions 1–3 are
+left unedited because they are what the seats reviewed.**
+
+## What the three rounds established, and the turn v4 takes
+
+Every earlier version tried to make the route list the **authority** for auth: v1 moved the check
+into the binders, v2 moved it into `app.ts` fed by a table, v3 split it into `identity`/`scope` and
+deleted `requiresWriteScope`. Each one therefore had to answer "does the new table cover everything
+the old mechanism covered", and each one was refused on that question — the write scope on
+`POST /api/projects/:id/opened`, the pre-shared secret on `/internal/*`, `GET /api/auth/me`'s
+`invalid_token`, the coverage of `/health`.
+
+**None of that is what item 2 is.** Item 2 is an *ordering* defect on one route:
+
+```
+GET /api/projects/:id/saved-plans/compare?left=a   unauthenticated
+  elysia      422   (the derived query validator answers first)
+  in-process  401   (the handler's guard answers first)
+```
+
+So v4 declares the ordering and changes nothing else. **`callerGuard` stays, every handler guard
+stays, `requiresWriteScope` stays, `app.ts`'s `onRequest` stays.** Nothing is deleted, no route's
+requirement moves, and no table claims to cover anything.
+
+**The property that makes this sound, and that v1–v3 could not have:** the declaration is a
+*hint about when*, never *whether*. A route that carries it is refused earlier; a route that omits
+it is refused exactly where it is refused today, by its own handler guard. Forgetting the hint
+degrades ordering on that one route. Forgetting a row in v3's quadruple table opened a route.
+That is the whole difference, and it is why v4 needs no coverage proof, no predicate diff, and no
+migration.
+
+## The seat, unchanged from v3, and the reason the signature question dissolves
+
+The per-route `transform` measured in chunk 25: route-local, emitted above the validator block
+(`compose.mjs:524-544` vs `:546`), short-circuiting when it returns an `ElysiaCustomStatusResponse`
+(`:541` → `mapResponse` at `:362-365`), reachable from `bindElysia(routes)` alone. Confirmed on
+h2puni with a negative control (the identical request without the `transform` answers 422).
+
+**v3 Critical 2 — "neither binder receives `AuthService`" — is answered by not passing one.** The
+declaration is not a string the binder has to interpret; it is the check itself, already closed over
+the service by the factory that makes the handler guard:
+
+```ts
+// http/route.ts — still framework-free, still no service in the type
+export type RoutePreflight = (req: RouteRequest) => Promise<RouteResponse | null>;
+
+export interface Route {
+  method: HttpMethod;
+  path: string;
+  handler: RouteHandler;
+  /**
+   * The route's refusal, answered before the binder validates or decodes
+   * anything. `null` means "carry on". Optional: a route without one is
+   * refused by its handler exactly as it is today.
+   */
+  preflight?: RoutePreflight;
+  documentation?: { detail?: unknown; query?: unknown };
+}
+```
+
+`callerGuard(auth)` gains one member beside the wrapper it already returns, so the two are the same
+closure over the same `userFromHeaders` call and cannot answer differently:
+
+```ts
+export function callerGuard(auth: AuthService) {
+  const refuse = async (req: RouteRequest, requires: CallerRequirement) => { /* today's body */ };
+  const guard = (requires, handler) => async (req) => { … };            // unchanged
+  guard.preflight = (requires: CallerRequirement): RoutePreflight =>
+    (req) => refuse(req, requires);                                     // new
+  return guard;
+}
+```
+
+Binder signatures do not change. `binder.contract.test.ts` builds routes from `stubAuth` today
+(`:29`, `:47-52`) and gets the preflight for free.
+
+## What each binder does
+
+- **`bindElysia`** — when `route.preflight` is present, add a `transform` to the hook object it
+  already passes, which returns `status(res.status, res.body)` on a non-null result. v3 Minor 5 is
+  correct and is real work: `register`'s `hook` parameter is typed `Route['documentation']`
+  (`elysia/bind.ts:75`, `:85`) and the file does not import `status`. Both change.
+- **`bindInProcess`** — run it after `matchPath` and **before `decodeBody`** (`in-process/bind.ts:50`).
+
+## v3 Critical 1 is accepted in full, and v4 does not try to fix it
+
+Elysia's order is `onRequest → parse → transform → validator`. `transform` is after the **body
+parser**, so a malformed body under Elysia answers 400 in `parse` before any preflight runs.
+
+**That ordering is already correct in the shipped app and v4 leaves it alone.** `requiresWriteScope`
+(`app.ts:276`) plus the `onRequest` at `app.ts:170-187` answer 401 before Elysia parses a body, and
+the comment at `:176` states that as the intent. Every route that takes a body and is guarded is a
+write under `/api/` that is not an auth handshake, so the shipped answer is 401-before-400 and stays
+so.
+
+The residue is that `bindInProcess` answers 400 `invalid_body` before its guard, and no binder-level
+mechanism can make Elysia match without moving the check to `onRequest` — which v2 already died on.
+So v4 **records this as an app-level property rather than a route-list property**, and the contract
+suite says which: one clause per binder for the malformed **query** (both 401), and no
+malformed-body clause, with the reason written in the suite next to the existing exclusions for
+Elysia's 404 body and its malformed-JSON refusal. Closing the body ordering means giving
+`bindInProcess` an `app.ts`-equivalent, which is a second server, not a fixture.
+
+## Controls
+
+The silent-loss controls v3 needed do not apply — there is nothing to lose. Two cheap ones replace
+them, both total:
+
+1. **Every route carrying `documentation.query` carries a `preflight` or is open.** A one-expression
+   check over the assembled route lists. This is the exact pairing that produces the defect —
+   a framework-derived validator in front of a handler guard — so it is the set that has to be
+   covered, and unlike a `(method, path, auth)` table it is checkable without enumerating the app.
+   Two routes qualify today: `GET /api/projects/:id/saved-plans/compare` (`COMPARE_QUERY`, refuses)
+   and `GET /api/projects/:id/history` (`HISTORY_QUERY`, both properties `t.Optional`, refuses
+   nothing).
+2. **`/probe/guarded-sides` asserts 401 for an unauthenticated caller with a malformed query under
+   both binders** — the watched red from chunk 15, which currently fails on Elysia and passes
+   in-process.
+
+## The two named refusals survive by construction (constraint 6)
+
+Neither route is touched, because neither uses `callerGuard` and neither gets a `preflight`:
+
+- `GET /api/auth/me` resolves its own token and answers `{ error: 'invalid_token' }`
+  (`auth.routes.ts:247-251`), read by `bin/dev-be-probe.sh:8` and
+  `tools/tool-devsync/src/be-probe.test.ts:41`.
+- `/internal/forward` and `/internal/resume` check a pre-shared secret inline
+  (`internal.routes.ts:51`, `:68`).
+
+Likewise `POST /api/projects/:id/opened` keeps its `write` scope from `requiresWriteScope`, asserted
+by `oidc.integration.test.ts:446`, because that predicate is not being replaced. v3's Important 3
+and 4 were both consequences of replacing it.
+
+## Size, and what is expected not to move
+
+One chunk, ~10 lines of source plus tests: `route.ts` gains a type and an optional field,
+`caller.ts` gains `guard.preflight`, both binders gain the call, `elysia/bind.ts` widens `register`'s
+hook type and imports `status`, two route literals gain a line, the contract suite gains two clauses
+and control 1.
+
+`openapi.json` must be **byte-identical** — `preflight` is not documentation, and a moved document
+means something reached the emitter that should not have. `bun x prettier --check`, `be-01:lint`,
+`be-01:typecheck` and `be-01:test` on h2puni at the committed bytes, never on h1claw.
+
+## The question for the reviewer
+
+Control 1 asserts the pairing rather than the requirement, so a *future* guarded route that adds a
+refusing query schema is caught, but a guarded route with no schema is left at today's ordering
+forever. That is deliberate — the ordering is unobservable without a validator in front of it — but
+it means this design closes the defect class rather than making auth uniformly first. If that is the
+wrong trade, the alternative is v3's table with its coverage burden, and the review should say so
+plainly rather than asking for both.
