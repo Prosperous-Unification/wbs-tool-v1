@@ -339,7 +339,7 @@ in both slices rather than implied by position.
       failing the new case alone, with the three request-body assertions above
       staying green. The 19-of-20 colour is deliberate: a message naming the
       dark base could be produced by a composer that only knows about themes.
-- [ ] 3.5 The composer issues the id, so the previewed colour is the created
+- [x] 3.5 The composer issues the id, so the previewed colour is the created
       one — the composer generates a v4 UUID, renders `automaticColor(id)` as
       the swatch, and sends that id as `markerId` in the create body — test:
       `gantt-panel.test.tsx`, read the swatch's colour before submit and the
@@ -360,6 +360,44 @@ in both slices rather than implied by position.
       the assertion passes by luck one time in eight, which is the palette's own
       cardinality and not a test. See `design.md` §6.1 for why the other three
       options lost.
+      **Landed (chunk 38, b27e629f). The date and the id are ONE state**,
+      `OpenComposer { date, markerId }`, and not a second piece beside
+      `composerAt`: an id held on its own is free to be refreshed on its own,
+      which is the very fault this slice's negative injects. `composerAt` stays
+      as a derived `composer?.date ?? null`, so every reader that only wants the
+      day — `aria-expanded`, the Escape effect, the caret ref — is unchanged.
+      Minted in **one** opener shared by the empty cell and the sheet's `Add`,
+      for the reason those two already share `operateDay`: an id minted at one
+      of them alone leaves the other previewing a colour it never sends.
+      `crypto.randomUUID` is the default factory (4.6a's route refuses anything
+      that is not a v4) and it is a module constant, not an inline default —
+      the opener's `useCallback` names the factory, so a fresh function per
+      render would rebuild it every render.
+      **THE NEGATIVE'S PREDICTED FAILURE POINT IS WRONG, and the correction is
+      this slice's own.** Watched at a 196-case baseline on
+      `gantt-panel.test.tsx`: `markerId: composer.markerId` replaced by
+      `markerId: newMarkerId()` at the save → **195 pass / 1 fail, this case
+      alone** — but it fails on the **recorded create's id**, not on unequal
+      colours, because the same sentence above also asks for the exact id to be
+      asserted on the outgoing request and that assertion runs first. The fault
+      is caught; "watched failing on unequal colours" describes a test that does
+      not also assert the id, and the two instructions cannot both be true of
+      one case. The injected factory hands back `PREVIEW_ID` then `FRESH_ID`
+      (buckets 1 and 7) so a second mint is observable at all, and the case
+      asserts `automaticColor(PREVIEW_ID) !== automaticColor(FRESH_ID)` up front
+      — if the palette is ever reordered into a collision that line says so,
+      instead of the case passing while proving nothing.
+      Not done here and not this slice's: the composer sends a **trimmed** name
+      and checks nothing else, the same rule 6.3's rename follows (what a name
+      may be is 4.2's refusal table, and a second copy here would be free to
+      disagree with it). AC #1's "validates a name" therefore still has no
+      client half, and no slice owns one.
+      Gates h2puni all four rc 0 at the committed tree: `fe-01:test` 2250/0
+      across 86 files (+1 on chunk 37's 2249, exactly the new case),
+      `fe-01:typecheck`, scoped eslint, `prettier --check`. The first prettier
+      pass was rc 1 on the new test block and **all four were re-run at the
+      formatted tree**; both files md5-identical on h1claw and h2puni before the
+      commit.
 
 ## 4. The API
 
