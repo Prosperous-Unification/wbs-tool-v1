@@ -292,11 +292,13 @@ reader's theme.
 brief's flow is _"enter a name, accept an automatically assigned colour or
 choose one"_, so the composer shows a colour **before submit**. But the
 automatic colour is `palette[hash(id) mod 8]`, and the house pattern issues ids
-at backend write time. `newId` is a port on `Clock` (declared `clock.ts:34`,
-defaulted to `crypto.randomUUID()` at `:47`) and is injected two ways, never
-called inline: `directory.service.ts:203,313` reach it as `this.clock.newId()`,
-while `saved-plan.service.ts:680` takes the same port through its own options
-bag as `this.opts.newId()`. At composer time there is no id, so there is
+at backend write time. `newId` is a port on `Clock`, declared at `clock.ts:34`
+and defaulted to `crypto.randomUUID()` at `:47`; `directory.service.ts:203,313`
+reach it as `this.clock.newId()`. `SavedPlanService` is **not** a `Clock` caller
+and is not an example of this port — it declares its own
+`SavedPlanServiceOptions.newId: () => string` (`saved-plan.service.ts:288-294`)
+and calls `this.opts.newId()` at `:681`. Two rounds of review corrected this
+citation; it is left spelled out so a third does not have to. At composer time there is no id, so there is
 nothing to hash and the swatch would be a guess the create could contradict.
 
 Four options were real:
@@ -366,8 +368,11 @@ indexed query, so a delta protocol would be new surface bought with nothing.
 
 ## 8. Why the identity guarantee is structural
 
-`schedule()` in `libs/domain/src/schedule.ts` takes rows, edges, durations and
-`notBefore`. Markers appear in none of them, live in their own table, and are
+`schedule()` in `libs/domain/src/schedule.ts` takes rows, edges, **slices**,
+`notBefore`, pool sizes and dependency reach (`:1802-1842`) — corrected after
+the round-3 Sol review, which read the signature; the earlier "rows, edges,
+durations and `notBefore`" named a parameter that is not there and omitted three
+that are. Markers appear in none of them, live in their own table, and are
 read only by the panel's overlay. There is no code path from a marker to the
 engine, so no scheduler test changes.
 

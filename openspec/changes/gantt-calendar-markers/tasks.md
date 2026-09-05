@@ -141,7 +141,14 @@ in both slices rather than implied by position.
       created chip's colour after, and assert they are equal. Negative, and it
       must be a **front-end** fault: the composer generating a fresh UUID at
       submit instead of sending the one its preview was derived from, watched
-      failing on unequal colours. The server-side half of this guarantee cannot
+      failing on unequal colours. **Both UUIDs are pinned and are chosen to land
+      in different palette buckets**, and the id factory is injected so the test
+      names them. A random replacement lands in the same one of eight buckets
+      one time in eight, so an unpinned fault is present-and-green on one run in
+      eight — a flaky negative is not a negative, and "passes by luck one time
+      in eight" was this slice's own admission before the round-3 Sol review
+      named it. Assert the exact id on the outgoing request too, so the test
+      fails for the reason it is about. The server-side half of this guarantee cannot
       be observed here — `gantt-panel.test.tsx` runs in jsdom against the fake
       API and executes no be-01 code, so a fault injected into the controller
       leaves it green — and it is slice 4.4's, not this one's. Without a fault
@@ -232,12 +239,16 @@ in both slices rather than implied by position.
       `apps/be-01/src/repository/saved-plan-capture.db.test.ts`, a new case:
       capture a project with markers and a copy with none, assert the
       `input_sha256` values are equal. **This assertion passes on `main`
-      today** — `saved-plan-capture.ts:47-65` queries a hardcoded table set
-      that does not include `calendar_marker`, so equality holds before a line
-      of this feature is written, and the check as stated cannot fail. Negative:
-      `calendar_marker` added to that hardcoded query and its rows folded into
-      the serialized capture payload, watched failing on unequal `input_sha256`,
-      then removed. `Proof:` comment naming the added query. Without that
+      today** — the capture reads a fixed set of tables that does not include
+      `calendar_marker`, so equality holds before a line of this feature is
+      written and the check as stated cannot fail. The reads are
+      `readPlanInput()` at `saved-plan-capture.ts:162-216`;
+      `:47-65` is the `PlanInputReads` interface those reads fill and is not
+      where the fault goes (corrected after the round-3 Sol review). Negative:
+      a `calendar_marker` read added inside `readPlanInput()` and its rows
+      folded into the serialized payload that `input_sha256` is taken over,
+      watched failing on unequal hashes, then removed. `Proof:` comment naming
+      the added read and the payload field. Without that
       injection this is 5.1's own trap committed one slice later.
 
 ## 6. The click surface
