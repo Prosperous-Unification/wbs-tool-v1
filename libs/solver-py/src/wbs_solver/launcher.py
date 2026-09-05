@@ -53,8 +53,13 @@ def _arguments(argv: Sequence[str]) -> tuple[str, int, int, int] | None:
 
 
 def _apply_address_space_limit(memory_limit_mb: int) -> None:
-    """Portable backstop only; cgroup MemoryMax evidence owns OOM classification."""
-    limit = memory_limit_mb * 1024 * 1024
+    """Loose address-space backstop; cgroup MemoryMax owns the RSS ceiling.
+
+    Native OR-Tools maps substantially more virtual address space than resident
+    memory. Equating RLIMIT_AS to the RSS limit made a valid 512 MB solve fail
+    while creating its worker pool, so this deliberately leaves 4x headroom.
+    """
+    limit = memory_limit_mb * 4 * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
 
 
