@@ -1,9 +1,10 @@
 import {
   buildManagedContainerArgs,
-  buildPersistentDeadlineTimerArgs,
+  buildPersistentDeadlineTimerCommands,
   exactManagedContainerArgs,
   listManagedContainersArgs,
   type ManagedContainerOptions,
+  type PersistentDeadlineTimerCommands,
 } from './solver-supervisor-command';
 import {
   relayManagedContainerOutput,
@@ -38,12 +39,19 @@ export interface ManagedContainerDriver {
   list(argv: readonly string[]): Promise<readonly string[]>;
   create(argv: readonly string[]): Promise<string>;
   attach(argv: readonly string[]): Promise<ManagedContainerAttachment>;
-  armDeadline(argv: readonly string[]): Promise<void>;
+  armDeadline(commands: PersistentDeadlineTimerCommands): Promise<ManagedDeadlineTimer>;
   start(argv: readonly string[]): Promise<void>;
   kill(argv: readonly string[]): Promise<void>;
   wait(argv: readonly string[]): Promise<void>;
-  inspect(argv: readonly string[]): Promise<ManagedContainerEvidence>;
+  inspect(argv: readonly string[], deadlineKilled: boolean): Promise<ManagedContainerEvidence>;
   remove(argv: readonly string[]): Promise<void>;
+}
+
+export interface ManagedDeadlineTimer {
+  /** True only when systemd records the deadline service completing successfully. */
+  hasFired(): Promise<boolean>;
+  /** Stops both transient units after terminal evidence has been captured. */
+  cancel(): Promise<void>;
 }
 
 export interface SupervisorAttemptChannel {
@@ -100,10 +108,12 @@ export async function runManagedSolverAttempt(
   const relayFailure = relay.then((state) =>
     state.ok ? new Promise<never>(() => undefined) : ('output-error' as const),
   );
-  await driver.armDeadline(buildPersistentDeadlineTimerArgs(frame, containerId));
+  const deadlineTimer = await driver.armDeadline(
+    buildPersistentDeadlineTimerCommands(frame, containerId),
+  );
   await driver.start(exactManagedContainerArgs('start', containerId));
 
-  const started = await driver.inspect(exactManagedContainerArgs('inspect', containerId));
+  const started = await driver.inspect(exactManagedContainerArgs('inspect', containerId), false);
   if (!Number.isSafeInteger(started.pid) || started.pid < 1) {
     throw new Error('managed solver lifecycle: started container has no positive init PID');
   }
@@ -127,10 +137,12 @@ export async function runManagedSolverAttempt(
 
   await driver.wait(exactManagedContainerArgs('wait', containerId));
   const relayState = await relay;
+  const deadlineKilled = await deadlineTimer.hasFired();
   const terminal = terminalFrame(
-    await driver.inspect(exactManagedContainerArgs('inspect', containerId)),
+    await driver.inspect(exactManagedContainerArgs('inspect', containerId), deadlineKilled),
   );
   await channel.send(terminal);
+  await deadlineTimer.cancel();
   await driver.remove(exactManagedContainerArgs('rm', containerId));
   if (!relayState.ok) {
     const reason = relayState.error instanceof Error ? relayState.error.message : 'unknown failure';
@@ -145,7 +157,7 @@ export async function sweepManagedSolverOrphans(driver: ManagedContainerDriver):
   for (const containerId of containerIds) {
     await driver.kill(exactManagedContainerArgs('kill', containerId));
     await driver.wait(exactManagedContainerArgs('wait', containerId));
-    await driver.inspect(exactManagedContainerArgs('inspect', containerId));
+    await driver.inspect(exactManagedContainerArgs('inspect', containerId), false);
     await driver.remove(exactManagedContainerArgs('rm', containerId));
   }
 }
