@@ -107,6 +107,9 @@ jobs:
       - name: Gate — test, lint, typecheck, build
         run: bunx nx run-many -t test lint typecheck build --parallel=2
 
+      - name: Solver image smoke
+        run: bunx nx run be-01:solver-image-smoke
+
       # The host-wide heavy-work mutex, which is the only thing keeping two
       # heavy runs off one machine. It went unexercised until 2026-08-30, when
       # its lock path was still h2puni's `/home/puni1/...` and its primitive was
