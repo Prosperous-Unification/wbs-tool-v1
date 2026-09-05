@@ -362,4 +362,44 @@ describe('OptimizationCoordinator read', () => {
     expect(instance.read({ projectId: 'p-1', objective: 'time', input: INPUT })).toBeNull();
     expect(calls).toHaveLength(2);
   });
+
+  it('kills, drains, and stores an internal failure when the bind transport breaks', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const errors: unknown[] = [];
+    let killed = 0;
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => ({
+        pid: 100 + calls.length,
+        stdout: stream(''),
+        stderr: stream('broken pipe'),
+        exited: Promise.resolve(137),
+        verdict: () => {
+          throw new Error('bind pipe closed');
+        },
+        kill: () => void (killed += 1),
+      }),
+      runSolverChildLifecycle,
+      (error) => void errors.push(error),
+    );
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await instance.drain();
+
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(INPUT),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    expect(pair.pri).toMatchObject({ kind: 'failed', reason: 'internal-error' });
+    expect(pair.time).toMatchObject({ kind: 'failed', reason: 'internal-error' });
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+    expect(killed).toBe(2);
+    expect(errors).toHaveLength(2);
+  });
 });

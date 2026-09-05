@@ -83,7 +83,11 @@ export class OptimizationCoordinator {
     await Promise.all([...this.inFlight]);
   }
 
-  private runChild(request: ReservedSpawnRequest, child: ReservedSolverChild): void {
+  private runChild(
+    request: ReservedSpawnRequest,
+    child: ReservedSolverChild,
+    forcedOutcome?: SolverProcessOutcome,
+  ): void {
     const slot = {
       projectId: request.key.projectId,
       contractVersion: request.key.contractVersion,
@@ -101,9 +105,10 @@ export class OptimizationCoordinator {
       now: this.options.now,
       onExit: (exit) => {
         const outcome: SolverProcessOutcome =
-          exit.code === 0
+          forcedOutcome ??
+          (exit.code === 0
             ? { kind: 'response', stdout: exit.stdout }
-            : { kind: 'failed', reason: 'internal-error' };
+            : { kind: 'failed', reason: 'internal-error' });
         storeOptimizedOutcome(this.options.db, {
           claim: { ...slot, ownerId: this.options.ownerId },
           inputHash: request.key.inputHash,
@@ -225,7 +230,16 @@ export class OptimizationCoordinator {
             ...slot,
             pid: child.pid,
           });
-          child.verdict(bound ? 'bound' : 'abort');
+          try {
+            child.verdict(bound ? 'bound' : 'abort');
+          } catch (error) {
+            child.kill();
+            if (bound) {
+              this.runChild(launch, child, { kind: 'failed', reason: 'internal-error' });
+            }
+            this.options.onChildError(error);
+            return;
+          }
           if (bound) this.runChild(launch, child);
           else child.kill();
         }
