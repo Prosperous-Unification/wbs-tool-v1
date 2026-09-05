@@ -1260,8 +1260,8 @@ export class WorkItemService {
     const read = this.opts.optimized;
     if (read === undefined) return null;
     if (!project.optimizationEnabled) return null;
-    if (project.scheduleEngine !== 'optimized') return null;
-    return read({ projectId: project.id, objective: project.scheduleObjective, input });
+    const optimized = read({ projectId: project.id, objective: project.scheduleObjective, input });
+    return project.scheduleEngine === 'optimized' ? optimized : null;
   }
 
   /**

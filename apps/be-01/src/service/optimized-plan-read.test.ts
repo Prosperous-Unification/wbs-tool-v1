@@ -202,16 +202,21 @@ describe('the plan read and the optimized cache', () => {
     expect(seen.asks).toEqual([]);
   });
 
-  it('never consults the cache for a project that asked for the fast engine', async () => {
-    // Proof: the `scheduleEngine` refusal deleted and this failed the same way.
-    // The two settings are separate facts — a project may be permitted to spend
-    // solver time and still be reading Fast — so one check cannot stand for both.
+  it('warms absent variants while the enabled project keeps publishing Fast', async () => {
+    // The optimizer toggle permits solver work; the engine chooses only what
+    // this read publishes. Proof: restore the early `scheduleEngine !==
+    // 'optimized'` return in `publishedOptimized` and the reader receives no
+    // ask, leaving an enabled Fast project cold until somebody changes engines.
     await leaf('Rewire');
     await settings({ optimizationEnabled: true, scheduleEngine: 'fast' });
     const seen = recordingReader(null);
     const service = new WorkItemService({ ...serviceOptions, optimized: seen.read });
-    await service.tree(projectId);
-    expect(seen.asks).toEqual([]);
+    const first = await service.tree(projectId);
+    if (first === null) throw new Error('project vanished');
+    expect(seen.asks).toHaveLength(1);
+    expect(first.slices.map((each) => [each.earliestStart, each.boundBy])).toEqual([
+      [0, 'projectStart'],
+    ]);
   });
 
   it('asks for the objective the project publishes, under the plan the pass is about to run', async () => {
