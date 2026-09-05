@@ -213,7 +213,22 @@ in both slices rather than implied by position.
       **So this validator refuses on the 3:1 bar only**, and 3.2 is where the
       4.5:1 bar is asserted — as a property that holds for every entry, not as
       a refusal anything can trip.
-      Negative: the validator returning `true` unconditionally, watched failing.
+      **Third case, and it is the one that makes "the same 20" true rather than
+      asserted:** the validator SHALL read its backdrops from a single exported
+      `MARKER_BACKDROPS` table in `marker-color.ts` — the same table 3.2
+      iterates — and the case asserts that table **is** the derived set: 20
+      entries, 10 per theme, each naming its composite and its resolved colour,
+      deep-equal to the set §6 derives from `styles.css`. Until now the two
+      previous cases exercised one failing base and one failing composite and
+      the negative mutated the validator to return `true`, so **a validator that
+      checked exactly those two surfaces and skipped the other 18 passed every
+      named case** — "the same 20 backdrops 3.2 measures" was maintained by this
+      sentence and by nothing executable (round-9 Sol review, Important).
+      Negatives, two: the validator returning `true` unconditionally, watched
+      failing; and **one entry deleted from `MARKER_BACKDROPS`**, watched
+      failing the table case — a fault the two colour cases cannot see, because
+      a colour that fails over the dark base still fails with 19 entries in the
+      table.
 - [ ] 3.4 `validateCustomColor` wired into **all three** call sites — the be-01
       create handler, the be-01 recolour handler and the composer — test: the
       controller test from 4.1 posts a sub-bar colour straight to the API,
@@ -554,20 +569,34 @@ in both slices rather than implied by position.
 - [ ] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
       Enter and Space handlers, a visible focus ring, `aria-haspopup="dialog"`,
       an `aria-expanded` tracking the sheet, and an `aria-label` naming the
-      date and the marker count — test: `gantt-panel.test.tsx`, six cases, and
-      the extra two are the ones the round-4 Sol review found unasserted: Enter
+      date and the marker count — test: `gantt-panel.test.tsx`, **seven** cases,
+      and the extra three are the ones successive Sol reviews found unasserted:
+      Enter
       opens the sheet; Space opens the sheet; a cell with two markers has an
       accessible name naming its date and reporting two; the cell carries
       `tabIndex={0}` and `aria-haspopup="dialog"`; `aria-expanded` is `false`
       before the sheet opens and `true` after — **the transition, not the
       attribute**, because an `aria-expanded` hard-coded to either value passes
-      a single-state assertion; and the same cell after the sheet closes is
-      `false` again. Negative: the Space handler removed, watched failing — a
+      a single-state assertion; the same cell after the sheet closes is
+      `false` again; and **the cell is located by `role="button"` and its
+      accessible name** rather than by test id, which is the case that makes
+      the role an assertion instead of prose.
+      Negatives, two: the Space handler removed, watched failing — a
       keyboard test written only for Enter passes against a `keydown` that
       forwards every key, and one written only for `tabIndex` passes against a
-      focusable element nothing activates. The `<span>` is a `<span>` today
+      focusable element nothing activates; and **`role="button"` removed from
+      the dated branch alone**, watched failing the role-and-name case while
+      every other case stays green, because `getByRole` is the only query in
+      the slice that can see it. The `<span>` is a `<span>` today
       because it was hover-only; a click without this contract ships a control
       no keyboard reaches (WCAG 2.1.1).
+      **The role is asserted here for the same reason it is in 6.4a**, and it
+      was missing here for one round longer: a focusable generic `<span>`
+      carrying every listed handler and ARIA attribute passed all six previous
+      cases while never being announced as a button, because none of them
+      queried by role (round-9 Sol review, Important). The dated cell is the
+      branch a user actually operates, so the gap mattered more here than on
+      the branch that already had it.
       **The visible focus ring is not in this slice** — jsdom computes no
       styles, so a focus-ring assertion here would pass against no ring at all.
       It moves to 9.2a's browser test.
@@ -796,6 +825,20 @@ in both slices rather than implied by position.
       several more occupied dates outside it**, asserted to draw six rules
       (`6 > 6` is false, so no suppression); then **scrolled to a region where
       seven are visible**, asserted to draw none.
+      **What is counted is rules whose `x` lies in the visible interval, and
+      the off-screen rules stay in the DOM.** The viewport scopes the _density
+      measure_ and nothing else: **there is no viewport virtualization**, and
+      this slice does not introduce any. The chart is one full-width SVG inside
+      an overflow scrollport (`gantt-panel.tsx:2730-2735`, `:3698-3740`), so a
+      correct renderer draws a rule for every unsuppressed occupied date in the
+      horizon and most of them are simply scrolled out of view. A test that
+      counted **every** `[data-gantt-marker-rule]` in the document would fail
+      that correct renderer, and an implementation bent to satisfy such a count
+      would filter the SVG itself — which would then drop those rules from the
+      export, because the export clones the live chart (round-9 Sol review,
+      Minor). So each assertion here filters by `x` against the visible
+      interval, and the fixture's off-screen occupied dates are expected to
+      carry rules that the count ignores.
       **Two faults, because the two halves fail differently and one fault
       cannot catch both.** Fourth negative: the in-viewport filter dropped from
       the numerator so the whole horizon is counted, watched failing the
@@ -855,6 +898,30 @@ in both slices rather than implied by position.
       both rungs. Second negative: the legend block dropped while the chips are
       still drawn, watched failing both rungs while the chip count, position
       and colour assertions stay green.
+      **Third case, because serializing the names is not the contract:** the
+      legend has to be a legend — one row per marker in the list's
+      `(date, created_at, id)` order, each row carrying a swatch in the
+      marker's colour and its `date` beside its `name`, and **the last row's
+      bounding box inside the exported `viewBox`**. Assert the row count, the
+      order, the per-row date and swatch fill, and that
+      `lastRow.y + lastRow.height <= viewBox.height`. A names-only legend, one
+      in reverse order, or one appended below the chart without growing the
+      canvas passes the second case and delivers nothing a reader can use
+      (round-9 Sol review, Important).
+      **The bounds half is a concrete failure mode in this builder, not a
+      hypothetical:** `buildStandaloneGanttSvg` fixes its `totalHeight` from
+      `ROW_PX` and the chart's inner height (`gantt-panel.tsx:1755`), writes
+      that into `viewBox`, `width`
+      and `height` (`:1762-1764`) and paints the background rect to exactly
+      those dimensions (`:1771`) — all before any legend could be appended. Text
+      added after that point serializes into the markup, satisfies a
+      `getByText`, and is invisible in every rasterisation and every print,
+      which is the only thing a downloaded chart is for.
+      Third negative: the legend rows drawn with the text intact but
+      `totalHeight` left unexpanded, watched failing the bounds assertion while
+      the name, order, date and swatch assertions all stay green — the fault
+      that separates "the names are in the file" from "the names are on the
+      page".
 - [ ] 8.7 The export matches the screen at 4px above the density threshold —
       test: same file, chips present and no rules, matching 8.3's live
       behaviour. Two renderers agreeing is only a guarantee if a test can see

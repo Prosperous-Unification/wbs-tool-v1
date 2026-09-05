@@ -382,17 +382,31 @@ appear as text in the exported markup. A tooltip mechanism does not satisfy
 this — it is the hover answer again, and it is invisible in a printed page or
 a rasterised copy, which is what a downloaded chart is for.
 
+The legend SHALL lie wholly inside the exported `viewBox`, which means the
+export SHALL grow its canvas to hold it. `buildStandaloneGanttSvg` fixes
+`totalHeight` and paints the background to it before anything else is appended
+(`gantt-panel.tsx:1755`, `:1762-1764`, `:1771`), so a legend added without that
+growth is text that serializes into the file and appears on no page — which is
+the same failure as no legend, wearing a passing test.
+
 #### Scenario: a downloaded chart shows chip and rule together
 
 - **WHEN** a plan with two markers is exported
 - **THEN** the SVG contains a chip for each at its day's x, in its colour, and
-  each rule has the chip that names it
+  each rule has a chip at the same date in the same colour
 
 #### Scenario: a downloaded chart names its markers at every rung
 
 - **WHEN** a plan with two markers is exported at 28px per day and again at 4px
 - **THEN** both markers' names appear as text in the exported markup at both
   rungs
+
+#### Scenario: the legend is readable rather than merely present
+
+- **WHEN** a plan with two markers is exported
+- **THEN** the legend carries one row per marker in `(date, created_at, id)`
+  order, each row carrying that marker's swatch colour and its `date` beside
+  its `name`, and the last row lies wholly inside the exported `viewBox`
 
 #### Scenario: the export drops nothing the screen shows
 
