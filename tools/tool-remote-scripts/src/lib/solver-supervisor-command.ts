@@ -5,7 +5,7 @@ export interface ManagedContainerOptions {
   readonly pidsLimit: number;
 }
 
-export type ManagedContainerAction = 'kill' | 'wait' | 'inspect' | 'rm';
+export type ManagedContainerAction = 'attach' | 'start' | 'kill' | 'wait' | 'inspect' | 'rm';
 
 const DIGEST_PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 const CONTAINER_ID = /^[0-9a-f]{64}$/;
