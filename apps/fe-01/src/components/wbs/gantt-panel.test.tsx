@@ -5516,6 +5516,115 @@ describe('the marker rule takes its named slot in marksOverLight', () => {
     expect(document.querySelectorAll('[data-gantt-marker-rule="3"]')).toHaveLength(1);
     expect(theRule().getAttribute('stroke')).toBe(AZURE);
   });
+
+  /**
+   * The plan the unchanged-bar half is read off, twice: once marked and once
+   * not.
+   *
+   * A second fixture rather than {@link markedChart} with a slice flipped,
+   * because that one's `y2` assertion counts its rows and its capacity link
+   * needs the pair that draws it — a fourth row for an assumed bar would move
+   * the extent this slice also asserts, and quietly.
+   *
+   * `haul-dev` is **unestimated and on the critical path** so that one bar
+   * carries both facts the comparison reads: the translucency
+   * ({@link ASSUMED_BAR_CLASSES}) and the ring.
+   *
+   * It starts on workday 2 because an unestimated slice is drawn
+   * `ASSUMED_SLICE_WORKDAYS` — two — wide from its start whatever `finish`
+   * says, so the bar covers offsets 2 and 3 and the rule at the marked Thursday
+   * (offset 3) runs **through** it rather than beside it. The first draft of
+   * this fixture asked for nine workdays and got a two-day bar and a horizon of
+   * 3, which put the marked date off the drawn horizon: no rule was emitted at
+   * all and the case failed on `expected -1 to be greater than or equal to 0`.
+   */
+  const assumedChart = (markers: readonly CalendarMarkerView[]) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 12, 9, 0));
+    try {
+      render(
+        <GanttPanel
+          plan={planOf({
+            rows: [rowAt('strip', 0, 3), rowAt('haul', 2, 2)],
+            slices: [
+              sliceAt('strip-dev', 'strip', 0, 3),
+              sliceAt('haul-dev', 'haul', 2, 2, { estimated: false, critical: true }),
+            ],
+          })}
+          startDate={MONDAY_START}
+          scheduleError={null}
+          generation={0}
+          heightPx={null}
+          onPickRow={() => undefined}
+          onPointRow={() => undefined}
+          pointed={pointedAtRow(null)}
+          markers={markers}
+        />,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  /**
+   * The three things this slice compares across the two renders, plus the one
+   * it asserts outright.
+   *
+   * The critical-path mark is read by class name and not by `data-critical`,
+   * for the reason `rings the critical bar and leaves the other one alone`
+   * gives: the attribute can be right while the bar draws like every other one.
+   */
+  const assumedBarFacts = () => {
+    const bar = barFor('haul-dev');
+    if (bar === null) throw new Error('the assumed bar is not on the chart');
+    const box = drawnBox('[data-gantt-bar="haul-dev"]');
+    return {
+      x: box.x,
+      width: box.width,
+      critical: bar.classList.contains('stroke-foreground'),
+      translucent: bar.classList.contains('[fill-opacity:0.35]'),
+    };
+  };
+
+  itDom('leaves a bar it crosses where it was, translucency and ring included', () => {
+    // The requirement. The sequence above is the mechanism that delivers it,
+    // and it needs its own assertion because this comparison cannot see it: a
+    // rule painted *over* the bars leaves every attribute below exactly where
+    // it was.
+    //
+    // An **assumed** bar and not a costed one, because the old wording — "the
+    // bar is fully opaque over it" — is false of this bar kind:
+    // `[fill-opacity:0.35]` is the design (`ASSUMED_BAR_CLASSES`), so a rule
+    // behind an assumed bar shows through it and the guarantee is about `x`,
+    // `width` and the ring rather than about paint. An unestimated slice draws
+    // nothing until the detail is asked for, which is why both renders go
+    // through `askForTheDetail`.
+    assumedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+    askForTheDetail('[data-assumed]');
+    const marked = assumedBarFacts();
+    const order = paintOrder();
+
+    // The same plan with no marker, on a fresh document. The detail answer is
+    // stored, so the second render already has the bar and the helper only
+    // proves it arrived.
+    cleanup();
+    assumedChart([]);
+    askForTheDetail('[data-assumed]');
+    const bare = assumedBarFacts();
+
+    expect(marked).toEqual(bare);
+    expect(marked.critical).toBe(true);
+    // And the rule is still behind it — read off the marked render, since the
+    // bare one has no rule to order anything against.
+    expect(order.indexOf('data-gantt-marker-rule')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('data-gantt-marker-rule')).toBeLessThan(order.indexOf('data-gantt-bar'));
+    // Last, and named outright as well as compared: the equality alone holds of
+    // two renders that both lost the translucency, which is exactly what the
+    // assumed arm of `barClasses` emptied produces. Ordered last so that when
+    // that fault is watched, every other claim in this case has already been
+    // evaluated and passed rather than been skipped by the throw.
+    expect(marked.translucent).toBe(true);
+  });
 });
 
 describe('the dates a bar says are printed by shortIsoDate and nothing else', () => {
