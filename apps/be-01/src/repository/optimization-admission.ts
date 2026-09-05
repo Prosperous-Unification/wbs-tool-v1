@@ -42,6 +42,24 @@ export interface SolverSlotBind {
   readonly pid: number;
 }
 
+export interface SolverSlotHeartbeat {
+  readonly projectId: string;
+  readonly contractVersion: string;
+  readonly generation: number;
+  readonly objective: SolverObjectiveName;
+  readonly budgetMs: number;
+  /** The reservation's 6.11 fence. */
+  readonly attemptToken: string;
+  /** The cancellation epoch returned by admission for this attempt. */
+  readonly admittedCancelEpoch: number;
+  readonly now: number;
+}
+
+export type SolverSlotHeartbeatOutcome =
+  | { readonly kind: 'live' }
+  | { readonly kind: 'cancelled'; readonly reason: 'requested' | 'generation' }
+  | { readonly kind: 'lost' };
+
 /**
  * Atomically gives one still-current `starting` reservation its launcher PID.
  * A stale token or a second bind updates zero rows, which tells the caller to
@@ -66,6 +84,54 @@ export function bindSolverSlot(db: Drizzle, slot: SolverSlotBind): boolean {
       .returning({ attemptToken: solverSlot.attemptToken })
       .all().length === 1
   );
+}
+
+/**
+ * Refresh one running attempt and observe durable cancellation in the same
+ * SQLite round trip (tasks.md 6.4 and 6.11).
+ *
+ * The UPDATE carries both the full slot identity and the attempt token. A late
+ * owner therefore cannot refresh a replacement that reused the same primary
+ * key. The transaction then reads the slot's cancellation marker and the
+ * generation/cancel-epoch pair that admission returned; either invalidation
+ * tells the coordinator to terminate the child before its next five-second
+ * heartbeat.
+ */
+export function heartbeatSolverSlot(
+  db: Drizzle,
+  slot: SolverSlotHeartbeat,
+): SolverSlotHeartbeatOutcome {
+  return db.transaction((tx) => {
+    const refreshed = tx
+      .update(solverSlot)
+      .set({ heartbeatAt: slot.now })
+      .where(
+        and(
+          eq(solverSlot.projectId, slot.projectId),
+          eq(solverSlot.contractVersion, slot.contractVersion),
+          eq(solverSlot.generation, slot.generation),
+          eq(solverSlot.objective, slot.objective),
+          eq(solverSlot.budgetMs, slot.budgetMs),
+          eq(solverSlot.attemptToken, slot.attemptToken),
+          eq(solverSlot.lifecycle, 'running'),
+        ),
+      )
+      .returning({ cancelRequestedAt: solverSlot.cancelRequestedAt })
+      .all();
+    if (refreshed.length !== 1) return { kind: 'lost' };
+    if (refreshed[0].cancelRequestedAt !== null) {
+      return { kind: 'cancelled', reason: 'requested' };
+    }
+
+    const current = readGeneration(tx, slot.projectId, slot.contractVersion);
+    if (
+      current?.generation !== slot.generation ||
+      current.cancelEpoch !== slot.admittedCancelEpoch
+    ) {
+      return { kind: 'cancelled', reason: 'generation' };
+    }
+    return { kind: 'live' };
+  });
 }
 
 /**

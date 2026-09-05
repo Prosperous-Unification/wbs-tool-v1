@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from './db';
 import { runMigrations } from './migrate';
-import { bindSolverSlot, reserveSolverSlot } from './optimization-admission';
+import { bindSolverSlot, heartbeatSolverSlot, reserveSolverSlot } from './optimization-admission';
 import { allocateGeneration } from './optimization-generation';
 import { optimizationGeneration, solverSlot } from './schema';
 
@@ -76,6 +76,178 @@ describe('reserveSolverSlot', () => {
 
     // Proof: dropping either the token or `starting` predicate lets PID 41 or
     // 43 claim a row that belongs to another lifecycle attempt.
+  });
+
+  it('heartbeats exactly its running attempt and reports the live generation', () => {
+    const { db, generation } = prepared();
+    const admission = reserveSolverSlot(db, {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: 'blue-token',
+      now: 10,
+    });
+    if (admission.kind !== 'reserved') throw new Error('expected a reservation');
+    const slot = {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri' as const,
+      budgetMs: BUDGET,
+      attemptToken: admission.attemptToken,
+      admittedCancelEpoch: admission.admittedCancelEpoch,
+    };
+    expect(bindSolverSlot(db, { ...slot, pid: 42 })).toBe(true);
+
+    expect(heartbeatSolverSlot(db, { ...slot, now: 5_010 })).toEqual({ kind: 'live' });
+    expect(db.select({ at: solverSlot.heartbeatAt }).from(solverSlot).get()).toEqual({ at: 5_010 });
+  });
+
+  it('returns the durable cancellation marker while refreshing the owned row', () => {
+    const { path, db, generation } = prepared();
+    const admission = reserveSolverSlot(db, {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: 'blue-token',
+      now: 10,
+    });
+    if (admission.kind !== 'reserved') throw new Error('expected a reservation');
+    expect(
+      bindSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        attemptToken: admission.attemptToken,
+        pid: 42,
+      }),
+    ).toBe(true);
+    const raw = openDatabase(path);
+    try {
+      raw.run(`UPDATE solver_slot SET cancel_requested_at = 500 WHERE project_id = 'p-1'`);
+    } finally {
+      raw.close();
+    }
+
+    expect(
+      heartbeatSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        attemptToken: admission.attemptToken,
+        admittedCancelEpoch: admission.admittedCancelEpoch,
+        now: 5_010,
+      }),
+    ).toEqual({ kind: 'cancelled', reason: 'requested' });
+    expect(db.select({ at: solverSlot.heartbeatAt }).from(solverSlot).get()).toEqual({ at: 5_010 });
+  });
+
+  it('observes a moved cancel epoch even when no slot marker was written', () => {
+    const { path, db, generation } = prepared();
+    const admission = reserveSolverSlot(db, {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: 'blue-token',
+      now: 10,
+    });
+    if (admission.kind !== 'reserved') throw new Error('expected a reservation');
+    expect(
+      bindSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        attemptToken: admission.attemptToken,
+        pid: 42,
+      }),
+    ).toBe(true);
+    const raw = openDatabase(path);
+    try {
+      raw.run(
+        `UPDATE optimization_generation SET cancel_epoch = cancel_epoch + 1
+         WHERE project_id = 'p-1' AND contract_version = '${CONTRACT}'`,
+      );
+    } finally {
+      raw.close();
+    }
+
+    expect(
+      heartbeatSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        attemptToken: admission.attemptToken,
+        admittedCancelEpoch: admission.admittedCancelEpoch,
+        now: 5_010,
+      }),
+    ).toEqual({ kind: 'cancelled', reason: 'generation' });
+
+    // Proof: checking only `cancel_requested_at` reports this row live even
+    // though the durable epoch has already invalidated its admission.
+  });
+
+  it('does not let an old token refresh the replacement attempt', () => {
+    const { path, db, generation } = prepared();
+    const admission = reserveSolverSlot(db, {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      attemptToken: 'old-token',
+      now: 10,
+    });
+    if (admission.kind !== 'reserved') throw new Error('expected a reservation');
+    const raw = openDatabase(path);
+    try {
+      raw.run(
+        `UPDATE solver_slot
+         SET attempt_token = 'replacement-token', heartbeat_at = 20, lifecycle = 'running', pid = 43
+         WHERE project_id = 'p-1'`,
+      );
+    } finally {
+      raw.close();
+    }
+
+    expect(
+      heartbeatSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        attemptToken: admission.attemptToken,
+        admittedCancelEpoch: admission.admittedCancelEpoch,
+        now: 5_010,
+      }),
+    ).toEqual({ kind: 'lost' });
+    expect(
+      db
+        .select({ token: solverSlot.attemptToken, at: solverSlot.heartbeatAt })
+        .from(solverSlot)
+        .get(),
+    ).toEqual({ token: 'replacement-token', at: 20 });
+
+    // Proof: dropping the token from the heartbeat UPDATE changes the
+    // replacement row's heartbeat to 5010 and lets the old owner look current.
   });
 
   it('coalesces two coordinators on one full slot key', () => {
