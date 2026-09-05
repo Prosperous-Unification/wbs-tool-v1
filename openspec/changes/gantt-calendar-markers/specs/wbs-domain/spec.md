@@ -440,11 +440,13 @@ interval bounds.
   it in paint order, and at least one pixel inside that bar's footprint differs
   from the same plan without the marker
 
-#### Scenario: the rule is an opaque 1px line at both ends of the zoom ladder
+#### Scenario: the rule is an opaque 1px line at every rung of the zoom ladder
 
-- **WHEN** the same marker is rendered at 28px and at 4px per day — the two ends
-  of the 28/12/4 ladder, which bound it, since one rung alone cannot tell a
-  non-scaling stroke from a width that happens to equal that rung's day pixels
+- **WHEN** the same marker is rendered at 28px, at 12px and at 4px per day —
+  every rung, since a fault conditioned on one of them would otherwise reach no
+  rasterized assertion, and the two ends are what make the mechanism visible,
+  because one rung alone cannot tell a non-scaling stroke from a width that
+  happens to equal that rung's day pixels
 - **THEN** its rule is a `<line>` element, declares a stroke width of 1,
   resolves to a computed `stroke-width` of `1px`, computes `stroke-opacity` and
   `opacity` of `1`, carries `vector-effect: non-scaling-stroke`, and the run of

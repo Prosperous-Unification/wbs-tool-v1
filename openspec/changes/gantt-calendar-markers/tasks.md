@@ -929,12 +929,17 @@ in both slices rather than implied by position.
       "no attribute moved", and neither tier can stand for the other.
 - [ ] 8.2a The rule is an opaque 1px `<line>` on screen at both ends of the
       ladder, and the mechanism is
-      `vector-effect: non-scaling-stroke`. **Both ends rather than "every rung"**
-      (round-18 Gemini review, Minor): 28 and 4 are what this slice renders,
-      12 is not, and the ladder is bounded by its ends for the reason the second
-      negative below gives — a single rung cannot tell a non-scaling stroke from
-      a width that happens to equal that rung's day pixels, and two rungs that
-      differ by 7× can. 8.3 is the slice that walks all three.
+      `vector-effect: non-scaling-stroke`. **All three rungs, and the ends carry the mechanism**
+      (round-18 Gemini review, Minor, revised in round 19): 28 and 4 are the
+      ends, and they are what makes the mechanism visible — a single rung cannot
+      tell a non-scaling stroke from a width that happens to equal that rung's
+      day pixels, and two rungs that differ by 7× can. **12 is rendered too**
+      (round-19 Gemini review, Minor): the requirement says _every_ rung, 8.3
+      exercises 12 only as a jsdom element count, and a fault conditioned on
+      `dayPx === 12` would therefore reach no browser assertion at all. The
+      middle rung costs one more pass of the same three clips and closes the
+      whole class, so this slice renders all three and the ends carry the
+      mechanism argument.
       **A declared width proves nothing
       here**: the chart's user space is days by rows stretched non-uniformly to
       `dayPx` (`viewBox` days×rows with `preserveAspectRatio="none"`,
@@ -1099,7 +1104,7 @@ in both slices rather than implied by position.
       auxiliary line, hiding the tagged 1px line changes **nothing** — the
       untagged 2px line covers every column it painted — so **0** columns
       differ and the lower half of the bound, added in round 16 for a different
-      reason, is what fails it. Third negative, therefore: **the coincident
+      reason, is what fails it. Watched negative, therefore: **the coincident
       untagged 2px line**, watched failing this bound at 0 while the tag, both
       width assertions, the opacity assertions and 8.2's count all stay green.
       **And that toggle alone is still not the binding, because it can only see
@@ -1122,7 +1127,7 @@ in both slices rather than implied by position.
       inside it: the adjacent line makes `totalInk` two columns and `ruleInk`
       one, the coincident line makes `ruleInk` empty, and a correct renderer
       makes them identical because the rule is the only marker ink in a row band
-      with no bar and no chip in it. Fourth negative, therefore: **the adjacent
+      with no bar and no chip in it. Watched negative, therefore: **the adjacent
       untagged 1px line**, watched failing the set equality while `ruleInk`'s
       own bound, the tag, both width assertions and 8.2's count all stay green.
       **And the set equality SHALL be taken over the whole chart body, not the
@@ -1140,7 +1145,7 @@ in both slices rather than implied by position.
       ink the marker adds, anywhere, and no auxiliary primitive survives
       wherever it is drawn. The column sets then carry only what they are good
       at: `ruleInk`'s contiguous 1-or-2 run is the width, and the identity is
-      the binding. Fifth negative: **the untagged auxiliary line in a different
+      the binding. Watched negative: **the untagged auxiliary line in a different
       row band**, watched failing the whole-body identity while the strip's own
       run, the set equality within it, the tag, both width assertions, the
       opacity assertions and 8.2's count all stay green. **And the predicate has to be spelled out**
@@ -1171,7 +1176,7 @@ in both slices rather than implied by position.
       sentences the count is not reproducible — `hover-cards.spec.ts:148` is the
       precedent for _clipping_, not for column diffing, and there is no PNG
       decoder in the workspace to fall back on.
-      Second negative: the property removed, watched turning that run into
+      Watched negative: the property removed, watched turning that run into
       **28** columns at the 28px rung and **4** at the 4px rung — which is why
       two rungs rather than one, since a single rung cannot tell a non-scaling
       stroke from a width that happens to equal that rung's day pixels, and why
