@@ -38,6 +38,40 @@
                   }
                 }
               }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "username",
+                  "password"
+                ],
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "username",
+                  "password"
+                ],
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         },
@@ -51,6 +85,40 @@
           "description": "The account name and password.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "username",
+                  "password"
+                ],
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "username",
+                  "password"
+                ],
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "required": [
@@ -99,6 +167,32 @@
           "description": "The project’s name.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "required": [
@@ -267,6 +361,206 @@
                   }
                 }
               }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  },
+                  "estimateMethod": {
+                    "type": "string",
+                    "enum": [
+                      "pert",
+                      "optimistic",
+                      "realistic",
+                      "pessimistic"
+                    ]
+                  },
+                  "depReach": {
+                    "type": "string",
+                    "enum": [
+                      "whole-item",
+                      "anchor-slice"
+                    ]
+                  },
+                  "pertWeights": {
+                    "type": "object",
+                    "required": [
+                      "optimistic",
+                      "realistic",
+                      "pessimistic"
+                    ],
+                    "properties": {
+                      "optimistic": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "realistic": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "pessimistic": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  "estimateRounding": {
+                    "type": "string",
+                    "enum": [
+                      "exact",
+                      "floor",
+                      "round",
+                      "ceil"
+                    ]
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "nullable": true
+                  },
+                  "solutionRef": {
+                    "type": "object",
+                    "required": [
+                      "slug",
+                      "url"
+                    ],
+                    "nullable": true,
+                    "properties": {
+                      "slug": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "url": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "optimizationEnabled": {
+                    "type": "boolean"
+                  },
+                  "scheduleEngine": {
+                    "type": "string",
+                    "enum": [
+                      "fast",
+                      "optimized"
+                    ]
+                  },
+                  "scheduleObjective": {
+                    "type": "string",
+                    "enum": [
+                      "pri",
+                      "time"
+                    ]
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  },
+                  "estimateMethod": {
+                    "type": "string",
+                    "enum": [
+                      "pert",
+                      "optimistic",
+                      "realistic",
+                      "pessimistic"
+                    ]
+                  },
+                  "depReach": {
+                    "type": "string",
+                    "enum": [
+                      "whole-item",
+                      "anchor-slice"
+                    ]
+                  },
+                  "pertWeights": {
+                    "type": "object",
+                    "required": [
+                      "optimistic",
+                      "realistic",
+                      "pessimistic"
+                    ],
+                    "properties": {
+                      "optimistic": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "realistic": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "pessimistic": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  "estimateRounding": {
+                    "type": "string",
+                    "enum": [
+                      "exact",
+                      "floor",
+                      "round",
+                      "ceil"
+                    ]
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "nullable": true
+                  },
+                  "solutionRef": {
+                    "type": "object",
+                    "required": [
+                      "slug",
+                      "url"
+                    ],
+                    "nullable": true,
+                    "properties": {
+                      "slug": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "url": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "optimizationEnabled": {
+                    "type": "boolean"
+                  },
+                  "scheduleEngine": {
+                    "type": "string",
+                    "enum": [
+                      "fast",
+                      "optimized"
+                    ]
+                  },
+                  "scheduleObjective": {
+                    "type": "string",
+                    "enum": [
+                      "pri",
+                      "time"
+                    ]
+                  }
+                }
+              }
             }
           }
         },
@@ -290,6 +584,28 @@
           "description": "The plan’s name. Absent is the normal path and takes the server’s timestamp.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -393,6 +709,34 @@
                   }
                 }
               }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
             }
           }
         },
@@ -440,6 +784,32 @@
                   }
                 }
               }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         },
@@ -463,6 +833,32 @@
           "description": "The step’s name.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "required": [

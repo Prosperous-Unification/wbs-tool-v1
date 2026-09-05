@@ -92,11 +92,35 @@ const CHECKED_BY_HAND =
  *
  * Same shape as {@link handParsedBody} — prose first, caveat last — and a
  * different caveat, which is the entire point of it existing.
+ *
+ * **Three media types, where {@link handParsedBody} declares one.** Not a
+ * difference in taste: it is what each set of routes accepts. On `main` these
+ * bodies were `t.Object(...)` schemas and Elysia derived `application/json`,
+ * `application/x-www-form-urlencoded` and `multipart/form-data` for every one of
+ * them; moving the checks into the handlers dropped the declarations while the
+ * app kept serving all three, which the in-process binder's `decodeBody` now
+ * measures and matches. The two `handParsedBody` command routes take a
+ * `{ commands: [...] }` body that no form encoding can express, they declared
+ * JSON alone on `main`, and they still do.
+ *
+ * A route whose schema names a nested object — `PATCH /api/projects/{id}` and
+ * its `pertWeights` — declares the form types anyway, because `main` declared
+ * them and a refactor does not narrow a published API on the way past. Whoever
+ * wants that narrowing gets it as its own change, with the clients told.
+ *
+ * The same `schema` object under all three keys would serialise correctly, and
+ * is still spelled out three times: a shared reference is one mutation away from
+ * three routes' worth of surprise, and this file is copied from more than it is
+ * read.
  */
 export function checkedBody(description: string, schema: BodySchema): RequestBodyDoc {
   return {
     required: true,
     description: `${description}\n\n${CHECKED_BY_HAND}`,
-    content: { 'application/json': { schema } },
+    content: {
+      'application/json': { schema },
+      'application/x-www-form-urlencoded': { schema },
+      'multipart/form-data': { schema },
+    },
   };
 }
