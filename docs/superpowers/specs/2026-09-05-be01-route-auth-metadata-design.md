@@ -186,3 +186,85 @@ route. Three ways to go, and the choice belongs in the review rather than in a f
 
 I have not chosen. Whichever way the review goes, chunk A should not start until it does, because
 `Route.auth`'s value set is the first line of the change.
+
+---
+
+# Version 2 — the check stays app-level, and the route list supplies the predicate
+
+**Supersedes everything above. 2026-09-05T23:10Z, written against the Gemini plan verdict
+(`queue/reviews/t262-item2-plan-gemini.md`, CHANGES REQUIRED, three Critical). Version 1 is left
+in place unedited because it is what the seat reviewed.**
+
+## What killed version 1
+
+1. **`onRequest` is not a route-level hook.** It is application/plugin level and runs *before Elysia
+   matches a route*, so a `bindElysia`-registered one would have to re-implement path matching,
+   would fire once per mounted controller on every request, and has no channel to hand a resolved
+   caller to `ctx`.
+2. **Neither binder receives `AuthService`,** and `Route` cannot carry a service without breaking
+   the isolation `route.ts` exists to hold.
+3. **Both silent-loss controls were false comfort** — paths instead of `(method, path)`, and an
+   optional field on an interface instead of a union.
+
+## The correction, and it makes the change much smaller
+
+**Finding 1 is only fatal to putting the hook in `bindElysia`.** The hook this design needs already
+exists, at the level Elysia actually supports, in the place that already has `AuthService` in
+scope: `app.ts:170`. So version 2 does not move the check into a binder at all.
+
+**And the in-process binder needs no change whatsoever.** It has no validator, so its first refusal
+is already the handler's guard — 401, which is the right answer and the one `main` gave. Version 1
+proposed changing the binder that was already correct.
+
+So the whole change is: **the app-level `onRequest` stops deciding auth from path shape and starts
+reading it from the route list.**
+
+```ts
+// http/route.ts — framework-free, data only, no service
+export type RouteAuth = 'read-scope' | 'signed-in' | 'write-scope';
+```
+
+- Every route declares `auth` — as a **required** field, see the controls below.
+- `app.ts` assembles the same lists it already mounts into one `(method, path) → RouteAuth` table
+  and hands it to the existing `onRequest`, which resolves the caller and answers 401/403 before
+  Elysia parses or validates anything.
+- `requiresWriteScope`'s `path.startsWith('/api/')` heuristic (`app.ts:276`) is **deleted**. It is
+  the same decision, made from path shape instead of from the routes, and it is one new path prefix
+  away from being silently wrong.
+- **The handler guards stay.** They are not the mechanism any more; they are defence in depth, and
+  removing 28 of them is the migration that made version 1 a two-chunk change with a security-shaped
+  failure mode. Auth being checked twice under Elysia is already true today for every write.
+
+The in-process binder keeps answering from the handler guard. Both binders then refuse 401 before
+422 — Elysia because the hook precedes its validator, the in-process one because it has no
+validator — which is the clause `/probe/guarded-sides` asserts.
+
+## Controls, rewritten to hold
+
+1. **`auth` is required on `Route`, not optional.** A route that declares nothing does not compile.
+   Open routes say so: `auth: 'open'` joins the union. This is the discriminated-union point from
+   finding 3, in the only form that covers routes whose handler never reads the caller — which is
+   6 of the 28.
+2. **The table is asserted by `(method, path, auth)` triples**, not by the set of open paths. Method
+   collisions on one path (`POST` and `GET /api/auth/login`, `GET` and `PATCH /api/projects/:id`)
+   are the blind spot finding 3 named, and a triple has no such spot: a `read-scope` route degraded
+   to `signed-in` moves a row.
+3. **A test asserts the table covers every mounted route.** The route lists are assembled
+   per-controller and `/health` is attached to Elysia directly (`app.ts:242`), so "every route" is a
+   claim that needs its own check rather than an assumption — Gemini's point about the absent single
+   list.
+
+## What this costs
+
+One chunk, not two. `route.ts` gains a type and a required field; every route literal gains one
+line; `app.ts` gains the table and loses `requiresWriteScope`; `binder.contract.test.ts` gains the
+401-before-422 clause and the three controls. No binder signature changes, no `AuthService`
+injection, no `callerGuard` deletion, no 28-site migration.
+
+**Still open, for the next review:** whether `write-scope` belongs in the same union as
+`signed-in`/`read-scope` — they are different questions (what you are vs what you may do) and
+merging them may be the same conflation `requiresWriteScope` made. Two fields (`auth` and `scope`)
+is the alternative. Also `Caller` is not a type in this repo; it is `AuthenticatedUser`
+(`service/auth.service.ts:12`), and version 2 does not put it on `RouteRequest` at all.
+
+**This version has not been reviewed. Re-run the plan gate on it before any implementation.**
