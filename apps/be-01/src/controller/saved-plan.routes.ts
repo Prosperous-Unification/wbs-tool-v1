@@ -1,5 +1,5 @@
 import { callerGuard } from '../http/caller';
-import { handParsedBody } from '../http/elysia/hand-parsed-body';
+import { checkedBody } from '../http/elysia/hand-parsed-body';
 import { COMPARE_QUERY } from '../http/elysia/query-schemas';
 import {
   isFieldBag,
@@ -172,12 +172,12 @@ function sidesFrom(query: Record<string, string>): { left: string; right: string
   return { left, right };
 }
 
-const SAVE_BODY = handParsedBody(
+const SAVE_BODY = checkedBody(
   'The plan’s name. Absent is the normal path and takes the server’s timestamp.',
   { type: 'object', properties: { name: { type: 'string', minLength: 1 } } },
 );
 
-const RENAME_BODY = handParsedBody('The plan’s new name.', {
+const RENAME_BODY = checkedBody('The plan’s new name.', {
   type: 'object',
   required: ['name'],
   properties: { name: { type: 'string', minLength: 1 } },

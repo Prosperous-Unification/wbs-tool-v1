@@ -1,7 +1,7 @@
 import { DEPENDENCY_REACHES, ESTIMATE_METHODS, ESTIMATE_ROUNDINGS } from '@wbs/domain';
 
 import { callerGuard } from '../http/caller';
-import { handParsedBody } from '../http/elysia/hand-parsed-body';
+import { checkedBody } from '../http/elysia/hand-parsed-body';
 import {
   isFieldBag,
   noContent,
@@ -206,13 +206,13 @@ const isRefusal = (parsed: object): parsed is RouteResponse => 'status' in parse
  * document a body it parses itself, caveat and all — the same move
  * `step.routes.ts` made.
  */
-const NEW_PROJECT_BODY = handParsedBody('The project’s name.', {
+const NEW_PROJECT_BODY = checkedBody('The project’s name.', {
   type: 'object',
   required: ['name'],
   properties: { name: { type: 'string' } },
 });
 
-const PATCH_BODY = handParsedBody(
+const PATCH_BODY = checkedBody(
   'The project settings to change. Every field is optional; a field the body does not name is left alone.',
   {
     type: 'object',

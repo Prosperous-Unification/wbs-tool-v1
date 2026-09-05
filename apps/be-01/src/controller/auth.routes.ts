@@ -12,6 +12,7 @@ import {
   type TokenVerifier,
 } from '@wbs/auth';
 
+import { checkedBody } from '../http/elysia/hand-parsed-body';
 import {
   isFieldBag,
   ok,
@@ -120,32 +121,23 @@ function credentialsFrom(body: unknown): { username: string; password: string } 
 const isRefusal = (parsed: object): parsed is RouteResponse => 'status' in parsed;
 
 /**
- * The documented body, and **not** {@link handParsedBody} — its shared sentence
- * ends "a bad one answers 400", which these two routes do not. A schema failure
- * here has always been 422, so borrowing the note to save four lines would put a
- * false statement about a refusal into the published API document.
+ * The documented body, through {@link checkedBody} and **not**
+ * {@link handParsedBody} — whose shared sentence ends "a bad one answers 400",
+ * which these two routes do not.
  *
- * It says the same true half: the schema is documentation, the handler is the
- * validator, and unknown fields are dropped rather than refused.
+ * This paragraph used to sit above a hand-rolled copy of the note, written out
+ * here because avoiding the 400 claim was worth four duplicated lines. The
+ * duplicate was the right call and the wrong shape: five *other* migrated bodies
+ * reached for `handParsedBody` instead of copying it, and put the false sentence
+ * into six published operations. `checkedBody` is this reasoning made reusable,
+ * so this route is now the same call as its neighbours rather than the exception
+ * that nobody generalised.
  */
-const CREDENTIALS_BODY = {
-  required: true,
-  description:
-    'The account name and password.\n\nThe schema here is documentation, not ' +
-    'validation: this route checks the body itself, because a route module ' +
-    'cannot declare a validator to a framework it does not import. A missing ' +
-    'or non-string field answers 422, which is what the schema hook answered ' +
-    'before. Fields not named here are ignored.',
-  content: {
-    'application/json': {
-      schema: {
-        type: 'object',
-        required: ['username', 'password'],
-        properties: { username: { type: 'string' }, password: { type: 'string' } },
-      },
-    },
-  },
-};
+const CREDENTIALS_BODY = checkedBody('The account name and password.', {
+  type: 'object',
+  required: ['username', 'password'],
+  properties: { username: { type: 'string' }, password: { type: 'string' } },
+});
 
 /**
  * Registration and login return one session shape. OIDC mode keeps its JWT in

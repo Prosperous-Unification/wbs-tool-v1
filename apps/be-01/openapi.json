@@ -20,7 +20,7 @@
       "post": {
         "requestBody": {
           "required": true,
-          "description": "The account name and password.\n\nThe schema here is documentation, not validation: this route checks the body itself, because a route module cannot declare a validator to a framework it does not import. A missing or non-string field answers 422, which is what the schema hook answered before. Fields not named here are ignored.",
+          "description": "The account name and password.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {
@@ -48,7 +48,7 @@
       "post": {
         "requestBody": {
           "required": true,
-          "description": "The account name and password.\n\nThe schema here is documentation, not validation: this route checks the body itself, because a route module cannot declare a validator to a framework it does not import. A missing or non-string field answers 422, which is what the schema hook answered before. Fields not named here are ignored.",
+          "description": "The account name and password.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {
@@ -96,7 +96,7 @@
       "post": {
         "requestBody": {
           "required": true,
-          "description": "The project’s name.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "description": "The project’s name.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {
@@ -166,7 +166,7 @@
       "patch": {
         "requestBody": {
           "required": true,
-          "description": "The project settings to change. Every field is optional; a field the body does not name is left alone.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "description": "The project settings to change. Every field is optional; a field the body does not name is left alone.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {
@@ -287,7 +287,7 @@
       "post": {
         "requestBody": {
           "required": true,
-          "description": "The plan’s name. Absent is the normal path and takes the server’s timestamp.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "description": "The plan’s name. Absent is the normal path and takes the server’s timestamp.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {
@@ -378,7 +378,7 @@
       "patch": {
         "requestBody": {
           "required": true,
-          "description": "The plan’s new name.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "description": "The plan’s new name.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {
@@ -426,7 +426,7 @@
       "post": {
         "requestBody": {
           "required": true,
-          "description": "The step’s name.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "description": "The step’s name.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {
@@ -460,7 +460,7 @@
       "patch": {
         "requestBody": {
           "required": true,
-          "description": "The step’s name.\n\nThe schema here is documentation, not validation. This route parses its own body so that a field this API derives is refused rather than quietly dropped, which is what an Elysia body schema would do to it. Fields not named here are ignored; the ones named are checked, and a bad one answers 400 with a code from the list above.",
+          "description": "The step’s name.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
           "content": {
             "application/json": {
               "schema": {

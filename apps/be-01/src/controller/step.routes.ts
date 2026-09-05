@@ -1,5 +1,5 @@
 import { callerGuard } from '../http/caller';
-import { handParsedBody } from '../http/elysia/hand-parsed-body';
+import { checkedBody } from '../http/elysia/hand-parsed-body';
 import { isFieldBag, noContent, ok, respond, type Route, type RouteResponse } from '../http/route';
 import type { AuthService } from '../service/auth.service';
 import type { RemoveStepOutcome, StepRefusal, StepService } from '../service/step.service';
@@ -42,7 +42,7 @@ function nameFrom(body: unknown): { name: string } | RouteResponse {
  * changes*, and the change is the honest direction: it now says the schema is
  * documentation rather than implying a framework refuses against it.
  */
-const NAMED_BODY = handParsedBody('The step’s name.', {
+const NAMED_BODY = checkedBody('The step’s name.', {
   type: 'object',
   required: ['name'],
   properties: { name: { type: 'string' } },

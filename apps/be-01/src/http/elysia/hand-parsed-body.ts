@@ -58,3 +58,45 @@ export function handParsedBody(description: string, schema: BodySchema): Request
     content: { 'application/json': { schema } },
   };
 }
+
+/**
+ * The same job for the **other** class of self-checking body, and the reason
+ * this file has two helpers instead of one shared sentence.
+ *
+ * {@link PARSED_BY_HAND} was written for the two command routes and every clause
+ * in it is true of them: they hand-parse *so that* a derived field is refused
+ * rather than dropped, and a bad field answers 400 with a code. Neither clause
+ * is true of the bodies below. These were `t.Object(...)` schemas Elysia
+ * validated until this branch moved them into their handlers — they parse by
+ * hand because a route module cannot declare a validator to a framework it does
+ * not import, they ignore unknown fields exactly as the schema did, and a bad
+ * one answers **422** with `{ "error": "invalid_body" }`, which is the status
+ * Elysia's own schema refusal produced and the one clients already branch on.
+ *
+ * Borrowing the shared sentence to save four lines put a false statement about a
+ * refusal into the published API document on **six operations** — measured on
+ * the document itself, `git diff origin/main...HEAD -- apps/be-01/openapi.json`
+ * showing six additions of "a bad one answers 400" and none removed. Both review
+ * seats found it independently. `auth.routes.ts` avoided the trap by hand and
+ * wrote down why; this helper is that reasoning made reusable, so the next
+ * migrated body cannot fall into it by copying its neighbour.
+ */
+const CHECKED_BY_HAND =
+  'The schema here is documentation, not validation. This route checks its own ' +
+  'body: the fields named here are checked and everything else is ignored, and ' +
+  'a body that is not an object, or that names one of these fields with the ' +
+  'wrong type, answers 422 with `{ "error": "invalid_body" }`.';
+
+/**
+ * A documented request body for a route that checks itself and refuses with 422.
+ *
+ * Same shape as {@link handParsedBody} — prose first, caveat last — and a
+ * different caveat, which is the entire point of it existing.
+ */
+export function checkedBody(description: string, schema: BodySchema): RequestBodyDoc {
+  return {
+    required: true,
+    description: `${description}\n\n${CHECKED_BY_HAND}`,
+    content: { 'application/json': { schema } },
+  };
+}
