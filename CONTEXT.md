@@ -1042,7 +1042,8 @@ _Avoid_: guard, caller requirement, middleware (for this), auth level
 **Conformance kit**:
 A test suite exported as a function of a factory, one per port, so a source or an adapter is
 held to a port's contract by one file that calls it; a source's certificate is the composition
-of the kits for the ports it offers. Every case in a kit was watched failing against an
+of the kits for the ports it offers, and it names every case skipped because the source stubs
+that method. Every case in a kit was watched failing against an
 implementation that lacks the behaviour it names.
 _Avoid_: contract tests (alone), shared tests, test harness
 

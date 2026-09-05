@@ -13,7 +13,8 @@ none is; explicitly declared post-rollback repair is a separate surviving act �
 source meets it its own way. The SQLite adapter meets it exactly as ADR 0007
 describes; the in-memory source meets it by staging and swapping. A conformance case
 (`unitOfWorkConformance`) asserts the contract against every source, so a source that cannot
-roll back is not a slower source, it is a failing one.
+roll back is not a slower source, it is a failing one. The unit of work is never stubbed: a
+source may lag on store methods (plan D29) but not on `run`.
 Plan: `docs/2026-09-05-ports-and-adapters-plan.md` §3.2.
 
 Two things the first draft of this ADR got wrong, corrected on review (plan history §8):

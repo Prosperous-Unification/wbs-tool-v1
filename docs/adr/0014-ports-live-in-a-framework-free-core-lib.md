@@ -13,7 +13,7 @@ arrives through `composeServices({ source, runtime, shared })`, so core is
 **`runtime:isomorphic`**. Dependency direction is stated as **rings** on Nx projects, and
 **every project carries exactly one**: `ring:domain` (`domain`, `contracts`, `validation` —
 types and pure functions every ring may read), `ring:application` (`core`, and `conformance`
-for the kits), `ring:adapter` (`store-*`, `runtime-web`, `auth`, `realtime`, `solver-py`,
+for the kits), `ring:adapter` (`store-*`, `runtime-portable`, `auth`, `realtime`, `solver-py`,
 `observability`, `config`, `be-01`, `fe-01`, `gw-01`, `mcp-01`, and every `tools/*` project) —
 enforced by the `@nx/enforce-module-boundaries` rule already in
 the gate, plus `no-restricted-imports` / `no-restricted-globals` for what Nx cannot see, plus
@@ -22,7 +22,7 @@ files are outside the ring constraints** and the import bans (the runtime constr
 bind them): the one hole, so that core's tests can compose core over the in-memory source
 without the source being a core dependency. The
 SQLite adapters live in `libs/store-sqlite`, the in-memory source in `libs/store-memory`, the
-browser adapters for the runtime ports in `libs/runtime-web`, and `apps/be-01` keeps only the
+portable adapters for the runtime ports in `libs/runtime-portable` (browser and Bun alike), and `apps/be-01` keeps only the
 Elysia adapter, the composition root with the Bun runtime adapters, and the migrate CLIs.
 The HTTP contract is split along the same line: an endpoint's **shape** — method, path,
 operation id, policies, validators with generated document schemas, modeled reply statuses —
