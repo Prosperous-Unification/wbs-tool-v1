@@ -23,9 +23,7 @@ describe('BeConfig', () => {
 
   it('defaults production solves to two search workers and accepts a positive override', () => {
     expect(loadConfig(VALID).SOLVER_SEARCH_WORKERS).toBe(2);
-    expect(
-      loadConfig({ ...VALID, SOLVER_SEARCH_WORKERS: '3' }).SOLVER_SEARCH_WORKERS,
-    ).toBe(3);
+    expect(loadConfig({ ...VALID, SOLVER_SEARCH_WORKERS: '3' }).SOLVER_SEARCH_WORKERS).toBe(3);
     expect(() => loadConfig({ ...VALID, SOLVER_SEARCH_WORKERS: '0' })).toThrow(
       'SOLVER_SEARCH_WORKERS must be greater than zero',
     );
