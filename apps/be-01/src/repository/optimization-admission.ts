@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 
 import type { Drizzle } from './db';
+import { reclaimExpiredSolverSlotsIn } from './optimization-drain';
 import { readGeneration } from './optimization-generation';
 import { project, type SolverObjectiveName, solverSlot } from './schema';
 
@@ -40,17 +41,14 @@ export type SolverSlotAdmission =
  * reported as capacity pressure. Every unreleased row counts, including
  * `starting` rows, cancellation requests and a different budget.
  *
- * Expired-slot reclamation is deliberately not hidden here yet. It must finish
- * any durable project/contract drain in the same transaction that removes the
- * last slot; {@link reconcileOptimizationDrains} currently owns that invariant,
- * and slice 6.2's next chunk moves its transaction body behind this admission
- * before this function is wired into the coordinator.
+ * Expired seats are reclaimed before either ceiling is counted. The shared
+ * transaction helper also attempts every affected contract/project finish, so
+ * freeing capacity cannot strand the last row of a durable drain.
  */
-export function reserveSolverSlot(
-  db: Drizzle,
-  request: SolverSlotRequest,
-): SolverSlotAdmission {
+export function reserveSolverSlot(db: Drizzle, request: SolverSlotRequest): SolverSlotAdmission {
   return db.transaction((tx) => {
+    reclaimExpiredSolverSlotsIn(tx, request.now);
+
     const generation = readGeneration(tx, request.projectId, request.contractVersion);
     const projectState = tx
       .select({

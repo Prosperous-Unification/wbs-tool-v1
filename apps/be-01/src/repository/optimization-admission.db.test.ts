@@ -8,7 +8,7 @@ import { openDatabase, openDrizzle } from './db';
 import { runMigrations } from './migrate';
 import { reserveSolverSlot } from './optimization-admission';
 import { allocateGeneration } from './optimization-generation';
-import { solverSlot } from './schema';
+import { optimizationGeneration, solverSlot } from './schema';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const CONTRACT = '7+0.1.0';
@@ -74,14 +74,10 @@ describe('reserveSolverSlot', () => {
     ).toEqual({ kind: 'already-present' });
     const slots = db.select().from(solverSlot).all();
     expect(slots).toHaveLength(4);
-    expect(slots).toContainEqual(
-      expect.objectContaining({
-        ownerId: 'blue',
-        attemptToken: 'blue-token',
-        lifecycle: 'starting',
-        pid: null,
-      }),
-    );
+    const blue = slots.find((slot) => slot.ownerId === 'blue');
+    expect(blue?.attemptToken).toBe('blue-token');
+    expect(blue?.lifecycle).toBe('starting');
+    expect(blue?.pid).toBeNull();
 
     // Proof: deleting the existing-key check makes the second result
     // `project-full` once four seats exist, rather than coalescing by identity.
@@ -146,5 +142,88 @@ describe('reserveSolverSlot', () => {
 
     // Proof: counting only one budget or only `running` rows fails here with a
     // fifth `starting` reservation, the overlap the SQLite ceiling must prevent.
+  });
+
+  it('reclaims only slots past their stored deadlines before counting capacity', () => {
+    const { db, generation } = prepared();
+    const common = {
+      projectId: 'p-1',
+      contractVersion: CONTRACT,
+      generation,
+      objective: 'pri' as const,
+      ownerId: 'owner',
+      now: 10,
+    };
+    for (const budgetMs of [0, 1, 2, 100_000]) {
+      expect(
+        reserveSolverSlot(db, {
+          ...common,
+          budgetMs,
+          attemptToken: `token-${String(budgetMs)}`,
+        }),
+      ).toMatchObject({ kind: 'reserved' });
+    }
+
+    expect(
+      reserveSolverSlot(db, {
+        ...common,
+        budgetMs: 200_000,
+        attemptToken: 'replacement-token',
+        now: 20_013,
+      }),
+    ).toMatchObject({ kind: 'reserved', attemptToken: 'replacement-token' });
+    expect(
+      db
+        .select({ budgetMs: solverSlot.budgetMs })
+        .from(solverSlot)
+        .all()
+        .map((row) => row.budgetMs)
+        .sort((left, right) => left - right),
+    ).toEqual([100_000, 200_000]);
+
+    // Proof: omitting the reclaim returns `project-full`; recomputing a common
+    // deadline incorrectly removes the 100_000 ms child as well.
+  });
+
+  it('finishes a drain in the transaction that reclaims its last expired slot', () => {
+    const { path, db, generation } = prepared();
+    expect(
+      reserveSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: 0,
+        ownerId: 'old-owner',
+        attemptToken: 'old-token',
+        now: 10,
+      }),
+    ).toMatchObject({ kind: 'reserved' });
+    const raw = openDatabase(path);
+    try {
+      raw.run(
+        `UPDATE optimization_generation SET admission_state = 'draining' WHERE project_id = 'p-1'`,
+      );
+    } finally {
+      raw.close();
+    }
+
+    expect(
+      reserveSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'time',
+        budgetMs: BUDGET,
+        ownerId: 'new-owner',
+        attemptToken: 'new-token',
+        now: 20_011,
+      }),
+    ).toEqual({ kind: 'closed' });
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+    expect(db.select().from(optimizationGeneration).all()).toEqual([]);
+
+    // Proof: deleting the finish call reclaims the slot but leaves the retired
+    // generation wedged with no owner left to complete it.
   });
 });
