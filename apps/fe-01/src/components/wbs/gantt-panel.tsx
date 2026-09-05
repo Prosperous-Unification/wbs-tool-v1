@@ -2090,6 +2090,7 @@ export function GanttPanel({
   // writer it never reaches.
   onRenameMarker = () => undefined,
   onRecolorMarker = () => undefined,
+  onDeleteMarker = () => undefined,
 }: GanttProps) {
   // The cycle answer is a different panel rather than a branch inside one, and
   // that is what lets {@link GanttChart} hold its hooks unconditionally: this
@@ -2123,6 +2124,7 @@ export function GanttPanel({
       markers={markers}
       onRenameMarker={onRenameMarker}
       onRecolorMarker={onRecolorMarker}
+      onDeleteMarker={onDeleteMarker}
     />
   );
 }
@@ -2305,6 +2307,16 @@ interface GanttProps {
    * fail.
    */
   onRecolorMarker?: (markerId: string, color: string) => void;
+  /**
+   * A marker on this chart has been taken off it.
+   *
+   * Reported upward for {@link GanttProps.onRenameMarker}'s reason. No
+   * confirmation step in front of it: `undo` covers the whole plan and a
+   * marker moves nothing in the schedule (task 4, axis-1), so the cost of the
+   * mistake is one row retyped — and a dialog in front of every delete is the
+   * affordance readers learn to click through.
+   */
+  onDeleteMarker?: (markerId: string) => void;
 }
 
 /**
@@ -2348,6 +2360,7 @@ function GanttChart({
   markers,
   onRenameMarker,
   onRecolorMarker,
+  onDeleteMarker,
 }: Omit<
   GanttProps,
   | 'scheduleError'
@@ -2358,6 +2371,7 @@ function GanttChart({
   | 'markers'
   | 'onRenameMarker'
   | 'onRecolorMarker'
+  | 'onDeleteMarker'
 > & {
   dayPx: DayPx;
   onPickDayPx: (dayPx: DayPx) => void;
@@ -2367,6 +2381,7 @@ function GanttChart({
   markers: readonly CalendarMarkerView[];
   onRenameMarker: (markerId: string, name: string) => void;
   onRecolorMarker: (markerId: string, color: string) => void;
+  onDeleteMarker: (markerId: string) => void;
 }) {
   // How far the chart is scrolled, in CSS pixels. Held only so the caption can
   // name the month actually on screen.
@@ -4731,9 +4746,8 @@ function GanttChart({
         would read as helpful and make a second marker on that day unreachable,
         which is the conflict 6.3 exists to settle.
 
-        **Rename and recolour are wired; delete is still offered and inert** —
-        its handler arrives with the rest of 6.3's second half, proved by the
-        write it reports as well as by the DOM it repaints. The names are
+        **All three actions report a write now**, each proved by the call it
+        reports as well as by the DOM the answer repaints. The names are
         per marker (`Rename Cutover`) rather than bare verbs, because a list of
         rows announcing three identical buttons apiece is a list a screen reader
         cannot navigate.
@@ -4815,7 +4829,13 @@ function GanttChart({
                   >
                     ◑
                   </button>
-                  <button type="button" aria-label={`Delete ${marker.name}`}>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${marker.name}`}
+                    onClick={() => {
+                      onDeleteMarker(marker.id);
+                    }}
+                  >
                     ✕
                   </button>
                   {recoloringId === marker.id && (

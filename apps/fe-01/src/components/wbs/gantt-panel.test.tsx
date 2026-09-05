@@ -7310,3 +7310,81 @@ describe('the day sheet recolours a listed marker', () => {
     expect(document.querySelector('[data-marker-palette]')).toBeNull();
   });
 });
+
+describe('the day sheet takes a listed marker off the chart', () => {
+  const AZURE = '#5d6afe';
+  const CUTOVER_DAY: IsoDate = '2026-08-19';
+
+  /** The panel with an owner over it — see the rename block for why. */
+  function OwnedMarkers({ api }: { api: ProjectApi & { markers: CalendarMarkerView[] } }) {
+    const [markers, setMarkers] = useState<readonly CalendarMarkerView[]>(() =>
+      api.markers.map((marker) => ({ ...marker })),
+    );
+    return (
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+        onDeleteMarker={(markerId) => {
+          void api.deleteCalendarMarker('p1', markerId);
+          setMarkers(api.markers.map((marker) => ({ ...marker })));
+        }}
+      />
+    );
+  }
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  itDom('sends the delete and drops the row the answer no longer holds', () => {
+    // Two markers on the day, because deleting the only one leaves an empty
+    // sheet whatever the handler did: the surviving row is what says the right
+    // marker went.
+    const api = fakeProjectApi();
+    void api.createCalendarMarker('p1', {
+      markerId: 'm-cut',
+      date: CUTOVER_DAY,
+      name: 'Cutover',
+      color: AZURE,
+    });
+    void api.createCalendarMarker('p1', {
+      markerId: 'm-freeze',
+      date: CUTOVER_DAY,
+      name: 'Freeze',
+      color: null,
+    });
+    const deletes = recordCalls(api, 'deleteCalendarMarker');
+    render(<OwnedMarkers api={api} />);
+
+    fireEvent.click(cellAt(9));
+    expect(
+      Array.from(document.querySelectorAll('[data-marker-row]'), (row) =>
+        row.getAttribute('data-marker-row'),
+      ),
+    ).toEqual(['m-cut', 'm-freeze']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Cutover' }));
+
+    expect(deletes).toEqual([['p1', 'm-cut']]);
+    expect(api.markers.map((marker) => marker.id)).toEqual(['m-freeze']);
+    expect(
+      Array.from(document.querySelectorAll('[data-marker-row]'), (row) =>
+        row.getAttribute('data-marker-row'),
+      ),
+    ).toEqual(['m-freeze']);
+    // The sheet stays open on the day that still carries something.
+    expect(document.querySelector('[data-marker-sheet]')).not.toBeNull();
+  });
+});
