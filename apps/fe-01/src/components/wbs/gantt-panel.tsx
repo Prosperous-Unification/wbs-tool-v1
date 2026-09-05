@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { CalendarMarkerView, PriorityBandView } from '@/lib/wbs-api';
+import type { CalendarMarkerView, NewCalendarMarkerView, PriorityBandView } from '@/lib/wbs-api';
 
 import { useGanttDetail } from './gantt-detail';
 import {
@@ -1107,6 +1107,21 @@ export function markerFill(marker: CalendarMarkerView): string {
 const NO_MARKERS: readonly CalendarMarkerView[] = [];
 
 /**
+ * The id a new marker is minted with when nobody injects a factory.
+ *
+ * A module constant rather than an inline `() => crypto.randomUUID()` default
+ * in the parameter list, for {@link NO_MARKERS}' reason: that spelling builds a
+ * **new** function on every render, and the composer's opener names the factory
+ * in a `useCallback` dependency array — so every unrelated re-render of the
+ * panel would rebuild it.
+ *
+ * `crypto.randomUUID` and not a hand-rolled string: 4.6a's route refuses a
+ * `markerId` that is not a UUID v4, and the platform's own generator is the one
+ * thing on this side guaranteed to answer one.
+ */
+const randomMarkerId = (): string => crypto.randomUUID();
+
+/**
  * What an undated plan's axis cell says when it is operated.
  *
  * It names the **missing project start date** and not merely "this cannot be
@@ -2091,6 +2106,8 @@ export function GanttPanel({
   onRenameMarker = () => undefined,
   onRecolorMarker = () => undefined,
   onDeleteMarker = () => undefined,
+  onCreateMarker = () => undefined,
+  newMarkerId = randomMarkerId,
 }: GanttProps) {
   // The cycle answer is a different panel rather than a branch inside one, and
   // that is what lets {@link GanttChart} hold its hooks unconditionally: this
@@ -2125,6 +2142,8 @@ export function GanttPanel({
       onRenameMarker={onRenameMarker}
       onRecolorMarker={onRecolorMarker}
       onDeleteMarker={onDeleteMarker}
+      onCreateMarker={onCreateMarker}
+      newMarkerId={newMarkerId}
     />
   );
 }
@@ -2317,6 +2336,33 @@ interface GanttProps {
    * affordance readers learn to click through.
    */
   onDeleteMarker?: (markerId: string) => void;
+  /**
+   * The composer has been saved and wants this marker created.
+   *
+   * Reported upward for {@link GanttProps.onRenameMarker}'s reason. The shape
+   * is `ProjectApi`'s own `NewCalendarMarkerView` rather than three loose
+   * arguments, because the id is the load-bearing member (task 3.5) and a
+   * positional `(date, name, markerId)` is exactly the call site where an
+   * optional third argument gets dropped.
+   *
+   * No colour is ever sent: the composer previews the **automatic** colour, and
+   * automatic is the absence of a choice rather than a value — `null` and
+   * absent are one answer to the route, and 7.2a's 422 arm is what proves it.
+   */
+  onCreateMarker?: (marker: NewCalendarMarkerView) => void;
+  /**
+   * Where the composer's marker id comes from.
+   *
+   * Injected so a test can name the id, which task 3.5 needs twice over: the
+   * assertion is that the previewed colour and the created chip's colour are
+   * equal, and `automaticColor` is one of eight — so an unpinned id makes the
+   * negative pass by luck one time in eight, which is the palette's own
+   * cardinality and not a test.
+   *
+   * Defaulted to {@link randomMarkerId} at the panel's boundary and required
+   * inside {@link GanttChart}, for {@link GanttProps.dayPx}'s reason.
+   */
+  newMarkerId?: () => string;
 }
 
 /**
@@ -2330,6 +2376,23 @@ interface GanttProps {
  * The keyboard has no delay: focus is deliberate and there is no crossing.
  */
 const HOVER_OPEN_MS = 220;
+
+/**
+ * The open composer: the day it stands on, and the id the marker it is about to
+ * create will carry.
+ *
+ * **One state and not two**, which is task 3.5's whole point: the swatch the
+ * reader sees before submitting is `automaticColor(markerId)`, and the chip
+ * drawn afterwards is `automaticColor` of whatever id reached storage. Those
+ * two are the same colour only if they are the same id, so an id minted
+ * anywhere but at the opening — at submit, or in a second piece of state free
+ * to be refreshed on its own — turns the preview into a guess that is right one
+ * time in eight, the palette's own cardinality.
+ */
+interface OpenComposer {
+  date: IsoDate;
+  markerId: string;
+}
 
 /** The surface that is open: whose bar it belongs to, and the rectangle it was placed against. */
 interface OpenSurface {
@@ -2361,6 +2424,8 @@ function GanttChart({
   onRenameMarker,
   onRecolorMarker,
   onDeleteMarker,
+  onCreateMarker,
+  newMarkerId,
 }: Omit<
   GanttProps,
   | 'scheduleError'
@@ -2372,6 +2437,8 @@ function GanttChart({
   | 'onRenameMarker'
   | 'onRecolorMarker'
   | 'onDeleteMarker'
+  | 'onCreateMarker'
+  | 'newMarkerId'
 > & {
   dayPx: DayPx;
   onPickDayPx: (dayPx: DayPx) => void;
@@ -2382,6 +2449,8 @@ function GanttChart({
   onRenameMarker: (markerId: string, name: string) => void;
   onRecolorMarker: (markerId: string, color: string) => void;
   onDeleteMarker: (markerId: string) => void;
+  onCreateMarker: (marker: NewCalendarMarkerView) => void;
+  newMarkerId: () => string;
 }) {
   // How far the chart is scrolled, in CSS pixels. Held only so the caption can
   // name the month actually on screen.
@@ -2639,7 +2708,26 @@ function GanttChart({
    * which one it is, in the same `day.date` it publishes as `data-axis-date`,
    * so the answer is carried and never recomputed.
    */
-  const [composerAt, setComposerAt] = useState<IsoDate | null>(null);
+  const [composer, setComposer] = useState<OpenComposer | null>(null);
+  /**
+   * The day the open composer stands on, or `null` while none is open.
+   *
+   * Derived rather than held: the date and the id are one fact opened together
+   * (see {@link OpenComposer}), and every reader that only wants the day —
+   * `aria-expanded`, the Escape effect, the caret ref — asks for it here rather
+   * than reaching past the id it does not use.
+   */
+  const composerAt = composer?.date ?? null;
+  /**
+   * What the composer's name field says right now.
+   *
+   * Controlled for {@link draftName}'s reason, and read at save time from here
+   * rather than off the DOM: the composer is remounted by the full-screen
+   * toggle (chunk 34's CI red), and an uncontrolled field would keep or lose
+   * its text by accident of that remount rather than by a decision anything
+   * states.
+   */
+  const [composerName, setComposerName] = useState('');
   /**
    * Why the cell that was just operated refuses to open a composer, or `null`
    * when nothing has been refused.
@@ -2721,7 +2809,7 @@ function GanttChart({
     if (composerAt === null && sheetAt === null) return;
     const closeOnEscape = (key: KeyboardEvent) => {
       if (key.key !== 'Escape') return;
-      setComposerAt(null);
+      setComposer(null);
       setSheetAt(null);
     };
     document.addEventListener('keydown', closeOnEscape);
@@ -3064,18 +3152,36 @@ function GanttChart({
    * {@link markersByDate}, and a `useCallback` whose dependency array names a
    * `const` declared below it is a temporal-dead-zone throw at first render.
    */
+  /**
+   * Opens the composer on a day, with the id its marker will be created under
+   * already minted.
+   *
+   * Shared by {@link operateDay} and the sheet's Add for the same reason those
+   * two share a surface: an empty cell and a populated day's Add both open the
+   * composer, and an id minted at one of them alone leaves the other previewing
+   * a colour it never sends. Minting **here** rather than at submit is task
+   * 3.5's requirement, and the name field is emptied in the same call so a
+   * draft cannot outlive the opening it was typed into.
+   */
+  const openComposerOn = useCallback(
+    (date: IsoDate) => {
+      setSheetAt(null);
+      setComposerName('');
+      setComposer({ date, markerId: newMarkerId() });
+    },
+    [newMarkerId],
+  );
   const operateDay = useCallback(
     (date: IsoDate) => {
       setRefusal(null);
       if ((markersByDate.get(date)?.length ?? 0) === 0) {
-        setSheetAt(null);
-        setComposerAt(date);
+        openComposerOn(date);
         return;
       }
-      setComposerAt(null);
+      setComposer(null);
       setSheetAt(date);
     },
-    [markersByDate],
+    [markersByDate, openComposerOn],
   );
   /**
    * Puts the caret in the composer's name field the moment the composer exists.
@@ -4720,21 +4826,71 @@ function GanttChart({
             {refusal}
           </p>
         )}
-        {composerAt !== null && (
+        {composer !== null && (
           <div
             role="dialog"
-            aria-label={`New calendar marker on ${shortIsoDate(composerAt, today)}`}
+            aria-label={`New calendar marker on ${shortIsoDate(composer.date, today)}`}
             data-marker-composer
-            data-composer-date={composerAt}
+            data-composer-date={composer.date}
             className="border-border bg-background fixed bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-md border p-3 shadow-md"
           >
-            <p className="text-xs font-semibold">{shortIsoDate(composerAt, today)}</p>
-            <input
-              ref={focusOnOpen}
-              type="text"
-              aria-label="Marker name"
-              className="border-border mt-2 w-48 rounded border px-2 py-1 text-xs"
-            />
+            <p className="text-xs font-semibold">{shortIsoDate(composer.date, today)}</p>
+            <div className="mt-2 flex items-center gap-2">
+              {/*
+                The colour this marker will be created in, shown **before** it
+                is — task 3.5. It is `automaticColor` of the id in
+                {@link OpenComposer}, which is the same id the create body
+                carries, so the preview and the chip cannot be two answers.
+
+                `aria-hidden` and named in the field's own label instead: a
+                swatch is a colour, and a screen reader that stopped on an
+                unlabelled box would learn nothing a hex triple could tell it.
+              */}
+              <span
+                aria-hidden="true"
+                data-composer-swatch={composer.markerId}
+                className="border-border h-3 w-3 shrink-0 rounded-full border"
+                style={{ backgroundColor: automaticColor(composer.markerId) }}
+              />
+              <input
+                ref={focusOnOpen}
+                type="text"
+                aria-label="Marker name"
+                value={composerName}
+                onChange={(edit) => {
+                  setComposerName(edit.target.value);
+                }}
+                className="border-border w-48 rounded border px-2 py-1 text-xs"
+              />
+            </div>
+            {/*
+              The save, reporting upward for {@link GanttProps.onRenameMarker}'s
+              reason: the list this chart draws arrives as a prop, so the owner
+              of that list is the only place a create and the redraw after it
+              can agree.
+
+              The name is trimmed and not otherwise checked, the same rule the
+              sheet's rename follows — what a name may be is be-01's (4.2's
+              refusal table), and a second copy of that rule here would be free
+              to disagree with it. No colour is sent: the reader has not chosen
+              one, and an automatic colour is the absence of a choice rather
+              than a value to transmit.
+            */}
+            <button
+              type="button"
+              aria-label={`Save the new calendar marker on ${shortIsoDate(composer.date, today)}`}
+              className="mt-2 text-xs underline"
+              onClick={() => {
+                onCreateMarker({
+                  markerId: composer.markerId,
+                  date: composer.date,
+                  name: composerName.trim(),
+                });
+                setComposer(null);
+              }}
+            >
+              Save
+            </button>
           </div>
         )}
         {/*
@@ -4879,8 +5035,7 @@ function GanttChart({
               // keyboard to be lost between, and the composer's own Escape
               // closes both states at once either way.
               onClick={() => {
-                setSheetAt(null);
-                setComposerAt(sheetAt);
+                openComposerOn(sheetAt);
               }}
             >
               Add

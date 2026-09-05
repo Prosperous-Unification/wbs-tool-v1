@@ -7388,3 +7388,124 @@ describe('the day sheet takes a listed marker off the chart', () => {
     expect(document.querySelector('[data-marker-sheet]')).not.toBeNull();
   });
 });
+
+describe('the composer creates the marker whose colour it previewed', () => {
+  // Slice 3.5. **Both ids are pinned and land in different palette buckets**,
+  // which is what makes the negative below a negative at all: `automaticColor`
+  // is one of eight, so a composer that minted a fresh id at submit would draw
+  // the previewed colour anyway one time in eight — and a fault that is
+  // present-and-green on one run in eight is not caught, it is tolerated.
+  //
+  // Both are UUID v4s because 4.6a's route refuses anything else, so the ids
+  // this test pins are ids the create it asserts could really have carried.
+  /** fnv1a32 mod 8 → 1, amber. What the composer previews and must send. */
+  const PREVIEW_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  /** fnv1a32 mod 8 → 7, magenta. What a second mint would reach for. */
+  const FRESH_ID = '9c858901-8a57-4791-81fe-4c455b099bc9';
+  const GO_LIVE_DAY: IsoDate = '2026-08-19';
+
+  /** What jsdom hands back for a hex written into an inline style. */
+  const asRgb = (hex: string): string => {
+    const [r, g, b] = parseHex(hex);
+    return `rgb(${String(r)}, ${String(g)}, ${String(b)})`;
+  };
+
+  /**
+   * The panel with somebody above it owning the marker list, as in 6.3's cases:
+   * the chip can only reach the screen through a redraw the owner asks for, so
+   * a frozen array would make "the marker is now on the chart" unobservable
+   * however the composer behaved.
+   */
+  function OwnedMarkers({
+    api,
+    newMarkerId,
+  }: {
+    api: ProjectApi & { markers: CalendarMarkerView[] };
+    newMarkerId: () => string;
+  }) {
+    const [markers, setMarkers] = useState<readonly CalendarMarkerView[]>([]);
+    return (
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+        newMarkerId={newMarkerId}
+        onCreateMarker={(marker) => {
+          void api.createCalendarMarker('p1', marker);
+          setMarkers(api.markers.map((stored) => ({ ...stored })));
+        }}
+      />
+    );
+  }
+
+  /**
+   * The injected factory: the previewed id first, then the id a **second** mint
+   * would get. Handing back the same id twice would make the negative
+   * uninjectable, which is the vacuous form 9.2b rejects.
+   */
+  const twoIds = (): (() => string) => {
+    const queued = [PREVIEW_ID, FRESH_ID];
+    return () => queued.shift() ?? FRESH_ID;
+  };
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  itDom('sends the previewed id and draws the chip in the previewed colour', () => {
+    // The pinning is asserted rather than trusted: if the palette ever grows or
+    // reorders, these two ids can collide in one bucket and this case would go
+    // on passing while proving nothing. Failing here says which.
+    expect(automaticColor(PREVIEW_ID)).not.toBe(automaticColor(FRESH_ID));
+
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    // Offset 9 on a plan starting Monday 2026-08-10 is 2026-08-19, and it
+    // carries no marker — so it opens the composer rather than the sheet.
+    fireEvent.click(cellAt(9));
+    const composer = document.querySelector('[data-marker-composer]');
+    expect(composer).not.toBeNull();
+    expect(composer?.getAttribute('data-composer-date')).toBe(GO_LIVE_DAY);
+
+    // The colour the reader is shown **before** anything is written.
+    const swatch = document.querySelector<HTMLElement>('[data-composer-swatch]');
+    if (swatch === null) throw new Error('the composer previewed no colour');
+    const previewed = swatch.style.backgroundColor;
+    expect(previewed).toBe(asRgb(automaticColor(PREVIEW_ID)));
+
+    fireEvent.change(screen.getByLabelText('Marker name'), {
+      target: { value: '  Go live  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
+    // One create, carrying the id the swatch was derived from — asserted
+    // exactly, so this case fails for the reason it is about rather than for a
+    // date or a name. Trimmed, and **no colour**: automatic is the absence of a
+    // choice, and `undefined` is what 7.2a's 422 arm proves the body may carry.
+    expect(creates).toEqual([['p1', { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live' }]]);
+    // And the fake really holds it, which a recorder that pushed without
+    // performing would not show.
+    expect(api.markers.map((marker) => marker.id)).toEqual([PREVIEW_ID]);
+
+    // The composer gives way to the chart it just changed.
+    expect(document.querySelector('[data-marker-composer]')).toBeNull();
+    const chip = document.querySelector<HTMLElement>(`[data-marker-chip="${PREVIEW_ID}"]`);
+    if (chip === null) throw new Error('the created marker drew no chip');
+    // **The slice's own assertion**: the colour promised and the colour drawn
+    // are one colour, and they are one only because they are one id.
+    expect(chip.style.backgroundColor).toBe(previewed);
+  });
+});
