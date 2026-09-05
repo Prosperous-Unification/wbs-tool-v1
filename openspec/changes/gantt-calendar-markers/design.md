@@ -16,7 +16,7 @@ in an ADR is linked, not restated.
 startDate === null ? workdayAxis(placed.horizon) : calendarAxis(startDate, placed.horizon)
 ```
 
-`workdayAxis` sets `date: null` on every cell, and the render at `:3879`
+`workdayAxis` sets `date: null` on every cell, and the `<span>` at `:3871` (its `data-axis-date` spread is `:3879`)
 emits `data-axis-date` **only** when `day.date !== null`. So the DOM already
 states the fact this feature turns on: a cell either is a date or is not one.
 
@@ -86,7 +86,7 @@ slot is a line number and nothing else:
 | 8     | row hit lines                    | `data-gantt-row-line`        | `:3032`                        |
 | 9     | capacity links, brackets, carets | `data-gantt-capacity-link`   | `:3238` and neighbours         |
 | 10    | bar rectangles                   | `data-gantt-bar`             | `:3283`, `barClasses` `:3335`  |
-| 11    | priority caps                    | `data-priority-cap`          | `:3473`, **after** the bars    |
+| 11    | priority caps                    | `data-priority-cap`          | `:3472`, **after** the bars    |
 | 12    | zero-duration ticks              | `data-gantt-tick`            | `:3509`, after the caps        |
 | 13    | on-bar labels                    | `data-gantt-bar-label`       | `:3591`, last                  |
 
@@ -95,7 +95,7 @@ off the source, not off a docstring.** The zebra bands carry
 `data-gantt-band` at `:2903` (the table said "—" at `:2898`); the pointed row's
 light is at `:3983`; the row hit lines carry `data-gantt-row-line` at `:3032`;
 and — the one that matters for a "behind the bars" claim — **the bars are not
-last**. The rectangles land at `:3283`, and priority caps (`:3473`),
+last**. The rectangles land at `:3283`, and priority caps (`:3472`),
 zero-duration ticks (`:3509`) and on-bar labels (`:3591`) all paint _after_
 them. `:3511` was cited as the bars' own line; it is inside the tick block.
 
@@ -192,7 +192,7 @@ said a marker's x comes from `CalendarScale`. It cannot: `CalendarScale` is
 out**. A marker's date is already on the output side of that conversion, so
 there is nothing for it to feed in.
 
-The right seam is the one `todayOffset` (`gantt-panel.tsx:841`) already is,
+The right seam is the one `todayOffset` (`gantt-panel.tsx:872`) already is,
 and its own docstring states this design rule for us:
 
 > **Read off the axis rather than computed a second time** … the gridlines,

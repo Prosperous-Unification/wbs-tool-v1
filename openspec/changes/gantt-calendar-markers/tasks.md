@@ -217,8 +217,8 @@ in both slices rather than implied by position.
       and that no row was written. Negative: the permission check removed from
       the create path, watched failing on the create case. A permission test
       that only checks the happy path is not a permission test.
-- [ ] 4.3 A create whose `date` is not an `IsoDate` throws rather than being
-      coerced — test: same file, `2026-9-17`, `2026-09-17T00:00:00Z` and
+- [ ] 4.3 A create whose `date` is not an `IsoDate` is refused with a typed
+      422 rather than being coerced — test: same file, `2026-9-17`, `2026-09-17T00:00:00Z` and
       `not-a-date` each rejected. Negative: the validator replaced with a
       truthiness check, watched failing on the timestamp case, which is the one
       a truthiness check lets through. **Refused with a typed 4xx, not thrown.**

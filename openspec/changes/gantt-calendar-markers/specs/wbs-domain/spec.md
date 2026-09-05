@@ -293,7 +293,7 @@ wash, and at 12px they do not merge.
 
 A marker SHALL find its day by locating its `IsoDate` in the rendered
 `AxisDay[]`, through the same generalised lookup today uses
-(`todayOffset`, `gantt-panel.tsx:841`). A marker SHALL NOT compute its own
+(`todayOffset`, `gantt-panel.tsx:872`). A marker SHALL NOT compute its own
 offset from a date, and SHALL NOT read `CalendarScale` — that interface takes
 a **workday** number and returns a calendar offset, so an absolute date is
 already past it.

@@ -22,7 +22,7 @@ on the Gantt, invisible to the engine.
 ## What Changes
 
 **A day cell becomes clickable.** The axis already renders one `<span>` per
-day carrying `data-axis-day` and `data-axis-date` (`gantt-panel.tsx:3870`). A
+day carrying `data-axis-day` and `data-axis-date` (`gantt-panel.tsx:3871`). A
 click on a dated cell opens a composer for a name and a colour; the same cell
 reopens an existing marker to rename, recolour or delete.
 
