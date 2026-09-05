@@ -389,3 +389,36 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     expect(res.status).toBe(422);
   });
 });
+
+/**
+ * Not a contract clause, and outside the `describe.each` on purpose: this is a
+ * wiring assertion about `bindElysia` alone.
+ *
+ * Chunk 12 settled the `invalid_query` divergence on status and left the bodies
+ * unasserted, which was the right call about the *contract* and left a hole in
+ * the *proof*. The Gemini review named it: deleting
+ * `documentation: { query: COMPARE_QUERY }` from `/probe/sides` leaves every
+ * clause green, because the handler's own check answers the identical 422.
+ * Nothing in the suite fails if `register()` stops passing `hook` to Elysia, so
+ * the OpenAPI document — which is generated from those hooks — could quietly
+ * lose every query parameter with a green suite behind it. Chunk 12's
+ * `minLength: 5` negative does not cover this: it proves the schema is enforced
+ * when present and wrong, not that it is handed over **at all**.
+ *
+ * So assert the one thing only the wired path can produce. The body is Elysia's
+ * own validation report, measured in chunk 12; the handler's refusal is
+ * `{ error: 'invalid_query' }`. Asserting `type: 'validation'` distinguishes
+ * them, and it is a claim about the binder rather than about the route list —
+ * which is exactly why it does not belong in the shared suite.
+ */
+describe('the elysia binder hands documentation.query to the framework', () => {
+  it('answers a bad query with elysia’s validation report, not the handler’s', async () => {
+    const app = bindElysia(routes(stubAuth({})));
+    const res = await app.handle(new Request('http://localhost/probe/sides?left=only-one'));
+
+    expect(res.status).toBe(422);
+    // `on: 'query'` as well as the type: a body validation report would also say
+    // `validation`, and the hook under test is the query one.
+    expect(await res.json()).toMatchObject({ type: 'validation', on: 'query' });
+  });
+});
