@@ -348,3 +348,33 @@ short-circuiting and not the route being wrong in some other way.
 **Constraint 2 is closed. A per-route `transform` is a pre-validation, short-circuiting, route-local
 seat, reachable from `bindElysia`'s existing `hook` object.** Version 3 builds on it, and
 constraints 3, 4, 5 and 6 are what it still has to answer.
+
+## Constraint 3 has a direction, from reading `app.ts` — 2026-09-05T23:17Z
+
+Not yet measured; recorded so version 3 does not re-derive it.
+
+The in-process binder answers **400 `invalid_body`** for an unauthenticated caller sending malformed
+JSON, because `decodeBody` runs before the handler's guard (`http/in-process/bind.ts:50-55`). Both
+seats found this. The open question was which answer is *right*, and `app.ts` already decides it for
+the shipped app:
+
+- `requiresWriteScope` (`app.ts:276`) is true for any `DELETE|PATCH|POST|PUT` under `/api/` that is
+  not `/api/auth/*` and not `/api/smoke/echo`.
+- For those, the `onRequest` at `app.ts:170` resolves the caller and returns **401** before Elysia
+  parses the body — the comment at `:176` says exactly that, and gives this reason: "A reader gets
+  the authorization answer without letting an invalid body route around the write-scope boundary as
+  a 422."
+
+A malformed body only reaches a route that takes a body, and every such route that is guarded is a
+write under `/api/` that is not an auth handshake. So the shipped answer is **401 before 400**, and
+the in-process binder's 400 is the divergent one — the mirror of the query case, where in-process was
+the correct binder.
+
+**So the auth check goes ahead of `decodeBody` in `bindInProcess`, and ahead of the validator in
+`bindElysia`.** One rule, stated once: *a route's auth requirement is answered before anything the
+binder does with the request body or query.* Version 3 should assert it as a contract clause with
+both a malformed-query and a malformed-body case, since those are the two orderings that have now
+each caught one binder.
+
+Confirm with a watched red before building on it: the current suite has no unauthenticated
+malformed-body clause at all.
