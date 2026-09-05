@@ -132,6 +132,14 @@ viewport, and **above** it the rules are dropped and the chips kept (treatment
 A as the 4-rung fallback). A named constant with a pixel assertion is testable;
 "looks busy" is not.
 
+**A second constant, for the band rather than the body.**
+`MARKER_BAND_MAX_PER_CELL` is how many chips one axis cell shows before it
+collapses to `+N`: **3** at 28px, **2** at 12px, **1** at 4px. It is a ladder
+and not one number because a four-pixel cell cannot hold three chips, so any
+single value is wrong at one end of the zoom range. `MARKER_RULE_MAX_PER_100PX`
+governs the rules down the body and is a different question with a different
+answer.
+
 **Why 6, stated as arithmetic rather than taste.** 100px holds 25 days at the
 4px rung, and six rules across it is one rule per ~16px — four clear days
 between neighbours at the rung where the smear happens, and the same ~16px

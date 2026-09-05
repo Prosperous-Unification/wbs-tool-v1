@@ -61,6 +61,12 @@ is what the rest is allowed to assume.
 
 ## 3. Automatic colour
 
+**Dependency order, which is not file order here: 3.2 lands before 3.1.** The
+palette and the two contrast bars are a measured result, and 3.1's pinned
+vectors are computed from them; the numbering follows the reader's order — what
+the colour function _is_, then what it draws from — and the dependency is stated
+in both slices rather than implied by position.
+
 - [ ] 3.1 `automaticColor(markerId)` — `palette[fnv1a32(id) mod palette.length]`
       over the palette slice 3.2 lands, in a new
       `libs/domain/src/marker-color.ts`. **3.2 runs first:** the pinned vectors
