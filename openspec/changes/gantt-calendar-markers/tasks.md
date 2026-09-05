@@ -1218,7 +1218,7 @@ in both slices rather than implied by position.
       hard-coded to white, watched failing on a marker whose colour is a light
       palette entry, where `labelInk` returns `#000000`, while 3.2a's own table
       and this slice's placement assertion stay green.
-- [ ] 8.2 The rule takes its named slot in `marksOverLight` — **not merely
+- [x] 8.2 The rule takes its named slot in `marksOverLight` — **not merely
       "behind the bars"**, which orders the marker against one of the five marks
       the body paints and leaves the other four undecided. Emitted after
       `data-gantt-today-edge` and before the row hit lines and every bar
