@@ -16,6 +16,7 @@ import sys
 import time
 from collections.abc import Sequence
 
+from . import __version__
 from .lifecycle import set_parent_death_signal
 
 BIND_TIMEOUT_MS = 5_000
@@ -73,7 +74,11 @@ def _read_verdict(fd: int, timeout_ms: int) -> bytes | None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parsed = _arguments(list(sys.argv[1:] if argv is None else argv))
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args == ["--version"]:
+        print(__version__)
+        return 0
+    parsed = _arguments(args)
     if parsed is None:
         print(
             "wbs-solver-launcher: usage: wbs-solver-launcher "
