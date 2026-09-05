@@ -214,12 +214,13 @@ in both slices rather than implied by position.
       4.5:1 bar is asserted — as a property that holds for every entry, not as
       a refusal anything can trip.
       Negative: the validator returning `true` unconditionally, watched failing.
-- [ ] 3.4 `validateCustomColor` wired into **both** write paths — the be-01
-      create/recolour handlers and the composer — test: the controller test
-      from 4.1 posts a sub-bar colour straight to the API, bypassing the
-      composer, and asserts refusal with no row; `gantt-panel.test.tsx` asserts
-      the composer refuses before submitting. **Both server write paths, and
-      that means two cases and two faults.** Create: a sub-bar colour posted to
+- [ ] 3.4 `validateCustomColor` wired into **all three** call sites — the be-01
+      create handler, the be-01 recolour handler and the composer — test: the
+      controller test from 4.1 posts a sub-bar colour straight to the API,
+      bypassing the composer, and asserts refusal with no row;
+      `gantt-panel.test.tsx` asserts the composer refuses before submitting.
+      **The two server paths are separate cases with separate
+      faults.** Create: a sub-bar colour posted to
       `POST`, refused with no row; negative, the create-path call removed,
       watched writing the row while the UI test stays green. **Recolour:** a
       stored marker sent a syntactically **valid** hex that is below 3:1 in dark
@@ -228,7 +229,19 @@ in both slices rather than implied by position.
       hex does not cover this — it is refused by shape validation, so a recolour
       handler with no contrast check ships green past it, which is the gap the
       round-3 Sol review found. A validator unit-tested but never called on one
-      of its two paths is the shape 3.1–3.3 would otherwise ship.
+      of its call sites is the shape 3.1–3.3 would otherwise ship.
+      **Three call sites, so three faults: the composer needs its own.** Both
+      faults above are be-01 handler removals, so the composer arm of this
+      slice was asserted and never proved — `validateCustomColor` can be
+      correctly wired on both routes and fully unit-tested while the composer
+      never calls it at all, and every negative here would still be watched
+      failing (round-6 Sol review, Important 8). Third fault: **only the
+      composer call removed**, watched failing on the **outgoing create body**
+      carrying the sub-bar colour — same oracle as 4.3a, a fake API that
+      records what it was sent. The oracle has to be the request, not the UI:
+      with the server calls intact the API refuses the colour either way, so a
+      "the user sees a refusal" assertion is green under the fault and only
+      "nothing invalid left the client" is not.
 - [ ] 3.5 The composer issues the id, so the previewed colour is the created
       one — the composer generates a v4 UUID, renders `automaticColor(id)` as
       the swatch, and sends that `id` in the create body — test:
@@ -777,12 +790,31 @@ in both slices rather than implied by position.
       reading is not `none`/`0px`. A static "the outline is not none" passes
       against a global reset that outlines everything permanently, which is not
       a focus indicator.
-      Negative: the `focus-visible` classes removed from the dated cell,
-      watched failing on the two readings being equal — while 9.2's round trip
-      and every jsdom assertion in section 6 stay green, since neither can see
-      a computed style (jsdom computes none). Kept separate from 9.2's stroke
-      mutation on purpose: two guarantees in one slice share whichever fault is
-      injected, and the one that shares gets no proof.
+      Negative, and it is **not** "the `focus-visible` classes removed": this
+      app never imports Tailwind's preflight — `styles.css` imports only
+      `tailwindcss/theme.css` and `tailwindcss/utilities.css` (`:52-53`), and
+      the scoped reset written into preflight's slot resets `outline` on
+      nothing outside `[data-grid]` (its only `:focus` outline rule is
+      `[data-grid] input:focus, [data-grid] textarea:focus` at `:912-917`). So
+      a focused `tabIndex={0}` span keeps **Chromium's user-agent outline**,
+      and the house focus-ring pattern authors `focus-visible:outline-none`
+      beside the ring (`button.tsx:34`, `input.tsx:29`, `gantt-panel.tsx:4240`)
+      — deleting every `focus-visible:*` class deletes that `outline-none` too
+      and hands the cell the UA ring back, so the two readings still differ,
+      the focused `outline-style` is still not `none`, and the negative
+      **passes** (round-6 Sol review, Important 9; third round running that
+      this ring's proof has been wrong).
+      The fault is **`focus-visible:outline-none` kept and only the ring
+      classes removed**, watched failing on the two readings being equal —
+      while 9.2's round trip and every jsdom assertion in section 6 stay green,
+      since neither can see a computed style (jsdom computes none). It bites
+      because Tailwind v4.3.3 emits `outline-style: none` for `outline-none`
+      and drives `ring-*` through `box-shadow` (both read out of
+      `node_modules/tailwindcss/dist/lib.js`), so under the fault
+      `outline-style` is `none` and `box-shadow` is `none` in **both** states
+      and the transition assertion has nothing to see. Kept separate from
+      9.2's stroke mutation on purpose: two guarantees in one slice share
+      whichever fault is injected, and the one that shares gets no proof.
 - [ ] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it

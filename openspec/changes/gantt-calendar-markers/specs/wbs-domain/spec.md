@@ -460,13 +460,22 @@ that the chosen ink clears 4.5:1 — the 3:1 fill bar remains the only one a
 custom colour can fail.
 
 The check SHALL run at submit, in be-01, not only in the composer. A colour
-refused only by the UI is refused only for clients that ask nicely.
+refused only by the UI is refused only for clients that ask nicely. The
+composer SHALL run it too, before it sends anything: the server refusal is the
+guarantee, and the composer's is the one that tells the user which backdrop
+failed while the colour is still in front of them.
 
 #### Scenario: the API refuses what the composer would have refused
 
 - **WHEN** a custom colour below 3:1 against some dark backdrop is posted
   directly to the API, bypassing the composer
 - **THEN** the write is refused and no row is written
+
+#### Scenario: the composer does not send a colour it can already refuse
+
+- **WHEN** a custom colour below 3:1 against some dark backdrop is entered in
+  the composer and submit is pressed
+- **THEN** no create request is sent and the refusal names the failing backdrop
 
 #### Scenario: colour survives a deletion
 

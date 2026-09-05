@@ -409,7 +409,9 @@ the better is never below `sqrt(21)`. It is asserted as a property of the ink
 function, not enforced as a rejection. Validating in the
 composer alone refuses the colour only for clients that ask nicely; validating
 at render instead would leave an unreadable marker stored and blame the
-reader's theme.
+reader's theme. So the validator has **three** call sites — the create handler,
+the recolour handler and the composer — and task 3.4 gives each one its own
+injected fault, because two of them being wired proves nothing about the third.
 
 ### 6.1 The id has to exist before the colour does — so the client issues it
 
@@ -469,7 +471,18 @@ The contract, on the dated cell only:
   form `Markers on Wednesday 19 August 2026`, with the count when markers exist.
   A row of tab stops all announced "button" is a worse experience than no tab
   stop at all.
-- A visible focus ring, since the cell has no default one.
+- A visible focus ring — **an authored one that replaces a default the cell
+  does have.** This app never imports Tailwind's preflight (`styles.css:52-53`
+  imports `theme.css` and `utilities.css` and nothing else) and its scoped
+  reset touches `outline` only inside `[data-grid]` (`:912-917`), so the moment
+  the span takes `tabIndex={0}` Chromium gives it a user-agent outline. The
+  ring follows the house pattern — `focus-visible:outline-none` plus
+  `focus-visible:ring-*` (`button.tsx:34`, `input.tsx:29`,
+  `gantt-panel.tsx:4240`) — which suppresses that UA outline and paints the
+  token ring in its place. Task 9.2a's negative depends on this being stated
+  correctly: with the default misdescribed as absent, the obvious fault
+  ("remove the `focus-visible` classes") restores the UA outline and proves
+  nothing.
 - `aria-haspopup="dialog"` and `aria-expanded`, because what opens is a sheet.
 
 **The undated cell keeps the control contract and drops the sheet.** It carries
