@@ -892,6 +892,17 @@ in both slices rather than implied by position.
       x, not the workday x. Negative: the chip placed by workday number,
       watched failing — this is the drift `gantt-calendar-axis` exists to
       prevent and the fixture is chosen so the two numbers differ.
+      **Plus the chip's label ink, because 3.2a's chooser otherwise has no call
+      site** (round-20 Gemini review, Important). `labelInk` unit-tested and
+      never called is the shape 3.4 already refuses for `validateCustomColor`:
+      a chip whose label is hard-coded `text-white`, or `text-foreground`,
+      passes 3.2, 3.2a, 8.4, 8.6 and 9.2c — the last of which reads the
+      **modal** pixel precisely to exclude the glyphs — so nothing in the plan
+      sees the algorithm missing from the component. Assert here that the chip's
+      label carries `labelInk(marker.color)`. Negative: the label colour
+      hard-coded to white, watched failing on a marker whose colour is a light
+      palette entry, where `labelInk` returns `#000000`, while 3.2a's own table
+      and this slice's placement assertion stay green.
 - [ ] 8.2 The rule takes its named slot in `marksOverLight` — **not merely
       "behind the bars"**, which orders the marker against one of the five marks
       the body paints and leaves the other four undecided. Emitted after
@@ -935,12 +946,21 @@ in both slices rather than implied by position.
       dropped from the rule, watched failing that assertion while the sequence,
       `y1`/`y2`, the shared-date colour, the count and all three bar comparisons
       stay green — not one of them reads it.
-      **And the tier here is the declaration, not the behaviour.** jsdom does
-      not hit-test, so nothing in this file can show that a pointer aimed at a
-      row hit line under the rule reaches it; a rule carrying the property
-      inside a wrapper `<g>` that does not carry it satisfies every assertion
-      here and still swallows the pointer. That half is 9.2c's, where a real
-      compositor answers.
+      **And the declaration is the whole claim — there is no behavioural half,
+      and a round-19 draft of this slice invented one** (round-20 Gemini review,
+      Critical). That draft sent a hover case to 9.2c on the reasoning that
+      jsdom cannot hit-test, which is true and beside the point: the rule is at
+      slot **7** and the row hit lines are at slot **8**
+      (`gantt-panel.tsx:3032`, `pointerEvents="fill"` at `:3052`), so in SVG's
+      painter's model the hit lines are **over** the rule, not under it.
+      Chromium hit-tests front to back and reaches `data-gantt-row-line` first
+      whatever the rule carries — so the hover would light the row **with the
+      fault in**, and the negative could not fail. `design.md` had already said
+      this ("Nothing above the rule is removed and nothing below it is
+      exposed"); the draft contradicted its own design document to invent a
+      browser case for a property that needs none. `pointer-events: none` on the
+      rule is belt-and-braces against a future reorder, which is exactly what a
+      declared-property assertion with a watched removal is the right size for.
       **Plus the shared-date colour, which nothing else tests:** two markers on
       one date with distinct colours, asserting exactly one rule element at that
       offset and its `stroke` equal to the **first** marker's colour by
@@ -1539,8 +1559,8 @@ in both slices rather than implied by position.
       9.2a's reason: 9.2's fault mutates the rule's stroke, which both cases here
       would see, so sharing that slice would leave this one with no fault of its
       own.
-- [ ] 9.2c The chip's **rendered** contrast, and the rule's **behavioural**
-      transparency to the pointer — same file (`apps/fe-01/e2e/gantt.spec.ts`).
+- [ ] 9.2c The chip's **rendered** contrast — same file
+      (`apps/fe-01/e2e/gantt.spec.ts`).
       3.2 proves the palette's eight literals against computed backdrops and
       8.1 and 6.x read the chip's colour at the DOM seam; none of them sees what
       the compositor put on screen. A chip carrying `opacity: 0.5`, an
@@ -1571,7 +1591,8 @@ in both slices rather than implied by position.
       **markerless day cell of the same kind** in the same header row — the
       backdrop measured from the page rather than recomputed, so a theme change
       moves both together. Take the **modal** RGB of each clip, convert with the
-      sRGB transfer function `measure-ink.ts:88-92` already spells out, and
+      sRGB transfer function `measure-ink.ts:89-94` already spells out — `linear` at `:89-92` and the
+      `luminance` sum at `:93-94`, and
       assert `(brighter + 0.05) / (dimmer + 0.05) >= 3`. Modal rather than mean
       because the chip carries its own label glyphs, and a mean of fill and ink
       is a colour neither of them is.
@@ -1582,23 +1603,28 @@ in both slices rather than implied by position.
       `font-semibold text-sky-600` and no background of its own (`:3915`), and
       `fill-sky-500/15` is a body `<rect>` (`:2955`) that cannot sit behind a
       header chip.
-      Negatives, two. `opacity: 0.5` on the chip, watched failing the ratio on
-      all four cases while 3.2's twenty ratios, 3.2a's chooser table, 8.1's
-      placement and every DOM read of the chip's colour stay green — the fault
-      this slice exists for, and the one `measureInk` could not see. And the
-      **weekend** arm's backdrop clip re-pointed at a weekday cell, with the
-      fixture's chip fill set to a colour clearing 3:1 over the light base and
-      missing it over base-over-weekend: watched **passing** the weekend case
-      while the weekday case and 3.2's ratios stay green. Without that second
-      negative the weekend clip is an unbound duplicate of the weekday one, and
-      two cases measure one backdrop.
-      **Plus 8.2's behavioural half:** with a marker on screen, hover the body
-      at the rule's x inside a row band and assert that row still takes its
-      pointed light (`data-gantt-row-lit`). Negative: the rule wrapped in a
-      `<g>` that does not carry `pointer-events: none` while the `<line>` still
-      does, watched failing this hover assertion while 8.2's declared-property
-      assertion stays green — which is the pair of claims jsdom can only make
-      one of.
+      Negatives, two, and both are failures.
+      First, `opacity: 0.35` on the chip, watched failing the ratio on all four
+      cases while 3.2's twenty ratios, 3.2a's chooser table, 8.1's placement and
+      every DOM read of the chip's colour stay green — the fault this slice
+      exists for, and the one `measureInk` could not see.
+      **0.35 and not 0.5, and the difference is arithmetic rather than taste**
+      (round-20 Gemini review, Important). 3.2's two bars bracket every palette
+      fill at `0.145 <= L <= 0.30`: clearing 3:1 over the light base needs
+      `L <= 0.30`, clearing it over the dark base needs `L >= 0.145`. Composite
+      the top of that range at `opacity: 0.5` over dark `--background`
+      (`L ≈ 0.015`) and the ratio is `(0.5·0.29 + 0.0575) / 0.065 ≈ 3.1` — the
+      dark cases **pass with the fault in**, so a 0.5 negative is one whose
+      failure depends on which entry the fixture's id hashes to. At 0.35 the
+      worst case is `(0.35·0.30 + 0.65·0.015 + 0.05) / 0.065 ≈ 2.5` in dark and
+      `1.05 / (0.35·0.30 + 0.65 + 0.05) ≈ 1.3` in light, so every entry in the
+      bracket fails in both themes and the negative does not depend on the hash.
+      Second, the fixture's chip fill set to a colour that clears 3:1 over the
+      light base and misses it over base-over-weekend, watched failing the
+      **light weekend** case while the light weekday case and 3.2's twenty
+      ratios stay green. That is what proves the weekend case measures the
+      weekend backdrop: without it the weekend clip is an unbound duplicate of
+      the weekday one, and two cases measure one surface.
 - [ ] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it

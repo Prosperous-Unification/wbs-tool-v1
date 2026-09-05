@@ -664,6 +664,18 @@ failed while the colour is still in front of them.
   the composer and submit is pressed
 - **THEN** no create request is sent and the refusal names the failing backdrop
 
+#### Scenario: the label ink is chosen, not fixed
+
+- **WHEN** the ink is taken for the palette's lightest fill and for its darkest
+- **THEN** the two answers differ, each is the one of black and white with the
+  higher contrast against that fill, and each clears 4.5:1
+
+#### Scenario: the chip paints the ink that was chosen
+
+- **WHEN** a marker whose colour is a light palette entry is drawn in the axis
+  band
+- **THEN** its label is painted in the ink the chooser returns for that fill
+
 #### Scenario: colour survives a deletion
 
 - **WHEN** three markers are created and the first is deleted
