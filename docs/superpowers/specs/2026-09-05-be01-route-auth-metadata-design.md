@@ -139,3 +139,50 @@ guarded list — `withAuth(routes)` returning a new list whose handlers are wrap
 is decided once at wiring time instead of by each binder? The wrapper keeps the binders ignorant,
 which is attractive; the objection is that a wrapper *is* a handler, so it lands back inside the
 handler and after Elysia's validator, which is the bug. State plainly if that objection is wrong.
+
+---
+
+## Addendum, 2026-09-05T23:03Z — found while the reviews were running
+
+**Both review seats were launched against the text above and have not seen this section.** It is
+appended rather than folded in so their verdicts stay readable against what they actually read.
+
+**There is already a second auth mechanism, and it already does the thing this design proposes.**
+`app.ts:170` runs an `onRequest` that, for any request matching `requiresWriteScope`
+(`app.ts:276` — a `DELETE|PATCH|POST|PUT` under `/api/` that is not `/api/auth/*` and not
+`/api/smoke/echo`), resolves the caller and answers 401 `unauthenticated` or 403
+`insufficient_scope` **before Elysia parses or validates the body**. The comment at `app.ts:176`
+says so in as many words and gives this design's own reason: "A reader gets the authorization
+answer without letting an invalid body route around the write-scope boundary as a 422."
+
+Two consequences, and the second is the one that matters.
+
+1. **The seam is not merely proven, it is occupied.** Question 1 to the reviewers — does `onRequest`
+   run ahead of the validator — is answered in this repo's own code, not just in Elysia's docs.
+
+2. **The divergence is narrower than it looked, and the fix's urgency with it.** Every write route
+   already gets 401 before validation under Elysia, from the `onRequest` above. So the
+   401-before-422 hole is confined to routes that are **guarded, carry a query schema, and are not
+   writes** — reads. `GET /api/saved-plans/compare` is the one the fixture reproduces. This does not
+   make the clause optional (the contract suite still records two answers for one route list), but
+   it does mean the branch is not shipping unauthenticated write access, and the design's framing
+   should not be read as saying otherwise.
+
+**And it opens a question the text above does not answer: `Route.auth` overlaps
+`requiresWriteScope`.** A path-prefix predicate in `app.ts` deciding which routes need a scope is
+exactly the route knowledge this branch spent twenty chunks moving into the route list — it is one
+`path.startsWith` away from being wrong about a new route, silently, with no test that names the
+route. Three ways to go, and the choice belongs in the review rather than in a fix chunk:
+
+- **Subsume it.** `Route.auth` gains `'write-scope'`, every write route declares it, and
+  `requiresWriteScope` is deleted. Most honest, largest chunk B, and the migration's silent-loss risk
+  applies to a *security* boundary rather than only to 401 ordering — which raises the bar on the
+  route-list control, not the design.
+- **Leave it beside.** `Route.auth` covers `signed-in`/`read-scope`, `requiresWriteScope` keeps the
+  write boundary. Smallest change; the cost is two mechanisms answering the same question in two
+  places, which is the state that produced this defect.
+- **Invert it.** Keep the predicate but derive it from the route list rather than from path shape,
+  so it cannot disagree with a route that exists.
+
+I have not chosen. Whichever way the review goes, chunk A should not start until it does, because
+`Route.auth`'s value set is the first line of the change.
