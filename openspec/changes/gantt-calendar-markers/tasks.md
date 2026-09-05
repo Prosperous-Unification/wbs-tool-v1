@@ -238,9 +238,18 @@ in both slices rather than implied by position.
       `GET /projects/:id/work-items` spreads `tree()`, which carries the event
       `seq` (`work-item.service.ts:1147-1159`), and marker broadcasts advance
       it by design — a whole-body comparison is guaranteed to fail for a reason
-      that is not the schedule. Project to every work item's start, finish and
-      critical-path flag in a fixed order, and assert alongside it that `seq`
-      **did** advance, so the test also proves it compared the right thing.
+      that is not the schedule. **The projection is every schedule-bearing
+      field, not three of them** (corrected after the round-4 Sol review, which
+      was right that a three-field projection cannot see the fields a scheduler
+      regression moves first): every `workItems[].schedule` in full — all eight
+      of `Scheduled` (`schedule.ts:116-124`), rows in ascending work-item id
+      order — plus `slices` in ascending `sliceKey` order carrying the complete
+      `ScheduledSlice` including `boundBy`, `personId`,
+      `resourcePredecessorId` and sorted `capacityPredecessorIds`
+      (`work-item.service.ts:555`), plus `scheduleError`, `waitingForPerson`
+      and `waitingForCapacity` (`work-item.service.ts:1157-1200`). `seq` is the
+      only exclusion, and the test asserts alongside it that `seq` **did**
+      advance, so it also proves it compared the right thing.
       Negative: **not** "marker dates appended to `notBefore`" — that is not
       compilable, since `notBefore` is `Map<string, number>` keyed by work-item
       id (`work-item.service.ts:1410-1420`) and a marker has no such id.
@@ -249,6 +258,18 @@ in both slices rather than implied by position.
       projection, then removed. `Proof:` comment naming the seeded id and the
       injected floor. Without a compilable injection this test cannot fail and
       is the sixteenth check again.
+- [ ] 5.1a The scheduler seam is **structurally** free of markers — test: same
+      file, two assertions read off the source rather than a response, because
+      the guarantee being sold is a source-level one and two equal captures
+      cannot prove a path is absent (a path that is a no-op on the fixture
+      passes). (a) The single production call site is
+      `schedule(rows, edges, slices, notBefore, slotsOf, project.depReach)` at
+      `work-item.service.ts:1458` — assert it still passes exactly those six
+      arguments. (b) Assert `libs/domain/src/schedule.ts` contains no import
+      from the marker module and no occurrence of the marker type name.
+      Negative: a seventh argument threaded through the adapter and ignored by
+      the engine, watched failing (a) while 5.1's capture comparison stays
+      green — which is the whole reason this slice exists.
 - [ ] 5.2 Markers stay out of a saved plan — test:
       `apps/be-01/src/repository/saved-plan-capture.db.test.ts`, a new case:
       capture a project with markers and a copy with none, assert the
@@ -390,14 +411,26 @@ in both slices rather than implied by position.
       unchanged-bar half is the requirement; the sequence is the mechanism, and
       it needs its own assertion because the requirement cannot see it.
 - [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
-      **6** (`design.md` §3: 100px is 25 days at that rung, so six is one rule
-      per ~16px and seven puts two inside one heavy-gridline week) — test: same
-      file, seven markers within 100px of viewport at 4px per day asserted to
-      draw no rules and every chip; six asserted to draw six rules; and at 28px
-      per day, where 100px holds 3.6 days, the threshold asserted unreachable so
-      rules always draw. Negative: the threshold read as `> 0`, watched failing
-      on the six-marker case. A boundary constant tested only well above and
-      well below its value does not test the value.
+      **6**, and the measure is `occupiedDatesInViewport / viewportWidthPx * 100`
+      compared with `>` (`design.md` §3: 100px is 25 days at that rung, so six is
+      one rule per ~16px and seven puts two inside one heavy-gridline week) —
+      test: same file, four cases at 4px per day. Seven **distinct dates** within
+      a 100px viewport asserted to draw no rules and every chip; six distinct
+      dates asserted to draw exactly six rules — the boundary, which `>` includes;
+      **seven markers all on one date** asserted to draw one rule and no
+      suppression, because the count is rule positions and a shared date is one
+      position; and at 28px per day, where a 100px window spans 3.6 days and so
+      holds at most four rules, the threshold asserted unreachable. Negatives,
+      two, because there are two independent ways to get this wrong: the
+      threshold read as `>= 6`, watched failing the six-date case; and the
+      density counted over markers instead of occupied dates, watched failing
+      the seven-markers-one-date case while every other case stays green — which
+      is the one the old wording would have shipped.
+      **No 12px case asserts unreachability**, deliberately: 100px spans 8.3
+      days there and holds up to nine rules, so the threshold is reachable and
+      the old claim that it was not was false. Suppression is scoped to the 4px
+      rung, and a 12px case asserting "rules always draw" would be asserting the
+      rung scope, not the constant.
 - [ ] 8.4 Overflow collapses to a count with the list on hover or tap —
       `MARKER_BAND_MAX_PER_CELL` is **3** at 28px, **2** at 12px and **1** at
       4px, and the collapsed cell renders `+N` for the markers it did not show —

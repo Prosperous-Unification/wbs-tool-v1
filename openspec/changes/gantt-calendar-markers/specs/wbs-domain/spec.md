@@ -198,9 +198,24 @@ wrong at one end of it whichever value it took.
 
 ### Requirement: Markers are drawn without changing the bar layer
 
-A marker SHALL be drawn as a chip in the axis band anchored to its day, plus a
-1px vertical rule of the marker's colour down the chart body drawn **behind**
-the bars at reduced opacity.
+A marker SHALL be drawn as a chip in the axis band anchored to its day. The
+chart body SHALL carry **one 1px vertical rule per occupied date**, not one per
+marker, drawn **behind** the bars at reduced opacity.
+
+**One per date, because per-marker is not drawable.** Markers sharing a date
+share an axis offset, so N per-marker rules would be N coincident 1px lines and
+only the last in source order would be visible — the design would specify a
+colour it cannot show, and which colour won would be an accident of iteration
+order. The rule's colour SHALL therefore be the colour of the **first** marker
+on that date in the total order below (`created_at` then `id`), which is the
+same marker whose chip the band shows first, so the rule always names a chip
+the reader can see. At 4px per day the band shows exactly one chip, and it is
+that one.
+
+Lane-splitting the day was the alternative and is rejected on the narrow rung:
+a 4px cell has no room for two 1px rules and a gap, so a lane rule would have to
+degrade to one-per-date at 4px anyway, and a treatment that is two things at
+different zooms is worse than a treatment that is one.
 
 Nothing SHALL be drawn over a bar. Bar fill and the critical-path
 `stroke-foreground [stroke-width:2]` SHALL keep full contrast.
@@ -224,13 +239,29 @@ day wide as well as the 1px edge — and a 1px rule cannot cover the column. The
 reverse order would hide a marker the user had just placed on today, which is
 the silent absence this design refuses elsewhere.
 
-At 4px per day the rule SHALL be suppressed when the count of markers within
-the viewport exceeds `MARKER_RULE_MAX_PER_100PX`, leaving the chip alone. That
-constant SHALL be **6** and SHALL be named in code with a pixel assertion over
-it: 100px holds 25 days at that rung, so six rules is one per ~16px and seven
-would put two inside one heavy-gridline week. At the 12px and 28px rungs 100px
-holds fewer than 8 days, so the threshold SHALL be unreachable there and the
-rules SHALL always draw.
+At 4px per day the rules SHALL be suppressed when the density defined below
+exceeds `MARKER_RULE_MAX_PER_100PX`, leaving the chips alone. That constant
+SHALL be **6** and SHALL be named in code with a pixel assertion over it: 100px
+holds 25 days at that rung, so six rules is one per ~16px and seven would put
+two inside one heavy-gridline week.
+
+**Density SHALL be counted over rule positions, and the window SHALL be the
+viewport.** The measure is `occupiedDatesInViewport / viewportWidthPx * 100`,
+compared with `>` — strictly exceeding 6 suppresses, exactly 6 draws. Two
+things this makes explicit, both of which an earlier draft got wrong by
+counting *markers* over an unnamed window: seven markers on a single date are
+one rule position and SHALL NOT suppress anything, and the window is
+viewport-normalised rather than a sliding 100px scan, so the answer does not
+depend on where the scan starts.
+
+Suppression SHALL apply at the 4px rung only, and the reason is arithmetic
+rather than symmetry. At 28px per day a 100px window spans 3.6 days, so it can
+hold at most 4 rule positions and the threshold is genuinely **unreachable**. At
+12px it spans 8.3 days and can hold **9**, so the threshold *is* reachable
+there — the earlier claim that both wide rungs were unreachable was false — and
+suppression is nonetheless withheld, because at 12px nine rules are one per
+≥12px and do not smear. The threshold exists to stop 1px lines merging into a
+wash, and at 12px they do not merge.
 
 A marker SHALL find its day by locating its `IsoDate` in the rendered
 `AxisDay[]`, through the same generalised lookup today uses
@@ -255,9 +286,15 @@ A date absent from the rendered axis SHALL return no offset and draw nothing.
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 
-- **WHEN** markers within the viewport exceed the density threshold at 4px per
-  day
+- **WHEN** the occupied dates within the viewport exceed the density threshold
+  at 4px per day
 - **THEN** no rules are drawn, and every chip remains
+
+#### Scenario: many markers on one date are one rule position
+
+- **WHEN** seven markers sit on a single date at 4px per day
+- **THEN** one rule is drawn in the first marker's colour, the density threshold
+  is not reached, and the band shows one chip with `+6`
 
 #### Scenario: a marker on today is visible and today is still findable
 

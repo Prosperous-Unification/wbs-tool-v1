@@ -127,10 +127,24 @@ showing a quarter.** The name therefore lives in the chip's hover/tap list at
 every rung; the chip itself degrades to a coloured tick at 4px.
 
 **Density.** At 4px, many rules become a smear. The threshold is a named
-constant — `MARKER_RULE_MAX_PER_100PX = 6` — checked against markers within the
-viewport, and **above** it the rules are dropped and the chips kept (treatment
-A as the 4-rung fallback). A named constant with a pixel assertion is testable;
-"looks busy" is not.
+constant — `MARKER_RULE_MAX_PER_100PX = 6` — checked against
+`occupiedDatesInViewport / viewportWidthPx * 100` with `>`, and **above** it the
+rules are dropped and the chips kept (treatment A as the 4-rung fallback). A
+named constant with a pixel assertion is testable; "looks busy" is not.
+
+Two corrections the round-4 Sol review forced, both of which followed from
+counting the wrong thing. **The count is rule positions, not markers.** The body
+draws one rule per *occupied date* (see the spec's rendering requirement:
+per-marker rules on a shared date are coincident and only the last colour
+survives), so seven markers on one date are one rule and must not trip a
+threshold about smear. And **the window is the viewport, normalised to 100px**,
+not a sliding scan — a sliding window's answer depends on where it starts.
+Suppression runs at the 4px rung only: at 28px a 100px window spans 3.6 days
+and holds at most 4 rules, so the threshold is unreachable; at 12px it spans
+8.3 days and holds up to 9, so it *is* reachable — the earlier "unreachable at
+both wider rungs" was arithmetic that had not been done — and suppression is
+withheld there deliberately, because nine rules at one per ≥12px are separate
+lines, not a wash.
 
 **A second constant, for the band rather than the body.**
 `MARKER_BAND_MAX_PER_CELL` is how many chips one axis cell shows before it
@@ -383,9 +397,42 @@ the schedule-bearing fields, not the response bytes.** `GET
 `seq` (`work-item.service.ts:1147-1159`), and every marker mutation advances
 that sequence by design, so a whole-body comparison is guaranteed to fail for a
 reason that has nothing to do with the schedule: it would fail honestly and mean
-nothing. The projection is every work item's start, finish and critical-path
-flag in a fixed order, and the same test asserts `seq` **did** advance — which
-is what proves it compared the right thing rather than an empty projection.
+nothing.
+
+**The projection is the whole schedule-bearing payload, not three fields of it.**
+An earlier draft projected start, finish and the critical flag; that is three of
+the eight fields on `Scheduled` (`schedule.ts:116-124` — `duration`,
+`estimated`, `earliestStart`, `earliestFinish`, `latestStart`, `latestFinish`,
+`float`, `critical`) and none of the five things `tree()` returns beside the
+rows. A marker fault that moved float, a slice's `boundBy`, a
+`resourcePredecessorId`, `scheduleError` or either waiting count while start,
+finish and critical held would leave that projection byte-identical and the test
+green — and those are exactly the fields a scheduler regression moves first,
+because a resource floor changes what bound a slice long before it changes when
+the slice runs. The projection is therefore:
+
+- every `workItems[].schedule` in full, rows in ascending work-item id order;
+- `slices`, in ascending `sliceKey` order, each carrying its complete
+  `ScheduledSlice` including `boundBy`, `personId`, `resourcePredecessorId` and
+  `capacityPredecessorIds` sorted (`work-item.service.ts:555` —
+  `IdentifiedSlice extends ScheduledSlice`);
+- `scheduleError`, `waitingForPerson` and `waitingForCapacity`
+  (`work-item.service.ts:1157-1200`).
+
+Excluded, and only these: `seq`, which markers advance by design and which the
+same test asserts **did** advance — that assertion is what proves the comparison
+ran against a real change rather than an empty projection.
+
+**And the identity claim is structural, so one assertion is structural too.**
+Comparing two captures proves markers did not move *this* plan; it cannot prove
+there is no path from a marker to the engine, because a path that happens to be
+a no-op on the fixture passes. The adapter seam is a single call —
+`schedule(rows, edges, slices, notBefore, slotsOf, project.depReach)` at
+`work-item.service.ts:1458`, six arguments — so the check is cheap and exact:
+assert that call site still passes exactly those six arguments, and that
+`libs/domain/src/schedule.ts` contains no import from the marker module and no
+occurrence of the marker type. A source-level assertion is unusual and is
+justified here because the guarantee being sold *is* a source-level one.
 
 Note for anyone extending this — an earlier draft of this task cited a
 `fast-golden-corpus` serializer as the oracle. **No such corpus exists in this
