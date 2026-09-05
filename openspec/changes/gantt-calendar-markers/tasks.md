@@ -846,7 +846,10 @@ in both slices rather than implied by position.
       conversion or a printed page, which is what a downloaded chart is for.
       Assumption, falsifiable: nobody wants a chart exported _without_ the
       marker names; if Dany asks for a bare chart, the legend becomes a flag on
-      the export call rather than an unconditional block.
+      the export call rather than an unconditional block. That is **row 10 of
+      `design.md`'s assumption table** — recorded there so the catalogue stays
+      the single place an assumption is looked up (round-9 Gemini review,
+      Minor).
       Second case: export a plan with two markers **at 28px and again at 4px**
       and assert each marker's `name` appears as text in the exported markup at
       both rungs. Second negative: the legend block dropped while the chips are

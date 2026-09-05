@@ -150,10 +150,11 @@ It SHALL NOT carry `aria-haspopup` or `aria-expanded`: no sheet opens.
 
 #### Scenario: the keyboard reaches the refusal
 
-- **WHEN** an undated plan is rendered, a cell is focused and Enter is pressed
+- **WHEN** an undated plan is rendered, a cell is focused and Enter is pressed,
+  and again with Space
 - **THEN** the cell carries `role="button"`, `tabIndex={0}` and
-  `aria-disabled="true"`, no sheet opens, and the refusal text appears in the
-  live region
+  `aria-disabled="true"`, no sheet opens in either case, and the refusal text
+  appears in the live region in both
 
 #### Scenario: the keyboard opens the day sheet
 
@@ -168,8 +169,10 @@ It SHALL NOT carry `aria-haspopup` or `aria-expanded`: no sheet opens.
 #### Scenario: undated cells are focusable but announce themselves unavailable
 
 - **WHEN** a plan with no start date is rendered
-- **THEN** every axis cell is focusable and carries `aria-disabled="true"`, and
-  none carries `aria-haspopup` or `aria-expanded`
+- **THEN** every axis cell is focusable and carries `role="button"` and
+  `aria-disabled="true"`, each is reachable by role **and** by an accessible
+  name that names both its workday position and the missing project start
+  date, and none carries `aria-haspopup` or `aria-expanded`
 
 ### Requirement: An undated plan refuses the click and says why
 

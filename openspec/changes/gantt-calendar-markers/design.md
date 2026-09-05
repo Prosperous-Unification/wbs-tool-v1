@@ -602,17 +602,18 @@ entirely. The projection above is what is actually available.
 Carried from the design interview with what would falsify each. Numbering is
 stable; the spec's requirements implement them.
 
-| #   | Assumption                                                                                                        | Falsified by                                                                                                   |
-| --- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 1   | Undated plans refuse the click with a reason, rather than hiding it.                                              | Dany wanting markers on undated plans, or a decision to give every project a start date.                       |
-| 2   | Many markers per date, one band, collapsing to a count past what fits.                                            | A treatment that cannot express more than one per day at the 4px rung.                                         |
-| 3   | Project-scoped child table plus one content-free `calendar_markers_changed`.                                      | A requirement for per-marker deltas, or for markers to outlive their project.                                  |
-| 4   | Automatic colour is deterministic from the marker id over a fixed palette; custom colours are contrast-validated. | An accessibility rule the fixed palette cannot meet, or colour needing to carry category rather than identity. |
-| 5   | Dates are project-local `IsoDate`s — no time, no per-user timezone.                                               | Markers needing to align with an external calendar's instants (out of scope in the brief).                     |
-| 6   | Edit and delete follow project write permission, with no separate marker role.                                    | A need for per-marker ownership.                                                                               |
-| 7   | The chip plus a behind-the-bars rule (treatment B), with the rule dropped at 4px above a density threshold.       | Measured smear at 4px below the threshold, which would make chips-only the 4px behaviour at every density.     |
-| 8   | The composer issues the marker id so the previewed automatic colour is the created one (§6.1).                    | A rule against client-supplied primary keys, or a decision that no colour is previewed before submit.          |
-| 9   | A marker rule on today's date draws over today's leading edge; today stays findable by its tinted column (§2.1).  | Dany reading a marker on today as having erased it, which would make the offset-by-one-pixel treatment right.  |
+| #   | Assumption                                                                                                        | Falsified by                                                                                                       |
+| --- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 1   | Undated plans refuse the click with a reason, rather than hiding it.                                              | Dany wanting markers on undated plans, or a decision to give every project a start date.                           |
+| 2   | Many markers per date, one band, collapsing to a count past what fits.                                            | A treatment that cannot express more than one per day at the 4px rung.                                             |
+| 3   | Project-scoped child table plus one content-free `calendar_markers_changed`.                                      | A requirement for per-marker deltas, or for markers to outlive their project.                                      |
+| 4   | Automatic colour is deterministic from the marker id over a fixed palette; custom colours are contrast-validated. | An accessibility rule the fixed palette cannot meet, or colour needing to carry category rather than identity.     |
+| 5   | Dates are project-local `IsoDate`s — no time, no per-user timezone.                                               | Markers needing to align with an external calendar's instants (out of scope in the brief).                         |
+| 6   | Edit and delete follow project write permission, with no separate marker role.                                    | A need for per-marker ownership.                                                                                   |
+| 7   | The chip plus a behind-the-bars rule (treatment B), with the rule dropped at 4px above a density threshold.       | Measured smear at 4px below the threshold, which would make chips-only the 4px behaviour at every density.         |
+| 8   | The composer issues the marker id so the previewed automatic colour is the created one (§6.1).                    | A rule against client-supplied primary keys, or a decision that no colour is previewed before submit.              |
+| 9   | A marker rule on today's date draws over today's leading edge; today stays findable by its tinted column (§2.1).  | Dany reading a marker on today as having erased it, which would make the offset-by-one-pixel treatment right.      |
+| 10  | The exported chart carries its legend unconditionally — nobody wants a chart exported _without_ the marker names. | Dany asking for a bare chart, which makes the legend a flag on the export call rather than an unconditional block. |
 
 Assumptions 1–6 were opened in the design interview under the 2026-09-03
 standing rule that unresolved product choices become documented assumptions
