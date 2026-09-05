@@ -9,14 +9,22 @@ import `@wbs/domain`, `@wbs/contracts`, `@wbs/validation` and the `StandardSchem
 **nothing with a runtime**: no `elysia`, `drizzle-orm`, `bun:sqlite`, `jose` or `node:*`, and
 no `Bun`/`process`/`fetch`/timer/`Buffer` globals. Every runtime concern — password hashing,
 token signing, digests, ambient batch context, timers, push transport, the schedule engine —
-arrives through `composeServices(ports)`, so core is **`runtime:isomorphic`**. Dependency
-direction is stated as **rings** on Nx projects — `ring:domain` (`libs/domain`, `libs/contracts`,
-`libs/validation`), `ring:application` (`libs/core`), `ring:adapter` (`store-*`, `be-01`,
-`fe-01`, `gw-01`) — and enforced by the `@nx/enforce-module-boundaries` rule already in the
-gate, plus `no-restricted-imports` / `no-restricted-globals` for what Nx cannot see. The SQLite
-adapters live in `libs/store-sqlite`, the in-memory source in `libs/store-memory`, and
-`apps/be-01` keeps only the Elysia adapter, the composition root with the runtime adapters,
-and the migrate CLIs. We chose packages over folder conventions because the folder convention
+arrives through `composeServices({ source, runtime, shared })`, so core is
+**`runtime:isomorphic`**. Dependency direction is stated as **rings** on Nx projects, and
+**every project carries exactly one**: `ring:domain` (`domain`, `contracts`, `validation`,
+`observability`, `config` — types and pure functions every ring may read), `ring:application`
+(`core`), `ring:adapter` (`store-*`, `runtime-web`, `auth`, `realtime`, `solver-py`, `be-01`,
+`fe-01`, `gw-01`, `mcp-01`) — enforced by the `@nx/enforce-module-boundaries` rule already in
+the gate, plus `no-restricted-imports` / `no-restricted-globals` for what Nx cannot see, plus
+a totality test, because a project without a ring is a constraint that never fires. The
+SQLite adapters live in `libs/store-sqlite`, the in-memory source in `libs/store-memory`, the
+browser adapters for the runtime ports in `libs/runtime-web`, and `apps/be-01` keeps only the
+Elysia adapter, the composition root with the Bun runtime adapters, and the migrate CLIs.
+The HTTP contract is split along the same line: an endpoint's **shape** — method, path,
+operation id, policies, schemas, document — lives in `@wbs/contracts` so fe-01, mcp-01 and the
+OpenAPI emitter read it from the domain ring, and core binds a handler to each shape; the
+table with handlers cannot cross the ring boundary, the shapes can (plan D21). We chose
+packages over folder conventions because the folder convention
 had already held for a year and still let seven values leak from repositories into services
 with nothing to say so: a rule enforced by a linter across a package boundary fails on the
 import, a rule stated in a comment fails in review or not at all.
@@ -56,10 +64,17 @@ import `WorkItemService`, and nothing would fail.
 
 ## Consequences
 
-`services.ts` becomes `composeServices(ports)` in core — one graph, saved plans and the
-command runner included — with use-case entrypoints (`runCommandBatch`, `savePlan`, `replay`,
-`retentionSweep`) that carry the authorization and announcements the controllers hold today,
-so a worker cannot bypass them. be-01's `boot.ts` is one caller; a test over the memory source
-is another. gw-01 is **out**: Nx forbids app→app imports, so a be-01 adapter cannot serve it,
-and its WebSocket upgrade is not an endpoint; a shared `libs/http-elysia` is a later decision. The migration SQL folder and the
-`migrate-*-cli.ts` entrypoints do **not** move: the blue/green swap invokes them by path.
+`services.ts` becomes `composeServices({ source, runtime, shared })` in core — one graph,
+saved plans and the command runner included — with use-case entrypoints (`runCommandBatch`,
+`savePlan`, `replay`, `retentionSweep`) that carry the authorization and announcements the
+controllers hold today, so a worker cannot bypass them. be-01's `boot.ts` is one caller; the
+"any trigger, any runtime" test in `libs/runtime-web` is another, and it lives there rather
+than in core because a test that composes core over a source is an adapter-ring test, and the
+ring rule reads test files too. A domain module cannot take a core port — the rings point
+inward — so the one `node:crypto` use in `libs/domain` moves to its single caller in the SQLite
+adapter rather than behind `Digest`. gw-01 is **out**: Nx forbids app→app imports, so a be-01
+adapter cannot serve it, and its WebSocket upgrade is not an endpoint; a shared
+`libs/http-elysia` is a later decision. The migration SQL folder and the `migrate-*-cli.ts`
+entrypoints do **not** move in the three waves: the blue/green swap invokes them by path. They
+move with be-01 in the namespacing change, which is also where the eighteen files outside
+`apps/` that name an app path are rewritten (plan §4).
