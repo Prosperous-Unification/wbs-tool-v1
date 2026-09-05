@@ -278,7 +278,17 @@ five existing marks has. So the guarantee is **geometry and class, plus pixels
 over opaque bars**: no bar's `x`, `width`, fill class or critical-path stroke
 SHALL change, and an **opaque** bar's pixels SHALL be identical with and without
 the marker. Over an assumed bar the rule is visible through the translucency,
-and any pixel difference SHALL be confined to that bar's own footprint.
+and **at least one pixel inside that bar's own footprint SHALL differ** from the
+same plan without the marker.
+
+**"Any pixel difference is confined to that footprint" was the vacuous form of
+that last sentence** (round-13 Sol review, Important; round-14 Gemini review
+caught it surviving here after the scenario and slice were fixed). Zero
+differing pixels satisfy it, so a rule masked under assumed bars — the one
+failure this sentence exists to forbid — passes it; and read over the whole
+chart it rejects the correct renderer, whose rule differs everywhere it is
+drawn. The requirement, its scenario and slice 9.2b now all say the same thing:
+crop to the footprint and require a difference inside it.
 
 **The rule SHALL be 1px on screen at every rung, and that needs a mechanism
 rather than a width** (round-12 Sol review, Important). The chart's SVG user
@@ -295,8 +305,18 @@ review, Critical). `vector-effect` changes how the stroke is transformed at
 rasterization and does not rewrite the computed value of `stroke-width`, so that
 reading is `1px` with the property present and with it removed — an oracle no
 fault can move. The property SHALL be asserted as an **attribute** in the jsdom
-tier and the **rendered** width measured at more than one rung in the browser
+tier and the **painted** width measured at more than one rung in the browser
 tier, which is the only tier that rasterizes.
+
+**Nor SHALL the browser proof be the rule element's bounding box** (round-14 Sol
+review, Critical). The rule is a vertical `<line>` with `x1 === x2`, and this
+repository's own browser fixture records that such a line **has no area and is
+reported hidden** (`apps/fe-01/e2e/gantt.spec.ts:415-418`, which opens its chart
+on the row labels for exactly that reason). A zero-area box cannot carry a
+painted stroke width: the correct renderer does not reliably report `1`, and
+removing `vector-effect` does not widen the box, because the stroke is painted
+outside the geometry the box measures. The browser proof SHALL therefore be
+**paint-aware** — the painted width read off the pixels — at more than one rung.
 
 **"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
@@ -383,8 +403,8 @@ interval bounds.
 #### Scenario: the rule is 1px at every rung
 
 - **WHEN** the same marker is rendered at 28px and at 4px per day
-- **THEN** its rule carries `vector-effect: non-scaling-stroke` and its rendered
-  box is 1 CSS pixel wide at both rungs
+- **THEN** its rule carries `vector-effect: non-scaling-stroke`, and the run of
+  painted columns it adds to the chart is exactly 1 CSS pixel wide at both rungs
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 

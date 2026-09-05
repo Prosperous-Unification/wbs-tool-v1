@@ -433,14 +433,22 @@ in both slices rather than implied by position.
       two seeded projects each with markers: listing one returns none of the
       other's; a rename naming the other project's marker id is refused with
       both rows unchanged; and — replacing the round-3 cross-route id
-      assertions — a **structural** pair: creating, renaming and deleting a
-      marker leaves the `work_item` row count and contents unchanged, and
-      **no statement issued by any marker route names the `work_item` table**.
-      Negative: the `project_id` predicate dropped from the list query, watched
-      returning the other project's markers. An isolation test written only
-      against a single seeded project passes with no predicate at all. Second
-      negative, for the structural half: a `work_item` read added inside the
-      marker list handler, watched failing the reach assertion.
+      assertions — a **structural** pair: creating, renaming, **recolouring**
+      and deleting a marker leaves the `work_item` row count and contents
+      unchanged, and **no statement issued by any marker route names the
+      `work_item` table**. Negative: the `project_id` predicate dropped from the
+      list query, watched returning the other project's markers. An isolation
+      test written only against a single seeded project passes with no predicate
+      at all. **The structural half has two negatives, and they are named
+      apart** (round-14 self-review): the **list-handler read** — a `work_item`
+      read added inside the marker list handler, watched failing the reach
+      assertion — and the **recolour-branch read** described below. Round 13
+      added the second while this sentence still called the first "the second
+      negative", leaving one label on two faults — and the verb
+      list here still said "creating, renaming and deleting" while the drive
+      below and `spec.md`'s scenario had both gained recolour, so an implementer
+      reading only this sentence would write back the exact hole round 13
+      closed.
       **The structural assertion and its fault have to land in the same place,
       and until the round-5 Sol review (Important 10) they did not.** The
       assertion read the marker _repository_ source for a work-item import
@@ -460,9 +468,11 @@ in both slices rather than implied by position.
       `PATCH` endpoint, which is what makes the _project scope_ one predicate —
       but they still take body-specific branches inside it, so a `work_item` read
       reached only on the colour branch passes a reach case that drives rename
-      and every contrast and round-trip test besides. The second structural
-      negative is therefore injected **in the recolour branch specifically**, and
-      watched failing the reach assertion while the rename drive stays green.
+      and every contrast and round-trip test besides. The structural half's
+      **second** negative — the recolour-branch read, as distinct from the
+      list-handler read above — is therefore injected **in the recolour branch
+      specifically**, and watched failing the reach assertion while the rename
+      drive stays green.
       **Why the id form went:** ids are independent text primary keys and 4.4
       lets the client supply the marker id, so a client can submit an existing
       work item's id and "no marker id resolves through the work-item routes"
@@ -928,20 +938,43 @@ in both slices rather than implied by position.
       passing, in the same slice that exists to forbid unfailable negatives.
       jsdom cannot help either: it has no SVG layout and computes no style, as
       9.2's own note records.
-      Test, jsdom tier: `gantt-panel.test.tsx`, assert the rule element carries
-      `vector-effect="non-scaling-stroke"` as an attribute — the shape
+      Test, jsdom tier: `apps/fe-01/src/components/wbs/gantt-panel.test.tsx`,
+      assert the rule element carries `vector-effect="non-scaling-stroke"` as an
+      attribute — the shape
       `markAttribute('[data-gantt-today-edge="2"]', 'class')` already uses at
       `gantt-panel.test.tsx:5828`. Negative: the property removed from the rule
-      alone, which reads `null` and fails observably, while every assertion in
-      8.2 and 8.3 stays green.
-      Test, browser tier: `e2e/gantt.spec.ts`, the same marker at 28px and at
-      4px per day, asserting the rule's `boundingBox().width` is 1 CSS pixel at
-      both rungs. Second negative: the property removed, watched failing the
-      **28px** rung with a box a day wide while the 4px rung's box narrows to
-      4px — which is why two rungs rather than one, since a single rung cannot
-      tell a non-scaling stroke from a width that happens to equal that rung's
-      day pixels. The attribute is what an implementer can get wrong; the box is
-      what a reader sees, and neither tier can stand for the other.
+      alone, while every assertion in 8.2 and 8.3 stays green. **What that
+      removal reads is the helper's diagnostic sentence, not `null`** (round-14
+      both seats, Minor): `markAttribute` coalesces a missing element **or a
+      missing attribute** to `` `nothing on the chart at ${selector}` ``
+      (`gantt-panel.test.tsx:269-271`), deliberately, so a deleted mark fails as
+      a value that is not the value expected rather than as chai's own argument
+      checking — its docstring at `:258-267` says so and records it watched both
+      ways on 2026-08-09. The equality against `'non-scaling-stroke'` fails
+      either way; the sentence is what the failure output will say.
+      Test, browser tier: `apps/fe-01/e2e/gantt.spec.ts`, the same marker at
+      28px and at 4px per day. **The oracle is the painted columns, NOT
+      `boundingBox().width`** (round-14 Sol review, Critical). The rule is a
+      vertical `<line>` with `x1 === x2` and therefore has **no area**; this
+      repository's own fixture records that a browser reports such a line
+      hidden, and opens its chart on the row labels for exactly that reason
+      (`apps/fe-01/e2e/gantt.spec.ts:415-418`). A zero-area box cannot report
+      the painted stroke: the correct renderer does not reliably answer `1`, and
+      removing `vector-effect` does not widen the box, because the stroke is
+      painted outside the geometry the box measures — the oracle would have been
+      wrong for the correct renderer and unmoved by the fault, both at once.
+      Instead clip a screenshot to a short horizontal strip crossing the rule in
+      a row band with no bar in it, the way `apps/fe-01/e2e/hover-cards.spec.ts:148`
+      clips a strip, take it with and without the marker at each rung, and
+      assert the run of columns that differ is exactly **1** column wide at
+      both. Second negative: the property removed, watched turning that run into
+      **28** columns at the 28px rung and **4** at the 4px rung — which is why
+      two rungs rather than one, since a single rung cannot tell a non-scaling
+      stroke from a width that happens to equal that rung's day pixels, and why
+      the count rather than a boolean, since "some pixels changed" is true of
+      both renderers. The attribute is what an implementer can get wrong; the
+      painted run is what a reader sees, and neither tier can stand for the
+      other.
 - [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
       **6**, and the measure is `occupiedDatesInViewport / viewportWidthPx * 100`
       compared with `>` (`design.md` §3: 100px is 25 days at that rung, so six is
@@ -1143,7 +1176,7 @@ in both slices rather than implied by position.
       `apps/be-01/src/service/broadcast.test.ts`, one event per mutation across
       create, rename, recolour and delete, each carrying no payload. Negative:
       the delete path left unbroadcast, watched failing.
-- [ ] 9.2 `e2e/gantt.spec.ts`: click a day, name a marker, see the chip and the
+- [ ] 9.2 `apps/fe-01/e2e/gantt.spec.ts`: click a day, name a marker, see the chip and the
       rule; reload and see them still there; delete and see them gone. The one
       test that judges pixels — jsdom asserts positions, a browser judges
       appearance.
@@ -1189,8 +1222,9 @@ in both slices rather than implied by position.
       9.2's stroke mutation on purpose: two guarantees in one slice share
       whichever fault is injected, and the one that shares gets no proof.
 - [ ] 9.2b The bar layer's **pixels**, which are the half of 8.2 jsdom cannot
-      judge — same file, screenshot-clipped to a bar's bounding box the way
-      `hover-cards.spec.ts:148` clips a strip. Two cases: a rule crossing an
+      judge — same file (`apps/fe-01/e2e/gantt.spec.ts`), screenshot-clipped to
+      a bar's bounding box the way `apps/fe-01/e2e/hover-cards.spec.ts:148`
+      clips a strip. Two cases: a rule crossing an
       **opaque** bar, asserting that bar's footprint is pixel-identical with and
       without the marker; and a rule crossing an **assumed** bar
       (`[fill-opacity:0.35]`), asserting **at least one differing pixel inside
@@ -1203,16 +1237,33 @@ in both slices rather than implied by position.
       instead it rejects the correct renderer, whose rule differs everywhere it
       is drawn. Cropping to the footprint and requiring a difference is the form
       that has both halves.
-      Negatives, two. The rule emitted into `marksOverBars` instead of its named
-      slot, watched failing the **opaque** case with the bar's footprint changed,
-      while every DOM assertion in 8.2 and 8.2a stays green — the sequence
-      assertion there reads order within `marksOverLight`, and a rule moved to
-      the other group is simply absent from it, which is a different failure and
-      not this one. And the rule **masked under assumed bars** with
+      Negatives, two. The **opaque** arm of `barClasses` given
+      `[fill-opacity:0.35]` — the same seam `gantt-panel.tsx:701-706` documents
+      as watched on 2026-08-12, one arm over from 8.2's third negative — so the
+      rule shows through a bar that is supposed to hide it, watched failing the
+      opaque case's pixel-identity assertion while every DOM assertion in 8.2
+      and 8.2a stays green: 8.2 compares `x`, `width` and the **critical-path**
+      class, none of which a changed fill-opacity token moves, and its
+      fill-opacity assertion is on the assumed arm, not this one.
+      And the rule **masked under assumed bars** with
       `[fill-opacity:0.35]` preserved, watched failing the assumed case's
       differing-pixel assertion while the opacity assertion, the paint order and
       the opaque case all stay green — the fault the vacuous predicate could not
       see, and the one that would ship as "we protected the bar".
+      **The first negative named here through round 13 was not injectible and
+      its failure matrix was false** (round-14, both seats, Important). It read
+      "the rule emitted into `marksOverBars`", and there is no `marksOverBars`
+      anywhere in the component: the body renders two memos, `marksUnderLight`
+      (`gantt-panel.tsx:2868`) and `marksOverLight` (`:2927`), with the bars
+      inside the latter at `:3280`. Emitting the rule after the bars **is** a
+      real mutation — but it is **8.2's**, not this slice's, because 8.2's
+      sequence assertion runs from `data-gantt-weekend` through
+      `data-gantt-marker-rule` to the first `data-gantt-bar`, so a rule moved
+      past the bars fails in jsdom first. "Every DOM assertion in 8.2 stays
+      green" was therefore false under the only reading on which the mutation
+      existed at all. A pixel slice earns its own slice by carrying a fault the
+      pixel tier is the **first** to see, which is what the opaque arm's
+      fill-opacity is and what a paint-order move is not.
       **This slice exists because 8.2's pixel half was written into a jsdom
       file** (round-13 Gemini review, Important). 8.2 compares `x`, `width` and
       the critical-path class, all of which survive a translucent bar being
