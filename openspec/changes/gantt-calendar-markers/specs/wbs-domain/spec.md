@@ -318,6 +318,18 @@ removing `vector-effect` does not widen the box, because the stroke is painted
 outside the geometry the box measures. The browser proof SHALL therefore be
 **paint-aware** — the painted width read off the pixels — at more than one rung.
 
+**That width SHALL be bounded rather than exact** (round-15 Gemini review,
+Critical). The rule sits at an integer user coordinate and the chart's
+horizontal map is `x * dayPx + CHART_PAD_PX` with all three integers
+(`gantt-panel.tsx:590`), so a 1 CSS pixel non-scaling stroke is centred **on** a
+pixel boundary and rasterizes at partial coverage into the two columns it
+straddles — and nothing in the component sets `shape-rendering` to opt out.
+"Exactly one painted column" would therefore fail the correct renderer, which is
+the same shape of error as the bounding box it replaced. The requirement is a
+hairline against a day: **at most 2 painted columns**, against the 28 and 4 a
+scaling stroke paints. Telling 1 CSS pixel from 2 is not this proof's job; the
+declared width and the mechanism are the jsdom tier's.
+
 **"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
 after the weekend columns (`data-gantt-weekend`), the zebra row bands, the
@@ -404,7 +416,8 @@ interval bounds.
 
 - **WHEN** the same marker is rendered at 28px and at 4px per day
 - **THEN** its rule carries `vector-effect: non-scaling-stroke`, and the run of
-  painted columns it adds to the chart is exactly 1 CSS pixel wide at both rungs
+  painted columns it adds to the chart is at most 2 CSS pixels wide at both
+  rungs — a hairline rather than the 28 and 4 a scaling stroke would paint
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 

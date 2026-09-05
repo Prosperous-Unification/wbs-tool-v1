@@ -929,9 +929,10 @@ in both slices rather than implied by position.
       property, so a rule declared `strokeWidth={1}` would render a day wide at
       28px and still pass every order, colour, count and pointer assertion in
       8.2 (round-12 Sol review, Important).
-      **The oracle is the attribute in jsdom and the rendered box in the
+      **The oracle is the attribute in jsdom and the painted columns in the
       browser, and it is NOT `getComputedStyle().strokeWidth`** (round-13 Gemini
-      review, Critical). `vector-effect` changes how the stroke is transformed
+      review, Critical; the browser half was `boundingBox().width` until
+      round 14 and is stated in full below). `vector-effect` changes how the stroke is transformed
       at rasterization; it does not rewrite the computed value of
       `stroke-width`, so a rule declared 1 reads `1px` in every engine with the
       property present **or** removed — the fault would have been watched
@@ -966,13 +967,27 @@ in both slices rather than implied by position.
       Instead clip a screenshot to a short horizontal strip crossing the rule in
       a row band with no bar in it, the way `apps/fe-01/e2e/hover-cards.spec.ts:148`
       clips a strip, take it with and without the marker at each rung, and
-      assert the run of columns that differ is exactly **1** column wide at
+      assert the run of columns that differ is **at most 2** columns wide at
       both. Second negative: the property removed, watched turning that run into
       **28** columns at the 28px rung and **4** at the 4px rung — which is why
       two rungs rather than one, since a single rung cannot tell a non-scaling
       stroke from a width that happens to equal that rung's day pixels, and why
       the count rather than a boolean, since "some pixels changed" is true of
-      both renderers. The attribute is what an implementer can get wrong; the
+      both renderers.
+      **At most 2 rather than exactly 1, and the difference is anti-aliasing**
+      (round-15 Gemini review, Critical). The rule sits at an integer user
+      coordinate and the chart's horizontal map is
+      `x * dayPx + CHART_PAD_PX` with all three integers
+      (`CHART_PAD_PX`, `gantt-panel.tsx:590`), so a 1 CSS pixel non-scaling
+      stroke is centred **on** a pixel boundary and Skia paints it at partial
+      coverage into the two columns it straddles. "Exactly 1" would therefore
+      have failed the correct renderer — the same shape of error as the
+      bounding box it replaced, one round later, and nothing in this component
+      sets `shape-rendering` to opt out (grep: no `shapeRendering` anywhere in
+      `gantt-panel.tsx`). The bound is deliberately **not** tight enough to tell
+      1 CSS pixel from 2: this oracle's job is a hairline against **a day**, and
+      28 or 4 against 2 is the discrimination that matters. The declared width
+      is 8.2a's jsdom half, and the mechanism is the attribute. The attribute is what an implementer can get wrong; the
       painted run is what a reader sees, and neither tier can stand for the
       other.
 - [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
