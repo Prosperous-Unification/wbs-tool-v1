@@ -466,6 +466,26 @@ in both slices rather than implied by position.
       neighbour) is entirely client-side and never reached. The server half is
       already covered: 4.3 rejects `2026-09-17T00:00:00Z`, so no instant can
       enter storage as a date at all.
+      **The zone has to be faked on the runner's command line, not in the
+      file** (measured 2026-09-05 on the gate host, both arms). Under the `test`
+      target's own invocation, which the command line starts with `TZ=UTC`, a
+      case that assigns
+      `process.env.TZ = 'Pacific/Auckland'` and then reads
+      `new Date('2026-08-19T00:00:00')` gets
+      `2026-08-19T00:00:00.000Z`, `getTimezoneOffset()` 0 and
+      `Intl.DateTimeFormat().resolvedOptions().timeZone` still `UTC`: **the
+      assignment does nothing**, because the zone is read once before the test
+      file loads. That is the same finding `vitest.config.ts` already records
+      against `test.env`. The identical probe under `TZ=Pacific/Auckland` on the
+      command line reads `2026-08-18T12:00:00.000Z`, offset `-720`, resolved
+      `Pacific/Auckland` — which _is_ the local-midnight fault this slice has to
+      watch. So the case cannot live in `gantt-panel.test.tsx`, whose whole run
+      is pinned to UTC; it needs a file the UTC invocation does not collect plus
+      a second invocation started under the zone. Cheapest wiring that keeps the
+      gate and CI untouched: both invocations chained in the one `test` target
+      command, a `gantt-panel.zoned.test.tsx` the base config excludes, and a
+      `vitest.zoned.config.ts` that reuses the base's plugins and alias map so
+      `vite-config.test.ts`'s set comparison keeps covering it.
 - [x] 4.4 The client-supplied `markerId`, its fallback and its collision — test:
       same file, three cases: a create carrying a `markerId` stores that exact id;
       a create omitting `markerId` is issued one by `Clock.newId()` (asserted
