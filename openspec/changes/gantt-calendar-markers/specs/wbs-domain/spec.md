@@ -335,6 +335,15 @@ declared width SHALL be asserted there** (round-16 review, Critical) — a
 rung and would otherwise satisfy every check in this design while violating this
 requirement.
 
+**The EFFECTIVE width SHALL be asserted too, in the browser** (round-17 review,
+Critical). The presentation attribute is the bottom of the SVG cascade, so an
+inline `style={{ strokeWidth: 2 }}` leaves the attribute reading `1`, passes
+every jsdom equality, and still paints two columns inside the bound above. The
+browser tier SHALL therefore assert a computed `stroke-width` of `1px`. That is
+**not** a return to the oracle this section rejects: computed style cannot see
+`vector-effect`, which is why it fails as proof of the _mechanism_; it reports
+the resolved _width_ faithfully, which is the one job it is admitted for.
+
 **"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
 after the weekend columns (`data-gantt-weekend`), the zebra row bands, the
@@ -420,10 +429,10 @@ interval bounds.
 #### Scenario: the rule is 1px at every rung
 
 - **WHEN** the same marker is rendered at 28px and at 4px per day
-- **THEN** its rule declares a stroke width of 1, carries
-  `vector-effect: non-scaling-stroke`, and the run of painted columns it adds to
-  the chart is 1 or 2 CSS pixels wide at both rungs — a hairline rather than the
-  28 and 4 a scaling stroke would paint
+- **THEN** its rule declares a stroke width of 1, resolves to a computed
+  `stroke-width` of `1px`, carries `vector-effect: non-scaling-stroke`, and the
+  run of painted columns it adds to the chart is 1 or 2 CSS pixels wide at both
+  rungs — a hairline rather than the 28 and 4 a scaling stroke would paint
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 

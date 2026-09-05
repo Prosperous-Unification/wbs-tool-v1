@@ -969,6 +969,24 @@ in both slices rather than implied by position.
       browser proves the mechanism actually holds at the rungs — a hairline
       rather than a day. Neither half is the requirement on its own, which is
       why the plan stopped trying to make one of them carry it.
+      **And a third assertion closes the gap those two leave: the EFFECTIVE
+      width, read in the browser** (round-17 Sol review, Critical). The
+      presentation attribute is the bottom of the SVG cascade, so
+      `<line strokeWidth={1} style={{ strokeWidth: 2 }} vectorEffect="non-scaling-stroke">`
+      passes **both** jsdom equalities — the attribute really is `1` — while the
+      inline style wins and the rule paints two columns at every rung, which
+      sits inside the 1-or-2 bound. A fifth renderer, wrong, passing everything.
+      So the browser tier SHALL also assert `getComputedStyle(rule).strokeWidth`
+      is `1px`, with an inline `style={{ strokeWidth: 2 }}` override as its
+      watched negative, failing that equality while the attribute assertions and
+      the painted-column bound stay green.
+      **This is not a return to the round-13 oracle**, which was rejected as
+      proof of `vector-effect` — computed style cannot see that property, which
+      is the whole of round 13's Critical. It is admitted here for the one thing
+      it does report faithfully, the resolved width, and it is admitted in the
+      **browser**, since jsdom computes no style at all. Three assertions, three
+      jobs: the attribute is the mechanism, the computed width is the value, and
+      the painted columns are the proof that the first two reach the screen.
       Test, browser tier: `apps/fe-01/e2e/gantt.spec.ts`, the same marker at
       28px and at 4px per day. **The oracle is the painted columns, NOT
       `boundingBox().width`** (round-14 Sol review, Critical). The rule is a
