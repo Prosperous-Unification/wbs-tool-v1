@@ -138,9 +138,13 @@ in both slices rather than implied by position.
       and carrying a label colour clearing **4.5:1** against its own fill
       (1.4.3). The body rule crosses four area fills that the base
       background does not account for: the weekend column
-      `fill-muted-foreground/10` (`gantt-panel.tsx:2883`), the zebra band
-      `fill-muted/40` (`:2903`), the pointed row's light `fill-(--grid-dep-lit)`
-      (`:3983`) and today's column `fill-sky-500/15` (`:2950`). Three are
+      `fill-muted-foreground/10` (`gantt-panel.tsx:2888`, on the rect whose
+      `data-gantt-weekend` is at `:2883`), the zebra band `fill-muted/40`
+      (`:2908`, attribute `:2903`), the pointed row's light
+      `fill-(--grid-dep-lit)` (`:3988`, attribute `:3983`) and today's column
+      `fill-sky-500/15` (`:2955`, attribute `:2950`) — **the class sits five
+      lines below the attribute on each of the four**, and the first draft of
+      this slice cited the attribute line for the class. Three are
       translucent tints; **the pointed row's light is opaque** —
       `color-mix(in oklab, var(--ring) 20%, var(--background))`
       (`styles.css:259`) over two opaque inputs (`--ring` at `:118` light,

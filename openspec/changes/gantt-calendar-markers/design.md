@@ -324,17 +324,17 @@ does not account for (round-5 Sol review, Important 8 — making the rule opaque
 closed the alpha question and left this one, and the document read as if it had
 closed both):
 
-| fill              | class                      | where                  |
-| ----------------- | -------------------------- | ---------------------- |
-| weekend column    | `fill-muted-foreground/10` | `gantt-panel.tsx:2883` |
-| zebra row band    | `fill-muted/40`            | `:2903`                |
-| pointed row light | `fill-(--grid-dep-lit)`    | `:3983`                |
-| today's column    | `fill-sky-500/15`          | `:2950`                |
+| fill              | class                      | attribute              | class line |
+| ----------------- | -------------------------- | ---------------------- | ---------- |
+| weekend column    | `fill-muted-foreground/10` | `gantt-panel.tsx:2883` | `:2888`    |
+| zebra row band    | `fill-muted/40`            | `:2903`                | `:2908`    |
+| pointed row light | `fill-(--grid-dep-lit)`    | `:3983`                | `:3988`    |
+| today's column    | `fill-sky-500/15`          | `:2950`                | `:2955`    |
 
 **Three of the four are translucent tints; the pointed row's light is not.**
 `--grid-dep-lit` is `color-mix(in oklab, var(--ring) 20%, var(--background))`
-(`styles.css:259`) over two opaque inputs (`--ring` at `:118` light, `:149`
-dark), so it is an **opaque** colour that already resolves per theme — it
+(`styles.css:259`, class at `gantt-panel.tsx:3988`) over two opaque inputs
+(`--ring` at `styles.css:118` light, `:149` dark), so it is an **opaque** colour that already resolves per theme — it
 _replaces_ what is under it rather than compositing over it. That changes the
 count, and the first draft of this section got it wrong by treating all four as
 tints.
