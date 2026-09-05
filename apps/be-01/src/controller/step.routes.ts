@@ -1,6 +1,6 @@
 import { callerGuard } from '../http/caller';
 import { handParsedBody } from '../http/elysia/hand-parsed-body';
-import { noContent, ok, respond, type Route, type RouteResponse } from '../http/route';
+import { isFieldBag, noContent, ok, respond, type Route, type RouteResponse } from '../http/route';
 import type { AuthService } from '../service/auth.service';
 import type { RemoveStepOutcome, StepRefusal, StepService } from '../service/step.service';
 import { statusForRefusal } from './refusal-status';
@@ -24,8 +24,8 @@ const statusFor = (reason: StepRefusal): number => statusForRefusal(reason, 422)
  * on, and it is the same status Elysia's schema refusal produced.
  */
 function nameFrom(body: unknown): { name: string } | RouteResponse {
-  if (typeof body !== 'object' || body === null) return respond(422, { error: 'invalid_body' });
-  const name = (body as { name?: unknown }).name;
+  if (!isFieldBag(body)) return respond(422, { error: 'invalid_body' });
+  const name = body['name'];
   if (typeof name !== 'string') return respond(422, { error: 'invalid_body' });
   return { name };
 }

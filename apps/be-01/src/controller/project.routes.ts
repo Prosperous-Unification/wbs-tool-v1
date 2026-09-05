@@ -2,7 +2,15 @@ import { DEPENDENCY_REACHES, ESTIMATE_METHODS, ESTIMATE_ROUNDINGS } from '@wbs/d
 
 import { callerGuard } from '../http/caller';
 import { handParsedBody } from '../http/elysia/hand-parsed-body';
-import { noContent, ok, respond, type Route, type RouteResponse, text } from '../http/route';
+import {
+  isFieldBag,
+  noContent,
+  ok,
+  respond,
+  type Route,
+  type RouteResponse,
+  text,
+} from '../http/route';
 import type { Project, ProjectPatch } from '../repository';
 // The two vocabularies as values, from `schema.ts` rather than from
 // `../repository`, which is type-only on purpose — the same path
@@ -107,8 +115,8 @@ function checkedWeights(
   value: unknown,
 ): Checked<{ optimistic: number; realistic: number; pessimistic: number }> {
   if (value === undefined) return taken(undefined);
-  if (typeof value !== 'object' || value === null) return refused;
-  const raw = value as Record<string, unknown>;
+  if (!isFieldBag(value)) return refused;
+  const raw = value;
   const triple = { optimistic: 0, realistic: 0, pessimistic: 0 };
   for (const name of ['optimistic', 'realistic', 'pessimistic'] as const) {
     const weight = raw[name];
@@ -121,8 +129,8 @@ function checkedWeights(
 function checkedSolutionRef(value: unknown): Checked<{ slug: string; url: string } | null> {
   if (value === undefined) return taken(undefined);
   if (value === null) return taken(null);
-  if (typeof value !== 'object') return refused;
-  const raw = value as Record<string, unknown>;
+  if (!isFieldBag(value)) return refused;
+  const raw = value;
   const slug = raw['slug'];
   const url = raw['url'];
   if (typeof slug !== 'string' || slug === '') return refused;
@@ -144,8 +152,8 @@ function checkedSolutionRef(value: unknown): Checked<{ slug: string; url: string
  * enumerate, so the three boundaries cannot drift apart.
  */
 function patchFrom(body: unknown): ProjectPatch | RouteResponse {
-  if (typeof body !== 'object' || body === null) return respond(422, { error: 'invalid_body' });
-  const raw = body as Record<string, unknown>;
+  if (!isFieldBag(body)) return respond(422, { error: 'invalid_body' });
+  const raw = body;
   const fields = {
     name: checkedString(raw['name']),
     restricted: checkedBoolean(raw['restricted']),
@@ -182,8 +190,8 @@ function patchFrom(body: unknown): ProjectPatch | RouteResponse {
 
 /** The create body: `{ name: string }`, or the 422 its schema answered. */
 function nameFrom(body: unknown): { name: string } | RouteResponse {
-  if (typeof body !== 'object' || body === null) return respond(422, { error: 'invalid_body' });
-  const name = (body as { name?: unknown }).name;
+  if (!isFieldBag(body)) return respond(422, { error: 'invalid_body' });
+  const name = body['name'];
   return typeof name === 'string' ? { name } : respond(422, { error: 'invalid_body' });
 }
 

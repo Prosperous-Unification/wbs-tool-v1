@@ -129,6 +129,28 @@ export interface Route {
   documentation?: { detail?: unknown; query?: unknown };
 }
 
+/**
+ * True for a JSON value a handler may read named fields off — an object that is
+ * neither `null` nor an **array**.
+ *
+ * This exists because `typeof [] === 'object'`, and every hand-written body
+ * check on this branch was spelled `typeof body !== 'object' || body === null`.
+ * That spelling is a hole: TypeBox's `t.Object(...)`, which these checks
+ * replaced, refuses an array, and the hand-written version accepted one. It
+ * reached a caller on `POST /api/projects/:id/saved-plans`, where a JSON `[]`
+ * body stopped answering 422 and started **writing a timestamp-named plan** and
+ * answering 201 — a body that names no field read as a body that omitted every
+ * optional one.
+ *
+ * Two of the eight sites regressed; the other six answered 422 only because a
+ * required field was missing from the array, which is luck rather than a rule.
+ * So this is one named predicate rather than two patches: the hole is in the
+ * spelling, and every site that reads fields off `RouteRequest.body` uses it.
+ */
+export function isFieldBag(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** A 200 with a JSON body. */
 export function ok(body: unknown): RouteResponse {
   return { status: 200, body };

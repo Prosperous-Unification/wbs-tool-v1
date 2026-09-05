@@ -2,6 +2,7 @@ import { callerGuard } from '../http/caller';
 import { handParsedBody } from '../http/elysia/hand-parsed-body';
 import { COMPARE_QUERY } from '../http/elysia/query-schemas';
 import {
+  isFieldBag,
   noContent,
   ok,
   respond,
@@ -134,16 +135,16 @@ function nonEmptyName(value: unknown): NameCheck {
 
 /** The save body: `{ name?: string }`, where absent is A-1's normal path. */
 function saveNameFrom(body: unknown): { name: string | undefined } | RouteResponse {
-  if (typeof body !== 'object' || body === null) return respond(422, { error: 'invalid_body' });
-  const checked = nonEmptyName((body as { name?: unknown }).name);
+  if (!isFieldBag(body)) return respond(422, { error: 'invalid_body' });
+  const checked = nonEmptyName(body['name']);
   if (checked.refused) return respond(422, { error: 'invalid_body' });
   return { name: checked.name };
 }
 
 /** The rename body: `{ name: string }`, where absent is a caller asking for nothing. */
 function renameNameFrom(body: unknown): { name: string } | RouteResponse {
-  if (typeof body !== 'object' || body === null) return respond(422, { error: 'invalid_body' });
-  const checked = nonEmptyName((body as { name?: unknown }).name);
+  if (!isFieldBag(body)) return respond(422, { error: 'invalid_body' });
+  const checked = nonEmptyName(body['name']);
   if (checked.refused || checked.name === undefined) {
     return respond(422, { error: 'invalid_body' });
   }

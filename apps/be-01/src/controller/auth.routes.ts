@@ -12,7 +12,14 @@ import {
   type TokenVerifier,
 } from '@wbs/auth';
 
-import { ok, respond, type Route, type RouteRequest, type RouteResponse } from '../http/route';
+import {
+  isFieldBag,
+  ok,
+  respond,
+  type Route,
+  type RouteRequest,
+  type RouteResponse,
+} from '../http/route';
 import { cookiesIn, cookieValue, userFromHeaders } from '../middleware/authenticated';
 import { type AuthService, TOKEN_TTL_SECONDS } from '../service/auth.service';
 import { LoginThrottle } from '../service/login-throttle';
@@ -102,8 +109,8 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
  * never handed to a validator.
  */
 function credentialsFrom(body: unknown): { username: string; password: string } | RouteResponse {
-  if (typeof body !== 'object' || body === null) return respond(422, { error: 'invalid_body' });
-  const { username, password } = body as { username?: unknown; password?: unknown };
+  if (!isFieldBag(body)) return respond(422, { error: 'invalid_body' });
+  const { username, password } = body;
   if (typeof username !== 'string' || typeof password !== 'string') {
     return respond(422, { error: 'invalid_body' });
   }
