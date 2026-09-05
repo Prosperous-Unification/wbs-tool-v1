@@ -873,35 +873,56 @@ in both slices rather than implied by position.
       (`ASSUMED_BAR_CLASSES`, `gantt-panel.tsx:706`), so a rule behind one shows
       through it and the old "the bar is fully opaque over it" wording was false
       of that bar kind — while `x`, `width` and the critical-path class, the
-      three things this slice compares, are all unchanged. Two cases: a rule
-      crossing an **opaque** bar in detail mode, whose bar-footprint pixels are
-      asserted **identical** with and without the marker; and a rule crossing an
+      three things this slice compares, are all unchanged.
+      **The two halves belong to two tiers, and putting the pixel half in this
+      file made it inexecutable** (round-13 Gemini review, Important). This slice
+      runs in `gantt-panel.test.tsx`, which is jsdom and has no rasterizer, and
+      9.2 is already the slice of record for pixels — "jsdom asserts positions, a
+      browser judges appearance". So the case here is jsdom's: a rule crossing an
       **assumed** bar, asserting the bar still carries `[fill-opacity:0.35]`,
-      that the rule still precedes it, and that every pixel that differs lies
-      inside that bar's footprint. Third negative: the assumed arm of
-      `barClasses` emptied so the bar paints opaque — the mutation
-      `gantt-panel.tsx:701-706` already documents as watched on 2026-08-12 —
-      caught by the assumed case's fill-opacity assertion while the opaque
-      case, the sequence and all three attribute comparisons stay green. The
-      opaque case is what stops the guarantee being weakened to "no attribute
-      moved"; the assumed case is what stops it being restated as a falsehood.
+      that its `x`, `width` and critical-path class are unchanged from the same
+      plan with no marker, and that the rule still precedes it in the sequence.
+      Third negative: the assumed arm of `barClasses` emptied so the bar paints
+      opaque — the mutation `gantt-panel.tsx:701-706` already documents as
+      watched on 2026-08-12 — caught by the fill-opacity assertion while the
+      sequence and all three attribute comparisons stay green. **The pixel half
+      is 9.2b's**, below. The attribute half is what stops the guarantee being
+      restated as a falsehood; the pixel half is what stops it being weakened to
+      "no attribute moved", and neither tier can stand for the other.
 - [ ] 8.2a The rule is 1px on screen at every rung, and the mechanism is
-      `vector-effect: non-scaling-stroke` — test: `gantt-panel.test.tsx`, the
-      same marker rendered at 28px and at 4px per day, asserting
-      `getComputedStyle(rule).strokeWidth` is `1px` at both. **A declared width
-      proves nothing here**: the chart's user space is days by rows stretched
-      non-uniformly to `dayPx` (`viewBox` days×rows with
-      `preserveAspectRatio="none"`, `gantt-panel.tsx:3940-3943`), so one user
-      unit is a whole day — 28, 12 or 4 CSS pixels — and the today edge already
-      carries `vectorEffect="non-scaling-stroke"` for exactly this reason, with
-      the comment at `:2984-2986` spelling it out. Nothing in this plan named
-      the property, so a rule declared `strokeWidth={1}` would render a day wide
-      at 28px and still pass every order, colour, count and pointer assertion in
-      8.2 (round-12 Sol review, Important). Negative: `vectorEffect` removed
-      from the rule alone, watched failing **both** rungs while every assertion
-      in 8.2 and 8.3 stays green. Two rungs rather than one because a single
-      rung cannot distinguish a non-scaling stroke from a width that happens to
-      equal that rung's day pixels.
+      `vector-effect: non-scaling-stroke`. **A declared width proves nothing
+      here**: the chart's user space is days by rows stretched non-uniformly to
+      `dayPx` (`viewBox` days×rows with `preserveAspectRatio="none"`,
+      `gantt-panel.tsx:3940-3943`), so one user unit is a whole day — 28, 12 or
+      4 CSS pixels — and the today edge already carries
+      `vectorEffect="non-scaling-stroke"` for exactly this reason, with the
+      comment at `:2984-2986` spelling it out. Nothing in this plan named the
+      property, so a rule declared `strokeWidth={1}` would render a day wide at
+      28px and still pass every order, colour, count and pointer assertion in
+      8.2 (round-12 Sol review, Important).
+      **The oracle is the attribute in jsdom and the rendered box in the
+      browser, and it is NOT `getComputedStyle().strokeWidth`** (round-13 Gemini
+      review, Critical). `vector-effect` changes how the stroke is transformed
+      at rasterization; it does not rewrite the computed value of
+      `stroke-width`, so a rule declared 1 reads `1px` in every engine with the
+      property present **or** removed — the fault would have been watched
+      passing, in the same slice that exists to forbid unfailable negatives.
+      jsdom cannot help either: it has no SVG layout and computes no style, as
+      9.2's own note records.
+      Test, jsdom tier: `gantt-panel.test.tsx`, assert the rule element carries
+      `vector-effect="non-scaling-stroke"` as an attribute — the shape
+      `markAttribute('[data-gantt-today-edge="2"]', 'class')` already uses at
+      `gantt-panel.test.tsx:5828`. Negative: the property removed from the rule
+      alone, which reads `null` and fails observably, while every assertion in
+      8.2 and 8.3 stays green.
+      Test, browser tier: `e2e/gantt.spec.ts`, the same marker at 28px and at
+      4px per day, asserting the rule's `boundingBox().width` is 1 CSS pixel at
+      both rungs. Second negative: the property removed, watched failing the
+      **28px** rung with a box a day wide while the 4px rung's box narrows to
+      4px — which is why two rungs rather than one, since a single rung cannot
+      tell a non-scaling stroke from a width that happens to equal that rung's
+      day pixels. The attribute is what an implementer can get wrong; the box is
+      what a reader sees, and neither tier can stand for the other.
 - [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
       **6**, and the measure is `occupiedDatesInViewport / viewportWidthPx * 100`
       compared with `>` (`design.md` §3: 100px is 25 days at that rung, so six is
@@ -1148,6 +1169,26 @@ in both slices rather than implied by position.
       and the transition assertion has nothing to see. Kept separate from
       9.2's stroke mutation on purpose: two guarantees in one slice share
       whichever fault is injected, and the one that shares gets no proof.
+- [ ] 9.2b The bar layer's **pixels**, which are the half of 8.2 jsdom cannot
+      judge — same file, screenshot-clipped to a bar's bounding box the way
+      `hover-cards.spec.ts:148` clips a strip. Two cases: a rule crossing an
+      **opaque** bar, asserting that bar's footprint is pixel-identical with and
+      without the marker; and a rule crossing an **assumed** bar
+      (`[fill-opacity:0.35]`), asserting the rule is visible through it and that
+      every differing pixel lies **inside** that bar's own footprint. Negative:
+      the rule emitted into `marksOverBars` instead of its named slot, watched
+      failing the opaque case with the bar's footprint changed, while every DOM
+      assertion in 8.2 and 8.2a stays green — the sequence assertion there reads
+      order within `marksOverLight` and a rule moved to the other group is simply
+      absent from it, which is a different failure and not this one.
+      **This slice exists because 8.2's pixel half was written into a jsdom
+      file** (round-13 Gemini review, Important). 8.2 compares `x`, `width` and
+      the critical-path class, all of which survive a translucent bar being
+      painted over, so the guarantee needs a pixel judgement — and `jsdom` has no
+      rasterizer, so it needed to be here rather than there. Its own slice for
+      9.2a's reason: 9.2's fault mutates the rule's stroke, which both cases here
+      would see, so sharing that slice would leave this one with no fault of its
+      own.
 - [ ] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it

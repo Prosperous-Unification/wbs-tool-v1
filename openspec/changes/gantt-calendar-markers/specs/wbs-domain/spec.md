@@ -287,8 +287,16 @@ space is days by rows and is stretched non-uniformly to `dayPx`
 so a stroke of one user unit is **a day wide** — 28, 12 or 4 CSS pixels across
 the ladder. Today's leading edge already carries `vectorEffect="non-scaling-stroke"`
 for precisely this reason (`gantt-panel.tsx:2984-2995`). The marker rule SHALL
-carry the same, and the 1px width SHALL be asserted as a **computed** width at
-more than one rung rather than assumed from a declaration.
+carry `vector-effect: non-scaling-stroke` and SHALL render one CSS pixel wide at
+every rung.
+
+**The proof SHALL NOT be `getComputedStyle().strokeWidth`** (round-13 Gemini
+review, Critical). `vector-effect` changes how the stroke is transformed at
+rasterization and does not rewrite the computed value of `stroke-width`, so that
+reading is `1px` with the property present and with it removed — an oracle no
+fault can move. The property SHALL be asserted as an **attribute** in the jsdom
+tier and the **rendered** width measured at more than one rung in the browser
+tier, which is the only tier that rasterizes.
 
 **"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
@@ -374,7 +382,8 @@ interval bounds.
 #### Scenario: the rule is 1px at every rung
 
 - **WHEN** the same marker is rendered at 28px and at 4px per day
-- **THEN** its rule's computed stroke width is 1 CSS pixel at both rungs
+- **THEN** its rule carries `vector-effect: non-scaling-stroke` and its rendered
+  box is 1 CSS pixel wide at both rungs
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 
