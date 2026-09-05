@@ -8,10 +8,14 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
+import { reserveSolverSlot } from '../repository/optimization-admission';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
-import type { SpawnRequest } from '../repository/optimized-schedule-cache';
 import { solverSlot } from '../repository/schema';
-import { OptimizationCoordinator } from './optimization-coordinator';
+import {
+  OptimizationCoordinator,
+  type ReservedSolverChild,
+  type ReservedSpawnRequest,
+} from './optimization-coordinator';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const CONTRACT = '7+0.1.0';
@@ -69,8 +73,13 @@ function seedProject(path: string): void {
 
 function coordinator(
   db: ReturnType<typeof openDrizzle>,
-  calls: SpawnRequest[],
+  calls: ReservedSpawnRequest[],
   ownerId = 'blue',
+  childOf: (request: ReservedSpawnRequest) => ReservedSolverChild = () => ({
+    pid: 100 + calls.length,
+    verdict: () => undefined,
+    kill: () => undefined,
+  }),
 ): OptimizationCoordinator {
   let token = 0;
   return new OptimizationCoordinator({
@@ -80,7 +89,10 @@ function coordinator(
     ownerId,
     now: () => 10,
     attemptToken: () => `${ownerId}-token-${String(token++)}`,
-    spawn: (request) => void calls.push(request),
+    spawn: (request) => {
+      calls.push(request);
+      return childOf(request);
+    },
   });
 }
 
@@ -88,7 +100,7 @@ describe('OptimizationCoordinator read', () => {
   it('bypasses allocation and both solvers when the canonical plan has no work', () => {
     const { path, db } = database();
     seedProject(path);
-    const calls: SpawnRequest[] = [];
+    const calls: ReservedSpawnRequest[] = [];
     const empty: ScheduleInput = { ...INPUT, rows: [], slices: [] };
     const zeroDuration: ScheduleInput = {
       ...INPUT,
@@ -109,7 +121,7 @@ describe('OptimizationCoordinator read', () => {
   it('requests both absent objectives once while Fast remains the immediate answer', () => {
     const { path, db } = database();
     seedProject(path);
-    const calls: SpawnRequest[] = [];
+    const calls: ReservedSpawnRequest[] = [];
 
     expect(
       coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input: INPUT }),
@@ -118,12 +130,17 @@ describe('OptimizationCoordinator read', () => {
     expect(calls.every(({ key }) => key.inputHash === scheduleInputHash(INPUT))).toBe(true);
     expect(
       db
-        .select({ ownerId: solverSlot.ownerId, attemptToken: solverSlot.attemptToken })
+        .select({
+          ownerId: solverSlot.ownerId,
+          attemptToken: solverSlot.attemptToken,
+          lifecycle: solverSlot.lifecycle,
+          pid: solverSlot.pid,
+        })
         .from(solverSlot)
         .all(),
     ).toEqual([
-      { ownerId: 'blue', attemptToken: 'blue-token-0' },
-      { ownerId: 'blue', attemptToken: 'blue-token-1' },
+      { ownerId: 'blue', attemptToken: 'blue-token-0', lifecycle: 'running', pid: 101 },
+      { ownerId: 'blue', attemptToken: 'blue-token-1', lifecycle: 'running', pid: 102 },
     ]);
 
     expect(
@@ -158,7 +175,7 @@ describe('OptimizationCoordinator read', () => {
     } finally {
       write.close();
     }
-    const calls: SpawnRequest[] = [];
+    const calls: ReservedSpawnRequest[] = [];
 
     expect(
       coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input: INPUT }),
@@ -167,5 +184,48 @@ describe('OptimizationCoordinator read', () => {
 
     // Proof: admitting every non-ok outcome fails here with two requests; a
     // failed or corrupt row is durable evidence and only explicit Retry spends it.
+  });
+
+  it('aborts a launcher whose reservation was reclaimed before its PID bind', () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const verdicts: string[] = [];
+    let killed = 0;
+    const instance = coordinator(db, calls, 'blue', (request) => {
+      expect(
+        reserveSolverSlot(db, {
+          projectId: request.key.projectId,
+          contractVersion: request.key.contractVersion,
+          generation: request.generation,
+          objective: request.objective,
+          budgetMs: request.key.budgetMs,
+          ownerId: 'green',
+          attemptToken: `replacement-${request.objective}`,
+          now: request.admission.admittedDeadlineAt + 1,
+        }),
+      ).toMatchObject({ kind: 'reserved' });
+      return {
+        pid: 42,
+        verdict: (verdict) => void verdicts.push(verdict),
+        kill: () => void (killed += 1),
+      };
+    });
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    expect(verdicts).toEqual(['abort', 'abort']);
+    expect(killed).toBe(2);
+    expect(
+      db
+        .select({ token: solverSlot.attemptToken, lifecycle: solverSlot.lifecycle })
+        .from(solverSlot)
+        .all(),
+    ).toEqual([
+      { token: 'replacement-pri', lifecycle: 'starting' },
+      { token: 'replacement-time', lifecycle: 'starting' },
+    ]);
+
+    // Proof: dropping the bind CAS or sending `bound` unconditionally lets
+    // both delayed launchers exec against replacement-owned reservations.
   });
 });

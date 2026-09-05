@@ -2,7 +2,11 @@ import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 
 import type { Drizzle } from '../repository/db';
-import { reserveSolverSlot, type SolverSlotAdmission } from '../repository/optimization-admission';
+import {
+  bindSolverSlot,
+  reserveSolverSlot,
+  type SolverSlotAdmission,
+} from '../repository/optimization-admission';
 import { allocateGeneration } from '../repository/optimization-generation';
 import {
   readOptimizedPairAndSpawn,
@@ -36,7 +40,14 @@ export interface ReservedSpawnRequest extends SpawnRequest {
   readonly admission: ReservedAdmission;
 }
 
-export type ReservedSpawner = (request: ReservedSpawnRequest) => void;
+/** The launcher's small control surface before it may exec the solver. */
+export interface ReservedSolverChild {
+  readonly pid: number;
+  readonly verdict: (verdict: 'bound' | 'abort') => void;
+  readonly kill: () => void;
+}
+
+export type ReservedSpawner = (request: ReservedSpawnRequest) => ReservedSolverChild;
 
 /**
  * The synchronous plan-read half of the optimizer coordinator (tasks.md 6.1).
@@ -91,7 +102,18 @@ export class OptimizationCoordinator {
           now,
         });
         if (admission.kind === 'reserved') {
-          this.options.spawn({ ...request, generation, admission });
+          const child = this.options.spawn({ ...request, generation, admission });
+          const bound = bindSolverSlot(this.options.db, {
+            projectId: request.key.projectId,
+            contractVersion: request.key.contractVersion,
+            generation,
+            objective: request.objective,
+            budgetMs: request.key.budgetMs,
+            attemptToken: admission.attemptToken,
+            pid: child.pid,
+          });
+          child.verdict(bound ? 'bound' : 'abort');
+          if (!bound) child.kill();
         }
       },
     );
