@@ -21,6 +21,33 @@ export interface SolverLauncherProcess {
 
 export type SolverLauncherSpawn = (options: SolverLauncherSpawnOptions) => SolverLauncherProcess;
 
+export interface SolverVersionProbeResult {
+  readonly exitCode: number;
+  readonly stdout: Uint8Array;
+  readonly stderr: Uint8Array;
+}
+
+export type SolverVersionProbe = (command: readonly string[]) => SolverVersionProbeResult;
+
+const bunVersionProbe: SolverVersionProbe = (command) =>
+  Bun.spawnSync({
+    cmd: [...command],
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+/** Read the version from the installed distribution rather than restating it in Bun. */
+export function readInstalledSolverVersion(probe: SolverVersionProbe = bunVersionProbe): string {
+  const result = probe(['wbs-solver-launcher', '--version']);
+  if (result.exitCode !== 0) {
+    throw new Error(`wbs-solver-launcher --version exited ${String(result.exitCode)}`);
+  }
+  const version = new TextDecoder().decode(result.stdout).trim();
+  if (version.length === 0) throw new Error('wbs-solver-launcher reported an empty version');
+  return version;
+}
+
 export interface SolverLauncherRequest {
   /** The reservation's unforgeable identity, sent as process metadata. */
   readonly attemptToken: string;

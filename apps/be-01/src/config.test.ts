@@ -13,6 +13,14 @@ const VALID = {
 };
 
 describe('BeConfig', () => {
+  it('defaults the one solver budget to sixty seconds and accepts an explicit millisecond override', () => {
+    // Proof: remove the default and the first read is undefined; ignore the
+    // environment key and the second stays 60000. Both would key cache rows and
+    // child deadlines differently from the operator's configured release.
+    expect(loadConfig(VALID).SOLVER_BUDGET_MS).toBe(60_000);
+    expect(loadConfig({ ...VALID, SOLVER_BUDGET_MS: '120000' }).SOLVER_BUDGET_MS).toBe(120_000);
+  });
+
   it('accepts a complete environment', () => {
     const parsed = BeConfig(VALID);
     expect(parsed).toMatchObject({ PORT: 3100, DB_PATH: '/srv/wbs/data/wbs.db' });

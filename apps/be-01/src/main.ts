@@ -3,6 +3,7 @@ import { createLogger } from '@wbs/observability';
 import { bootBe01 } from './boot';
 import { loadConfig } from './config';
 import { oidcRouteOptionsFromEnv } from './controller/auth.routes';
+import { readInstalledSolverVersion, spawnSolverLauncher } from './service/solver-launcher-process';
 
 const cfg = loadConfig();
 const logger = createLogger({ service: 'be-01', level: cfg.LOG_LEVEL });
@@ -17,6 +18,7 @@ const logger = createLogger({ service: 'be-01', level: cfg.LOG_LEVEL });
 // Local dev opts in through `apps/be-01/.env`.
 let running;
 try {
+  const solverVersion = readInstalledSolverVersion();
   running = bootBe01({
     dbPath: cfg.DB_PATH,
     port: cfg.PORT,
@@ -31,6 +33,16 @@ try {
         : undefined,
     version: process.env['VERSION'],
     migrateOnStartup: process.env['MIGRATE_ON_STARTUP'] === 'true',
+    optimizer: {
+      solverVersion,
+      budgetMs: cfg.SOLVER_BUDGET_MS,
+      spawn: (request) =>
+        spawnSolverLauncher({
+          attemptToken: request.admission.attemptToken,
+          childDeadlineAt: request.admission.childDeadlineAt,
+          request: request.request,
+        }),
+    },
   });
 } catch (err) {
   logger.error({ err }, 'be-01 failed to start');

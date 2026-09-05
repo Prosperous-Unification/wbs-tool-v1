@@ -95,6 +95,45 @@ function oidcOptions(passwordLoginEnabled: boolean): OidcRouteOptions {
 }
 
 describe('bootBe01', () => {
+  it('hands the installed optimizer runtime into the serving process graph', async () => {
+    // This is the boundary main.ts calls. Proof: omit the `optimizer` forwarding
+    // from bootBe01 to buildServices and the settings write is refused even
+    // though this boot was given a runnable optimizer.
+    const dir = tempDir('wbs-optimizer-boot-');
+    running = bootBe01({
+      dbPath: join(dir, 'test.db'),
+      port: 0,
+      logger: createLogger({ service: 'be-01' }),
+      jwtKey: 'k'.repeat(32),
+      gwUrl: 'http://gw.invalid',
+      internalAuthSecret: 's'.repeat(32),
+      localIdentity: { id: 'local-dev', username: 'local-dev', scopes: ['read', 'write'] },
+      migrateOnStartup: true,
+      migrationsFolder: FOLDER,
+      optimizer: {
+        solverVersion: '0.1.0',
+        budgetMs: 60_000,
+        spawn: () => {
+          throw new Error('the settings write must not spawn');
+        },
+      },
+    });
+    let health: Response | undefined;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      health = await fetch(`http://localhost:${String(running.port)}/health`);
+      if (health.status === 200) break;
+      await Bun.sleep(10);
+    }
+    expect(health?.status).toBe(200);
+    const created = await running.services.projects.create('Optimizer', 'local-dev');
+
+    expect(
+      await running.services.projects.update(created.project.id, 'local-dev', {
+        optimizationEnabled: true,
+      }),
+    ).toHaveProperty('ok', true);
+  });
+
   it('persists the fixed local identity after migrating an empty development database', async () => {
     const dir = tempDir('wbs-local-boot-');
     running = bootBe01({

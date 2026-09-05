@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  readInstalledSolverVersion,
   type SolverLauncherProcess,
   type SolverLauncherSpawnOptions,
   spawnSolverLauncher,
@@ -40,6 +41,25 @@ function harness(): Harness {
 }
 
 describe('spawnSolverLauncher', () => {
+  it('reads the installed launcher version through the command that owns the metadata', () => {
+    // The process command is the package boundary. Proof: remove the reader and
+    // this case fails before a production boot can invent a duplicated version;
+    // call the solver entrypoint instead and the literal argv differs.
+    const seen: string[][] = [];
+
+    expect(
+      readInstalledSolverVersion((command) => {
+        seen.push([...command]);
+        return {
+          exitCode: 0,
+          stdout: new TextEncoder().encode('0.1.0\n'),
+          stderr: new Uint8Array(),
+        };
+      }),
+    ).toBe('0.1.0');
+    expect(seen).toEqual([['wbs-solver-launcher', '--version']]);
+  });
+
   it('spawns the lifecycle launcher with identity and absolute deadline only on argv', () => {
     const fake = harness();
     const child = spawnSolverLauncher(

@@ -53,6 +53,12 @@ const EVENT_LOG_MAX_PER_SUBSCRIPTION = 1_000;
 const RETENTION_INTERVAL_MS = 10 * 60_000;
 const REPLAY_BUFFER_MAX_AGE_MS = 5 * 60_000;
 
+export interface OptimizerRuntime {
+  solverVersion: string;
+  budgetMs: number;
+  spawn: ReservedSpawner;
+}
+
 export interface ServicesOptions {
   db: Drizzle;
   /**
@@ -73,11 +79,7 @@ export interface ServicesOptions {
   oidc?: AuthServiceOptions['oidc'];
   passwordSessions?: boolean;
   localIdentity?: AuthServiceOptions['localIdentity'];
-  optimizer?: {
-    solverVersion: string;
-    budgetMs: number;
-    spawn: ReservedSpawner;
-  };
+  optimizer?: OptimizerRuntime;
 }
 
 export interface BeServices {

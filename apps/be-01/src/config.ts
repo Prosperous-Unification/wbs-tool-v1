@@ -14,12 +14,18 @@ export const BeConfig = type({
   // >=32 bound as gw-01's copy so a short key fails at both ends or neither.
   JWT_SIGNING_KEY_CURRENT: 'string>=32',
   AUTH_MODE: "'local'|'oidc'",
+  'SOLVER_BUDGET_MS?': 'string.integer.parse',
 });
-export type BeConfig = typeof BeConfig.infer;
+export type BeConfig = Omit<typeof BeConfig.infer, 'SOLVER_BUDGET_MS'> & {
+  SOLVER_BUDGET_MS: number;
+};
 
 export const loadConfig = (
   envSource: Record<string, string | undefined> = process.env,
 ): BeConfig => {
   authModeOf(envSource);
-  return defineConfig(BeConfig, envSource);
+  const config = defineConfig(BeConfig, envSource);
+  const solverBudgetMs = config.SOLVER_BUDGET_MS ?? 60_000;
+  if (solverBudgetMs <= 0) throw new Error('SOLVER_BUDGET_MS must be greater than zero');
+  return { ...config, SOLVER_BUDGET_MS: solverBudgetMs };
 };
