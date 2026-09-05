@@ -17,10 +17,7 @@ export const BeConfig = type({
   'SOLVER_BUDGET_MS?': 'string.integer.parse',
   'SOLVER_SEARCH_WORKERS?': 'string.integer.parse',
 });
-export type BeConfig = Omit<
-  typeof BeConfig.infer,
-  'SOLVER_BUDGET_MS' | 'SOLVER_SEARCH_WORKERS'
-> & {
+export type BeConfig = Omit<typeof BeConfig.infer, 'SOLVER_BUDGET_MS' | 'SOLVER_SEARCH_WORKERS'> & {
   SOLVER_BUDGET_MS: number;
   SOLVER_SEARCH_WORKERS: number;
 };
