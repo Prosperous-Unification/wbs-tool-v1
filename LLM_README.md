@@ -132,19 +132,19 @@ any first message _containing_ `"pong"`; drain reads a malformed metrics body as
 
 ## More
 
-| Doc                                                                                 | When                                                                                                                   |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `docs/superpowers/{plans,specs}/2026-08-02-compose-blue-green-*.md`                 | before touching deploy, and why the pipeline is shaped this way                                                        |
-| `docs/runbook-dev-deploy.md`                                                        | deploying dev; what a deploy cannot carry                                                                              |
-| `docs/runbook-prod-deploy.md`                                                       | deploying prod; commands and their refusals                                                                            |
-| `docs/runbook-dagger-engine-registry-dns.md`                                        | engine can't resolve `registry`                                                                                        |
-| `docs/local-dev.md`                                                                 | running locally                                                                                                        |
-| `docs/capacity.md`                                                                  | why a plan's dates moved; where a team's number is typed                                                               |
-| `apps/be-01/openapi.json`                                                           | the API's own document — `bun apps/be-01/src/openapi/emit-openapi-cli.ts` rewrites it                                  |
-| `apps/mcp-01/README.md`                                                             | the MCP server: the tools derived from that document, two of them the batch writes                                     |
-| `HUMAN_README.md`                                                                   | operating prod; triage runbook; openclaw path                                                                          |
-| `docs/2026-08-30-agent-loop-audit.md`                                               | **before gating while other agents are live** — worktree ownership, lock lanes, five false greens                      |
-| `docs/2026-09-02-refactoring-plan.md`, `docs/2026-09-05-ports-and-adapters-plan.md` | before any refactor — five waves and ledgers; then the core / store-sqlite / store-memory / be-01 split, ADR 0014–0015 |
+| Doc                                                                                 | When                                                                                                                                                       |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/superpowers/{plans,specs}/2026-08-02-compose-blue-green-*.md`                 | before touching deploy, and why the pipeline is shaped this way                                                                                            |
+| `docs/runbook-dev-deploy.md`                                                        | deploying dev; what a deploy cannot carry                                                                                                                  |
+| `docs/runbook-prod-deploy.md`                                                       | deploying prod; commands and their refusals                                                                                                                |
+| `docs/runbook-dagger-engine-registry-dns.md`                                        | engine can't resolve `registry`                                                                                                                            |
+| `docs/local-dev.md`                                                                 | running locally                                                                                                                                            |
+| `docs/capacity.md`                                                                  | why a plan's dates moved; where a team's number is typed                                                                                                   |
+| `apps/be-01/openapi.json`                                                           | the API's own document — `bun apps/be-01/src/openapi/emit-openapi-cli.ts` rewrites it                                                                      |
+| `apps/mcp-01/README.md`                                                             | the MCP server: the tools derived from that document, two of them the batch writes                                                                         |
+| `HUMAN_README.md`                                                                   | operating prod; triage runbook; openclaw path                                                                                                              |
+| `docs/2026-08-30-agent-loop-audit.md`                                               | **before gating while other agents are live** — worktree ownership, lock lanes, five false greens                                                          |
+| `docs/2026-09-02-refactoring-plan.md`, `docs/2026-09-05-ports-and-adapters-plan.md` | before any refactor — five waves and ledgers; then the core / store-sqlite / store-memory / be-01 split, ADR 0014–0015; its `-history.md` is not normative |
 
 Conventions: pure planners + thin IO shell; `strictTypeChecked`; comments say **why** and state what
 was/wasn't verified; never print a secret value. Explicit return types are house style, **not** lint-enforced.

@@ -967,10 +967,11 @@ _Avoid_: abstraction, contract (for this), interface (alone)
 
 **Ring**:
 A dependency direction across Nx projects, stated as a tag and enforced by the module-boundary
-rule: domain (vocabulary, contracts, validation, logging types, config shapes), application
-(core), adapter (sources, runtime adapters, auth, realtime, the solver, every app). Every
-project has exactly one. A project depends only on its own ring or inward. Not a folder: a
-layer is a folder inside one project.
+rule: domain (vocabulary, contracts, validation, the logger type), application (core, the
+conformance kits), adapter (sources, runtime adapters, auth, realtime, the solver, observability,
+config, every app and every tool). Every project has exactly one. A project depends only on its
+own ring or inward; its test files are outside the rule. Not a folder: a layer is a folder
+inside one project.
 _Avoid_: layer (for this), tier (that is a deployable process), level
 
 **Adapter**:

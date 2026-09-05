@@ -16,7 +16,7 @@ describes; the in-memory source meets it by staging and swapping. A conformance 
 roll back is not a slower source, it is a failing one.
 Plan: `docs/2026-09-05-ports-and-adapters-plan.md` §3.2.
 
-Two things the first draft of this ADR got wrong, corrected on review (plan §8):
+Two things the first draft of this ADR got wrong, corrected on review (plan history §8):
 
 - **Isolation is not promised.** SQLite's one shared connection shows a batch's in-flight rows
   to a concurrent read, and a probe against the production event log observed it. The
@@ -31,7 +31,7 @@ Two things the first draft of this ADR got wrong, corrected on review (plan §8)
   SQLite, the project for a Postgres advisory lock, nothing where each transaction has its own
   connection.
 
-And one thing the second draft got wrong, corrected on the third review (plan §10):
+And one thing the second draft got wrong, corrected on the third review (plan history §10):
 
 - **There is no re-entrancy.** The second draft had the coordinator "re-entrant by owner
   token" and never said how the token reached a store method called from inside `run`. Every
@@ -108,7 +108,9 @@ The memory source holds history outside its cloned/swapped transactional tables,
 tests successful independent saves against both commit and rollback. This addresses a
 conditional design risk, not a measured data-loss bug in an implemented memory source.
 `EventLogRepo` is a port of the source like the stores (`EventLogStore`),
-because replay and retention read and prune through it. The batch runner composes its
+and a **transactional** one on `Scope`: the batch records its events through
+`scope.stores.eventLog`, while replay and retention read and prune through the public gated
+store. The batch runner composes its
 services per batch over `scope.stores` with that batch's collector. SQLite's admitted store
 adapters can be built once at `open`; its scoped service graph is rebuilt because announcement
 ownership changes for every batch. The conformance checks must prove behavior through these

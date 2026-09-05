@@ -11,12 +11,16 @@ no `Bun`/`process`/`fetch`/timer/`Buffer` globals. Every runtime concern — pas
 token signing, digests, timers, push transport, the schedule engine —
 arrives through `composeServices({ source, runtime, shared })`, so core is
 **`runtime:isomorphic`**. Dependency direction is stated as **rings** on Nx projects, and
-**every project carries exactly one**: `ring:domain` (`domain`, `contracts`, `validation`,
-`observability`, `config` — types and pure functions every ring may read), `ring:application`
-(`core`), `ring:adapter` (`store-*`, `runtime-web`, `auth`, `realtime`, `solver-py`, `be-01`,
-`fe-01`, `gw-01`, `mcp-01`) — enforced by the `@nx/enforce-module-boundaries` rule already in
+**every project carries exactly one**: `ring:domain` (`domain`, `contracts`, `validation` —
+types and pure functions every ring may read), `ring:application` (`core`, and `conformance`
+for the kits), `ring:adapter` (`store-*`, `runtime-web`, `auth`, `realtime`, `solver-py`,
+`observability`, `config`, `be-01`, `fe-01`, `gw-01`, `mcp-01`, and every `tools/*` project) —
+enforced by the `@nx/enforce-module-boundaries` rule already in
 the gate, plus `no-restricted-imports` / `no-restricted-globals` for what Nx cannot see, plus
-a totality test, because a project without a ring is a constraint that never fires. The
+a totality test, because a project without a ring is a constraint that never fires. **Test
+files are outside the ring constraints** and the import bans (the runtime constraints still
+bind them): the one hole, so that core's tests can compose core over the in-memory source
+without the source being a core dependency. The
 SQLite adapters live in `libs/store-sqlite`, the in-memory source in `libs/store-memory`, the
 browser adapters for the runtime ports in `libs/runtime-web`, and `apps/be-01` keeps only the
 Elysia adapter, the composition root with the Bun runtime adapters, and the migrate CLIs.
@@ -37,6 +41,14 @@ ArkType declaration: Standard Schema cannot provide the document emitter's metad
 (plan D25). Replies pair status with schema, including modeled 429/503 refusals; unexpected
 account-store faults still throw (D26). Announcement ownership is explicit in each batch's
 service graph, so core needs no ambient-context runtime port (D24; ADR 0015).
+
+The same day's review of the plan against the workspace corrected three more. The
+conformance kits are `bun:test` suites, which core's own import ban keeps out of core, so they
+live in `libs/conformance` (`ring:application`, `runtime:bun`). `libs/observability` imports
+Elysia, pino and OpenTelemetry and `libs/config` spawns `sops`, so both are `ring:adapter`,
+and the one thing core wanted from them — the `Logger` type with its no-op — moves to
+`@wbs/contracts`. And the `EventLogStore` is a transactional store on `Scope`, not history
+(ADR 0015).
 
 `libs/domain` and `libs/contracts` are conceptually core's innermost ring and stay **separate
 Nx projects**: fe-01 imports one from 11 files and gw-01 the other from 4, and a boundary the
@@ -77,9 +89,9 @@ import `WorkItemService`, and nothing would fail.
 saved plans and the command runner included — with use-case entrypoints (`runCommandBatch`,
 `savePlan`, `replay`, `retentionSweep`) that carry the authorization and announcements the
 controllers hold today, so a worker cannot bypass them. be-01's `boot.ts` is one caller; the
-"any trigger, any runtime" test in `libs/runtime-web` is another, and it lives there rather
-than in core because a test that composes core over a source is an adapter-ring test, and the
-ring rule reads test files too. A domain module cannot take a core port — the rings point
+"any trigger, any runtime" test, `libs/core/src/compose.test.ts`, is another — it composes core
+over `@wbs/store-memory` from inside core, which the test-file exemption above permits and
+which keeps the proof next to the code it proves. A domain module cannot take a core port — the rings point
 inward — so the one `node:crypto` use in `libs/domain` moves to its single caller in the SQLite
 adapter rather than behind `Digest`. gw-01 is **out**: Nx forbids app→app imports, so a be-01
 adapter cannot serve it, and its WebSocket upgrade is not an endpoint; a shared

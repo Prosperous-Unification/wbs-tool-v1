@@ -3,16 +3,17 @@
 be-01 split into an isomorphic application core, one SQLite source, one in-memory source and
 one Elysia HTTP adapter, with conformance kits that decide whether a new source is a correct
 implementation and an endpoint table that is the one contract fe-01, be-01 and mcp-01 share.
-Settled in a grilling session on 2026-09-05, revised the same day after two codex reviews (§8),
-then revised again the same evening when Dany lifted the backward-compatibility constraint and
-asked for every runtime dependency to arrive by injection (§9), and a third time on 2026-09-06
-after a review found the plan's own contradictions (§10). The repository-wide review accepted
-on 2026-09-06 is incorporated in §11 and in the seams below; it supersedes D15's ambient
-context and corrects rollback, schema emission and independent history. **Not started.** Four
-OpenSpec changes, one per wave plus the namespacing change, created when each starts. The
-implementation fixes have their own ordered backlog in
+**Not started.** Four OpenSpec changes, one per wave plus the namespacing change, created when
+each wave starts. The implementation fixes have their own ordered backlog in
 [`2026-09-02-refactoring-plan.md` §67](2026-09-02-refactoring-plan.md#67--review-follow-up--2026-09-06);
 Wave 0 checks those overlaps too.
+
+**This file is the normative text: the D-table and §2–§7.** How each decision got its shape —
+the grilling session, two codex reviews, the evening compatibility was lifted, three later
+reviews — is in
+[`2026-09-05-ports-and-adapters-history.md`](2026-09-05-ports-and-adapters-history.md), which
+keeps superseded decisions and is never a source for an OpenSpec change. Where a `D` row says
+"superseded", the row that supersedes it is the only one to read.
 
 Vocabulary: **port / adapter / source / unit of work / write coordinator / gate / scope /
 endpoint / endpoint shape / request policy / conformance kit / ring** as defined in
@@ -56,57 +57,58 @@ rather than inherit.
 
 ## 1 · Decisions
 
-| #   | Question                                                              | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | What does "swappable source" require of ADR 0007's outer transaction? | A behavioural **unit of work** port. **Terminal atomicity** for the batch's writes: once `run` settles, all of `act`'s writes are observable or none are. Explicit post-rollback repair and independent history are separate acts (D27, D28). **Isolation is not promised.** ADR 0015.                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| D2  | Where do the pieces live?                                             | Four packages: `libs/core`, `libs/store-sqlite`, `libs/store-memory`, `apps/be-01`. Direction enforced by Nx ring tags + ESLint. ADR 0014.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| D3  | What is the framework-independent controller?                         | **Endpoints as data** — an `EndpointShape` (method, path, operation id, request policies, Standard Schema types, document) in `@wbs/contracts`, and an `Endpoint` in core that binds a pure handler to one shape (D21). **ArkType from Wave 1**, unknown keys **rejected on every route**, **one refusal envelope** for every endpoint, and the OpenAPI document **emitted from the specs**. (Backward compatibility is not a constraint — Dany, §9.)                                                                                                                                                                                                                                                   |
-| D4  | Second adapters as living proof?                                      | **No** second HTTP adapter (Dany: "good idea, overkill for now"). The store kit gets two implementations by tightening the in-memory fixtures. HTTP characterization tests stay **local to the Elysia adapter**; an exported HTTP kit is written the day a second adapter exists.                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| D5  | Scope across apps                                                     | **be-01, fe-01's API client, and mcp-01's tool-schema derivation.** gw-01's WebSocket upgrade and services are outside this extraction; refactoring R4/R7 remain separate. mcp-01's authentication/server runtime stays unchanged. A shared Elysia adapter is a later decision.                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| D6  | The seven value leaks                                                 | Vocabulary moves to core/domain. `isForeignKeyViolation` is replaced by **reference-specific** store outcomes (`unknown_step`, `unknown_person`, …) that the adapter returns **only after proving that reference absent**; any other FK failure stays a thrown unknown. No blanket `unknown_reference`. **Confirmed by Dany after review.**                                                                                                                                                                                                                                                                                                                                                             |
-| D7  | Order                                                                 | Wave 0 collision gate → Wave 1 HTTP + shared contract → Wave 2 stores, unit of work, runtime ports, kits → Wave 3 extraction and rings. Each its own OpenSpec change and PR.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| D8  | Packaging                                                             | This document + four OpenSpec changes: `http-endpoint-port`, `store-port-and-unit-of-work`, `core-lib-extraction`, `repo-namespacing`, each created when its wave starts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| D9  | Records                                                               | ADR 0014 and 0015 `proposed` now, `accepted` by the merging PR of their wave. CONTEXT.md terms written now.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| D10 | What runtime does core promise?                                       | **`runtime:isomorphic`.** Runtime concerns arrive through `composeServices({ source, runtime, shared })`: `PasswordHasher`, `TokenCodec`, `Digest`, `Timers`, `PushTransport`, `Scheduler`. Announcements are owned by the scoped service graph, with no ambient-context port (D24). §3.4.                                                                                                                                                                                                                                                                                                                                                                                                              |
-| D11 | Who coordinates writes?                                               | The **source** owns a **write coordinator**: a queue of turns, keyed however that source needs — process-wide for one-connection SQLite (today's `WriteLock`, moved inside the adapter), per project for a Postgres source (`pg_advisory_xact_lock`), a no-op where every transaction has its own connection. Every mutating adapter method asks it for a turn; `UnitOfWork.run` takes **one** turn for the whole batch. **There is no re-entrancy**: the batch's own writes never ask (D20), outsiders wait. `WriteLock` leaves core.                                                                                                                                                                  |
-| D12 | Saved plans and the source                                            | **Independent history ports**, never enlisted in a command batch or queued on its coordinator. Existing bounded contention remains `snapshot_busy`. A successful save survives either outcome of a concurrent batch. Memory history lives outside staged transactional state (D27); post-rollback journal repair is transactional-store work, not history (D28).                                                                                                                                                                                                                                                                                                                                        |
-| D13 | **New.** What is the contract between fe-01 and be-01?                | **The endpoint shapes.** Every `EndpointShape`, its `P, Q, B, R` types and `RefusalCode` live in `@wbs/contracts`; be-01 binds handlers to those shapes, fe-01 derives a typed client from the same shapes. A renamed field breaks fe-01's typecheck, not a screen. fe-01's four hand-written API modules are replaced. (Revised by D21: the table with handlers cannot cross the ring boundary; the shapes can.)                                                                                                                                                                                                                                                                                       |
-| D14 | **New.** How is dependency direction stated across packages?          | **Rings**, as Nx tags, and **every project has exactly one**: `ring:domain` (`domain`, `contracts`, `validation`, `observability`, `config`), `ring:application` (`core`), `ring:adapter` (`store-*`, `runtime-web`, `auth`, `realtime`, `solver-py`, `be-01`, `fe-01`, `gw-01`, `mcp-01`). Each ring depends only inward; fe-01 additionally only on `ring:domain` and `runtime:browser` adapters. `domain` and `contracts` stay **separate Nx projects** because fe-01 and gw-01 import them and a boundary is per project. A totality test asserts one tag per axis per project (§3.5 #12).                                                                                                          |
-| D15 | Ambient batch context in the browser                                  | **Superseded by D24 (§11).** The previously selected `AsyncContext` port and single-slot browser adapter are removed from this design. Per-store admission cannot stop an already-committed route from publishing during the following batch.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| D16 | Which validator, where?                                               | **ArkType everywhere, both ends of the wire.** `SchemaShape` pairs a `StandardSchemaV1` validator with a generated JSON Schema descriptor (D25); client validation covers successful and refusal responses by status (D26). TypeBox is banned once Wave 1 removes it. This is a target state; R4 in the refactoring follow-up closes the current WS frame-validation gap.                                                                                                                                                                                                                                                                                                                               |
-| D17 | **New.** Can the whole product run in a browser?                      | **Yes, by construction, not by this plan's waves.** Core and the memory source are isomorphic (D10); `clientFromShapes(shapes, transport)` takes an in-process transport that calls `endpoint.handle` directly; the broadcaster gets an in-tab adapter; persistence is a third source the kit certifies — `store-indexeddb`, or the memory source with a persist hook (§7 Q7). A browser source has **no accounts**, so `Stores` is a composition and the kits are per port (D22); it has no Python solver, so a project stored on that engine is **refused** with `engine_unavailable`, never silently rescheduled (D23). Widening fe-01's ring constraint to `ring:application` is the day it starts. |
-| D18 | **New.** One repo, several products                                   | **Namespace by directory, project name and tag; aliases stay.** `apps/wbs/*`, `libs/wbs/*`, project names `wbs-*`, tag `product:wbs`, rule `product:X → product:X \| product:shared`; `@wbs/*` aliases unchanged; `tools/*` is infra. Its own change after Wave 3, verified by a prod dry-run because Dockerfile build contexts move. **Eighteen** files outside `apps/` name an app path (measured 2026-09-06, §4); the change's first task is that list.                                                                                                                                                                                                                                              |
-| D19 | **New.** Ring in the names?                                           | **In the directory, never in the name.** `libs/wbs/{domain,application,adapters}/…`, `apps/wbs/…`; project names and aliases stay short (`wbs-domain`, `@wbs/core`). The `ring:` tag is the enforced truth and a test asserts directory ring = tag, so the path cannot lie. Rejected: `wbs-adapter-01-fe-01` and `wbs-domain-contracts` — a ring is an attribute, a name is an identity; a lib that moves rings would churn every import; contracts' ring is still the open question.                                                                                                                                                                                                                   |
-| D20 | How does a store know a write is the batch's own?                     | **Through `scope`, never ambiently.** `UnitOfWork.run` supplies admitted transactional stores; the runner builds its scoped services with that batch's collector (D24). SQLite reuses admitted store adapters, not a service graph holding another batch's collector. Public transactional stores take turns; independent history does not (D27). Repair receives its own live admitted scope (D28).                                                                                                                                                                                                                                                                                                    |
-| D21 | **New (§10).** Where does the endpoint table live?                    | **Split.** `EndpointShape<P,Q,B,R>` — everything but the handler — in `@wbs/contracts` (`ring:domain`), so fe-01, mcp-01 and `documentFromShapes` read it without touching core. `Endpoint = EndpointShape & { handle }` in core. The table fe-01 derives its client from is the shapes; the table be-01 mounts is the endpoints; one test asserts every shape has exactly one endpoint bound to it.                                                                                                                                                                                                                                                                                                    |
-| D22 | Stores: one record or a composition?                                  | **A composition, kits per port.** `Stores = TransactionalStores & HistoryStores`; transactional stores contain plan, directory and available account ports. `Scope` excludes history. `composeServices` accepts a source without account ports and omits auth in its type; each certificate names the kits actually run. D27 keeps independent history outside every staged write set.                                                                                                                                                                                                                                                                                                                  |
-| D23 | **New (§10).** A project's engine is not available here               | **Refuse.** `Scheduler.schedule` answers `{ ok: false; error: 'engine_unavailable'; engine }` when the project's stored engine has no adapter in this composition; every caller of the schedule surfaces it as a `Refusal`. Never fall back: dates from an engine the project did not choose are a wrong plan with no mark on it in any export (R5).                                                                                                                                                                                                                                                                                                                                                    |
-| D24 | Who owns announcements?                                               | **The service graph of one batch.** Build a fresh collector and scoped services per batch; ordinary services hold the direct broadcaster. Flush only after commit and release, drop only that batch's events on refusal. No `AsyncContext` or single-slot browser adapter. Supersedes D15; review D2.                                                                                                                                                                                                                                                                                                                                                                                                   |
-| D25 | How can shapes emit documents?                                        | **Validator + generated document descriptor.** `SchemaShape<T>` carries `StandardSchemaV1<T>` and JSON Schema from one ArkType declaration. Conversion stays at the declaration boundary; unsupported conversion fails explicitly. `documentFromShapes` consumes descriptors without validator introspection; review D3.                                                                                                                                                                                                                                                                                                                                                                                |
-| D26 | Which replies does the contract admit?                                | **Status-specific success and refusal variants.** Include modeled 429 throttling and 503 contention/dependency failure, preserve empty 204/302 semantics and validate both response arms. Unexpected account-store errors propagate rather than become 401; review D4.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| D27 | Which state does a batch own?                                         | **Transactional stores only.** Independent history is composed at the source, excluded from `Scope`, and held outside memory's staged tables. A successful concurrent history mutation survives commit and rollback; contention is a typed refusal. Corrects the conditional risk in review D5.                                                                                                                                                                                                                                                                                                                                                                                                         |
-| D28 | How does repair run after rollback?                                   | **A fresh admitted scope over surviving transactional state**, passed to `afterRollback` before releasing the coordinator. Never public gated stores or the discarded memory scope. A repair failure is propagated outside the transaction catch, so it cannot trigger another rollback; review D1.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| #   | Question                                                              | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | What does "swappable source" require of ADR 0007's outer transaction? | A behavioural **unit of work** port. **Terminal atomicity** for the batch's writes: once `run` settles, all of `act`'s writes are observable or none are. Explicit post-rollback repair and independent history are separate acts (D27, D28). **Isolation is not promised.** ADR 0015.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D2  | Where do the pieces live?                                             | Four packages: `libs/core`, `libs/store-sqlite`, `libs/store-memory`, `apps/be-01`. Direction enforced by Nx ring tags + ESLint. ADR 0014.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D3  | What is the framework-independent controller?                         | **Endpoints as data** — an `EndpointShape` (method, path, operation id, request policies, Standard Schema types, document) in `@wbs/contracts`, and an `Endpoint` in core that binds a pure handler to one shape (D21). **ArkType from Wave 1**, unknown keys **rejected on every route**, **one refusal envelope** for every endpoint, and the OpenAPI document **emitted from the specs**. (Backward compatibility is not a constraint — Dany; history §9.)                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| D4  | Second adapters as living proof?                                      | **No** second HTTP adapter (Dany: "good idea, overkill for now"). The store kit gets two implementations by tightening the in-memory fixtures. HTTP characterization tests stay **local to the Elysia adapter**; an exported HTTP kit is written the day a second adapter exists.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| D5  | Scope across apps                                                     | **be-01, fe-01's API client, and mcp-01's tool-schema derivation.** gw-01's WebSocket upgrade and services are outside this extraction; refactoring R4/R7 remain separate. mcp-01's authentication/server runtime stays unchanged. A shared Elysia adapter is a later decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| D6  | The seven value leaks                                                 | Vocabulary moves to core/domain. `isForeignKeyViolation` is replaced by **reference-specific** store outcomes (`unknown_step`, `unknown_person`, …) that the adapter returns **only after proving that reference absent**; any other FK failure stays a thrown unknown. No blanket `unknown_reference`. **Confirmed by Dany after review.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| D7  | Order                                                                 | Wave 0 collision gate → Wave 1 HTTP + shared contract → Wave 2 stores, unit of work, runtime ports, kits → Wave 3 extraction and rings. Each its own OpenSpec change and PR.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D8  | Packaging                                                             | This document + four OpenSpec changes: `http-endpoint-port`, `store-port-and-unit-of-work`, `core-lib-extraction`, `repo-namespacing`, each created when its wave starts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| D9  | Records                                                               | ADR 0014 and 0015 `proposed` now, `accepted` by the merging PR of their wave. CONTEXT.md terms written now.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| D10 | What runtime does core promise?                                       | **`runtime:isomorphic`.** Runtime concerns arrive through `composeServices({ source, runtime, shared })`: `PasswordHasher`, `TokenCodec`, `Digest`, `Timers`, `PushTransport`, `Scheduler`. Announcements are owned by the scoped service graph, with no ambient-context port (D24). §3.4.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D11 | Who coordinates writes?                                               | The **source** owns a **write coordinator**: a queue of turns, keyed however that source needs — process-wide for one-connection SQLite (today's `WriteLock`, moved inside the adapter), per project for a Postgres source (`pg_advisory_xact_lock`), a no-op where every transaction has its own connection. Every mutating adapter method asks it for a turn; `UnitOfWork.run` takes **one** turn for the whole batch. **There is no re-entrancy**: the batch's own writes never ask (D20), outsiders wait. `WriteLock` leaves core.                                                                                                                                                                                                                                                                                                                                                                   |
+| D12 | Saved plans and the source                                            | **Independent history ports**, never enlisted in a command batch or queued on its coordinator. Existing bounded contention remains `snapshot_busy`. A successful save survives either outcome of a concurrent batch. Memory history lives outside staged transactional state (D27); post-rollback journal repair is transactional-store work, not history (D28).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D13 | **New.** What is the contract between fe-01 and be-01?                | **The endpoint shapes.** Every `EndpointShape`, its `P, Q, B, R` types and `RefusalCode` live in `@wbs/contracts`; be-01 binds handlers to those shapes, fe-01 derives a typed client from the same shapes. A renamed field breaks fe-01's typecheck, not a screen. fe-01's four hand-written API modules are replaced. (Revised by D21: the table with handlers cannot cross the ring boundary; the shapes can.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| D14 | **New.** How is dependency direction stated across packages?          | **Rings**, as Nx tags, and **every project has exactly one**: `ring:domain` (`domain`, `contracts`, `validation`), `ring:application` (`core`, `conformance`), `ring:adapter` (`store-*`, `runtime-web`, `auth`, `realtime`, `solver-py`, `observability`, `config`, `be-01`, `fe-01`, `gw-01`, `mcp-01`, and every `tools/*` project). Each ring depends only inward; fe-01 additionally only on `ring:domain` and `runtime:browser` adapters. **Test files are outside the ring constraints** (not the runtime ones): a core test composes core over `@wbs/store-memory`, and that is the one hole, deliberately. `domain` and `contracts` stay **separate Nx projects** because fe-01 and gw-01 import them and a boundary is per project. A totality test asserts one `ring:` and one `runtime:` tag on every project, and one `product:` tag on every project under `apps/` and `libs/` (§3.5 #12). |
+| D15 | Ambient batch context in the browser                                  | **Superseded by D24.** Read D24 only; history §9.3 and §11 hold the `AsyncContext` port that was chosen here and the write-before-next-batch window that removed it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D16 | Which validator, where?                                               | **ArkType everywhere, both ends of the wire.** `SchemaShape` pairs a `StandardSchemaV1` validator with a generated JSON Schema descriptor (D25); client validation covers successful and refusal responses by status (D26). TypeBox is banned once Wave 1 removes it. This is a target state; R4 in the refactoring follow-up closes the current WS frame-validation gap.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| D17 | **New.** Can the whole product run in a browser?                      | **Yes, by construction, not by this plan's waves.** Core and the memory source are isomorphic (D10); `clientFromShapes(shapes, transport)` takes an in-process transport that calls `endpoint.handle` directly; the broadcaster gets an in-tab adapter; persistence is a third source the kit certifies — `store-indexeddb`, or the memory source with a persist hook (§7 Q7). A browser source has **no accounts**, so `Stores` is a composition and the kits are per port (D22); it has no Python solver, so a project stored on that engine is **refused** with `engine_unavailable`, never silently rescheduled (D23). Widening fe-01's ring constraint to `ring:application` is the day it starts.                                                                                                                                                                                                  |
+| D18 | **New.** One repo, several products                                   | **Namespace by directory, project name and tag; aliases stay.** `apps/wbs/*`, `libs/wbs/*`, project names `wbs-*`, tag `product:wbs`, rule `product:X → product:X \| product:shared`; `@wbs/*` aliases unchanged; `tools/*` is infra. Its own change after Wave 3, verified by a prod dry-run because Dockerfile build contexts move. **Eighteen** files outside `apps/` name an app path (measured 2026-09-06, §4); the change's first task is that list.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D19 | **New.** Ring in the names?                                           | **In the directory, never in the name.** `libs/wbs/{domain,application,adapters}/…`, `apps/wbs/…`; project names and aliases stay short (`wbs-domain`, `@wbs/core`). The `ring:` tag is the enforced truth and a test asserts directory ring = tag, so the path cannot lie. Rejected: `wbs-adapter-01-fe-01` and `wbs-domain-contracts` — a ring is an attribute, a name is an identity; a lib that moves rings would churn every import; contracts' ring is still the open question.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D20 | How does a store know a write is the batch's own?                     | **Through `scope`, never ambiently.** `UnitOfWork.run` supplies admitted transactional stores; the runner builds its scoped services with that batch's collector (D24). SQLite reuses admitted store adapters, not a service graph holding another batch's collector. Public transactional stores take turns; independent history does not (D27). Repair receives its own live admitted scope (D28).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D21 | Where does the endpoint table live?                                   | **Split.** `EndpointShape<P,Q,B,R>` — everything but the handler — in `@wbs/contracts` (`ring:domain`), so fe-01, mcp-01 and `documentFromShapes` read it without touching core. `Endpoint = EndpointShape & { handle }` in core. The table fe-01 derives its client from is the shapes; the table be-01 mounts is the endpoints; one test asserts every shape has exactly one endpoint bound to it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D22 | Stores: one record or a composition?                                  | **A composition, kits per port.** `Stores = TransactionalStores & HistoryStores`; transactional stores contain plan, directory and available account ports. `Scope` excludes history. `composeServices` accepts a source without account ports and omits auth in its type; each certificate names the kits actually run. D27 keeps independent history outside every staged write set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D23 | A project's engine is not available here                              | **Refuse.** `Scheduler.schedule` answers `{ ok: false; error: 'engine_unavailable'; engine }` when the project's stored engine has no adapter in this composition; every caller of the schedule surfaces it as a `Refusal`. Never fall back: dates from an engine the project did not choose are a wrong plan with no mark on it in any export (R5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D24 | Who owns announcements?                                               | **The service graph of one batch.** Build a fresh collector and scoped services per batch; ordinary services hold the direct broadcaster. Flush only after commit and release, drop only that batch's events on refusal. No `AsyncContext` or single-slot browser adapter. Supersedes D15.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D25 | How can shapes emit documents?                                        | **Validator + generated document descriptor.** `SchemaShape<T>` carries `StandardSchemaV1<T>` and JSON Schema from one ArkType declaration. Conversion stays at the declaration boundary; unsupported conversion fails explicitly. `documentFromShapes` consumes descriptors without validator introspection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| D26 | Which replies does the contract admit?                                | **Status-specific success and refusal variants.** Include modeled 429 throttling and 503 contention/dependency failure, preserve empty 204/302 semantics and validate both response arms. Unexpected account-store errors propagate rather than become 401.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| D27 | Which state does a batch own?                                         | **Transactional stores only.** Independent history is composed at the source, excluded from `Scope`, and held outside memory's staged tables. A successful concurrent history mutation survives commit and rollback; contention is a typed refusal.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| D28 | How does repair run after rollback?                                   | **A fresh admitted scope over surviving transactional state**, passed to `afterRollback` before releasing the coordinator. Never public gated stores or the discarded memory scope. A repair failure is propagated outside the transaction catch, so it cannot trigger another rollback.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ## 2 · Target layout
 
 ```
 libs/domain         @wbs/domain          ring:domain       runtime:isomorphic   vocabulary, tree rules, derivation, the TS schedule engine (a pure function; its Scheduler adapter lives in runtime-web and boot.ts), saved-plan shape
-libs/contracts      @wbs/contracts       ring:domain       runtime:isomorphic   WS frames, internal, and from Wave 1 every EndpointShape with its P/Q/B/R types and RefusalCode (D21)
+libs/contracts      @wbs/contracts       ring:domain       runtime:isomorphic   WS frames, internal, the Logger type with its no-op logger, and from Wave 1 every EndpointShape with its P/Q/B/R types and RefusalCode (D21)
 libs/validation     @wbs/validation      ring:domain       runtime:isomorphic   ArkType wrapper; domain's self-validating values use it
-libs/observability  @wbs/observability   ring:domain       runtime:isomorphic   Logger type and the no-op logger; core's services import the type
-libs/config         @wbs/config          ring:domain       runtime:isomorphic   ArkType-validated env shapes; no I/O
 libs/core           @wbs/core            ring:application  runtime:isomorphic
   ports/            one file per port: *Store, EventLogStore, SavedPlanStore, SavedPlanCaptureStore, UnitOfWork, Gate, Clock,
                     Broadcaster, IdentityResolver, PasswordHasher, TokenCodec, Digest, Timers, PushTransport, Scheduler
   services/         the application services, runtime dependencies injected and announcements scoped per batch (D24)
   use-cases/        runCommandBatch, savePlan (authorization + announcement, out of the controller), replay, retentionSweep
   http/             Endpoint = EndpointShape & { handle }, HttpReply, the binding table, mountable by any adapter
-  kits/             one kit per port, sourceConformance = their composition; unitOfWorkConformance(open); schedulerConformance(engine); brokenSource(source, faults)
   compose.ts        composeServices({ source, runtime, shared }) — one root graph; servicesOver(stores, shared) — each batch's scoped graph
+  compose.test.ts   the "any trigger, any runtime" proof: core over @wbs/store-memory with the runtime-web adapters, no HTTP (a test file, so outside the ring rule)
+libs/conformance    @wbs/conformance     ring:application  runtime:bun          one kit per port, sourceConformance = their composition; unitOfWorkConformance(open); schedulerConformance(engine); brokenSource(source, faults). Imports core's ports and bun:test; every source's test target runs it
 libs/store-sqlite   @wbs/store-sqlite    ring:adapter      runtime:bun          drizzle adapters, schema.ts, db.ts (openConnection, pragmas, the write coordinator), scheduleInputHash, migrate*.ts
 libs/store-memory   @wbs/store-memory    ring:adapter      runtime:isomorphic   the in-memory source, promoted from apps/be-01/src/testing/*-fixture.ts; a persist hook is where a file source starts
-libs/runtime-web    @wbs/runtime-web     ring:adapter      runtime:isomorphic   Digest over crypto.subtle, tsScheduler, in-tab Broadcaster; the "any trigger, any runtime" proof test
+libs/runtime-web    @wbs/runtime-web     ring:adapter      runtime:isomorphic   Digest over crypto.subtle, tsScheduler, in-tab Broadcaster — used by fe-01's future browser mode and by be-01's boot.ts alike
 libs/auth           @wbs/auth            ring:adapter      runtime:bun          jose and node:crypto behind TokenCodec and the OIDC store (§7 Q5)
+libs/observability  @wbs/observability   ring:adapter      runtime:bun          pino, OpenTelemetry, the Prometheus exporter; its Elysia /metrics plugin is deleted in Wave 1.5 when /metrics becomes a shape
+libs/config         @wbs/config          ring:adapter      runtime:bun          ArkType-validated env shapes, process.env and the sops loader; boot.ts is its caller, core never reads config
 libs/realtime       @wbs/realtime        ring:adapter      runtime:browser      unchanged
 libs/solver-py      —                    ring:adapter      runtime:bun          the Python engine, mounted as a Scheduler adapter in boot.ts
 apps/be-01                               ring:adapter      runtime:bun          elysia adapter, boot.ts (config, logger, the runtime adapters, composition), migrate-*-cli.ts
@@ -115,15 +117,19 @@ apps/gw-01                               ring:adapter      runtime:bun          
 apps/mcp-01                              ring:adapter      runtime:bun          tool schemas derive from shapes; authentication/server runtime unchanged (D5)
 ```
 
-Every project in the workspace appears above or is `scope:infra` under `tools/`. A ring the
-lint cannot find on a project is a constraint that never fires — the first Wave 3 lint run
-over the v3.1 list would have failed on fe-01's import of `libs/realtime` and core's import of
-`Logger` from `@wbs/observability` (§10).
+Every project in the workspace appears above or is `scope:infra` under `tools/`, and the tools
+are `ring:adapter`: they call adapters and nothing calls them. A ring the lint cannot find on a
+project is a constraint that never fires, which is what the totality test below is for. Two
+libs were tagged `runtime:isomorphic` while importing Elysia, pino and OpenTelemetry
+(`observability`) or spawning `sops` (`config`); both are adapters, and the one thing core
+needed from them — the `Logger` type — moves to `@wbs/contracts` so that core's graph holds no
+adapter.
 
 **Dependency direction, enforced** (§3.5 has the negatives):
 
 - Nx `depConstraints` on rings: `ring:domain` → `ring:domain`; `ring:application` → `ring:domain | ring:application`; `ring:adapter` → any ring; plus `allSourceTags: ['ring:adapter', 'runtime:browser']` → `ring:domain` and `runtime:browser` adapters only, until an offline mode wants core in the browser.
-- `no-restricted-imports` in `libs/core/src` and `libs/domain/src`: `node:*`, `bun:*`, `elysia`, `@elysiajs/*`, `drizzle-orm`, `jose`.
+- **Test files are exempt from the ring `depConstraints`** and from the two rules below, by an ESLint override on `**/*.test.ts` and `**/testing/**`. The runtime constraints still apply to them. This is what lets core's 39 service test files compose core over `@wbs/store-memory` and import `bun:test`; §3.5 #13 and #15 prove the exemption stops at the production file next door.
+- `no-restricted-imports` in `libs/core/src` and `libs/domain/src` production files: `node:*`, `bun:*`, `elysia`, `@elysiajs/*`, `drizzle-orm`, `jose`.
 - `no-restricted-globals` in the same two: `Bun`, `process`, `fetch`, `setTimeout`, `setInterval`, `Buffer` (plus `no-restricted-syntax` for `globalThis.fetch`).
 
 The **existing** guards move with the code: the drizzle rules and the `bun:sqlite` ban are
@@ -134,18 +140,20 @@ re-aimed at `libs/store-sqlite/src` (with `db.ts` the one exemption), and `test:
 
 ```
 apps/wbs/{be-01,fe-01,gw-01,mcp-01}                                        product:wbs  ring:adapter
-libs/wbs/domain/{domain,contracts,validation,observability,config}         product:wbs  ring:domain
-libs/wbs/application/core                                                  product:wbs  ring:application
-libs/wbs/adapters/{store-sqlite,store-memory,runtime-web,auth,realtime,solver-py}  product:wbs  ring:adapter
-tools/*                                                                    scope:infra  (shared by every product)
+libs/wbs/domain/{domain,contracts,validation}                              product:wbs  ring:domain
+libs/wbs/application/{core,conformance}                                    product:wbs  ring:application
+libs/wbs/adapters/{store-sqlite,store-memory,runtime-web,auth,realtime,solver-py,observability,config}  product:wbs  ring:adapter
+tools/*                                                                    scope:infra  ring:adapter  (no product: shared by every product)
 ```
 
 Project names `wbs-be-01`, `wbs-domain`, `wbs-core`, …; import aliases stay `@wbs/*`. Two tests
 in the shape of `test-tiers.test.ts` walk `libs/` and `apps/`: the **layout** test fails when a
 project's directory ring disagrees with its `ring:` tag or its `product:` tag disagrees with
-its top directory; the **totality** test fails when a project carries zero or two tags on any
-axis (`scope`, `ring`, `runtime`, `product`), because a project the constraints cannot see is a
-constraint that cannot fire.
+its top directory; the **totality** test fails when any project carries zero or two `scope:`,
+`ring:` or `runtime:` tags, or when a project under `apps/` or `libs/` carries zero or two
+`product:` tags, or when a project under `tools/` carries one — because a project the
+constraints cannot see is a constraint that cannot fire, and a tool that belongs to a product
+is a product file in the wrong directory.
 
 **Physical layout of the domain ring.** `libs/domain` and `libs/contracts` are conceptually
 the innermost ring of core, but they stay separate Nx projects: fe-01 imports one from 11
@@ -175,7 +183,7 @@ interface EndpointShape<Path extends string, Q, B, R, Pol extends readonly Reque
   params?: SchemaShape<ParamsOf<Path>>; // refines the derived names; cannot add or drop one
   query?: SchemaShape<Q>;
   body?: SchemaShape<B>; // ArkType, unknown keys rejected
-  response: SchemaShape<R>; // the client validates with response.validator (D16)
+  response: SchemaShape<R> | TextResponse; // JSON, validated by the client (D16); or { kind: 'text'; contentType } — /metrics is the first
   refusals: readonly { status: RefusalStatus; schema: SchemaShape<Refusal> }[];
   document: { summary: string };
 }
@@ -203,6 +211,7 @@ interface EndpointInput<S> {
 type HttpReply<S> =
   | { ok: true; status: 200 | 201; body: ResponseOf<S>; headers?: Header[] }
   | { ok: true; status: 204 | 302; body: typeof EMPTY; headers?: Header[] }
+  | { ok: true; status: 200; text: string; headers?: Header[] } // only for a TextResponse shape; the adapter sets its contentType
   | RefusalReplyOf<S>; // status + refusal body derived together from S['refusals']
 type Header = [name: string, value: string]; // ordered multimap: three Set-Cookie on the callback
 ```
@@ -246,7 +255,7 @@ in the Wave 1 adapter matrix before the existing routes are moved (D26).
   import), `@elysiajs/openapi` is removed, and **mounting stays the oracle**: a reachability
   test walks the shapes and requests every path through `app.handle`, so an adapter that
   skips a mount while the shape stays present fails there. Negative: one `mount` skipped →
-  `404` at that path. `/health` and `/metrics` are shapes too. `openapi.json` stops being a
+  `404` at that path. `/health` and `/metrics` are shapes too; `/metrics` is a `TextResponse` shape whose handler serialises the meter, and `libs/observability`'s Elysia plugin (`otel-plugin.ts`) is deleted with it. `openapi.json` stops being a
   committed file and becomes a build output; mcp-01's tools derive from the shapes directly.
 - **Two tables, one binding (D21).** `@wbs/contracts` exports the shapes; core exports the
   endpoints, each `bind(shape, handle)`; be-01 mounts the endpoints. A test in core asserts
@@ -261,8 +270,13 @@ in the Wave 1 adapter matrix before the existing routes are moved (D26).
 - **Both ends validate (D16).** `clientFromShapes` parses every response with the shape's
   status-specific validator before handing it to a screen, so a be-01 that answers a shape the
   contract does not declare is a typed client error at the boundary rather than an
-  `undefined` three renders later. Negative: a response field's type changed in be-01 only →
-  the client refuses the response in fe-01's tests.
+  `undefined` three renders later. **Undeclared keys in a response are ignored by the client**
+  (`onUndeclaredKey: 'ignore'` on the response validator only; bodies still reject): a
+  blue/green swap reconnects the socket without reloading the page, so an open tab runs the
+  previous fe-01 bundle against the new be-01, and a client that rejected an added field would
+  break every open tab on every additive deploy. Negatives: a response field's **type** changed
+  in be-01 only → the client refuses the response in fe-01's tests; a response field **added**
+  in be-01 only → the previous client still renders.
 - **Refresh semantics survive the client replacement.** §67's R1 in the refactoring plan
   owns invalidation generations, pending resource scopes and the mandatory trailing read.
   `clientFromShapes` cannot reintroduce URL-only sharing of a GET started before an edit.
@@ -279,7 +293,9 @@ in the Wave 1 adapter matrix before the existing routes are moved (D26).
 - Every `*Store` port stays, one file per port under `core/ports/`. **Added:** `EventLogStore`
   (renamed from `EventLogRepo`), `SavedPlanStore`, `SavedPlanCaptureStore`, `Gate`. `Stores`
   is a **composition** (D22): `TransactionalStores & HistoryStores`, where
-  `TransactionalStores = PlanStores & DirectoryStores & AccountStores`,
+  `TransactionalStores = PlanStores & DirectoryStores & AccountStores & { eventLog: EventLogStore }` —
+  the batch records its events through `scope.stores.eventLog` (§7 Q4), replay and retention
+  read and prune through the public gated one —
   so a source can implement a subset and the type of `composeServices` says what is then
   missing from the graph (`auth` is absent when `AccountStores` is). The `Source` port is
   `{ stores: Stores; uow: UnitOfWork; open(); health(); close() }`.
@@ -411,8 +427,9 @@ in the Wave 1 adapter matrix before the existing routes are moved (D26).
   failures in the change's `verify.md` before writing `Proof:` comments.
 - **Reference-specific outcomes (D6).** Negative: FK failure on a **person** while the step
   exists → throws; step deleted → `unknown_step`.
-- **Kits per port (D22).** `stepStoreConformance(openStores)`, `workItemStoreConformance`, …,
-  one per port, each a function of a factory; `sourceConformance(open)` is their composition
+- **Kits per port (D22).** Every kit lives in `@wbs/conformance` (§2): it is a `bun:test`
+  suite, which core's own import ban keeps out of core. `stepStoreConformance(openStores)`,
+  `workItemStoreConformance`, …, one per port, each a function of a factory; `sourceConformance(open)` is their composition
   over the ports the source declares, and its report names which kits ran. A browser source
   without `AccountStores` is certified for what it has and is not asked about accounts.
 - **Kit admission rule.** A case belongs in a kit if it states behaviour a caller can observe
@@ -435,10 +452,20 @@ records instead of a 25-field argument. `servicesOver(stores, shared)` is the ha
 batch runner calls with `scope.stores` and a per-batch `broadcast` in `shared` (D20, D24). Use-case entrypoints are what a non-HTTP caller
 invokes; `savePlan` carries the authorization and announcement the controller holds today
 (`saved-plan.controller.ts:210–222`). Config loading, the logger adapter and the Bun runtime
-adapters live in `boot.ts`; the browser adapters live in `libs/runtime-web`, which is also
-where the "any trigger, any runtime" proof runs, because a test that composes core over a
-source is an adapter-ring test and cannot live in core without breaking negative 5 in core's
-own test file.
+adapters live in `boot.ts`; the portable adapters live in `libs/runtime-web`. The "any
+trigger, any runtime" proof is `libs/core/src/compose.test.ts`: test files are outside the ring
+rule (§2), so it composes core over `@wbs/store-memory` with the `runtime-web` adapters from
+inside core, next to the code it proves.
+
+What moves into core is what is in `apps/be-01/src/{service,repository/index.ts}` today less
+the drizzle classes. What is already in `libs/domain` (6,465 lines, 31 modules) stays there:
+vocabulary and arithmetic (`workday`, `estimate`, `progress`, `capacity`, `priority-band`,
+`priority-weight`, `dependency-reach`, `external-system`, `contract-version`); tree rules
+(`place-sibling`, the four `effective-*`, `label-mismatch`, `leaf-constraints`, `not-before`,
+`is-within`, `assumed-duration`); derivation (`derive-numbers`, `slice-edges`, `slice-groups`);
+the schedule engine (`schedule` at 2,588 lines plus six satellites); and `saved-plan/`. Its one
+runtime import, `node:crypto` in `canonical-schedule-input.ts`, leaves in Wave 2.6 (§3.4);
+`estimate.ts`'s `@wbs/validation` import is legal, which is why validation is `ring:domain`.
 
 The 2,063-line `repository/index.ts` barrel is not split in place (W4-1, refused with
 measurement); at the move it becomes one file per port under `core/ports/` with a re-exporting
@@ -490,9 +517,13 @@ schema. §3.1 carries the schema and status-specific refusal tests.
 10. A project moved to `libs/wbs/adapters/` while tagged `ring:application` → the layout test (D19).
 11. A second product's lib importing `@wbs/core` → the `product:` constraint (D18).
 12. A `project.json` with no `ring:` tag, and one with two → the totality test (D14).
-13. `@wbs/store-memory` imported from a `libs/core` **test** file → ring constraint; the proof
-    test lives in `runtime-web` and this is what keeps it there.
+13. `@wbs/store-memory` imported from a `libs/core` **production** file → ring constraint; the
+    same import in `compose.test.ts` beside it passes, which is the edge of the test exemption.
 14. A shape in `@wbs/contracts` with no `Endpoint` bound to it → the binding test (D21).
+15. `import { describe } from 'bun:test'` in a `libs/core` production file → `no-restricted-imports`;
+    the same line in a `*.test.ts` passes.
+16. A `tools/*` project with no `ring:` tag, and a `libs/` project with no `product:` tag → the
+    totality test; a `tools/*` project **with** a `product:` tag → the same test.
 
 The 2026-08-09 gw-01 typecheck that compiled nothing for months is why these are watched
 rather than read off the config.
@@ -514,6 +545,14 @@ seam-shaped item into this plan's design. The change's intent names the window i
 Wave 1 now touches `openapi.json`, mcp-01's tool tests and fe-01's client, so `plan-json-import`
 in particular should merge first or be rebased onto the endpoint table.
 
+**The critical path is longer than Wave 1's own estimate.** Wave 1.4 replaces fe-01's client
+and must carry R1's invalidation coordinator; R1 folds into W4-4's `use-plan-read`, and W4-4
+(4 days, not started) is the last open item of the refactoring plan. So W4-4 → R1 (1–2 days)
+→ Wave 1.4, and about six agent-days stand in front of Wave 1's step 4 that its "~7 days" does
+not include. With §67's R1–R10 the whole programme is roughly thirty agent-days of serial work
+before a user sees a change; the plan accepts that, and this sentence is here so nobody
+discovers it at Wave 1.4.
+
 The 2026-09-06 follow-up in the refactoring plan (§67) is another collision ledger. Land R1
 before replacing fe-01's client and carry its refresh negatives through Wave 1. R3 and R5
 touch auth: land them before the auth controller move or name them as owned slices of Wave 1.
@@ -534,7 +573,11 @@ than implementing it again.
    policy matrix, pre-parse ordering, ordered `Set-Cookie` (`getSetCookie()` length 3), `EMPTY`
    vs JSON `null`, 302 + Location, the envelope, 429 login throttling, 503 `snapshot_busy`
    and failed dependency health. The reply's status and schema must agree at both ends;
-   an injected account-store failure must remain an unexpected failure, never a 401.
+   an injected account-store failure must remain an unexpected failure, never a 401. **Pin
+   `tsc` wall time** for be-01 and fe-01 in `verify.md` before the generic shapes land and
+   after: `ParamsOf`, `PrincipalOf` and `RefusalReplyOf` over ArkType inference are the kind of
+   type that doubles a typecheck and produces errors an agent misreads. If the time doubles,
+   `PrincipalOf` goes first (`principal: Identity | null` and a runtime check), `ParamsOf` stays.
 2. Move controllers one at a time, smallest first: `smoke` → `step` → `work-item` → `history`
    → `solution` → `saved-plan` → `project` → `directory` → `internal` → `auth`. Each move: the
    controller's tests pass, rewritten only where the wire changed and each rewrite named in
@@ -552,7 +595,7 @@ than implementing it again.
    is the wire's oracle). Preserve refactoring R1's invalidation coordinator: hold an old
    response across a new event and require a trailing read; overlap full/step/tree scopes and
    require all pending resources to install. URL-only in-flight sharing is the injected fault.
-5. `/health` and `/metrics` as shapes. `callerGuard` and `app.ts`'s inline `onRequest` deleted.
+5. `/health` and `/metrics` as shapes, `/metrics` as the first `TextResponse`; `libs/observability`'s Elysia plugin deleted and the lib retagged `ring:adapter`. `callerGuard` and `app.ts`'s inline `onRequest` deleted.
 
 **Negatives, minimum:** identity policy deleted → 401 matrix; origin policy deleted on a
 project POST → foreign-origin write lands; policies after parsing → 422 where 403 is owed;
@@ -580,13 +623,15 @@ malformed 429/503 body; reintroduce either R1 race → held-response/scoped-refr
    must survive without a second rollback; a shared collector captures an outside event.
    `unitOfWorkConformance` (a)–(k), plus the scoped-publication case (l), each watched
    failing on its named fault against both sources; see §3.2 for the admission boundary.
-3. `EventLogStore`, `SavedPlanStore`, `SavedPlanCaptureStore` ports; `Stores` as the D22
-   composition split into `TransactionalStores` and independent `HistoryStores`; the D12
+3. `EventLogStore` (transactional, on `Scope`), `SavedPlanStore` and `SavedPlanCaptureStore`
+   (independent history) ports; `Stores` as the D22 composition split into
+   `TransactionalStores` and independent `HistoryStores`; the D12
    cases including (j), saved plans take no turn and successful saves survive both batch
    outcomes. Memory clones/swaps only transactional tables; swapping history too is the
    commit-window negative. Account-store optionality remains typed as D22 requires.
 4. Reference-specific outcomes per method; `isForeignKeyViolation` deleted from `service/`.
-5. One kit per port assembled from the `.db.test.ts` files under the admission rule;
+5. One kit per port assembled from the `.db.test.ts` files under the admission rule, written
+   under `apps/be-01/src/testing/kits/` for now and moved to `libs/conformance` in Wave 3.2;
    `sourceConformance` as their composition with a report naming the kits that ran; SQLite
    green; memory source tightened until green.
 6. The runtime ports of §3.4 with their Bun adapters in `boot.ts`; global defaults removed;
@@ -598,18 +643,20 @@ malformed 429/503 body; reintroduce either R1 race → held-response/scoped-refr
 
 ### Wave 3 — `core-lib-extraction` (~2.5 days)
 
-1. Packages with `project.json`, ring and runtime tags on **every** project including the
-   six that had none (`auth`, `config`, `observability`, `realtime`, `solver-py`, `mcp-01`),
-   the new `libs/runtime-web`, `tsconfig`, `typecheck` running `tsc --build --force` on the
+1. Packages with `project.json`, ring and runtime tags on **every** project — no project
+   carries a `ring:` today, and the eleven under `tools/` are `ring:adapter` — the new
+   `libs/runtime-web` and `libs/conformance`, `tsconfig`, `typecheck` running `tsc --build --force` on the
    **source** project (R5 #16/#17), `test`, `lint`, `lint:fast`. The totality test first,
    watched failing on a project with no ring.
 2. `git mv` in three commits, imports rewritten, `bun run test:unit` green after each. The
-   ports barrel becomes one file per port at the move (§3.3).
-3. The three rules of §2, the two relocations, `test:unit` by target; the negatives of §3.5,
-   all fourteen.
+   ports barrel becomes one file per port at the move (§3.3); the kits move from
+   `apps/be-01/src/testing/kits/` to `libs/conformance`; the `Logger` type and no-op logger
+   move from `libs/observability` to `@wbs/contracts`.
+3. The rules of §2 with the test-file override, the two relocations, `test:unit` by target;
+   the negatives of §3.5, all sixteen.
 4. `composeServices({ source, runtime, shared })` and the four use-case entrypoints; the "any
-   trigger, any runtime" proof is a test in `libs/runtime-web` that composes core over the
-   memory source with the **browser** adapters for `Digest` and `Scheduler`, a batch-owned
+   trigger, any runtime" proof is `libs/core/src/compose.test.ts`, composing core over the
+   memory source with the `runtime-web` adapters for `Digest` and `Scheduler`, a batch-owned
    announcement collector, and
    runs a command batch, a saved-plan save with a refused actor, one replay, one retention
    sweep and one `engine_unavailable` refusal without HTTP.
@@ -650,6 +697,10 @@ negatives 10–11 are written first.
   at the move, §3.3.
 - A Postgres source, a file source, a browser source. Each is sketched where it proves the
   port is not SQLite in disguise (§3.2, §7 Q7); none is built.
+- A connection pool for SQLite. `bun:sqlite` is synchronous, so a second writer connection
+  would sleep the whole thread in SQLite's busy handler while the first finishes, stalling every
+  read; the async write coordinator is the writer lane of a pool without the stall. A reader
+  pool pays only with worker threads and is the SQLite adapter's private option later.
 
 ## 6 · Risks and how each is checked
 
@@ -667,6 +718,7 @@ negatives 10–11 are written first.
 | Wave 2 collides with an open change on the source seam                                | Wave 0 gate, re-run before each change; `recordEventIn(tx)` reconciled into `UnitOfWork.scope` or waited for                                                                                                                          |
 | Extraction leaves guards aimed at old folders                                         | §3.5 negatives 7 and 8; `eslint.config.js` has no `apps/be-01/src/repository` path left                                                                                                                                               |
 | The emitter requires capabilities a validator does not expose                         | SchemaShape carries generated JSON Schema separately from StandardSchemaV1; nested-union/MCP fixtures and unsupported-conversion negative at the declaration boundary (D25).                                                          |
+| The generic endpoint shapes make `tsc` slow and its errors unreadable                 | Wave 1.1's `tsc` wall-time pin, before and after; `PrincipalOf` is the first to go if it doubles                                                                                                                                      |
 | Whole-workspace gate diverges from per-project runs (2026-08-30 import-sort incident) | Every wave's `verify.md` records the **workspace** gate                                                                                                                                                                               |
 
 ## 7 · Open questions for the implementer
@@ -688,179 +740,3 @@ negatives 10–11 are written first.
 8. Where `contracts` sits once the endpoint types join it: `ring:domain` today because fe-01
    and gw-01 import it; an `interface` ring between domain and application is the alternative
    if HTTP shapes in the domain ring start to grate.
-
-## 8 · Review disposition (2026-09-05, first revision)
-
-Two headless codex runs over the first draft and the code: `tmp/review-codex-ports-and-adapters.txt`
-(gpt-5.6-sol xhigh, 15 findings, verdict "rethink §§2–4") and
-`tmp/review-codex-astra-ports-and-adapters.txt` (gpt-6-astra xhigh, 16 findings, verdict
-"rethink §3.1 and §3.2"). Every file:line cited below was re-read before the disposition.
-S = 5.6-sol finding, A = astra finding. Three dispositions were later **superseded by §9** and
-are marked so.
-
-| Finding                                                                                                      | Disposition                                                                                                                                                                        |
-| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S1, A3 — the lock guards publication only; route writes and the retention prune land inside an open batch    | **Accepted, and it is a pre-existing gap between ADR 0007's text and the code.** D11, kit cases (d) and (e).                                                                       |
-| S4, A2 — `run` cannot tell a returned refusal from success; undo needs post-rollback work; no lock ownership | **Accepted.** `Decision<T>` with `afterRollback`. The "re-entrancy by owner token" half was **superseded by §10 / D20**: ownership travels through `scope`, nothing re-enters.     |
-| A3 — "not observable at all" over-promises on a shared connection                                            | **Accepted.** D1 narrowed to terminal atomicity; ADR 0015 amended.                                                                                                                 |
-| S2, A1, A6 — origin check is global, write-scope is pre-parse; `caller` cannot express either                | **Accepted.** `RequestPolicy[]`; adapter phases specified; three negatives.                                                                                                        |
-| S3, A5 — `HttpReply.headers` cannot carry three `Set-Cookie`; the callback re-reads the raw request          | **Accepted.** Ordered multimap, `request` on the input, `EMPTY` sentinel.                                                                                                          |
-| S15, A6, A15 — ArkType blanket rejection changes the wire; interop is not the blocker                        | **Accepted then; superseded by §9.** Wire compatibility was the only reason to defer ArkType, and Dany lifted it. ArkType, one envelope and the emitted document are Wave 1 again. |
-| S6, A9 — `document` too small for mcp-01; spec-derived diff loses the mounting oracle                        | **Accepted.** `operationId` on the spec; reachability test stays as the mounting oracle even with the document emitted from specs.                                                 |
-| S5, A7 — Wave 3 is not mechanical: `node:async_hooks`, `node:crypto`, `jose`, `Bun.password`, `Buffer`       | **Accepted then as `runtime:bun`; superseded by §9.** Dany asked for injection instead; the ports are §3.4 and are built in Wave 2, so Wave 3 is a move again.                     |
-| S7, A8 — saved-plan repositories are not ordinary Source members                                             | **Accepted.** D12.                                                                                                                                                                 |
-| S12, A11 — blanket `unknown_reference` misreports other FK failures                                          | **Accepted, confirmed by Dany.** D6.                                                                                                                                               |
-| S11, A4 — the kit admission rule was backwards                                                               | **Accepted, rule deleted.** Admission by observable behaviour; every case watched against `brokenSource`.                                                                          |
-| S9, A14 — gw-01's "HTTP half" does not exist; app→app imports are forbidden                                  | **Accepted.** D5: gw-01 out.                                                                                                                                                       |
-| S10, A10 — "any trigger" needs use-case entrypoints; saved-plan authorization lives in the controller        | **Accepted.** `use-cases/`, `savePlan`, one `composeServices`, the Wave 3.4 proof.                                                                                                 |
-| S13, A13 — `no-restricted-imports` cannot ban globals; existing guards aimed at old paths                    | **Accepted.** §2 rules, two relocations, §3.5 negatives.                                                                                                                           |
-| S8, A15 — sequencing: four open changes collide                                                              | **Accepted as Wave 0.** Order kept; the gate runs before every change and matters more now that Wave 1 touches the wire.                                                           |
-| S14, A16 — inventory wrong                                                                                   | **Accepted, §0 corrected.**                                                                                                                                                        |
-| S15 (second half) — an exported HTTP kit with one adapter is an unvalidated abstraction                      | **Accepted.** HTTP tests are adapter-local (D4).                                                                                                                                   |
-| A12 — source lifecycle, no generic migration port                                                            | **Accepted.** On the `Source` port.                                                                                                                                                |
-| S8 — build package shells and enforcement **before** the seams                                               | **Declined.** An empty shell has nothing to lint; the rules bite when files move. Wave 0 covers the ordering concern.                                                              |
-| S11 — "a successful kit certifies only the named behaviours"                                                 | **Accepted as a sentence in the kit's JSDoc.**                                                                                                                                     |
-| — the plan's "no behaviour change visible to fe-01" non-goal                                                 | **Deleted by §9.**                                                                                                                                                                 |
-
-## 9 · Second revision (2026-09-05, evening): compatibility lifted, everything injected
-
-Historical rationale: §11 supersedes this revision's choice of a single-slot `AsyncContext`
-and its claim that Standard Schema alone supplies document metadata. The current contracts
-are in §3.1–§3.4 and D24–D28.
-
-Dany, after reading the review disposition: backward compatibility is **not** a constraint —
-be-01 and fe-01 may both change to serve modularity — and every runtime dependency of core
-should arrive by injection. What that changed, in the order it was discussed:
-
-1. **Compatibility off.** D3 returns to ArkType in Wave 1 and goes further: unknown keys
-   rejected everywhere, one `Refusal` envelope, the document emitted from specs, the two
-   hand-parsed routes gone. The non-goal "no behaviour visible to fe-01 changes" is deleted.
-   Two review-driven deferrals (ArkType to Wave 4, `runtime:bun`) are superseded; Wave 4 no
-   longer exists. D5 (gw-01 out), D6, D11, D12, the request policies, the cookie multimap and
-   additive-only migrations are **unchanged**, because none of them was about compatibility.
-2. **D13, the endpoint table as the shared contract.** fe-01 has four hand-written API modules
-   and ~15 error-code branches with zero `@wbs/contracts` imports; a client derived from the
-   same table be-01 mounts turns a renamed field into a typecheck failure.
-3. **D10 isomorphic, by injection.** Dany asked why core could not put Node and library
-   dependencies behind ports; it can, and §3.4 is the table. The one real design point is
-   `AsyncLocalStorage`, which is ambient context rather than a wrapper. Two options were laid
-   out — an `AsyncContext` port with a single-slot browser adapter, or removing the ambience by
-   passing the batch `Scope` everywhere as ADR 0012 did for stamps — and **Dany chose the
-   port** (D15 at that revision). The later review found the write-before-next-batch window
-   those cases missed; D24 supersedes this choice and case (l) tests that window.
-4. **What core still imports, and why those are not injected.** `jose` leaves behind
-   `TokenCodec`. At this revision the plan exposed validation only through `StandardSchemaV1`;
-   D25 later added generated document descriptors and the conversion boundary. `@wbs/contracts` is
-   types. `@wbs/domain` is core's own vocabulary — injecting it would be injecting the subject
-   matter — **except the schedule engine**, which already has two implementations (TypeScript
-   and the Python solver) behind a stored per-project choice, and therefore becomes the
-   `Scheduler` port with a conformance kit of its own.
-5. **Should domain and contracts live inside core?** Conceptually they are its innermost ring.
-   Physically they stay separate Nx projects (D14), because fe-01 and gw-01 import them and a
-   boundary the linter can see is per project; a `@wbs/core/domain` subpath is a convention
-   the linter cannot see. Rings are enforced by the `@nx/enforce-module-boundaries` rule
-   already at `eslint.config.js:17`, with three `depConstraints` rows and a fourth for the
-   browser; §3.5 has the negatives. The word comes from Clean Architecture's Dependency Rule
-   (Martin 2012) and Onion Architecture (Palermo 2008); Hexagonal (Cockburn 2005) is where
-   "port" and "adapter" come from. `ring` rather than `layer` because "layer" already means a
-   folder inside one project here, and the tag is a different axis.
-6. **What lives in domain** (6,465 lines, 31 modules, no I/O): vocabulary and arithmetic
-   (`workday`, `estimate`, `progress`, `capacity`, `priority-band`, `priority-weight`,
-   `dependency-reach`, `external-system`, `contract-version`); tree rules (`place-sibling`,
-   the four `effective-*`, `label-mismatch`, `leaf-constraints`, `not-before`, `is-within`,
-   `assumed-duration`); derivation (`derive-numbers`, `slice-edges`, `slice-groups`); the
-   schedule engine (`schedule` at 2,588 lines plus six satellites); and `saved-plan/`. Two
-   impurities found while listing: `canonical-schedule-input.ts` imports `node:crypto`
-   (→ the hash function moves to its one caller in `store-sqlite`, §3.4; a domain module cannot
-   take a core port), and `estimate.ts` imports `@wbs/validation` (legal; puts
-   `@wbs/validation` in `ring:domain`).
-7. **Four more asks, added after "lgtm".** Universal ArkType is already true everywhere except
-   Elysia's `t`, which Wave 1 deletes; the gap was fe-01's thirteen unvalidated response casts,
-   now closed by the derived client validating against the spec's `R` type (D16). Running
-   entirely in the browser is possible by construction — in-process transport, in-tab
-   broadcaster, a third source the kit certifies, the TS engine as the only scheduler — and is
-   named but not built (D17). Hosting other products is a namespacing change after Wave 3 with
-   directory, project name and `product:` tag, aliases unchanged (D18). Ring terminology goes
-   into the **directory**, not the name, with a layout test binding directory to tag; the
-   proposed `wbs-adapter-01-fe-01` and `wbs-domain-contracts` were declined because a ring is
-   an attribute, a name is an identity (D19).
-
-## 10 · Third revision (2026-09-06): the plan's own contradictions
-
-Historical disposition: D24–D28 in §11 correct the remaining publication window, rollback
-repair, document-emission capability and independent-state boundary. In particular, the
-then-current claim that SQLite reuses the batch service graph is replaced by reuse of store
-adapters only; the graph now binds a fresh collector for each batch.
-
-A review of the v3.1 branch against the code, before any OpenSpec change existed. Five design
-holes, each of which would have surfaced as a failing lint or a hung test in the wave it
-belongs to, and a set of sentences the OpenSpec changes would have copied in wrong. Every
-finding was checked against a file; the decisions are D20–D23 and the amendments to D11–D15,
-D17 and D18.
-
-| Finding                                                                                                                                                                                                                                                                                                                                     | Resolution                                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **D11 deadlocks itself.** Every store method enters the coordinator; `run` holds it; the runner calls services built once over the same stores (`plan-commands.ts:149–170`). The "owner token" the risk table promised had no channel from `run` to the store method, and an ambient one would have made D15's single slot admit outsiders. | **D20.** Ownership travels through `scope`; `servicesOver(scope.stores, shared)`; `Gate` and `OPEN`; no re-entrancy. Three options were weighed — ambient token, `scope`, `Scope` as a parameter on ~80 methods — and Dany chose `scope`. Kit cases (h), (i). |
-| **fe-01 cannot import the endpoint table.** `EndpointSpec` carried `handle`, which closes over services; fe-01 is `ring:adapter + runtime:browser → ring:domain`, and app→app imports are forbidden. D13 as written was unreachable.                                                                                                        | **D21.** `EndpointShape` in contracts, `Endpoint = shape + handle` in core, a binding test, `documentFromShapes` and mcp-01 reading contracts alone.                                                                                                          |
-| **The ring taxonomy was not total.** Six projects had no ring; the first Wave 3 lint would have failed on fe-01 → `libs/realtime` and core → `@wbs/observability`. The browser adapters had no project, and the Wave 3.4 proof test imported `store-memory` from inside core, which is §3.5 negative 5.                                     | D14 amended: every project has one ring; `libs/runtime-web`; the proof moves there; the totality test; negatives 12–13.                                                                                                                                       |
-| **A core port cannot serve the domain ring.** Wave 2.6 had `Digest` replacing `node:crypto` in `libs/domain`. `scheduleInputHash` is synchronous with one caller in the SQLite cache.                                                                                                                                                       | The hash moves to its caller; `canonicalScheduleInput` stays pure; the `tsScheduler` wrapper lives in the adapter ring. §3.4, §9.6.                                                                                                                           |
-| **D17 contradicted the kit.** A browser source has no accounts, yet `Stores` was one record and `sourceConformance` one function. "Scheduler falls back to the TS engine" was silent degradation.                                                                                                                                           | **D22** kits per port, `Stores` a composition, `composeServices` typed for an absent `AccountStores`. **D23** `engine_unavailable`, refused, never substituted. Dany: fix 5a; 5b refuse.                                                                      |
-| **Stale text from v3 → v3.1.** §2 and Wave 3.2 still offered nesting under `libs/core/`; D8 said three changes where §4 had four; Wave 3.3 said eight negatives where §3.5 had eleven; `clientFromSpecs(table, fetch)` and `(table, transport)` both appeared; D12 did not say whether saved plans take a turn.                             | All corrected in place. D12: no turn, own connection, case (j).                                                                                                                                                                                               |
-| **D18's claim was false.** "Only `ci.yml` hard-codes an app path outside the apps" — eighteen files do.                                                                                                                                                                                                                                     | The list is the namespacing change's first task, §4. ADR 0014's "the CLIs do not move" is scoped to the three waves.                                                                                                                                          |
-| **Glossary drift.** CONTEXT "Endpoint" said ArkType where the plan's point is Standard Schema; "Ring" omitted mcp-01; the Architecture section named files, which the glossary rule forbids.                                                                                                                                                | CONTEXT rewritten: terms only, `Gate` and `Scope` added, `Endpoint shape` added, paths removed.                                                                                                                                                               |
-
-**Shapes adopted from the same review, because compatibility is lifted and Wave 1 is not
-started:** `ParamsOf<Path>` so a path and its params cannot disagree; `HttpReply` as a
-discriminated union so a 200 cannot carry a refusal; `PrincipalOf<Policies>` so a handler on an
-open route cannot read a principal; `Refusal` as a union over `RefusalCode` with typed detail
-and no batch-only fields in the envelope; `composeServices` grouped as `{ source, runtime,
-shared }`; the ports barrel split at the move; `test:unit` by target. Each is a line in §3.1 or
-§3.3 with its negative beside it.
-
-**Two conversations worth keeping, because they are why the port is believed to be more than
-SQLite renamed.** A Postgres source has no interleaving problem — a transaction belongs to the
-borrowed connection — but it has the mirror-image bug: a service built over the pool, called
-inside a transaction, writes **outside** it and survives the rollback. `scope.stores =
-buildStores(tx)` is the same line that fixes both, and the coordinator becomes a per-project
-advisory lock so two batches on one project still take turns while different projects run in
-parallel. A file source has no transactions at all; terminal atomicity is stage, act, one
-atomic rename, which is the memory source with a persist hook. Neither is built. Both are in
-§3.2 so the next reader does not have to rediscover why `Gate`, `Scope` and `run` are three
-things and not one.
-
-**Not adopted:** a connection pool for SQLite. `bun:sqlite` is synchronous, so a second writer
-connection would sleep the whole thread in SQLite's busy handler while the first finishes,
-stalling every read; the async queue is the writer lane of a pool without the stall. A reader
-pool pays only with worker threads and is the SQLite adapter's private option later.
-
-## 11 · Repository review incorporated — 2026-09-06
-
-The user asked to add the repository-wide review's fixes to the plans. These are corrections
-to the proposed design, not completed runtime changes. The review covered documentation
-branch `6dec1ec1` over `main` `2c839252`; its eleven implementation findings are owned by
-the [refactoring plan §67](2026-09-02-refactoring-plan.md#67--review-follow-up--2026-09-06).
-Review D1–D5 below are finding IDs, not this plan's decision IDs. D24–D28 and the normative
-seams/waves above incorporate all five; ADR 0014/0015 remain `proposed` until implementation.
-
-| Review finding                                                             | Decision and implementation location                                                                                                                             | Required negative                                                                                                                                                                                               |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1: post-rollback journal repair reacquires its held coordinator           | **D28**, §3.2, Wave 2.2, ADR 0015. Pass a new admitted live scope to `afterRollback`; keep repair outside the transaction catch.                                 | Case (k): inject ordinary gated repair (deadlock), discarded memory scope (discard vanishes), or a repair throw (preserve that error, no second rollback, later writes proceed).                                |
-| D2: an already-committed route publishes into the next batch's shared slot | **D24 supersedes D15**, §3.2/§3.4, Wave 2.2, ADR 0014/0015. Bind a fresh collector to each batch's service graph; ordinary services hold the direct broadcaster. | Case (l): outside write commits before the next hold, its publication resumes during the hold, and the batch refuses; the outside event still leaves once. Include a preceding batch's post-commit events.      |
-| D3: Standard Schema cannot emit the promised documents alone               | **D25**, §3.1/§3.4, Wave 1.1/1.3, ADR 0014. Carry a generated JSON Schema descriptor beside each validator.                                                      | Drop a nested command-union arm/property or emit `{}` for unsupported conversion; document/MCP and refusal fixtures must fail. Never maintain two handwritten schema truths.                                    |
-| D4: the reply union excludes modeled 429/503 responses                     | **D26**, §3.1, Wave 1.1/1.5, ADR 0014. Derive status/body variants together and validate refusal responses too.                                                  | Throttled login, busy capture and failed health dependencies must keep their declared statuses; malformed refusal bodies fail client validation. Repository exceptions remain unexpected failures.              |
-| D5: committing a memory clone can overwrite an independent saved plan      | **D27**, §3.2, Wave 2.3, ADR 0015. History lives outside transactional state and Scope. This was a conditional design risk; the source is not implemented.       | Case (j): put history into the cloned/swapped tables, save independently during a suspended batch, then commit; the lost successful save must fail the case. Also retain rollback and bounded contention cases. |
-
-Two mechanisms were reproduced with today's production `WriteLock`, not an implemented new
-source: nested public-store admission stayed blocked; an async route write followed by the
-next batch captured and dropped the route event under a single shared slot. The Standard
-Schema capability was checked against its [complete interface](https://standardschema.dev/schema).
-429/503 paths were read in the current controllers. The memory case remains an inference
-about the old whole-state sketch and is now an explicit exclusion in the design.
-
-The kit must be measured through real composition and in the relevant window. Counting the
-number of evictions does not bound key enumeration (refactoring R8); reading after every
-request settles cannot see an invalidation lost during a held response (R1); reserving login
-capacity after verification cannot constrain pending work (R5). The moved code carries those
-production-path negatives with it, and each wave's `verify.md` records the observed failures
-before any `Proof:` is written. This update changes documents only and does not certify the
-future adapters, their throughput, or the browser's rendering latency.

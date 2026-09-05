@@ -21,7 +21,8 @@ in `.claude/skills/improve-codebase-architecture/LANGUAGE.md`; domain nouns from
 **Current follow-up, 2026-09-06:** [§67](#67--review-follow-up--2026-09-06) adds eleven
 implementation findings as ten ordered slices, including two defects in W2-1's completed
 optimizations. The five design findings are incorporated in the
-[ports-and-adapters plan §11](2026-09-05-ports-and-adapters-plan.md#11--repository-review-incorporated--2026-09-06).
+[ports-and-adapters plan D24–D28](2026-09-05-ports-and-adapters-plan.md#1--decisions); the
+review's disposition is in that plan's history file, §11.
 Earlier measurements and completion entries below remain historical evidence, not proof
 that these newly tested windows are covered. All §67 implementation slices are **not started**.
 
@@ -2544,7 +2545,8 @@ costs. This update plans the fixes; it changes no runtime behavior and claims no
 Review scope was current code at `main` `2c839252` plus the documentation branch at
 `6dec1ec1`. The branch was documentation-only. Review IDs I1–I11 below identify implementation
 findings; review D1–D5 identify design findings, distinct from the other plan's decision IDs.
-The design findings are owned by that plan's §11, D24–D28 and ADR 0014/0015; they are not a
+The design findings are owned by that plan's D24–D28 and ADR 0014/0015 (disposition in its
+history file, §11); they are not a
 second implementation backlog here. Transient probe files are not prerequisites: the fault
 arrangements and observed results needed to reproduce them are recorded below.
 
@@ -2744,7 +2746,7 @@ Run the full browser gate, including shared CSS, rather than only the new cost t
 ### Coverage and verification state
 
 All eleven implementation findings map to R1–R10 above. The five remaining findings map to
-the other plan's §11: repair deadlock → D28, announcement capture → D24, document capability
+the other plan's D-table (history §11 has the disposition): repair deadlock → D28, announcement capture → D24, document capability
 → D25, missing reply statuses → D26, independent memory history → D27. That memory risk was
 conditional on which tables the future source clones; no implemented memory-source data loss
 was observed. Its fix makes that boundary explicit before the source is built.
