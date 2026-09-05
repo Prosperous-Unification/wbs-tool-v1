@@ -247,7 +247,7 @@ describe('the steps routes are the only spelling', () => {
       for and a second spelling of one resource on the wire.
 
       Proof: `.post('/:id/roles', …)` left mounted beside `/:id/steps` in
-      `step.controller.ts`, forwarding to the same handler. This failed on
+      `step.routes.ts`, forwarding to the same handler. This failed on
       `expect(received).toBe(expected) … Expected: 404  Received: 200`, and the
       other two verbs stayed green — which is the point of asserting all three.
       Watched 2026-08-29.

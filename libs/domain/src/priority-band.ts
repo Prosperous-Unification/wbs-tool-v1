@@ -99,7 +99,7 @@ export const LONGEST_BAND_LABEL = 40;
  * **Total by construction, and it has to be, because every caller is a render.**
  * A ladder always starts at 1 ({@link priorityLadderProblem} refuses one that
  * does not) and a priority is always 1 or more (`asOptionalPriority` in
- * `work-item.controller.ts` refuses one that is not), so the `0` this falls back
+ * `work-item.routes.ts` refuses one that is not), so the `0` this falls back
  * to is unreachable from stored data. It is a fallback rather than a throw
  * because the reachable way to get here is a client rendering a plan it read a
  * moment before the ladder it read — and a chart that throws where it could draw

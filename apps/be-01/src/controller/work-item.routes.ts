@@ -410,7 +410,7 @@ function asOptionalPriority(value: unknown, field: string): number | null | unde
  *
  * The ceiling is {@link MOST_PEOPLE_AT_ONCE}, and it moved into `libs/domain` in
  * `capacity-per-project`: three boundaries state it now, this file's copy and
- * `directory.controller.ts`'s agreed by luck, and the third would have been where
+ * `directory.routes.ts`'s agreed by luck, and the third would have been where
  * they drifted. The argument for the number is on the constant.
  *
  * `Number.isSafeInteger` covers the fraction, the `NaN`, the infinity and the

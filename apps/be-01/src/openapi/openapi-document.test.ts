@@ -22,7 +22,7 @@ describe('the committed OpenAPI document', () => {
    * file telling a caller something that is no longer true.
    *
    * Proof: with `.post('/projects/:id/work-items', …)` renamed to
-   * `/projects/:id/work-item` in `work-item.controller.ts` and the committed file
+   * `/projects/:id/work-item` in `work-item.routes.ts` and the committed file
    * left alone, this failed — 2 fail / 1 pass in this file, the diff naming
    * `postApiProjectsByIdWork-item` where `…Work-items` was owed. Watched
    * 2026-08-17; the run is in `verify.md`.
