@@ -7,6 +7,12 @@ export interface ManagedContainerOptions {
 
 export type ManagedContainerAction = 'attach' | 'start' | 'kill' | 'wait' | 'inspect' | 'rm';
 
+export interface PersistentDeadlineTimerCommands {
+  readonly arm: readonly string[];
+  readonly inspect: readonly string[];
+  readonly cancel: readonly string[];
+}
+
 const DIGEST_PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 const CONTAINER_ID = /^[0-9a-f]{64}$/;
 
@@ -79,22 +85,34 @@ export function buildManagedContainerArgs(
   ];
 }
 
-export function buildPersistentDeadlineTimerArgs(
+export function buildPersistentDeadlineTimerCommands(
   frame: SupervisorStartFrame,
   containerId: string,
-): string[] {
+): PersistentDeadlineTimerCommands {
   requireContainerId(containerId);
-  return [
-    'systemd-run',
-    '--user',
-    `--unit=wbs-solver-deadline-${frame.attemptToken}`,
-    `--on-calendar=@${(frame.childDeadlineAt / 1000).toFixed(3)}`,
-    '--timer-property=AccuracySec=1ms',
-    '--collect',
-    '/usr/bin/docker',
-    'kill',
-    containerId,
-  ];
+  const unit = `wbs-solver-deadline-${frame.attemptToken}`;
+  return {
+    arm: [
+      'systemd-run',
+      '--user',
+      `--unit=${unit}`,
+      `--on-calendar=@${(frame.childDeadlineAt / 1000).toFixed(3)}`,
+      '--timer-property=AccuracySec=1ms',
+      '--remain-after-exit',
+      '/usr/bin/docker',
+      'kill',
+      containerId,
+    ],
+    inspect: [
+      'systemctl',
+      '--user',
+      'show',
+      `${unit}.service`,
+      '--property=ActiveState',
+      '--property=Result',
+    ],
+    cancel: ['systemctl', '--user', 'stop', `${unit}.timer`, `${unit}.service`],
+  };
 }
 
 export function listManagedContainersArgs(): string[] {

@@ -4,6 +4,7 @@ import {
   type ManagedContainerAttachment,
   type ManagedContainerDriver,
   type ManagedContainerEvidence,
+  type ManagedDeadlineTimer,
   runManagedSolverAttempt,
   type SupervisorAttemptChannel,
   type SupervisorControl,
@@ -75,9 +76,15 @@ class FakeDriver implements ManagedContainerDriver {
     });
   }
 
-  armDeadline(argv: readonly string[]): Promise<void> {
-    this.events.push(`timer:${argv[0] ?? ''}`);
-    return Promise.resolve();
+  armDeadline(commands: { readonly arm: readonly string[] }): Promise<ManagedDeadlineTimer> {
+    this.events.push(`timer:${commands.arm[0] ?? ''}`);
+    return Promise.resolve({
+      hasFired: (): Promise<boolean> => Promise.resolve(false),
+      cancel: (): Promise<void> => {
+        this.events.push('timer-cancel');
+        return Promise.resolve();
+      },
+    });
   }
 
   start(argv: readonly string[]): Promise<void> {
@@ -95,13 +102,13 @@ class FakeDriver implements ManagedContainerDriver {
     return Promise.resolve();
   }
 
-  inspect(argv: readonly string[]): Promise<ManagedContainerEvidence> {
+  inspect(argv: readonly string[], deadlineKilled: boolean): Promise<ManagedContainerEvidence> {
     this.inspectCount += 1;
     this.events.push(`inspect${String(this.inspectCount)}:${argv.slice(1).join(' ')}`);
     return Promise.resolve(
       this.inspectCount === 1
-        ? { pid: 4242, exitCode: 0, oomKilled: false, deadlineKilled: false }
-        : { pid: 0, exitCode: 137, oomKilled: true, deadlineKilled: false },
+        ? { pid: 4242, exitCode: 0, oomKilled: false, deadlineKilled }
+        : { pid: 0, exitCode: 137, oomKilled: true, deadlineKilled },
     );
   }
 
@@ -162,6 +169,7 @@ describe('the managed solver lifecycle', () => {
       'wait',
       'inspect2',
       'send',
+      'timer-cancel',
       'rm',
     ]);
   });
@@ -173,11 +181,12 @@ describe('the managed solver lifecycle', () => {
 
       expect(driver.writes).toEqual([]);
       // Proof: removing kill or moving removal before inspect changes this suffix.
-      expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
+      expect(driver.events.map((event) => event.split(':')[0]).slice(-6)).toEqual([
         'kill',
         'wait',
         'inspect2',
         'send',
+        'timer-cancel',
         'rm',
       ]);
     });
@@ -190,11 +199,12 @@ describe('the managed solver lifecycle', () => {
 
     expect(driver.writes).toHaveLength(2);
     // Proof: dropping the post-bind control race leaves no kill before wait.
-    expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
+    expect(driver.events.map((event) => event.split(':')[0]).slice(-6)).toEqual([
       'kill',
       'wait',
       'inspect2',
       'send',
+      'timer-cancel',
       'rm',
     ]);
   });
@@ -213,11 +223,12 @@ describe('the managed solver lifecycle', () => {
     expect(rejection).toBeInstanceOf(Error);
     expect((rejection as Error).message).toMatch(/output limit/);
     // Proof: dropping the relay-failure race leaves the child live and reaches wait first.
-    expect(driver.events.map((event) => event.split(':')[0]).slice(-5)).toEqual([
+    expect(driver.events.map((event) => event.split(':')[0]).slice(-6)).toEqual([
       'kill',
       'wait',
       'inspect2',
       'send',
+      'timer-cancel',
       'rm',
     ]);
   });

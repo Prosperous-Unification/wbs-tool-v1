@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   buildManagedContainerArgs,
-  buildPersistentDeadlineTimerArgs,
+  buildPersistentDeadlineTimerCommands,
   exactManagedContainerArgs,
   listManagedContainersArgs,
 } from './solver-supervisor-command';
@@ -95,17 +95,34 @@ describe('the host-owned solver command builder', () => {
   });
 
   it('builds the persistent deadline timer against one exact container id', () => {
-    expect(buildPersistentDeadlineTimerArgs(START, CONTAINER_ID)).toEqual([
-      'systemd-run',
-      '--user',
-      `--unit=wbs-solver-deadline-${ATTEMPT_TOKEN}`,
-      '--on-calendar=@20.000',
-      '--timer-property=AccuracySec=1ms',
-      '--collect',
-      '/usr/bin/docker',
-      'kill',
-      CONTAINER_ID,
-    ]);
+    expect(buildPersistentDeadlineTimerCommands(START, CONTAINER_ID)).toEqual({
+      arm: [
+        'systemd-run',
+        '--user',
+        `--unit=wbs-solver-deadline-${ATTEMPT_TOKEN}`,
+        '--on-calendar=@20.000',
+        '--timer-property=AccuracySec=1ms',
+        '--remain-after-exit',
+        '/usr/bin/docker',
+        'kill',
+        CONTAINER_ID,
+      ],
+      inspect: [
+        'systemctl',
+        '--user',
+        'show',
+        `wbs-solver-deadline-${ATTEMPT_TOKEN}.service`,
+        '--property=ActiveState',
+        '--property=Result',
+      ],
+      cancel: [
+        'systemctl',
+        '--user',
+        'stop',
+        `wbs-solver-deadline-${ATTEMPT_TOKEN}.timer`,
+        `wbs-solver-deadline-${ATTEMPT_TOKEN}.service`,
+      ],
+    });
   });
 
   it('lists by the managed label before allowing exact-id lifecycle commands', () => {
