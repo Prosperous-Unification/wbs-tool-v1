@@ -116,6 +116,15 @@ in both slices rather than implied by position.
       (c) the hash taken over the **date** — fails a case with two markers on
       one date asserting their colours differ, which is the identity a stacked
       band exists to distinguish.
+      **(b) and (c) are injected at the CALLER, not in `marker-color.ts`, and
+      their cases live in the be-01 create/rename tests from 4.x** —
+      `automaticColor(markerId: string)` never sees a name or a date, so a
+      mutation inside it that read either would not compile, and
+      `marker-color.test.ts` has no marker entity to rename. The compilable
+      mutation is the call site passing `marker.name` (or `marker.date`) where
+      it passes `marker.id`, which typechecks because both are strings — and
+      that is exactly why it is the fault worth watching. Only (a) belongs in
+      the domain unit test.
       `Proof:` comment naming the four vectors' source (they are recorded, not
       computed at test time — a vector recomputed by the code under test is the
       code agreeing with itself).
@@ -570,10 +579,17 @@ in both slices rather than implied by position.
       rule present and no chip — which is exactly the half-exported state.
 - [ ] 8.7 The export matches the screen at 4px above the density threshold —
       test: same file, chips present and no rules, matching 8.3's live
-      behaviour. Negative: the export's own rule-drawing branch made
-      unconditional, watched failing with rules in the file and none on screen.
-      Two renderers agreeing is only a guarantee if a test can see them
-      disagree.
+      behaviour. Two renderers agreeing is only a guarantee if a test can see
+      them disagree.
+      **The negative cannot be "the export's own rule-drawing branch made
+      unconditional": there is no such branch.** 8.6 says why — the body rule
+      lives inside the nested live chart SVG that `buildStandaloneGanttSvg`
+      embeds, so it carries over for free and the export never draws one. A
+      mutation of code that does not exist is not injectable (Gemini round-5).
+      Negative instead: the suppression predicate dropped from the **live**
+      chart while the export path is untouched, watched failing this slice with
+      rules in the exported markup — because the export copies whatever the live
+      chart drew, which is the coupling this slice is about.
 
 - [ ] 8.8 A marker on today and a marker on a weekend — test: same file, two
       cases: a marker on today's date, asserting its rule element **follows**

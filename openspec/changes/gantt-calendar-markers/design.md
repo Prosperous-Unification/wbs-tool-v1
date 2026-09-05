@@ -254,12 +254,21 @@ only read.
 
 **The routes**, project-scoped like the rest of be-01's project surface:
 
-| verb     | path                                              | body                          | answers                                                 |
-| -------- | ------------------------------------------------- | ----------------------------- | ------------------------------------------------------- |
-| `GET`    | `/projects/:projectId/calendar-markers`           | —                             | the project's markers, ordered `(date, created_at, id)` |
-| `POST`   | `/projects/:projectId/calendar-markers`           | `{ id?, date, name, color? }` | the created marker                                      |
-| `PATCH`  | `/projects/:projectId/calendar-markers/:markerId` | `{ name?, color? }`           | the updated marker                                      |
-| `DELETE` | `/projects/:projectId/calendar-markers/:markerId` | —                             | no content                                              |
+| verb     | path                                           | body                          | answers                                                 |
+| -------- | ---------------------------------------------- | ----------------------------- | ------------------------------------------------------- |
+| `GET`    | `/api/projects/:id/calendar-markers`           | —                             | the project's markers, ordered `(date, created_at, id)` |
+| `POST`   | `/api/projects/:id/calendar-markers`           | `{ id?, date, name, color? }` | the created marker                                      |
+| `PATCH`  | `/api/projects/:id/calendar-markers/:markerId` | `{ name?, color? }`           | the updated marker                                      |
+| `DELETE` | `/api/projects/:id/calendar-markers/:markerId` | —                             | no content                                              |
+
+**The first parameter is `:id`, not the `:projectId` that would read better**,
+and this is a startup crash rather than a style point (Gemini round-5 Critical
+3, verified). `memoirist` keys a path parameter **by position**;
+`projectController` already registered `/api/projects/:id`, so a second name at
+that position throws at `composeGeneralHandler` when the app builds. It is the
+same constraint `saved-plan.controller.ts:137-143` records for
+`/projects/:id/saved-plans`, and `work-item.controller.ts:827` follows it too.
+The name is the router's to choose; only the JSDoc can say which id it is.
 
 Rename and recolour are one `PATCH` rather than two verbs: they are the same
 row's two mutable fields, and a `PATCH` that carried both would otherwise have
