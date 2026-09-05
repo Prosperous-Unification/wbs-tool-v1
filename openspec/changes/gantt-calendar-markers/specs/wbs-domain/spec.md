@@ -448,8 +448,12 @@ interval bounds.
 - **THEN** its rule is a `<line>` element, declares a stroke width of 1,
   resolves to a computed `stroke-width` of `1px`, computes `stroke-opacity` and
   `opacity` of `1`, carries `vector-effect: non-scaling-stroke`, and the run of
-  painted columns it adds to the chart is 1 or 2 CSS pixels wide at both rungs —
-  a hairline rather than the 28 and 4 a scaling stroke would paint
+  columns **that element alone** paints — the same clip taken with it visible
+  and with it hidden — is 1 or 2 CSS pixels wide at both rungs, a hairline
+  rather than the 28 and 4 a scaling stroke would paint
+- **AND** the delta is read from that element's own visibility rather than from
+  the marker's presence, so that a second, untagged rule primitive drawn beside
+  it cannot supply the pixels the first one is credited with
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 

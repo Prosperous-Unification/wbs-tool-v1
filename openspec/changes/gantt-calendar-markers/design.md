@@ -624,9 +624,11 @@ standing rule that unresolved product choices become documented assumptions
 rather than blocking questions. Assumption 7 resolves what AC #1 left open,
 and §2 is the argument for it.
 
-**Assumption 6 was narrowed after the Gemini planning review.** Its first half
-also claimed "export renders markers as the axis shows them", which the code
-falsified: `buildStandaloneGanttSvg` (`gantt-panel.tsx:1738`) nests the live
+**The export half of the original assumption 6 was split out after the Gemini
+planning review, and is now assumption 10** (round-18 Sol review, Minor — the
+number was left pointing at the row that today holds the edit/delete permission
+rule). As first written it also claimed "export renders markers as the axis
+shows them", which the code falsified: `buildStandaloneGanttSvg` (`gantt-panel.tsx:1738`) nests the live
 chart SVG but **rebuilds the axis band from pixel arithmetic** at `:1789`, and
 `StandaloneGanttSvgInput` at `:1614` has no marker field. So the export would
 have carried the body rule — which rides inside the nested SVG — while

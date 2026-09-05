@@ -1048,11 +1048,35 @@ in both slices rather than implied by position.
       wrong for the correct renderer and unmoved by the fault, both at once.
       Instead clip a screenshot to a short horizontal strip crossing the rule in
       a row band with no bar in it, the way `apps/fe-01/e2e/hover-cards.spec.ts:148`
-      clips a strip, take it with and without the marker at each rung, and
+      clips a strip, take two at each rung, and
       assert the run of columns that differ is **1 or 2** columns wide at
       both — bounded on **both** sides, because "at most 2" is satisfied by
       **zero** and a rule that never paints at all would pass it (round-16
-      Gemini review, Minor). **And the predicate has to be spelled out**
+      Gemini review, Minor).
+      **The two clips SHALL differ by the QUERIED ELEMENT'S OWN VISIBILITY, not
+      by the marker's presence** (round-18 Sol review, Critical). With the
+      marker toggled, the pixel delta is attributed to _whatever the marker
+      draws_, and the width assertions are attributed to _the element tagged
+      `data-gantt-marker-rule`_ — nothing binds those to the same primitive. So
+      a correctly tagged 1px opaque `<line>` accompanied by a **coincident,
+      untagged** `<line strokeWidth={2} vectorEffect="non-scaling-stroke">` in
+      the same marker-conditioned branch passes every assertion in this slice:
+      the tag, the attribute, the computed width, the computed opacity, and a
+      2-column run inside the bound. 8.2's one-per-date count does not see it
+      either, because that count selects the tagged element
+      (`tasks.md`, 8.2's shared-date paragraph). The visible marker is two
+      pixels wide and the plan is green. Binding closes it: create the marker
+      once, clip the strip, then set `visibility: hidden` on **the element the
+      other assertions queried** through `locator.evaluate`, clip the identical
+      strip again, and restore. `visibility` rather than `display`, so nothing
+      reflows between the two clips. Under the correct renderer, hiding the only
+      rule removes its paint and 1 or 2 columns differ. Under the coincident
+      auxiliary line, hiding the tagged 1px line changes **nothing** — the
+      untagged 2px line covers every column it painted — so **0** columns
+      differ and the lower half of the bound, added in round 16 for a different
+      reason, is what fails it. Third negative, therefore: **the coincident
+      untagged 2px line**, watched failing this bound at 0 while the tag, both
+      width assertions, the opacity assertions and 8.2's count all stay green. **And the predicate has to be spelled out**
       (round-16, both seats, Important): draw each clip into an in-page 2D
       canvas and read it with `getImageData`, the way
       `apps/fe-01/e2e/measure-ink.ts:78` already reads a painted pixel and three
