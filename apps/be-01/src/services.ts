@@ -1,3 +1,4 @@
+import { contractVersionOf } from '@wbs/domain';
 import type { Logger } from '@wbs/observability';
 
 import { PLAN_EVENT_RETENTION_DAYS } from './repository';
@@ -26,6 +27,7 @@ import { clockOf } from './service/clock';
 import { DirectoryService } from './service/directory.service';
 import { GatewayBroadcaster } from './service/gateway-broadcaster';
 import { HistoryService } from './service/history.service';
+import { OptimizationCoordinator, type ReservedSpawner } from './service/optimization-coordinator';
 import { optimizerWiring } from './service/optimizer-wiring';
 import { PriorityBandService } from './service/priority-band.service';
 import { ProjectService } from './service/project.service';
@@ -71,6 +73,11 @@ export interface ServicesOptions {
   oidc?: AuthServiceOptions['oidc'];
   passwordSessions?: boolean;
   localIdentity?: AuthServiceOptions['localIdentity'];
+  optimizer?: {
+    solverVersion: string;
+    budgetMs: number;
+    spawn: ReservedSpawner;
+  };
 }
 
 export interface BeServices {
@@ -104,6 +111,7 @@ export interface BeServices {
   history: HistoryService;
   replay: ReplayOrchestrator;
   retention: RetentionTimer;
+  optimizer: OptimizationCoordinator | undefined;
 }
 
 /**
@@ -170,17 +178,31 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // while a service publishes through another. See {@link DeferringBroadcaster}.
   const announcements = new DeferringBroadcaster(broadcast);
 
-  // **The optimizer is not deployed yet, and this is the one line that says so.**
-  // TASK-219 lands the solver core and the Fast-parity refactor; TASK-220 is
-  // what wires a real `OptimizedScheduleReader` in here, behind its migrations.
-  // Until then `read` is `undefined`, `available()` is `false`, and the settings
-  // PATCH refuses to switch a project on to something no plan read could serve —
-  // see {@link optimizerWiring} for why these are one argument and not two.
-  const optimizer = optimizerWiring(undefined);
+  const coordinator =
+    opts.optimizer === undefined
+      ? undefined
+      : new OptimizationCoordinator({
+          db: opts.db,
+          contractVersion: contractVersionOf(opts.optimizer.solverVersion),
+          solverVersion: opts.optimizer.solverVersion,
+          budgetMs: opts.optimizer.budgetMs,
+          ownerId: crypto.randomUUID(),
+          now: Date.now,
+          attemptToken: () => crypto.randomUUID(),
+          spawn: opts.optimizer.spawn,
+          onChildError: (err) => {
+            opts.logger.error({ err }, 'optimizer child failed');
+          },
+        });
+  // Both service-facing halves derive from the same coordinator instance: a
+  // process cannot accept the ON setting unless its plan reader can also admit
+  // and consume optimized rows.
+  const optimizer = optimizerWiring(coordinator?.read);
 
   return {
     announcements,
     gatewayBroadcaster: broadcast,
+    optimizer: coordinator,
     auth: new AuthService({
       clock,
       users: userStore,
