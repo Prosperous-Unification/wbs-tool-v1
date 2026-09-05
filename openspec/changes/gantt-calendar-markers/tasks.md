@@ -918,8 +918,15 @@ in both slices rather than implied by position.
       is 9.2b's**, below. The attribute half is what stops the guarantee being
       restated as a falsehood; the pixel half is what stops it being weakened to
       "no attribute moved", and neither tier can stand for the other.
-- [ ] 8.2a The rule is 1px on screen at every rung, and the mechanism is
-      `vector-effect: non-scaling-stroke`. **A declared width proves nothing
+- [ ] 8.2a The rule is an opaque 1px `<line>` on screen at both ends of the
+      ladder, and the mechanism is
+      `vector-effect: non-scaling-stroke`. **Both ends rather than "every rung"**
+      (round-18 Gemini review, Minor): 28 and 4 are what this slice renders,
+      12 is not, and the ladder is bounded by its ends for the reason the second
+      negative below gives — a single rung cannot tell a non-scaling stroke from
+      a width that happens to equal that rung's day pixels, and two rungs that
+      differ by 7× can. 8.3 is the slice that walks all three.
+      **A declared width proves nothing
       here**: the chart's user space is days by rows stretched non-uniformly to
       `dayPx` (`viewBox` days×rows with `preserveAspectRatio="none"`,
       `gantt-panel.tsx:3940-3943`), so one user unit is a whole day — 28, 12 or
@@ -963,12 +970,27 @@ in both slices rather than implied by position.
       "see the rule" step — every named test in the plan — while the
       requirement says one pixel. So: assert the rule's `stroke-width` is `1`
       in the same jsdom case, with a **`strokeWidth={2}` declaration** as its
-      watched negative, failing that equality while the attribute assertion and
-      the whole browser tier stay green. That is the division of labour the two
+      watched negative. That is the division of labour the two
       tiers have: jsdom pins the declared width **and** the mechanism, and the
       browser proves the mechanism actually holds at the rungs — a hairline
       rather than a day. Neither half is the requirement on its own, which is
       why the plan stopped trying to make one of them carry it.
+      **What that negative moves, stated correctly** (round-18 Gemini review,
+      Critical). Until round 17 this line claimed `strokeWidth={2}` left "the
+      whole browser tier green"; adding the computed-style assertion below made
+      that false and nothing updated the claim. A presentation attribute is
+      still an input to the cascade, so `strokeWidth={2}` resolves to a computed
+      `2px` and fails the browser equality too. It therefore fails **two**
+      equalities with one fault and leaves only the painted-column bound green,
+      at 2 columns. That is not a defect in the negative — the attribute and the
+      computed width are the same resolved value read in two engines, and a
+      fault in the declaration is supposed to be visible in both — but it does
+      mean this negative cannot isolate the computed assertion, which is
+      precisely why the round-17 negative below exists and must stay distinct
+      from it. The two are distinguishable, and each pins a different pair:
+      `strokeWidth={2}` fails attribute + computed, columns green;
+      `style={{ strokeWidth: 2 }}` fails computed alone, attribute and columns
+      green.
       **And a third assertion closes the gap those two leave: the EFFECTIVE
       width, read in the browser** (round-17 Sol review, Critical). The
       presentation attribute is the bottom of the SVG cascade, so
@@ -983,10 +1005,36 @@ in both slices rather than implied by position.
       **This is not a return to the round-13 oracle**, which was rejected as
       proof of `vector-effect` — computed style cannot see that property, which
       is the whole of round 13's Critical. It is admitted here for the one thing
-      it does report faithfully, the resolved width, and it is admitted in the
-      **browser**, since jsdom computes no style at all. Three assertions, three
-      jobs: the attribute is the mechanism, the computed width is the value, and
-      the painted columns are the proof that the first two reach the screen.
+      it does report faithfully, the width the cascade resolved to, and it is
+      admitted in the **browser**, since jsdom computes no style at all. It is
+      blind to the `viewBox` exactly as the attribute is — a rule with
+      `vector-effect` removed still computes `1px` while rasterizing a day
+      wide — so what it adds over the attribute equality is cascade coverage,
+      not screen coverage, and the painted columns stay the only assertion that
+      reads the screen.
+      **And three assertions are still not a bound, because two of them read
+      the element the test QUERIES rather than the element that PAINTS**
+      (round-18 Gemini review, Critical). Two more renderers pass all three:
+      (1) `<g data-gantt-marker-rule strokeWidth={1} vectorEffect="non-scaling-stroke">`
+      wrapping `<line strokeWidth={2} vectorEffect="non-scaling-stroke">` — the
+      query lands on the `<g>`, whose attribute reads `1` and whose computed
+      width is `1px`, while the child paints 2 columns, inside the bound;
+      (2) `<line strokeWidth={1} vectorEffect="non-scaling-stroke" strokeOpacity={0.4}>`
+      — every width assertion passes, and a translucent stroke still changes
+      the RGBA of the columns it covers, so the run is still 1 or 2. The second
+      one violates a requirement that had **no scenario at all**:
+      `specs/wbs-domain/spec.md`'s "The body rule SHALL be opaque". So the
+      jsdom case SHALL also assert the rule's `localName` is `'line'`, watched
+      with the wrapper above — the assertions then read a `<g>` and the
+      equality fails on the tag, not on a width. And the browser case SHALL
+      also assert computed `stroke-opacity` and `opacity` are both `'1'`,
+      watched with `strokeOpacity={0.4}`, which fails that equality while the
+      two width assertions and the painted-column bound stay green — a fault
+      that isolates cleanly because opacity moves what a column looks like, not
+      how many columns there are. Five assertions, four jobs: the tag is the
+      element, the attribute is the mechanism, the computed width is the value,
+      the computed opacity is the paint, and the painted columns are the proof
+      that all of it reaches the screen.
       Test, browser tier: `apps/fe-01/e2e/gantt.spec.ts`, the same marker at
       28px and at 4px per day. **The oracle is the painted columns, NOT
       `boundingBox().width`** (round-14 Sol review, Critical). The rule is a
@@ -1011,10 +1059,22 @@ in both slices rather than implied by position.
       other e2e specs copy. **That precedent is the extraction, not the
       loading** (round-17 Gemini review, Important): `measure-ink.ts:78` reads a
       canvas it filled itself with `fillRect`, while `page.screenshot` hands
-      back a Node `Buffer`, so the clip has to be carried into the page — set
-      `img.src` to a `data:image/png;base64,` URL built from the buffer, await
-      `img.decode()`, call `ctx.drawImage(img, 0, 0)`, then read
-      `getImageData`. A **column differs** iff at least one pixel in it
+      back a Node `Buffer`, so the clip has to be carried into the page.
+      **And the carrying has to be written out, because two of its steps throw
+      or truncate when left implicit** (round-18 Gemini review, Important).
+      In Node: `buffer.toString('base64')` — the conversion the `Buffer` types
+      in this project already support, and the one `hover-cards.spec.ts:157`
+      uses at `:158` to compare two clips — then pass both strings into a single
+      `page.evaluate`. In the page, per clip: set `img.src` to
+      `` `data:image/png;base64,${s}` ``, `await img.decode()`, set
+      `canvas.width = img.naturalWidth` and `canvas.height = img.naturalHeight`
+      **before** drawing, since a fresh `<canvas>` is 300×150 and would crop a
+      wider clip and pad a narrower one, `ctx.drawImage(img, 0, 0)`, and read
+      `ctx.getImageData(0, 0, canvas.width, canvas.height)` — with all four
+      arguments, since `getImageData()` with none is a `TypeError`, not a
+      whole-canvas read. Both clips come from one `strip` object, so both PNGs
+      are the same `W×H` and the column indices line up.
+      A **column differs** iff at least one pixel in it
       has any RGBA channel unequal to the corresponding baseline pixel; and the
       differing columns SHALL form **one contiguous run**. Without those three
       sentences the count is not reproducible — `hover-cards.spec.ts:148` is the

@@ -342,7 +342,21 @@ every jsdom equality, and still paints two columns inside the bound above. The
 browser tier SHALL therefore assert a computed `stroke-width` of `1px`. That is
 **not** a return to the oracle this section rejects: computed style cannot see
 `vector-effect`, which is why it fails as proof of the _mechanism_; it reports
-the resolved _width_ faithfully, which is the one job it is admitted for.
+the width the cascade resolved to, in user units, which is the one job it is
+admitted for. It is blind to the `viewBox` exactly as the attribute is — a rule
+with no `vector-effect` still computes to `1px` while rasterizing a day wide —
+so it adds cascade coverage to the attribute equality and nothing else. The
+painted columns remain the only assertion that reads the screen.
+
+**Three assertions still do not bound the rule, because two of them read a
+queried element rather than the painted one** (round-18 review, Critical). The
+rule SHALL therefore be a `<line>` element, asserted as such, and SHALL be
+opaque, asserted as such. Without the first, a `<g>` carrying the marker
+attribute and a declared width of 1 satisfies both width assertions while the
+`<line>` inside it paints at 2. Without the second, a `strokeOpacity` of `0.4`
+satisfies all three — a translucent hairline still differs from the baseline in
+one or two columns — while violating the opacity requirement below, which had
+no scenario of its own until this round.
 
 **"Behind the bars" SHALL NOT be the whole ordering.** The body paints six
 marks before any bar, and the marker rule SHALL take one named slot among them:
@@ -426,13 +440,16 @@ interval bounds.
   it in paint order, and at least one pixel inside that bar's footprint differs
   from the same plan without the marker
 
-#### Scenario: the rule is 1px at every rung
+#### Scenario: the rule is an opaque 1px line at both ends of the zoom ladder
 
-- **WHEN** the same marker is rendered at 28px and at 4px per day
-- **THEN** its rule declares a stroke width of 1, resolves to a computed
-  `stroke-width` of `1px`, carries `vector-effect: non-scaling-stroke`, and the
-  run of painted columns it adds to the chart is 1 or 2 CSS pixels wide at both
-  rungs — a hairline rather than the 28 and 4 a scaling stroke would paint
+- **WHEN** the same marker is rendered at 28px and at 4px per day — the two ends
+  of the 28/12/4 ladder, which bound it, since one rung alone cannot tell a
+  non-scaling stroke from a width that happens to equal that rung's day pixels
+- **THEN** its rule is a `<line>` element, declares a stroke width of 1,
+  resolves to a computed `stroke-width` of `1px`, computes `stroke-opacity` and
+  `opacity` of `1`, carries `vector-effect: non-scaling-stroke`, and the run of
+  painted columns it adds to the chart is 1 or 2 CSS pixels wide at both rungs —
+  a hairline rather than the 28 and 4 a scaling stroke would paint
 
 #### Scenario: dense markers drop the rule at the tightest zoom
 
