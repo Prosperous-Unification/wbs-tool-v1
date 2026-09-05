@@ -46,8 +46,8 @@ directly, not only through the panel.
 
 Today and weekend are **axis and grid** (`gantt-panel.tsx:2968`, the day rule
 drawn `stroke-border` when heavy and `stroke-border/40` otherwise). Critical
-path is on the **bars** (`barClasses` at `:725`, `bar.critical ?
-'stroke-foreground [stroke-width:2]'` at `:3511`). They are different layers,
+path is on the **bars** (`barClasses` at `:725`, applied at `:3335`). They are
+different layers,
 so a marker confined to the header band contends with today and weekend only.
 
 Drawing a rule down the body is what makes a marker useful — it is how a
@@ -71,26 +71,40 @@ test that had to edit one of them would mean the layering was wrong.
 against one of the things the body paints and leaves the rest undecided. The
 body's marks are emitted in source order across two memos, `marksUnderLight`
 (`gantt-panel.tsx:2868`) and `marksOverLight` (`:2927`), with the pointed row's
-light between them at `:3981`; paint order in SVG **is** source order, so the
+light between them at `:3983`; paint order in SVG **is** source order, so the
 slot is a line number and nothing else:
 
-| #     | mark                                                   | attribute                    | where                          |
-| ----- | ------------------------------------------------------ | ---------------------------- | ------------------------------ |
-| 1     | weekend columns                                        | `data-gantt-weekend`         | `gantt-panel.tsx:2883`, under  |
-| 2     | zebra row bands                                        | —                            | `:2898`, under                 |
-| 3     | the pointed row's light                                | `data-gantt-row-lit`         | `:3981`, between the two memos |
-| 4     | today's tinted column                                  | `data-gantt-today`           | `:2950`, over                  |
-| 5     | gridlines                                              | `data-gantt-gridline`        | `:2968`, over                  |
-| 6     | today's leading edge                                   | `data-gantt-today-edge`      | `:2993`, over                  |
-| **7** | **the marker rule**                                    | **`data-gantt-marker-rule`** | **new, immediately after 6**   |
-| 8     | row hit lines                                          | —                            | `:3030`                        |
-| 9     | brackets, ticks, dependency and hand-off lines, carets | —                            | after 8                        |
-| 10    | bars, critical stroke                                  | `barClasses` `:725`, `:3511` | last                           |
+| #      | mark                                    | attribute                    | where                          |
+| ------ | --------------------------------------- | ---------------------------- | ------------------------------ |
+| 1      | weekend columns                         | `data-gantt-weekend`         | `gantt-panel.tsx:2883`, under  |
+| 2      | zebra row bands                         | `data-gantt-band`            | `:2903`, under                 |
+| 3      | the pointed row's light                 | `data-gantt-row-lit`         | `:3983`, between the two memos |
+| 4      | today's tinted column                   | `data-gantt-today`           | `:2950`, over                  |
+| 5      | gridlines                               | `data-gantt-gridline`        | `:2968`, over                  |
+| 6      | today's leading edge                    | `data-gantt-today-edge`      | `:2993`, over                  |
+| **7**  | **the marker rule**                     | **`data-gantt-marker-rule`** | **new, immediately after 6**   |
+| 8      | row hit lines                           | `data-gantt-row-line`        | `:3032`                        |
+| 9      | capacity links, brackets, carets        | `data-gantt-capacity-link`   | `:3238` and neighbours         |
+| 10     | bar rectangles                          | `data-gantt-bar`             | `:3283`, `barClasses` `:3335`  |
+| 11     | priority caps                           | `data-priority-cap`          | `:3473`, **after** the bars    |
+| 12     | zero-duration ticks                     | `data-gantt-tick`            | `:3509`, after the caps        |
+| 13     | on-bar labels                           | `data-gantt-bar-label`       | `:3591`, last                  |
 
-Rows 4–10 are `marksOverLight`'s own docstring (`:2915-2918`) read back as an
-order, not a reconstruction: _"today's column and edge, the gridlines, the row
-lines, the brackets and ticks, the dependency and hand-off lines, the not-before
-carets and the bars"_.
+**Rows 2, 3 and 8–13 were wrong until the round-4 Sol review and are now read
+off the source, not off a docstring.** The zebra bands carry
+`data-gantt-band` at `:2903` (the table said "—" at `:2898`); the pointed row's
+light is at `:3983`; the row hit lines carry `data-gantt-row-line` at `:3032`;
+and — the one that matters for a "behind the bars" claim — **the bars are not
+last**. The rectangles land at `:3283`, and priority caps (`:3473`),
+zero-duration ticks (`:3509`) and on-bar labels (`:3591`) all paint *after*
+them. `:3511` was cited as the bars' own line; it is inside the tick block.
+
+Rows 4–13 follow `marksOverLight`'s docstring (`:2915-2918`) — _"today's column
+and edge, the gridlines, the row lines, the brackets and ticks, the dependency
+and hand-off lines, the not-before carets and the bars"_ — but the docstring
+stops at "the bars" and the code does not, which is exactly how "bars last" got
+into this table. The marker rule precedes **every** family from 8 down, so
+nothing in the bar layer or above it is affected by the new slot.
 
 **The rule needs no pointer behaviour of its own.** It sits at 7, under the row
 hit lines at 8, whose own docstring explains that they are deliberately not
@@ -244,10 +258,14 @@ only read.
 Rename and recolour are one `PATCH` rather than two verbs: they are the same
 row's two mutable fields, and a `PATCH` that carried both would otherwise have
 no route. `id` is optional on create (§6.1) and `color` is optional throughout,
-`null` meaning automatic (above). Refusals take the project surface's existing
-refusal shape and status — a **typed 4xx**, never a throw: an inbound body is
-untrusted data at the boundary, and answering a malformed date with a 500 blames
-the server for the client's mistake.
+`null` meaning automatic (above). Refusals take the project surface's refusal
+envelope with a **typed 4xx**, never a throw: an inbound body is untrusted data
+at the boundary, and answering a malformed date with a 500 blames the server for
+the client's mistake. **The status is per-failure, not per-surface** —
+`statusForRefusal(reason, otherwise)` (`refusal-status.ts:22-47`) shares only
+four arms and takes each route's own default as its second argument, so "the
+existing shape" names nothing on its own. The eight-row code/status/field table
+is in the spec's write requirement; the marker routes' `otherwise` is **422**.
 
 `id` is a v4 UUID **supplied by the composer** — see §6.1 for why, and for the
 `clock.newId()` fallback that keeps every other caller of the port unchanged. It

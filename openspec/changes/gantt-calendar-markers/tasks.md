@@ -43,6 +43,10 @@ is what the rest is allowed to assume.
       `apps/be-01/src/repository/calendar-marker.db.test.ts`, a round-trip, a
       second marker on the same date accepted (the date is deliberately not
       unique), and `date` stored as the exact `IsoDate` text given.
+      Negative: a `unique()` added to the `(project_id, date)` index, watched
+      failing the same-date case with a constraint error. "Deliberately not
+      unique" is the one property of this table nothing else in the change can
+      observe, and a round-trip test passes with the uniqueness in place.
 - [ ] 2.2 The forward migration, stamped later than
       `20260904020000_add_saved_plan_created_by_id` — test: the existing
       migration suite plus a case in
@@ -53,6 +57,21 @@ is what the rest is allowed to assume.
       exactly the 500 an outgoing blue/green release would answer with for the
       length of a swap, and the reason the cascade is there rather than for
       tidiness. `Proof:` comment naming the omitted clause.
+- [ ] 2.2a The migration ships its `down.sql` — `AGENTS.md` §Migrations:
+      "**Every migration ships a `down.sql` beside its `migration.sql`.** The
+      migration lint fails without one, and `readMigrationFolders` refuses to
+      run a rollback it cannot complete." Every existing folder under
+      `apps/be-01/drizzle/` carries one (verified); this change's did not, and
+      2.2 named only the forward file (round-4 Sol review, Minor 18) — test:
+      the migration suite applied forward then rolled back with
+      `migrate-down-cli.ts --to=<the previous migration>`, asserting
+      `calendar_marker` is gone and the rest of the schema is unchanged.
+      Negative: `down.sql` deleted, watched failing the migration lint; and a
+      second with an **empty** `down.sql`, watched failing the roll-back case
+      with the table still present — an empty file satisfies "a file exists"
+      and is the failure the lint alone does not catch. The lint deliberately
+      does not enforce additive-only on `down.sql`: reversing an additive
+      change is destructive by definition, which is why it is a separate file.
 - [ ] 2.3 Stamp collision check — run `duplicateMigrationStamps` from
       `migrate-down.ts` over the folder set including the new one and assert it
       reports none. Negative: the new folder restamped to
@@ -222,10 +241,20 @@ in both slices rather than implied by position.
       unchanged. Negative for the last: the insert written as an upsert, watched
       overwriting the existing row. A duplicate-id test that only asserts an
       error status passes against an upsert that already destroyed the row.
-- [ ] 4.5 Refusals name their field and apply nothing — test: same file, an
-      empty name on create and on rename, and a malformed colour on recolour,
-      each asserting the project's existing refusal shape with the failing field
+- [ ] 4.5 Refusals name their field and apply nothing — test: same file, one
+      case per row of the spec's eight-row refusal table, each asserting the
+      **exact status and reason code** for that failure and the failing field
       named, and that the stored marker is byte-identical to before the call.
+      **Not "the project's existing refusal shape"**, which names nothing:
+      `statusForRefusal(reason, otherwise)` (`refusal-status.ts:22-47`) shares
+      four arms and takes each route's own default as `otherwise`, so a marker
+      route with no stated default is unspecified (round-4 Sol review, Minor
+      17). The marker routes' default is 422; `taken` is 409, `not_found` 404
+      and `forbidden` 403 through the shared arms. Second negative: the marker
+      routes' `otherwise` changed from 422 to 400, watched failing only the
+      `malformed` and `contrast` rows while the three shared-arm rows stay
+      green — which is what proves the table tests the default rather than the
+      shared ladder.
       Negative: the rename writing before validating, watched leaving the new
       name behind after a refused call. "Refused" and "unchanged" are two claims
       and the second is the one a partial write breaks.
@@ -395,6 +424,10 @@ in both slices rather than implied by position.
       `date: null`, **not** routed through the panel. Asserted directly so a
       future change that gave every project a start date would break this test
       loudly rather than making the refusal unreachable and untested.
+      Negative: `workdayAxis` changed to synthesise a date from the project's
+      creation timestamp, watched failing — the plausible "helpful" change that
+      would make every refusal in section 7 unreachable while every one of its
+      tests kept passing, because a live cell refuses nothing.
 - [ ] 7.2 Clicking an undated plan's cell is refused with a message naming the
       missing project start date, and no composer opens — test: same file, two
       assertions: the refusal message is present **and** names the missing
@@ -410,6 +443,10 @@ in both slices rather than implied by position.
       because the click handler was never wired: a refusal proved only by "no
       composer appeared" also passes against a cell that is simply inert, which
       is the defect this requirement forbids.
+      Negative: the click handler's dated branch removed so no cell ever opens
+      the composer, watched failing here while 7.2's refusal case stays green —
+      which is the exact pair that makes this slice load-bearing rather than a
+      restatement of 6.1.
 - [ ] 7.4 No marker can reach storage against a workday number — and the guard
       is the **`IsoDate` validator of 4.3, not a check on the project's start
       date.** A workday number is not an `IsoDate`, so 4.3 already refuses it;
@@ -544,9 +581,15 @@ in both slices rather than implied by position.
       create, rename, recolour and delete, each carrying no payload. Negative:
       the delete path left unbroadcast, watched failing.
 - [ ] 9.2 `e2e/gantt.spec.ts`: click a day, name a marker, see the chip and the
-      rule; reload and see them still there; delete and see them gone. The one
-      test that judges pixels — jsdom asserts positions, a browser judges
-      appearance.
+      rule; reload and see them still there; delete and see them gone. Plus the
+      **visible focus ring** moved down from 6.4: tab to a dated cell and assert
+      a computed focus indicator, which jsdom cannot see at all. The one test
+      that judges pixels — jsdom asserts positions, a browser judges appearance.
+      Negative: the rule's `stroke` bound to the chart background colour,
+      watched failing the "see the rule" step while every jsdom position
+      assertion in section 8 stays green — an element present at the right `x`
+      with the wrong paint is precisely what only a browser catches, and this
+      slice had no injected fault at all (round-4 Sol review).
 - [ ] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it

@@ -565,10 +565,35 @@ a tie leaves the order free to change between reads of unchanged data.
 Edit and delete SHALL follow the project's existing write permission. No
 per-marker role SHALL be introduced.
 
-A create or update that is refused SHALL answer with the refusal shape the
-project's other writes already use, naming which field failed and why, and SHALL
-NOT partially apply: after a refused rename the marker SHALL still carry its old
-name.
+A create or update that is refused SHALL answer with the project's refusal
+envelope, naming which field failed and why, and SHALL NOT partially apply:
+after a refused rename the marker SHALL still carry its old name.
+
+**"The project's existing refusal shape" is not one shape**, so each failure
+SHALL name its own code, status, field and reason. `statusForRefusal(reason,
+otherwise)` (`refusal-status.ts:22-47`) shares four arms across every route and
+takes each route's **own default** as its second argument — a malformed step
+body is 422, an unparseable batch 400, an undo of an empty stack 409, a patch of
+an absent project 404 — so a marker route that said only "the existing shape"
+would have specified nothing (round-4 Sol review). The marker routes' default
+SHALL be **422**, the malformed-body answer:
+
+| failure                          | reason        | status | field   |
+| -------------------------------- | ------------- | ------ | ------- |
+| `date` is not an `IsoDate`       | `malformed`   | 422    | `date`  |
+| `id` is not a UUID v4            | `malformed`   | 422    | `id`    |
+| `color` is not a hex triple      | `malformed`   | 422    | `color` |
+| `name` is empty or over the cap  | `malformed`   | 422    | `name`  |
+| `color` fails either contrast bar | `contrast`   | 422    | `color` |
+| `id` already exists              | `taken`       | 409    | `id`    |
+| the marker is absent, or another project's | `not_found` | 404 | `id` |
+| the caller may not write the project | `forbidden` | 403  | —       |
+
+`taken` reaches 409 through the shared `CONFLICTS` set, `not_found` through the
+shared 404 arm and `forbidden` through the shared 403 arm; only `malformed` and
+`contrast` fall through to the route default, which is why the default has to be
+stated. A marker of another project answers `not_found` rather than `forbidden`
+— the caller may not learn it exists.
 
 #### Scenario: deleting the project takes its markers
 
