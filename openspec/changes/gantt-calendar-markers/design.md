@@ -53,14 +53,50 @@ so a marker confined to the header band contends with today and weekend only.
 Drawing a rule down the body is what makes a marker useful — it is how a
 reader sees which bars cross the date — and it is also what puts the marker
 into the bar layer's argument. Painting the rule **behind** the bars at
-reduced opacity settles it without a precedence table: nothing is drawn over a
-bar, so bar fill and the critical-path stroke keep full contrast, and the rule
-stays legible in the gaps between bars, which is where a date is actually
-traced. Paint order is the whole mechanism; there is no z-index to tune.
+reduced opacity settles that argument: nothing is drawn over a bar, so bar fill
+and the critical-path stroke keep full contrast, and the rule stays legible in
+the gaps between bars, which is where a date is actually traced. Paint order is
+the whole mechanism; there is no z-index to tune.
+
+It settles the argument with the **bars**, and only with them. §2.1 is the rest
+of the ordering, which "behind the bars" leaves open.
 
 **Consequence for the existing tests:** at 28px per day no bar coordinate or
 class changes, so the panel's existing pixel assertions stay green. A marker
 test that had to edit one of them would mean the layering was wrong.
+
+### 2.1 "Behind the bars" is not a slot — this is
+
+**Corrected after the Sol planning review.** "Behind the bars" orders the marker
+against one of five things the body already paints, and leaves the other four
+undecided. The body's marks are emitted in source order inside
+`marksUnderLight` and `marksOverLight`, and paint order in SVG **is** source
+order, so the slot is a line number and nothing else:
+
+| #     | mark                  | attribute                    | where                        |
+| ----- | --------------------- | ---------------------------- | ---------------------------- |
+| 1     | weekend columns       | `data-gantt-weekend`         | `gantt-panel.tsx:2879-2883`  |
+| 2     | row bands             | —                            | `:2895`                      |
+| 3     | today's tinted column | `data-gantt-today`           | `:2955`                      |
+| 4     | gridlines             | `data-gantt-gridline`        | `:2964`                      |
+| 5     | today's leading edge  | `data-gantt-today-edge`      | `:2993`                      |
+| **6** | **the marker rule**   | **`data-gantt-marker-rule`** | **new, immediately after 5** |
+| 7     | row hit lines         | —                            | after 6                      |
+| 8     | bars, critical stroke | `barClasses` `:725`, `:3511` | last                         |
+
+**Over the today edge, not under it.** A marker on today has to be visible: the
+user just placed it, and §1 names silent absence as the least debuggable failure
+this product has. Drawing it under a `stroke-sky-500` hairline of the same
+offset would hide it exactly there. The reverse costs nothing, because **today
+is marked twice** — a full-day tinted column (`fill-sky-500/15`) plus the 1px
+edge — and a 1px marker rule cannot cover a column a whole day wide. So today
+stays findable and the marker is visible, which is not true the other way round.
+
+**Over the weekend columns for the same reason and for free:** the weekend band
+is a fill drawn first, at position 1, so anything after it is over it already.
+
+**Under the bars, which is the requirement §2 argues.** Slots 7 and 8 are
+untouched, so no bar coordinate, fill or critical-path stroke changes.
 
 ## 3. The zoom ladder is the binding constraint on labels
 
@@ -75,10 +111,19 @@ showing a quarter.** The name therefore lives in the chip's hover/tap list at
 every rung; the chip itself degrades to a coloured tick at 4px.
 
 **Density.** At 4px, many rules become a smear. The threshold is a named
-constant — `MARKER_RULE_MAX_PER_100PX` — checked against markers within the
+constant — `MARKER_RULE_MAX_PER_100PX = 6` — checked against markers within the
 viewport, and **above** it the rules are dropped and the chips kept (treatment
 A as the 4-rung fallback). A named constant with a pixel assertion is testable;
 "looks busy" is not.
+
+**Why 6, stated as arithmetic rather than taste.** 100px holds 25 days at the
+4px rung, and six rules across it is one rule per ~16px — four clear days
+between neighbours at the rung where the smear happens, and the same ~16px
+minimum separation the gridline's own heavy/light ladder already reads at. Seven
+would put two rules inside one heavy-gridline week; six is the largest count
+that cannot. At the 12px and 28px rungs 100px holds 8 and 3.6 days, so the
+threshold is unreachable by construction there and the rules always draw — which
+is the intended behaviour and not a special case in the code.
 
 ## 4. Geometry — the seam is `todayOffset`, not `CalendarScale`
 
@@ -149,6 +194,12 @@ colour was never chosen would be indistinguishable from one that was.
 is indexed with `project_id` because "this project's markers, by date" is the
 only read.
 
+`id` is a v4 UUID **supplied by the composer** — see §6.1 for why, and for the
+`clock.newId()` fallback that keeps every other caller of the port unchanged. It
+also gives the list a total order: `(date, created_at)` is not one, because two
+markers created inside the same millisecond tie and the list would then be free
+to swap them between renders. The read is ordered `(date, created_at, id)`.
+
 ## 6. Colour determinism
 
 Automatic colour is `palette[hash(marker.id) mod palette.length]` over a fixed
@@ -173,6 +224,69 @@ composer alone refuses the colour only for clients that ask nicely; validating
 at render instead would leave an unreadable marker stored and blame the
 reader's theme.
 
+### 6.1 The id has to exist before the colour does — so the client issues it
+
+**Raised by the Sol planning review, and it is a real ordering problem.** The
+brief's flow is _"enter a name, accept an automatically assigned colour or
+choose one"_, so the composer shows a colour **before submit**. But the
+automatic colour is `palette[hash(id) mod 8]`, and the house pattern issues ids
+at backend write time — `this.clock.newId()`, a port on `Clock`
+(`clock.ts:34,47`), used that way by `saved-plan.service.ts:680` and
+`directory.service.ts:203,313`. At composer time there is no id, so there is
+nothing to hash and the swatch would be a guess the create could contradict.
+
+Four options were real:
+
+| option                                                                        | why not                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Preview nothing** — the swatch is a neutral "automatic" token until created | Honest, and the cheapest. But it deletes the half of Dany's flow that says _accept_ an assigned colour: the first sight of the hue is after submit, when accepting or rejecting it costs a second round trip. |
+| **Server-reserved id** — a reservation call when the composer opens           | A new endpoint, a round trip on every day click including the many that are changes of mind, and an orphan-reservation lifecycle to own. New surface bought with nothing.                                     |
+| **Hash something the client already knows** — `(projectId, date, name)`       | A rename would recolour the marker, which is a visible surprise with no error message, and it makes colour carry content rather than identity — the thing §6 rejects order-derived colour for.                |
+| **Client-issued id** ✔                                                        | The composer generates the `id`, so `automaticColor(id)` is exact before submit and provably equal to the created marker's colour.                                                                            |
+
+**Chosen: the composer issues the id.** The create body carries `id`, and
+`clock.newId()` stays the fallback for a body that omits one, so the port and
+every other caller are untouched. Two consequences that are requirements, not
+notes:
+
+- **A colliding id is refused, not merged.** The primary key conflict answers a
+  refusal with no row written, and the composer retries with a fresh id. Ids are
+  v4 UUIDs, so a collision is a bug or an attack and never traffic.
+- **The proof is that the preview and the creation agree.** The slice asserts the
+  swatch rendered before submit equals the colour of the chip rendered after,
+  with the fault being the server ignoring the supplied `id` and calling
+  `clock.newId()` — watched failing because the two colours differ. Without that
+  fault the assertion passes against a composer that previews the right colour
+  by luck one time in eight.
+
+### 6.2 The click surface is a control, so it has a control's contract
+
+**Raised by the Sol planning review.** §1 makes a dated axis cell clickable, and
+that cell is the existing `<span>` at `gantt-panel.tsx:3879`. It is a `<span>`
+because until now it was **hover-only** — hover needs no role, no tab stop and
+no key handler, and a click does. Adding `onClick` to it without the rest ships
+a control no keyboard reaches, which fails WCAG 2.1.1 and hides the whole
+feature from anyone not using a pointer.
+
+The contract, on the dated cell only:
+
+- `role="button"` and `tabIndex={0}`, so it is focusable and announced as a
+  control.
+- **Enter and Space** both open the day sheet, matching the native button
+  behaviour the role now promises.
+- An accessible name that **names the date**, not the cell — `aria-label` of the
+  form `Markers on Wednesday 19 August 2026`, with the count when markers exist.
+  A row of tab stops all announced "button" is a worse experience than no tab
+  stop at all.
+- A visible focus ring, since the cell has no default one.
+- `aria-haspopup="dialog"` and `aria-expanded`, because what opens is a sheet.
+
+**The undated cell keeps none of it.** It carries no `data-axis-date`, gets no
+role, no tab stop and no key handler, so it is not in the tab order at all — the
+refusal in §1 is for the pointer user who can still click it. The refusal
+message is rendered into a live region so it is announced rather than merely
+drawn; a message a screen reader never reaches is the silent absence §1 refuses.
+
 ## 7. Broadcast
 
 One content-free `calendar_markers_changed` on `ProjectEvent`, added beside
@@ -194,12 +308,21 @@ read only by the panel's overlay. There is no code path from a marker to the
 engine, so no scheduler test changes.
 
 **This is asserted, not assumed.** The oracle is the schedule response itself:
-capture it, add markers, capture again, compare bytes. Note for anyone
-extending this — an earlier draft of this task cited a `fast-golden-corpus`
-serializer as the oracle. **No such corpus exists in this repo**; the nearest
-thing, `libs/domain/src/schedule-identity.test.ts`, compares the current
-engine against a copied older engine and is a different guarantee entirely.
-The byte-comparison above is what is actually available.
+capture it, add markers, capture again, compare — **a canonical projection of
+the schedule-bearing fields, not the response bytes.** `GET
+/projects/:id/work-items` spreads `tree()`, which carries the project's event
+`seq` (`work-item.service.ts:1147-1159`), and every marker mutation advances
+that sequence by design, so a whole-body comparison is guaranteed to fail for a
+reason that has nothing to do with the schedule: it would fail honestly and mean
+nothing. The projection is every work item's start, finish and critical-path
+flag in a fixed order, and the same test asserts `seq` **did** advance — which
+is what proves it compared the right thing rather than an empty projection.
+
+Note for anyone extending this — an earlier draft of this task cited a
+`fast-golden-corpus` serializer as the oracle. **No such corpus exists in this
+repo**; the nearest thing, `libs/domain/src/schedule-identity.test.ts`, compares
+the current engine against a copied older engine and is a different guarantee
+entirely. The projection above is what is actually available.
 
 ## Assumptions
 
@@ -215,6 +338,8 @@ stable; the spec's requirements implement them.
 | 5   | Dates are project-local `IsoDate`s — no time, no per-user timezone.                                               | Markers needing to align with an external calendar's instants (out of scope in the brief).                     |
 | 6   | Edit and delete follow project write permission, with no separate marker role.                                    | A need for per-marker ownership.                                                                               |
 | 7   | The chip plus a behind-the-bars rule (treatment B), with the rule dropped at 4px above a density threshold.       | Measured smear at 4px below the threshold, which would make chips-only the 4px behaviour at every density.     |
+| 8   | The composer issues the marker id so the previewed automatic colour is the created one (§6.1).                    | A rule against client-supplied primary keys, or a decision that no colour is previewed before submit.          |
+| 9   | A marker rule on today's date draws over today's leading edge; today stays findable by its tinted column (§2.1).  | Dany reading a marker on today as having erased it, which would make the offset-by-one-pixel treatment right.  |
 
 Assumptions 1–6 were opened in the design interview under the 2026-09-03
 standing rule that unresolved product choices become documented assumptions

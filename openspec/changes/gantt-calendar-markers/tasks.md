@@ -64,22 +64,40 @@ is what the rest is allowed to assume.
 - [ ] 3.1 The fixed palette and `automaticColor(markerId)` —
       `palette[hash(id) mod palette.length]`, in a new
       `libs/domain/src/marker-color.ts` — test:
-      `libs/domain/src/marker-color.test.ts`: the same id twice gives the same
-      colour; three ids created and the first deleted leaves the other two
-      unchanged. Negative for determinism: the implementation swapped for one
-      keyed on an index passed in by the caller, watched failing the deletion
-      case. That negative is the whole slice — a colour function tested only
-      for "returns something in the palette" cannot fail.
+      `libs/domain/src/marker-color.test.ts`.
+      **Pinned vectors first, because the two obvious assertions are both
+      vacuous.** "The same id twice gives the same colour" and "deleting the
+      first of three leaves the other two unchanged" are BOTH satisfied by
+      `const automaticColor = () => palette[0]`, so neither can fail and the
+      slice as first written proved nothing. The test therefore carries a table
+      of **four literal UUIDs with the exact hex each must return**, at least
+      two of them different, written into the test as data — a constant
+      implementation fails on the first row.
+      Negatives, three, each watched failing:
+      (a) the function keyed on an index passed in by the caller — fails the
+      deletion case;
+      (b) the hash taken over the marker's **name** instead of its id — fails a
+      rename-stability case, which is the fault the pinned vectors alone would
+      miss because a name-keyed hash is still deterministic;
+      (c) the hash taken over the **date** — fails a case with two markers on
+      one date asserting their colours differ, which is the identity a stacked
+      band exists to distinguish.
+      `Proof:` comment naming the four vectors' source (they are recorded, not
+      computed at test time — a vector recomputed by the code under test is the
+      code agreeing with itself).
 - [ ] 3.2 The palette itself — **eight named hex entries, written into
       `marker-color.ts` as a literal**, each clearing **3:1** against both
       themes' chart background (WCAG 1.4.11, the non-text bar these are) and
       carrying a label colour clearing **4.5:1** against its own fill (1.4.3).
-      Test: `libs/domain/src/marker-color.test.ts`, a table case over every
-      entry asserting both ratios in light and dark. Negative: one
+      Test: `libs/domain/src/marker-color.test.ts`, `expect(PALETTE).toHaveLength(8)`
+      **first**, then a table case over every entry asserting both ratios in
+      light and dark. The length assertion is not decoration: without it the
+      ratio loop passes over an empty or one-entry palette, and the
+      `palette.length` divisor in 3.1 would then make a constant function its
+      own vectors could not distinguish from a correct one. Negative: one
       deliberately-failing colour appended to the palette fixture, watched
-      failing, and removed — without it the assertion loop passes over an empty
-      palette. Eight rather than "a fixed palette": a count the test can iterate
-      is checkable, an adjective is not.
+      failing, and removed. Eight rather than "a fixed palette": a count the
+      test can iterate is checkable, an adjective is not.
 - [ ] 3.3 `validateCustomColor(hex)` refusing a colour below either bar and
       **naming the failing theme and the failing ratio** — test: same file, a
       colour that clears 3:1 in light and fails it in dark, asserting the
@@ -93,14 +111,29 @@ is what the rest is allowed to assume.
       removed, watched writing the row while the UI test stayed green. A
       validator unit-tested but never called is the shape 3.1–3.3 would
       otherwise ship: green tests over a guard on no production path.
+- [ ] 3.5 The composer issues the id, so the previewed colour is the created
+      one — the composer generates a v4 UUID, renders `automaticColor(id)` as
+      the swatch, and sends that `id` in the create body — test:
+      `gantt-panel.test.tsx`, read the swatch's colour before submit and the
+      created chip's colour after, and assert they are equal. Negative: the
+      server ignoring the supplied `id` and calling `clock.newId()`, watched
+      failing on unequal colours. Without that fault the assertion passes by
+      luck one time in eight, which is the palette's own cardinality and not a
+      test. See `design.md` §6.1 for why the other three options lost.
 
 ## 4. The API
 
 - [ ] 4.1 `apps/be-01/src/controller/calendar-marker.controller.ts` — list,
       create, rename, recolour, delete, scoped to one project — test:
       `apps/be-01/src/controller/calendar-marker.controller.db.test.ts`, the
-      five verbs round-tripped, list ordered by `(date, created_at)`, and a
-      create with an out-of-horizon date accepted and returned.
+      five verbs round-tripped, list ordered by **`(date, created_at, id)`**,
+      and a create with an out-of-horizon date accepted and returned. The third
+      key is the slice's point: two markers created against a fixed clock tie on
+      `(date, created_at)`, and a tie lets the order change between two reads of
+      unchanged data. Test it as such — a fixed clock, two markers on one date,
+      the list read twice, the order asserted equal and asserted to be id order.
+      Negative: the `id` key dropped from the `ORDER BY`, watched failing on the
+      tied pair. Ordering asserted only over distinct timestamps cannot fail.
 - [ ] 4.2 Write permission — every mutation refused for a read-only actor with
       the same status the project's other writes use — test: same file, a
       read-only actor against each of the four mutations, asserting the status
@@ -111,7 +144,35 @@ is what the rest is allowed to assume.
       coerced — test: same file, `2026-9-17`, `2026-09-17T00:00:00Z` and
       `not-a-date` each rejected. Negative: the validator replaced with a
       truthiness check, watched failing on the timestamp case, which is the one
-      a truthiness check lets through. R5: malformed trusted data throws.
+      a truthiness check lets through. R5: malformed trusted data throws. Same
+      file, one more case: a create issued from a process at `TZ=Pacific/Auckland`
+      at an instant whose UTC date is the day before, asserting the stored date
+      is the one submitted. The whole timezone requirement is "no instant is
+      converted anywhere on the path", and a test run only at UTC cannot observe
+      a conversion that is the identity there.
+- [ ] 4.4 The client-supplied `id`, its fallback and its collision — test: same
+      file, three cases: a create carrying an `id` stores that exact id; a create
+      omitting `id` is issued one by `Clock.newId()` (asserted through the fake
+      clock the suite already injects); a create repeating an existing id is
+      refused with no row added and the existing marker's name, date and colour
+      unchanged. Negative for the last: the insert written as an upsert, watched
+      overwriting the existing row. A duplicate-id test that only asserts an
+      error status passes against an upsert that already destroyed the row.
+- [ ] 4.5 Refusals name their field and apply nothing — test: same file, an
+      empty name on create and on rename, and a malformed colour on recolour,
+      each asserting the project's existing refusal shape with the failing field
+      named, and that the stored marker is byte-identical to before the call.
+      Negative: the rename writing before validating, watched leaving the new
+      name behind after a refused call. "Refused" and "unchanged" are two claims
+      and the second is the one a partial write breaks.
+- [ ] 4.6 Project isolation, and a marker is not a work item — test: same file,
+      two seeded projects each with markers: listing one returns none of the
+      other's; a rename naming the other project's marker id is refused with
+      both rows unchanged; a marker id requested through the work-item routes is
+      refused; a work-item id requested through the marker routes is refused.
+      Negative: the `project_id` predicate dropped from the list query, watched
+      returning the other project's markers. An isolation test written only
+      against a single seeded project passes with no predicate at all.
 
 ## 5. The schedule identity guarantee
 
@@ -172,6 +233,24 @@ is what the rest is allowed to assume.
       is the point of the slice — an implementation that shortcut a single
       marker straight to edit would pass the two-marker case and make a second
       marker unreachable, which is the conflict this resolves.
+- [ ] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
+      Enter and Space handlers, a visible focus ring, `aria-haspopup="dialog"`,
+      an `aria-expanded` tracking the sheet, and an `aria-label` naming the
+      date and the marker count — test: `gantt-panel.test.tsx`, four cases:
+      Enter opens the sheet, Space opens the sheet, a cell with two markers has
+      an accessible name naming its date and reporting two, and an **undated**
+      plan's cells are not focusable and carry no `role`. Negative: the Space
+      handler removed, watched failing — a keyboard test written only for Enter
+      passes against a `keydown` that forwards every key, and one written only
+      for `tabIndex` passes against a focusable element nothing activates. The
+      `<span>` is a `<span>` today because it was hover-only; a click without
+      this contract ships a control no keyboard reaches (WCAG 2.1.1).
+- [ ] 6.5 The refusal is announced, not only drawn — the undated-plan message
+      from 7.2 rendered into a live region — test: same file, assert the
+      message's container carries the live-region role the app already uses for
+      transient status. Negative: the live-region attribute removed, watched
+      failing. A message a screen reader never reaches is the silent absence
+      `design.md` §1 refuses.
 
 ## 7. The undated-plan refusal
 
@@ -220,19 +299,48 @@ is what the rest is allowed to assume.
       x, not the workday x. Negative: the chip placed by workday number,
       watched failing — this is the drift `gantt-calendar-axis` exists to
       prevent and the fixture is chosen so the two numbers differ.
-- [ ] 8.2 The rule down the body, behind the bars — test: same file, assert the
-      rule element precedes every bar element in paint order and that a bar
-      crossing it keeps its `x`, `width` and critical-path class **unchanged
-      from the same plan with no marker**. The unchanged-bar half is the
-      requirement; the ordering half is the mechanism.
-- [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — test: same
-      file, markers above the threshold at 4px per day asserted to draw no
-      rules and every chip; below the threshold, rules drawn. Negative: the
-      threshold read as `> 0`, watched failing on the below-threshold case.
+- [ ] 8.2 The rule takes its named slot in `marksOverLight` — **not merely
+      "behind the bars"**, which orders the marker against one of the five marks
+      the body paints and leaves the other four undecided. Emitted after
+      `data-gantt-today-edge` and before the row hit lines and every bar
+      (`design.md` §2.1 carries the full table) — test: `gantt-panel.test.tsx`,
+      one assertion over the DOM order of `data-gantt-weekend`,
+      `data-gantt-today`, `data-gantt-gridline`, `data-gantt-today-edge`,
+      `data-gantt-marker-rule` and the first bar, asserting exactly that
+      sequence; plus a bar crossing the rule keeping its `x`, `width` and
+      critical-path class **unchanged from the same plan with no marker**.
+      Negative: the rule emitted at the top of `marksOverLight`, watched failing
+      the sequence while the unchanged-bar half stays green — which is the point,
+      because a rule above the gridlines is still behind every bar. The
+      unchanged-bar half is the requirement; the sequence is the mechanism, and
+      it needs its own assertion because the requirement cannot see it.
+- [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
+      **6** (`design.md` §3: 100px is 25 days at that rung, so six is one rule
+      per ~16px and seven puts two inside one heavy-gridline week) — test: same
+      file, seven markers within 100px of viewport at 4px per day asserted to
+      draw no rules and every chip; six asserted to draw six rules; and at 28px
+      per day, where 100px holds 3.6 days, the threshold asserted unreachable so
+      rules always draw. Negative: the threshold read as `> 0`, watched failing
+      on the six-marker case. A boundary constant tested only well above and
+      well below its value does not test the value.
 - [ ] 8.4 Overflow collapses to a count with the list on hover or tap — test:
       same file at 28px per day, more markers on one date than the band shows.
 - [ ] 8.5 A marker outside the current horizon draws nothing and is still
-      returned by the API — test: same file plus the controller test from 4.1.
+      returned by the API — test: same file plus the controller test from 4.1,
+      and the **return trip**: lengthen the plan so the horizon covers that date
+      again and assert the chip is drawn at its axis offset. Negative: the
+      absent-date branch in `axisOffsetOf` changed to throw, watched failing the
+      shortened case. Half of this behaviour is "still stored", which is not
+      observable on the panel at all, and half is "drawn again", which a test
+      that only shortens the plan never reaches.
+- [ ] 8.8 A marker on today and a marker on a weekend — test: same file, two
+      cases: a marker on today's date, asserting its rule element **follows**
+      `data-gantt-today-edge` and that the `data-gantt-today` tinted column is
+      still present at that offset; and a marker on a Saturday, asserting its
+      rule follows that day's `data-gantt-weekend` column and the column is
+      unchanged from the same plan without the marker. These are the two
+      collisions `design.md` §2.1's slot decides, and the today case is the one
+      whose opposite ordering would have hidden a marker the user just placed.
 - [ ] 8.6 The standalone SVG export carries the chips — `markers` added to
       `StandaloneGanttSvgInput` (`gantt-panel.tsx:1614`) and drawn in the axis
       rebuild at `:1789` — test: same file, export a plan with two markers and
@@ -257,6 +365,15 @@ is what the rest is allowed to assume.
       rule; reload and see them still there; delete and see them gone. The one
       test that judges pixels — jsdom asserts positions, a browser judges
       appearance.
+- [ ] 9.3 A second client re-reads on the event — test:
+      `gantt-panel.test.tsx` (or the panel's existing stream harness), mount the
+      panel, deliver a `calendar_markers_changed` on the project stream with the
+      marker list changed underneath, and assert the new chip appears with no
+      remount and no reload. Negative: the panel's handler for that event
+      removed, watched failing. 9.1 counts emissions, which is a broadcast into
+      an empty room until something acts on it — this slice is the half that
+      makes the content-free event design work at all, and it was specified
+      backend-side with nothing proving the client side.
 
 ## Gate
 
