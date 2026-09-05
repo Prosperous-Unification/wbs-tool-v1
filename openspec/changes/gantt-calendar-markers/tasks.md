@@ -194,6 +194,37 @@ in both slices rather than implied by position.
       a 20-backdrop loop whose extra 18 rows never bind is 18 rows of
       decoration. Eight rather than "a fixed palette": a count the
       test can iterate is checkable, an adjective is not.
+- [ ] 3.2a `labelInk(fill)` — the chooser itself, which nothing above tests
+      (round-19 Gemini review, Important). 3.2 asserts that each palette entry
+      **carries** a label colour clearing 4.5:1: a literal checked against a
+      literal. The requirement is that the ink is **chosen** — "black or white,
+      whichever contrasts more with the chip fill", a total function with no
+      refusal arm (`spec.md`, the label-ink requirement) — and a chooser
+      hard-coded to one of the two agrees with every recorded label on the half
+      of the palette that ink happens to win, so 3.2 is green with the algorithm
+      absent. Signature: `labelInk(fill: string): '#000000' | '#ffffff'`, in
+      `marker-color.ts` beside the palette.
+      Test: `libs/domain/src/marker-color.test.ts`, a table over all eight
+      entries asserting `labelInk(entry.fill)` equals that entry's **recorded**
+      label and is the higher-contrast of the two — one assertion binding the
+      two sources of truth 3.2 leaves unrelated — plus both ends of the sRGB
+      cube.
+      **Totality is the return type plus the crossover case, not an assertion
+      that it never throws.** The two contrasts multiply to exactly 21 for every
+      fill luminance, so they are equal at `L = sqrt(0.0525) - 0.05 ≈ 0.1791`
+      and one is strictly larger everywhere else; the union return has no third
+      member, and the crossover is the only input at which a chooser written as
+      a strict inequality can fall through both arms. Case: a fill whose
+      luminance is within `1e-6` of it, asserting the call returns one of the
+      two members and that its ratio still clears 4.5:1.
+      Negatives, two. `labelInk` hard-coded to `'#ffffff'`, watched failing on
+      the palette's lightest entry — where black wins — while all twenty of
+      3.2's ratios stay green, since 3.2 reads the recorded label and never
+      calls this function. And the comparison inverted to the **lower** ratio,
+      watched failing at both ends of the cube while the crossover case stays
+      green: at the crossover the two ratios are equal and either answer passes,
+      which is what proves the crossover case is a totality check and not the
+      discrimination.
 - [ ] 3.3 `validateCustomColor(hex)` refusing a colour below the **3:1** bar
       **over the same 20 backdrops 3.2 measures**, and **naming the failing backdrop
       and the failing ratio** — the theme alone no longer identifies it, since
@@ -897,6 +928,19 @@ in both slices rather than implied by position.
       the chart. Negative: `y2` truncated to one row, watched failing this
       equality while the order, count, colour and both of 8.2a's tiers stay
       green, since the sampled band is inside the truncation.
+      **Plus a watched negative for `pointer-events: none`, which had an
+      assertion and no fault** (round-19 Gemini review, Important). Every other
+      claim in this slice names a renderer that breaks it; that one was asserted
+      bare, so nothing showed it was load-bearing. Negative: the property
+      dropped from the rule, watched failing that assertion while the sequence,
+      `y1`/`y2`, the shared-date colour, the count and all three bar comparisons
+      stay green — not one of them reads it.
+      **And the tier here is the declaration, not the behaviour.** jsdom does
+      not hit-test, so nothing in this file can show that a pointer aimed at a
+      row hit line under the rule reaches it; a rule carrying the property
+      inside a wrapper `<g>` that does not carry it satisfies every assertion
+      here and still swallows the pointer. That half is 9.2c's, where a real
+      compositor answers.
       **Plus the shared-date colour, which nothing else tests:** two markers on
       one date with distinct colours, asserting exactly one rule element at that
       offset and its `stroke` equal to the **first** marker's colour by
@@ -1495,6 +1539,66 @@ in both slices rather than implied by position.
       9.2a's reason: 9.2's fault mutates the rule's stroke, which both cases here
       would see, so sharing that slice would leave this one with no fault of its
       own.
+- [ ] 9.2c The chip's **rendered** contrast, and the rule's **behavioural**
+      transparency to the pointer — same file (`apps/fe-01/e2e/gantt.spec.ts`).
+      3.2 proves the palette's eight literals against computed backdrops and
+      8.1 and 6.x read the chip's colour at the DOM seam; none of them sees what
+      the compositor put on screen. A chip carrying `opacity: 0.5`, an
+      alpha-bearing fill, or an opacity-reducing ancestor passes every one of
+      them while its composited colour falls under 3:1 (round-19 Sol review,
+      Critical) — the same shape as the "SHALL be opaque" hole one level up,
+      one component over.
+      **`measureInk` is not the oracle here, and both reasons are in its
+      source.** It is the right precedent for the pipeline and the wrong pair
+      for this bar. It returns `contrast` between a node's `color` and its
+      composited ground — the 4.5:1 **label** bar — while the claim here is the
+      chip **fill** against the header backdrop, two surfaces, a ratio it never
+      forms. And its walk reads
+      `getComputedStyle(ancestor).backgroundColor` alone
+      (`apps/fe-01/e2e/measure-ink.ts:110-115`), breaking at the first layer
+      with alpha 1; `opacity` is a separate property and group opacity is not a
+      per-layer alpha, so the watched negative this slice exists for — a chip at
+      `opacity: 0.5` — passes `measureInk` **unchanged**. A negative that cannot
+      fail is how the previous seven Criticals were written, so the oracle is
+      the pixel the screenshot already carries.
+      Pipeline: 9.2b's, unchanged — `page.screenshot({ clip })` per
+      `apps/fe-01/e2e/hover-cards.spec.ts:148`, `buffer.toString('base64')`
+      (`:158`), both strings into one `page.evaluate`, `img.decode()`,
+      `canvas.width` and `canvas.height` set from `naturalWidth` and
+      `naturalHeight` **before** `drawImage`, then
+      `getImageData(0, 0, canvas.width, canvas.height)` with all four arguments.
+      Two clips: the chip's bounding box, and an equal-sized box on a
+      **markerless day cell of the same kind** in the same header row — the
+      backdrop measured from the page rather than recomputed, so a theme change
+      moves both together. Take the **modal** RGB of each clip, convert with the
+      sRGB transfer function `measure-ink.ts:88-92` already spells out, and
+      assert `(brighter + 0.05) / (dimmer + 0.05) >= 3`. Modal rather than mean
+      because the chip carries its own label glyphs, and a mean of fill and ink
+      is a colour neither of them is.
+      Four cases, which is the whole of `design.md`'s chip backdrop set: a
+      marker on a **weekday** cell and one on a **weekend** cell
+      (`bg-muted-foreground/10`, `gantt-panel.tsx:3910`), each in **light** and
+      **dark**. Today is not a fifth — the header gives it
+      `font-semibold text-sky-600` and no background of its own (`:3915`), and
+      `fill-sky-500/15` is a body `<rect>` (`:2955`) that cannot sit behind a
+      header chip.
+      Negatives, two. `opacity: 0.5` on the chip, watched failing the ratio on
+      all four cases while 3.2's twenty ratios, 3.2a's chooser table, 8.1's
+      placement and every DOM read of the chip's colour stay green — the fault
+      this slice exists for, and the one `measureInk` could not see. And the
+      **weekend** arm's backdrop clip re-pointed at a weekday cell, with the
+      fixture's chip fill set to a colour clearing 3:1 over the light base and
+      missing it over base-over-weekend: watched **passing** the weekend case
+      while the weekday case and 3.2's ratios stay green. Without that second
+      negative the weekend clip is an unbound duplicate of the weekday one, and
+      two cases measure one backdrop.
+      **Plus 8.2's behavioural half:** with a marker on screen, hover the body
+      at the rule's x inside a row band and assert that row still takes its
+      pointed light (`data-gantt-row-lit`). Negative: the rule wrapped in a
+      `<g>` that does not carry `pointer-events: none` while the `<line>` still
+      does, watched failing this hover assertion while 8.2's declared-property
+      assertion stays green — which is the pair of claims jsdom can only make
+      one of.
 - [ ] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it
