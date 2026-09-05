@@ -431,8 +431,10 @@ the pointed light stands as its own surface under the optional today tint —
 colour SHALL clear 3:1 against all of them. Gridlines and today's leading edge are excluded
 by name: both are 1px strokes at a single `x` which the 1px rule covers exactly,
 so what a reader compares the rule against is the area fill beside it. The
-chip's backdrop set is the **4** composites of the weekend and today columns
-over the base, per theme: the chip sits in the axis band and meets no row fill.
+chip's backdrop set is base and base-over-weekend — **2 per theme, 4 in all**:
+the chip sits in the HTML axis band, which paints `bg-muted-foreground/10` on a
+weekend cell and gives today an ink change with no background, so none of the
+body SVG's four fills is ever behind a chip.
 
 A refusal SHALL name the **backdrop** it failed and not merely the theme, since
 a colour can clear the bare dark background and fail dark-over-weekend, and a

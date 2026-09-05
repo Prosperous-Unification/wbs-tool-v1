@@ -372,10 +372,17 @@ only backdrop by construction. It is rejected because at the 4px rung a 3px
 casing consumes most of a day cell, erasing the weekend and today shading a
 reader navigates by, to buy an assurance the measurement gives for free.
 
-**The chip's own bar is measured against fewer.** The chip sits in the axis
-header band, not the body: it contends with the weekend column and today's
-column and with neither row fill, so its backdrop set is the **4 composites**
-of those two over the base, per theme.
+**The chip's own bar is measured against fewer — two, not four.** The chip sits
+in the **HTML** axis header band, not the body SVG, so none of the body's four
+fills is behind it. The header cell paints exactly one background of its own:
+`bg-muted-foreground/10` on a weekend (`gantt-panel.tsx:3910`). Today gets
+`font-semibold text-sky-600` there (`:3915`) and **no background at all** — the
+`fill-sky-500/15` tint is a `<rect>` in the body SVG (`:2955`) and cannot sit
+behind a header chip. So the chip's backdrop set is base and base-over-weekend:
+**2 per theme, 4 in all.** An earlier draft of this section counted today into
+it and got 4 per theme (round-6 Sol review, Important 6). Giving the header its
+own today background would be a new visual treatment and is deliberately not
+proposed here.
 
 **The hash is named too:** 32-bit **FNV-1a** over the id's UTF-8 bytes, taken
 `mod 8`. Any stable function would satisfy "deterministic", which is why naming

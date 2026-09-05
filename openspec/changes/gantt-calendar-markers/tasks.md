@@ -408,8 +408,13 @@ in both slices rather than implied by position.
       while writing this line: the claim being sold is "a marker moves nothing
       but `seq`", and that is exactly what a minus-one-key comparison states.
       `projectRevision` is deliberately **inside** the comparison, not outside
-      it: markers never touch the project row (`:1293`), so it must not move,
-      and holding it proves that rather than assuming it.
+      it: nothing in this change writes the project row, so `projectRevision`
+      must not move, and holding it inside the comparison is what proves that
+      rather than assuming it. **No line citation is attached to that claim**,
+      because there is none to attach: `work-item.service.ts:1293` only declares
+      `projectRevision: number` and says nothing about which tables a marker
+      write touches (round-6 Sol review, Minor 15). It is an invariant this test
+      establishes, not a fact read off existing source.
       Negative: **not** "marker dates appended to `notBefore`" — that is not
       compilable, since `notBefore` is `Map<string, number>` keyed by work-item
       id (`work-item.service.ts:1410-1420`) and a marker has no such id.
@@ -557,7 +562,17 @@ in both slices rather than implied by position.
 
 - [ ] 7.1 `workdayAxis` cells stay dateless — test: `gantt-panel.test.tsx`, a
       direct assertion on `workdayAxis` output that every cell has
-      `date: null`, **not** routed through the panel. Asserted directly so a
+      `date: null`, **not** routed through the panel.
+      **`workdayAxis` must be exported first, and it is not today.** It is a
+      module-local `function workdayAxis(horizon: number): AxisDay[]` at
+      `gantt-panel.tsx:1047`, so no separate test module can call it and the
+      direct assertion as written has no seam (round-6 Sol review, Important
+      10). This slice therefore also exports `workdayAxis` and the `AxisDay`
+      type. Exporting a pure function for a test is the cheap end of the
+      alternatives — the other being to extract an axis-builder module — and the
+      directness is the point of the slice: routed through the panel, the same
+      assertion goes green the moment some future change gives every project a
+      start date, which is exactly the regression it exists to catch. Asserted directly so a
       future change that gave every project a start date would break this test
       loudly rather than making the refusal unreachable and untested.
       Negative: `date: null` replaced with
