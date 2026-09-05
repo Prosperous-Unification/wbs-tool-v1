@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   Days,
+  NewCalendarMarkerView,
   PersonView,
   ProjectApi,
   SliceView,
@@ -5096,17 +5097,20 @@ describe('the undated axis cell announces which cell it is and why it is unavail
 });
 
 describe('an undated plan refuses the mark and names the date it is missing', () => {
-  // Slice 7.2, **two of its three assertions**. The third — "the fake API
-  // received no create call" — has no seam at this head and is not written
-  // here, because writing it would be worse than leaving it out: there is no
-  // calendar-marker writer on `ProjectApi` at all (`wbs-api.ts:1155`, and
-  // `CalendarMarker` appears in fe-01 only inside this component and its
-  // tests), so the fault it exists to catch — a refusal path that synthesised
-  // an `IsoDate` and posted straight through — cannot be written either. An
-  // assertion whose negative is uninjectable is the vacuous form this plan
-  // rejects elsewhere by name (9.2b). Task 7.2a carries the seam; 7.2 stays
-  // unticked until it lands.
-  const undatedPanel = (startDate: string | null) => (
+  // Slice 7.2, **all three assertions now**. The third — "the fake API received
+  // no create call" — was left out at chunk 27 because nothing on `ProjectApi`
+  // could be posted through, so the fault it exists to catch could not be
+  // written either and the assertion would have been the vacuous form this plan
+  // rejects by name (9.2b). 7.2a gave the client its writer and 3.5 gave the
+  // composer the save that uses it, so the fault is injectable now: a refusal
+  // path that synthesised an `IsoDate` and created against it would leave the
+  // message rendered and no composer in the document, and 7.4 cannot catch it
+  // either — its guard is the `IsoDate` validator, and a synthesised date is a
+  // valid one.
+  const undatedPanel = (
+    startDate: string | null,
+    onCreateMarker: (marker: NewCalendarMarkerView) => void = () => undefined,
+  ) => (
     <GanttPanel
       plan={planOf({
         rows: [rowAt('strip', 0, 8)],
@@ -5119,6 +5123,7 @@ describe('an undated plan refuses the mark and names the date it is missing', ()
       onPickRow={() => undefined}
       onPointRow={() => undefined}
       pointed={pointedAtRow(null)}
+      onCreateMarker={onCreateMarker}
     />
   );
 
@@ -5130,8 +5135,14 @@ describe('an undated plan refuses the mark and names the date it is missing', ()
     return cell;
   };
 
-  itDom('clicking a cell renders the refusal and opens no composer', () => {
-    drawUndated();
+  itDom('clicking a cell renders the refusal, opens no composer and writes nothing', () => {
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(
+      undatedPanel(null, (marker) => {
+        void api.createCalendarMarker('p1', marker);
+      }),
+    );
 
     fireEvent.click(cellAt(3));
 
@@ -5143,6 +5154,14 @@ describe('an undated plan refuses the mark and names the date it is missing', ()
       /project start date/,
     );
     expect(screen.queryByRole('dialog')).toBeNull();
+    // **7.2's third assertion, and it is last on purpose**: the two above have
+    // to be seen green in the same run for its negative to mean anything — a
+    // refusal path that also created would leave the message rendered and the
+    // composer absent, and only this line would move.
+    expect(creates).toEqual([]);
+    // The owner's own store, not just the recorder: a fake that recorded
+    // without performing would show an empty call log either way.
+    expect(api.markers).toEqual([]);
   });
 
   itDom('the keyboard reaches the same refusal', () => {
