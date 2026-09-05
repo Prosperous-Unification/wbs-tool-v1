@@ -451,10 +451,18 @@ in both slices rather than implied by position.
       same oracle 5.1a(c) uses and for the same reason: open the app's
       repository as `openDrizzle(path, { logQuery(query) { statements.push(query) } })`
       (drizzle's own hook, `project.db.test.ts:439-444`), drive create, list,
-      rename and delete through the real routes, and assert no logged statement
-      names `work_item`. A source scan is bounded by the file it scans; a SQL
-      log is transitive and catches the read wherever in the
+      rename, **recolour** and delete through the real routes, and assert no
+      logged statement names `work_item`. A source scan is bounded by the file it
+      scans; a SQL log is transitive and catches the read wherever in the
       controller→service→repository path somebody puts it.
+      **Recolour is in that list because leaving it out reopened the hole one
+      verb down** (round-13 Sol review, Important). Rename and recolour share one
+      `PATCH` endpoint, which is what makes the _project scope_ one predicate —
+      but they still take body-specific branches inside it, so a `work_item` read
+      reached only on the colour branch passes a reach case that drives rename
+      and every contrast and round-trip test besides. The second structural
+      negative is therefore injected **in the recolour branch specifically**, and
+      watched failing the reach assertion while the rename drive stays green.
       **Why the id form went:** ids are independent text primary keys and 4.4
       lets the client supply the marker id, so a client can submit an existing
       work item's id and "no marker id resolves through the work-item routes"
@@ -640,6 +648,17 @@ in both slices rather than implied by position.
       the recolour action's emptied, watched failing only the recolour case. One
       fault for both would not distinguish them, which is the state this slice
       is in now.
+      **The add action is the third one that is offered and never used**
+      (round-13 Sol review, Important). The requirement says it opens an empty
+      composer on the same date; 6.1 reaches a composer by clicking an **empty**
+      date, and the three listing cases assert only that the action is offered —
+      so a populated sheet with an inert Add handler passes every named case in
+      this plan. Sixth case: click Add on a date that already holds a marker and
+      assert an empty, focused name field bound to **that** date. Third
+      dead-handler fault: the add action's `onClick` emptied alone, watched
+      failing that case while rename, recolour, delete, the three listing cases
+      and 6.1's empty-date composer all stay green — 6.1 cannot cover it,
+      because it never goes through the sheet.
 - [ ] 6.4 The dated cell becomes a control — `role="button"`, `tabIndex={0}`,
       Enter and Space handlers, a visible focus ring, `aria-haspopup="dialog"`,
       an `aria-expanded` tracking the sheet, and an `aria-label` naming the
@@ -1174,13 +1193,26 @@ in both slices rather than implied by position.
       `hover-cards.spec.ts:148` clips a strip. Two cases: a rule crossing an
       **opaque** bar, asserting that bar's footprint is pixel-identical with and
       without the marker; and a rule crossing an **assumed** bar
-      (`[fill-opacity:0.35]`), asserting the rule is visible through it and that
-      every differing pixel lies **inside** that bar's own footprint. Negative:
-      the rule emitted into `marksOverBars` instead of its named slot, watched
-      failing the opaque case with the bar's footprint changed, while every DOM
-      assertion in 8.2 and 8.2a stays green — the sequence assertion there reads
-      order within `marksOverLight` and a rule moved to the other group is simply
-      absent from it, which is a different failure and not this one.
+      (`[fill-opacity:0.35]`), asserting **at least one differing pixel inside
+      that bar's footprint** — the crop IS the footprint, so "differs" and
+      "inside" are one predicate rather than two.
+      **"Every differing pixel lies inside the footprint" was the vacuous
+      form** (round-13 Sol review, Important): it is satisfied by **zero**
+      differing pixels, so a rule masked under assumed bars passed it alongside
+      the opacity and paint-order assertions — and read over the whole chart
+      instead it rejects the correct renderer, whose rule differs everywhere it
+      is drawn. Cropping to the footprint and requiring a difference is the form
+      that has both halves.
+      Negatives, two. The rule emitted into `marksOverBars` instead of its named
+      slot, watched failing the **opaque** case with the bar's footprint changed,
+      while every DOM assertion in 8.2 and 8.2a stays green — the sequence
+      assertion there reads order within `marksOverLight`, and a rule moved to
+      the other group is simply absent from it, which is a different failure and
+      not this one. And the rule **masked under assumed bars** with
+      `[fill-opacity:0.35]` preserved, watched failing the assumed case's
+      differing-pixel assertion while the opacity assertion, the paint order and
+      the opaque case all stay green — the fault the vacuous predicate could not
+      see, and the one that would ship as "we protected the bar".
       **This slice exists because 8.2's pixel half was written into a jsdom
       file** (round-13 Gemini review, Important). 8.2 compares `x`, `width` and
       the critical-path class, all of which survive a translucent bar being

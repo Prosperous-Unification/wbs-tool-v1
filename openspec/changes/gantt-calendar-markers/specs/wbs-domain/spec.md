@@ -377,7 +377,8 @@ interval bounds.
 
 - **WHEN** a marker's rule crosses an assumed bar
 - **THEN** the bar still carries `[fill-opacity:0.35]`, the rule still precedes
-  it in paint order, and any pixel difference lies inside that bar's footprint
+  it in paint order, and at least one pixel inside that bar's footprint differs
+  from the same plan without the marker
 
 #### Scenario: the rule is 1px at every rung
 
@@ -824,7 +825,7 @@ stated. A marker of another project answers `not_found` rather than `forbidden`
 
 #### Scenario: the marker routes touch no work-item row
 
-- **WHEN** a marker is created, renamed and deleted
+- **WHEN** a marker is created, renamed, recoloured and deleted
 - **THEN** the `work_item` row count and contents are unchanged throughout, and
   the marker routes issue no query against a work-item table
 
