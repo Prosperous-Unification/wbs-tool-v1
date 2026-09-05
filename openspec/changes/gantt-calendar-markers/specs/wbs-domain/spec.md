@@ -451,10 +451,12 @@ interval bounds.
   columns **that element alone** paints — the same clip taken with it visible
   and with it hidden — is 1 or 2 CSS pixels wide at both rungs, a hairline
   rather than the 28 and 4 a scaling stroke would paint
-- **AND** the columns the marker adds in that band and the columns that element
-  alone paints are **the same set**, so that no second rule primitive — stacked
-  on it or abutting it — can supply ink the marker is credited with while the
-  assertions read only the tagged one
+- **AND** the chart body with that element hidden is **pixel-identical** to the
+  chart body with no marker at all, so that no second rule primitive — stacked
+  on it, abutting it, or drawn in another row band — can supply ink the marker
+  is credited with while the assertions read only the tagged one
+- **AND** the rule spans the body rather than the sampled band: its `y1` is the
+  top of the chart's user space and its `y2` is the bottom
 - **AND** the rule's `stroke` resolves to a colour carrying no alpha, and every
   element from the rule up to the chart `<svg>` computes an `opacity` of `1`,
   since neither `stroke-opacity` on the rule nor `opacity` on the rule can see

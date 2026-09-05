@@ -888,6 +888,15 @@ in both slices rather than implied by position.
       and the rule emitted **immediately before the bars**, after the row hit
       lines and capacity marks, watched failing the sequence while both the
       unchanged-bar half and a "before every bar" assertion stay green.
+      **Plus the rule's extent, which nothing else tests** (round-19 Sol review,
+      Important): assert `y1` is `0` and `y2` is `rowCount` at this seam. 8.2
+      checks paint order, pointer behaviour, the bar attributes, the count and
+      the colour, and 8.2a samples one short strip in one empty row band, so a
+      rule drawn only through that band — or through the fixture's bars and
+      nothing else — passes every one of them while vanishing from the rest of
+      the chart. Negative: `y2` truncated to one row, watched failing this
+      equality while the order, count, colour and both of 8.2a's tiers stay
+      green, since the sampled band is inside the truncation.
       **Plus the shared-date colour, which nothing else tests:** two markers on
       one date with distinct colours, asserting exactly one rule element at that
       offset and its `stroke` equal to the **first** marker's colour by
@@ -1115,7 +1124,26 @@ in both slices rather than implied by position.
       makes them identical because the rule is the only marker ink in a row band
       with no bar and no chip in it. Fourth negative, therefore: **the adjacent
       untagged 1px line**, watched failing the set equality while `ruleInk`'s
-      own bound, the tag, both width assertions and 8.2's count all stay green. **And the predicate has to be spelled out**
+      own bound, the tag, both width assertions and 8.2's count all stay green.
+      **And the set equality SHALL be taken over the whole chart body, not the
+      strip** (round-19 Sol review, Critical, and it is why the strip-local
+      version above is stated as the reasoning rather than the assertion). A
+      strip cannot prove the absence of paint it does not cover: move the
+      untagged auxiliary line into a different row band, or paint it as a CSS
+      background on a sibling, and every strip-local comparison is satisfied
+      while the chart carries two rules. The complete form is an identity, and
+      it needs no column arithmetic at all: **the body with the queried rule
+      hidden SHALL be pixel-identical to the body with no marker at all**, over
+      a clip covering the whole chart body — the rows, not the axis band, since
+      the chip is header ink and is supposed to differ. If hiding one element
+      returns the chart to its marker-free state, that element is the only body
+      ink the marker adds, anywhere, and no auxiliary primitive survives
+      wherever it is drawn. The column sets then carry only what they are good
+      at: `ruleInk`'s contiguous 1-or-2 run is the width, and the identity is
+      the binding. Fifth negative: **the untagged auxiliary line in a different
+      row band**, watched failing the whole-body identity while the strip's own
+      run, the set equality within it, the tag, both width assertions, the
+      opacity assertions and 8.2's count all stay green. **And the predicate has to be spelled out**
       (round-16, both seats, Important): draw each clip into an in-page 2D
       canvas and read it with `getImageData`, the way
       `apps/fe-01/e2e/measure-ink.ts:78` already reads a painted pixel and three
