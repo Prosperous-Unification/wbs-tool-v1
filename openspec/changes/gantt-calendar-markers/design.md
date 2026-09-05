@@ -384,18 +384,22 @@ implementations of "some hash" produce two different correct-looking tables.
 
 **The eight hex values are deliberately not fixed here.** They are the
 deliverable of slice **3.2**, which must land them as a literal in
-`marker-color.ts` and record them, with their measured ratios against both
-backgrounds above, in `verify.md`. Writing eight unmeasured hexes into a design
+`marker-color.ts` and record them, with their measured ratios against all 20
+backdrops above, in `verify.md`. Writing eight unmeasured hexes into a design
 document would be asserting an accessibility result nobody had computed —
 exactly the adjective this section refuses, one level down. Slice 3.1's four
 pinned vectors are then computed **from that landed palette and that hash** and
 recorded as data; they cannot be written before 3.2, which is why 3.2 now runs
 first.
 
-A custom colour is validated against both bars over **every backdrop enumerated
-above** **at submit, in be-01**, and refused with the failing backdrop and ratio
-named — the backdrop rather than the theme, because a colour can clear bare dark
-and fail dark-over-weekend. Validating in the
+A custom colour is validated against **the 3:1 bar over every backdrop
+enumerated above**, **at submit, in be-01**, and refused with the failing
+backdrop and ratio named — the backdrop rather than the theme, because a colour
+can clear bare dark and fail dark-over-weekend. **The 4.5:1 label bar is not a
+refusal**, because nothing can fail it: the ink is black or white, whichever
+contrasts more, and the two contrasts multiply to exactly 21 for every fill, so
+the better is never below `sqrt(21)`. It is asserted as a property of the ink
+function, not enforced as a rejection. Validating in the
 composer alone refuses the colour only for clients that ask nicely; validating
 at render instead would leave an unreadable marker stored and blame the
 reader's theme.
@@ -507,43 +511,52 @@ that sequence by design, so a whole-body comparison is guaranteed to fail for a
 reason that has nothing to do with the schedule: it would fail honestly and mean
 nothing.
 
-**The projection is the whole schedule-bearing payload, not three fields of it.**
-An earlier draft projected start, finish and the critical flag; that is three of
-the eight fields on `Scheduled` (`schedule.ts:116-124` — `duration`,
-`estimated`, `earliestStart`, `earliestFinish`, `latestStart`, `latestFinish`,
-`float`, `critical`) and none of the five things `tree()` returns beside the
-rows. A marker fault that moved float, a slice's `boundBy`, a
-`resourcePredecessorId`, `scheduleError` or either waiting count while start,
-finish and critical held would leave that projection byte-identical and the test
-green — and those are exactly the fields a scheduler regression moves first,
-because a resource floor changes what bound a slice long before it changes when
-the slice runs. The projection is therefore:
+**The projection is the payload's complement, not a list of fields — and two
+rounds of enumerating are the reason.** An earlier draft projected start, finish
+and the critical flag: three of the eight fields on `Scheduled`
+(`schedule.ts:116-124`) and none of what `tree()` returns beside the rows. The
+round-4 answer widened it to every `workItems[].schedule` plus the slices,
+`scheduleError` and both waiting counts — **and that was still short**, because
+`NumberedWorkItem` carries `dates` _separately_ from `schedule`
+(`work-item.service.ts:512-525`: `schedule` is spans in workdays, `dates` is the
+calendar those spans land on), and the same read returns `teamCapacities`,
+`priorityBands`, `estimateMethod`, `pertWeights`, `estimateRounding`, `depReach`,
+`startDate` and `projectRevision` (`:1246-1293`). A list maintained by hand
+against a growing payload will be short again at the next field, and that — not
+any particular omission — is the defect.
 
-- every `workItems[].schedule` in full, rows in ascending work-item id order;
-- `slices`, in ascending `id` order — `IdentifiedSlice` carries `id`, which is
-  {@link sliceKey}'s string on the wire, and **not** a `sliceKey` property
-  (`work-item.service.ts:555-557`); sorting by `s.sliceKey` would not typecheck —
-  each carrying its complete
-  `ScheduledSlice` including `boundBy`, `personId`, `resourcePredecessorId` and
-  `capacityPredecessorIds` sorted (`work-item.service.ts:555` —
-  `IdentifiedSlice extends ScheduledSlice`);
-- `scheduleError`, `waitingForPerson` and `waitingForCapacity`
-  (`work-item.service.ts:1157-1200`).
-
-Excluded, and only these: `seq`, which markers advance by design and which the
-same test asserts **did** advance — that assertion is what proves the comparison
-ran against a real change rather than an empty projection.
+So the projection is stated as a complement: **the entire response body with
+`seq` deleted.** `seq` is the single exclusion, because `tree()` carries the
+project's event `seq` (`work-item.service.ts:1147-1159`) and every marker
+mutation advances it by design, so a literal whole-body comparison would fail
+honestly and mean nothing. The same test asserts that `seq` **did** advance,
+which proves the deletion removed a moving field rather than masking a stale
+one. `projectRevision` stays _inside_ the comparison: markers never touch the
+project row, so it must not move, and holding it proves that rather than
+assuming it.
 
 **And the identity claim is structural, so one assertion is structural too.**
 Comparing two captures proves markers did not move _this_ plan; it cannot prove
 there is no path from a marker to the engine, because a path that happens to be
 a no-op on the fixture passes. The adapter seam is a single call —
 `schedule(rows, edges, slices, notBefore, slotsOf, project.depReach)` at
-`work-item.service.ts:1458`, six arguments — so the check is cheap and exact:
-assert that call site still passes exactly those six arguments, and that
-`libs/domain/src/schedule.ts` contains no import from the marker module and no
-occurrence of the marker type. A source-level assertion is unusual and is
+`work-item.service.ts:1458`, six arguments — so two of the three checks are
+cheap and exact: assert that call site still passes exactly those six arguments,
+and that `libs/domain/src/schedule.ts` contains no import from the marker module
+and no occurrence of the marker type. A source-level assertion is unusual and is
 justified here because the guarantee being sold _is_ a source-level one.
+
+**Those two are not enough, and the third is what closes it.** The six arguments
+are not built in `schedule.ts`; they are built in `WorkItemService.tree()` —
+`rows` at `:1298`, `edges` at `:1314`, `slotsOf` at `:1391`, `slices` at `:1400`,
+`notBefore` at `:1415`. Marker-derived data folded into `notBefore`, `slices` or
+`slotsOf` leaves the call at six arguments and `schedule.ts` marker-free, and
+both source assertions stay green. The third check is therefore a **runtime
+reach**: drive the schedule read against a project with markers through a
+repository opened with drizzle's `logQuery` hook, and assert **no logged
+statement names `calendar_marker`**. A source scan is bounded by the file it
+scans; a SQL log is transitive, so it holds however many helpers a fold hides
+behind. Slice 5.1a carries all three checks, each with its own negative.
 
 Note for anyone extending this — an earlier draft of this task cited a
 `fast-golden-corpus` serializer as the oracle. **No such corpus exists in this

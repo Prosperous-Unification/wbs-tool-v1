@@ -50,6 +50,18 @@ field rather than masking a stale one.
 - **THEN** the project's work-item count and rows are unchanged, and the domain
   scheduler's call site gains no argument
 
+The scheduler's isolation SHALL additionally be verified as a **reach in the
+other direction**: a schedule read SHALL issue no SQL statement naming
+`calendar_marker`. The call-site and source assertions above cannot see this —
+the scheduler's six arguments are built in the service that calls it, not in the
+engine, so marker-derived data folded into an ordering or resource input leaves
+the call at six arguments and the engine's source marker-free.
+
+#### Scenario: a schedule read never reaches the marker table
+
+- **WHEN** the schedule is read for a project that has markers
+- **THEN** no SQL statement issued by that read names `calendar_marker`
+
 #### Scenario: markers stay out of a saved plan
 
 - **WHEN** a project with markers is captured into a saved plan
@@ -623,7 +635,7 @@ SHALL be **422**, the malformed-body answer:
 | `id` is not a UUID v4                      | `malformed` | 422    | `id`    |
 | `color` is not a hex triple                | `malformed` | 422    | `color` |
 | `name` is empty or over `MARKER_NAME_MAX`  | `malformed` | 422    | `name`  |
-| `color` fails either contrast bar          | `contrast`  | 422    | `color` |
+| `color` fails the 3:1 contrast bar         | `contrast`  | 422    | `color` |
 | `id` already exists                        | `taken`     | 409    | `id`    |
 | the marker is absent, or another project's | `not_found` | 404    | `id`    |
 | the caller may not write the project       | `forbidden` | 403    | —       |

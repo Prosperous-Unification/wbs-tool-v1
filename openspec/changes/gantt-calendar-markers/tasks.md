@@ -162,10 +162,16 @@ in both slices rather than implied by position.
       formula, takes the resolved `--grid-dep-lit` as an opaque surface in its
       own right, and asserts `expect(backdrops).toHaveLength(10)` per theme, so
       a fill dropped from the set fails on a count rather than
-      silently shrinking the bar. All four fill colours are read from
-      `styles.css`, the same way the two bases
-      are, so a theme change that darkened a band breaks this test rather than
-      the chart. The length assertion is not decoration: without it the
+      silently shrinking the bar. **Three of the four fills are read from
+      `styles.css` and the fourth is not**, which the first draft of this slice
+      got wrong (Gemini round-6 Important 5): `--muted-foreground`, `--muted`
+      and `--grid-dep-lit` are custom properties in
+      `apps/fe-01/src/styles.css`, the same way the two bases are, so a theme
+      change that darkened a band breaks this test rather than the chart — but
+      `sky-500` is a **built-in Tailwind palette colour** (`#0ea5e9`) and
+      appears zero times in `styles.css`, so today's tint is taken from
+      Tailwind's palette and the literal is recorded in `verify.md` beside the
+      ratios. The length assertion is not decoration: without it the
       ratio loop passes over an empty or one-entry palette, and the
       `palette.length` divisor in 3.1 would then make a constant function its
       own vectors could not distinguish from a correct one. Negative: one of the eight entries
@@ -184,15 +190,25 @@ in both slices rather than implied by position.
       a 20-backdrop loop whose extra 18 rows never bind is 18 rows of
       decoration. Eight rather than "a fixed palette": a count the
       test can iterate is checkable, an adjective is not.
-- [ ] 3.3 `validateCustomColor(hex)` refusing a colour below either bar **over
-      the same 20 backdrops 3.2 measures**, and **naming the failing backdrop
+- [ ] 3.3 `validateCustomColor(hex)` refusing a colour below the **3:1** bar
+      **over the same 20 backdrops 3.2 measures**, and **naming the failing backdrop
       and the failing ratio** — the theme alone no longer identifies it, since
       a colour can clear bare dark and fail dark-over-weekend, and a refusal
       that said only "dark" would send the user hunting a fill it never named.
       Test: same file, a colour that clears 3:1 in light and fails it in dark,
-      asserting the refusal names the dark base and `3:1`; a second that clears
-      every base and fails only over a composite, asserting the refusal names
-      that composite; a third whose label contrast fails 4.5:1.
+      asserting the refusal names the dark base and `3:1`; and a second that
+      clears every base and fails only over a composite, asserting the refusal
+      names that composite.
+      **There is no third case, and there cannot be: the 4.5:1 label bar is
+      unfailable.** The ink is black or white, whichever contrasts more, and the
+      two contrasts multiply to exactly 21 for every fill luminance, so the
+      better is never below `sqrt(21) ≈ 4.583` (round-5 Sol review, Important 7,
+      which made the ink a total function with no refusal arm). A test case for
+      a colour "whose label contrast fails 4.5:1" could not be written, and this
+      slice carried one until the round-6 Gemini review named it (Critical 2).
+      **So this validator refuses on the 3:1 bar only**, and 3.2 is where the
+      4.5:1 bar is asserted — as a property that holds for every entry, not as
+      a refusal anything can trip.
       Negative: the validator returning `true` unconditionally, watched failing.
 - [ ] 3.4 `validateCustomColor` wired into **both** write paths — the be-01
       create/recolour handlers and the composer — test: the controller test
@@ -424,14 +440,24 @@ in both slices rather than implied by position.
       `calendar_marker`**. A static scan of one file is bounded by that file; a
       SQL log is transitive, so it holds however many helpers the fold is
       hidden behind.
-      Negatives, **two, because Sol's objection needs both an ordering input
-      and a resource input** (one alone leaves the other path unproven), each
-      watched failing (c) while (a) stays green — which is the whole reason
-      this slice exists: (i) a marker-derived floor written into `notBefore`
-      for a seeded work item, read from `calendar_marker` inside `tree()`;
-      (ii) a marker-derived entry folded into `slotsOf` before `slicesOf` is
-      called, read from the same table. `Proof:` comment naming the logged
-      statement each was caught by.
+      Negatives, **four — one per check, plus the second input path**. Adding
+      (c) in round 6 must not delete (a)'s and (b)'s faults, which is exactly
+      what the first draft of this round did (Gemini round-6 Critical 3):
+      (i) a seventh argument threaded through the adapter and ignored by the
+      engine, watched failing **(a)** while 5.1's whole-body comparison stays
+      green — which is the original reason this slice exists;
+      (ii) an import of the marker type added to `libs/domain/src/schedule.ts`
+      and referenced in a dead local, watched failing **(b)** while (a) and (c)
+      stay green;
+      (iii) a marker-derived floor written into `notBefore` for a seeded work
+      item, read from `calendar_marker` inside `tree()`, watched failing **(c)**
+      while (a) stays green;
+      (iv) a marker-derived entry folded into `slotsOf` before `slicesOf` is
+      called, read from the same table, also watched failing **(c)** — because
+      Sol's objection names both an ordering input and a resource input and one
+      alone leaves the other path unproven.
+      `Proof:` comment naming, for (iii) and (iv), the logged statement each
+      was caught by.
 - [ ] 5.2 Markers stay out of a saved plan — test:
       `apps/be-01/src/repository/saved-plan-capture.db.test.ts`, a new case:
       capture a project with markers and a copy with none, assert the
@@ -499,7 +525,7 @@ in both slices rather than implied by position.
       no keyboard reaches (WCAG 2.1.1).
       **The visible focus ring is not in this slice** — jsdom computes no
       styles, so a focus-ring assertion here would pass against no ring at all.
-      It moves to 9.2's browser test.
+      It moves to 9.2a's browser test.
 - [ ] 6.4a The **undated** cell is a keyboard-operable control announcing an
       unavailable state — `role="button"`, `tabIndex={0}`,
       `aria-disabled="true"`, the same Enter and Space handlers, an accessible
@@ -615,7 +641,7 @@ in both slices rather than implied by position.
       "behind the bars"**, which orders the marker against one of the five marks
       the body paints and leaves the other four undecided. Emitted after
       `data-gantt-today-edge` and before the row hit lines and every bar
-      (`design.md` §2.1 carries the full ten-row table) — test:
+      (`design.md` §2.1 carries the full thirteen-row table) — test:
       `gantt-panel.test.tsx`, one assertion over the DOM order of
       `data-gantt-weekend`, `data-gantt-today`, `data-gantt-gridline`,
       `data-gantt-today-edge`, `data-gantt-marker-rule` and the first
