@@ -31,9 +31,10 @@ Retaken at `8ebb3a72`, the head that carries both the index and the fix:
 
 - [x] Green: **35 pass / 0 fail** in that file.
 - [x] Red, with `.orderBy(asc(workItem.id))` deleted and the index in place:
-      **34 pass / 1 fail** — and the single failure is the new case, `asks for
-      the order in the statement rather than inheriting it from an index`.
+      **34 pass / 1 fail**. The one failure is the new case.
       **All three original order cases passed with the contract deleted.**
+
+The new case is `asks for the order in the statement rather than inheriting it from an index`.
 
 So the finding was right, and the measurement is the reason the new case exists:
 it reads the emitted statement through drizzle's `logQuery` hook rather than the
