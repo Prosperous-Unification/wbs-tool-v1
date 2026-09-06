@@ -2026,10 +2026,27 @@ const LEGEND_FONT_SIZE_PX = 9;
 
 /** One named colour in the downloaded file's legend, placed. */
 interface LegendEntry {
+  readonly markerId: string;
+  /**
+   * The day the marker stands on, drawn **beside** its name and not instead of
+   * it.
+   *
+   * A legend of names alone answers "what markers are on this chart" and not
+   * "which of these is the line at that x", which is the question a reader of a
+   * printed chart with three rules on it actually has. The date is the join
+   * between the two, and it is the one the sheet on screen prints too.
+   */
+  readonly date: IsoDate;
   readonly name: string;
   readonly fill: string;
   readonly x: number;
   readonly row: number;
+  /**
+   * How wide the date came out, kept from the measuring pass rather than asked
+   * for again: the name is drawn at the date's right edge, and a second
+   * measurement is a second answer the drawing pass could place it by.
+   */
+  readonly dateWidth: number;
 }
 
 /** Where the legend's entries stand and how much height the document has to grow to hold them. */
@@ -2077,7 +2094,16 @@ function layOutMarkerLegend(
         x: 0,
         fontSize: LEGEND_FONT_SIZE_PX,
       });
-      const entryWidth = LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX + nameWidth;
+      // Measured as its own word rather than concatenated into the name: the
+      // two are drawn as two `<text>` elements in two inks, and one measurement
+      // of the joined string is a width for a row this file never draws.
+      const dateWidth = measure({
+        content: marker.date,
+        x: 0,
+        fontSize: LEGEND_FONT_SIZE_PX,
+      });
+      const entryWidth =
+        LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX + dateWidth + LEGEND_SWATCH_GAP_PX + nameWidth;
       // Wrap on the entry that would cross the right edge, never on the first
       // one of a row: a name wider than the whole file has nowhere better to
       // go than its own row, and wrapping it would loop.
@@ -2085,7 +2111,15 @@ function layOutMarkerLegend(
         row += 1;
         x = LEGEND_PAD_PX;
       }
-      placed.push({ name: marker.name, fill: markerFill(marker), x, row });
+      placed.push({
+        markerId: marker.id,
+        date: marker.date,
+        name: marker.name,
+        fill: markerFill(marker),
+        x,
+        row,
+        dateWidth,
+      });
       x += entryWidth + LEGEND_ENTRY_GAP_PX;
     }
     return placed;
@@ -2218,6 +2252,10 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
         MARKER_CHIP_HEIGHT_PX,
         fill,
       );
+      // The live chip's `rounded-sm`, which is 2px: the file is the chart as
+      // drawn, and a sharp corner where the screen has a soft one is the same
+      // class of disagreement as a wrong x, only quieter.
+      chip.setAttribute('rx', '2');
       // The live band's own two hooks, on the file's copy of the same chip:
       // "the export matches the screen" is a claim about two documents, and it
       // is only checkable if the same question can be asked of both.
@@ -2304,15 +2342,30 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
       entry.fill,
     );
     swatch.setAttribute('rx', '2');
-    root.appendChild(swatch);
+    swatch.setAttribute('data-legend-swatch', entry.markerId);
+    // One `<g>` per row, so the row is a thing with a box rather than three
+    // siblings a reader has to re-associate — which is also what lets a test
+    // ask whether the **last** row ends inside the `viewBox`.
+    const row = document.createElementNS(SVG_NS, 'g');
+    row.setAttribute('data-marker-legend', entry.markerId);
+    row.appendChild(swatch);
+    const baseline = rowTop + LEGEND_ROW_PX - 3;
+    const dateX = entry.x + LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX;
+    const dated = svgText(dateX, baseline, entry.date, {
+      fontSize: LEGEND_FONT_SIZE_PX,
+      fill: theme.mutedForeground,
+    });
+    dated.setAttribute('data-legend-date', entry.date);
+    row.appendChild(dated);
     const named = svgText(
-      entry.x + LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX,
-      rowTop + LEGEND_ROW_PX - 3,
+      dateX + entry.dateWidth + LEGEND_SWATCH_GAP_PX,
+      baseline,
       entry.name,
       { fontSize: LEGEND_FONT_SIZE_PX, fill: theme.foreground },
     );
-    named.setAttribute('data-marker-legend', entry.fill);
-    root.appendChild(named);
+    named.setAttribute('data-legend-name', entry.name);
+    row.appendChild(named);
+    root.appendChild(row);
   }
 
   return root;

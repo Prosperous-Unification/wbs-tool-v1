@@ -6842,14 +6842,33 @@ describe('downloading the chart as a standalone .svg', () => {
       ]);
       const doc = await downloadedDoc();
 
-      const named = [...doc.querySelectorAll('[data-marker-legend]')];
-      expect(named.map((entry) => entry.textContent)).toEqual(['Cutover', 'Freeze']);
-      // The swatch beside each name carries the chip's own fill, so the legend
-      // is joinable to the picture rather than being a list of words beside it.
-      expect(named.map((entry) => entry.getAttribute('data-marker-legend'))).toEqual([
-        AZURE,
-        CORAL,
+      const rows = [...doc.querySelectorAll('[data-marker-legend]')];
+      // The order is the list's — `(date, created_at, id)` as be-01 answers it —
+      // and a legend in any other order is one a reader has to search rather
+      // than read down.
+      expect(rows.map((row) => row.getAttribute('data-marker-legend'))).toEqual([
+        'm-cut',
+        'm-freeze',
       ]);
+      expect(rows.map((row) => row.querySelector('[data-legend-name]')?.textContent)).toEqual([
+        'Cutover',
+        'Freeze',
+      ]);
+      // **The date beside the name.** Names alone answer "what markers are on
+      // this chart"; the question a reader of a printed chart with two rules on
+      // it actually has is which of them is the line at that x, and the date is
+      // the join.
+      expect(rows.map((row) => row.querySelector('[data-legend-date]')?.textContent)).toEqual([
+        dayAt(2),
+        dayAt(5),
+      ]);
+      // **The swatch's own `fill`, off the rect** — not an attribute this
+      // builder also wrote the row from. A legend whose square is painted from
+      // anything but `markerFill` is a legend that cannot be joined to the
+      // picture, and reading back the same string twice would never say so.
+      expect(
+        rows.map((row) => row.querySelector('[data-legend-swatch]')?.getAttribute('fill')),
+      ).toEqual([AZURE, CORAL]);
     });
 
     itDom(
@@ -6874,15 +6893,25 @@ describe('downloading the chart as a standalone .svg', () => {
         const background = doc.querySelector('rect');
         expect(Number(background?.getAttribute('height'))).toBe(declared);
 
-        const legend = doc.querySelector('[data-marker-legend]');
-        expect(legend).not.toBeNull();
-        expect(Number(legend?.getAttribute('y'))).toBeLessThan(declared);
+        const rows = [...doc.querySelectorAll('[data-marker-legend]')];
+        expect(rows.length).toBeGreaterThan(0);
+        // **The last row's box, not merely its baseline.** Text drawn past the
+        // declared height serializes into the markup and satisfies any
+        // `textContent` query while being invisible in every rasterisation and
+        // every print — which is the only thing a downloaded chart is for.
+        const last = rows[rows.length - 1];
+        const swatch = last.querySelector('[data-legend-swatch]');
+        const bottom = Math.max(
+          Number(swatch?.getAttribute('y')) + Number(swatch?.getAttribute('height')),
+          Number(last.querySelector('[data-legend-name]')?.getAttribute('y')),
+        );
+        expect(bottom).toBeLessThanOrEqual(declared);
         // And below the chart, not over it: the nested live `<svg>` is the
         // picture, and a legend inside its box is a legend across the bars.
         const nested = doc.querySelector('svg svg');
         const chartBottom =
           Number(nested?.getAttribute('y')) + Number(nested?.getAttribute('height'));
-        expect(Number(legend?.getAttribute('y'))).toBeGreaterThan(chartBottom);
+        expect(Number(swatch?.getAttribute('y'))).toBeGreaterThan(chartBottom);
       },
     );
 
@@ -6912,8 +6941,8 @@ describe('downloading the chart as a standalone .svg', () => {
         const wrapped = await downloadedDoc();
 
         const rows = new Set(
-          [...wrapped.querySelectorAll('[data-marker-legend]')].map((entry) =>
-            entry.getAttribute('y'),
+          [...wrapped.querySelectorAll('[data-legend-swatch]')].map((swatch) =>
+            swatch.getAttribute('y'),
           ),
         );
         expect(rows.size).toBeGreaterThan(1);
@@ -6922,6 +6951,32 @@ describe('downloading the chart as a standalone .svg', () => {
         );
       },
     );
+
+    itDom('shows the rules it names, one per occupied date, in that date\'s colour', async () => {
+      // The case the chip-and-legend pairing is vacuous about. Every assertion
+      // above is satisfied by a file carrying chips, names, dates, swatches and
+      // **zero** rules — 8.7 asserts rule *absence*, and nothing else here
+      // requires one to exist. That file names its markers and does not show
+      // them, which is the half of the promise the other half cannot cover.
+      //
+      // Below the density threshold, so no suppression: two occupied dates on a
+      // 28px chart.
+      renderMarked([
+        { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
+        { id: 'm-freeze', date: dayAt(5), name: 'Freeze', color: CORAL },
+      ]);
+      expect(document.querySelectorAll('[data-gantt-marker-rule]')).toHaveLength(2);
+      const doc = await downloadedDoc();
+
+      const rules = [...doc.querySelectorAll('[data-gantt-marker-rule]')];
+      // One per occupied **date**, which is not one per marker: the rule is the
+      // day's, and the count is what says so.
+      expect(rules.map((rule) => rule.getAttribute('data-gantt-marker-rule'))).toEqual(['2', '5']);
+      // Each at its own date's x, in the nested chart's user space where one
+      // unit is one day — the geometry the clone brings over unchanged.
+      expect(rules.map((rule) => rule.getAttribute('x1'))).toEqual(['2', '5']);
+      expect(rules.map((rule) => rule.getAttribute('stroke'))).toEqual([AZURE, CORAL]);
+    });
 
     itDom('at the fence rung the file is the screen: chips drawn, rules suppressed', async () => {
       // Slice 8.7. Seven occupied dates inside the 25-day window that opens at
@@ -6979,7 +7034,7 @@ describe('downloading the chart as a standalone .svg', () => {
       // And the names, which at 4px is the whole of what a chip can say: a tick
       // that wide holds no readable text at all.
       expect(
-        [...doc.querySelectorAll('[data-marker-legend]')].map((entry) => entry.textContent),
+        [...doc.querySelectorAll('[data-legend-name]')].map((entry) => entry.textContent),
       ).toEqual(packed.map((offset) => `Day ${String(offset)}`));
     });
   });
