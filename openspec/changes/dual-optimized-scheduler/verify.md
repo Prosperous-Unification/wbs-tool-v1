@@ -299,3 +299,22 @@ transaction and HTTP route remain before either slice can be ticked.
 
 This closes the coordinator half of 7.3/7.11. The authenticated HTTP route and
 its response mapping remain.
+
+## 2026-09-06T22:39:45Z — authorized Retry route
+
+- Test-only head `d2df3834` left the existing 33 project-controller cases
+  green while both new route cases failed at 404: the response/body matrix and
+  restricted-project authorization had no endpoint to reach.
+- Exact green head `89e7169b` on h2puni, worktree
+  `/home/puni1/t268-r3-route-proof.l3eSnM`: the project controller, coordinator,
+  and mounted-route suites passed 60/60 with 262 assertions; scoped Prettier,
+  full be-01 lint, and be-01 typecheck were green. No build or autotest ran on
+  the queue-worker box.
+- `POST /api/projects/:id/optimization/retry` now rebuilds the current canonical
+  input after the same `canEdit` check as settings PATCH, delegates to the
+  atomic coordinator seam, and maps the specified stale/not-retryable/running
+  409 bodies and accepted 202 body without rewriting state in the controller.
+  The composition root passes the installed coordinator into the serving app.
+
+Together with the retained-marker replacement and atomic-admission proofs
+above, this closes 7.3 and 7.11.

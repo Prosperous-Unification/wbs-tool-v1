@@ -3785,7 +3785,7 @@ inputHash, objective, contractVersion, budgetMs)` (7.7). **The cache row
       cache hit.
       Toggle/Engine/Objective changes emit `project_settings_changed` (3b.3)
       instead.
-- [ ] 7.3 Retry is a route, not an unnamed "action": its contract, statuses
+- [x] 7.3 Retry is a route, not an unnamed "action": its contract, statuses
       and authorization are 7.11. It re-reads the current `inputHash`, refuses
       a moved plan with the current hash in the body, then launches only the
       `failed` or `corrupt` variant for the unchanged key — an **absent** variant is `idle`, admitted by the cold read (6.1) rather than by Retry, which answers `409 not-retryable` naming it (Sol r9 Critical 3). Its `failed` row is
@@ -3860,7 +3860,7 @@ recorded, event)` buffers and pushes an already-recorded sequence
       **Proven through the real controller payload** in the cold, queued,
       retrying, failed, **corrupt**, **plan-infeasible**, partial-success and
       full-hit states.
-- [ ] 7.11 `POST /api/projects/:projectId/optimization/retry`, body
+- [x] 7.11 `POST /api/projects/:projectId/optimization/retry`, body
       `{ objective, inputHash }`, under the same project-write authorization as
       the settings PATCH, running the ordinary admission transaction so two
       concurrent retries produce one child. `202` with the new state,
