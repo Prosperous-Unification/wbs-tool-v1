@@ -552,7 +552,9 @@ describe('OIDC browser routes', () => {
    * header assertion caught that mutation and the 302 did not. The seats split
    * on whether that mattered — Sol called the two assertions complementary,
    * agy called the second one vacuous — and it is cheaper to make both catch it
-   * than to record the disagreement.
+   * than to record the disagreement. Measured: with the route clearing the
+   * binding *and* the header assertion deleted, this case fails `Expected: 302
+   * Received: 400`, which it could not do before.
    */
   it('refuses a forged error callback without burning the login it interrupts', async () => {
     const f = fixture();
@@ -575,7 +577,14 @@ describe('OIDC browser routes', () => {
     expect(forged.headers.get('set-cookie')).toBeNull();
     expect(f.calls.exchange).toHaveLength(0);
 
-    const surviving = forged.headers.get('set-cookie')?.includes('__Host-wbs_oidc=;')
+    // Annotated, because the ternary's own type is a union of two object
+    // literal shapes and `HeadersInit` will not take it: `be-01:typecheck`
+    // fails with `TS2322: Type '{ cookie?: undefined; } | { cookie: string; }'
+    // is not assignable to type 'HeadersInit | undefined'` while every test
+    // still passes, since bun's runtime never sees the difference.
+    const surviving: Record<string, string> = forged.headers
+      .get('set-cookie')
+      ?.includes('__Host-wbs_oidc=;')
       ? {}
       : { cookie: '__Host-wbs_oidc=binding-1' };
     const honest = await f.app.handle(

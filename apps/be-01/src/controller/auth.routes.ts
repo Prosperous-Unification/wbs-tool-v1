@@ -438,11 +438,12 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // Proof: `refuses a forged error callback without burning the login it
         // interrupts` fails with `Received: "__Host-wbs_oidc=; HttpOnly;
         // Secure; SameSite=Lax; Path=/; Max-Age=0"` against `toBeNull()` when
-        // this clears the binding. That case's second request derives its
-        // cookie from the first answer rather than re-sending the string, so
-        // the same mutation also takes the honest callback's 302 down to a 400
-        // — the loss is observed where a browser would suffer it, not only in
-        // the header that causes it.
+        // this clears the binding. That is the red bun reports, because the
+        // header assertion throws first and ends the case; delete that
+        // assertion as well and the honest callback fails `Expected: 302
+        // Received: 400`, which is what the case's derived cookie buys and what
+        // re-sending the string unconditionally did not. The loss is observable
+        // where a browser would suffer it, not only in the header causing it.
         if (transaction.outcome === 'state_mismatch') return empty(400, []);
         if (transaction.outcome !== 'consumed') return empty(400, [clear('__Host-wbs_oidc')]);
 
