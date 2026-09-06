@@ -338,6 +338,14 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       write-time. Its two reds are the ones recorded above, restated as this
       case sees them: drop the entry and it reads `null` (on time), clamp to `0`
       and it reads `1`.
+      **The seam's own red, watched rather than argued:** the read reverted to
+      `NO_DEADLINES` — both the ask and the `schedule()` call — leaves **5 of
+      the 7 cases in `deadline-plan-read.test.ts` red** on h2puni at `9d4542f5`.
+      The two that survive are the file's declared negative controls, and they
+      survive for the reason that makes them controls: an unwired read also
+      reports a met deadline as `null`, and the no-start-date case is the
+      `NO_DEADLINES` branch itself, which the revert makes universal. Each says
+      so where it stands rather than being left to look like coverage.
 
 ## 6. API, realtime, undo
 

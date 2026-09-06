@@ -21,11 +21,16 @@ import { WorkItemService, type WorkItemServiceOptions } from './work-item.servic
  * `libs/domain/src/schedule-deadline-order.test.ts`'s and
  * `effective-deadlines.test.ts`'s.
  *
- * Every case reads the tree **twice**, once before the deadline exists and once
- * after, and asserts the difference. A single read asserting `lateBy === 2`
- * would pass against a fixture that was always late, which is the
- * check-that-cannot-fail R5 names; the before-read is what makes the deadline
- * the cause.
+ * **Every case that claims a deadline changed something reads the tree twice**,
+ * once before the date exists and once after, and asserts the difference. A
+ * single read asserting `lateBy === 2` would pass against a fixture that was
+ * always late, which is the check-that-cannot-fail R5 names; the before-read is
+ * what makes the deadline the cause. The two that read once are the negative
+ * controls, each labelled as one where it stands.
+ *
+ * Measured, not argued: with the read reverted to `NO_DEADLINES` on h2puni at
+ * `9d4542f5`, **5 of the 7 go red** and the two that survive are exactly those
+ * controls.
  */
 
 const OWNER = 'owner-account';
@@ -167,6 +172,12 @@ describe('the plan read and stored deadlines', () => {
     // The other half of the case above, and not a restatement of it: a stored
     // date that reaches the engine and is **met** must come back `null`. A
     // read that reported every deadlined row late would pass the first case.
+    //
+    // It is a **negative control and says so**: it is one of the two cases in
+    // this file that stay green with the read reverted to `NO_DEADLINES` (5 of
+    // 7 red, measured on h2puni at `9d4542f5`), because an unwired read also
+    // answers `null`. Its work is done beside the case above, which is the one
+    // that detects the wiring.
     const rewire = await leaf('Rewire', 2);
 
     // Friday, offset 4. A two-day slice at day zero is still on workday 1.
@@ -261,7 +272,12 @@ describe('the plan read and stored deadlines', () => {
   });
 
   it('applies no deadline to a project with no start date, and still stores the date', async () => {
-    // The `NO_DEADLINES` branch, and the same rule the floors beside it take:
+    // The `NO_DEADLINES` branch itself, and the other case that stays green
+    // under the revert above — necessarily, since the revert makes every
+    // project take this branch. What it pins is the pair: the date is applied
+    // to nothing **and** is still stored.
+    //
+    // The same rule the floors beside it take:
     // with no day zero there is nothing to count workdays from, so the dates
     // are read and applied to nothing. The row keeps what was written on it —
     // the plan being off the calendar is not a reason to lose a user's input.
