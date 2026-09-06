@@ -16,7 +16,7 @@ import { testSavedPlanService } from '../testing/saved-plan-fixture';
 import { testStepService } from '../testing/step-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
 import { testWrites } from '../testing/writes-fixture';
-import * as authModule from './auth.routes';
+import * as oidcOptionsModule from './oidc-options';
 
 const now = Date.UTC(2026, 7, 23);
 
@@ -1172,7 +1172,9 @@ describe('OIDC browser routes', () => {
 describe('OIDC startup configuration', () => {
   it('refuses misspelled password security flags instead of choosing a mode', () => {
     const factory = (
-      authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
+      oidcOptionsModule as unknown as {
+        oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown;
+      }
     ).oidcRouteOptionsFromEnv;
     const base = {
       AUTH_CLIENT_ID: 'client',
@@ -1192,7 +1194,9 @@ describe('OIDC startup configuration', () => {
 
   it('refuses registration when password sessions are disabled', () => {
     const factory = (
-      authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
+      oidcOptionsModule as unknown as {
+        oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown;
+      }
     ).oidcRouteOptionsFromEnv;
 
     expect(() =>
@@ -1210,7 +1214,9 @@ describe('OIDC startup configuration', () => {
 
   it('refuses a redirect URI whose callback path is not mounted', () => {
     const factory = (
-      authModule as unknown as { oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown }
+      oidcOptionsModule as unknown as {
+        oidcRouteOptionsFromEnv: (env: Record<string, string>) => unknown;
+      }
     ).oidcRouteOptionsFromEnv;
     expect(() =>
       factory({
@@ -1225,7 +1231,7 @@ describe('OIDC startup configuration', () => {
 
   it('builds a lazy provider client for the fixed callback route', () => {
     const factory = (
-      authModule as unknown as {
+      oidcOptionsModule as unknown as {
         oidcRouteOptionsFromEnv: (env: Record<string, string>) => {
           appOrigin: string;
           groupPrefix: string;

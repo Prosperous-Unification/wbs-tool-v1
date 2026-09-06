@@ -6,14 +6,12 @@
       "name": "@wbs/source",
       "dependencies": {
         "@ark/schema": "0.56.0",
-        "@elysiajs/openapi": "^1.4.15",
         "@elysiajs/opentelemetry": "^1.4.11",
         "@modelcontextprotocol/sdk": "1.30.0",
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/exporter-prometheus": "^0.215.0",
         "@opentelemetry/sdk-metrics": "^2.7.0",
         "@opentelemetry/sdk-node": "^0.215.0",
-        "@sinclair/typebox": "^0.34.49",
         "@tanstack/react-router": "^1.170.24",
         "ajv": "8.20.0",
         "arktype": "^2.2.0",
@@ -320,8 +318,6 @@
     "@dagger.io/dagger": ["@dagger.io/dagger@0.21.8", "", { "dependencies": { "@grpc/grpc-js": "^1.14.3", "@lifeomic/axios-fetch": "^3.1.0", "@opentelemetry/api": "^1.9.1", "@opentelemetry/core": "^2.7.1", "@opentelemetry/exporter-jaeger": "^2.7.1", "@opentelemetry/exporter-trace-otlp-http": "^0.218.0", "@opentelemetry/sdk-metrics": "^2.7.1", "@opentelemetry/sdk-node": "^0.218.0", "@opentelemetry/semantic-conventions": "^1.41.1", "adm-zip": "^0.5.17", "env-paths": "^4.0.0", "execa": "^9.6.1", "graphql": "^16.14.0", "graphql-request": "^7.4.0", "graphql-tag": "^2.12.6", "node-color-log": "^13.0.3", "node-fetch": "^3.3.2", "reflect-metadata": "^0.2.2", "tar": "^7.5.15", "typescript": "^6.0.3" } }, "sha512-E8ZKit/zjoI+jMV7uWZA+8kbbm7f+cHANPivpvvKZNDZoJrn32F8e6frqg0s9xL5+u+LSKjt1SfVnNJCdwiD9g=="],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.11.0", "", {}, "sha512-hD3pekGiPg0WPCCGAZmusBBJsDqGUR66Y452YgQsZOnkdQ7ViEPKuyP4huUGEZQefp8g34RRodXYmJ2TbCH+tg=="],
-
-    "@elysiajs/openapi": ["@elysiajs/openapi@1.4.15", "", { "peerDependencies": { "elysia": ">= 1.4.0" } }, "sha512-HDtGIrWfFJk6UJS7qbgRmjifbSqnnRGDM3CsU/GVJkxLbEVEkNuQDf+Quh9fGbytSrJ8g4+tX9eVjshYhCH29w=="],
 
     "@elysiajs/opentelemetry": ["@elysiajs/opentelemetry@1.4.11", "", { "dependencies": { "@opentelemetry/api": "^1.9.0", "@opentelemetry/instrumentation": "^0.200.0", "@opentelemetry/sdk-node": "^0.200.0" }, "peerDependencies": { "elysia": ">= 1.4.0" } }, "sha512-GGggB40rXithCA9nSjSc25TFkBPeEEW3rD8me/TrRq4TejzWFJn5zEKdRMYWSpYBeiUsraCpQxu94K2ASz+UnA=="],
 

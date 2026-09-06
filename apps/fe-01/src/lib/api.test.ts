@@ -1,89 +1,137 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { EDGE_UNAUTHORIZED, login, me, websocketUrl } from './api';
+import { login, me, register, websocketUrl } from './api';
 
-/** A Response as the edge or the app would really produce one. */
-function response(status: number, body: string, headers: Record<string, string> = {}): Response {
-  return new Response(body, { status, headers });
-}
-
+const response = (status: number, body: unknown) => Response.json(body, { status });
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('login error codes', () => {
-  it('names the site gate when the edge rejects the request', async () => {
-    // Reproduces what a browser with a wrong site password receives: the edge
-    // answers before be-01 is reached, with its own challenge header and an
-    // HTML body. Observed on dev 2026-08-05, four consecutive times, while the
-    // app reported only "Something went wrong (http_401)".
+describe('shape-derived session requests', () => {
+  it('validates every required login response field before returning a session', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        Promise.resolve(
-          response(401, '<html>401 Unauthorized</html>', {
-            'www-authenticate': 'Basic realm="restricted"',
+      vi.fn(() => Promise.resolve(response(200, { token: 't', user: { id: 'u' } }))),
+    );
+    await expect(login('ada', 'password')).resolves.toMatchObject({
+      kind: 'failure',
+      failure: { code: 'invalid_response', reason: 'schema' },
+    });
+  });
+  it('returns a validated session and preserves additive fields', async () => {
+    const session = { token: 't', user: { id: 'u', username: 'ada', future: true } };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, session))),
+    );
+    await expect(login('ada', 'password')).resolves.toMatchObject({
+      kind: 'success',
+      body: session,
+    });
+  });
+  it('returns typed login refusals only at their declared status', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { error: 'invalid_credentials' }))
+      .mockResolvedValueOnce(response(409, { error: 'invalid_credentials' }));
+    vi.stubGlobal('fetch', send);
+    await expect(login('ada', 'wrong')).resolves.toMatchObject({
+      kind: 'refusal',
+      status: 401,
+      body: { error: 'invalid_credentials' },
+    });
+    await expect(login('ada', 'wrong')).resolves.toMatchObject({
+      kind: 'failure',
+      failure: { code: 'unexpected_status', status: 409 },
+    });
+  });
+  it('keeps proxy challenges and malformed success responses as boundary failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response('<html>Denied</html>', {
+            status: 401,
+            headers: { 'www-authenticate': 'Basic realm="site"' },
           }),
-        ),
-      ),
+        )
+        .mockResolvedValueOnce(new Response('not JSON', { status: 200 })),
     );
-    await expect(login('ada', 'lovelace99')).rejects.toThrow(EDGE_UNAUTHORIZED);
+    const denied = await login('ada', 'password');
+    expect(denied).toMatchObject({
+      kind: 'failure',
+      failure: { code: 'invalid_response', status: 401 },
+    });
+    if (denied.kind !== 'failure' || denied.failure.code !== 'invalid_response')
+      throw new Error('proxy fixture not refused');
+    expect(denied.failure.headers.get('www-authenticate')).toBe('Basic realm="site"');
+    await expect(login('ada', 'password')).resolves.toMatchObject({
+      kind: 'failure',
+      failure: { code: 'invalid_response', reason: 'json' },
+    });
   });
-
-  it('keeps the app’s own 401 distinct from the edge’s', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Promise.resolve(response(401, JSON.stringify({ error: 'invalid_credentials' }))),
-      ),
+  it('uses the register shape and same-origin cookie transport without a token header', async () => {
+    const send = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
+      Promise.resolve(response(200, { token: '', user: { id: 'u', username: 'ada' } })),
     );
-    await expect(login('ada', 'wrong')).rejects.toThrow('invalid_credentials');
+    vi.stubGlobal('fetch', send);
+    await register('ada', 'password');
+    expect(send.mock.calls[0]?.[0]).toBe('/api/auth/register');
+    const init = send.mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.has('authorization')).toBe(false);
+    expect(headers.has('x-wbs-token')).toBe(false);
+    expect(init?.body).toBe(JSON.stringify({ username: 'ada', password: 'password' }));
   });
-
-  it('surfaces a named code when a 200 is not the JSON this app expects', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Promise.resolve(response(200, 'not json at all'))),
-    );
-    await expect(login('ada', 'lovelace99')).rejects.toThrow('unexpected_response');
-  });
-
-  it('returns the session on success', async () => {
-    const session = { token: 't', user: { id: 'u', username: 'ada' } };
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Promise.resolve(response(200, JSON.stringify(session)))),
-    );
-    await expect(login('ada', 'lovelace99')).resolves.toEqual(session);
-  });
-});
-
-describe('me', () => {
-  it('uses the browser cookie and sends no application token header', async () => {
-    const fetchMock = vi.fn<[string, RequestInit?], Promise<Response>>(() =>
-      Promise.resolve(response(200, JSON.stringify({ user: { id: 'u', username: 'ada' } }))),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
+  it('does not share requests or capture a stale fetch implementation', async () => {
+    const send = vi.fn(() => Promise.resolve(response(401, { error: 'invalid_token' })));
+    vi.stubGlobal('fetch', send);
+    await Promise.all([me(), me()]);
+    expect(send).toHaveBeenCalledTimes(2);
+    const replacement = vi.fn(() => Promise.resolve(response(401, { error: 'invalid_token' })));
+    vi.stubGlobal('fetch', replacement);
     await me();
-
-    const init = fetchMock.mock.calls[0]?.[1];
-    const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(headers['x-wbs-token']).toBeUndefined();
-    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain('authorization');
-  });
-
-  it('reports a rejected token as signed-out rather than throwing', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Promise.resolve(response(401, '{}'))),
-    );
-    await expect(me()).resolves.toBeNull();
+    expect(replacement).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('websocketUrl', () => {
-  it('relies on the browser cookie and puts no token in the URL', () => {
-    expect(websocketUrl()).toBe('ws://localhost:3000/ws');
+describe('current session', () => {
+  it('validates scopes and distinguishes rejected credentials from an outage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(200, { user: { id: 'u', username: 'ada' } }))
+        .mockResolvedValueOnce(response(401, { error: 'invalid_token' }))
+        .mockResolvedValueOnce(response(503, {})),
+    );
+    await expect(me()).resolves.toMatchObject({
+      kind: 'failure',
+      failure: { code: 'invalid_response', reason: 'schema' },
+    });
+    await expect(me()).resolves.toMatchObject({
+      kind: 'refusal',
+      body: { error: 'invalid_token' },
+    });
+    await expect(me()).resolves.toMatchObject({
+      kind: 'failure',
+      failure: { code: 'unexpected_status', status: 503 },
+    });
   });
+  it('models a transport rejection without treating it as an application refusal', async () => {
+    const cause = new Error('offline');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(cause)),
+    );
+    await expect(me()).resolves.toMatchObject({
+      kind: 'failure',
+      failure: { code: 'transport', cause },
+    });
+  });
+});
+
+it('puts no credential in the websocket URL', () => {
+  expect(websocketUrl()).toBe('ws://localhost:3000/ws');
 });

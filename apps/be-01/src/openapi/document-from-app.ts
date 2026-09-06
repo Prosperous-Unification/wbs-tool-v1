@@ -1,16 +1,12 @@
 import { OPENAPI_SPEC_PATH } from './openapi-plugin';
 
-/** Where the emitted document is committed, read by the writer and the test. */
-export const OPENAPI_DOCUMENT_FILE = new URL('../../openapi.json', import.meta.url).pathname;
-
 /**
  * The document, asked of a built app the way a client asks for it.
  *
  * Read over `app.handle` rather than by calling the plugin's generator: that is
  * the only route this change adds, and a check that reads the generator directly
- * would stay green with the route unmounted. Both callers — `emit-openapi-cli.ts` and
- * `openapi-document.test.ts` — go through here so the writer and the check cannot
- * disagree about what "the document" is.
+ * would stay green with the route unmounted. The publication test uses this boundary; the CLI consumes the shared
+ * descriptors directly, without assembling a fixture app.
  *
  * @throws if the route answers anything but 200, or answers something that is not
  * a JSON object. An empty document is the failure this whole change exists to
@@ -32,13 +28,7 @@ export async function documentFromApp(app: {
   return document as Record<string, unknown>;
 }
 
-/**
- * One serialisation, used by the writer and by the check.
- *
- * Two spaces and a trailing newline is what prettier writes for JSON, and
- * `nx format:check --all` reads this file — a document the writer emits in any
- * other shape fails the gate rather than the check it was written for.
- */
+/** Stable JSON text for comparing documents from separate app instances. */
 export function serialiseDocument(document: Record<string, unknown>): string {
   return `${JSON.stringify(document, null, 2)}\n`;
 }

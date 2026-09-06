@@ -1,7 +1,7 @@
 # mcp-01
 
 Streamable HTTP MCP server over be-01. Tools are derived from
-`apps/be-01/openapi.json`; auth, internal, and operational routes are excluded.
+the shared HTTP descriptors in `@wbs/contracts`; auth, internal, and operational routes are excluded.
 Every tool call forwards the caller's Bearer token to be-01, so the same
 issuer, identity, scope, journal, and owner rules govern MCP and browser calls.
 
@@ -94,5 +94,5 @@ AUTH_AUDIENCE=api://wbs AUTH_CLIENT_ID=wbs AUTH_CLIENT_SECRET=… \
 bun apps/mcp-01/src/main.ts
 ```
 
-The build target copies `apps/be-01/openapi.json` beside the bundle. The server
-refuses to boot if neither the source document nor that bundle copy exists.
+The build bundles the shared HTTP descriptors; no separate OpenAPI file is needed. The server
+refuses to boot when the generated document cannot produce an unambiguous tool table.

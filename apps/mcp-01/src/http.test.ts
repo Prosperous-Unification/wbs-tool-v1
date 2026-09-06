@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import type { McpConfig } from './config';
 import { healthResponse, mcpFetchHandler, mcpHttpResponse, oauthMetadataResponse } from './http';
 import { readDocument, toolsFromDocument } from './openapi-tools';
-import { createServer, resolveDocumentFile } from './server';
+import { createServer } from './server';
 
 describe('healthResponse', () => {
   // Proof: deleting any probe branch made its expected response undefined.
@@ -132,7 +132,7 @@ describe('mcpFetchHandler', () => {
   // across requests" — which is what mcp-01 did in production for every
   // request after `initialize`, while 99 tests passed.
   it('answers a second request after initialize on a stateless endpoint', async () => {
-    const tools = toolsFromDocument(readDocument(resolveDocumentFile()));
+    const tools = toolsFromDocument(readDocument());
     const handle = mcpFetchHandler(
       () => createServer({ tools, config: CONFIG }),
       CONFIG,

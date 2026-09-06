@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs';
-
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
@@ -10,7 +8,6 @@ import {
 
 import type { McpConfig } from './config';
 import type { DerivedTool } from './openapi-tools';
-import { OPENAPI_DOCUMENT_FILE } from './openapi-tools';
 import type { FetchLike, ToolTextResult } from './wbs-client';
 import { callTool } from './wbs-client';
 
@@ -62,38 +59,6 @@ export function describeTool(tool: DerivedTool): string {
   return `${tool.description}\n\n${REREAD_AFTER_WRITE}`;
 }
 
-/**
- * Where `openapi.json` is, from source *or* from a bundle.
- *
- * `openapi-tools.ts` reads the document at runtime rather than importing it —
- * `@nx/enforce-module-boundaries` stops `scope:app` reaching into another app's
- * tree — so the source-relative path is `apps/be-01/openapi.json` and resolves
- * only while running from source. `bun build` flattens everything to
- * `dist/apps/mcp-01/main.js`, where that path points at a directory that does
- * not exist, so the `build` target copies the document beside the bundle and
- * this looks there second.
- *
- * @throws naming both places it looked. An `ENOENT` from deep inside a read is
- * the same fault with none of the information.
- */
-export function resolveDocumentFile(
-  candidates: readonly string[] = [
-    OPENAPI_DOCUMENT_FILE,
-    new URL('./openapi.json', import.meta.url).pathname,
-  ],
-  exists: (file: string) => boolean = existsSync,
-): string {
-  const found = candidates.find((candidate) => exists(candidate));
-  if (found === undefined) {
-    throw new Error(
-      `mcp-01 cannot find the OpenAPI document it derives its tools from. Looked at ${candidates.join(
-        ' and ',
-      )}. From source the first is apps/be-01/openapi.json; in a bundle the build target must copy it beside dist/apps/mcp-01/main.js.`,
-    );
-  }
-  return found;
-}
-
 export interface ServerDeps {
   readonly tools: readonly DerivedTool[];
   readonly config: McpConfig;
@@ -133,7 +98,7 @@ const asCallToolResult = (
  * use `Server` for advanced use cases"; this is one. `McpServer.registerTool`
  * types `inputSchema` as `ZodRawShapeCompat | AnySchema` — checked against the
  * installed SDK, not remembered — so the high-level API would mean authoring all
- * 43 schemas a second time in zod beside the ones `openapi.json` already gives
+ * schemas a second time in zod beside the ones the shared document already gives
  * us: two sources for one contract, and zod as a third validator in a repo that
  * has settled on typebox and arktype. See design.md D5.
  */

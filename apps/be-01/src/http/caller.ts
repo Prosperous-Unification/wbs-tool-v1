@@ -33,47 +33,10 @@ export type AuthenticatedHandler = (
   user: AuthenticatedUser,
 ) => Promise<RouteResponse>;
 
-/**
- * The one place a request's identity is resolved and a caller is refused.
- *
- * Twenty-three handlers opened with the same five lines — resolve, compare
- * against `null`, set 401, return `{ error: 'unauthenticated' }` — and two of
- * them then repeated a scope check. Five lines copied twenty-three times is a
- * guard nobody can see the shape of: one handler quietly answering a 403 where
- * the others answer 401, or forgetting the block altogether, reads exactly like
- * the rest.
- *
- * This was an Elysia macro until the route modules stopped importing Elysia.
- * The macro existed to keep the framework's inference of `params`, `query` and
- * `body` across a wrapper, and a plain higher-order function loses nothing now
- * that those three are fields on {@link RouteRequest} rather than inferred
- * context. What it gains is the reason the split was worth making: the refusal
- * is the same object under every binder, so `binder.contract.test.ts` asserts
- * one 401 and covers both.
- *
- * The wrapped handler is handed the account **already narrowed to non-null**,
- * so it cannot forget the case: there is no `null` in the type to forget.
- */
+/** Legacy route-list guard retained until the task 5.2 policy audit deletes it. */
 export interface CallerGuard {
   (requires: CallerRequirement, handler: AuthenticatedHandler): RouteHandler;
-  /**
-   * The same refusal, as a {@link RoutePreflight} a route declares so a binder
-   * answers it before validating anything — see {@link RoutePreflight} for why
-   * that ordering needed a seat at all.
-   *
-   * A member of the guard rather than a free function, and returning `null`
-   * where the guard would have called the handler, so the two share one
-   * **refusal implementation** — there is no second copy of "401
-   * `unauthenticated`, then 403 `insufficient_scope`" that could drift.
-   *
-   * They do not share one `userFromHeaders` call, and that is worth saying
-   * plainly rather than letting "one implementation" imply it: a route that
-   * declares this and keeps its guard authenticates **twice** on an admitted
-   * request, once here and once when the handler rechecks. That is the price of
-   * the guard staying — the check the caller cannot skip is still the handler's
-   * — and it is the same double-check every write already pays through
-   * `app.ts`'s `onRequest`.
-   */
+  /** The same refusal as a preflight, or null when the caller is admitted. */
   preflight(requires: CallerRequirement): RoutePreflight;
 }
 

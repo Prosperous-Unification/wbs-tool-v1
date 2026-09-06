@@ -17,8 +17,8 @@ export default defineConfig({
   // `@wbs/domain/effective-tag`, `@wbs/domain/effective-service`,
   // `@wbs/domain/label-mismatch` and
   // `@wbs/domain/priority-band` are the pure modules and *not* the lib's index
-  // barrel, which re-exports arktype-touching validators this bundle excludes —
-  // see `vite.config.ts`.
+  // barrel. Shared HTTP contract validation has its own explicit aliases below;
+  // these domain imports remain limited to their pure modules.
   //
   // Every one of them has to be listed in **both** configs, and the day one is
   // not the suite fails to collect rather than failing an assertion: adding
@@ -55,6 +55,10 @@ export default defineConfig({
       '@wbs/domain/marker-color': resolve(__dirname, '../../libs/domain/src/marker-color.ts'),
       '@wbs/domain/is-within': resolve(__dirname, '../../libs/domain/src/is-within.ts'),
       '@wbs/contracts/ws-frames': resolve(__dirname, '../../libs/contracts/src/ws-frames.ts'),
+      // Proof: removing either shared alias from both configs failed its explicit
+      // required-alias assertion in vite-config.test.ts, despite map parity.
+      '@wbs/contracts': resolve(__dirname, '../../libs/contracts/src/index.ts'),
+      '@wbs/validation': resolve(__dirname, '../../libs/validation/src/index.ts'),
       '@wbs/domain/priority-band': resolve(__dirname, '../../libs/domain/src/priority-band.ts'),
       // And a fourth: `dependency-reach.ts` is a two-member enum and its
       // guard, and the rule it holds — how far into a predecessor a

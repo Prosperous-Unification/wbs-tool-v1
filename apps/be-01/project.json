@@ -17,7 +17,11 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun build apps/be-01/src/main.ts --target=bun --outdir=dist/apps/be-01"
+        "commands": [
+          "bun build apps/be-01/src/main.ts --target=bun --outdir=dist/apps/be-01",
+          "bun apps/be-01/src/openapi/emit-openapi-cli.ts dist/apps/be-01/openapi.json"
+        ],
+        "parallel": false
       },
       "outputs": ["{workspaceRoot}/dist/apps/be-01"]
     },

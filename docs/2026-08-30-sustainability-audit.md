@@ -93,8 +93,9 @@ is the counter-example done right and the model for all of these.
   (`wbs-table.tsx:726–1274`, ninth in `gantt-panel.tsx:657`); four copy-pasted
   reference-set columns (`:7867–8075`) feeding 8 callbacks and 12 props; six
   independent `ProjectApi` fakes totalling 1,500 LOC with no `src/testing/`;
-  303 LOC of hand-written wire types mirroring `apps/be-01/openapi.json`, which
-  mcp-01 already derives from.
+  303 LOC of hand-written wire types mirroring the then-committed OpenAPI document, which
+  mcp-01 already derived from. HTTP task 3.2 now generates that document from
+  `libs/contracts/src/http/document-from-shapes.ts` without a committed JSON input.
 - Also: refusal-code → HTTP status in 5 places (`work-item.controller.ts:799`,
   `:493`, `role.controller.ts:14`, `project.controller.ts:123`, inline literals);
   refusal → sentence in 5 fe-01 places with two different 5xx sentences

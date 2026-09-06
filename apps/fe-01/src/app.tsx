@@ -7,6 +7,7 @@ import { AppFaultBoundary } from '@/components/chrome/app-fault';
 import { PresencePanel } from '@/components/presence/presence-panel';
 import { HintLayer } from '@/components/wbs/hint';
 import { me as fetchMe, type Session } from '@/lib/api';
+import { failureMessage, unreachable } from '@/lib/http';
 import { ThemeProvider, useThemeChoice } from '@/lib/theme';
 
 /**
@@ -63,21 +64,38 @@ function ThemedAccountMenu({
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [checked, setChecked] = useState(false);
+  const [sessionError, setSessionError] = useState('');
 
-  // A token in localStorage is a claim, not a session. It is checked against
-  // /api/auth/me before the app renders as signed in, so an expired or
-  // revoked token shows the login form instead of a UI that fails on every
-  // request.
+  // Session refusal and unavailable verification are distinct rendered states.
   useEffect(() => {
-    // `.catch` is not optional here: a rejected fetch — the site gate refusing
-    // the request, a dropped connection — would otherwise leave `checked` false
-    // forever and the app stuck on "Loading…", with no way to reach the form
-    // that could fix it. A failed check means "not signed in", never "wait".
     void fetchMe()
-      .then((user) => {
-        if (user !== null) setSession({ token: '', user });
+      .then((reply) => {
+        switch (reply.kind) {
+          case 'success':
+            setSession({ token: '', user: reply.body.user });
+            return;
+          case 'failure':
+            setSessionError(failureMessage(reply.failure));
+            return;
+          case 'refusal':
+            switch (reply.body.error) {
+              case 'invalid_token':
+                return;
+              case 'invalid_body':
+              case 'invalid_query':
+              case 'invalid_params':
+                setSessionError('Could not check your session. Reload and try again.');
+                return;
+              default:
+                return unreachable(reply.body);
+            }
+          default:
+            return unreachable(reply);
+        }
       })
-      .catch(() => undefined)
+      .catch(() => {
+        setSessionError('Could not check your session. Reload and try again.');
+      })
       .finally(() => {
         setChecked(true);
       });
@@ -108,6 +126,7 @@ function AppContent() {
          * keep in step.
          */}
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">WBS tool v2</h1>
+        {sessionError !== '' && <p role="alert">{sessionError}</p>}
         <AuthForm onSignedIn={setSession} />
       </main>
     );
@@ -151,6 +170,8 @@ function AppContent() {
           // it arrives on the table's own socket — one connection per browser
           // since 2026-09-02. What the session contributes is the username the
           // panel marks as "you".
+          // Proof: renaming the shared login response username to displayName produced
+          // TS2339 here and at AccountMenu below in the actual FE app typecheck.
           (roster) => <PresencePanel me={session.user.username} {...roster} />
         }
         account={

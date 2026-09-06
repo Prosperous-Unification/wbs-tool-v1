@@ -30,7 +30,7 @@ export async function userFromHeaders(
  * undecodable one as no cookie at all (so a Bearer header still gets its
  * chance), while `hasInvalidCookieOrigin` only asks **whether** a session
  * cookie is there and must not care. Decoding here would force one answer on
- * both — and did: the copy in `auth.routes.ts` decoded every value to read
+ * both — and did: the former controller-local copy decoded every value to read
  * none of them, so a single malformed `%` in any cookie threw a `URIError` out
  * of `onRequest` and answered 500 to a request the origin check had no quarrel
  * with.
@@ -45,6 +45,17 @@ export function cookiesIn(raw: string | undefined): Map<string, string> {
     if (separator > 0) parsed.set(part.slice(0, separator).trim(), part.slice(separator + 1));
   }
   return parsed;
+}
+
+/** Whether an unsafe browser-session request came from outside the configured app origin. */
+export function hasInvalidCookieOrigin(request: Request, appOrigin: string): boolean {
+  if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS')
+    return false;
+  const cookies = cookiesIn(request.headers.get('cookie') ?? undefined);
+  return (
+    (cookies.has('__Host-wbs_access') || cookies.has('__Host-wbs_session')) &&
+    request.headers.get('origin') !== appOrigin
+  );
 }
 
 /**

@@ -109,8 +109,7 @@ export type PlanCommandKind = PlanCommand['kind'];
  * to the union and forgotten here type-checks perfectly, because a subset of a
  * union is a valid array of it. The consequences are silent — `parseCommand`
  * refuses the new kind as `unknown_kind`, and
- * `plan-command-schema.ts`'s count check stays balanced because the document
- * would be short by one too.
+ * a document derived from the same incomplete list would be short by one too.
  *
  * `satisfies Record<PlanCommandKind, true>` closes both directions: a missing
  * kind is a missing property and an invented one is an excess property, and

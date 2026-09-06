@@ -44,6 +44,7 @@ const workItemPatch = type({
  * dates, numeric bounds, names and references. Directory batches intentionally
  * accept this same union so project_required retains the original command index.
  */
+// Proof: the generated MCP consumer observed 35 rather than 36 arms after clearMeasure removal, and description length 0 rather than >10 after emptying createWorkItem prose.
 // Proof: removing clearMeasure failed both 36-arm validation and emitted branch count; widening actual days admitted a string.
 const command = type({
   kind: "'createWorkItem'",
@@ -53,52 +54,161 @@ const command = type({
   'notes?': 'string',
   'priority?': 'number | null',
 })
-  .or({ kind: "'patchWorkItem'", ...target, patch: workItemPatch })
-  .or({ kind: "'moveWorkItem'", ...target, ...placement })
-  .or({ kind: "'duplicateWorkItem'", ...target, ...reference })
-  .or({ kind: "'deleteWorkItem'", ...target, 'strategy?': "'cascade' | 'promote'" })
-  .or({
-    kind: "'setEstimate'",
-    ...step,
-    days: { optimistic: 'number', realistic: 'number', pessimistic: 'number' },
-  })
-  .or({ kind: "'clearEstimate'", ...step })
-  .or({ kind: "'setActual'", ...step, days: 'number' })
-  .or({ kind: "'clearActual'", ...step })
-  .or({ kind: "'setProgress'", ...step, state: "'in_progress' | 'done'" })
-  .or({ kind: "'clearProgress'", ...step })
-  .or({ kind: "'setMeasure'", ...step, metric: 'string', value: 'number' })
-  .or({ kind: "'clearMeasure'", ...step, metric: 'string' })
-  .or({ kind: "'setAssignee'", ...step, 'personId?': 'string | null', 'personRef?': 'string' })
-  .or({ kind: "'addDependency'", ...predecessor })
-  .or({ kind: "'removeDependency'", ...predecessor })
-  .or({ kind: "'freezeProject'" })
-  .or({ kind: "'unfreezeProject'" })
-  .or({ kind: "'unfreezeWorkItem'", ...target })
-  .or({ kind: "'setCapacity'", ...team, size: 'number | null' })
-  .or({
-    kind: "'setPriorityBands'",
-    bands: type({ startsAt: 'number', defaultValue: 'number', label: 'string' }).array(),
-  })
-  .or({ kind: "'createTeam'", ...named })
-  .or({ kind: "'patchTeam'", ...team, patch: { 'name?': 'string', 'serviceIds?': 'string[]' } })
-  .or({ kind: "'deleteTeam'", ...team, 'cascade?': 'boolean' })
-  .or({ kind: "'createPerson'", ...named, 'teamIds?': 'string[]', 'teamRefs?': 'string[]' })
-  .or({
-    kind: "'patchPerson'",
-    ...person,
-    patch: { 'name?': 'string', 'teamIds?': 'string[]', 'kind?': 'string' },
-  })
-  .or({ kind: "'deletePerson'", ...person, 'cascade?': 'boolean' })
-  .or({ kind: "'createTag'", ...named })
-  .or({ kind: "'patchTag'", ...tag, name: 'string' })
-  .or({ kind: "'deleteTag'", ...tag, 'cascade?': 'boolean' })
-  .or({ kind: "'createService'", ...named })
-  .or({ kind: "'patchService'", ...service, name: 'string' })
-  .or({ kind: "'deleteService'", ...service, 'cascade?': 'boolean' })
-  .or({ kind: "'createWorkItemType'", ...named })
-  .or({ kind: "'patchWorkItemType'", ...workItemType, name: 'string' })
-  .or({ kind: "'deleteWorkItemType'", ...workItemType, 'cascade?': 'boolean' });
+  .describe('Add a work item. `ref` names it for the rest of this batch.')
+  .or(
+    type({ kind: "'patchWorkItem'", ...target, patch: workItemPatch }).describe(
+      'Change fields of a work item; only the fields named change.',
+    ),
+  )
+  .or(
+    type({ kind: "'moveWorkItem'", ...target, ...placement }).describe(
+      'Move a work item under a parent, after a sibling.',
+    ),
+  )
+  .or(
+    type({ kind: "'duplicateWorkItem'", ...target, ...reference }).describe(
+      'Copy a work item with its whole subtree, placed right after it.',
+    ),
+  )
+  .or(
+    type({ kind: "'deleteWorkItem'", ...target, 'strategy?': "'cascade' | 'promote'" }).describe(
+      'Remove a work item. A parent needs a strategy: cascade its children or promote them.',
+    ),
+  )
+  .or(
+    type({
+      kind: "'setEstimate'",
+      ...step,
+      days: { optimistic: 'number', realistic: 'number', pessimistic: 'number' },
+    }).describe('Set the three-point estimate of one step on a leaf work item.'),
+  )
+  .or(
+    type({ kind: "'clearEstimate'", ...step }).describe(
+      'Remove one step’s estimate from a work item.',
+    ),
+  )
+  .or(
+    type({ kind: "'setActual'", ...step, days: 'number' }).describe(
+      'Record the days one step actually took on a work item.',
+    ),
+  )
+  .or(
+    type({ kind: "'clearActual'", ...step }).describe('Remove one step’s actual from a work item.'),
+  )
+  .or(
+    type({ kind: "'setProgress'", ...step, state: "'in_progress' | 'done'" }).describe(
+      'Mark one step of a work item in progress or done.',
+    ),
+  )
+  .or(type({ kind: "'clearProgress'", ...step }).describe('Take a step back to not started.'))
+  .or(
+    type({ kind: "'setMeasure'", ...step, metric: 'string', value: 'number' }).describe(
+      'Record a measured figure (tokens, hours…) for one step of a work item.',
+    ),
+  )
+  .or(
+    type({ kind: "'clearMeasure'", ...step, metric: 'string' }).describe(
+      'Remove one measured figure.',
+    ),
+  )
+  .or(
+    type({
+      kind: "'setAssignee'",
+      ...step,
+      'personId?': 'string | null',
+      'personRef?': 'string',
+    }).describe('Name who does one step of a work item, or null to unassign.'),
+  )
+  .or(
+    type({ kind: "'addDependency'", ...predecessor }).describe(
+      'Make a work item wait for another.',
+    ),
+  )
+  .or(
+    type({ kind: "'removeDependency'", ...predecessor }).describe(
+      'Stop a work item waiting for another.',
+    ),
+  )
+  .or(type({ kind: "'freezeProject'" }).describe('Freeze every work item number as it stands.'))
+  .or(type({ kind: "'unfreezeProject'" }).describe('Let every number follow the tree again.'))
+  .or(
+    type({ kind: "'unfreezeWorkItem'", ...target }).describe(
+      'Let one work item’s number follow the tree again.',
+    ),
+  )
+  .or(
+    type({ kind: "'setCapacity'", ...team, size: 'number | null' }).describe(
+      'How many of a team may be at work at once on this project; null means unstated.',
+    ),
+  )
+  .or(
+    type({
+      kind: "'setPriorityBands'",
+      bands: type({ startsAt: 'number', defaultValue: 'number', label: 'string' }).array(),
+    }).describe('Replace this project’s priority ladder.'),
+  )
+  .or(type({ kind: "'createTeam'", ...named }).describe('Add a team to the directory.'))
+  .or(
+    type({
+      kind: "'patchTeam'",
+      ...team,
+      patch: { 'name?': 'string', 'serviceIds?': 'string[]' },
+    }).describe('Rename a team or change the services it owns.'),
+  )
+  .or(
+    type({ kind: "'deleteTeam'", ...team, 'cascade?': 'boolean' }).describe(
+      'Remove a team from the directory.',
+    ),
+  )
+  .or(
+    type({
+      kind: "'createPerson'",
+      ...named,
+      'teamIds?': 'string[]',
+      'teamRefs?': 'string[]',
+    }).describe('Add a person to the directory.'),
+  )
+  .or(
+    type({
+      kind: "'patchPerson'",
+      ...person,
+      patch: { 'name?': 'string', 'teamIds?': 'string[]', 'kind?': 'string' },
+    }).describe('Rename a person, change their teams or their kind.'),
+  )
+  .or(
+    type({ kind: "'deletePerson'", ...person, 'cascade?': 'boolean' }).describe(
+      'Remove a person from the directory.',
+    ),
+  )
+  .or(type({ kind: "'createTag'", ...named }).describe('Add a tag to the directory.'))
+  .or(type({ kind: "'patchTag'", ...tag, name: 'string' }).describe('Rename a tag.'))
+  .or(
+    type({ kind: "'deleteTag'", ...tag, 'cascade?': 'boolean' }).describe(
+      'Remove a tag from the directory.',
+    ),
+  )
+  .or(type({ kind: "'createService'", ...named }).describe('Add a service to the directory.'))
+  .or(type({ kind: "'patchService'", ...service, name: 'string' }).describe('Rename a service.'))
+  .or(
+    type({ kind: "'deleteService'", ...service, 'cascade?': 'boolean' }).describe(
+      'Remove a service from the directory.',
+    ),
+  )
+  .or(
+    type({ kind: "'createWorkItemType'", ...named }).describe(
+      'Add a work item type to the directory.',
+    ),
+  )
+  .or(
+    type({ kind: "'patchWorkItemType'", ...workItemType, name: 'string' }).describe(
+      'Rename a work item type.',
+    ),
+  )
+  .or(
+    type({ kind: "'deleteWorkItemType'", ...workItemType, 'cascade?': 'boolean' }).describe(
+      'Remove a work item type from the directory.',
+    ),
+  );
 
 /** Strict standalone command validation; derived numbering is never a writable property. */
 export const planCommandSchema = requestSchema(command);

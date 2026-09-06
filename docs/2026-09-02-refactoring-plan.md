@@ -670,8 +670,9 @@ stale, and it was never the point of the sentence.
 
 **`plan-command-schema.ts` was the costly one.** That string is the description an MCP client shows
 a model for every one of the twelve step-carrying command kinds, and `(step)` is what the
-`role → step` rename left where `(phase)` had been. `apps/be-01/openapi.json` is regenerated, since
-it is committed and diffed against the app.
+`role → step` rename left where `(phase)` had been. At that checkpoint the committed OpenAPI
+document was regenerated and diffed against the app. HTTP task 3.2 subsequently removed that
+artifact: `libs/contracts/src/http/document-from-shapes.ts` now generates it from shared shapes.
 
 **The README's count is a test now.** `openapi-tools.test.ts` already asserted the tool names
 against the derived list — which is why that README is the repo's good example — and the _count_

@@ -5,6 +5,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { login, type Session } from '@/lib/api';
+import { failureMessage, unreachable } from '@/lib/http';
+
+/** Every declared login refusal has user-facing words; transport failures are separate. */
+function refusalMessage(
+  refusal: Extract<Awaited<ReturnType<typeof login>>, { kind: 'refusal' }>['body'],
+): string {
+  switch (refusal.error) {
+    case 'invalid_credentials':
+      return 'Username or password is incorrect.';
+    case 'not_found':
+      return 'Password sign-in is not available on this server. Continue with SSO.';
+    case 'invalid_origin':
+      return 'This sign-in request was refused. Reload this page and try again.';
+    case 'invalid_client':
+    case 'invalid_body':
+    case 'invalid_json':
+    case 'invalid_query':
+      return 'Password sign-in could not start. Reload and try again.';
+    default:
+      return unreachable(refusal);
+  }
+}
 
 export interface AuthFormProps {
   onSignedIn: (session: Session) => void;
@@ -24,13 +46,25 @@ export function AuthForm({ onSignedIn }: AuthFormProps) {
     setBusy(true);
     setError('');
     try {
-      const session = await login(
+      const reply = await login(
         typeof username === 'string' ? username : '',
         typeof password === 'string' ? password : '',
       );
-      onSignedIn(session);
+      switch (reply.kind) {
+        case 'success':
+          onSignedIn(reply.body);
+          break;
+        case 'refusal':
+          setError(refusalMessage(reply.body));
+          break;
+        case 'failure':
+          setError(failureMessage(reply.failure));
+          break;
+        default:
+          unreachable(reply);
+      }
     } catch {
-      setError('Username or password is incorrect.');
+      setError('Password sign-in could not start. Reload and try again.');
     } finally {
       setBusy(false);
     }

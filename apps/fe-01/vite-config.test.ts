@@ -193,6 +193,8 @@ describe('the app and the run resolve the same modules', () => {
       serveConfig({ VITE_BE_URL: BE_URL, VITE_GW_URL: GW_URL }).resolve?.alias ?? {};
     const suiteAliases = suiteConfig.resolve?.alias ?? {};
     expect(Object.keys(suiteAliases).sort()).toEqual(Object.keys(appAliases).sort());
+    expect(Object.keys(appAliases)).toContain('@wbs/contracts');
+    expect(Object.keys(appAliases)).toContain('@wbs/validation');
   });
 });
 

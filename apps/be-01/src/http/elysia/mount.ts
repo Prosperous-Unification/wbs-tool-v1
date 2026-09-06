@@ -9,7 +9,7 @@ import {
 } from '@wbs/contracts';
 import { Elysia } from 'elysia';
 
-import { hasInvalidCookieOrigin } from '../../controller/auth.routes';
+import { hasInvalidCookieOrigin } from '../../middleware/authenticated';
 import {
   type BoundEndpoint,
   EMPTY,

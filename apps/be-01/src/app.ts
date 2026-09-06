@@ -2,25 +2,24 @@ import { createLogger } from '@wbs/observability';
 import { observabilityPlugin } from '@wbs/observability/server';
 import { Elysia } from 'elysia';
 
-import { hasInvalidCookieOrigin, type OidcRouteOptions } from './controller/auth.routes';
 import { authOidcEndpoints } from './controller/auth-oidc-endpoints';
 import { authPasswordEndpoints } from './controller/auth-password-endpoints';
 import { calendarMarkerRoutes } from './controller/calendar-marker.routes';
 import { directoryRoutes } from './controller/directory.routes';
 import { historyRoutes } from './controller/history.routes';
 import { internalRoutes } from './controller/internal.routes';
+import type { OidcRouteOptions } from './controller/oidc-options';
 import { projectRoutes } from './controller/project.routes';
 import { savedPlanRoutes } from './controller/saved-plan.routes';
 import { smokeRoutes } from './controller/smoke.routes';
 import { solutionRoutes } from './controller/solution.routes';
 import { stepRoutes } from './controller/step.routes';
 import { workItemRoutes } from './controller/work-item.routes';
-import { bindElysia } from './http/elysia/bind';
 import { mountEndpoints } from './http/elysia/mount';
 import type { BoundEndpoint } from './http/endpoint';
 import { identityResolver } from './http/identity';
-import { matchPath, type Route } from './http/route';
-import { userFromHeaders } from './middleware/authenticated';
+import { matchPath } from './http/route';
+import { hasInvalidCookieOrigin, userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
@@ -161,31 +160,7 @@ export interface AppOptions {
   version?: string;
 }
 
-/**
- * Legacy route-list compatibility seam, now empty after the auth migration.
- * Task 3.3 removes the seam and its adapter after generated consumers stop
- * importing the legacy route machinery.
- *
- * Exported so a test can read the same lists the app runs rather than rebuilding
- * the wiring beside it. That distinction is the whole value: a check that
- * assembles its own lists proves a property of the check's list, and the routes
- * it forgot to include are exactly the ones it cannot speak for. `app.routes.test.ts`
- * still asserts these cover every path Elysia ended up with, which catches the
- * paths mounted outside this array — `/health`, `/metrics`,
- * `/api/openapi.json`. It cannot catch a factory dropped from the array itself:
- * `buildApp` reads this same function, so the route would leave both sides of
- * that equality together. Each controller's own route tests are what would go
- * red.
- *
- */
-export function mountedRouteLists(): readonly (readonly Route[])[] {
-  return [];
-}
-
-/**
- * Typed bindings migrated from {@link mountedRouteLists}, mounted by the same app.
- * Proof: dropping smoke makes app.routes.test.ts's binding check see length0 instead of1.
- */
+/** Typed bindings mounted by the production app. */
 export function mountedEndpoints(opts: AppOptions) {
   const passwordThrottle = new LoginThrottle({
     now: opts.oidc?.now,
@@ -205,6 +180,8 @@ export function mountedEndpoints(opts: AppOptions) {
     // Proof: removing this spread made app.routes.test.ts receive 38 bindings
     // instead of the 42 required by the OIDC composition.
     ...(opts.oidc === undefined ? [] : authOidcEndpoints(opts.auth, opts.oidc)),
+    // Proof: omitting this binding made “binds each shared HTTP shape once”
+    // receive37 instead of38 in app.routes.test.ts.
     ...smokeRoutes(),
     ...stepRoutes(opts.steps),
     ...directoryRoutes(opts.directory),
@@ -238,13 +215,9 @@ export function buildApp(opts: AppOptions) {
     new Elysia()
       .use(observabilityPlugin({ service: 'be-01' }))
       .decorate('logger', logger)
-      // Before every controller, and that is the order the plugin needs: it
-      // answers from the route table of the instance it is mounted on, so a
-      // route registered after it is seen and a route registered on an instance
-      // it never joined is not. The document is committed and diffed against
-      // this app by `openapi-document.test.ts`, so a route that goes missing
-      // here is a red rather than a silent omission.
-      .use(openApiPlugin())
+      // The document comes from this configuration's mounted endpoint table, so
+      // local auth does not advertise the four conditional OIDC operations.
+      .use(openApiPlugin(endpoints.map(({ shape }) => shape)))
       .onRequest(async ({ request, set }) => {
         const path = new URL(request.url).pathname;
         // Migrated routes own their policy order in mountEndpoints. This guard
@@ -294,14 +267,13 @@ export function buildApp(opts: AppOptions) {
         return undefined;
       })
       .use(
-        // Proof: mounting an empty table makes smoke.integration.test.ts's valid
-        // request receive404 instead of200 while its declaration and binding remain.
+        // Proof: mounting an empty table made “reaches every local path and method”
+        // report postApiAuthRegister equal to the 404/NOT_FOUND router miss.
         mountEndpoints(endpoints, {
           appOrigin: opts.appOrigin,
           resolveIdentity: identityResolver(opts.auth, opts.internalAuthSecret),
         }),
       )
-      .use(mountedRouteLists().reduce((app, list) => app.use(bindElysia(list)), new Elysia()))
       .get('/health', ({ set }) => {
         // On every answer, including the unhealthy ones. "Which commit is this
         // wedged process at" is the first question a failed deploy raises, and

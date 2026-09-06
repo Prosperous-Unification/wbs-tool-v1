@@ -1,21 +1,12 @@
 import { readFileSync } from 'node:fs';
 
-/**
- * Tools are derived from `apps/be-01/openapi.json`, never hand-listed.
- *
- * The document is committed and drift-checked against the running app by
- * `apps/be-01/src/openapi/openapi-document.test.ts`, so deriving from it means
- * be-01's routes and mcp-01's tools cannot disagree without a red test. See
- * design.md D4; the exclusions are D1 and the schema honesty is D8.
- *
- * Everything here refuses rather than guesses (R5). An operation with no
- * `operationId`, a body that is not JSON, a parameter in a place this server
- * cannot send, a name claimed twice, an exclusion that no longer matches
- * anything — each throws and names what it saw. A tool list that quietly
- * narrows is the failure this module exists to prevent, and a narrowing is
- * invisible unless something is watching for it.
- */
+import { documentFromShapes, httpShapes } from '@wbs/contracts';
 
+/**
+ * Derives MCP inputs from generated shared descriptors, never a hand-listed tool table.
+ * Explicit external documents remain supported for fixtures. Missing names, input
+ * collisions and stale required exclusions throw rather than silently narrowing tools.
+ */
 export const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
@@ -53,7 +44,13 @@ interface OpenApiParameter {
 }
 
 interface OpenApiBodySchema {
-  readonly type?: string;
+  readonly const?: unknown;
+  readonly enum?: readonly unknown[];
+  readonly anyOf?: readonly unknown[];
+  readonly allOf?: readonly unknown[];
+  readonly oneOf?: readonly unknown[];
+  readonly not?: unknown;
+  readonly type?: string | readonly string[];
   readonly properties?: Readonly<Record<string, unknown>>;
   readonly required?: readonly string[];
 }
@@ -81,18 +78,12 @@ export interface OpenApiDocument {
  * D1's three exclusion classes, as one named set.
  *
  * `/api/auth/*` would make this a credential factory; `/internal/*` is gw-01's
- * surface behind a different secret; the last three carry no plan. A trailing
+ * surface behind a different secret; smoke carries no plan. A trailing
  * `/*` matches a prefix and nothing else does — no regex, because a pattern
  * that can match more than it reads is the wrong tool for a deny list.
  */
 
-export const EXCLUDED_PATHS: readonly string[] = [
-  '/api/auth/*',
-  '/internal/*',
-  '/health',
-  '/metrics',
-  '/api/smoke/echo',
-];
+export const EXCLUDED_PATHS: readonly string[] = ['/api/auth/*', '/internal/*', '/api/smoke/echo'];
 
 /** What the MCP protocol accepts as a tool name; `operationId` must already fit. */
 const TOOL_NAME = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -105,8 +96,12 @@ const excludes = (pattern: string, path: string): boolean =>
   pattern.endsWith('/*') ? path.startsWith(pattern.slice(0, -1)) : path === pattern;
 
 /** The exclusion entry covering this path, or none. */
+// Operational endpoints are not yet in the shared registry. Keep them excluded
+// if an explicit external document supplies them; they are not required matches.
+// Proof: removing these deny paths exposed getHealth in the external-document production derivation test.
+const optionalOperationalPaths = ['/health', '/metrics'] as const;
 const exclusionFor = (path: string): string | undefined =>
-  EXCLUDED_PATHS.find((candidate) => excludes(candidate, path));
+  [...EXCLUDED_PATHS, ...optionalOperationalPaths].find((candidate) => excludes(candidate, path));
 
 /** Whether this path of the document becomes no tool. */
 export const isExcluded = (path: string): boolean => exclusionFor(path) !== undefined;
@@ -131,9 +126,10 @@ function toTool(method: HttpMethod, path: string, operation: OpenApiOperation): 
 
   // Synthesising a name from the path would work, right up until two paths
   // collapse to the same name and one tool silently shadowed the other.
+  // Proof: bypassing this guard made the generated missing-operationId test return tools instead of throwing.
   if (name === undefined || name.trim() === '') {
     throw new Error(
-      `${where} has no operationId, so no tool name can be derived. Give the route an operationId in be-01 and regenerate apps/be-01/openapi.json.`,
+      `${where} has no operationId, so no tool name can be derived. Give the route an operationId in be-01 and regenerate the shared OpenAPI document.`,
     );
   }
   if (!TOOL_NAME.test(name)) {
@@ -196,26 +192,16 @@ function toTool(method: HttpMethod, path: string, operation: OpenApiOperation): 
     }
   }
 
-  // Most of be-01's operations carry no prose at all — a typebox route's
-  // document entry is generated, so there is nothing to join. Saying so is
-  // honest; writing a summary here would be this file inventing API
-  // documentation.
-  //
-  // Deliberately without a count. This comment read "40 of be-01's 51
-  // operations" until 2026-09-02, when the document held 30 with 27 of them
-  // bare. A figure nothing checks is a figure that goes stale, and the number
-  // was never the point.
+  // External documents may omit prose; do not invent API instructions in MCP.
   const written = joinProse(operation.summary, operation.description);
   const headline =
     written === ''
-      ? `${where} — the committed OpenAPI document carries no prose for this operation.`
+      ? `${where} — the OpenAPI document carries no prose for this operation.`
       : written;
 
   return {
     name,
-    // D8: eight bodies are documentation, not validation, and each says so in
-    // its own description. Passed through unedited so the caller reads the
-    // caveat rather than mcp-01's paraphrase of it.
+    // Preserve any external request-body prose without paraphrasing its contract.
     description: joinProse(
       headline,
       body?.description === undefined ? undefined : `Request body: ${body.description}`,
@@ -275,6 +261,7 @@ export function toolsFromDocument(document: OpenApiDocument): DerivedTool[] {
   }
 
   const stale = EXCLUDED_PATHS.filter((pattern) => !matched.has(pattern));
+  // Proof: bypassing this guard made required exclusion drift return tools instead of throwing.
   if (stale.length > 0) {
     throw new Error(
       `the exclusion list names ${stale.map((pattern) => `"${pattern}"`).join(', ')}, which the document no longer contains. A route that moved must be re-excluded under its new path, or dropped from the list deliberately — see design.md D1.`,
@@ -284,18 +271,9 @@ export function toolsFromDocument(document: OpenApiDocument): DerivedTool[] {
   return tools;
 }
 
-/**
- * Where the committed document lives, relative to this source file.
- *
- * Read at runtime rather than imported: `@nx/enforce-module-boundaries` stops
- * `scope:app` reaching into another app's tree, and it is right to. The built
- * bundle needs this file beside it — task 4.1 owns that, and until then the
- * path only resolves when running from source.
- */
-export const OPENAPI_DOCUMENT_FILE = new URL('../../be-01/openapi.json', import.meta.url).pathname;
-
-/** @throws if the document is missing or is not JSON, naming the path either way. */
-export function readDocument(file: string = OPENAPI_DOCUMENT_FILE): OpenApiDocument {
+/** Generates the production document, or reads an explicitly supplied external fixture file. */
+export function readDocument(file?: string): OpenApiDocument {
+  if (file === undefined) return documentFromShapes(httpShapes);
   let text: string;
   try {
     text = readFileSync(file, 'utf8');

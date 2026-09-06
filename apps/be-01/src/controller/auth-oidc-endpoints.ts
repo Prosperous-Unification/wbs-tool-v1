@@ -18,7 +18,7 @@ import {
 } from '../http/endpoint';
 import { cookieValue } from '../middleware/authenticated';
 import type { AuthService } from '../service/auth.service';
-import type { OidcRouteOptions } from './auth.routes';
+import type { OidcRouteOptions } from './oidc-options';
 
 const reportable = new Set([
   'access_denied',

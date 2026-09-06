@@ -1,8 +1,8 @@
 import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
 import { expect, spyOn, test } from 'bun:test';
 
-import type { OidcRouteOptions } from '../../controller/auth.routes';
 import { authOidcEndpoints } from '../../controller/auth-oidc-endpoints';
+import type { OidcRouteOptions } from '../../controller/oidc-options';
 import { testAuthService } from '../../testing/auth-fixture';
 import { mountEndpoints } from './mount';
 

@@ -819,3 +819,52 @@ substitutions. The composition fault made `app.routes.test.ts` receive 38
 bindings instead of 42. The two envelope substitutions each returned
 `invalid_query` where the mounted test required `invalid_oidc_callback`, proving
 the absent-binding and missing/expired-transaction branches separately.
+
+### Generated document and exact binding checkpoint
+
+Tasks 3.1–3.3 are complete. The production app derives its published OpenAPI
+document from the exact endpoint table it mounts: local mode publishes 38
+operations and excludes the four unavailable OIDC operations; OIDC mode
+publishes all 42. The exact-binding test and real `app.handle` reachability
+fixtures distinguish each route from a generic 404. Their restored run passed
+**3 tests / 326 assertions** after separately observing an omitted binding and
+an omitted mount.
+
+The full shared descriptor registry remains the source for the build artifact
+and MCP tools. The MCP suite pins 32 public tool names while 36 command
+descriptions come from their shapes. Its primary restored run passed **139 tests
+/ 592 assertions** after seven descriptor/tool faults. Independent review found
+two further production gaps: local OpenAPI advertised four unmounted OIDC
+operations (**expected 38, received 42**) and the backend build emitted no
+`openapi.json` (**expected the emitter command, received no command list**).
+Both faults were observed before correction. The local document now receives the
+mounted shapes, and the sequential backend build emits
+`dist/apps/be-01/openapi.json`; the corrected document/build/app run passed **9
+tests / 342 assertions**. Independent review then passed its **10 tests / 23
+assertions** and found no Important or Critical issue. Detailed records are in
+`.superpowers/sdd/2026-09-02-refactoring-plan/generated-document-evidence.md`.
+
+The committed generated document, legacy binders, route-owned body/query/schema
+documentation and duplicated plan command declaration are deleted. Direct
+`@elysiajs/openapi` and `@sinclair/typebox` dependencies are removed. The backend
+build passed and emitted `main.js` plus a 42-operation generated document; MCP
+and frontend builds also passed. Fresh contracts tests passed **342 tests / 942
+assertions** and the MCP suite passed **113 tests / 444 assertions**.
+
+The broad source checks passed for contracts, backend, MCP and frontend:
+typecheck and lint were green, with the existing frontend exhaustive-deps
+warning unchanged. The full frontend unit gate passed **2372 tests** in UTC and
+**3 tests** in Auckland. Integration of the newer WBS API feature exposed a
+stale tier manifest (**expected 93 DOM-free suites, received 92**); adding the
+now DOM-free suite restored its focused **47-test** run. The frontend session
+client slice itself passed **99 tests** after five restored production faults;
+remaining task 4.2 client families are intentionally still open.
+
+The unrestricted backend gate passed **1860 tests / 19016 assertions** across
+154 files in 127.91 seconds. Its first unrestricted run passed 1859 and timed out
+one service-wiring case at five seconds while the suite was contended; that file
+then passed **4/4** in 7.76 seconds, including the timed-out case in 140 ms, and
+the unchanged full rerun passed. The initial sandboxed run's 13 listener errors
+were environment refusals, resolved by the unrestricted run. Health/metrics,
+callerGuard removal, final browser isolation and the final frozen workspace gate
+remain tasks 5.1–5.3 and are not claimed here.

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'bun:test';
 import type { McpConfig } from './config';
 import type { DerivedTool } from './openapi-tools';
 import { readDocument, toolsFromDocument } from './openapi-tools';
-import { createServer, describeTool, resolveDocumentFile, SERVER_VERSION } from './server';
+import { createServer, describeTool, SERVER_VERSION } from './server';
 import type { FetchLike } from './wbs-client';
 
 const CONFIG: McpConfig = {
@@ -287,7 +287,7 @@ describe('describeTool', () => {
 });
 
 describe('the tools derived from the real document', () => {
-  const tools = toolsFromDocument(readDocument(resolveDocumentFile()));
+  const tools = toolsFromDocument(readDocument());
 
   it('every write tool tells the caller the result is not the new state', () => {
     const writes = tools.filter((tool) => tool.method !== 'get');
@@ -306,35 +306,5 @@ describe('the tools derived from the real document', () => {
 
     expect(listed.tools).toHaveLength(tools.length);
     expect(listed.tools.every((tool) => (tool.description ?? '') !== '')).toBe(true);
-  });
-});
-
-describe('resolveDocumentFile', () => {
-  it('takes the source-relative path when the document is there', () => {
-    expect(
-      resolveDocumentFile(
-        ['/a/openapi.json', '/b/openapi.json'],
-        (file) => file === '/a/openapi.json',
-      ),
-    ).toBe('/a/openapi.json');
-  });
-
-  it('falls back to the copy beside the bundle', () => {
-    expect(
-      resolveDocumentFile(
-        ['/a/openapi.json', '/b/openapi.json'],
-        (file) => file === '/b/openapi.json',
-      ),
-    ).toBe('/b/openapi.json');
-  });
-
-  it('throws naming both places it looked, rather than an ENOENT from inside a read', () => {
-    expect(() => resolveDocumentFile(['/a/openapi.json', '/b/openapi.json'], () => false)).toThrow(
-      /\/a\/openapi\.json and \/b\/openapi\.json/,
-    );
-  });
-
-  it('finds the committed document with its real defaults', () => {
-    expect(resolveDocumentFile()).toMatch(/openapi\.json$/);
   });
 });

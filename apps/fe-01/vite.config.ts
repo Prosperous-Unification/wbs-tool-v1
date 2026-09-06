@@ -134,6 +134,10 @@ export default defineConfig(({ command, mode }) => ({
       '@wbs/domain/marker-color': resolve(__dirname, '../../libs/domain/src/marker-color.ts'),
       '@wbs/domain/is-within': resolve(__dirname, '../../libs/domain/src/is-within.ts'),
       '@wbs/contracts/ws-frames': resolve(__dirname, '../../libs/contracts/src/ws-frames.ts'),
+      // Proof: removing either shared alias from both configs failed its explicit
+      // required-alias assertion in vite-config.test.ts, despite map parity.
+      '@wbs/contracts': resolve(__dirname, '../../libs/contracts/src/index.ts'),
+      '@wbs/validation': resolve(__dirname, '../../libs/validation/src/index.ts'),
       // The same bargain a third time: `priority-band.ts` is four pure functions
       // and a constant, and the rule it holds — which band a number falls in —
       // is what be-01 validates a ladder against. A second copy here is a table

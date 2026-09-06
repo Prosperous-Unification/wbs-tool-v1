@@ -122,4 +122,66 @@ describe('the signed-out screen', () => {
     });
     expect(screen.getByLabelText<HTMLInputElement>('Username').value).toBe('ada');
   });
+  itDom('does not sign in with a malformed successful response', async () => {
+    const signedIn = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, { token: '', user: { id: 'u' } }))),
+    );
+    render(<AuthForm onSignedIn={signedIn} />);
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'ada' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toBe(
+        'The server returned an unexpected response. Try again.',
+      );
+    });
+    expect(signedIn).not.toHaveBeenCalled();
+  });
+
+  itDom('distinguishes an outage from incorrect credentials', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('offline'))),
+    );
+    const signedIn = vi.fn();
+    render(<AuthForm onSignedIn={signedIn} />);
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'ada' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toBe('Could not reach the server. Try again.');
+    });
+    expect(signedIn).not.toHaveBeenCalled();
+  });
+
+  itDom('identifies an edge challenge instead of blaming the account password', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('site access required', {
+            status: 401,
+            headers: { 'www-authenticate': 'Basic realm="site"' },
+          }),
+        ),
+      ),
+    );
+    render(<AuthForm onSignedIn={() => undefined} />);
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'ada' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Sign in with password' }).closest('form')!,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toBe(
+        'The site gateway rejected the request. Check your site access and try again.',
+      );
+    });
+  });
 });

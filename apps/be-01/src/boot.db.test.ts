@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { errors } from 'jose';
 
 import { bootBe01, type RunningBe } from './boot';
-import type { OidcRouteOptions } from './controller/auth.routes';
+import type { OidcRouteOptions } from './controller/oidc-options';
 import { runMigrations } from './repository/migrate';
 import type { AuthenticatedUser } from './service/auth.service';
 import type { GatewayBroadcaster } from './service/gateway-broadcaster';

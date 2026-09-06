@@ -116,8 +116,8 @@ describe('toolsFromDocument, on a fixture document', () => {
   // renamed `/internal/*` route reappears as a callable tool.
   it('throws when an exclusion entry matches nothing in the document', () => {
     const document = fixture();
-    delete document.paths['/health'];
-    expect(() => toolsFromDocument(document)).toThrow(/"\/health".*no longer contains/s);
+    delete document.paths['/internal/forward'];
+    expect(() => toolsFromDocument(document)).toThrow('exclusion list names');
   });
 
   it('excludes a whole prefix, not just the path that was named', () => {
@@ -185,7 +185,7 @@ describe('toolsFromDocument, on a fixture document', () => {
 
   it('says so when the document carries no prose, rather than inventing any', () => {
     expect(byName(toolsFromDocument(fixture()), 'getApiProjectsById').description).toBe(
-      'GET /api/projects/{id} — the committed OpenAPI document carries no prose for this operation.',
+      'GET /api/projects/{id} — the OpenAPI document carries no prose for this operation.',
     );
   });
 
@@ -194,7 +194,7 @@ describe('toolsFromDocument, on a fixture document', () => {
   });
 });
 
-describe('toolsFromDocument, on the committed document', () => {
+describe('toolsFromDocument, on the generated document', () => {
   const document = readDocument();
   const tools = toolsFromDocument(document);
 
@@ -216,129 +216,10 @@ describe('toolsFromDocument, on the committed document', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([...expected].sort());
   });
 
-  /**
-   * A count, deliberately. A new be-01 route arrives here as a red test rather
-   * than as a tool nobody decided about — the reader has to say whether it is
-   * plan surface or a new exclusion. 59 operations in the document, 8 excluded
-   * (3 auth, 2 internal, health, metrics, smoke echo).
-   *
-   * It went from 43 to 47 when `service-split` added the directory's four
-   * service routes, and the decision it forced was made rather than skipped:
-   * they are **plan surface**, exactly as `/api/tags` and `/api/teams` already
-   * are. An agent that can label a work item with a service has to be able to
-   * see the vocabulary and add to it, and the removal keeps its 409-then-confirm
-   * shape through the tool as it does through the route.
-   *
-   * **47 to 49 with `token-tracking`'s two measure routes**, and the decision is
-   * the one Dany asked for on 2026-08-21 19:06 — token figures must be reachable
-   * from MCP as well. `putApiWork-itemsByIdMeasuresByMetricByStepId` and
-   * `deleteApiWork-itemsByIdMeasuresByMetricByStepId` are the tools, derived
-   * from the committed document with nothing added here: neither path matches an
-   * exclusion class, so "free" turned out to be true — but this line is what
-   * checked it rather than assuming it.
-   *
-   * **49 to 51 with the OIDC solution contract.** Both reads are plan surface:
-   * an agent needs the slug lookup to resolve the plan for a solution and the
-   * export route to retrieve that plan as JSON or Markdown.
-   *
-   * It arrived as a **red four chunks late**, because those chunks gated
-   * `-p be-01` and this drift test lives in `mcp-01`. A count that only one
-   * project's gate can see is a count that drifts silently; the routes landed at
-   * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
-   */
+  /** A new tool requires an explicit surface decision, independently of registry iteration. */
   it('is 32 tools, so a route that appears must be decided about', () => {
-    // **51 to 19 with `plan-commands`.** Every single-item plan and directory
-    // write is excluded — a model gets one write tool, `commands`, and cannot
-    // pick the slow path — and the batch route arrives. What stays: the reads,
-    // `commands`, undo, redo, the project and step routes that are not plan
-    // edits, the export, and the directory's own batch route (the directory
-    // has no project). The single-item routes are gone from be-01, so nothing
-    // needs excluding beyond the five classes.
-    // **20 to 22 with `work-item-types` and `external-refs`.** Two reads —
-    // `GET /api/work-item-types` and `GET /api/external-systems` — and the
-    // decision is that both belong, for the reason `getApiTags` already is one:
-    // a model asked to type or link a row has to know what vocabulary exists
-    // before it can name a member, and the alternative is guessing an id.
-    //
-    // Neither is a write, so neither meets an exclusion class; the vocabularies
-    // are **written** through `postApiDirectoryCommands` like every other
-    // directory edit, which is why no new exclusion is needed and
-    // `EXCLUDED_PATHS` stays at five.
-    //
-    // This drift arrived as a red in `mcp-01` from a change gated on `-p be-01`,
-    // which is the failure mode the comment above already records — noticed here
-    // by the whole-workspace gate rather than four chunks late.
-    //
-    // **22 to 27 with `saved-plans`.** All five arrive —
-    // `postApiProjectsByIdSaved-plans`, `getApiProjectsByIdSaved-plans`,
-    // `getApiSaved-plansById`, `patchApiSaved-plansById`,
-    // `deleteApiSaved-plansById` — and `EXCLUDED_PATHS` stays at five.
-    //
-    // No exclusion class reaches them: they are not `/api/auth/*`, not
-    // `/internal/*`, and unlike `/health`, `/metrics` and `/api/smoke/echo`
-    // they carry a plan — a saved plan *is* a plan, snapshotted.
-    //
-    // The `plan-commands` exclusion is the one that looks like it should apply
-    // and does not. It removed single-item plan **edits**, because a model gets
-    // one batch write, `commands`, and must not be able to pick the slow path.
-    // A saved plan is not an edit to a plan: it is a separate resource with its
-    // own id, its own quota and its own lifecycle, and no command in the batch
-    // vocabulary creates one. Excluding the writes here would leave no way to
-    // save at all, which is a different decision from "use the batch instead".
-    //
-    // The reads belong for the reason the export route already does: an agent
-    // asked to compare two snapshots or restore one has to list them and read
-    // one before it can name an id, and the alternative is guessing.
-    //
-    // This drift arrived as a red in `mcp-01` from a change gated on `-p be-01`
-    // for sixteen runs — the third time this comment records that failure mode.
-    // The whole-workspace gate caught it; the per-project one could not.
-    //
-    // **27 to 28 with the saved-plan comparison.** One route arrives,
-    // `getApiProjectsByIdSaved-plansCompare` from
-    // `GET /api/projects/{id}/saved-plans/compare`, and `EXCLUDED_PATHS` stays
-    // at five. It is a read, so no exclusion class reaches it, and the decision
-    // is that it belongs for the reason stated two paragraphs up and now paid
-    // for: the list and single reads were admitted because "an agent asked to
-    // compare two snapshots has to list them and read one before it can name an
-    // id" — this is the route that then answers the comparison, and without it
-    // an agent would have to re-derive the diff from two full plan bodies it
-    // has no contract for.
-    //
-    // This one was *not* found four chunks late. It landed on
-    // `change/saved-plans-ui` and the first whole-repo run this branch ever had
-    // — CI on PR 202, because h2puni was saturated — failed here on its first
-    // attempt, which is the gate working as the comment above says it should.
-    //
-    // **28 to 32 with the calendar markers.** All four arrive —
-    // `getApiProjectsByIdCalendar-markers`, `postApiProjectsByIdCalendar-markers`,
-    // `patchApiProjectsByIdCalendar-markersByMarkerId` and
-    // `deleteApiProjectsByIdCalendar-markersByMarkerId` — and `EXCLUDED_PATHS`
-    // stays at five.
-    //
-    // The `plan-commands` exclusion is again the one that looks like it should
-    // apply to the three writes and again does not, for the saved-plan reason
-    // and more plainly: a marker **is not a plan edit at all**. The spec makes
-    // that structural — a marker is not a `work_item`, enters no dependency
-    // graph, capacity, levelling or critical path, and is not captured into a
-    // saved plan — and no command in the batch vocabulary creates, renames,
-    // recolours or deletes one. Excluding the writes would leave no way to
-    // annotate a date through MCP at all, which is a different decision from
-    // "use the batch instead".
-    //
-    // The list read belongs for the reason every other read here does: an agent
-    // asked to rename or delete a marker has to list the day's markers before it
-    // can name an id, and a date is not a unique key — two markers can share
-    // one, so there is nothing to guess from.
-    //
-    // This one is not drift at all. It arrived as the *second* red of the same
-    // change: `apps/be-01/openapi.json` regenerated with a create body naming
-    // `markerId`, which unblocked `claim()`, and this count then fired on the
-    // first run past it. That is the guard doing exactly what it is for — the
-    // routes could not reach a tool list until the collision was fixed, and the
-    // moment they could, the count demanded a decision.
     expect(tools).toHaveLength(32);
-    expect(EXCLUDED_PATHS).toHaveLength(5);
+    expect(EXCLUDED_PATHS).toHaveLength(3);
   });
 
   it('offers batches, not single writes (plan-commands)', () => {
@@ -372,7 +253,7 @@ describe('toolsFromDocument, on the committed document', () => {
     const commands = byName(tools, 'postApiProjectsByIdCommands');
     const list = commands.inputSchema.properties['commands'] as {
       items: {
-        oneOf: { title: string; description: string; properties: { kind: { enum: string[] } } }[];
+        anyOf: { description: string; properties: { kind: { const: string } } }[];
       };
     };
     // **33 to 36 with `work-item-types`**: `createWorkItemType`,
@@ -381,10 +262,10 @@ describe('toolsFromDocument, on the committed document', () => {
     // command kind cannot arrive in be-01 without a model being told about it —
     // which is precisely what this red is, arriving from a change gated on
     // `-p be-01`.
-    expect(list.items.oneOf).toHaveLength(36);
-    for (const variant of list.items.oneOf) {
+    expect(list.items.anyOf).toHaveLength(36);
+    for (const variant of list.items.anyOf) {
       expect(variant.description.length).toBeGreaterThan(10);
-      expect(variant.properties.kind.enum).toEqual([variant.title]);
+      expect(typeof variant.properties.kind.const).toBe('string');
     }
   });
 
@@ -409,10 +290,7 @@ describe('toolsFromDocument, on the committed document', () => {
     expect([...(rename.inputSchema.required ?? [])].sort()).toEqual(['id', 'name', 'stepId']);
     expect(rename.locations['stepId']).toBe('path');
     expect(rename.locations['name']).toBe('body');
-    // And the one hand-parsed write left says so, as the eight used to.
-    expect(byName(tools, 'postApiProjectsByIdCommands').description).toContain(
-      'documentation, not validation',
-    );
+    expect(byName(tools, 'postApiProjectsByIdCommands').description).toContain('all or none');
   });
 
   it('keeps the history filters optional and in the query string', () => {
@@ -497,14 +375,14 @@ describe('the README names the tools that exist', () => {
 
     const variants = (
       byName(tools, 'postApiProjectsByIdCommands').inputSchema.properties['commands'] as {
-        items: { oneOf: { title: string; properties: Record<string, unknown> }[] };
+        items: { anyOf: { properties: Record<string, unknown> & { kind: { const: string } } }[] };
       }
-    ).items.oneOf;
+    ).items.anyOf;
 
     const undeclared: string[] = [];
     for (const command of example.commands) {
       const kind = command['kind'];
-      const variant = variants.find((each) => each.title === kind);
+      const variant = variants.find((each) => each.properties.kind.const === kind);
       if (variant === undefined) {
         undeclared.push(`${String(kind)} is not a command kind`);
         continue;

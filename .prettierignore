@@ -26,9 +26,3 @@ apps/be-01/drizzle/**/snapshot.json
 # it, which fails `nx format:check`. AGENTS.md itself is still formatted.
 /CLAUDE.md
 /GEMINI.md
-# Emitted by `bun apps/be-01/src/openapi/emit-openapi-cli.ts` and compared byte-for-byte
-# against the running app by `openapi-document.test.ts`. Prettier collapses a
-# short array onto one line and `JSON.stringify(…, null, 2)` does not, so
-# formatting it here would redden the freshness check on a file nobody edited —
-# the same fight as the drizzle snapshots above.
-apps/be-01/openapi.json

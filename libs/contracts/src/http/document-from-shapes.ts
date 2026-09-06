@@ -51,6 +51,7 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
     // tree references instead of throwing in MCP's structural-descriptor test
     // (shape-document.test.ts), independently of declaration-time validation.
     for (const schema of [shape.params, shape.query, shape.body]) {
+      // Proof: bypassing this request guard let nested references reach MCP tools in the structural-descriptor rejection test.
       if (schema !== undefined) assertInlineSchema(schema.jsonSchema);
     }
     for (const response of shape.responses) {

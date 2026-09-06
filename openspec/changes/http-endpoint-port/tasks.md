@@ -32,9 +32,9 @@ Each checkbox includes RED → minimal implementation → focused GREEN → name
 
 ## 3. Document and tool integration
 
-- [ ] 3.1 Bind exactly one endpoint per shape with no unlisted/duplicate endpoint. Test shape binding and real app.handle reachability for every path/method/configuration with valid representative params/input; negative omit a binding separately from skipping a mount. A generic404 must not be confused with a modeled domain not_found; fixtures must establish route identity.
-- [ ] 3.2 Complete documentFromShapes build output and MCP tool derivation, pin operationIds/tool names. Test MCP openapi-tools fixtures against descriptors and emitted document correctness; negatives missing id/inline schema/union arm. Replace committed openapi.json inputs in every build/tool script before removing it from git.
-- [ ] 3.3 Delete @elysiajs/openapi, obsolete hand-parsed/body-doc/plan-command-schema/query-schema duplication only when no consumers remain. Resolve current absence of hand-parsed-body.ts from TASK-262 rather than recreating/deleting an imaginary file. Test import/build checks and full endpoint/refusal suites; retained domain validation is not deleted merely because it formerly lived beside parsing.
+- [x] 3.1 Bind exactly one endpoint per shape with no unlisted/duplicate endpoint. Test shape binding and real app.handle reachability for every path/method/configuration with valid representative params/input; negative omit a binding separately from skipping a mount. A generic404 must not be confused with a modeled domain not_found; fixtures must establish route identity.
+- [x] 3.2 Complete documentFromShapes build output and MCP tool derivation, pin operationIds/tool names. Test MCP openapi-tools fixtures against descriptors and emitted document correctness; negatives missing id/inline schema/union arm. Replace committed openapi.json inputs in every build/tool script before removing it from git.
+- [x] 3.3 Delete @elysiajs/openapi, obsolete hand-parsed/body-doc/plan-command-schema/query-schema duplication only when no consumers remain. Resolve current absence of hand-parsed-body.ts from TASK-262 rather than recreating/deleting an imaginary file. Test import/build checks and full endpoint/refusal suites; retained domain validation is not deleted merely because it formerly lived beside parsing.
 
 ## 4. Frontend shared client — waits for R1
 

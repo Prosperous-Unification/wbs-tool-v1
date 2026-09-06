@@ -7,7 +7,7 @@ import type * as Api from '@/lib/api';
 const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
 
-const me = vi.hoisted(() => vi.fn<[], Promise<Api.SessionUser | null>>());
+const me = vi.hoisted(() => vi.fn<[], ReturnType<typeof Api.me>>());
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof Api>()),
@@ -23,7 +23,12 @@ const muteConsoleError = () =>
 let logged: ReturnType<typeof muteConsoleError>;
 
 beforeEach(() => {
-  me.mockResolvedValue(null);
+  me.mockResolvedValue({
+    kind: 'refusal',
+    status: 401,
+    body: { error: 'invalid_token' },
+    headers: new Headers(),
+  });
   logged = muteConsoleError();
   window.history.replaceState({}, '', '/');
 });
@@ -57,6 +62,7 @@ describe('the app root', () => {
       expect(screen.getByRole('link', { name: 'Continue with SSO' })).toBeDefined();
     });
     expect(document.querySelector('[data-app-fault]')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toContain('Could not check your session');
   });
 });
 
@@ -94,7 +100,13 @@ describe('a signed-in address asked for while signed out', () => {
    */
   itDom('honours the address it was opened at, once the account is in', async () => {
     window.history.replaceState({}, '', '/directory');
-    me.mockResolvedValue({ id: 'u1', username: 'kat' });
+    me.mockResolvedValue({
+      kind: 'success',
+      representation: 'json',
+      status: 200,
+      body: { user: { id: 'u1', username: 'kat', scopes: ['read', 'write'] } },
+      headers: new Headers(),
+    });
     // The directory page reads on arrival; it is the page under the address
     // rather than the subject here, so its two reads answer empty.
     vi.stubGlobal(
@@ -132,7 +144,13 @@ describe('a signed-in address asked for while signed out', () => {
  */
 describe('the theme control through the app', () => {
   const signedIn = () => {
-    me.mockResolvedValue({ id: 'u1', username: 'kat' });
+    me.mockResolvedValue({
+      kind: 'success',
+      representation: 'json',
+      status: 200,
+      body: { user: { id: 'u1', username: 'kat', scopes: ['read', 'write'] } },
+      headers: new Headers(),
+    });
     vi.stubGlobal(
       'fetch',
       vi.fn((path: string) => {

@@ -2,7 +2,7 @@ import { loadConfig } from './config';
 import { startHttpServer } from './http';
 import { mcpOAuthFromEnv } from './oauth';
 import { readDocument, toolsFromDocument } from './openapi-tools';
-import { createServer, resolveDocumentFile } from './server';
+import { createServer } from './server';
 
 /**
  * mcp-01's entrypoint: read the document, derive the tools, speak MCP on stdio.
@@ -13,7 +13,7 @@ import { createServer, resolveDocumentFile } from './server';
  */
 
 const config = loadConfig();
-const tools = toolsFromDocument(readDocument(resolveDocumentFile()));
+const tools = toolsFromDocument(readDocument());
 const oauth = mcpOAuthFromEnv(config, process.env);
 const verifier =
   config.MCP_AUTH_MODE === 'standalone'
