@@ -398,22 +398,22 @@ export function readOptimizedPairAndSpawn(
 /**
  * Which objectives an **explicit Retry** asks a solver for (tasks.md 4.4).
  *
- * Everything that is not `ok`, which is the mirror of
- * {@link objectivesToAutoSpawn} spawning on `miss` alone. `ok` is the only
- * state with an answer to serve, so it is the only one a Retry has no reason to
- * touch; `failed`, `corrupt` and `plan-infeasible` are all states a person
- * looking at "Optimization unavailable · Retry" is asking about, and a Retry
- * that refused one of them would be a button that does nothing on the row the
- * user is looking at. `plan-infeasible` will very likely answer the same way
- * again — that is the user's minute to spend, not this layer's to refuse.
+ * Only `failed` and `corrupt`, matching 7.11's explicit recovery contract.
+ * `miss` is admitted by the cold read, `ok` already has an answer, and
+ * `plan-infeasible` is a deterministic certificate that a same-input solve
+ * cannot change. Keeping those three out also prevents this lower-level seam
+ * from bypassing the route's `not-retryable` decision.
  */
 export function objectivesToRetry(pair: OptimizedPair): readonly SolverObjectiveName[] {
-  return SOLVER_OBJECTIVES.filter((objective) => pair[objective].kind !== 'ok');
+  return SOLVER_OBJECTIVES.filter((objective) => {
+    const kind = pair[objective].kind;
+    return kind === 'failed' || kind === 'corrupt';
+  });
 }
 
 /**
- * The Retry arm of the same seam: read the pair, then ask for everything that
- * has no answer.
+ * The Retry arm of the same seam: read the pair, then ask only for recoverable
+ * terminal outcomes.
  *
  * **A separate entry point rather than a flag on the one above**, so that "an
  * automatic read can never spawn on a `failed` row" is a property of which

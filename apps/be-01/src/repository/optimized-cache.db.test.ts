@@ -2170,6 +2170,35 @@ describe("4.2's injected spawner, asserted on the calls and not on the clock", (
     }
   });
 
+  it('does not retry either an absent variant or a plan-infeasible certificate', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      storeRow(db.path, {
+        objective: 'pri',
+        generation,
+        status: 'plan-infeasible',
+        resultJson: JSON.stringify({
+          dtoVersion: 1,
+          items: [
+            { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 10 },
+          ],
+        }),
+        failureReason: null,
+      });
+
+      const retry = recorder();
+      const pair = retryOptimizedPair(openDrizzle(db.path), KEY, retry.spawn);
+
+      expect(pair.pri.kind).toBe('plan-infeasible');
+      expect(pair.time.kind).toBe('miss');
+      expect(retry.calls).toEqual([]);
+      // Watched red for 7.11: `kind !== 'ok'` admits both forbidden states.
+    } finally {
+      db.cleanup();
+    }
+  });
+
   /**
    * 4.4's last arm: the marker suppresses its own key and nothing else. A new
    * hash allocates a generation, that allocation clears the failed row with
