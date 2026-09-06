@@ -48,7 +48,7 @@ describe('buildSolverSupervisorInstallPlan', () => {
       `h2puni:${SOLVER_SUPERVISOR_UNIT}.tmp`,
     ]);
     expect(plan.findIndex((step) => step.description.includes('atomically publish'))).toBeLessThan(
-      plan.findIndex((step) => step.description.includes('daemon')),
+      plan.findIndex((step) => step.description.includes('reload the user service manager')),
     );
     expect(plan.at(-1)?.argv.join(' ')).toContain(`test -S ${SOCKET}`);
   });
