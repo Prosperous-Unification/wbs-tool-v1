@@ -122,7 +122,7 @@ here.
       **Deviation, recorded rather than silent:** it landed under
       `dual-optimized-scheduler` as `leafDeadlinesOf(deadlines, index)` in
       `libs/domain/src/leaf-constraints.ts`, not as `effectiveDeadlines(rows,
-  deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
+deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       rather than `null`-valued where no deadline exists, a separate walk sitting
       beside `leafFloorsOf` and deliberately not parameterised by comparator, and
       the file's own table spelling out why the floor, the deadline and
@@ -154,10 +154,10 @@ here.
 - [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
       earlier than its parent must be loosened to the parent's date. Measured on
       h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
-  deadline and every ancestor's` (the clause the red names), `lets an EARLIER
-  parent tighten a later child`, `takes the tighter ancestor when two of them
-  bind`, and `keeps a day-zero deadline, which is a real and very tight
-  constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
+deadline and every ancestor's` (the clause the red names), `lets an EARLIER
+parent tighten a later child`, `takes the tighter ancestor when two of them
+bind`, and `keeps a day-zero deadline, which is a real and very tight
+constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
 
 ## 4. `schedule()`'s seventh argument and the inclusive predicate
 
