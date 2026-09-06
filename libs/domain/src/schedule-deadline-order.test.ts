@@ -245,12 +245,16 @@ describe('minimum slack orders the ready set', () => {
  * The describe was called `a deadline never moves work earlier and never
  * overrides a floor`, and the first half of that is false here: winning a
  * minimum-slack queue *is* moving earlier, and the first case above has `b`
- * starting at 2 undeadlined and at 0 deadlined. The rule these two cases
- * actually prove is the narrower one — a comparator decides which of two
- * eligible slices goes first, and a slice's own floors, dependencies and
- * earlier steps decide the day it can start at all.
+ * starting at 2 undeadlined and at 0 deadlined. It was then called `a deadline
+ * decides an order, never a date`, which is false the other way — the order
+ * the leveller acts on *is* a date, by that same counterexample.
+ *
+ * The rule these two cases prove is the one now in the name: a deadline enters
+ * only where the comparator chooses between slices that are already eligible,
+ * and the hard lower bounds — a slice's floor, its dependencies, its earlier
+ * steps — are untouched by it.
  */
-describe('a deadline decides an order, never a date', () => {
+describe('a deadline changes placement only through ready-set order', () => {
   it('starts a leaf at its floor even when the floor stands after its deadline', () => {
     // tasks.md 4.5. `a` is due on day 2 and may not start before day 6. The
     // floor is the answer, `notBefore` is the reason, and the row is reported

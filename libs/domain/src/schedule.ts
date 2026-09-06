@@ -1115,24 +1115,29 @@ interface SlicePriority {
   /** Its place in the step order — what separates two slices of one work item. */
   at: number;
   /**
-   * Its slice key, and the only comparison here that cannot tie.
+   * Its slice key — `sliceKey(workItemId, stepId)`, asked last.
    *
-   * The five rules above it are all facts a planner can repeat: two work items
-   * may carry one priority, one date, one start, one float, and — because
-   * `deriveNumbers` reports a `frozenNumber` verbatim and enforces no
-   * uniqueness on it — one number. {@link at} does not save them either, since
-   * it is the step index *inside* a work item and two one-slice items both sit
-   * at 0. Without a key that cannot repeat, `goesFirst(a, b)` and
-   * `goesFirst(b, a)` are both false for such a pair, the eligible set is a
-   * heap, and the order the rows arrived in decides which of them takes the
-   * person — so the same plan written down twice schedules two ways.
+   * **It is {@link at} *and* this that cannot both tie, and neither alone is
+   * enough.** The five rules above them are all facts a planner can repeat: two
+   * work items may carry one priority, one date, one start, one float, and —
+   * because `deriveNumbers` reports a `frozenNumber` verbatim and enforces no
+   * uniqueness on it — one number. `at` does not separate them, being the step
+   * index *inside* a work item, so two one-slice items both sit at 0. And the
+   * key does not separate every pair either: `slice-edges.ts` records that a
+   * plan may hand two slices of one leaf the same `stepId`, `groupByWorkItem`
+   * accepts it, and those two nodes share a key. {@link Schedule.slices} being
+   * a `Map` hides that rather than preventing it.
    *
-   * The key is `workItemId` and `stepId`, which is unique by construction: it
-   * is the key {@link Schedule.slices} is filled under, so two slices sharing
-   * one would already be one row overwriting the other.
+   * The pair is total, and each half covers what the other cannot. Two nodes
+   * that tie on `at` are in different groups — `at` is the index within one —
+   * so they have different `workItemId` and different keys. Two nodes that tie
+   * on the key are in one group, so they have different `at`. Without both,
+   * `goesFirst(a, b)` and `goesFirst(b, a)` are false together, the eligible
+   * set is a heap, and the order the rows arrived in decides who takes the
+   * person — the same plan written down twice schedules two ways.
    *
-   * A node index would be unique too, and would be the wrong choice: it is
-   * assigned by the order the rows were handed over, so it would make the
+   * A node index would be unique on its own, and would be the wrong choice: it
+   * is assigned by the order the rows were handed over, so it would make the
    * comparator total while leaving the plan's answer dependent on that order.
    * A key made of the work's own identity is the same answer either way.
    */
@@ -2419,15 +2424,15 @@ export function schedule(
    *
    * The last three are what make it deterministic rather than merely correct.
    * Two slices that tie on time are separated by their work item's number, then
-   * by their place in the step order, and finally by their slice key — which
-   * cannot tie, because it is the key the plan's slices are stored under. The
-   * step index alone was not enough and read as though it were: two one-slice
-   * work items both sit at 0, and a `frozenNumber` is reported verbatim, so a
-   * pair could tie on all five and the heap's insertion order decided between
-   * them. See {@link SlicePriority.key}, and
-   * `schedules the same plan from either row order when two slices tie on
-   * every key`, which reversed the rows and got the other answer; watched
-   * 2026-09-06.
+   * by their place in the step order, and finally by their slice key — and it
+   * is those **last two together** that cannot tie, neither of them alone. The
+   * step index read as though it were enough and is not: two one-slice work
+   * items both sit at 0, and a `frozenNumber` is reported verbatim, so a pair
+   * could tie on all five and the heap's insertion order decided between them.
+   * See {@link SlicePriority.key} for why the key does not close it single
+   * handed either, and `schedules the same plan from either row order when two
+   * slices tie on every key`, which reversed the rows and got the other
+   * answer; watched 2026-09-06.
    *
    * **This rule decides an order, never a date.** Whichever slice is taken
    * first is still placed at the latest of its own floors, so a priority cannot

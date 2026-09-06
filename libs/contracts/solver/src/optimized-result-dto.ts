@@ -40,8 +40,11 @@ import {
  *
  * Two numbers rather than one, because the two shapes change for different
  * reasons: a new objective term or a third publication kind moves this one, a
- * new `Schedule` field moves the other. They are equal today and that is a
- * coincidence, not a rule — nothing below compares them.
+ * new `Schedule` field moves the other. **They are no longer equal** — this
+ * one is 1 and `CACHE_DTO_VERSION` went to 2 on 2026-09-06 when
+ * `ScheduledSlice` gained a required `lateBy`, which is the reason it was
+ * written down that their being equal was a coincidence rather than a rule.
+ * Nothing below compares them.
  *
  * Like 4.12's, it is a **read fence, not a migration**: a row stamped otherwise
  * is refused by {@link decodeOptimizedResult}, the cache read reports `corrupt`

@@ -65,9 +65,11 @@ describe('leafFloorsOf', () => {
 describe('leafDeadlinesOf', () => {
   it('carries a deadline written on a parent down to every leaf beneath it', () => {
     // Compared as the whole map and not with two `get`s, because the entries
-    // that are *absent* are half of 3.3: a dated row constrains the leaves
-    // under it and never itself, so a fold that also emitted `['P', 20]` fails
-    // here on the extra entry rather than passing unnoticed.
+    // that are *absent* are half of 3.3: a dated row constrains exactly the
+    // leaves under it, so a row that has children does not constrain itself and
+    // a fold that also emitted `['P', 20]` fails here on the extra entry rather
+    // than passing unnoticed. The childless half is the pruned-subtree case
+    // below, where the row *is* the leaf under it and does take its own date.
     expect([...leafDeadlinesOf(new Map([['P', 20]]), index)]).toEqual([
       ['L1', 20],
       ['L2', 20],

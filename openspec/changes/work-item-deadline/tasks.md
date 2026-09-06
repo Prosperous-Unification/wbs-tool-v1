@@ -136,10 +136,12 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       leaf's own date wins". `lets an EARLIER parent tighten a later child` is
       the new case, and a fold that simply preferred the leaf's own value passes
       every other case in that describe and fails only this one.
-- [x] 3.3 A dated row constrains the leaves under it and never itself, and a row
-      with no children is a leaf under itself — so deleting a parent's subtree
-      leaves its stored date binding the row it was written on, raises no error,
-      and emits nothing for the children that are gone.
+- [x] 3.3 A dated row constrains **exactly the leaves under it** — for a row
+      with children that is its descendant leaves and not the row itself, and
+      for a childless row, which `indexTree` counts as a leaf under itself, that
+      is the row. So deleting a parent's subtree leaves its stored date binding
+      the row it was written on, raises no error, and emits nothing for the
+      children that are gone.
 
       **The clause was first written as "a parent with a deadline and no leaves
       emits no constraint", and that sentence names no state this tree can
@@ -155,12 +157,20 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       the delete `P` is an ordinary dated leaf, so Fast orders it by its slack
       and reports its `lateBy` like any other.
 
-      **Both halves are proved, and they fail differently.** _Never itself_:
-      `carries a deadline written on a parent down to every leaf beneath it`
-      compares the whole map, `[['L1', 20], ['L2', 20]]`, so a fold that also
-      constrained `P` fails on the extra entry. _Keeps its date_: the
-      pruned-subtree case goes red on a fold that drops such an id. _Emits
-      nothing_: the empty-map case goes red on a fold that seeds every leaf.
+      A second revision on the same day narrowed the rule again: it had been
+      written "constrains the leaves under it **and never itself**", which is
+      true of a row with children and false of the childless one the same
+      sentence goes on to describe. "Exactly the leaves under it" is the one
+      form that covers both, and `indexTree`'s definition of a leaf is what
+      makes it one rule rather than two.
+
+      **All three halves are proved, and they fail differently.** _Not the row
+      itself, when it has children_: `carries a deadline written on a parent
+      down to every leaf beneath it` compares the whole map,
+      `[['L1', 20], ['L2', 20]]`, so a fold that also constrained `P` fails on
+      the extra entry. _Keeps its date, when it has none_: the pruned-subtree
+      case goes red on a fold that drops such an id. _Emits nothing_: the
+      empty-map case goes red on a fold that seeds every leaf.
 
 - [ ] 3.4 The two impossible kinds are distinguished at their own boundaries:
       `before-project-start` at write time (slice 6) is malformed input;
@@ -199,20 +209,27 @@ constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
       milestone starting at exactly offset `D + 1.0` must be reported **on
       time**. A non-zero-duration fixture cannot produce this red; the test must
       be the milestone.
-- [x] 4.5 A deadline decides an order, never a date: no slice starts before its
-      own floors, its dependencies or its earlier steps, whatever date is
-      written on it — so a leaf whose floor is later than its effective deadline
-      still starts at its floor and is reported late. Landed as two cases in
-      `schedule-deadline-order.test.ts`, and both stay green under 5.1's watched
-      reds — correctly, because a comparator decides an order and the floor
-      decides the date, so nothing a comparator does can move this.
+- [x] 4.5 A deadline changes a placement **only through ready-set order**, and
+      never overrides a hard lower bound: a slice's floor, its dependencies and
+      its earlier steps decide the earliest day it can start at all, and no date
+      written on it moves that — so a leaf whose floor is later than its
+      effective deadline still starts at its floor and is reported late. Landed
+      as two cases in `schedule-deadline-order.test.ts`, and both stay green
+      under 5.1's watched reds — correctly, because the comparator only chooses
+      between slices that are already eligible.
 
-      **The clause first read "a deadline never moves work earlier", and that is
-      false under a minimum-slack queue** — winning the ready set is precisely
-      moving earlier, and the first case in `minimum slack orders the ready set`
-      has `b` starting at 2 with the map empty and at 0 with it populated.
-      Corrected 2026-09-06 against a review finding; the two cases below it
-      always proved the narrower rule above, which is the one that holds.
+      **The clause has been narrowed twice, in one day, by two review findings
+      that caught the same habit.** It first read "a deadline never moves work
+      earlier", which is false under a minimum-slack queue: winning the ready
+      set is precisely moving earlier, and the first case in `minimum slack
+      orders the ready set` has `b` starting at 2 with the map empty and at 0
+      with it populated. The replacement, "decides an order, never a date", was
+      false in the other direction — an order the leveller acts on _is_ a date,
+      which is what that same counterexample shows, and it also read as though
+      the floor were the only thing between a slice and day zero when a queue
+      for a person or a team is another. What is written above is the rule the
+      two cases have always proved, and it names what the deadline may move as
+      well as what it may not.
 
 ## 5. Fast ordering and `Late by N workdays`
 
