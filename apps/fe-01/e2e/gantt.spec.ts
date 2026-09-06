@@ -4305,4 +4305,134 @@ test.describe("a marker's rule against the bars, in pixels", () => {
       true,
     );
   });
+
+  /**
+   * The assumed bar the rule is asked to show through, and the axis day it
+   * stands on — both found by geometry, neither named.
+   *
+   * `[data-assumed]` is the seam: a slice nobody estimated is drawn across the
+   * assumed span at `[fill-opacity:0.35]`, and only with the detail asked for.
+   * Which day such a bar covers is the schedule's business —
+   * it moves with the estimate, the weekend and the assumed span — so the day
+   * is read off the bar rather than written here, the way the opaque case
+   * reads its bar off the day.
+   *
+   * The day is required **strictly** inside the bar, by more than the inset
+   * below on each side: a rule standing on the footprint's own edge is a rule
+   * the clip can drop, and the case would then fail against a correct
+   * renderer.
+   */
+  async function assumedDay(page: Page): Promise<number> {
+    return page.evaluate(() => {
+      const bars = [...document.querySelectorAll('[data-gantt-bar][data-assumed]')];
+      for (const bar of bars) {
+        const box = bar.getBoundingClientRect();
+        if (box.height <= 4 || box.width <= 8) continue;
+        for (const cell of document.querySelectorAll('[data-axis-day]')) {
+          const at = cell.getBoundingClientRect();
+          if (box.x + 2 < at.x && at.x < box.right - 2) {
+            return Number(cell.getAttribute('data-axis-day'));
+          }
+        }
+      }
+      throw new Error(
+        `no assumed bar wide enough to hold an axis day — ${String(bars.length)} drawn`,
+      );
+    });
+  }
+
+  /**
+   * The footprint of the assumed bar standing over `day`, inset like
+   * {@link footprintOf} and for its reasons.
+   *
+   * Recomputed after the save for {@link footprintOf}'s reason too — the new
+   * chip grows the sticky header and moves the body down — and that recompute
+   * is what makes the comparison below a comparison of the same bar rather
+   * than of two different slices of the chart. The opaque case is the proof
+   * that it is shift-stable: it takes its two clips across the same shift and
+   * asserts them byte-**identical**.
+   */
+  async function assumedFootprintOn(page: Page, day: number): Promise<Clip> {
+    return page.evaluate((offset) => {
+      const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+      if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+      const at = cell.getBoundingClientRect();
+      const crossed = [...document.querySelectorAll('[data-gantt-bar][data-assumed]')].find(
+        (bar) => {
+          const box = bar.getBoundingClientRect();
+          return box.x < at.x && at.x < box.right && box.height > 2;
+        },
+      );
+      if (crossed === undefined) {
+        throw new Error(`no assumed bar passes under day ${String(offset)}`);
+      }
+      const box = crossed.getBoundingClientRect();
+      return {
+        x: Math.round(box.x) + 1,
+        y: Math.round(box.y) + 1,
+        width: Math.round(box.width) - 2,
+        height: Math.round(box.height) - 2,
+      };
+    }, day);
+  }
+
+  test('shows the rule through an assumed bar it passes under', async ({ page }) => {
+    await seedPlan(page, 'marker-rule-assumed-pixels');
+    await openTheChart(page);
+    // The assumed bars are the half of the chart that is drawn only when the
+    // detail is asked for, so the state is pressed and asserted rather than
+    // inherited: a fixture that opened without them would leave every
+    // measurement below reading a chart with no assumed bar on it at all.
+    await askForTheDetail(page, 1);
+    await expect(page.locator('[data-gantt-bar][data-assumed]')).toHaveCount(2);
+
+    const day = await assumedDay(page);
+    const before = await assumedFootprintOn(page, day);
+    expect(before.width, 'the assumed bar is too narrow to photograph').toBeGreaterThan(4);
+    expect(before.height, 'the assumed bar is too short to photograph').toBeGreaterThan(2);
+    const bare = (await page.screenshot({ clip: before })).toString('base64');
+
+    await page.locator(`[data-axis-day="${String(day)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Through');
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    // The opaque case's park, for its reason: save drops the pointer onto
+    // whatever the `fixed` composer was covering, and a hover-card opened over
+    // these pixels is a difference this case would read as the rule.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+    const rule = page.locator('[data-gantt-marker-rule]');
+    await expect(rule).toHaveCount(1);
+    const after = await assumedFootprintOn(page, day);
+    // Same bar, same size. Without this the comparison is vacuous in the
+    // permissive direction: two clips of different dimensions differ whatever
+    // the renderer drew, and the assertion below would pass over a rule that
+    // never reached the screen.
+    expect(after.width, 'the photographed bar changed width across the save').toBe(before.width);
+    expect(after.height, 'the photographed bar changed height across the save').toBe(before.height);
+
+    const marked = (await page.screenshot({ clip: after })).toString('base64');
+
+    // **The assertion.** The crop **is** the bar's footprint, so "differs" and
+    // "inside the bar" are one predicate: read over the whole chart instead,
+    // "every differing pixel lies inside the footprint" is satisfied by *zero*
+    // differing pixels — which is exactly what a rule masked under assumed
+    // bars produces — and rejects the correct renderer, whose rule differs
+    // everywhere it is drawn.
+    //
+    // Two PNGs of equal dimensions from one deterministic encoder: identical
+    // pixels give identical bytes, which is the fact the opaque case above
+    // asserts directly. So differing bytes here are differing pixels, and at
+    // this size a difference is the rule and nothing else — the footprint holds
+    // one translucent bar whose own geometry the guards above pinned.
+    expect(marked === bare, 'the assumed bar hides the rule that passes under it').toBe(false);
+  });
 });

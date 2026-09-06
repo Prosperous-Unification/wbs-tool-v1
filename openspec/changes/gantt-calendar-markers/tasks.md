@@ -1917,7 +1917,7 @@ in both slices rather than implied by position.
       and the transition assertion has nothing to see. Kept separate from
       9.2's stroke mutation on purpose: two guarantees in one slice share
       whichever fault is injected, and the one that shares gets no proof.
-- [ ] 9.2b The bar layer's **pixels**, which are the half of 8.2 jsdom cannot
+- [x] 9.2b The bar layer's **pixels**, which are the half of 8.2 jsdom cannot
       judge — same file (`apps/fe-01/e2e/gantt.spec.ts`), screenshot-clipped to
       a bar's bounding box the way `apps/fe-01/e2e/hover-cards.spec.ts:148`
       clips a strip. Two cases: a rule crossing an
