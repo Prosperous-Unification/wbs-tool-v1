@@ -165,3 +165,26 @@ suites: admission stamps the child and admitted deadlines once, reclaim reads
 the stored absolute admitted deadline rather than a deployment budget or
 heartbeat, and every bind/heartbeat/release/outcome path is fenced by the
 attempt token. This closes 6.11.
+
+## 2026-09-06T12:18:06Z — durable optimization failure announcements
+
+- Heads: `c933634f` adds the failure event and atomic record path; `9c8957f4`
+  adds the pre-spawn integration proof.
+- The seven typed reasons each produced one `failed` cache row with no schedule
+  and one replay event carrying project, generation, input hash, objective,
+  contract version, `budgetMs`, and the matching reason. The focused event
+  suite passed 5/0 on h2puni; be-01 lint and typecheck were green.
+- Both horizon-overflow variants were also exercised through the real
+  coordinator: they launched zero children, durably recorded two failure
+  events, and pushed both after commit.
+- Watched negative: the previous success-only event predicate made the focused
+  suite fail 3/1 with `committed.event` undefined for `timeout`; restoring the
+  shared outcome transaction returned it to green.
+- Existing coordinator and lifecycle suites provide the complementary path
+  matrix: timeout, OOM, internal exit, invalid output, no solution, both
+  preflight overflows, variant isolation, no automatic retry, and cancellation
+  reaching no outcome write.
+
+This closes 7.1 and 7.7. Slice 7.4 stays open for its remaining cross-feature
+proofs, including the deferred Retry/hash-change case; it is not inferred from
+the atomic-store unit alone.

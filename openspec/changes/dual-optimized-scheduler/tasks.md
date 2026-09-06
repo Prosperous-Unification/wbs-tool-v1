@@ -3755,7 +3755,7 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
 
 ## 7. Failure path and events
 
-- [ ] 7.1 Non-zero exit, timeout, OS kill, OOM and failed re-validation each
+- [x] 7.1 Non-zero exit, timeout, OS kill, OOM and failed re-validation each
       write exactly one `status='failed'` row with a typed `failureReason`
       (`timeout | invalid-output | no-solution | internal-error | oom | horizon-overflow | objective-overflow`), keep
       Fast visible, and never retry — not on a timer, not on a read, and not on
@@ -3810,7 +3810,7 @@ inputHash, objective, contractVersion, budgetMs, failureReason)` and no
       unreachable. A cache **hit** still emits nothing; a hit is not a new
       outcome. **Watched red:** both variants fail with no other event; the
       client must reach `Optimization unavailable · Retry` with no refresh.
-- [ ] 7.7 `budgetMs` joins both event identities. It is a cache-key column and
+- [x] 7.7 `budgetMs` joins both event identities. It is a cache-key column and
       changes neither hash nor generation, so without it a larger-budget
       result announced itself under the smaller-budget identity and a client
       holding that identity ignored the only notice that should move it.
