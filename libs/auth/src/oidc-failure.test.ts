@@ -49,11 +49,16 @@ describe('classifyOidcFailure', () => {
     it('calls a failing provider unavailable even though it answered in OAuth shape', () => {
       // Without this row the outage this task exists to separate is answered
       // 401, which is the status quo with more ceremony.
-      expect(classifyOidcFailure(bodyError('server_error', 500))).toEqual({
+      //
+      // Every case here carries a 4xx on purpose. RFC 6749 §5.2 defaults a token
+      // error response to 400, and a 5xx would be answered by the corroboration
+      // fallback whether or not the row existed — so asserting these under a 500
+      // would prove the fallback works and say nothing at all about the table.
+      expect(classifyOidcFailure(bodyError('server_error', 400))).toEqual({
         kind: 'unavailable',
         reason: 'provider_reported_outage',
       });
-      expect(classifyOidcFailure(bodyError('temporarily_unavailable', 503))).toEqual({
+      expect(classifyOidcFailure(bodyError('temporarily_unavailable', 400))).toEqual({
         kind: 'unavailable',
         reason: 'provider_reported_outage',
       });
@@ -135,16 +140,23 @@ describe('classifyOidcFailure', () => {
 
     it('calls a response that is not the provider speaking unavailable', () => {
       // A gateway serving an HTML error page or a bare 502 during an outage.
-      for (const code of [
-        'OAUTH_RESPONSE_IS_NOT_JSON',
-        'OAUTH_RESPONSE_IS_NOT_CONFORM',
-        'OAUTH_INVALID_RESPONSE',
-      ]) {
+      for (const code of ['OAUTH_RESPONSE_IS_NOT_JSON', 'OAUTH_RESPONSE_IS_NOT_CONFORM']) {
         expect(classifyOidcFailure({ code })).toEqual({
           kind: 'unavailable',
           reason: 'provider_response_unusable',
         });
       }
+    });
+
+    it('does not call a response that failed validation an outage', () => {
+      // `OAUTH_INVALID_RESPONSE` reads like it belongs with the two above and
+      // does not: the library also raises it for a missing or unexpected
+      // `state`, `iss` or `code`, which is a callback that was malformed or
+      // tampered with, not a provider that is down.
+      expect(classifyOidcFailure({ code: 'OAUTH_INVALID_RESPONSE' })).toEqual({
+        kind: 'defect',
+        reason: 'unrecognised_failure',
+      });
     });
 
     it('calls a rejected client challenge a defect', () => {
@@ -212,14 +224,34 @@ describe('classifyOidcFailure', () => {
       for (const code of [
         'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
-        'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
         'ERR_SSL_TLSV1_ALERT_SOMETHING_OPENSSL_ADDS_LATER',
-        // Not an alert, but still about what came back over the wire.
+        // Not alerts, but still about what came back over the wire — one case
+        // per enumerated member, so removing any of them turns this red.
         'ERR_SSL_WRONG_VERSION_NUMBER',
+        'ERR_SSL_UNSUPPORTED_PROTOCOL',
+        'ERR_SSL_PACKET_LENGTH_TOO_LONG',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'unavailable',
           reason: 'provider_unreachable',
+        });
+      }
+    });
+
+    it('calls an alert about our own certificate a defect, not an outage', () => {
+      // Receiving an alert proves the far end was reachable and objected. It
+      // does not prove the objection was theirs to fix: these three say the
+      // certificate we presented was missing or refused, which is the TLS
+      // spelling of `invalid_client` and fails every login until an operator
+      // acts. Waiting, the `unavailable` move, would never clear them.
+      for (const code of [
+        'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
+        'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA',
+        'ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE',
+      ]) {
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'defect',
+          reason: 'client_authentication_failed',
         });
       }
     });
