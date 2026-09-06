@@ -67,7 +67,8 @@ class SupervisorSocketWriter {
 
 function stateOf(socket: Bun.Socket<SupervisorSocketState | undefined>): SupervisorSocketState {
   const state = socket.data;
-  if (state === undefined) throw new Error('solver supervisor listener: socket opened without state');
+  if (state === undefined)
+    throw new Error('solver supervisor listener: socket opened without state');
   return state;
 }
 
