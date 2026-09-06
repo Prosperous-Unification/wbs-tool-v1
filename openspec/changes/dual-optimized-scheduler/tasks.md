@@ -3641,7 +3641,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       in-memory counter and watch 6.7's two-instance case fail; drop the
       supervisor's disconnect kill and watch 6.8 fail. Four faults, four `Proof:`
       comments, because one check passing does not prove the others exist.
-- [ ] 6.8b **Restart semantics, one implementable rule** (Sol r10 Important 7).
+- [x] 6.8b **Restart semantics, one implementable rule** (Sol r10 Important 7).
       `optimization-restart.db.test.ts`: (a) an in-flight child is never
       adopted or resumed by the restarted coordinator; (b) a durable
       `solver_queue` entry whose generation is current, whose

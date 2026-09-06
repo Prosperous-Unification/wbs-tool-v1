@@ -120,6 +120,7 @@ export class OptimizationCoordinator {
     this.reconcileDrains();
     const handle = (this.options.setInterval ?? setInterval)(() => {
       this.reconcileDrains();
+      this.requestPump();
     }, DRAIN_RECONCILE_INTERVAL_MS);
     (handle as { unref?: () => void }).unref?.();
     this.reconcileHandle = handle;

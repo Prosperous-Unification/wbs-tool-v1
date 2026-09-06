@@ -133,7 +133,14 @@ export function dequeueSolverRequest(
         now: request.now,
       };
       const admission = reserveSolverSlotIn(tx, slot);
-      if (admission.kind === 'project-full' || admission.kind === 'global-full') {
+      if (
+        admission.kind === 'project-full' ||
+        admission.kind === 'global-full' ||
+        admission.kind === 'already-present'
+      ) {
+        // A matching row can belong to a still-live child from the previous
+        // coordinator. Keep the durable request behind it: a later pump may
+        // reserve the same variant only after that counted orphan is gone.
         return { kind: 'capacity-full' };
       }
       tx.delete(solverQueue).where(queueIdentity(entry)).run();
