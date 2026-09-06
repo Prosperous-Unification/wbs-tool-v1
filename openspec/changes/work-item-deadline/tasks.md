@@ -313,21 +313,49 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
 
 ## 6. API, realtime, undo
 
-- [ ] 6.1 `deadline` joins the work-item PATCH payload as a nullable `IsoDate`.
+- [x] 6.1 `deadline` joins the work-item PATCH payload as a nullable `IsoDate`.
       Non-`IsoDate` → `422` through the **existing** malformed-payload path;
       `deadlineOffsetOf` returning `before-project-start` → `422` naming the
       offending work item and the project's day zero, which is the **only**
       deadline-specific rejection; `null` clears it.
-- [ ] 6.2 Authorization is the existing work-item write authorization —
+      Done: `parsePatch` reads it with `asOptionalDate`, the floor's own reader,
+      so a non-date is `deadline_must_be_a_date` through the path that already
+      existed. The day-zero refusal is the **service's**, not the controller's —
+      it is the first layer holding the project as well as the payload — and it
+      answers 422 over the batch route's own 400 default through a new
+      `UNPROCESSABLE` arm in `refusal-status.ts`, carrying `workItemId` and
+      `projectDayZero` out through the batch runner's existing `detailOf`.
+      A project with **no start date** is asked nothing: there is no day zero
+      for a date to fall before, which is the plan read's own rule for floors.
+- [x] 6.2 Authorization is the existing work-item write authorization —
       asserted by a test that a caller who may edit a work item may set its
       deadline, so no new authority is silently introduced.
-- [ ] 6.3 No new event type and no new undo verb: `deadline` rides the existing
+      Done: both directions in one case on a restricted project — the owner's
+      set lands, the stranger's is `forbidden` 403 and the stored date is
+      unchanged. The owner's 200 alone would pass against a route checking
+      nothing.
+- [x] 6.3 No new event type and no new undo verb: `deadline` rides the existing
       work-item update event and the existing undo stack. Redo of a clear
       restores `null`; redo of a set restores the date. Both through the ordinary
       field-edit path.
+      Done: one line in `fieldsOf` and one in `revertTo`, which is the whole of
+      it — no verb, no event, no branch. Two cases against real SQLite: a set
+      then a clear, undone twice, and a deleted branch's deadline restored by
+      `restore_subtree`. The second is 1.3's obligation and is why
+      `WORK_ITEM_COLUMNS` had to name the column in the same slice that made it
+      writable — `remove` journals whole rows off that projection.
 - [ ] 6.4 A deadline edit invalidates the optimized cache for that project
       exactly as a priority or floor edit does, through the existing debounce and
       generation fence, with no new machinery.
+      **Blocked on the plan read, not on this slice, and deliberately left
+      open.** The cache key is the whole `ScheduleInput` the plan read hands
+      `schedule()` (`publishedOptimized`), so an edit invalidates the cache
+      exactly when it moves that input. At this head the read still passes
+      `NO_DEADLINES`, so a deadline edit moves nothing and the cache is **not**
+      invalidated. Threading the stored dates through the read is 3.4/4.2, and
+      6.4 becomes true the moment they land, with no machinery added here —
+      which is what this task says. Ticking it now would be the
+      check-that-cannot-fail R5 names.
 
 ## 7. Canonical input, contract-version bump, retention scoping
 
