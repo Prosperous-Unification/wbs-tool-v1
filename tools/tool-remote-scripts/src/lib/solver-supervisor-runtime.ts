@@ -1,3 +1,4 @@
+import type { BackendContainerIdentity } from './solver-supervisor-docker-output';
 import { BunManagedContainerDriver } from './solver-supervisor-driver';
 import {
   type ManagedContainerDriver,
@@ -17,7 +18,8 @@ import {
 
 export interface SolverSupervisorRuntimeOptions {
   readonly connection: SupervisorUnixListenerOptions;
-  readonly lifecycle: SupervisorLifecycleOptions;
+  readonly lifecycle: Omit<SupervisorLifecycleOptions, 'image'>;
+  readonly imageFor: (identity: BackendContainerIdentity) => string;
 }
 
 export interface SolverSupervisorDriver
@@ -36,8 +38,13 @@ export async function startSolverSupervisor(
   const peer = hostSupervisorPeerDependencies(driver, host);
   return listen(options.connection, {
     ...peer,
-    run: async (frame, channel): Promise<void> => {
-      await runManagedSolverAttempt(frame, options.lifecycle, driver, channel);
+    run: async (frame, channel, identity): Promise<void> => {
+      await runManagedSolverAttempt(
+        frame,
+        { ...options.lifecycle, image: options.imageFor(identity) },
+        driver,
+        channel,
+      );
     },
   });
 }

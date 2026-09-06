@@ -2,6 +2,7 @@ import {
   type SupervisorChannelOptions,
   SupervisorOneAttemptChannel,
 } from './solver-supervisor-channel';
+import type { BackendContainerIdentity } from './solver-supervisor-docker-output';
 import type { SupervisorAttemptChannel } from './solver-supervisor-lifecycle';
 import {
   authenticateSupervisorPeer,
@@ -18,7 +19,11 @@ export interface SupervisorConnectionOptions
 }
 
 export interface SupervisorConnectionDependencies extends SupervisorPeerDependencies {
-  run(frame: SupervisorStartFrame, channel: SupervisorAttemptChannel): Promise<void>;
+  run(
+    frame: SupervisorStartFrame,
+    channel: SupervisorAttemptChannel,
+    identity: BackendContainerIdentity,
+  ): Promise<void>;
 }
 
 /** Authenticates and serves exactly one solver attempt on one accepted stream. */
@@ -39,5 +44,5 @@ export async function serveSupervisorConnection(
     maxSearchWorkers: options.maxSearchWorkers,
     maxMemoryLimitMb: options.maxMemoryLimitMb,
   });
-  await dependencies.run(frame, channel);
+  await dependencies.run(frame, channel, identity);
 }

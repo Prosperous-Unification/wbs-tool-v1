@@ -38,6 +38,7 @@ describe('serveSupervisorConnection', () => {
   it('authenticates the socket before decoding and running its one attempt', async () => {
     const order: string[] = [];
     const writes: string[] = [];
+    let runIdentity: unknown;
 
     await serveSupervisorConnection(
       { fd: 17 },
@@ -67,14 +68,16 @@ describe('serveSupervisorConnection', () => {
           order.push('inspect');
           return Promise.resolve({ id, name: 'wbs-dev-src', image: 'wbs-dev-src:1' });
         },
-        run: async (frame, channel) => {
+        run: async (frame, channel, identity) => {
           order.push(`run:${frame.callerId}`);
+          runIdentity = identity;
           await channel.send({ type: 'started', pid: 99 });
         },
       },
     );
 
     expect(order).toEqual(['credentials', 'cgroup', 'inspect', `run:${CALLER_ID}`]);
+    expect(runIdentity).toEqual({ id: CALLER_ID, name: 'wbs-dev-src', image: 'wbs-dev-src:1' });
     expect(writes).toEqual(['{"type":"started","pid":99}\n']);
   });
 

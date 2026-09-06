@@ -114,6 +114,7 @@ describe('the solver supervisor runtime composition', () => {
   it('sweeps before listen, then binds host identity and lifecycle to each attempt', async () => {
     const driver = new FakeDriver();
     let dependencies: SupervisorConnectionDependencies | undefined;
+    const mapped: string[] = [];
     const listener = { stop: () => undefined };
     const listen = ((_, value) => {
       driver.events.push('listen');
@@ -133,7 +134,6 @@ describe('the solver supervisor runtime composition', () => {
           now: () => 10_000,
         },
         lifecycle: {
-          image: IMAGE,
           pidsLimit: 128,
           maxManagedContainers: 16,
           outputLimits: {
@@ -141,6 +141,10 @@ describe('the solver supervisor runtime composition', () => {
             maxStdoutBytes: 2 * 1024 * 1024,
             maxStderrBytes: 256 * 1024,
           },
+        },
+        imageFor: (identity) => {
+          mapped.push(`${identity.name}:${identity.image}`);
+          return IMAGE;
         },
       },
       driver,
@@ -166,7 +170,12 @@ describe('the solver supervisor runtime composition', () => {
         return Promise.resolve();
       },
     };
-    await dependencies.run(FRAME, channel);
+    await dependencies.run(
+      FRAME,
+      channel,
+      { id: CALLER_ID, name: 'wbs-dev-src', image: 'wbs-dev-src:1' },
+    );
+    expect(mapped).toEqual(['wbs-dev-src:wbs-dev-src:1']);
     expect(driver.events.slice(6)).toEqual([
       'peer-inspect:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       'list:2',
