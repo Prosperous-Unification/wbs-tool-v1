@@ -19,6 +19,8 @@ import {
   revokeAliasCommands,
   ROOT,
   SHARED_ENV_PATH,
+  SOLVER_SUPERVISOR_CONTAINER_DIRECTORY,
+  SOLVER_SUPERVISOR_HOST_DIRECTORY,
   tierComposeContext,
   tierComposeFile,
   tierEnvFiles,
@@ -246,7 +248,7 @@ describe('tierComposeContext', () => {
     expect(ctx['VOLUMES']).toBe('');
   });
 
-  it('gives be-01 its app-config file, its own secrets file, and the data volume', () => {
+  it('gives be-01 its app-config, secrets, data, and directory-only supervisor mount', () => {
     const ctx = tierComposeContext(
       'be',
       'blue',
@@ -255,7 +257,12 @@ describe('tierComposeContext', () => {
     expect(ctx['ENV_FILES']).toBe(
       `    env_file:\n      - ${ROOT}/be-01.env\n      - ${ROOT}/be-01.secrets.env\n`,
     );
-    expect(ctx['VOLUMES']).toBe(`    volumes:\n      - ${ROOT}/data:/data\n`);
+    expect(ctx['VOLUMES']).toBe(
+      `    volumes:\n` +
+        `      - ${ROOT}/data:/data\n` +
+        `      - ${SOLVER_SUPERVISOR_HOST_DIRECTORY}:${SOLVER_SUPERVISOR_CONTAINER_DIRECTORY}:ro\n`,
+    );
+    expect(ctx['VOLUMES']).not.toContain('supervisor.sock');
   });
 });
 

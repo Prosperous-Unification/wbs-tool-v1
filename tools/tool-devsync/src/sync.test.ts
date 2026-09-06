@@ -117,6 +117,17 @@ describe('RECREATE_PATHS', () => {
       expect(RESTART_PATHS).not.toContain(p);
     }
   });
+
+  it('mounts the supervisor runtime directory, never its replaceable socket inode', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const compose = await readFile(
+      new URL('../../../deploy/dev-src/compose.yml', import.meta.url),
+      'utf8',
+    );
+
+    expect(compose).toContain('- /run/user/1000/wbs-solver:/run/wbs-solver:ro');
+    expect(compose).not.toMatch(/^\s*- .*supervisor\.sock:/m);
+  });
 });
 
 async function rejection(promise: Promise<unknown>): Promise<string> {
