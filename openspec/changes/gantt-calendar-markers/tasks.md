@@ -1872,7 +1872,7 @@ in both slices rather than implied by position.
       `apps/be-01/src/service/broadcast.test.ts`, one event per mutation across
       create, rename, recolour and delete, each carrying no payload. Negative:
       the delete path left unbroadcast, watched failing.
-- [ ] 9.2 `apps/fe-01/e2e/gantt.spec.ts`: click a day, name a marker, see the chip and the
+- [x] 9.2 `apps/fe-01/e2e/gantt.spec.ts`: click a day, name a marker, see the chip and the
       rule; reload and see them still there; delete and see them gone. The one
       test that judges pixels — jsdom asserts positions, a browser judges
       appearance.
@@ -3381,3 +3381,53 @@ of them now pass at 28, 12 and 4 px.
 **Next**: 9.2 — click a day, name a marker, see the chip and the rule, reload,
 delete — which shares this file and now has a working host and a settled gesture.
 Then 8.4.
+
+## Chunk 57 — 9.2, and two oracles that could not fail (TASK-235 run 28, 2026-09-06)
+
+**9.2 is ticked.** `a calendar marker, made and unmade in a browser` passes on
+h2puni, `1 passed (11.6s)`. It is the first case in this plan that watches a
+marker survive a reload — the one thing no jsdom tier can reach, because every
+one of them renders a panel that was handed its markers rather than one that
+asked be-01 for them.
+
+**The case, in order:** no chip and no rule before anything is clicked, so the
+counts that follow are not vacuous; the composer from a dated axis cell; the
+chip with its `data-marker-offset` **and** the rule, which are two different
+layers and a marker drawing one without the other is half a feature;
+`page.reload()` and both again; the same cell a second time, which must open the
+**sheet** rather than the composer because the day now carries a marker
+(`gantt-panel.tsx:3204-3212`); delete through the sheet; both marks gone, and
+gone again after a second reload. One case rather than three, because the reload
+is what joins the steps and splitting them would need the marker remade for each.
+
+**The negative is the whole reason this took a second pass.** Round 4 said a rule
+stroked in the chart's own background is what only a browser catches, and a count
+assertion sails straight through it. So the case has to resolve the rule's paint
+and the backdrop's paint and compare them — and **two obvious ways to do that
+cannot fail**, which is exactly what this plan spends its negatives forbidding:
+
+- **As computed strings.** The tokens here are `oklch()` and an SVG `stroke`
+  computes to `rgb()`. `oklch(1 0 0)` and `rgb(255, 255, 255)` are the same
+  white and different text, so the assertion could never fire. Found by probing
+  the live values rather than by reasoning about them.
+- **Through a 1x1 canvas.** This engine's `fillStyle` silently rejects
+  `oklch()`, so the swatch stayed transparent and both sides resolved to
+  `0,0,0,0` — comparing _equal_, which would have fired the assertion on every
+  run including the healthy one. Caught only because the case asserts that the
+  resolution itself produced a colour; without that guard it would have shipped
+  as a passing negative.
+
+**What works:** `color-mix(in srgb, <colour> 100%, transparent)` set on a
+detached `<span>` and read back as computed `color`. The engine does the
+conversion and both sides come back in one space.
+
+**Watched, at the committed tree with one line changed** — `stroke="oklch(1 0 0)"`
+in place of `markerFill(standing[0])` at `gantt-panel.tsx:3663` — the case fails
+exactly one assertion, `the rule is painted in the chart's own background —
+stroke oklch(1 0 0) against backdrop oklch(1 0 0), both resolving to color(srgb
+0.999871 1.00005 1.00007) — and cannot be seen`, while the chip, the offset, both
+reloads, the sheet and the delete all stay green. Restored, `1 passed`.
+`gantt-panel.tsx` md5 `56ea4492` on both hosts afterwards, unchanged from commit.
+
+**Next**: 9.2a (the visible focus ring on a dated axis cell — its own slice,
+because it cannot observe 9.2's negative), then 9.1's broadcast, then 8.4.

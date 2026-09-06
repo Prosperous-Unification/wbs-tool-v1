@@ -3917,3 +3917,159 @@ test.describe('the marker rule, measured in the columns it paints', () => {
     }
   });
 });
+
+/**
+ * Slice 9.2 — the round trip, in a browser.
+ *
+ * Section 8 asserts positions in jsdom and section 6 asserts the panel's own
+ * behaviour with props a test supplied. This is the only case that watches a
+ * marker survive the one thing neither can reach: a reload, which throws away
+ * every piece of component state and rebuilds the chart from what be-01 kept.
+ */
+test.describe('a calendar marker, made and unmade in a browser', () => {
+  /** The day the marker goes on, as an offset into the drawn axis. */
+  const MARKED_OFFSET = 3;
+  const MARKER_NAME = 'Kickoff';
+
+  /** The one dated axis cell this case operates, at whatever rung is showing. */
+  const axisCell = (page: Page): Locator =>
+    page.locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`);
+
+  test('survives a reload, and a delete takes both its marks away', async ({ page }) => {
+    await seedPlan(page, 'marker-round-trip');
+    await openTheChart(page);
+
+    // Nothing yet, and asserted rather than assumed: a chip already on the
+    // chart would make every count below pass without the composer doing
+    // anything at all.
+    await expect(page.locator('[data-marker-chip]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-marker-rule]')).toHaveCount(0);
+
+    await axisCell(page).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill(MARKER_NAME);
+    // The REST route markers have of their own, not a `/commands` batch — the
+    // same wait `the marker rule` uses, and for the same reason.
+    const created = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await created;
+
+    // Both marks, which are two different layers: the chip is a `<span>` in the
+    // sticky header band and the rule is a `<line>` in the body SVG, and a
+    // marker that drew only one of them would be half a feature.
+    const chip = page.locator(`[data-marker-chip]`);
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toHaveText(MARKER_NAME);
+    await expect(chip).toHaveAttribute('data-marker-offset', String(MARKED_OFFSET));
+    const rule = page.locator(`[data-gantt-marker-rule="${String(MARKED_OFFSET)}"]`);
+    await expect(rule).toHaveCount(1);
+
+    // **The rule is a colour a person can see, and this is the assertion 9.2's
+    // negative moves.** A count or a position would pass a rule stroked in the
+    // chart's own background — an element at the right `x` painted invisibly is
+    // precisely what only a browser catches (round-4 Sol review), and every
+    // other assertion in this case would stay green through it. Resolved
+    // through `getComputedStyle` on both sides so a token, a variable and a
+    // literal all compare as the same rendered rgb.
+    const paint = await rule.evaluate((line) => {
+      const chart = line.closest('[data-gantt-chart]');
+      if (chart === null) throw new Error('the rule is not inside a chart');
+      // **Both sides rasterized before they are compared, and the string forms
+      // are kept only for the failure message.** This project's tokens are
+      // `oklch()` and the SVG `stroke` resolves to `rgb()`, so the two computed
+      // values are in different syntaxes: comparing them as text would call
+      // white and white different and the negative below could never fail.
+      // A 1×1 canvas is the one thing in the page that resolves any CSS colour
+      // to the same four bytes.
+      // `color-mix(in srgb, …)` and **not** a canvas: this engine's
+      // `fillStyle` silently rejects `oklch()` and leaves the swatch
+      // transparent, which was watched — the guard below is what caught it.
+      // Mixing into `srgb` makes the engine convert, and a computed `color` is
+      // reported in the mix's own space, so both sides come back comparable.
+      const swatch = document.createElement('span');
+      swatch.style.display = 'none';
+      document.body.append(swatch);
+      const rasterize = (colour: string): string => {
+        swatch.style.color = '';
+        swatch.style.color = `color-mix(in srgb, ${colour} 100%, transparent)`;
+        return getComputedStyle(swatch).color;
+      };
+      // The nearest ancestor that actually paints: `background-color` computes
+      // to `rgba(0, 0, 0, 0)` on anything transparent, and comparing the rule
+      // against *that* would compare it against nothing.
+      let behind: Element | null = chart;
+      let backdrop = 'rgba(0, 0, 0, 0)';
+      while (behind !== null) {
+        const seen = getComputedStyle(behind).backgroundColor;
+        if (seen !== 'rgba(0, 0, 0, 0)' && seen !== 'transparent') {
+          backdrop = seen;
+          break;
+        }
+        behind = behind.parentElement;
+      }
+      const stroke = getComputedStyle(line).stroke;
+      const measured = {
+        stroke,
+        backdrop,
+        strokePixels: rasterize(stroke),
+        backdropPixels: rasterize(backdrop),
+      };
+      swatch.remove();
+      return measured;
+    });
+    expect(paint.backdrop, 'nothing behind the rule paints a background to contrast with').not.toBe(
+      'rgba(0, 0, 0, 0)',
+    );
+    // And the mix really resolved it, rather than leaving the swatch at the
+    // transparent default a colour the engine cannot parse would give it —
+    // which would make the comparison below true for the wrong reason. This
+    // guard is not hypothetical: it is what caught the canvas.
+    expect(
+      paint.backdropPixels,
+      `the backdrop ${paint.backdrop} did not resolve to a comparable colour`,
+    ).not.toBe('rgba(0, 0, 0, 0)');
+    expect(
+      paint.strokePixels,
+      `the rule is painted in the chart's own background — stroke ${paint.stroke} against ` +
+        `backdrop ${paint.backdrop}, both resolving to ${paint.strokePixels} — and cannot be seen`,
+    ).not.toBe(paint.backdropPixels);
+
+    // **The step nothing else in this plan can take.** Every jsdom case above
+    // renders a panel that was handed its markers; this drops all of it and
+    // rebuilds from be-01's answer, which is the only thing that says the save
+    // persisted rather than merely updated the screen.
+    await page.reload();
+    await openTheChart(page, { drawn: '[data-marker-chip]' });
+    await expect(page.locator('[data-marker-chip]')).toHaveText(MARKER_NAME);
+    await expect(page.locator(`[data-gantt-marker-rule="${String(MARKED_OFFSET)}"]`)).toHaveCount(
+      1,
+    );
+
+    // A day that already carries a marker opens the sheet, not the composer
+    // (`gantt-panel.tsx:3204-3212`) — so this click is also what says the two
+    // affordances are told apart by the data rather than by which one was
+    // wired last.
+    await axisCell(page).click();
+    const sheet = page.getByRole('dialog', { name: /^Calendar markers on / });
+    await expect(sheet).toBeVisible();
+    const deleted = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' && response.url().includes('/calendar-markers'),
+    );
+    await sheet.getByRole('button', { name: `Delete ${MARKER_NAME}` }).click();
+    await deleted;
+
+    // Gone from both layers, and gone from the server too: the second reload is
+    // what separates a delete from a hidden element.
+    await expect(page.locator('[data-marker-chip]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-marker-rule]')).toHaveCount(0);
+    await page.reload();
+    await openTheChart(page);
+    await expect(page.locator('[data-marker-chip]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-marker-rule]')).toHaveCount(0);
+  });
+});
