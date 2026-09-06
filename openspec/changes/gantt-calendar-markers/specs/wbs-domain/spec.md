@@ -234,13 +234,14 @@ wrong at one end of it whichever value it took.
 
 #### Scenario: a second marker on the same date is accepted
 
-- **WHEN** a marker exists on `2026-09-17` and a second is created on the same
-  date
+- **WHEN** a marker exists on `2026-09-17`, **that date being inside the drawn
+  horizon**, and a second is created on the same date
 - **THEN** both are stored, and the axis cell reports two markers
 
 #### Scenario: overflow collapses to a count
 
-- **WHEN** more markers sit on one date than the band shows at 28px per day
+- **WHEN** more markers sit on one date **inside the drawn horizon** than the
+  band shows at 28px per day
 - **THEN** the cell shows a count, and the full list is reachable by hover or tap
 
 ### Requirement: Markers are drawn without changing the bar layer
@@ -489,8 +490,8 @@ interval bounds.
 
 #### Scenario: a marker on today is visible and today is still findable
 
-- **WHEN** a marker is placed on today's date, **today being inside the drawn
-  horizon**
+- **WHEN** a plan whose only marker is placed on today's date, **today being
+  inside the drawn horizon**, is shown
 - **THEN** its rule element follows `data-gantt-today-edge` in paint order, and
   the tinted `data-gantt-today` column is still present at that offset
 
