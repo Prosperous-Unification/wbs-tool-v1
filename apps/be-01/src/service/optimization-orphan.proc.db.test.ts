@@ -10,6 +10,7 @@ import { allocateGeneration } from '../repository/optimization-generation';
 import { solverSlot } from '../repository/schema';
 
 const IMAGE = process.env['WBS_SOLVER_ORPHAN_IMAGE'];
+// This process-boundary proof owns a real migrated SQLite database.
 const realProcessDescribe = IMAGE === undefined ? describe.skip : describe;
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const REQUEST = '/app/libs/contracts/solver/fixtures/request/valid-quantised-baseline.json';
