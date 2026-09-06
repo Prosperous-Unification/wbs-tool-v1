@@ -136,3 +136,32 @@ empty-plan payload proof lands.
 
 Together with the full-key database tests and seven-state mapper tests at
 `2600a3e9`, this closes 6.9b and 7.10.
+
+## 2026-09-06T12:12:00Z — absolute slot-deadline fence
+
+- Heads: `1d0ad964` fixes the host timer calendar; `40c2d58f` passes the same
+  absolute deadline through the launcher and clamps every CP-SAT stage to its
+  remaining wall time.
+- Host: `h2puni`, worktree `/home/puni1/t220-r27.o9jpyv`; no build or autotest
+  ran on the queue-worker box.
+- The full `tool-remote-scripts` gate passed 255/0 across 25 files, with lint,
+  typecheck, and Prettier green. The full solver-py suite then passed 193/0,
+  and scoped format checking was green.
+- Watched host negative: the production builder's old
+  `--on-calendar=@<seconds>.<milliseconds>` form was rejected by systemd 259,
+  proving that the nominal persistent backstop never armed. The builder now
+  emits an explicit millisecond-precise UTC instant.
+- Actual host proof: without a timer the control container remained live past
+  the child window; the corrected transient timer reached `Result=success`
+  and made the matched container report `running=false`. The two exact test
+  containers and both transient units were inactive/absent after cleanup.
+- Watched inner-fence negative: before deadline propagation, the real launcher
+  test observed only `--search-workers 2` in the solver argv and failed 11/1.
+  The restored focused launcher, CLI, and deadline-clamp suites passed 12/0,
+  18/0, and 9/0 respectively.
+
+These runtime proofs complement the existing repository and two-coordinator
+suites: admission stamps the child and admitted deadlines once, reclaim reads
+the stored absolute admitted deadline rather than a deployment budget or
+heartbeat, and every bind/heartbeat/release/outcome path is fenced by the
+attempt token. This closes 6.11.

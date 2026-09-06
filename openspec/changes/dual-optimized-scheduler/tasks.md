@@ -3713,7 +3713,7 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       onto the current slot; a restart on an unchanged hash must allocate
       nothing; and deleting the slot rows at allocation must make 6.7's
       two-instance ceiling case fail.
-- [ ] 6.11 Slot fencing: admission mints an unforgeable 128-bit
+- [x] 6.11 Slot fencing: admission mints an unforgeable 128-bit
       `attemptToken`; heartbeat, release, the outcome write and the event write
       all carry it, and 6.2b's bind CAS is the first statement that presents
       it. The two deadlines are deliberately different:
