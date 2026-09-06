@@ -250,9 +250,11 @@ describe('(iii) the Baseline is computed over the WHOLE canonical input, deadlin
   const lateByOf = (plan: Schedule, id: string) => plan.slices.get(key(id))?.lateBy;
 
   it('orders the Baseline by the deadlines the input carries, not by priority alone', () => {
-    // WATCHED RED: drop `input.deadlines` from the call in
-    // `publication-guard.ts` and this case fails on the first expect — `b`
-    // reads 2 rather than 0, because priority decides an undeadlined ready set.
+    // Proof: `input.deadlines` dropped from the `schedule()` call in
+    // `publication-guard.ts` — the six-argument form this task fixes — and this
+    // case failed on the first expect, `b` reading 2 rather than 0, because
+    // priority decides an undeadlined ready set. Watched at `faea8430`:
+    // 568 pass / 2 fail, and these two were the two.
     const decision = guardRealPublication(
       input,
       overTheSameInput(),
@@ -281,9 +283,10 @@ describe('(iii) the Baseline is computed over the WHOLE canonical input, deadlin
   });
 
   it('publishes the Baseline lateness the input earns, rather than null on every slice', () => {
-    // The half that reaches the stored row. With the map dropped no slice has a
-    // deadline, so `lateBy` is null everywhere and a plan that misses a date the
-    // user wrote is published as one that meets it.
+    // The half that reaches the stored row. Proof: the same dropped argument —
+    // with no map no slice has a deadline, so `lateBy` is null everywhere and a
+    // plan that misses a date the user wrote is published as one that meets it.
+    // Watched at `faea8430`: this case read null where it expects 1.
     const decision = guardRealPublication(
       input,
       overTheSameInput(),
