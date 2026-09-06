@@ -344,14 +344,14 @@ change does not own** — the ownership table gives them to `dual-optimized-sche
 (TASK-219/241) — **so 10.1 stays unticked until those land and append here.**
 Ticking it on a half ledger would claim evidence for reds nobody has run.
 
-| red    | `tasks.md` | fault                                                       | state                          |
-| ------ | ---------- | ----------------------------------------------------------- | ------------------------------ |
-| **W1** | 4.4        | drop the `max` term from `lastWorkdayOf`                     | recorded below, twice          |
-| **W2** | 8.4        | `finishUnits <= (D + 1) × quantum` in the CP-SAT constraint  | owed — slice 8, not this change |
-| **W3** | 2.4        | `workdaysBetween` in place of `deadlineOffsetOf`             | recorded below                  |
-| **W4** | 3.5        | `max` instead of `min` in the deadline fold                  | recorded below                  |
-| **W5** | 8.6        | map solver `infeasible` onto `unknown`                       | owed — slice 8, not this change |
-| **W6** | 7.6        | omit the seventh argument from the canonical-input hash      | owed — slice 7, not this change |
+| red    | `tasks.md` | fault                                                       | state                           |
+| ------ | ---------- | ----------------------------------------------------------- | ------------------------------- |
+| **W1** | 4.4        | drop the `max` term from `lastWorkdayOf`                    | recorded below, twice           |
+| **W2** | 8.4        | `finishUnits <= (D + 1) × quantum` in the CP-SAT constraint | owed — slice 8, not this change |
+| **W3** | 2.4        | `workdaysBetween` in place of `deadlineOffsetOf`            | recorded below                  |
+| **W4** | 3.5        | `max` instead of `min` in the deadline fold                 | recorded below                  |
+| **W5** | 8.6        | map solver `infeasible` onto `unknown`                      | owed — slice 8, not this change |
+| **W6** | 7.6        | omit the seventh argument from the canonical-input hash     | owed — slice 7, not this change |
 
 Every measurement below ran on **h2puni** over ssh; nothing was built or run on
 the workspace box. Each fault was reverted immediately and the restored file
@@ -361,7 +361,7 @@ rather than asserted.
 ### W3 — `workdaysBetween` substituted for `deadlineOffsetOf` (2.4)
 
 **3 of 37 cases red, 34 pass.** 2.4 demands two specific halves go red
-*together*, and they did:
+_together_, and they did:
 
 - `never grants a weekend deadline the following Monday` — expected `offset 4`,
   received `offset 5`. `nextWorkday` rolls Saturday the 8th to Monday the 10th,
@@ -416,7 +416,7 @@ must be the milestone. Restored: md5 `78cb2fe8`, equal on both hosts.
 
 **The case that stayed green is why this red is worth recording at the second
 seam at all.** `workdaysLateBy > is zero exactly when the slice met its
-deadline` passes *under the fault*, correctly: it asserts the two functions
+deadline` passes _under the fault_, correctly: it asserts the two functions
 agree, and under a shared fault they agree on the wrong answer together. A
 consistency case cannot double as a correctness case, and reading its green as
 proof of either function would be the check-that-cannot-fail shape R5 exists to
@@ -428,20 +428,20 @@ identity and not a second comparison.
 Not part of 10.1's six, which are the change-wide ones, but recorded here so the
 ledger is not read as the complete list of what was proved:
 
-| red        | fault                                                        | measured                                                                   |
-| ---------- | ------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| W-5.1a     | delete the `first.slack !== second.slack` comparison alone    | 531 pass / **1 fail** — `prefers the tighter slack over the earlier date when the two disagree` |
-| W-5.1b     | delete both new comparisons                                   | 526 pass / **6 fail**; `prefers the tighter slack …` is **green** here, so neither red subsumes the other |
-| W-5.2a     | the wrong question — `finish > deadlineOffset` in place of the shared predicate | **5 fail of 8**, including the zero-duration milestone and the inclusive boundary |
-| W-5.2b     | the authored map in place of the folded one                   | **2 fail** — exactly the two ancestor cases, which W-5.2a leaves green      |
-| W-5.3      | W-5.1b's fault against the 1,000-seed corpus case             | `Received: 0` of 1,000 — zero, not a weakened count, because the map is then read nowhere |
-| W-5.4a     | drop the entry                                                | **4 fail of 7**, both lateness cases reading `null`                         |
-| W-5.4b     | clamp to `0`                                                  | the same four; the difference is the *symptom*, not the set                 |
-| seam       | delete `new Map(),` from `materialise-optimized.ts` so the pin falls into the `deadlines` slot | **2 of 243** contracts cases red — and one of them stops throwing at all: a wrong-slot call does not error, it quietly answers a different question |
+| red    | fault                                                                                          | measured                                                                                                                                            |
+| ------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W-5.1a | delete the `first.slack !== second.slack` comparison alone                                     | 531 pass / **1 fail** — `prefers the tighter slack over the earlier date when the two disagree`                                                     |
+| W-5.1b | delete both new comparisons                                                                    | 526 pass / **6 fail**; `prefers the tighter slack …` is **green** here, so neither red subsumes the other                                           |
+| W-5.2a | the wrong question — `finish > deadlineOffset` in place of the shared predicate                | **5 fail of 8**, including the zero-duration milestone and the inclusive boundary                                                                   |
+| W-5.2b | the authored map in place of the folded one                                                    | **2 fail** — exactly the two ancestor cases, which W-5.2a leaves green                                                                              |
+| W-5.3  | W-5.1b's fault against the 1,000-seed corpus case                                              | `Received: 0` of 1,000 — zero, not a weakened count, because the map is then read nowhere                                                           |
+| W-5.4a | drop the entry                                                                                 | **4 fail of 7**, both lateness cases reading `null`                                                                                                 |
+| W-5.4b | clamp to `0`                                                                                   | the same four; the difference is the _symptom_, not the set                                                                                         |
+| seam   | delete `new Map(),` from `materialise-optimized.ts` so the pin falls into the `deadlines` slot | **2 of 243** contracts cases red — and one of them stops throwing at all: a wrong-slot call does not error, it quietly answers a different question |
 
 Two honest notes on that table. **W-5.4a and W-5.4b share a case set** — a first
 draft of the log called them separable and they are not; what still distinguishes
-the clamp is that `is late on day zero itself` reads *on time* under it, the only
+the clamp is that `is late on day zero itself` reads _on time_ under it, the only
 failure among the seven that is a met date rather than a wrong number. And the
 run log of 2026-09-06T08:12Z calls the `materialise-optimized` seam red "W5";
 **that is a local name, not `tasks.md`'s W5**, which is slice 8.6's
