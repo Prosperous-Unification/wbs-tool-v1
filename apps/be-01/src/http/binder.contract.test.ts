@@ -144,6 +144,36 @@ function routes(auth: AuthService): Route[] {
       preflight: guard.preflight('signed-in'),
       documentation: { querySchema: 'compare' },
     },
+    /**
+     * `url` as the OIDC callback reads it: the query string *as sent*, which is
+     * the only place a repeated key survives — `query` keeps one value per name
+     * under both binders.
+     */
+    {
+      method: 'GET',
+      path: '/probe/raw-query',
+      handler: (req) =>
+        Promise.resolve(
+          ok({
+            all: new URL(req.url).searchParams.getAll('mode'),
+            collapsed: req.query['mode'] ?? null,
+          }),
+        ),
+    },
+    /**
+     * The two verbs a handler can see, reported through **headers** rather than
+     * a body: the case that matters is a HEAD, and a HEAD has no body to read.
+     */
+    {
+      method: 'GET',
+      path: '/probe/verbs',
+      handler: ({ method, receivedMethod }) =>
+        Promise.resolve({
+          status: 200,
+          body: { method, receivedMethod },
+          headers: { 'x-route-method': method, 'x-received-method': receivedMethod },
+        }),
+    },
     {
       method: 'GET',
       path: '/probe/guarded',
@@ -300,6 +330,19 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
   });
 
   /**
+   * The clause the OIDC callback's duplicate refusal rests on (TASK-269): a
+   * route that has to know whether a key repeated cannot learn it from `query`,
+   * and `url` is the same raw string under both binders. Asserted rather than
+   * assumed, because `query` collapsing to the **last** value and
+   * `searchParams.get` answering the **first** is exactly the pair that changed
+   * which `state` the callback read when it moved onto the route shape.
+   */
+  it('keeps every value of a repeated key in the raw url, whatever query collapsed to', async () => {
+    const res = await get('/probe/raw-query?mode=first&mode=last');
+    expect(await res.json()).toEqual({ all: ['first', 'last'], collapsed: 'last' });
+  });
+
+  /**
    * Sol's Important 4. A path whose only declared route is a GET answers HEAD
    * from that GET under Elysia and answered 404 here, which made a HEAD probe
    * — the cheapest liveness check a client has — disagree with the API it was
@@ -339,6 +382,30 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
   it('does not answer HEAD on a path whose only route takes a body verb', async () => {
     const res = await app.handle(new Request('http://localhost/probe/body', { method: 'HEAD' }));
     expect(res.status).toBe(404);
+  });
+
+  /**
+   * TASK-269. HEAD resolving to a path's GET is the shared contract above, and
+   * it left a handler unable to tell the two apart: both binders passed the
+   * verb the route was registered under and nothing carried the one that
+   * actually arrived. The OIDC
+   * callback had read the raw `request.method` before the framework-free route
+   * shape, so a HEAD reached the provider as HEAD and afterwards as GET.
+   *
+   * The route's verb and the arrived verb are now two fields, and the clause
+   * both binders owe is that they agree on both — a binder setting only one
+   * would let a route module read a verb under Elysia it can read nowhere else.
+   */
+  it('tells a handler both the route’s verb and the one the request arrived with', async () => {
+    const res = await get('/probe/verbs');
+    expect(await res.json()).toEqual({ method: 'GET', receivedMethod: 'GET' });
+  });
+
+  it('reports a HEAD answered by a GET route as GET on the route and HEAD as received', async () => {
+    const res = await app.handle(new Request('http://localhost/probe/verbs', { method: 'HEAD' }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-route-method')).toBe('GET');
+    expect(res.headers.get('x-received-method')).toBe('HEAD');
   });
 
   it('answers a 204 with no body at all', async () => {

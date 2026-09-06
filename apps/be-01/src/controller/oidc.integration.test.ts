@@ -507,6 +507,116 @@ describe('OIDC browser routes', () => {
     expect(f.calls.exchange).toHaveLength(0);
   });
 
+  /**
+   * TASK-269, the first half. `searchParams.get('state')` answers the **first**
+   * value of a repeated key and `RouteRequest.query` answers the **last**, so
+   * moving this handler onto the framework-free route shape silently changed
+   * which string a duplicated `state` selected — and `consume` deletes the
+   * record before it compares, so the wrong value burned a login that was about
+   * to succeed.
+   *
+   * The decision is to refuse the request rather than to pick a value: no
+   * authorization server sends `state` twice, and `openid-client` refuses a
+   * repeated response parameter a moment later regardless, so first-value would
+   * only move the failure past the point where the transaction is gone.
+   *
+   * The assertion that carries it is the second callback: refusing costs the
+   * caller nothing, and the login they actually started still completes.
+   */
+  it('refuses a callback carrying two states without spending the transaction', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const polluted = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1&state=other', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(polluted.status).toBe(400);
+    // Read as text, because the answer this refusal replaces is a *bodiless*
+    // 400 with the binding cookie cleared, and `json()` on that throws a
+    // `SyntaxError` before any assertion can report what actually differed.
+    expect(await polluted.text()).toBe(JSON.stringify({ error: 'duplicate_state' }));
+    expect(f.calls.exchange).toHaveLength(0);
+    expect(polluted.headers.get('set-cookie')).toBeNull();
+
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+  });
+
+  /**
+   * TASK-269, the second half. Elysia answers a HEAD from the path's GET and so
+   * does the second binder, which is right for a route that reads something.
+   * This one consumes a single-use transaction and mints session cookies, so a
+   * HEAD — a link preview, an uptime probe — would spend a whole login on a
+   * request that carries no body back.
+   *
+   * Before the route shape the handler read the raw `request.method` and the
+   * provider saw HEAD; afterwards it read the registered verb and the provider
+   * saw GET. Refusing closes the difference instead of choosing which of the
+   * two the provider should be told.
+   */
+  it('refuses a HEAD callback with 405 and Allow, before consuming or exchanging', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const probed = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        method: 'HEAD',
+      }),
+    );
+
+    expect(probed.status).toBe(405);
+    expect(probed.headers.get('allow')).toBe('GET');
+    expect(f.calls.exchange).toHaveLength(0);
+    expect(f.transactions.consume('binding-1', 'state-1')).toEqual({
+      nonce: 'nonce-1',
+      verifier: 'verifier-1',
+    });
+  });
+
+  /**
+   * The verb the provider is told, pinned so the two binders cannot drift on it
+   * again: with HEAD refused above, the only request that reaches
+   * `authorizationCodeGrant` is the GET the route is registered under.
+   */
+  it('hands the provider the GET it was registered under', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    const exchange = f.calls.exchange[0] as { request: Request };
+    expect(exchange.request.method).toBe('GET');
+  });
+
   it('exchanges once and sets hardened access and refresh-correlation cookies', async () => {
     const f = fixture();
     f.transactions.save({
