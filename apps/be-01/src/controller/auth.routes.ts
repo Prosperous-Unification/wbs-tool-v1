@@ -294,17 +294,28 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // probe following the redirect URL would be enough to do it. So the
         // arrived verb is refused here rather than resolved away.
         //
-        // 405 with `Allow`, which RFC 9110 §15.5.6 requires, rather than the
-        // 404 this app answers for a verb it declares no route for: there *is*
-        // a route on this path and it is telling the caller which verb reaches
-        // it. It is refused in the handler rather than in a `preflight` for one
-        // mechanical reason — a preflight's refusal reaches the wire through
-        // Elysia's `status(…)`, which carries no headers, so `Allow` would
-        // survive under one binder and not the other. See `RoutePreflight`.
+        // **HEAD is the only verb this can be answering**, and the 405 says so
+        // rather than widening the route: POST, PUT, PATCH and DELETE never
+        // reach here at all, because the route is registered under GET alone
+        // and both binders answer a wrong verb on a known path with 404 before
+        // any handler (`in-process/bind.ts` says why that is 404 and not 405).
+        // HEAD is the one verb dispatched *into* this handler, so it is the one
+        // verb that can be refused from inside it. 405 with `Allow`, which RFC
+        // 9110 §15.5.6 requires, because the caller asked a route that exists
+        // for a verb it does not serve. It is refused in the handler rather
+        // than in a `preflight` for one mechanical reason — a preflight's
+        // refusal reaches the wire through Elysia's `status(…)`, which carries
+        // no headers, so `Allow` would survive under one binder and not the
+        // other. See `RoutePreflight`.
         //
         // Nothing is cleared and nothing is consumed: a refusal that cost the
         // caller their transaction would be the defect this route is being
         // fixed for, wearing a different status.
+        //
+        // Proof: `refuses a HEAD callback with 405 and Allow, before consuming
+        // or exchanging` fails with `Expected: 405 Received: 302` when this
+        // check is deleted — the probe completes the login and spends the
+        // transaction.
         if (req.receivedMethod !== 'GET') {
           return { status: 405, body: { error: 'method_not_allowed' }, headers: { allow: 'GET' } };
         }
@@ -317,23 +328,53 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // different string after the refactor than before it (TASK-269).
         //
         // **The answer is to refuse it, not to pick a value.** No authorization
-        // server sends `state` twice; a callback that carries two is parameter
-        // pollution, and the provider library refuses it a moment later anyway.
-        // Read at this head, `oauth4webapi` 3.8.7 under `openid-client` 6.8.7
-        // pulls every response parameter through `getURLSearchParameter`
-        // (`build/index.js:2042-2048`), which throws `"state" parameter must be
-        // provided only once` on a second value. Picking the first would
-        // therefore only move the failure from a 400 this route controls to a
-        // rejected promise out of `exchange` — after the transaction is gone.
+        // server sends a response parameter twice; a callback that carries one
+        // twice is parameter pollution, and the provider library refuses it a
+        // moment later anyway. Read at this head, `oauth4webapi` 3.8.7 under
+        // `openid-client` 6.8.7 pulls every response parameter through
+        // `getURLSearchParameter` (`build/index.js:2042-2048`), which throws
+        // `"<name>" parameter must be provided only once` on a second value.
+        // Picking the first would therefore only move the failure from a 400
+        // this route controls to a rejected promise out of `exchange` — after
+        // the transaction is gone.
         //
         // **And it is refused before `consume`, with nothing cleared**, which
         // is the half that matters. `InMemoryOidcTransactionStore.consume`
         // deletes the record before it checks the state, so reaching it with
         // the wrong value burns a login that was about to succeed; a duplicated
-        // `state` now costs the caller nothing at all and the correct callback
-        // still works.
-        const states = new URL(req.url).searchParams.getAll('state');
-        if (states.length > 1) return respond(400, { error: 'duplicate_state' });
+        // parameter now costs the caller nothing at all and the correct
+        // callback still works.
+        //
+        // **Any repeated key, not just `state`.** A doubled `code` is the same
+        // fault one parameter over and it is strictly worse: the state matches,
+        // `consume` succeeds and spends the transaction, and the throw out of
+        // `exchange` is caught by nothing in this handler, so the caller gets a
+        // framework 500 for a login that is now unrecoverable. `iss` loses the
+        // same login one step earlier.
+        //
+        // The broad rule rather than the library's singleton set, and it is the
+        // protocol's rule and not a house preference: RFC 6749 §3.1 says
+        // request and response parameters MUST NOT be included more than once,
+        // for every parameter and not for an enumerated few. Copying the set
+        // `oauth4webapi` happens to read would put a dependency's internals in
+        // a controller and be wrong the day it reads one more; this URL exists
+        // for exactly one redirect from one authorization server, so a key it
+        // sent twice is refused whichever key it is.
+        //
+        // Proof: `refuses a callback carrying two states without spending the
+        // transaction` fails on `Expected "{"error":"duplicate_parameter"}"
+        // Received ""` — the bodiless 400 with the cookie cleared, i.e. the
+        // burn — when this reads `req.query['state']` instead; and `refuses a
+        // callback carrying two codes with the transaction still unspent`
+        // fails with `Expected: 400 Received: 302` when the rule is narrowed
+        // back to `state` alone.
+        const sent = new URL(req.url).searchParams;
+        const seen = new Set<string>();
+        for (const key of sent.keys()) {
+          if (seen.has(key)) return respond(400, { error: 'duplicate_parameter' });
+          seen.add(key);
+        }
+        const states = sent.getAll('state');
 
         // Truthiness, which is `saved-plan.routes.ts`'s idiom for the same
         // problem: an absent key is `undefined` here and an empty `?state=` is

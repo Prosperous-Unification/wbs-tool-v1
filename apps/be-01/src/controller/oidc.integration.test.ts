@@ -542,7 +542,49 @@ describe('OIDC browser routes', () => {
     // Read as text, because the answer this refusal replaces is a *bodiless*
     // 400 with the binding cookie cleared, and `json()` on that throws a
     // `SyntaxError` before any assertion can report what actually differed.
-    expect(await polluted.text()).toBe(JSON.stringify({ error: 'duplicate_state' }));
+    expect(await polluted.text()).toBe(JSON.stringify({ error: 'duplicate_parameter' }));
+    expect(f.calls.exchange).toHaveLength(0);
+    expect(polluted.headers.get('set-cookie')).toBeNull();
+
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+  });
+
+  /**
+   * The same refusal one parameter over, and the case that says why the rule is
+   * "any repeated key" rather than "a repeated `state`".
+   *
+   * A doubled `code` passes the state check, so `consume` succeeds and spends
+   * the transaction — and then `authorizationCodeGrant` throws on the duplicate,
+   * which nothing in this handler catches. The caller would get a framework 500
+   * for a login that is now gone. The fixture's `exchange` is a stub and cannot
+   * reproduce that throw, so what is asserted is the refusal that stops it
+   * happening — and, as above, the honest callback that still completes, which
+   * is what says the transaction and the cookie both survived.
+   */
+  it('refuses a callback carrying two codes with the transaction still unspent', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const polluted = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&code=c2&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(polluted.status).toBe(400);
+    expect(await polluted.text()).toBe(JSON.stringify({ error: 'duplicate_parameter' }));
     expect(f.calls.exchange).toHaveLength(0);
     expect(polluted.headers.get('set-cookie')).toBeNull();
 
@@ -587,34 +629,21 @@ describe('OIDC browser routes', () => {
     expect(probed.status).toBe(405);
     expect(probed.headers.get('allow')).toBe('GET');
     expect(f.calls.exchange).toHaveLength(0);
-    expect(f.transactions.consume('binding-1', 'state-1')).toEqual({
-      nonce: 'nonce-1',
-      verifier: 'verifier-1',
-    });
-  });
+    // The cookie has to survive the refusal, not just the record: reading
+    // `f.transactions` by key would still pass if the 405 cleared
+    // `__Host-wbs_oidc`, and a browser with no binding cannot finish the login
+    // the record is still holding. So the carrying assertion is the honest GET
+    // that follows, sending the same cookie the probe was answered with.
+    expect(probed.headers.get('set-cookie')).toBeNull();
 
-  /**
-   * The verb the provider is told, pinned so the two binders cannot drift on it
-   * again: with HEAD refused above, the only request that reaches
-   * `authorizationCodeGrant` is the GET the route is registered under.
-   */
-  it('hands the provider the GET it was registered under', async () => {
-    const f = fixture();
-    f.transactions.save({
-      browserBinding: 'binding-1',
-      nonce: 'nonce-1',
-      state: 'state-1',
-      verifier: 'verifier-1',
-    });
-
-    await f.app.handle(
+    const honest = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
         headers: { cookie: '__Host-wbs_oidc=binding-1' },
       }),
     );
 
-    const exchange = f.calls.exchange[0] as { request: Request };
-    expect(exchange.request.method).toBe('GET');
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
   });
 
   it('exchanges once and sets hardened access and refresh-correlation cookies', async () => {
