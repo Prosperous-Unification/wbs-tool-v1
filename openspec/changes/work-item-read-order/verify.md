@@ -177,5 +177,14 @@ added to them.
 
 ## 4. The gate
 
-Recorded on the run that ships this; see the table in §2 for the heads already
-measured.
+At `0a15ebc3`, `dirty=0`, on h2puni:
+
+- [x] `bunx nx run-many -t test lint typecheck build` — rc 0,
+      `Successfully ran targets test, lint, typecheck, build for 22 projects`.
+- [x] `bunx nx format:check --all` — rc 0.
+- [x] `bunx @fission-ai/openspec@1.3.0 validate --all --json` — 38 items, 38
+      passed, 0 failed.
+
+The be-01 count in §2 is quoted at `bede02ab` because that is where it was
+taken; `0a15ebc3` is that commit plus prettier whitespace inside this file and
+nothing else, and the run-many above re-ran the same suite at the tip.
