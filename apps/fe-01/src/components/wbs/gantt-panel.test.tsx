@@ -5363,6 +5363,52 @@ describe('the marker rule takes its named slot in marksOverLight', () => {
     return rule;
   };
 
+  /**
+   * The one mark at a selector, or a throw naming it.
+   *
+   * A throw rather than {@link markAttribute}'s sentence because slice 8.8's
+   * two cases order **elements** against each other: a missing mark would make
+   * `compareDocumentPosition` an invalid call rather than a failed comparison,
+   * and the message would name neither the mark nor the day.
+   */
+  const markAt = (selector: string): Element => {
+    const mark = document.querySelector(selector);
+    if (mark === null) throw new Error(`nothing on the chart at ${selector}`);
+    return mark;
+  };
+
+  /**
+   * Whether `mark` is painted after `earlier` — document order, which is SVG
+   * paint order.
+   *
+   * `compareDocumentPosition` and not an index into {@link paintOrder}, because
+   * slice 8.8's collisions are about **one day's** marks and the run-collapsing
+   * that makes the order assertion above readable throws away exactly the
+   * offset that says which day a run belongs to. Both of these cases put the
+   * rule and the mark it collides with on the same offset, and `paintOrder`
+   * cannot tell that apart from 8.2's fixture, where they are two days apart.
+   */
+  const paintedAfter = (mark: Element, earlier: Element): boolean =>
+    (earlier.compareDocumentPosition(mark) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  /**
+   * What the Saturday band is, as the comparison across two renders reads it.
+   *
+   * Geometry **and** class: a weekend column moved by a marker and a weekend
+   * column that lost its tint are two different regressions, and the geometry
+   * alone would forgive the second.
+   */
+  const weekendBandFacts = () => {
+    const band = markAt('[data-gantt-weekend="5"]');
+    return {
+      x: band.getAttribute('x'),
+      y: band.getAttribute('y'),
+      width: band.getAttribute('width'),
+      height: band.getAttribute('height'),
+      className: band.getAttribute('class'),
+    };
+  };
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -5559,6 +5605,57 @@ describe('the marker rule takes its named slot in marksOverLight', () => {
     // that fault is watched, every other claim in this case has already been
     // evaluated and passed rather than been skipped by the throw.
     expect(marked.translucent).toBe(true);
+  });
+
+  itDom('a marker on today is drawn after today’s edge, and today keeps its column', () => {
+    // Slice 8.8, first collision, and the one `design.md` §2.1's slot exists
+    // to decide: the edge is a stroke at the **same x** as the rule, so the
+    // opposite ordering would have hidden a marker the user had just placed
+    // behind the sky-500 line — the chart answering a click with nothing.
+    //
+    // 8.2's order case cannot see this. Its marker is on 2026-08-13 and today
+    // is 2026-08-12, so the rule and the edge are two days apart there and the
+    // collapsed run order it compares would read the same if the chart drew
+    // them in either order at a shared offset.
+    markedChart([{ id: 'm-cut', date: '2026-08-12', name: 'Cutover', color: AZURE }]);
+
+    expect(
+      paintedAfter(markAt('[data-gantt-marker-rule="2"]'), markAt('[data-gantt-today-edge="2"]')),
+    ).toBe(true);
+    // And the tint underneath is still there, at that offset and a whole day
+    // wide: two facts about one day, and the marker replaces neither. A rule
+    // that had taken today's column with it would satisfy the ordering above
+    // vacuously, since a document with no `data-gantt-today` still orders the
+    // two marks it does hold.
+    expect(markAttribute('[data-gantt-today="2"]', 'x')).toBe('2');
+    expect(markAttribute('[data-gantt-today="2"]', 'width')).toBe('1');
+    expect(document.querySelectorAll('[data-gantt-today]')).toHaveLength(1);
+  });
+
+  itDom('a marker on a Saturday is drawn after the weekend column, and leaves it alone', () => {
+    // Slice 8.8, second collision. The weekend band is a `rect` a whole day
+    // wide painted in an earlier layer than `marksOverLight`, so "after" here
+    // is a claim about the two layers and not about two siblings — a rule
+    // hoisted under the calendar's own furniture would be a marker the reader
+    // placed on a Saturday and cannot see.
+    //
+    // Offset 5 is the Saturday of the first week: the plan starts Monday
+    // 2026-08-10 and `haul` runs nine workdays, which is what reaches it.
+    markedChart([{ id: 'm-freeze', date: '2026-08-15', name: 'Freeze', color: CORAL }]);
+    const marked = weekendBandFacts();
+
+    expect(
+      paintedAfter(markAt('[data-gantt-marker-rule="5"]'), markAt('[data-gantt-weekend="5"]')),
+    ).toBe(true);
+
+    // The same plan with no marker, on a fresh document — the band is read
+    // twice rather than asserted against literals, because what the slice
+    // claims is that the marker changed nothing about it, and a literal would
+    // pin this case to whatever the weekend band happens to be drawn as today.
+    cleanup();
+    markedChart([]);
+
+    expect(marked).toEqual(weekendBandFacts());
   });
 });
 

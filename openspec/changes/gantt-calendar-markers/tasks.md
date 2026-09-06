@@ -1822,7 +1822,7 @@ in both slices rather than implied by position.
       rules in the exported markup — because the export copies whatever the live
       chart drew, which is the coupling this slice is about.
 
-- [ ] 8.8 A marker on today and a marker on a weekend — test: same file, two
+- [x] 8.8 A marker on today and a marker on a weekend — test: same file, two
       cases: a marker on today's date, asserting its rule element **follows**
       `data-gantt-today-edge` and that the `data-gantt-today` tinted column is
       still present at that offset; and a marker on a Saturday, asserting its
@@ -3633,3 +3633,44 @@ the chip in the previewed colour`. Unlike the `opacity: 0.35` negative — which
 moves no DOM-visible property and left all 2288 green — a fill negative is
 visible at the DOM seam by construction, so those three are the fault landing
 where it should rather than collateral.
+
+## Chunk 74 — 8.8, the two collisions the slot decides (TASK-235 run 37, 2026-09-06)
+
+Two cases in `gantt-panel.test.tsx`, inside the suite that already owns 8.2's
+order assertion and its `markedChart` fixture. Test-only; no source moved.
+
+**The today case is the one the slice names**, and it needs
+`compareDocumentPosition` rather than an index into `paintOrder`. That helper
+collapses each kind of mark to one entry per consecutive run, which is what
+makes the eight-slot sequence readable and is exactly what throws away the
+offset saying _which day_ a run belongs to. 8.2's fixture puts its marker on
+2026-08-13 and today on 2026-08-12, so its rule and the today edge are two days
+apart there and no assertion in the file had ever ordered the two marks **at a
+shared offset** — which is the collision, since the edge is a stroke at the
+same x and the opposite order hides a marker the user has just placed. The case
+also reads today's tint back at that offset, because the ordering claim is
+vacuous on a document that lost `data-gantt-today` entirely.
+
+**The Saturday case compares the band across two renders** rather than against
+literals: what 8.8 claims is that the marker changed nothing about the weekend
+column, and a literal would pin the case to whatever that column happens to be
+drawn as. Geometry _and_ class, because a column moved by a marker and a column
+that lost its tint are two different regressions. `cleanup()` between the two
+renders, the idiom the unchanged-bar case above already uses.
+
+**Negative watched, and the slice's own expectation about it is wrong.** The
+today-edge block moved to _after_ the marker-rule map in `marksOverLight` (295
+bytes, applied on the gate host only, restored and md5-verified at `235f3ff2`
+on both hosts) reddens **two** cases, not one: 8.8's today case on `expected
+false to be true`, and 8.2's `is emitted after today's edge…` on the collapsed
+slot sequence. The slice predicted "every other paint assertion stays green";
+`paintOrder` reads one global document order, so swapping the two emission
+blocks moves that sequence too. What the run does show is the split the slice
+is really after — 8.8's **Saturday** case stays green under the same fault,
+along with the other 217 in the file, so the two collisions are two facts and
+not one restatement.
+
+Gates on **h2puni** at the committed bytes, `fe-01:test` target (not a focused
+invocation): 88 files / **2301 passed** / 0 fail, up from 2299 by exactly these
+two, plus the zoned tier 2 files / 3 passed. `prettier --check` rc 0 on the
+touched file before the suite ran, per the standing format-first correction.
