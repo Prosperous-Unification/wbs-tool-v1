@@ -79,7 +79,7 @@ describe('the mounted route list', () => {
    */
   it('gives every route carrying a query schema a preflight', () => {
     const withQuery = assembled()
-      .filter((route) => route.documentation?.query !== undefined)
+      .filter((route) => route.documentation?.querySchema !== undefined)
       .map(
         (route) =>
           `${route.method} ${route.path} preflight=${String(route.preflight !== undefined)}`,

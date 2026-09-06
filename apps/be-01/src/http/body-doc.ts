@@ -1,15 +1,17 @@
+import type { OpenAPIV3 } from 'openapi-types';
+
 /**
  * A JSON Schema object as this app writes one for a documented request body.
  *
- * `unknown` and not a structural JSON Schema type: every value handed to the
- * two helpers below is an object literal written a few lines from its route,
- * and the publisher — `@elysiajs/openapi` — is the thing that decides what a
- * schema may contain. Narrowing here would be this file inventing a dialect it
- * does not own; {@link http/elysia/body-doc-conformance} is where the real
- * shape is checked, against the framework's own type, on the framework's side
- * of the seam.
+ * Taken from `openapi-types` and not restated here, because a hand-written
+ * copy of a schema type is wrong the first time the standard moves and nothing
+ * says so. It is also not taken from Elysia: `DocumentDecoration` is
+ * `Partial<OpenAPIV3.OperationObject>`, so the shape these helpers build was
+ * never the framework's to begin with — it is OpenAPI's, and `openapi-types`
+ * is the package that owns it. Depending on the vocabulary instead of the
+ * server is exactly the distinction this refactor is about.
  */
-export type BodySchema = unknown;
+export type BodySchema = OpenAPIV3.ReferenceObject | OpenAPIV3.SchemaObject;
 
 /**
  * A documented request body: OpenAPI's `requestBody` object, in the two shapes
@@ -25,12 +27,15 @@ export type BodySchema = unknown;
  * old note admitted the grep failure and kept the file anyway, so a criterion
  * this branch exists to meet stayed open for fourteen chunks.
  *
- * The rejected alternative was to restate `DocumentDecoration`'s inner shape
- * structurally and hope it kept matching. That objection was right, so the
- * check moved rather than vanished: `http/elysia/body-doc-conformance.ts`
- * asserts this type is assignable to Elysia's, and fails `be-01:typecheck` if a
- * framework upgrade changes the shape underneath. The type is declared where no
- * framework is imported and proved where one is.
+ * The objection the old note raised against moving — that restating
+ * `DocumentDecoration`'s inner shape structurally would be a copy of a type
+ * this app does not own, silently right until Elysia changes it — was correct,
+ * and nothing here is restated. The shape is `openapi-types`', which is where
+ * Elysia's own `DocumentDecoration` gets it, and
+ * `http/elysia/body-doc-conformance.ts` still asserts the two agree: if a
+ * framework upgrade narrows what it accepts, `be-01:typecheck` fails in that
+ * one file, naming the upgrade. Declared where no server framework is
+ * imported, proved where one is.
  */
 export interface RequestBodyDoc {
   required: boolean;
