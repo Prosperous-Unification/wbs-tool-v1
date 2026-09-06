@@ -169,7 +169,10 @@ async function threeRoots() {
   for (const projectId of ['p1', 'p2']) {
     const key = `wbs.hiddenColumns.${projectId}`;
     if (localStorage.getItem(key) === null) {
-      localStorage.setItem(key, JSON.stringify(['team', 'service', 'type']));
+      // `deadline` with them since `work-item-deadline` 9.1: it ships hidden
+      // for the same reason `type` does, and a baseline that showed it would
+      // put 84px into every width figure below.
+      localStorage.setItem(key, JSON.stringify(['team', 'service', 'type', 'deadline']));
     }
   }
 
@@ -1818,7 +1821,7 @@ describe('the columns a reader has hidden', () => {
     const panel = openColumns();
     fireEvent.click(within(panel).getByLabelText('Priority'));
     expect(localStorage.getItem(RESET_MARKER)).toBeNull();
-    expect(stored()).toBe(JSON.stringify(['team', 'service', 'type', 'priority']));
+    expect(stored()).toBe(JSON.stringify(['team', 'service', 'type', 'deadline', 'priority']));
   });
 
   itDom('keeps a hidden column hidden across a reload', async () => {
@@ -1937,6 +1940,11 @@ describe('the columns a reader has hidden', () => {
       { label: 'QA', checked: true },
       { label: 'Days', checked: true },
       { label: 'Not before', checked: true },
+      // Unticked for the reason Types is: `work-item-deadline` 9.1 put
+      // `deadline` in `INITIAL_HIDDEN_COLUMNS` so the folded table at 1280
+      // stays the width it was, and the whole words are here because this
+      // control has the room the 84px `Due` heading does not.
+      { label: 'Work item deadline', checked: false },
       { label: 'Start', checked: true },
       { label: 'End', checked: true },
       { label: 'Slack', checked: true },
@@ -1951,11 +1959,13 @@ describe('the columns a reader has hidden', () => {
       fireEvent.click(within(panel).getByLabelText('Depends on'));
       expect(headerIds()).not.toContain('depends');
       expect(screen.queryByLabelText('Add a dependency to 010')).toBeNull();
-      expect(stored()).toBe(JSON.stringify(['refs', 'team', 'service', 'type', 'depends']));
+      expect(stored()).toBe(
+        JSON.stringify(['refs', 'team', 'service', 'type', 'deadline', 'depends']),
+      );
 
       fireEvent.click(within(panel).getByLabelText('Depends on'));
       expect(headerIds()).toContain('depends');
-      expect(stored()).toBe(JSON.stringify(['refs', 'team', 'service', 'type']));
+      expect(stored()).toBe(JSON.stringify(['refs', 'team', 'service', 'type', 'deadline']));
       // Proof: `rememberHiddenColumns` left out of the toggle, this failed on
       // `expected null to be '["team","service","depends"]'`. Watched, 2026-08-28.
     },
@@ -1969,7 +1979,7 @@ describe('the columns a reader has hidden', () => {
     expect(screen.getByLabelText('Service or team for 010')).toBeDefined();
     fireEvent.click(within(panel).getByLabelText('QA'));
     expect(headerIds().filter((id) => id.startsWith('step-qa-'))).toEqual([]);
-    expect(stored()).toBe(JSON.stringify(['refs', 'service', 'type', 'step-qa']));
+    expect(stored()).toBe(JSON.stringify(['refs', 'service', 'type', 'deadline', 'step-qa']));
   });
 
   itDom('is forgotten by a layout reset, which is offered while a column is hidden', async () => {

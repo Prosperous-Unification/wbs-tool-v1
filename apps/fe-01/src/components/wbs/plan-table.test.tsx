@@ -1559,7 +1559,10 @@ describe('the order of the columns', () => {
     // thing a plan is read by while scrolling out to the dates, meant Name had
     // to come third rather than fourth. Deliberate reversal, written down in
     // `openspec/changes/sticky-table-frame/proposal.md`.
-    localStorage.setItem('wbs.hiddenColumns.p1', JSON.stringify(['team', 'service', 'type']));
+    localStorage.setItem(
+      'wbs.hiddenColumns.p1',
+      JSON.stringify(['team', 'service', 'type', 'deadline']),
+    );
     await threeRoots();
 
     const headers = screen.getAllByRole('columnheader').map((th) => th.textContent.trim());
@@ -1584,6 +1587,11 @@ describe('the order of the columns', () => {
     // `Not bef.`, not `Not before`: the column is 84px at its widest and 56 at
     // its narrowest, and the sentence it used to be is in the heading's
     // `title`.
+    // The Work item deadline column is hidden here alongside the other three,
+    // which is where this project's reader left it: `work-item-deadline` 9.1
+    // ships it in {@link INITIAL_HIDDEN_COLUMNS} because the folded table at
+    // 1280 has no 84px to give it. Shown, it sits between `Not bef.` and
+    // `Start` — the two days a planner states, then the days be-01 worked out.
     expect(headers.slice(-5)).toEqual(['Not bef.', 'Start', 'End', 'Slack', '']);
     expect(headers).not.toContain('Notes');
   });
