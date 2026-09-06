@@ -2496,6 +2496,9 @@ const COLUMN_LABELS: ReadonlyMap<string, string> = new Map([
   ['in-parallel', 'People at once'],
   ['final-total', 'Days'],
   ['not-before', 'Not before'],
+  // The whole words here and `Due` on the `<th>`: this list is the `Columns`
+  // control, which has the room the 84px heading does not.
+  ['deadline', 'Work item deadline'],
   ['start', 'Start'],
   ['finish', 'End'],
   ['float', 'Slack'],
