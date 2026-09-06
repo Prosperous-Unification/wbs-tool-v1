@@ -7041,9 +7041,9 @@ describe('downloading the chart as a standalone .svg', () => {
       expect(chips.map((chip) => Number(chip.getAttribute('width')))).toEqual(
         packed.map(() => FENCE_RUNG_PX),
       );
-      expect(
-        Number(chips[1].getAttribute('x')) - Number(chips[0].getAttribute('x')),
-      ).toBe(FENCE_RUNG_PX);
+      expect(Number(chips[1].getAttribute('x')) - Number(chips[0].getAttribute('x'))).toBe(
+        FENCE_RUNG_PX,
+      );
       // And the names, which at 4px is the whole of what a chip can say: a tick
       // that wide holds no readable text at all.
       expect(
