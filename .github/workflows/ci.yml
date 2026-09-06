@@ -122,9 +122,6 @@ jobs:
       # and upload; CI 34033278085 failed Nx while upload retained distinct
       # nx-gate-log-1/-2 artifacts across attempts; CI 34034640885 restored the
       # exact source annotation from the parser-fixed artifact.
-      # TASK-289 control: CI 34055714150 completed the normal Nx command, then
-      # a temporary fault in this annotation helper made the gate red while the
-      # always-run log upload still passed. The fault was removed immediately.
       - name: Gate — test, lint, typecheck, build
         id: nx_gate
         run: |
@@ -134,7 +131,8 @@ jobs:
           gate_status=$?
           tail -n 200 nx-gate.log
           annotation_status=0
-          bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts nx-gate.log || annotation_status=$?
+          bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts \
+            nx-gate.log TASK_289_WATCHED_FAULT || annotation_status=$?
           if [ "$gate_status" -ne 0 ]; then
             exit "$gate_status"
           fi

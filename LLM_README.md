@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-289 hardens CI annotation restoration against control-command injection on PR 251. The h2puni project gate and live fail-closed CI control are complete; final exact-head CI and terminal reviews remain.
+TASK-289 hardens CI annotation restoration against control-command injection on PR 251. The h2puni project gate is green; a workflow-only live fail-closed control is in flight, then final exact-head CI and reviews remain.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
