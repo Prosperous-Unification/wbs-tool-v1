@@ -4,6 +4,11 @@ import { expect, type Locator, type Page, type Response, test } from '@playwrigh
 
 import { calendarScale } from '../src/components/wbs/gantt-geometry';
 import { CHART_PAD_PX, DAY_PX, LABEL_COLUMN_PX, ROW_PX } from '../src/components/wbs/gantt-panel';
+import {
+  differingColumns,
+  isContiguousRun,
+  sameColumns,
+} from '../src/components/wbs/marker-rule-ink';
 import { createProject } from './create-project';
 
 /**
@@ -3575,5 +3580,339 @@ test.describe('the chart downloaded as a standalone .svg', () => {
     // And the plot begins where the divider stands, so what the gutter took is
     // room the chart gave up rather than room drawn over.
     expect(measured.plotX).toBe(measured.dividerX);
+  });
+});
+
+/**
+ * Slice 8.2a's browser tier — the half jsdom cannot reach.
+ *
+ * The jsdom tier (`gantt-panel.test.tsx`) pins the rule's tag, its
+ * `vector-effect` attribute and its declared width. None of those three says
+ * the stroke reaches the screen as a hairline: the chart's user space is days
+ * by rows stretched to `dayPx` (`viewBox` with `preserveAspectRatio="none"`),
+ * so a declared `1` without the mechanism rasterizes **a whole day wide** and
+ * passes every attribute assertion there is. Only pixels can tell those two
+ * renderers apart, and only at two rungs — a single rung cannot distinguish a
+ * non-scaling stroke from a width that happens to equal that rung's day pixels.
+ *
+ * **The oracle is painted columns, not `boundingBox().width`.** The rule is a
+ * vertical `<line>` with `x1 === x2` and therefore has no area; this file's own
+ * `seedEdgeRoutes` note records that a browser reports such a line hidden. The
+ * box cannot see the stroke, which is painted outside the geometry it measures.
+ *
+ * Three clips per rung, and the two derived sets are what close the two holes a
+ * single comparison leaves. `totalInk` is what the marker adds; `ruleInk` is
+ * what the queried element itself adds. A coincident untagged 2px line makes
+ * `ruleInk` empty; an adjacent untagged 1px line makes the two sets differ; an
+ * auxiliary line in some other row band survives both, and is caught by the
+ * whole-body identity instead. The arithmetic between the clips lives in
+ * `marker-rule-ink.ts`, where each of its faults is watchable on a box with no
+ * browser on it.
+ */
+test.describe('the marker rule, measured in the columns it paints', () => {
+  /**
+   * 28 and 4 are the ends of the ladder and are what make the mechanism
+   * visible; 12 is rendered too because the requirement says *every* rung and a
+   * fault conditioned on the middle one would otherwise reach no browser
+   * assertion at all.
+   */
+  const RUNGS = [DAY_PX, 12, 4] as const;
+
+  /**
+   * The day the marker stands on: far enough in that the strip clears the
+   * chart's left padding at the narrowest rung, early enough that the last
+   * row's bar has not started yet, so the band the strip crosses is empty.
+   */
+  const MARKED_OFFSET = 3;
+
+  /** Half the strip's width, in columns either side of the rule. */
+  const STRIP_REACH_PX = 6;
+
+  /** A clip of the chart, as the page can carry it back in. */
+  interface Strip {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }
+
+  /**
+   * Where to clip, recomputed from live geometry every time.
+   *
+   * Chart-relative rather than absolute: creating the marker puts a chip in the
+   * sticky header, and a header that grows moves the body down. Absolute clips
+   * taken either side of that would compare different content and the identity
+   * below would fail for the wrong reason.
+   */
+  async function geometryOf(page: Page): Promise<{ strip: Strip; body: Strip }> {
+    return page.evaluate(
+      ({ offset, reach }) => {
+        const chart = document.querySelector('[data-gantt-chart]');
+        const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+        const rows = [...document.querySelectorAll('[data-gantt-row-line]')];
+        if (chart === null) throw new Error('nothing on the chart at [data-gantt-chart]');
+        if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+        // The length rather than the element: without `noUncheckedIndexedAccess`
+        // an index off a non-empty-typed array is not `undefined` to the
+        // checker, and the guard would read as an impossible comparison.
+        if (rows.length === 0) throw new Error('the chart draws no row lines');
+        const band = rows[rows.length - 1];
+        const chartBox = chart.getBoundingClientRect();
+        const cellBox = cell.getBoundingClientRect();
+        const bandBox = band.getBoundingClientRect();
+        return {
+          // A short horizontal strip crossing the rule, in a row band with no
+          // bar in it. The rule stands at the axis cell's own left edge: the
+          // band carries the same `CHART_PAD_PX` the SVG keeps at its left, so
+          // day 0's cell starts where user x=0 does.
+          strip: {
+            x: Math.round(cellBox.x - reach),
+            y: Math.round(bandBox.y + 4),
+            width: reach * 2 + 1,
+            height: 8,
+          },
+          // The rows and not the axis band: the chip is header ink and is
+          // supposed to differ. `[data-gantt-chart]` is the body SVG alone,
+          // clamped to what the viewport can actually photograph.
+          body: {
+            x: Math.round(Math.max(chartBox.x, 0)),
+            y: Math.round(Math.max(chartBox.y, 0)),
+            width: Math.round(
+              Math.min(chartBox.right, window.innerWidth) - Math.max(chartBox.x, 0),
+            ),
+            height: Math.round(
+              Math.min(chartBox.bottom, window.innerHeight) - Math.max(chartBox.y, 0),
+            ),
+          },
+        };
+      },
+      { offset: MARKED_OFFSET, reach: STRIP_REACH_PX },
+    );
+  }
+
+  /** Both clips of one state, as base64 PNGs. */
+  async function photograph(page: Page): Promise<{ strip: string; body: string }> {
+    const where = await geometryOf(page);
+    const strip = await page.screenshot({ clip: where.strip });
+    const body = await page.screenshot({ clip: where.body });
+    // `toString('base64')` rather than `Buffer.equals`, which this project's
+    // `Buffer` types will not accept another `Buffer` for — `hover-cards.spec.ts`
+    // compares two clips the same way.
+    return { strip: strip.toString('base64'), body: body.toString('base64') };
+  }
+
+  /**
+   * Decodes two clips **in the page** and returns the columns they differ in.
+   *
+   * `page.screenshot` hands back a Node `Buffer` and there is no PNG decoder in
+   * this workspace, so the bytes are carried in as a data URL and drawn into a
+   * canvas — the extraction `measure-ink.ts:78` already uses, with the loading
+   * spelled out because two of its steps throw or truncate when left implicit:
+   * `img.decode()` before drawing, and the canvas sized from the image before
+   * that, since a fresh `<canvas>` is 300×150 and would crop a wider clip.
+   */
+  async function differingColumnsOf(page: Page, before: string, after: string): Promise<number[]> {
+    const pixels = await page.evaluate(
+      async ([first, second]) => {
+        const read = async (
+          encoded: string,
+        ): Promise<{ width: number; height: number; data: number[] }> => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${encoded}`;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx === null) throw new Error('this browser gave no 2d context');
+          ctx.drawImage(image, 0, 0);
+          // All four arguments: `getImageData()` with none is a `TypeError`, not
+          // a whole-canvas read.
+          const got = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          return { width: got.width, height: got.height, data: [...got.data] };
+        };
+        return [await read(first), await read(second)];
+      },
+      [before, after] as const,
+    );
+    return differingColumns(pixels[0], pixels[1]);
+  }
+
+  /** Moves the ladder, and waits for the day columns to have really moved. */
+  async function pickRung(page: Page, rung: number): Promise<void> {
+    await page.locator('[data-gantt-day-scale]').selectOption(String(rung));
+    await expect
+      .poll(async () =>
+        page
+          .locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`)
+          .evaluate((cell) => Math.round(cell.getBoundingClientRect().width)),
+      )
+      .toBe(rung);
+  }
+
+  /**
+   * **Held at `fixme` because the live app cannot make a marker yet, and the
+   * failure that says so was watched.** Run on h2puni at
+   * 2026-09-06T02:24:36Z, this case reached the composer — the axis cell
+   * opened it, `Marker name` took the text — and then timed out at 60s on the
+   * `POST …/calendar-markers` that never left the browser. The cause is not in
+   * this file: `wbs-table.tsx:12043` renders `<GanttPanel>` with thirteen
+   * props and **not one of them is a marker prop** — no `markers` to draw and
+   * no `onCreateMarker` for Save to call — so the composer's button reports
+   * upward into nothing and every axis cell still reads `no calendar markers`
+   * in the failure snapshot. The chart's marker layer is wired in jsdom, where
+   * the tests supply those props themselves, and nowhere else.
+   *
+   * That gap is not 8.2a's to close and no slice in this plan owns it, which is
+   * why this is recorded here rather than papered over with a fixture that
+   * injects markers past the app: **9.2, 9.2a, 9.2b, 9.2c and 9.3 are all
+   * blocked behind the same wiring**, and a browser tier that reached the
+   * screen through a back door would prove nothing about the product.
+   *
+   * `fixme` rather than `skip`: this is a test that should pass and does not.
+   * Drop this call once the host passes the marker props, and the body below
+   * runs unchanged — everything up to the save was watched working.
+   */
+  test.fixme('is one opaque hairline at every rung, and the only body ink the marker adds', async ({
+    page,
+  }) => {
+    await seedPlan(page, 'marker-rule-ink');
+    await openTheChart(page);
+
+    // Marker absent, at every rung, before anything is created: the geometry is
+    // read off the axis cell rather than the rule, so these clips need no
+    // marker to exist yet.
+    const absent = new Map<number, { strip: string; body: string }>();
+    for (const rung of RUNGS) {
+      await pickRung(page, rung);
+      absent.set(rung, await photograph(page));
+    }
+
+    await pickRung(page, DAY_PX);
+    await page.locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Ink');
+    // A REST `POST …/calendar-markers` and **not** a `/commands` batch: markers
+    // are their own route, so `savedCommand`'s kind matcher would wait forever.
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    const rule = page.locator('[data-gantt-marker-rule]');
+    await expect(rule).toHaveCount(1);
+    // The rule really stands where the strip was cut, which is what stops every
+    // measurement below from being a photograph of empty chart.
+    expect(
+      await rule.evaluate((line) => line.getBoundingClientRect().x),
+      'the rule does not stand at its axis cell, so the strip crosses nothing',
+    ).toBeCloseTo(
+      await page
+        .locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`)
+        .evaluate((cell) => cell.getBoundingClientRect().x),
+      0,
+    );
+
+    // The cascade's resolved width, in the one engine that resolves a cascade
+    // at all. This is **not** a proof of `vector-effect` — computed style
+    // cannot see that property — it is the one thing it reports faithfully, and
+    // it closes the renderer whose inline style overrides a declared `1`.
+    const painted = await rule.evaluate((line) => {
+      const style = getComputedStyle(line);
+      // Every element from the rule up to the chart `<svg>` inclusive: CSS
+      // `opacity` does not inherit, so a `<g opacity="0.5">` around the rule
+      // leaves the rule itself computing `1`.
+      const opacities: string[] = [];
+      let walk: Element | null = line;
+      while (walk !== null) {
+        opacities.push(getComputedStyle(walk).opacity);
+        if (walk.hasAttribute('data-gantt-chart')) break;
+        walk = walk.parentElement;
+      }
+      return {
+        strokeWidth: style.strokeWidth,
+        strokeOpacity: style.strokeOpacity,
+        stroke: style.stroke,
+        opacities,
+      };
+    });
+    expect(painted.strokeWidth, 'the rule resolves to something other than one pixel').toBe('1px');
+    expect(painted.strokeOpacity).toBe('1');
+    // A separate channel from the colour, so the alpha is checked in both
+    // places it can live: `oklch(… / 0.4)` is the form this stylesheet's own
+    // tokens take and it leaves `stroke-opacity` computing `1`.
+    expect(painted.stroke, 'the rule’s colour carries an alpha component').toMatch(
+      /^rgb\([^)]*\)$/,
+    );
+    expect(
+      painted.opacities.every((each) => each === '1'),
+      `something between the rule and the chart is translucent: ${painted.opacities.join(', ')}`,
+    ).toBe(true);
+    // And the walk really reached the chart, rather than stopping at a detached
+    // parent — an `every` over one element would pass whatever is above it.
+    expect(painted.opacities.length).toBeGreaterThan(1);
+
+    for (const rung of RUNGS) {
+      await pickRung(page, rung);
+      const present = await photograph(page);
+
+      // `visibility` rather than `display`, so nothing reflows between the two
+      // clips — and on **the element the assertions above queried**, which is
+      // what binds the width to the paint.
+      await rule.evaluate((line) => {
+        line.style.visibility = 'hidden';
+      });
+      const hidden = await photograph(page);
+      await rule.evaluate((line) => {
+        line.style.visibility = '';
+      });
+
+      const before = absent.get(rung);
+      if (before === undefined) throw new Error(`no absent clip at ${String(rung)}px`);
+
+      const totalInk = await differingColumnsOf(page, before.strip, present.strip);
+      const ruleInk = await differingColumnsOf(page, hidden.strip, present.strip);
+
+      // A hairline against a day. The bound is deliberately not tight enough to
+      // tell 1 CSS pixel from 2 — the rule sits on a pixel boundary and Skia
+      // paints it at partial coverage into the two columns it straddles — but
+      // 28 or 4 against 2 is the discrimination that matters.
+      expect(
+        isContiguousRun(ruleInk),
+        `the rule paints ${String(ruleInk.length)} columns at ${String(rung)}px, ` +
+          `and they are not one run: ${ruleInk.join(', ')}`,
+      ).toBe(true);
+      expect(
+        ruleInk.length,
+        `the rule is ${String(rung)}px wide, not a hairline`,
+      ).toBeLessThanOrEqual(2);
+
+      // An equality, not a bound: the 1-or-2 slack cannot hide inside it. An
+      // adjacent untagged line makes the marker's ink a strict superset of the
+      // rule's, and a containment would pass it.
+      expect(
+        sameColumns(totalInk, ruleInk),
+        `at ${String(rung)}px the marker paints ${totalInk.join(', ') || '(nothing)'} ` +
+          `and the rule paints ${ruleInk.join(', ') || '(nothing)'}`,
+      ).toBe(true);
+
+      // The binding, over the whole body rather than the strip: a strip cannot
+      // prove the absence of paint it does not cover. If hiding one element
+      // returns the chart to its marker-free state, that element is the only
+      // body ink the marker adds, anywhere.
+      expect(
+        hidden.body === before.body,
+        `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,
+      ).toBe(true);
+      // And the marker really drew something, so the identity above is not two
+      // photographs of the same empty chart.
+      expect(
+        present.body === before.body,
+        `at ${String(rung)}px the marker changes nothing in the body at all`,
+      ).toBe(false);
+    }
   });
 });
