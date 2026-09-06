@@ -505,9 +505,27 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       unscoped _title_ and ignored its scoped body. Adding a second requirement
       for behaviour a first one already owns is the divergence pattern these
       artifacts keep paying for; the test is worth having, the rule is not.
-- [ ] 7.6 **WATCHED RED W6** — omit the seventh argument from the hash. Two plans
+- [x] 7.6 **WATCHED RED W6** — omit the seventh argument from the hash. Two plans
       differing only in a deadline must collide on one cache row and the second
       must read the first's schedule.
+      **Measured at `0e716cba` on h2puni, `NX_DAEMON=false`.** Deleting
+      `deadlines: sortedPairs(input.deadlines)` from
+      `canonical-schedule-input.ts` takes the file from a green **26 pass / 0
+      fail** to **23 pass / 3 fail**, and the three are exactly the ones this
+      item names:
+      - `a deadline the engine now reads` — W6 itself. The two plans differ only
+        in `b`'s deadline; with the entry gone their hashes are equal while
+        `schedule()` places `b` and `c` in the opposite order, so the second plan
+        reads the first's schedule off one cache row.
+      - `a deadline authored on the parent rather than on its only leaf` — the
+        as-authored key (7.1) collapses with the entry.
+      - `puts every one of the seven arguments in the string, maps included` —
+        the structural guard catching the same hole a second way.
+      This is the same removal the 1.9 sweep recorded as `22 / 2` at `05b78008`;
+      the third red is new because 7.1 added a case, and the first now reds on
+      **both** of its assertions rather than on the hash alone, because the
+      engine reads the field since TASK-267. Tree restored clean after the
+      probe.
 
 ## 8. Wire, `plan-infeasible`, revalidator, TASK-221 copy
 
