@@ -646,7 +646,7 @@ describe('readMcpExposure', () => {
   });
 });
 
-it('startGreen admits backend APP_ORIGIN and writes its trusted container override before Docker', async () => {
+it('startGreen admits merged backend config and writes the supervisor directory mount before Docker', async () => {
   const written = new Map<string, string>();
   let started = false;
   await startGreen(
@@ -659,7 +659,7 @@ it('startGreen admits backend APP_ORIGIN and writes its trusted container overri
       readText: (path) =>
         Promise.resolve(
           path.endsWith('/be-01.env')
-            ? 'PORT=3100\nLOG_LEVEL=error\nGW_URL=http://gw\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\nAPP_ORIGIN=https://operator.example\n'
+            ? 'PORT=3100\nLOG_LEVEL=error\nGW_URL=http://gw\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\nAPP_ORIGIN=https://operator.example\nSOLVER_BUDGET_MS=120000\nSOLVER_SEARCH_WORKERS=2\nSOLVER_MEMORY_LIMIT_MB=512\n'
             : 'INTERNAL_AUTH_SECRET=s\nJWT_SIGNING_KEY_CURRENT=k\n',
         ),
       writePhaseFile: () => Promise.resolve(),
@@ -671,11 +671,15 @@ it('startGreen admits backend APP_ORIGIN and writes its trusted container overri
         const compose = [...written.values()].find((content) => content.startsWith('services:'));
         if (compose === undefined) throw new Error('Docker called before Compose write');
         const parsed = Bun.YAML.parse(compose) as {
-          services: Record<string, { environment: Record<string, string> }>;
+          services: Record<
+            string,
+            { environment: Record<string, string>; volumes?: readonly string[] }
+          >;
         };
-        expect(Object.values(parsed.services)[0].environment['APP_ORIGIN']).toBe(
-          'https://wbs.bulletpoints.club',
-        );
+        const service = Object.values(parsed.services)[0];
+        expect(service.environment['APP_ORIGIN']).toBe('https://wbs.bulletpoints.club');
+        expect(service.volumes?.[1]).toBe('/run/user/1000/wbs-solver:/run/wbs-solver:ro');
+        expect(service.volumes?.some((volume) => volume.includes('supervisor.sock'))).toBe(false);
         started = true;
         return Promise.resolve('');
       },

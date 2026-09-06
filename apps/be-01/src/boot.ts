@@ -80,6 +80,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     jwtKey: opts.jwtKey,
     gwUrl: opts.gwUrl,
     internalAuthSecret: opts.internalAuthSecret,
+    pushFetch: globalThis.fetch,
     oidc:
       opts.oidc === undefined
         ? undefined

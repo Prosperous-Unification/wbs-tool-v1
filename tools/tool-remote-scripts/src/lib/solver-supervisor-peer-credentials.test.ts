@@ -47,50 +47,57 @@ describe('readSupervisorPeerCredentials', () => {
     ).toThrow(/invalid peer pid/);
   });
 
-  it('obtains the real peer pid, uid, and gid from a Bun Unix listener on Linux', async () => {
-    const uid = process.getuid?.();
-    const gid = process.getgid?.();
-    if (uid === undefined || gid === undefined) {
-      throw new Error('real SO_PEERCRED proof requires Linux process credentials');
-    }
-    const path = `/tmp/wbs-peer-credentials-${String(process.pid)}-${randomUUID()}.sock`;
-    let resolveCredentials: (value: ReturnType<typeof readSupervisorPeerCredentials>) => void;
-    const credentials = new Promise<ReturnType<typeof readSupervisorPeerCredentials>>((resolve) => {
-      resolveCredentials = resolve;
-    });
-    const listener = Bun.listen({
-      unix: path,
-      socket: {
-        open(socket) {
-          resolveCredentials(readSupervisorPeerCredentials(socket));
-          socket.end();
+  // Proof: running this unguarded on macOS failed at dlopen('libc.so.6') with
+  // ERR_DLOPEN_FAILED before the SO_PEERCRED assertion could run.
+  it.skipIf(process.platform !== 'linux')(
+    'obtains the real peer pid, uid, and gid from a Bun Unix listener on Linux',
+    async () => {
+      const uid = process.getuid?.();
+      const gid = process.getgid?.();
+      if (uid === undefined || gid === undefined) {
+        throw new Error('real SO_PEERCRED proof requires Linux process credentials');
+      }
+      const path = `/tmp/wbs-peer-credentials-${String(process.pid)}-${randomUUID()}.sock`;
+      let resolveCredentials: (value: ReturnType<typeof readSupervisorPeerCredentials>) => void;
+      const credentials = new Promise<ReturnType<typeof readSupervisorPeerCredentials>>(
+        (resolve) => {
+          resolveCredentials = resolve;
         },
-        data(socket) {
-          socket.end();
+      );
+      const listener = Bun.listen({
+        unix: path,
+        socket: {
+          open(socket) {
+            resolveCredentials(readSupervisorPeerCredentials(socket));
+            socket.end();
+          },
+          data(socket) {
+            socket.end();
+          },
         },
-      },
-    });
-    const client = await Bun.connect({
-      unix: path,
-      socket: {
-        open(socket) {
-          socket.write('probe');
-        },
-        data(socket) {
-          socket.end();
-        },
-      },
-    });
-
-    try {
-      expect(await credentials).toEqual({
-        pid: process.pid,
-        uid,
-        gid,
       });
-    } finally {
-      client.end();
-      listener.stop(true);
-    }
-  });
+      const client = await Bun.connect({
+        unix: path,
+        socket: {
+          open(socket) {
+            socket.write('probe');
+          },
+          data(socket) {
+            socket.end();
+          },
+        },
+      });
+
+      try {
+        expect(await credentials).toEqual({
+          pid: process.pid,
+          uid,
+          gid,
+        });
+      } finally {
+        client.end();
+        listener.stop(true);
+      }
+    },
+  );
 });

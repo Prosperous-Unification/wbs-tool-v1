@@ -227,6 +227,9 @@ const APP_ENV_ALLOWED_KEYS: Record<Tier, readonly string[]> = {
     'DB_PATH',
     'AUTH_MODE',
     'APP_ORIGIN',
+    // Proof: deleting these three entries made the production startGreen test
+    // fail before Docker: outside the allowlist were SOLVER_BUDGET_MS,
+    // SOLVER_SEARCH_WORKERS, SOLVER_MEMORY_LIMIT_MB; 0 passed, 1 failed.
     'SOLVER_BUDGET_MS',
     'SOLVER_SEARCH_WORKERS',
     'SOLVER_MEMORY_LIMIT_MB',
@@ -303,6 +306,9 @@ function volumesBlock(tier: Tier, layout: EnvLayout = CURRENT_ENV): string {
   return (
     `    volumes:\n` +
     `      - ${layout.root}/data:/data\n` +
+    // Proof: deleting only this mount made the production startGreen test fail
+    // at swap.test.ts:681: expected the directory mount, received undefined;
+    // 0 passed, 1 failed.
     `      - ${SOLVER_SUPERVISOR_HOST_DIRECTORY}:${SOLVER_SUPERVISOR_CONTAINER_DIRECTORY}:ro\n`
   );
 }

@@ -10,6 +10,6 @@ export const OPENAPI_SPEC_PATH = '/api/openapi.json';
  */
 // Proof: changing this route path made the actual-app publication test fail on /api/openapi.json answered 404.
 // Proof: publishing the full registry in local-auth mode made the production app
-// advertise 42 operations while it mounted 38 (openapi-document.test.ts).
+// advertise 44 operations while it mounted 40 (openapi-document.test.ts).
 export const openApiPlugin = (shapes: readonly EndpointShape[]) =>
   new Elysia().get(OPENAPI_SPEC_PATH, () => documentFromShapes(shapes));

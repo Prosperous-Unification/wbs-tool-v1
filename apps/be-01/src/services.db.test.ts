@@ -28,6 +28,7 @@ function bootstrap(optimizer?: {
   budgetMs: number;
   spawn: ReservedSpawner;
 }) {
+  const pushUrls: string[] = [];
   const dir = mkdtempSync(join(tmpdir(), 'wbs-services-'));
   dirs.push(dir);
   const path = join(dir, 'test.db');
@@ -40,9 +41,16 @@ function bootstrap(optimizer?: {
     jwtKey: 'k'.repeat(32),
     gwUrl: 'http://gw.invalid',
     internalAuthSecret: 's'.repeat(32),
+    // Proof: replacing this stub with `globalThis.fetch` made the two wiring
+    // cases below time out after 5000ms in the parallel workspace gate while
+    // `PushClient` retried the deliberately unreachable gateway.
+    pushFetch: (url) => {
+      pushUrls.push(url);
+      return Promise.resolve(Response.json({ delivered_to_sockets: 0 }));
+    },
     optimizer,
   });
-  return { db, services };
+  return { db, services, pushUrls };
 }
 
 async function seedProject(db: ReturnType<typeof openDrizzle>): Promise<{
@@ -80,16 +88,17 @@ describe('buildServices', () => {
     //
     // Proof: `buffer: replayBuffer` in `services.ts` replaced with a freshly
     // constructed `new ReplayBuffer(...)` and only this test failed.
-    const { db, services } = bootstrap();
+    const { db, services, pushUrls } = bootstrap();
     const { projectId, ownerId } = await seedProject(db);
 
-    // The push has nowhere to go — `gw.invalid` — which is deliberate: the
-    // buffer must be filled by the recording, not by a successful delivery.
+    // Delivery is accepted by the injected transport; the assertion below
+    // proves recording fills the shared buffer independently of gateway I/O.
     await services.workItems.create(projectId, ownerId, {
       parentId: null,
       afterId: null,
       name: 'Strip',
     });
+    expect(pushUrls).toEqual(['http://gw.invalid/internal/push']);
 
     const subscription = `project:${projectId}`;
     const fromBuffer = await services.replay.replay({ [subscription]: -1 });

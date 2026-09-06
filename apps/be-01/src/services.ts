@@ -33,7 +33,7 @@ import { OptimizerTriggerBroadcaster } from './service/optimizer-trigger-broadca
 import { optimizerWiring } from './service/optimizer-wiring';
 import { PriorityBandService } from './service/priority-band.service';
 import { ProjectService } from './service/project.service';
-import { PushClient } from './service/push-client';
+import { type FetchLike, PushClient } from './service/push-client';
 import { ReplayBuffer } from './service/replay-buffer';
 import { ReplayOrchestrator } from './service/replay-orchestrator';
 import { RetentionTimer } from './service/retention-timer';
@@ -78,6 +78,8 @@ export interface ServicesOptions {
   jwtKey: string;
   gwUrl: string;
   internalAuthSecret: string;
+  /** The transport used for the gateway push boundary. */
+  pushFetch: FetchLike;
   oidc?: AuthServiceOptions['oidc'];
   passwordSessions?: boolean;
   localIdentity?: AuthServiceOptions['localIdentity'];
@@ -169,7 +171,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
     push: new PushClient({
       gwUrl: opts.gwUrl,
       secret: opts.internalAuthSecret,
-      fetchImpl: globalThis.fetch,
+      fetchImpl: opts.pushFetch,
       timers: systemTimers,
       attemptMs: 5_000,
       overallMs: 15_000,

@@ -140,21 +140,10 @@ export const RESTART_PATHS: readonly string[] = [
   'libs/domain/project.json',
   'libs/observability/project.json',
   'libs/realtime/project.json',
+  // Proof: removing this entry failed `names every library project.json that exists on disk`
+  // on `Expected to contain: "libs/runtime-portable/project.json"`.
+  'libs/runtime-portable/project.json',
   'libs/validation/project.json',
-  // `libs/solver-py` is a Python package and carries no `project.json` at all.
-  // The entry is here anyway because `sync.test.ts` derives the expected path
-  // from the DIRECTORY name rather than from the file existing — its title says
-  // "every library project.json that exists on disk" and its body never checks
-  // existence, and solver-py is the first library to expose that gap. Listing
-  // an absent path is inert: `hashPath` swallows the miss and returns the same
-  // value before and after, so it can never trigger a restart, and the entry
-  // starts working by itself if the library ever gains one.
-  //
-  // It is NOT the right entry for this library's real restart hazard. A change
-  // to `requirements.lock` or `pyproject.toml` cannot be picked up by a Bun
-  // watcher either, and that belongs here — but only once slice 6's launcher
-  // makes the dev environment run the solver at all. Until then there is no
-  // process to restart. TASK-220.
   'libs/solver-py/project.json',
 ];
 
