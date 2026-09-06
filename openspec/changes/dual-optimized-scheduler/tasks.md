@@ -3517,7 +3517,7 @@ SLOT_RECLAIM_MARGIN_MS` **from the admitting coordinator's own budget**.
       `CHECK` dropped and the dequeue must refuse it by name; remove the
       decoder from the dequeue and the corrupted objective must reach the
       spawn identity instead.
-- [ ] 6.4 Cancellation, and the two paths are **not** the same operation. A
+- [x] 6.4 Cancellation, and the two paths are **not** the same operation. A
       newer edit changes the hash and therefore allocates the next generation.
       An **OFF toggle does not**: the toggle is excluded from the hash, so
       allocation is required to reuse the generation for an unchanged hash and
