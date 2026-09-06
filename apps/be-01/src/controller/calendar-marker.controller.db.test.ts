@@ -341,9 +341,15 @@ describe('the calendar-marker routes', () => {
    * does not. `refusalBody` used to answer `field: 'markerId'` for every
    * non-`forbidden` refusal, so both bodies blamed a value that was never sent.
    *
-   * Negative: the `blames` argument dropped from either collection call site,
-   * and only this case fails; the `PATCH` and `DELETE` cases above and below,
-   * which are addressed **at** a marker and keep the field, stay green.
+   * Negative: `refusalBody` put back the way it was — the `blames` parameter
+   * ignored and every non-`forbidden` refusal answering
+   * `field: 'markerId' as const`. Watched at **27 pass / 1 fail**, exactly this
+   * case, while the marker-addressed `PATCH` and `DELETE` refusals that keep the
+   * field stayed green. Watched 2026-09-06.
+   *
+   * Dropping the argument at a call site is **not** the negative and was tried
+   * first: `blames` then defaults to `undefined`, which is what this case
+   * expects, so it stays green and the create's `taken` case fails instead.
    */
   it('refuses an unknown project on the collection routes without blaming markerId', async () => {
     const absent = 'e0000000-0000-4000-8000-0000000000ab';
@@ -730,10 +736,13 @@ describe('the calendar-marker routes', () => {
    * loop rather than a sample of it. This is the gap the round-3 Sol review
    * found.
    *
-   * The marker is created with **no** colour, so `null` is what the row must
-   * still read afterwards: a recolour that wrote and then refused would answer
-   * this same 422 with the fill stored, and only reading the row back can tell
-   * the two apart.
+   * The marker is created with **no** colour, so the automatic fill is what the
+   * list must still answer afterwards: a recolour that wrote and then refused
+   * would answer this same 422 with `#ff0000` on the row, and only reading the
+   * marker back can tell the two apart. (The *column* is still `null` under
+   * that answer — the route resolves it on the way out — which is what
+   * "resolves an automatic colour on the way out and still stores none" above
+   * reads off the repository.)
    *
    * Negative, and it is the recolour path's own: `colorProblem(color)` removed
    * from the `PATCH` handler's `color !== undefined` arm, leaving the create's
