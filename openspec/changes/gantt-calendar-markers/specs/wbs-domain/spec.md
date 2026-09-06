@@ -479,13 +479,15 @@ interval bounds.
 
 #### Scenario: many markers on one date are one rule position
 
-- **WHEN** seven markers sit on a single date at 4px per day
+- **WHEN** a plan whose only markers are seven markers sitting on a single
+  date **inside the drawn horizon** is shown at 4px per day
 - **THEN** one rule is drawn in the first marker's colour, the density threshold
   is not reached, and the band shows one chip with `+6`
 
 #### Scenario: a marker on today is visible and today is still findable
 
-- **WHEN** a marker is placed on today's date
+- **WHEN** a marker is placed on today's date, **today being inside the drawn
+  horizon**
 - **THEN** its rule element follows `data-gantt-today-edge` in paint order, and
   the tinted `data-gantt-today` column is still present at that offset
 
@@ -596,8 +598,9 @@ what it is for, and not the cap — which the scenario below it owns.
 
 #### Scenario: the legend names what the file draws and nothing else
 
-- **WHEN** three markers share one date **inside the drawn horizon** and the
-  plan is exported at the 12px rung, where `MARKER_BAND_MAX_PER_CELL` is 2
+- **WHEN** a plan whose only markers are three markers sharing one date
+  **inside the drawn horizon** is exported at the 12px rung, where
+  `MARKER_BAND_MAX_PER_CELL` is 2
 - **THEN** the file draws two chips and the legend carries exactly those two
   rows, and the capped-out marker has **no legend row**
 
