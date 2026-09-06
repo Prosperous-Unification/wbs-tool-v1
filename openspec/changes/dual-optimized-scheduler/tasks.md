@@ -3664,7 +3664,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       must spawn a duplicate beside a still-live child, breaking the sampled
       per-project ceiling; separately, make the restart allocate a fresh
       generation and (d) must fail against 6.10.
-- [ ] 6.9c **Four eviction authorities, four separate reds** (Sol r10
+- [x] 6.9c **Four eviction authorities, four separate reds** (Sol r10
       Important 9). The four-part `(generation, cancelEpoch, enabled,
 attemptToken)` predicate governs **worker-owned outcome writes only**;
       three other paths evict under their own authority and have no child

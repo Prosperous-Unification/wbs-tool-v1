@@ -708,7 +708,8 @@ describe('what a project read publishes', () => {
     ).toEqual([bystander.id]);
     expect(await repo.findById(made.id)).toMatchObject({ optimizationEnabled: false });
 
-    // Proof: without the OFF-transition cleanup, the first generation tuple
+    // 6.9c-c: the ON→OFF edge's epoch increment authorizes cleanup; no child
+    // token is involved. Without that cleanup, the first generation tuple
     // stays at 2/1, both owned slots stay null, and both queue rows survive.
   });
 

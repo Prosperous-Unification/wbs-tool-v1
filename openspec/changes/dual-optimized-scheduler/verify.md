@@ -240,3 +240,27 @@ proof.
 Slices 8.1, 8.2, and 8.5 are closed. Retry remains a route owned by TASK-268,
 so the broader 8.3–8.4 checkboxes stay open rather than claiming an affordance
 whose backend does not yet exist; lane-q TASK-222 already owns post-deploy QA.
+
+## 2026-09-06T21:31:00Z — four independent eviction authorities
+
+- Head under test: `4a86476afb89dbcc6537fdea0e6c0bae1264d3b2`; host: `h2puni`,
+  worktree `/home/puni1/t268-r2-unit.kRzKqI`. No build or autotest ran on the
+  queue-worker box.
+- The four focused repository files passed 144/0 with 428 assertions before
+  mutation. Each mutation below was applied, measured, and restored alone.
+- Worker outcome: removing the attempt-token comparison made both the direct
+  ownership case and reclaimed owner's late-store case red (2 failures).
+- Allocation: suppressing its token-free older-generation eviction made the
+  cold hash-change case red, together with two cross-release cases (3
+  failures). The case separately asserts generation 2 and its new hash, so the
+  successful generation CAS—not a child token—is its authority.
+- OFF cleanup: suppressing the project-scoped queue delete made only the
+  idempotent ON→OFF cancellation case red (1 failure). That case proves the
+  epoch advances once while the queue is evicted, with no attempt token.
+- Retirement: suppressing the token-free cache delete made the direct phase-2
+  retirement and last-slot finisher red (2 failures). The direct case first
+  observes the phase-1 `draining` marker that authorizes the deletion.
+
+This closes 6.9c: weakening any one authority is observed independently, while
+the allocation, OFF transition, and drain paths remain intentionally incapable
+of presenting a worker attempt token.

@@ -1109,6 +1109,8 @@ describe("4.1's conditional write, with all four conditions composed", () => {
   /**
    * The condition the token exists for: the seat was reclaimed and re-reserved
    * by a second attempt, so this writer's own token is no longer in it.
+   * Watched red (6.9c-a): drop the attempt-token comparison from
+   * `writerStillHolds` and this late writer stores instead of matching zero.
    */
   it('refuses a writer whose seat carries a newer attempt, and stores nothing', () => {
     const db = tempDb();
