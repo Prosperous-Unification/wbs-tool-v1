@@ -223,7 +223,7 @@ describe('classifyOidcFailure', () => {
       // alert is by definition something the far end sent us.
       for (const code of [
         'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
-        'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
+        'ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR',
         'ERR_SSL_TLSV1_ALERT_SOMETHING_OPENSSL_ADDS_LATER',
         // Not alerts, but still about what came back over the wire — one case
         // per enumerated member, so removing any of them turns this red.
@@ -265,6 +265,25 @@ describe('classifyOidcFailure', () => {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'defect',
           reason: 'client_authentication_failed',
+        });
+      }
+    });
+
+    it('calls an alert about how we asked a defect, not an outage', () => {
+      // The peer was reachable and objected to our terms rather than to us: no
+      // credential was refused and nothing is going to change on its own, so
+      // waiting — the `unavailable` move — would be advice that never comes
+      // true. An operator has to change one side's TLS configuration.
+      for (const code of [
+        'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
+        'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
+        'ERR_SSL_TLSV13_ALERT_MISSING_EXTENSION',
+        'ERR_SSL_TLSV1_ALERT_UNSUPPORTED_EXTENSION',
+        'ERR_SSL_TLSV1_ALERT_NO_APPLICATION_PROTOCOL',
+      ]) {
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'defect',
+          reason: 'local_defect',
         });
       }
     });
