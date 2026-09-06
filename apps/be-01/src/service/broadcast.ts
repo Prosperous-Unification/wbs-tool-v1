@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { ScheduleEngine, SolverObjectiveName, Step } from '../repository';
+import type { SolverFailureReason } from '../repository/schema';
 import type { NumberedWorkItem } from './work-item.service';
 
 /**
@@ -115,6 +116,16 @@ export type ProjectEvent =
       objective: SolverObjectiveName;
       contractVersion: string;
       budgetMs: number;
+    }
+  | {
+      type: 'schedule_optimization_failed';
+      projectId: string;
+      generation: number;
+      inputHash: string;
+      objective: SolverObjectiveName;
+      contractVersion: string;
+      budgetMs: number;
+      failureReason: SolverFailureReason;
     }
   /**
    * This project's list of saved plans has changed — one saved, renamed or

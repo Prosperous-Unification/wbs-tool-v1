@@ -14,9 +14,10 @@ import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
 import { allocateGeneration } from '../repository/optimization-generation';
 import type { OutcomeWrite } from '../repository/optimized-schedule-cache';
+import type { SolverFailureReason } from '../repository/schema';
 import {
   OptimizationCoordinator,
-  type ScheduleOptimizedEvent,
+  type OptimizationOutcomeEvent,
   storeOptimizedOutcomeAndRecord,
 } from './optimization-coordinator';
 
@@ -121,11 +122,61 @@ afterEach(() => {
 });
 
 describe('optimized outcome events', () => {
+  it('records each typed failure with its full release identity and no schedule', async () => {
+    const reasons: readonly SolverFailureReason[] = [
+      'timeout',
+      'invalid-output',
+      'no-solution',
+      'internal-error',
+      'oom',
+      'horizon-overflow',
+      'objective-overflow',
+    ];
+
+    for (const reason of reasons) {
+      const { path, db } = database();
+      const eventLog = new DrizzleEventLogRepo(db);
+      const base = admittedWrite(db);
+      const committed = storeOptimizedOutcomeAndRecord(db, eventLog, {
+        ...base,
+        outcome: { kind: 'failed', reason },
+      });
+
+      expect(committed.result).toBe('stored');
+      expect(committed.event).toEqual({
+        type: 'schedule_optimization_failed',
+        projectId: 'p-1',
+        generation: 1,
+        inputHash: HASH,
+        objective: 'pri',
+        contractVersion: CONTRACT,
+        budgetMs: BUDGET,
+        failureReason: reason,
+      });
+      expect(await eventLog.rangeSince('project:p-1', -1)).toHaveLength(1);
+      const raw = openDatabase(path);
+      try {
+        expect(
+          raw
+            .query(
+              `SELECT status, result_json AS resultJson, failure_reason AS failureReason
+               FROM optimized_schedule_cache`,
+            )
+            .get(),
+        ).toEqual({ status: 'failed', resultJson: null, failureReason: reason });
+      } finally {
+        raw.close();
+      }
+    }
+    // Proof: restricting the event transaction to `outcome.kind === 'ok'`
+    // leaves `committed.event` undefined on the first reason and fails here.
+  });
+
   it('records each new result once and pushes only after both durable rows commit', async () => {
     const { path, db } = database();
     const pushed: {
       readonly recorded: RecordedEvent;
-      readonly event: ScheduleOptimizedEvent;
+      readonly event: OptimizationOutcomeEvent;
     }[] = [];
     let token = 0;
     const instance = new OptimizationCoordinator({

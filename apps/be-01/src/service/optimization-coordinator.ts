@@ -69,7 +69,7 @@ export interface OptimizationCoordinatorOptions {
   readonly pushRecorded: (
     subscription: string,
     recorded: RecordedEvent,
-    event: ScheduleOptimizedEvent,
+    event: OptimizationOutcomeEvent,
   ) => Promise<void>;
   readonly editDebounceMs?: number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
@@ -80,12 +80,17 @@ export interface OptimizationCoordinatorOptions {
 type ReservedAdmission = Extract<SolverSlotAdmission, { kind: 'reserved' }>;
 type SolverRequest = Extract<BuiltSolverRequest, { readonly ok: true }>['request'];
 export type ScheduleOptimizedEvent = Extract<ProjectEvent, { type: 'schedule_optimized' }>;
+export type ScheduleOptimizationFailedEvent = Extract<
+  ProjectEvent,
+  { type: 'schedule_optimization_failed' }
+>;
+export type OptimizationOutcomeEvent = ScheduleOptimizedEvent | ScheduleOptimizationFailedEvent;
 
 export interface RecordedOptimizedOutcome {
   readonly result: OutcomeWriteResult;
   readonly subscription?: string;
   readonly recorded?: RecordedEvent;
-  readonly event?: ScheduleOptimizedEvent;
+  readonly event?: OptimizationOutcomeEvent;
 }
 
 /** Atomically store one validated result and its durable replay record. */
@@ -96,9 +101,8 @@ export function storeOptimizedOutcomeAndRecord(
 ): RecordedOptimizedOutcome {
   return db.transaction((tx) => {
     const result = storeOptimizedOutcomeIn(tx, write);
-    if (result !== 'stored' || write.outcome.kind !== 'ok') return { result };
-    const event: ScheduleOptimizedEvent = {
-      type: 'schedule_optimized',
+    if (result !== 'stored' || write.outcome.kind === 'plan-infeasible') return { result };
+    const identity = {
       projectId: write.claim.projectId,
       generation: write.claim.generation,
       inputHash: write.inputHash,
@@ -106,6 +110,14 @@ export function storeOptimizedOutcomeAndRecord(
       contractVersion: write.claim.contractVersion,
       budgetMs: write.claim.budgetMs,
     };
+    const event: OptimizationOutcomeEvent =
+      write.outcome.kind === 'ok'
+        ? { type: 'schedule_optimized', ...identity }
+        : {
+            type: 'schedule_optimization_failed',
+            ...identity,
+            failureReason: write.outcome.reason,
+          };
     const subscription = subscriptionFor(write.claim.projectId);
     const recorded = eventLog.recordEventIn(tx, subscription, event, write.now);
     return { result, subscription, recorded, event };
