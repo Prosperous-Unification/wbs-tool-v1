@@ -570,6 +570,74 @@ describe('OptimizationCoordinator read', () => {
     // post-release pump leaves p-1 and p-2 queued after the p-0 children exit.
   });
 
+  it('does not allocate a replacement generation when a stale queued project was switched off', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const oldHash = scheduleInputHash(INPUT);
+    const replacementInput: ScheduleInput = {
+      ...INPUT,
+      notBefore: new Map([['w-1', 1]]),
+    };
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, oldHash, 2);
+    expect(
+      enqueueSolverRequest(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        enqueuedAt: 3,
+      }),
+    ).toEqual({ kind: 'queued' });
+    const calls: ReservedSpawnRequest[] = [];
+    let enabledReads = 0;
+    let inputReads = 0;
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => 'blue-token',
+      inputOf: () => {
+        inputReads += 1;
+        return Promise.resolve(replacementInput);
+      },
+      enabledOf: () => {
+        enabledReads += 1;
+        return Promise.resolve(false);
+      },
+      spawn: (request) => {
+        calls.push(request);
+        throw new Error('an OFF project reached the launcher');
+      },
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: () => Promise.resolve(),
+      onChildError: (error) => {
+        throw error;
+      },
+      setInterval: () => 'drain-timer',
+      clearInterval: () => undefined,
+    });
+
+    instance.start();
+    await instance.drain();
+    await instance.stop();
+
+    expect(inputReads).toBe(1);
+    expect(enabledReads).toBe(1);
+    expect(calls).toEqual([]);
+    expect(readGeneration(db, 'p-1', CONTRACT)).toMatchObject({
+      generation,
+      inputHash: oldHash,
+    });
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+    // Proof: removing the enabled recheck advances this row to generation 2
+    // with `replacementInput`'s hash and launches both replacement objectives.
+  });
+
   it('stores both preflight refusals without creating a launcher', () => {
     const { path, db } = database();
     seedProject(path);
