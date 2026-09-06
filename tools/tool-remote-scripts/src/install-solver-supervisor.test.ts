@@ -98,7 +98,10 @@ describe('installSolverSupervisor', () => {
 
   it('rejects a different user runtime socket before any remote command', async () => {
     const seen: string[] = [];
-    const config = JSON.stringify({ ...JSON.parse(CONFIG), socketPath: '/run/user/1001/wbs-solver/supervisor.sock' });
+    const config = JSON.stringify({
+      ...JSON.parse(CONFIG),
+      socketPath: '/run/user/1001/wbs-solver/supervisor.sock',
+    });
     const error = await rejectionOf(
       installSolverSupervisor(
         { host: 'h2puni', execute: true, config: '/work/config.json' },

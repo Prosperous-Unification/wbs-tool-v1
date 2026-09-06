@@ -171,11 +171,11 @@ describe('buildDeployPlan', () => {
         }),
     });
     const plan = await buildDeployPlan(['be', '--execute'], [], HEAD, deps);
-    expect(plan.preflightCommands[0]).toBe(
-      prodSolverSupervisorPreflightCommand('blue', image),
-    );
+    expect(plan.preflightCommands[0]).toBe(prodSolverSupervisorPreflightCommand('blue', image));
     expect(plan.preflightCommands[0]).toContain('systemctl --user is-active --quiet');
-    expect(plan.preflightCommands[0]).toContain('test -S /run/user/1000/wbs-solver/supervisor.sock');
+    expect(plan.preflightCommands[0]).toContain(
+      'test -S /run/user/1000/wbs-solver/supervisor.sock',
+    );
     expect(plan.preflightCommands[0]).toContain('--caller-name=be-01-green');
     expect(plan.preflightCommands[0]).toContain(`--image=${image}`);
   });
