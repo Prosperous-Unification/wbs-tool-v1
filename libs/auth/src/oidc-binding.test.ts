@@ -66,11 +66,19 @@ describe('browser binding cookie', () => {
 
     expect(consumeBrowserBinding(store, ['binding-1', 'binding-2'], 'state-1')).toEqual({
       remaining: ['binding-2'],
-      transaction: { nonce: 'nonce-for-state-1', outcome: 'consumed', verifier: 'verifier-for-state-1' },
+      transaction: {
+        nonce: 'nonce-for-state-1',
+        outcome: 'consumed',
+        verifier: 'verifier-for-state-1',
+      },
     });
     expect(consumeBrowserBinding(store, ['binding-2'], 'state-2')).toEqual({
       remaining: [],
-      transaction: { nonce: 'nonce-for-state-2', outcome: 'consumed', verifier: 'verifier-for-state-2' },
+      transaction: {
+        nonce: 'nonce-for-state-2',
+        outcome: 'consumed',
+        verifier: 'verifier-for-state-2',
+      },
     });
   });
 
