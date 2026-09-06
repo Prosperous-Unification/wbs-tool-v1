@@ -46,7 +46,7 @@ describe('Presence', () => {
     const p = new Presence();
     const a = inProject(p, 'c1', 'ada', HULL);
     const b = inProject(p, 'c2', 'grace', HULL);
-    p.broadcast();
+    p.broadcast([HULL, KEEL]);
     const expected = JSON.stringify({ type: 'presence', users: ['ada', 'grace'] });
     expect(a.sent.at(-1)).toBe(expected);
     expect(b.sent.at(-1)).toBe(expected);
@@ -64,7 +64,7 @@ describe('Presence', () => {
     p.join('c2', 'ada', good);
     p.enterProject('c2', HULL);
     expect(() => {
-      p.broadcast();
+      p.broadcast([HULL, KEEL]);
     }).not.toThrow();
     expect(good.sent).toHaveLength(1);
   });
@@ -103,7 +103,7 @@ describe('a roster is a project’s, not the gateway’s', () => {
     const ada = inProject(p, 'c1', 'ada', HULL);
     const linus = inProject(p, 'c2', 'linus', KEEL);
 
-    p.broadcast();
+    p.broadcast([HULL, KEEL]);
 
     expect(rosterIn(ada)).toEqual(['ada']);
     expect(rosterIn(linus)).toEqual(['linus']);
@@ -121,7 +121,7 @@ describe('a roster is a project’s, not the gateway’s', () => {
     // second membership.
     expect(p.list(HULL)).toEqual(['ada', 'grace', 'linus']);
     expect(p.list(KEEL)).toEqual([]);
-    p.broadcast();
+    p.broadcast([HULL, KEEL]);
     expect(rosterIn(linus)).toEqual(['ada', 'grace', 'linus']);
   });
 
@@ -133,7 +133,8 @@ describe('a roster is a project’s, not the gateway’s', () => {
 
     expect(p.list(HULL)).toEqual(['ada']);
     expect(p.rosterFor('c1')).toEqual([]);
-    p.broadcast();
+    p.broadcast([HULL, KEEL]);
+    p.sendRoster('c1');
     // Told, rather than left silent: an empty roster is an answer, and the
     // panel says "Nobody yet." on it.
     expect(rosterIn(lurker)).toEqual([]);
@@ -256,4 +257,84 @@ describe('the two indexes never disagree', () => {
       { numRuns: 1_000, seed: 20_260_902 },
     );
   });
+});
+
+it('identifies only changed projects across join, move, reset, rejoin and disconnect', () => {
+  const p = new Presence();
+  expect(p.join('c1', 'ada', socket())).toEqual([]);
+  expect(p.enterProject('c1', HULL)).toEqual([HULL]);
+  expect(p.enterProject('c1', HULL)).toEqual([]);
+  expect(p.enterProject('c1', KEEL)).toEqual([HULL, KEEL]);
+  expect(p.leaveProject('c1', HULL)).toEqual([]);
+  expect(p.leaveProject('c1', KEEL)).toEqual([KEEL]);
+  expect(p.leaveProject('c1', KEEL)).toEqual([]);
+  expect(p.enterProject('c1', HULL)).toEqual([HULL]);
+  expect(p.join('c1', 'grace', socket())).toEqual([HULL]);
+  expect(p.list(HULL)).toEqual([]);
+  expect(p.usernameOf('c1')).toBe('grace');
+  expect(p.enterProject('c1', KEEL)).toEqual([KEEL]);
+  expect(p.leave('c1')).toEqual([KEEL]);
+  expect(p.leave('c1')).toEqual([]);
+  expect(p.enterProject('missing', HULL)).toEqual([]);
+  expect(p.leaveProject('missing', HULL)).toEqual([]);
+  expect((p as unknown as { byProject: Map<string, Set<string>> }).byProject.size).toBe(0);
+});
+
+it('sends an unprojected newcomer one initial roster and zero frames to 1000 connections in 100 projects', () => {
+  const p = new Presence();
+  const existing = Array.from({ length: 1000 }, (_, n) =>
+    inProject(p, `c${String(n)}`, `u${String(n)}`, `p${String(n % 100)}`),
+  );
+  const newcomer = socket();
+  const affected = p.join('new', 'newcomer', newcomer);
+  p.broadcast(affected);
+  expect(existing.reduce((count, s) => count + s.sent.length, 0)).toBe(0);
+  p.sendRoster('new');
+  expect(newcomer.sent).toEqual([JSON.stringify({ type: 'presence', users: [] })]);
+});
+
+it('delivers only to affected members and resets a renamed connection after its own unsubscribe', () => {
+  const p = new Presence();
+  const ada = inProject(p, 'ada', 'ada', HULL);
+  const grace = inProject(p, 'grace', 'grace', HULL);
+  const linus = inProject(p, 'linus', 'linus', KEEL);
+  const other = inProject(p, 'other', 'other', 'unrelated');
+  p.broadcast(p.enterProject('ada', KEEL));
+  expect(ada.sent).toHaveLength(1);
+  expect(grace.sent).toEqual([JSON.stringify({ type: 'presence', users: ['grace'] })]);
+  expect(linus.sent).toEqual([JSON.stringify({ type: 'presence', users: ['ada', 'linus'] })]);
+  expect(other.sent).toEqual([]);
+  for (const s of [ada, grace, linus]) s.sent.length = 0;
+  p.broadcast(p.enterProject('ada', KEEL));
+  p.broadcast(p.leaveProject('ada', HULL));
+  expect([ada.sent.length, grace.sent.length, linus.sent.length, other.sent.length]).toEqual([
+    0, 0, 0, 0,
+  ]);
+
+  const renamed = socket();
+  p.broadcast(p.join('ada', 'renamed', renamed));
+  p.sendRoster('ada');
+  expect(ada.sent).toEqual([]);
+  expect(linus.sent).toEqual([JSON.stringify({ type: 'presence', users: ['linus'] })]);
+  expect(renamed.sent).toEqual([JSON.stringify({ type: 'presence', users: [] })]);
+  p.broadcast(p.enterProject('ada', HULL));
+  for (const s of [renamed, grace, linus]) s.sent.length = 0;
+  const left = p.leaveProject('ada', HULL);
+  p.broadcast(left);
+  if (left.length > 0) p.sendRoster('ada');
+  expect(renamed.sent).toEqual([JSON.stringify({ type: 'presence', users: [] })]);
+  expect(grace.sent).toEqual([JSON.stringify({ type: 'presence', users: ['grace'] })]);
+  expect([ada.sent.length, linus.sent.length, other.sent.length]).toEqual([0, 0, 0]);
+});
+
+it('disconnects one tab through its project lookup while keeping the duplicate username', () => {
+  const p = new Presence();
+  const departing = inProject(p, 'tab1', 'ada', HULL);
+  const remaining = inProject(p, 'tab2', 'ada', HULL);
+  const unrelated = inProject(p, 'other', 'grace', KEEL);
+  p.broadcast(p.leave('tab1'));
+  expect(remaining.sent).toEqual([JSON.stringify({ type: 'presence', users: ['ada'] })]);
+  expect(departing.sent).toEqual([]);
+  expect(unrelated.sent).toEqual([]);
+  expect(p.connectionCount).toBe(2);
 });

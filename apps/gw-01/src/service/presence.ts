@@ -46,7 +46,7 @@ export class Presence {
    * `list()` filtered every connection the gateway holds, and `broadcast()`
    * calls it once per distinct project — O(connections × projects) per join,
    * per subscribe and per leave, on the one class that runs on every socket
-   * event. It is O(members) per project now, and the broadcast is one pass.
+   * event. Reads and delivery now visit only the affected projects’ members.
    *
    * Two indexes over one fact, which is a thing to keep honest rather than a
    * thing to be pleased about: every write below moves both, and
@@ -56,17 +56,30 @@ export class Presence {
    */
   private readonly byProject = new Map<string, Set<string>>();
 
-  join(connectionId: string, username: string, socket: PresenceSocket): void {
-    // A rejoin on the same id must not leave the old entry in a project's set:
-    // `leave` is what takes it out, and it is idempotent.
-    this.leave(connectionId);
+  /** Replaces a connection id and returns the project its old connection left. */
+  join(connectionId: string, username: string, socket: PresenceSocket): readonly string[] {
+    const affected = this.leave(connectionId);
     this.byConnection.set(connectionId, { username, socket, projectId: null });
+    // Proof: returning [] leaves linus without the updated roster in the renamed-id delivery case.
+    return affected;
   }
 
-  leave(connectionId: string): void {
+  /** Removes one tab, identifying its previous project before deleting its lookup. */
+  leave(connectionId: string): readonly string[] {
     const connected = this.byConnection.get(connectionId);
-    if (connected?.projectId != null) this.membersOf(connected.projectId).delete(connectionId);
+    const projectId = connected?.projectId;
+    if (projectId != null) this.removeMember(projectId, connectionId);
     this.byConnection.delete(connectionId);
+    // Proof: returning [] makes the two-tab disconnect case receive no roster.
+    return projectId == null ? [] : [projectId];
+  }
+
+  /** Removes the member and retires an empty project's index entry. */
+  private removeMember(projectId: string, connectionId: string): void {
+    const members = this.membersOf(projectId);
+    members.delete(connectionId);
+    // Proof: retaining empty sets leaves size 2 instead of 0 after the mutation sequence.
+    if (members.size === 0) this.byProject.delete(projectId);
   }
 
   /** The set for `projectId`, made on first use and never left empty behind. */
@@ -79,7 +92,7 @@ export class Presence {
   }
 
   /**
-   * Puts a connection in a project's roster, taking it out of any other.
+   * Puts a connection in a project's roster, returning its changed old/new project ids.
    *
    * One project per connection, not a set: the roster answers "who else is
    * looking at this with me", and a socket showing one project at a time can
@@ -93,42 +106,39 @@ export class Presence {
    * roster can hold it. Not an invariant failure — a modelled state of the
    * socket, and the only thing to do with it is nothing.
    */
-  enterProject(connectionId: string, projectId: string): void {
+  enterProject(connectionId: string, projectId: string): readonly string[] {
     const connected = this.byConnection.get(connectionId);
-    if (connected === undefined) return;
-    if (connected.projectId != null) this.membersOf(connected.projectId).delete(connectionId);
+    // Proof: removing the equality guard sends frames during the real-socket no-op count check.
+    if (connected === undefined || connected.projectId === projectId) return [];
+    const previous = connected.projectId;
+    if (previous !== null) this.removeMember(previous, connectionId);
     connected.projectId = projectId;
     this.membersOf(projectId).add(connectionId);
+    // Proof: returning only the destination omits grace's roster in the real-socket move case.
+    return previous === null ? [projectId] : [previous, projectId];
   }
 
   /**
-   * Takes a connection out of a project's roster, if that is the one it is in.
+   * Takes a connection out of its current project and returns that changed id.
    *
    * Guarded on the id rather than clearing outright: an `unsubscribe` naming a
    * project this connection has already moved off must not empty the roster of
    * the one it moved **to**. A browser that switches projects sends both frames
    * and their order is the network's, not ours.
    */
-  leaveProject(connectionId: string, projectId: string): void {
+  leaveProject(connectionId: string, projectId: string): readonly string[] {
     const connected = this.byConnection.get(connectionId);
-    if (connected?.projectId !== projectId) return;
+    if (connected?.projectId !== projectId) return [];
     connected.projectId = null;
-    this.membersOf(projectId).delete(connectionId);
+    this.removeMember(projectId, connectionId);
+    return [projectId];
   }
 
   /** Distinct usernames in `projectId`, sorted so the front end renders a stable order. */
   list(projectId: string): string[] {
     const names = new Set<string>();
     for (const connectionId of this.byProject.get(projectId) ?? []) {
-      const held = this.byConnection.get(connectionId);
-      // Unknown is not OK anywhere it could hide a bug, and here it would hide
-      // the one this index can have: a connection in a project's set that
-      // `leave` did not take out. Nothing in this class can produce it, and if
-      // something does, a silent skip would show as a roster quietly missing a
-      // name.
-      if (held === undefined) {
-        throw new Error(`presence: ${connectionId} is in ${projectId} but is not connected`);
-      }
+      const held = this.connectionIn(projectId, connectionId);
       names.add(held.username);
     }
     return [...names].sort();
@@ -153,34 +163,46 @@ export class Presence {
     return this.byConnection.size;
   }
 
+  /** Sends one connected socket its current roster, including initial/reset empty state. */
+  sendRoster(connectionId: string): void {
+    const connected = this.byConnection.get(connectionId);
+    if (connected !== undefined)
+      this.send(connected.socket, wsPresence(this.rosterFor(connectionId)));
+  }
+
   /**
-   * Sends every open connection **its own project's** roster.
-   *
-   * One payload per project rather than per socket: the roster is the same
-   * string for every connection in a project, and a busy project would
-   * otherwise serialise it once per person in it.
-   *
-   * A send that throws — a socket closed between the map lookup and the write —
-   * must not stop the remaining clients from being told, so each is isolated.
+   * Sends each affected project's roster only to its current members. Empty
+   * projects have no recipients; unprojected sockets receive explicit initial
+   * or reset state through {@link sendRoster}. Each project is serialized once.
    */
-  broadcast(): void {
-    const empty = wsPresence(NOBODY);
-    const payloads = new Map<string, string>();
-    for (const { socket, projectId } of this.byConnection.values()) {
-      let payload = empty;
-      if (projectId !== null) {
-        let forProject = payloads.get(projectId);
-        if (forProject === undefined) {
-          forProject = wsPresence(this.list(projectId));
-          payloads.set(projectId, forProject);
-        }
-        payload = forProject;
+  broadcast(projectIds: readonly string[]): void {
+    // Proof: restoring the global loop sends 1000 unrelated frames in the large
+    // newcomer case; real-socket unrelated counts become [1,1,1,1] instead of zeros.
+    for (const projectId of new Set(projectIds)) {
+      const payload = wsPresence(this.list(projectId));
+      for (const connectionId of this.byProject.get(projectId) ?? []) {
+        this.send(this.connectionIn(projectId, connectionId).socket, payload);
       }
-      try {
-        socket.send(payload);
-      } catch {
-        // Dropped connection; `leave` arrives via the close handler.
-      }
+    }
+  }
+
+  /** A missing member is index drift, never an absent optional connection. */
+  private connectionIn(projectId: string, connectionId: string): Connected {
+    const connected = this.byConnection.get(connectionId);
+    // Proof: omitting removeMember's deletion makes the two-tab disconnect case
+    // throw "presence: tab1 is in project-hull but is not connected" here.
+    if (connected === undefined) {
+      throw new Error(`presence: ${connectionId} is in ${projectId} but is not connected`);
+    }
+    return connected;
+  }
+
+  /** A closed socket cannot stop remaining members from receiving their roster. */
+  private send(socket: PresenceSocket, payload: string): void {
+    try {
+      socket.send(payload);
+    } catch {
+      // Dropped connection; leave arrives through the close handler.
     }
   }
 }

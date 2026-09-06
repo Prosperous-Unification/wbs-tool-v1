@@ -283,3 +283,89 @@ describe('a closed socket leaves the subscription it joined', () => {
     second.socket.close();
   });
 });
+
+/** A positive response orders all earlier writes on this connection before the count sample. */
+async function pingBarrier(client: { socket: WebSocket; received: unknown[] }) {
+  const pongs = () =>
+    client.received.filter((frame) => (frame as { type?: string }).type === 'pong').length;
+  const before = pongs();
+  client.socket.send(JSON.stringify({ type: 'ping' }));
+  const deadline = Date.now() + 3000;
+  while (pongs() === before) {
+    if (Date.now() >= deadline) throw new Error('presence ping barrier did not arrive');
+    await Bun.sleep(1);
+  }
+}
+
+it('targets socket presence transitions and leaves unrelated streams silent', async () => {
+  const hull = `project:${crypto.randomUUID()}`;
+  const keel = `project:${crypto.randomUUID()}`;
+  const ada = await connect('ada', hull);
+  const grace = await connect('grace', hull);
+  const linus = await connect('linus', keel);
+  const unrelated = await connect('other', `project:${crypto.randomUUID()}`);
+  const clients = [ada, grace, linus, unrelated];
+  const presenceFrames = (client: { received: unknown[] }) =>
+    client.received.filter((frame) => (frame as { type?: string }).type === 'presence');
+  const settled = async () => {
+    for (const client of clients) {
+      if (client.socket.readyState === WebSocket.OPEN) await pingBarrier(client);
+    }
+  };
+  const clear = () => {
+    for (const client of clients) client.received.length = 0;
+  };
+  try {
+    await settled();
+    expect(rosterSeenBy(ada)).toEqual(['ada', 'grace']);
+    clear();
+    const newcomer = await connect('newcomer', 'presence');
+    clients.push(newcomer);
+    await pingBarrier(newcomer);
+    await settled();
+    expect(clients.slice(0, 4).map((client) => presenceFrames(client).length)).toEqual([
+      0, 0, 0, 0,
+    ]);
+    expect(presenceFrames(newcomer)).toEqual([{ type: 'presence', users: [] }]);
+    clear();
+
+    ada.socket.send(JSON.stringify({ type: 'subscribe', subscription: keel }));
+    await pingBarrier(ada);
+    await settled();
+    expect(presenceFrames(ada)).toEqual([{ type: 'presence', users: ['ada', 'linus'] }]);
+    expect(presenceFrames(grace)).toEqual([{ type: 'presence', users: ['grace'] }]);
+    expect(presenceFrames(linus)).toEqual([{ type: 'presence', users: ['ada', 'linus'] }]);
+    expect(presenceFrames(unrelated)).toEqual([]);
+    expect(presenceFrames(newcomer)).toEqual([]);
+    clear();
+
+    ada.socket.send(JSON.stringify({ type: 'subscribe', subscription: keel }));
+    ada.socket.send(JSON.stringify({ type: 'unsubscribe', subscription: hull }));
+    await pingBarrier(ada);
+    await settled();
+    expect(clients.map((client) => presenceFrames(client).length)).toEqual([0, 0, 0, 0, 0]);
+    clear();
+
+    ada.socket.send(JSON.stringify({ type: 'unsubscribe', subscription: keel }));
+    await pingBarrier(ada);
+    await settled();
+    expect(presenceFrames(ada)).toEqual([{ type: 'presence', users: [] }]);
+    expect(presenceFrames(linus)).toEqual([{ type: 'presence', users: ['linus'] }]);
+    expect([grace, unrelated, newcomer].map((client) => presenceFrames(client).length)).toEqual([
+      0, 0, 0,
+    ]);
+    ada.socket.send(JSON.stringify({ type: 'subscribe', subscription: hull }));
+    await pingBarrier(ada);
+    await settled();
+    clear();
+    ada.socket.close();
+    await untilRostered({ grace: [grace, 1] });
+    await settled();
+    expect(presenceFrames(grace)).toEqual([{ type: 'presence', users: ['grace'] }]);
+    expect([linus, unrelated, newcomer].map((client) => presenceFrames(client).length)).toEqual([
+      0, 0, 0,
+    ]);
+  } finally {
+    for (const client of clients) client.socket.close();
+  }
+});

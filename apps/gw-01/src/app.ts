@@ -223,13 +223,11 @@ export function buildApp(opts: AppOptions) {
                 const claims = await verifier.verify(token);
                 username = typeof claims['username'] === 'string' ? claims['username'] : claims.sub;
               }
-              // A join puts the connection in no project — it has not said which
-              // one it is looking at yet, and until it subscribes it belongs to
-              // nothing (see {@link Presence}). The broadcast is what hands the
-              // newcomer its own empty roster; every other socket's is unchanged
-              // by a join, and only `onSubscribed` below moves anybody's.
-              presence.join(conn.connectionId, username, conn.socket);
-              presence.broadcast();
+              // Only an id being replaced can affect an existing project.
+              // The newcomer has named no project and needs its own empty roster.
+              presence.broadcast(presence.join(conn.connectionId, username, conn.socket));
+              // Proof: omitting this leaves the real-socket newcomer with no initial frame.
+              presence.sendRoster(conn.connectionId);
             } catch {
               // beforeHandle already rejected invalid tokens; nothing to add.
             }
@@ -304,14 +302,16 @@ export function buildApp(opts: AppOptions) {
             onSubscribed: (subscription) => {
               const projectId = projectIdOf(subscription);
               if (projectId === null) return;
-              presence.enterProject(conn.connectionId, projectId);
-              presence.broadcast();
+              presence.broadcast(presence.enterProject(conn.connectionId, projectId));
             },
             onUnsubscribed: (subscription) => {
               const projectId = projectIdOf(subscription);
               if (projectId === null) return;
-              presence.leaveProject(conn.connectionId, projectId);
-              presence.broadcast();
+              const affected = presence.leaveProject(conn.connectionId, projectId);
+              presence.broadcast(affected);
+              // Proof: omitting reset leaves no empty frame after real-socket unsubscribe;
+              // removing the condition instead sends a frame during the stale-unsubscribe no-op.
+              if (affected.length > 0) presence.sendRoster(conn.connectionId);
             },
             roster: () => presence.rosterFor(conn.connectionId),
           });
@@ -327,10 +327,8 @@ export function buildApp(opts: AppOptions) {
           // counted in `delivered_to_sockets`, and joined again by the same
           // browser on its next reconnect.
           subs.removeAll(conn.socket);
-          presence.leave(conn.connectionId);
-          // Broadcast after the removal, so the roster the survivors receive is
-          // the one that excludes the socket that just went away.
-          presence.broadcast();
+          // The returned project was looked up before the connection was removed.
+          presence.broadcast(presence.leave(conn.connectionId));
         },
       })
   );
