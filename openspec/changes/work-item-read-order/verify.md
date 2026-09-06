@@ -15,6 +15,33 @@ the exercise is that a later reader can retake them.
 - [x] Green with `ORDER BY work_item.id` at `d5ef05d1`: **34 pass / 0 fail** in
       the same file.
 
+### 1a. Retaken against the shipped schema, because the negative above does not cover it
+
+The two runs above straddle `84716c40`, which is **before** §2 added the index.
+That matters more than it looks. Peer review of PR 215 (`openai/gpt-5.6-sol`,
+round 1, Important — `queue/reviews/t260-r1-sol.txt` in the worker repository)
+observed that `beforeEach` builds each database through the whole migration set,
+so at the shipped schema `work_item_project_id_id` on `(project_id, id)` exists
+while the three cases run. With the `ORDER BY` deleted SQLite may then satisfy
+`where project_id = ?` by walking that index and hand back ascending id order
+anyway — the three cases assert on returned rows, so they would pass over a
+query that promises nothing.
+
+Retaken at `8ebb3a72`, the head that carries both the index and the fix:
+
+- [x] Green: **35 pass / 0 fail** in that file.
+- [x] Red, with `.orderBy(asc(workItem.id))` deleted and the index in place:
+      **34 pass / 1 fail** — and the single failure is the new case, `asks for
+      the order in the statement rather than inheriting it from an index`.
+      **All three original order cases passed with the contract deleted.**
+
+So the finding was right, and the measurement is the reason the new case exists:
+it reads the emitted statement through drizzle's `logQuery` hook rather than the
+rows, which nothing incidental can satisfy. Without it, deleting the `ORDER BY`
+would have gone through the suite unseen at the schema this ships, and a later
+planner or statistics change preferring `work_item_siblings` would have restored
+the nondeterministic plan with no test going red.
+
 ## 2. The index
 
 - [x] `work_item_project_id_id` on `(project_id, id)` in `schema.ts`, and one
