@@ -88,6 +88,7 @@ describe('(i) the width-5 case: quantisation costs more than the search won', ()
       new Map(),
       new Map(),
       'whole-item',
+      new Map(),
       quantisedOptimum,
     );
 
@@ -116,7 +117,16 @@ describe('(i) the width-5 case: quantisation costs more than the search won', ()
     // none of them on a unit boundary the solver would have used.
     const decision = guardRealPublication(
       input,
-      schedule(rows, chain, slices, new Map(), new Map(), 'whole-item', quantisedOptimum),
+      schedule(
+        rows,
+        chain,
+        slices,
+        new Map(),
+        new Map(),
+        'whole-item',
+        new Map(),
+        quantisedOptimum,
+      ),
       'makespan',
       UNWEIGHTED,
       NO_MOVEMENT,
@@ -155,7 +165,16 @@ describe('(ii) an equal primary carrying a strictly better secondary', () => {
   ]);
 
   it('publishes the solver schedule on a tie', () => {
-    const optimized = schedule(rows, [], slices, new Map(), new Map(), 'whole-item', smithOrder);
+    const optimized = schedule(
+      rows,
+      [],
+      slices,
+      new Map(),
+      new Map(),
+      'whole-item',
+      new Map(),
+      smithOrder,
+    );
 
     const decision = guardRealPublication(input, optimized, 'makespan', weightOf, NO_MOVEMENT);
 
@@ -179,7 +198,16 @@ describe('(ii) an equal primary carrying a strictly better secondary', () => {
     // optimized answer wins, so the decision is unchanged — but for the other
     // reason, which is what makes the argument load-bearing rather than a
     // second copy of the case above.
-    const optimized = schedule(rows, [], slices, new Map(), new Map(), 'whole-item', smithOrder);
+    const optimized = schedule(
+      rows,
+      [],
+      slices,
+      new Map(),
+      new Map(),
+      'whole-item',
+      new Map(),
+      smithOrder,
+    );
 
     const decision = guardRealPublication(input, optimized, 'priority', weightOf, NO_MOVEMENT);
 

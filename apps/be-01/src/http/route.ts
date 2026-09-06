@@ -235,13 +235,18 @@ export interface Route {
    * {@link QuerySchemaName} to the TypeBox object, and a binder that publishes
    * no document reads neither.
    *
-   * The schema belongs here rather than in a validation hook for the reason
-   * `history.routes.ts` spells out: this app's query schemas refuse nothing.
-   * They exist because Elysia derives a route's documented parameters from the
-   * route plus this schema and **replaces** anything hand-written in `detail`,
-   * so a query string described only in prose is a document that omits half the
-   * contract. The parsing that gives a query meaning is in the handler, where a
-   * binder cannot skip it.
+   * The schema is named here rather than written into a validation hook because
+   * of what these schemas are *for*: Elysia derives a route's documented
+   * parameters from the route plus this schema and **replaces** anything
+   * hand-written in `detail`, so a query string described only in prose is a
+   * document that omits half the contract. Of the two, `history`'s refuses
+   * nothing — every key is `t.Optional` and `history.routes.ts` spells out why
+   * — while `compare`'s requires `left` and `right` as non-empty strings and a
+   * binder that derives it answers 422, which is the whole reason
+   * {@link Route.preflight} exists. The parsing that gives a query *meaning* is
+   * in the handler either way, where a binder cannot skip it, and
+   * `saved-plan.routes.ts` re-checks `compare`'s two by hand for binders that
+   * read no schema at all.
    */
   documentation?: { detail?: unknown; querySchema?: QuerySchemaName };
 }

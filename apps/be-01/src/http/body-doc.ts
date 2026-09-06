@@ -23,7 +23,7 @@ export type BodySchema = OpenAPIV3.ReferenceObject | OpenAPIV3.SchemaObject;
  * framework package as a type-only import, on the argument that a type import
  * costs nothing at run time. It costs nothing at run time and it still made
  * `git grep -l elysia apps/be-01/src/controller` non-empty, which is acceptance
- * criterion #1 word for word; four route modules import these two helpers. The
+ * criterion #1 word for word; six route modules import these helpers. The
  * old note admitted the grep failure and kept the file anyway, so a criterion
  * this branch exists to meet stayed open for fourteen chunks.
  *

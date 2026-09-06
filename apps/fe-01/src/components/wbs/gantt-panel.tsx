@@ -1872,13 +1872,28 @@ interface StandaloneGanttSvgInput {
    * halves of one file disagree — bars laid out at 4px a day under an axis
    * printed at 28 — which is precisely the drift a downloaded file cannot be
    * checked for after the fact.
+   *
+   * Typed as the rung and not as a `number`: the chips this file draws are
+   * resolved through {@link markersDrawnInBand}, whose per-cell cap is a table
+   * keyed by the ladder, and a width off the ladder has no entry in it.
    */
-  dayPx: number;
+  dayPx: DayPx;
   labels: readonly GanttRowLabel[];
   axis: readonly AxisDay[];
   drawnBars: readonly PlacedBar[];
   monthCaption: string;
   theme: GanttSvgTheme;
+  /**
+   * The project's markers, so the file's axis carries the same chips the band
+   * on screen does — slice 8.6.
+   *
+   * The whole list and not {@link markersDrawnInBand}'s answer: the band is
+   * resolved **here**, from this same `axis` and this same `dayPx`, because the
+   * two questions the export has to answer — which chips are drawn, and which
+   * names the legend carries — are the same question, and a caller that
+   * answered the first would leave the second free to disagree with it.
+   */
+  markers: readonly CalendarMarkerView[];
 }
 
 /** The gap a label keeps from the divider, the same 8px it starts at on the other side. */
@@ -1934,6 +1949,33 @@ interface GutterWord {
  * plot, which is the fault this exists for.
  */
 function measureLabelGutterPx(words: readonly GutterWord[]): number {
+  return withStandaloneRuler('size its label gutter', (measure) => {
+    let widest = LABEL_COLUMN_PX;
+    for (const word of words) {
+      widest = Math.max(widest, word.x + measure(word) + LABEL_GUTTER_PAD_PX);
+    }
+    return widest;
+  });
+}
+
+/**
+ * The measuring pass itself: one document-attached `<svg>`, opened once and
+ * torn down in a `finally`, handed to its caller as a "how wide is this word"
+ * function.
+ *
+ * **One ruler and not one per question.** {@link measureLabelGutterPx} sizes
+ * the gutter and {@link layOutMarkerLegend} sizes the legend's rows, and both
+ * are answers about the same font stack in the same document — a second
+ * spelling of this `<svg>` is a second set of font attributes that can drift
+ * from the drawing pass independently, which is the drift the measurement
+ * exists to remove. The `purpose` clause is the only thing that differs
+ * between them, and it exists so a document that cannot measure says which
+ * part of the file it could not size.
+ */
+function withStandaloneRuler<T>(
+  purpose: string,
+  sizeWith: (measure: (word: GutterWord) => number) => T,
+): T {
   const ruler = document.createElementNS(SVG_NS, 'svg');
   ruler.setAttribute('font-family', STANDALONE_FONT_FAMILY);
   ruler.setAttribute('aria-hidden', 'true');
@@ -1946,8 +1988,7 @@ function measureLabelGutterPx(words: readonly GutterWord[]): number {
   ruler.style.top = '0';
   document.body.appendChild(ruler);
   try {
-    let widest = LABEL_COLUMN_PX;
-    for (const word of words) {
+    return sizeWith((word) => {
       const text = svgText(word.x, 0, word.content, {
         fontSize: word.fontSize,
         fill: '#000',
@@ -1957,15 +1998,134 @@ function measureLabelGutterPx(words: readonly GutterWord[]): number {
       const measure = (text as Partial<SVGTextContentElement>).getComputedTextLength;
       if (typeof measure !== 'function') {
         throw new Error(
-          'this document cannot measure SVG text (no getComputedTextLength), so the downloaded chart cannot size its label gutter',
+          `this document cannot measure SVG text (no getComputedTextLength), so the downloaded chart cannot ${purpose}`,
         );
       }
-      widest = Math.max(widest, word.x + measure.call(text) + LABEL_GUTTER_PAD_PX);
-    }
-    return widest;
+      return measure.call(text);
+    });
   } finally {
     ruler.remove();
   }
+}
+
+/** The chip's line box in the downloaded axis: the live chip's `leading-3`, so the file's band is the band's height. */
+const MARKER_CHIP_HEIGHT_PX = 12;
+
+/** The chip's own horizontal padding, the live `px-0.5`. */
+const MARKER_CHIP_PAD_PX = 2;
+
+/** One legend row's line box, and the square of colour that stands at its left. */
+const LEGEND_ROW_PX = 13;
+const LEGEND_SWATCH_PX = 9;
+/** The gap between a swatch and the name it names, and between one entry and the next. */
+const LEGEND_SWATCH_GAP_PX = 4;
+const LEGEND_ENTRY_GAP_PX = 12;
+/** The band of air the legend keeps above its first row and below its last. */
+const LEGEND_PAD_PX = 8;
+const LEGEND_FONT_SIZE_PX = 9;
+
+/** One named colour in the downloaded file's legend, placed. */
+interface LegendEntry {
+  readonly markerId: string;
+  /**
+   * The day the marker stands on, drawn **beside** its name and not instead of
+   * it.
+   *
+   * A legend of names alone answers "what markers are on this chart" and not
+   * "which of these is the line at that x", which is the question a reader of a
+   * printed chart with three rules on it actually has. The date is the join
+   * between the two, and it is the one the sheet on screen prints too.
+   */
+  readonly date: IsoDate;
+  readonly name: string;
+  readonly fill: string;
+  readonly x: number;
+  readonly row: number;
+  /**
+   * How wide the date came out, kept from the measuring pass rather than asked
+   * for again: the name is drawn at the date's right edge, and a second
+   * measurement is a second answer the drawing pass could place it by.
+   */
+  readonly dateWidth: number;
+}
+
+/** Where the legend's entries stand and how much height the document has to grow to hold them. */
+interface StandaloneLegend {
+  readonly entries: readonly LegendEntry[];
+  readonly heightPx: number;
+}
+
+/**
+ * The legend the downloaded file carries: one swatch and one name per chip the
+ * axis draws, wrapped into as many rows as the file's own width needs.
+ *
+ * **Why a legend at all** (design §2, and the round-8 Sol Important it answers):
+ * on screen, "which marker is this rule?" is answered by pointing — the chip's
+ * hover list and the day card. A downloaded `.svg` has no pointer, and at the
+ * 4px rung a chip is a coloured tick two characters wide. An export of
+ * unlabelled coloured shapes passes every count, position and colour assertion
+ * this slice could make while delivering exactly the "unidentified coloured
+ * line" `spec.md` calls worse than no line at all.
+ *
+ * **One entry per chip drawn, in the band's own order.** Not per marker: a
+ * marker off the horizon and a marker past its cell's share of the rung both
+ * draw nothing, and a legend naming a colour that is nowhere in the picture is
+ * the same defect pointing the other way.
+ *
+ * **The widths are measured, not assumed**, through the same ruler the gutter
+ * is sized with — and that is load-bearing rather than decorative, because it
+ * is the wrap that decides how many rows there are and therefore how much
+ * {@link buildStandaloneGanttSvg} has to grow the document by before it writes
+ * its `viewBox`. A guessed width per name is a legend that either runs off the
+ * right edge of the file or reserves height for rows it never draws.
+ */
+function layOutMarkerLegend(
+  band: readonly { readonly marker: CalendarMarkerView }[],
+  widthPx: number,
+): StandaloneLegend {
+  if (band.length === 0) return { entries: [], heightPx: 0 };
+  const entries = withStandaloneRuler('name the markers it draws', (measure) => {
+    const placed: LegendEntry[] = [];
+    let x = LEGEND_PAD_PX;
+    let row = 0;
+    for (const { marker } of band) {
+      const nameWidth = measure({
+        content: marker.name,
+        x: 0,
+        fontSize: LEGEND_FONT_SIZE_PX,
+      });
+      // Measured as its own word rather than concatenated into the name: the
+      // two are drawn as two `<text>` elements in two inks, and one measurement
+      // of the joined string is a width for a row this file never draws.
+      const dateWidth = measure({
+        content: marker.date,
+        x: 0,
+        fontSize: LEGEND_FONT_SIZE_PX,
+      });
+      const entryWidth =
+        LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX + dateWidth + LEGEND_SWATCH_GAP_PX + nameWidth;
+      // Wrap on the entry that would cross the right edge, never on the first
+      // one of a row: a name wider than the whole file has nowhere better to
+      // go than its own row, and wrapping it would loop.
+      if (x > LEGEND_PAD_PX && x + entryWidth > widthPx - LEGEND_PAD_PX) {
+        row += 1;
+        x = LEGEND_PAD_PX;
+      }
+      placed.push({
+        markerId: marker.id,
+        date: marker.date,
+        name: marker.name,
+        fill: markerFill(marker),
+        x,
+        row,
+        dateWidth,
+      });
+      x += entryWidth + LEGEND_ENTRY_GAP_PX;
+    }
+    return placed;
+  });
+  const rows = entries.reduce((most, entry) => Math.max(most, entry.row + 1), 0);
+  return { entries, heightPx: LEGEND_PAD_PX + rows * LEGEND_ROW_PX + LEGEND_PAD_PX };
 }
 
 /**
@@ -1985,7 +2145,7 @@ function measureLabelGutterPx(words: readonly GutterWord[]): number {
  * arithmetic.
  */
 function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement {
-  const { chartSvg, labels, axis, drawnBars, monthCaption, theme, dayPx } = input;
+  const { chartSvg, labels, axis, drawnBars, monthCaption, theme, dayPx, markers } = input;
   const innerWidth = Number(chartSvg.getAttribute('width') ?? '0');
   const innerHeight = Number(chartSvg.getAttribute('height') ?? '0');
   // The words that stand in the gutter: every row label, and the corner's own
@@ -2001,7 +2161,18 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
   }));
   const gutterPx = measureLabelGutterPx([monthWord, ...labelWords]);
   const totalWidth = gutterPx + innerWidth;
-  const totalHeight = ROW_PX + innerHeight;
+  // The chips the file's axis will draw, resolved through the **live band's own
+  // function** rather than a second walk of `markers`: what the download
+  // promises is the chart as drawn, and the per-cell cap and the off-horizon
+  // drop are two of the four things "as drawn" means at the 4px rung.
+  const band = markersDrawnInBand(markers, axis, dayPx);
+  const legend = layOutMarkerLegend(band, totalWidth);
+  // **Grown here, before the five writes below.** The legend is a block under
+  // the chart, and the document's height is written into the `viewBox`, the
+  // `width`, the `height` and the background rect within the next ten lines —
+  // a legend appended after them draws into air the file does not declare, and
+  // every renderer clips it away.
+  const totalHeight = ROW_PX + innerHeight + legend.heightPx;
 
   // No explicit `xmlns` attribute: `createElementNS` already puts the SVG
   // namespace on the element itself, and `XMLSerializer` writes it out on
@@ -2032,8 +2203,23 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     );
   }
 
-  root.appendChild(svgLine(gutterPx, 0, gutterPx, totalHeight, theme.border));
+  // Down the chart and not down the document: the divider separates the label
+  // gutter from the plot, and the legend below the chart belongs to neither
+  // side of it.
+  const chartBottom = ROW_PX + innerHeight;
+  root.appendChild(svgLine(gutterPx, 0, gutterPx, chartBottom, theme.border));
   root.appendChild(svgLine(0, ROW_PX, totalWidth, ROW_PX, theme.border));
+
+  // The band by cell, so the axis loop asks one question per day rather than
+  // scanning every marker on the chart for each of them.
+  const chipsByOffset = new Map<number, CalendarMarkerView[]>();
+  for (const { marker, offset } of band) {
+    const standing = chipsByOffset.get(offset);
+    if (standing === undefined) chipsByOffset.set(offset, [marker]);
+    else standing.push(marker);
+  }
+  const chipClips = document.createElementNS(SVG_NS, 'defs');
+  root.appendChild(chipClips);
 
   for (const day of axis) {
     const cellX = gutterPx + CHART_PAD_PX + day.offset * dayPx;
@@ -2053,6 +2239,52 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
         anchor: 'middle',
       }),
     );
+    // The chips standing on this day, in the same two calls and the same
+    // coordinate space as the weekend band and the day number above — the
+    // live band's `left: offset * dayPx`, its `maxWidth: dayPx` and its
+    // `bottom-0`, read into the axis row's own pixels.
+    for (const marker of chipsByOffset.get(day.offset) ?? []) {
+      const fill = markerFill(marker);
+      const chip = svgRect(
+        cellX,
+        ROW_PX - MARKER_CHIP_HEIGHT_PX,
+        dayPx,
+        MARKER_CHIP_HEIGHT_PX,
+        fill,
+      );
+      // The live chip's `rounded-sm`, which is 2px: the file is the chart as
+      // drawn, and a sharp corner where the screen has a soft one is the same
+      // class of disagreement as a wrong x, only quieter.
+      chip.setAttribute('rx', '2');
+      // The live band's own two hooks, on the file's copy of the same chip:
+      // "the export matches the screen" is a claim about two documents, and it
+      // is only checkable if the same question can be asked of both.
+      chip.setAttribute('data-marker-chip', marker.id);
+      chip.setAttribute('data-marker-offset', String(day.offset));
+      root.appendChild(chip);
+      // `truncate` has no SVG spelling, so the name is clipped in the outer
+      // document's pixel space exactly as the bar labels below are: a chip on
+      // a 4px day is two characters of a name that would otherwise be drawn
+      // straight across its neighbours.
+      const clipId = `gantt-marker-chip-clip-${marker.id}`;
+      const clip = document.createElementNS(SVG_NS, 'clipPath');
+      clip.setAttribute('id', clipId);
+      clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+      clip.appendChild(
+        svgRect(cellX, ROW_PX - MARKER_CHIP_HEIGHT_PX, dayPx, MARKER_CHIP_HEIGHT_PX, '#000'),
+      );
+      chipClips.appendChild(clip);
+      const chipText = svgText(cellX + MARKER_CHIP_PAD_PX, ROW_PX - 3, marker.name, {
+        fontSize: 9,
+        // **Chosen, not carried**, for {@link markerFill}'s own reason: the ink
+        // on a chip is `labelInk`'s answer about that fill, and a colour named
+        // here would leave 3.2a's table green while the file drew something
+        // else.
+        fill: labelInk(fill),
+      });
+      chipText.setAttribute('clip-path', `url(#${clipId})`);
+      root.appendChild(chipText);
+    }
   }
 
   const nestedChart = withInlineComputedStyle(chartSvg) as SVGSVGElement;
@@ -2095,6 +2327,43 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     label.setAttribute('clip-path', `url(#${clipId})`);
     label.setAttribute('aria-hidden', 'true');
     root.appendChild(label);
+  }
+
+  // The legend, in the height reserved for it above. Drawn last and placed at
+  // the chart's own bottom edge, so the block a reader looks to for "which
+  // marker is this?" sits under the picture rather than in it.
+  for (const entry of legend.entries) {
+    const rowTop = chartBottom + LEGEND_PAD_PX + entry.row * LEGEND_ROW_PX;
+    const swatch = svgRect(
+      entry.x,
+      rowTop + (LEGEND_ROW_PX - LEGEND_SWATCH_PX) / 2,
+      LEGEND_SWATCH_PX,
+      LEGEND_SWATCH_PX,
+      entry.fill,
+    );
+    swatch.setAttribute('rx', '2');
+    swatch.setAttribute('data-legend-swatch', entry.markerId);
+    // One `<g>` per row, so the row is a thing with a box rather than three
+    // siblings a reader has to re-associate — which is also what lets a test
+    // ask whether the **last** row ends inside the `viewBox`.
+    const row = document.createElementNS(SVG_NS, 'g');
+    row.setAttribute('data-marker-legend', entry.markerId);
+    row.appendChild(swatch);
+    const baseline = rowTop + LEGEND_ROW_PX - 3;
+    const dateX = entry.x + LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX;
+    const dated = svgText(dateX, baseline, entry.date, {
+      fontSize: LEGEND_FONT_SIZE_PX,
+      fill: theme.mutedForeground,
+    });
+    dated.setAttribute('data-legend-date', entry.date);
+    row.appendChild(dated);
+    const named = svgText(dateX + entry.dateWidth + LEGEND_SWATCH_GAP_PX, baseline, entry.name, {
+      fontSize: LEGEND_FONT_SIZE_PX,
+      fill: theme.foreground,
+    });
+    named.setAttribute('data-legend-name', entry.name);
+    row.appendChild(named);
+    root.appendChild(row);
   }
 
   return root;
@@ -3580,6 +3849,11 @@ function GanttChart({
       // The rung this chart is on screen at, so the file is the chart as
       // drawn — which is the whole promise the download makes.
       dayPx,
+      // Passed whole, with the band and the legend resolved inside: the
+      // rule the chips name comes over for free inside the nested `<svg>`,
+      // so a file built without these draws a coloured line and nothing
+      // that says what it is.
+      markers,
     });
     const blob = new Blob([serializeStandaloneGanttSvg(standalone)], {
       type: 'image/svg+xml;charset=utf-8',

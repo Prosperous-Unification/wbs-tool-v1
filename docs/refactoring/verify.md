@@ -135,3 +135,24 @@ This is a scoped checkpoint; a fresh full workspace and browser gate remain owed
 Fetched feature head bf69132d awaits integration after this checkpoint commit.
 Read-only audits identified OIDC mismatch retention, resolved marker wire colors,
 marker broadcaster composition, and required slice lateBy fields to preserve.
+
+## Feature merge bf69132d — 2026-09-06
+
+Merged origin/main bf69132d into bf1fa107 without textual conflicts. Two independent
+source reviews approved preservation of R1/R3/R5/R6/R9 plus incoming OIDC transaction
+retention, marker broadcasting/resolved colors, deadline scheduling and SVG legends.
+Fresh backend, auth, domain and solver-contract suites passed 2610 tests, 0 failures,
+55786 assertions across 206 files in 115.75s. Command: `env -u HEAVY_LOCK_WAIT_SECONDS
+bin/with-heavy-lock.sh -- bun test ./apps/be-01/src ./libs/domain/src ./libs/auth/src
+./libs/contracts/solver/src`; log `/private/tmp/wbs-http-feature-merge-tests.log`.
+Two earlier launch attempts exited75 because the R10 fixture owned the canonical
+lock; neither ran tests. Forced backend and frontend root project compilation
+passed: `bunx tsc --build --force apps/be-01/tsconfig.json apps/fe-01/tsconfig.json`
+(`/private/tmp/wbs-http-feature-merge-types.log`). Concurrent new unexported client
+files are outside this merge's evidence and will receive separate checks.
+
+Merged Gantt SVG suite passed all 228 cases in 5.98s via canonical lock and
+`bunx vitest run src/components/wbs/gantt-panel.test.tsx --no-file-parallelism
+--maxWorkers=1 --minWorkers=1` from apps/fe-01. Log:
+`/private/tmp/wbs-http-feature-merge-gantt.log`. Full browser/workspace gates remain
+pending; this scoped jsdom run does not claim pixel or browser-default behavior.

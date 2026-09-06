@@ -32,7 +32,7 @@ const OPENED_AT = 1_756_000_123;
  * The id a saved plan in this file was written under.
  *
  * A *recorded older* one, which is what task 5.1 asks for: the live constant is
- * `slice-leveling-v1` (`libs/domain/src/schedule.ts`), and a record stamped
+ * `slice-leveling-v2` (`libs/domain/src/schedule.ts`), and a record stamped
  * with an id this build no longer produces is the only record that can tell a
  * reader-of-bytes apart from a reader-that-recomputes by anything other than
  * luck. Deliberately **not** imported from `SCHEDULE_ALGORITHM_ID` and not
@@ -179,7 +179,7 @@ describe('reading a saved plan back', () => {
     expect(stored.get('schedule')).toBe(read.plan.schedule.body.bytes);
     // The record still names the algorithm it was written under, rather than
     // the one this build would compute — a reader that re-derived would have
-    // had to say `slice-leveling-v1` here.
+    // had to say `slice-leveling-v2` here.
     expect(read.plan.schedule.algorithmId).toBe(OLDER_ALGORITHM_ID);
     // The header, handed over as stored.
     expect(read.plan.input.sha256).toBe(record.input.sha256);

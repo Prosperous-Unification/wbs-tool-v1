@@ -24,12 +24,18 @@ const DOCUMENT_VERSION = '0.0.0';
 /**
  * What the generated document cannot say about itself, said once here.
  *
- * The two paragraphs are load-bearing rather than decorative. **Bodies:** ten
- * routes declare a schema to Elysia and appear here with one; the two batch
- * routes that parse their body by hand appear with a `requestBody` written out
- * one variant per command kind, and that document is documentation only —
- * nothing validates against it. A reader who assumes otherwise will post a field
- * this API refuses and read the 400 as a fault. **Refusals:** the codes a client
+ * The two paragraphs are load-bearing rather than decorative. **Bodies:** no
+ * route declares a body schema to Elysia any more — the refactor moved every
+ * body check into its handler, and each `requestBody` in this document is now
+ * written out by `http/body-doc.ts`'s helpers, so **nothing validates against
+ * it**. Ten self-checking bodies carry `checkedBody`'s or `tableRefusedBody`'s
+ * caveat and answer 422; the two batch routes carry `handParsedBody`'s, one
+ * variant per command kind, and answer 400. A reader who takes the document for
+ * the contract will post a field this API refuses and read the refusal as a
+ * fault. The only schemas the framework itself sees are the two **query**
+ * schemas a route may name, `history` and `compare`
+ * (`http/elysia/query-schemas.ts`), and `compare`'s is the one that refuses.
+ * **Refusals:** the codes a client
  * branches on live inside handlers as `{ error: <code> }` and are not derivable
  * from a route's signature; the batch routes list theirs in their own
  * descriptions and the rest do not list them yet.
@@ -49,23 +55,30 @@ provider's limit, and carry environment-scoped read/write permissions.
 ordered list of up to 200 typed commands — every plan edit and every directory
 edit — applies them all or none in one transaction and records them as one undo.
 Later commands may name what earlier ones created by \`ref\`. A refused command
-refuses the batch with \`{ "error", "at", "kind" }\` and nothing is applied. Its
+refuses the batch with \`{ "error", "at" }\` — and \`"kind"\` too, once the
+command's kind is known — and nothing is applied. Its
 body is described under the route, one variant per command kind.
 
-**Bodies this document declares, and bodies it only describes.** The project,
-step and auth routes declare a schema to Elysia, and those appear here as
-schemas. The two batch routes parse their body by hand — because Elysia strips
-unknown properties before a handler runs, which would silently delete refusals
-like \`number_is_derived\` and the priority and parallelism guards — and each
-command inside them is checked by the parser its retired route had. Their bodies
-are written out under \`requestBody\`, one variant per command kind, and
-**nothing validates against that document**; the handler's own parse is the
-contract, and it answers 400 with a code, the command's index and its kind.
+**This document describes bodies; it does not declare any.** Every
+\`requestBody\` below is written out by hand — no route hands a body schema to
+the server — and **nothing validates against it**. The handler's own parse is
+the contract in every case. Ten bodies check themselves and answer 422, with
+\`{ "error": "invalid_body" }\` or the refusing route's own error and field.
+
+The two batch routes parse their body by hand for a further reason — because
+the server strips unknown properties before a handler runs, which would silently
+delete refusals like \`number_is_derived\` and the priority and parallelism
+guards — and each command inside them is checked by the parser its retired route
+had. Their bodies are written out one variant per command kind. They answer 400
+with a code; a refusal that belongs to one command also names its \`at\`, and
+names its \`kind\` once that is known. A refusal of the envelope itself — a
+\`commands\` that is not a list — carries the code alone.
 
 **Refusals.** A refused request answers \`{ "error": "<code>" }\` with a status
 that means something: 400 "do not send this", 409 "try again against a different
 state", 404 "that id is not here", 403 "you may read it but not write it". A
-refused batch adds \`"at"\` and \`"kind"\`. The batch routes list their codes in
+refused batch adds \`"at"\`, and \`"kind"\` with it once the command's kind is
+known; a refusal of the envelope itself carries neither. The batch routes list their codes in
 their own descriptions. The rest do not yet — that pass is change A2.
 
 **Numbers are derived.** Work-item numbers, dates, floats and slices are

@@ -434,14 +434,15 @@ export const workItem = sqliteTable(
      * migration — measured against a copy of dev's live database in
      * `openspec/changes/work-item-deadline/verify.md`, not assumed.
      *
-     * **In the release that adds it, nothing reads this column at all**, and
-     * that is the whole reason plans schedule exactly as they did. It is not
-     * yet threaded to `schedule()`, and the scheduler has no `deadlines`
-     * argument at this commit: `openspec/changes/work-item-deadline/tasks.md`
-     * 1.2 keeps the migration on its own PR carrying nothing else, so slices
-     * 2–5 arrive separately. When they do, the no-op argument becomes the
-     * empty map rather than the absent reader, and it is their golden-corpus
-     * case that has to prove it. **Every sentence in this comment that
+     * **Nothing reads or writes this column**, and that is the whole reason
+     * plans schedule exactly as they did. `WORK_ITEM_COLUMNS` does not name
+     * `deadline`, so no row is selected with one or written with one, and the
+     * plan read hands `schedule()` the `NO_DEADLINES` placeholder. The sentence
+     * here first said the scheduler had no `deadlines` argument at all, which
+     * was true of the release that added the column and stopped being true when
+     * slices 2–5 landed the seventh argument — the argument arrived, the empty
+     * map stayed, and it is `fast-golden-corpus.test.ts` that proves the
+     * difference is none. **Every sentence in this comment that
      * describes an ordering, a fold, a late label or a read-time resolution —
      * before this paragraph and after it — describes what the column is *for*,
      * not code standing at this head.** Stated once here rather than hedged

@@ -75,8 +75,11 @@ function receivedMethodOf(raw: string, method: HttpMethod): HttpMethod | 'HEAD' 
  * the framework means writing a sibling of this file. The framework itself is
  * imported only under `http/elysia/` — here and by `query-schemas.ts` — plus
  * `app.ts`, which mounts the result; nothing a route module imports reaches it,
- * which is the claim acceptance criterion #1 makes and `git grep -l elysia
- * apps/be-01/src` is the way to check it.
+ * which is the claim acceptance criterion #1 makes. The check is
+ * `git grep -l elysia apps/be-01/src/controller`, scoped to the controllers and
+ * expected to be **empty**. Widened to `apps/be-01/src` it matches this file,
+ * `query-schemas.ts` and `app.ts` by design, so the unscoped command answers a
+ * different question and always has matches.
  *
  * Routes are registered through the **method-specific** calls rather than a
  * generic `.route()`, because `@elysiajs/openapi` builds its document from the

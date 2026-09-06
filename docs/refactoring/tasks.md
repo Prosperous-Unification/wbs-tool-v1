@@ -28,7 +28,7 @@ Each implementation change keeps ordered slices and fresh evidence in its own
 - [ ] Core Wave 3: extract packages and enforce rings with negative proofs.
 - [ ] Namespacing: move packages and update gates.
 - [ ] Review each implementation and resolve findings.
-- [ ] Main `a91f831b` integrated/reviewed/browser-green; `b2bb095c` deadline slice merged without conflicts, 1693 backend tests passed. Fetch again before final gates.
+- [ ] Main `bf69132d` merged without conflicts and reviewed; 2610 backend/auth/domain/solver tests and forced BE/FE types passed. Fetch again before final gates.
 - [ ] Freeze final tree; full workspace/browser gates and whole-branch review.
 
 ## Integration policy

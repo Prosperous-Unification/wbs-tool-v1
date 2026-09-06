@@ -10,8 +10,15 @@ import { type Schedule, type Scheduled, type ScheduledSlice, sliceKey } from './
  * recomputes. That is the same treatment a truncated payload gets, and it is
  * deliberate — a decoder that guessed at an older shape would serve a plan
  * assembled out of fields it invented.
+ *
+ * **2 since 2026-09-06**, because {@link ScheduledSlice} gained a required
+ * `lateBy`. A version-1 row does not carry the field, and nothing in this
+ * decoder validates per-entry shapes — the entry is cast — so leaving the fence
+ * at 1 would have served `lateBy === undefined` from every cached plan written
+ * before this release, where the contract now promises `number | null`. The
+ * rows are recomputed instead, which is what the fence is for.
  */
-export const CACHE_DTO_VERSION = 1;
+export const CACHE_DTO_VERSION = 2;
 
 /**
  * One `Map` entry, as JSON can carry it.

@@ -150,6 +150,38 @@ describe('what a stored schedule refuses', () => {
     );
   });
 
+  it('refuses the version-1 row written before slices carried a lateBy', () => {
+    // The direction that actually happened, and the one the case above cannot
+    // stand in for: a row a *previous* release wrote. `ScheduledSlice.lateBy`
+    // is required as of 2026-09-06 and version 1 has no such field, and this
+    // decoder deliberately does not validate per-entry shapes — it casts. So
+    // the fence is the only thing between an old row and a served plan whose
+    // every slice reads `lateBy === undefined` where the contract promises
+    // `number | null`.
+    //
+    // Built by deleting the field rather than by hand, so the payload is
+    // exactly the old shape and not an approximation of it.
+    const payload = stored(realPlan());
+    const version1 = {
+      ...payload,
+      dtoVersion: 1,
+      slices: payload.slices.map((entry) => {
+        // Deleted off a loose copy rather than destructured away: `lateBy` is
+        // required on `ScheduledSlice`, so the rest-sibling form leaves a bound
+        // name this package's lint rejects and `delete` needs the field to be
+        // optional. A `Record` is what a stored row is anyway.
+        const value: Record<string, unknown> = { ...entry.value };
+        delete value['lateBy'];
+        return { key: entry.key, value };
+      }),
+    };
+    expect(version1.slices.every((entry) => !('lateBy' in entry.value))).toBe(true);
+
+    expect(() => decodeSchedule(version1)).toThrow(
+      `stored schedule: unknown dtoVersion 1; this release reads ${String(CACHE_DTO_VERSION)}`,
+    );
+  });
+
   it('refuses one key carried twice, rather than taking the last of them', () => {
     const payload = stored(realPlan());
     // `.at(0)` rather than `[0]`: this package does not compile with

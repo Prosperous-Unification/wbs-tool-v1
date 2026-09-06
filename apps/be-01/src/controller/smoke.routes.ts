@@ -33,8 +33,12 @@ export function smokeRoutes(): Route[] {
     {
       method: 'POST',
       path: '/api/smoke/echo',
-      // Not `async`: echoing a string awaits nothing, and an `async` handler
-      // with no `await` in it is a promise of work that never happens.
+      // Not `async` because there is nothing to await: `echo` is synchronous,
+      // and `Promise.resolve` is the explicit spelling of adapting its result
+      // to the promise `RouteHandler` returns. An `async` handler would answer
+      // identically — same fulfilled promise, same number of microtask ticks
+      // for a caller awaiting it — so this is a statement of intent and not a
+      // performance claim.
       handler: (req) => Promise.resolve(echo(smoke, req.body)),
     },
   ];

@@ -1323,6 +1323,20 @@ describe("4.1's conditional write, with all four conditions composed", () => {
         input.notBefore,
         input.poolSizes,
         input.reach,
+        // **`deadlines` is the seventh argument and `pinnedStarts` the eighth.**
+        // This map is pinned starts, and it was passed positionally as the
+        // seventh when `deadlines` arrived in front of it (tasks.md 4.1), which
+        // is why the empty map here is load-bearing rather than noise: the
+        // starts landed in `deadlines` instead, keyed by slice key where that
+        // argument is keyed by work item id, so the fold matched nothing, no
+        // start was ever pinned, and `quantisedOptimumOf` returned Fast's own
+        // schedule. Both sides of the guard then scored the same plan and it
+        // chose `optimized` — the two `4.11b` cases below went red at
+        // `e0f5bd84` and were found at `371f68c5`, having been red the whole
+        // time in between. `libs/domain/src/publication-guard.test.ts` holds the
+        // same fixture and was moved to eight arguments with the seam; this
+        // copy was not, and a positional seventh argument is silent about it.
+        new Map(),
         new Map([
           [sliceKey('a', null), 0 / SOLVER_QUANTUM],
           [sliceKey('b', null), 10 / SOLVER_QUANTUM],

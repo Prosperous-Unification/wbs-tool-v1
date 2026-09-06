@@ -4,12 +4,14 @@ import {
   addCalendarDays,
   addWorkdays,
   calendarDaysBetween,
+  deadlineOffsetOf,
   firstWorkdayOf,
   isIsoDate,
   isMonday,
   isWeekend,
   lastWorkdayOf,
   nextWorkday,
+  previousWorkday,
   snapWorkdays,
   wholeDaysCovering,
   withinDrift,
@@ -269,5 +271,74 @@ describe('withinDrift', () => {
     // the window. Widen DRIFT past that and this fails.
     expect(withinDrift(0, 1 / 48)).toBe(false);
     expect(withinDrift(2, 2 - 1 / 48)).toBe(false);
+  });
+});
+
+describe('previousWorkday', () => {
+  it('rolls a weekend backward where nextWorkday rolls it forward', () => {
+    expect(previousWorkday(MONDAY)).toBe(MONDAY);
+    expect(previousWorkday(SATURDAY)).toBe(FRIDAY);
+    expect(previousWorkday(SUNDAY)).toBe(FRIDAY);
+    // The pair is the point: the same two dates answer Monday through
+    // `nextWorkday`, and a deadline that took that answer would be handed the
+    // whole weekend plus a Monday it was never given.
+    expect(nextWorkday(SATURDAY)).toBe(MONDAY);
+  });
+});
+
+describe('deadlineOffsetOf', () => {
+  // 2026-08-03 is the Monday before THURSDAY, so day zero of a plan starting
+  // there is 2026-08-03 itself and Friday the 7th is offset 4.
+  const START_MONDAY = '2026-08-03';
+
+  it('counts from the same day zero addWorkdays counts from', () => {
+    expect(deadlineOffsetOf(START_MONDAY, START_MONDAY)).toEqual({ kind: 'offset', offset: 0 });
+    expect(deadlineOffsetOf(START_MONDAY, FRIDAY)).toEqual({ kind: 'offset', offset: 4 });
+    expect(deadlineOffsetOf(START_MONDAY, MONDAY)).toEqual({ kind: 'offset', offset: 5 });
+  });
+
+  it("takes the project's day zero from nextWorkday, not from the stored start", () => {
+    // A plan stored as starting on a Saturday begins on the Monday, because
+    // that is what `addWorkdays(start, 0)` names. So a Sunday deadline — one
+    // calendar day AFTER that stored start — still falls before the axis.
+    expect(addWorkdays(SATURDAY, 0)).toBe(MONDAY);
+    expect(deadlineOffsetOf(SATURDAY, MONDAY)).toEqual({ kind: 'offset', offset: 0 });
+    expect(deadlineOffsetOf(SATURDAY, SUNDAY)).toEqual({ kind: 'before-project-start' });
+  });
+
+  // WATCHED RED W3. Substituting `workdaysBetween` for `deadlineOffsetOf` —
+  // the obvious way to write this, and the function that already exists —
+  // fails both of these together, and neither alone is the red:
+  //
+  //   `grants a weekend deadline …`  expected { kind: 'offset', offset: 4 }
+  //                                  received { kind: 'offset', offset: 5 }
+  //   `refuses to turn a deadline …` expected { kind: 'before-project-start' }
+  //                                  received { kind: 'offset', offset: 0 }
+  //
+  // The second is the one that matters and the one a weekend-only test cannot
+  // see: `workdaysBetween` clamps a date before its origin to 0, so a deadline
+  // the user typed in the past would arrive downstream as the STRICTEST
+  // deadline the model can express, indistinguishable from a date somebody
+  // chose. Watched 2026-09-06.
+  it('never grants a weekend deadline the following Monday', () => {
+    // Saturday the 8th is Friday the 7th's offset. `workdaysBetween` rolls it
+    // forward to Monday the 10th and answers 5 — two calendar days of slack
+    // nobody agreed to, on every weekend deadline in the plan.
+    expect(deadlineOffsetOf(START_MONDAY, SATURDAY)).toEqual({ kind: 'offset', offset: 4 });
+    expect(deadlineOffsetOf(START_MONDAY, SUNDAY)).toEqual({ kind: 'offset', offset: 4 });
+    expect(workdaysBetween(START_MONDAY, SATURDAY)).toBe(5);
+  });
+
+  it('never turns a deadline before the plan into offset zero', () => {
+    // There is no number for "before the project starts", and 0 is the worst
+    // available lie: it is the tightest deadline on the axis.
+    expect(deadlineOffsetOf(MONDAY, FRIDAY)).toEqual({ kind: 'before-project-start' });
+    expect(deadlineOffsetOf(MONDAY, SATURDAY)).toEqual({ kind: 'before-project-start' });
+    expect(workdaysBetween(MONDAY, FRIDAY)).toBe(0);
+  });
+
+  it('refuses a value that is not a calendar date at either end', () => {
+    expect(() => deadlineOffsetOf(MONDAY, '2026-02-31')).toThrow(/not a calendar date/);
+    expect(() => deadlineOffsetOf('not-a-date', MONDAY)).toThrow(/not a calendar date/);
   });
 });

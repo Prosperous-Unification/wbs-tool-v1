@@ -1,10 +1,11 @@
 import { ASSUMED_SLICE_WORKDAYS } from './assumed-duration';
 import type { DependencyReach } from './dependency-reach';
 import { deriveNumbers, type PlannedRow } from './derive-numbers';
-import { leafFloorsOf } from './leaf-constraints';
+import { leafDeadlinesOf, leafFloorsOf } from './leaf-constraints';
+import { workdaysLateBy } from './on-time';
 import { sliceGraphEdges } from './slice-edges';
 import { groupSlicesByLeaf } from './slice-groups';
-import { snapWorkdays, withinDrift } from './workday';
+import { lastWorkdayOf, snapWorkdays, withinDrift } from './workday';
 
 /** A finish-to-start edge, as written: either end may be a parent. */
 export interface DependencyEdge {
@@ -101,11 +102,27 @@ export type PoolSizes = ReadonlyMap<string, number>;
  * The key one slice is held under. Opaque: read {@link ScheduledSlice}'s own
  * `workItemId` and `stepId` rather than taking this apart.
  *
- * Separated by a NUL, which no id can contain, so no two pairs can collide by
- * running into each other. Written as an escape rather than typed: a literal
- * NUL in a source file makes git call the file binary.
+ * Separated by a NUL, so no two pairs can collide by running into each other.
+ * Written as an escape rather than typed: a literal NUL in a source file makes
+ * git call the file binary.
+ *
+ * **The separator is refused in the halves rather than assumed absent from
+ * them.** This doc used to say "which no id can contain", and nothing enforced
+ * it: both halves are plain `string`s and no boundary above here rejects the
+ * byte. A work item id ending in one and a step id beginning with one are two
+ * different slices of two different work items with a single key — they would
+ * overwrite each other in {@link Schedule.slices}, and, each being its own
+ * group's only slice, would both sit at `at === 0` and so tie in
+ * {@link SlicePriority}'s last two rules together, which is the exact
+ * ambiguity the key was added to close. Found by review 2026-09-06, against
+ * the claim rather than against the behaviour.
  */
 export function sliceKey(workItemId: string, stepId: string | null): string {
+  if (workItemId.includes('\u0000') || (stepId ?? '').includes('\u0000')) {
+    throw new Error(
+      `slice key: neither a work item id nor a step id may contain a NUL, and ${JSON.stringify(workItemId)} / ${JSON.stringify(stepId)} does`,
+    );
+  }
   return `${workItemId}\u0000${stepId ?? ''}`;
 }
 
@@ -254,6 +271,32 @@ export interface ScheduledSlice extends Scheduled {
    * neither capacity field.
    */
   effort: number;
+  /**
+   * How many whole **workdays** past its effective deadline this slice runs, or
+   * `null` where it is not late — tasks.md 5.2, and the number the
+   * `Late by N workdays` label prints.
+   *
+   * **`null` rather than `0`, and that is a type-level claim about the copy.**
+   * The spec says `N >= 1` when late; a nullable number says it once, where a
+   * plain number leaves every label layer to re-decide whether 0 means "on
+   * time" or "late by nothing", and one of them will render `Late by 0
+   * workdays`. A slice with no effective deadline and a slice that met one are
+   * both `null` on purpose: they are the same answer to "how late is this", and
+   * whether the work item *has* a deadline is the work item's own field.
+   *
+   * **The effective deadline, not the authored one** — the leaf's own date
+   * folded against every ancestor's by `leafDeadlinesOf`, where the earliest
+   * binds. Published here rather than left to callers because a caller that
+   * re-folds is a second answer to the fold, and one that skips the fold
+   * reports a leaf on time against a parent's date it never read.
+   *
+   * From {@link workdaysLateBy} and therefore from `lastWorkdayOf`, the same
+   * arithmetic that decided lateness at all: the day the slice is still on
+   * minus the day it owed. `finish <= deadline` is nowhere in this file, and is
+   * the wrong question — a deadline names a day, and work occupies the day it
+   * finishes on.
+   */
+  lateBy: number | null;
 }
 
 /**
@@ -1048,14 +1091,76 @@ interface SlicePriority {
    * this field existed — every slice ties here and the three below decide alone.
    */
   priority: number;
+  /**
+   * How many whole workdays of room this slice has against its effective
+   * deadline, smaller first — or `Infinity` where it has no deadline.
+   *
+   * `deadlineOffset − lastWorkdayOf(start, finish)` over the **deadline-free**
+   * placement, so it is negative exactly when that placement already misses,
+   * and it is the same subtraction `workdaysLateBy` prints with its sign
+   * flipped. Asked before {@link priority} because a date somebody committed to
+   * outranks a number somebody ranked by: a priority says which work matters
+   * more, a deadline says which work is running out of time, and only the
+   * second can stop being true tomorrow.
+   *
+   * `Infinity` for an undeadlined slice by the same arithmetic that gives
+   * {@link priority} its `Infinity` — `Infinity − finite` is `Infinity`, so an
+   * undeadlined slice sorts behind every deadlined one, two undeadlined slices
+   * tie here and fall through to the rules below unchanged, and a plan with no
+   * deadlines at all schedules byte for byte as it did before this field
+   * existed. That is what `fast-golden-corpus.test.ts` asserts.
+   */
+  slack: number;
+  /**
+   * Its effective deadline offset, smaller first — or `Infinity` where it has
+   * none.
+   *
+   * Second and not first, because slack already carries the deadline *and* the
+   * work in front of it: two slices due the same day are not equally urgent if
+   * one of them is three days of work and the other is one. This separates the
+   * pair that slack cannot — equal room, different dates — and there the
+   * earlier date is the one that cannot wait.
+   */
+  deadline: number;
   /** Where the critical path puts it, with nobody's calendar in the way. */
   start: number;
   /** How much it could slip there without moving the project. */
   float: number;
   /** Its work item's number — the tie goes to the row that reads first. */
   number: string;
-  /** Its place in the step order, which is the last thing two slices can differ by. */
+  /** Its place in the step order — what separates two slices of one work item. */
   at: number;
+  /**
+   * Its slice key — `sliceKey(workItemId, stepId)`, asked last.
+   *
+   * **It is {@link at} *and* this that cannot both tie, and neither alone is
+   * enough.** The five rules above them are all facts a planner can repeat: two
+   * work items may carry one priority, one date, one start, one float, and —
+   * because `deriveNumbers` reports a `frozenNumber` verbatim and enforces no
+   * uniqueness on it — one number. `at` does not separate them, being the step
+   * index *inside* a work item, so two one-slice items both sit at 0. And the
+   * key does not separate every pair either: `slice-edges.ts` records that a
+   * plan may hand two slices of one leaf the same `stepId`, `groupByWorkItem`
+   * accepts it, and those two nodes share a key. {@link Schedule.slices} being
+   * a `Map` hides that rather than preventing it.
+   *
+   * The pair is total, and each half covers what the other cannot. Two nodes
+   * that tie on `at` are in different groups — `at` is the index within one —
+   * so they have different `workItemId`, and therefore different keys, because
+   * {@link sliceKey} now **refuses** a NUL in either half rather than assuming
+   * one is absent; without that refusal two different pairs could run into
+   * each other across the separator and produce one key. Two nodes that tie
+   * on the key are in one group, so they have different `at`. Without both,
+   * `goesFirst(a, b)` and `goesFirst(b, a)` are false together, the eligible
+   * set is a heap, and the order the rows arrived in decides who takes the
+   * person — the same plan written down twice schedules two ways.
+   *
+   * A node index would be unique on its own, and would be the wrong choice: it
+   * is assigned by the order the rows were handed over, so it would make the
+   * comparator total while leaving the plan's answer dependent on that order.
+   * A key made of the work's own identity is the same answer either way.
+   */
+  key: string;
 }
 
 /**
@@ -1931,8 +2036,8 @@ function slackOf(latestStart: number, earliestStart: number): number {
  * Without that rule the column is a constant and the feature it exists for
  * fails silently. `saved_plan.scheduler_algorithm_id` is how a stored plan
  * answers "were these dates computed by the engine running now?"; a snapshot
- * taken before a semantics change and one taken after both read
- * `slice-leveling-v1`, a reader concludes "same algorithm, same input, so these
+ * taken before a semantics change and one taken after both read the **same**
+ * id — whichever it is — a reader concludes "same algorithm, same input, so these
  * dates still hold", and the silent restatement this feature exists to prevent
  * happens anyway — now with a stored provenance field asserting it did not.
  *
@@ -1945,8 +2050,16 @@ function slackOf(latestStart: number, earliestStart: number): number {
  *
  * Format is `<engine>-v<n>` with `n` a monotonically increasing integer. The
  * value is stored, so it is never reused for a different meaning.
+ *
+ * **`v2` because the deadline named above arrived** (tasks.md 5.1 and 5.2). Two
+ * edits, one identity: ready slices are now ordered by minimum slack and
+ * earliest deadline in front of the four priority tie-breaks, and every slice
+ * publishes {@link ScheduledSlice.lateBy}. A plan stamped `v1` was computed by
+ * an engine that could not have ordered a deadlined project the way this one
+ * does and could not have reported a missed date at all, so re-reading its
+ * dates as current is exactly the restatement this constant exists to refuse.
  */
-export const SCHEDULE_ALGORITHM_ID = 'slice-leveling-v1';
+export const SCHEDULE_ALGORITHM_ID = 'slice-leveling-v2';
 
 /**
  * The schedule for a project: computed in slices, and levelled so that one
@@ -2079,6 +2192,42 @@ export function schedule(
    * which one produced the answer.
    */
   reach: DependencyReach = 'whole-item',
+  /**
+   * The latest offset each work item may finish on, from a manual deadline.
+   *
+   * The **seventh** argument, which is the slot
+   * {@link ScheduleInput} has always declared for it: this parameter exists so
+   * the canonical hash tuple and the call it hashes are the same tuple, rather
+   * than one describing an argument the other does not take.
+   *
+   * Empty by default, and **defaulted rather than optional on purpose**. An
+   * empty map and an absent map mean the same thing here — no work item is
+   * constrained — so there is nothing for a reader to distinguish and no
+   * `undefined` arm to get wrong. That is the opposite of {@link pinnedStarts}
+   * below, where the two states are different questions and the distinction is
+   * load-bearing; the asymmetry is deliberate, not an oversight.
+   *
+   * A deadline expands down the tree the way a floor does — see
+   * `leafDeadlinesOf`, which takes each leaf the **earliest** of its own
+   * deadline and every ancestor's, where a floor takes the latest.
+   *
+   * **It moves no slice earlier, and it overrides no floor.** A deadline is a
+   * statement about when work was *wanted*, not about when it may run. Slice
+   * 5.1 reads it in exactly one place — the ready-slice comparator, which
+   * decides who goes first where two slices are both eligible and want one
+   * person — and a comparator cannot place anything: whichever slice is taken
+   * first is still placed at the latest of its own floors. So a leaf whose
+   * floor stands after its deadline starts at its floor and is reported late,
+   * which is tasks.md 4.5, and a deadline that pulled work earlier would be a
+   * wish the calendar granted, which is the one thing it must never be.
+   *
+   * With this map empty the comparator ties on both of its deadline rules and
+   * the four rules behind them decide alone, so an undeadlined plan schedules
+   * byte for byte as it did before this argument existed —
+   * `fast-golden-corpus.test.ts` compares the whole corpus character by
+   * character to say so.
+   */
+  deadlines: ReadonlyMap<string, number> = new Map(),
   /**
    * Task 4.9's `materialiseOptimized`: a start per slice key, or Fast's own.
    *
@@ -2238,29 +2387,71 @@ export function schedule(
 
   const numbers = deriveNumbers(rows);
   const leafPriorities = priorityByLeaf(rows, index);
-  const priorityOf: SlicePriority[] = nodes.map((node, at) => ({
-    // Both slices of one work item carry its priority, which is what keeps a priority a
-    // fact about the work rather than about one of its steps.
-    priority: leafPriorities.get(node.slice.workItemId) ?? Infinity,
-    start: unleveled.placed[at].start,
-    float: criticalPath[at].latestStart - unleveled.placed[at].start,
-    // `deriveNumbers` covers every row or throws, so the fallback is
-    // unreachable; it is a default rather than a throw because this is the
-    // third of four tie-breaks and an empty string only ever reorders slices
-    // that are already equal on time.
-    number: numbers.get(node.slice.workItemId) ?? '',
-    at: node.at,
-  }));
+  // Deadlines expanded down the tree by the same walk the floors take and the
+  // solver wire takes — see {@link leafDeadlinesOf}, which holds the rule that
+  // the *earliest* date binds where a floor takes the latest. Read here rather
+  // than re-folded, so Fast's ordering and `deadlineUnits` on the wire cannot
+  // disagree about which day a leaf owes.
+  const leafDeadlines = leafDeadlinesOf(deadlines, index);
+  const priorityOf: SlicePriority[] = nodes.map((node, at) => {
+    // Both slices of one work item carry its deadline, exactly as they carry its
+    // priority: the date is a fact about the work, and a step that inherited no
+    // deadline would be a step the ordering stops hurrying half way through.
+    const deadline = leafDeadlines.get(node.slice.workItemId) ?? Infinity;
+    return {
+      // Both slices of one work item carry its priority, which is what keeps a priority a
+      // fact about the work rather than about one of its steps.
+      priority: leafPriorities.get(node.slice.workItemId) ?? Infinity,
+      deadline,
+      // Measured against the placement with nobody's calendar in it, which is
+      // the same pass `start` and `float` already read. Slack against the
+      // *leveled* placement would be circular: the leveler is the thing this
+      // number is about to order.
+      slack: deadline - lastWorkdayOf(unleveled.placed[at].start, unleveled.placed[at].finish),
+      start: unleveled.placed[at].start,
+      float: criticalPath[at].latestStart - unleveled.placed[at].start,
+      // `deriveNumbers` covers every row or throws, so the fallback is
+      // unreachable; it is a default rather than a throw because this is the
+      // third of four tie-breaks and an empty string only ever reorders slices
+      // that are already equal on time.
+      number: numbers.get(node.slice.workItemId) ?? '',
+      at: node.at,
+      key: node.key,
+    };
+  });
   /**
-   * The priority rule, in full: what somebody said matters most, then what the
+   * The priority rule, in full: what is closest to running out of time, then
+   * what is due soonest, then what somebody said matters most, then what the
    * critical path needs first, then what has least room to move, then the
    * plan's own order.
    *
-   * The last two are what make it deterministic rather than merely correct.
-   * Two slices that tie on time are separated by their work item's number and
-   * then by their place in the step order, so the same plan cannot schedule two
-   * ways — and no pair can tie on all five, since two slices of one work item
-   * differ in the last.
+   * **The two deadline rules are in front, and the four behind them are
+   * untouched** (tasks.md 5.1). A plan that carries no deadlines ties on both
+   * of the new comparisons — every slice's slack and deadline are `Infinity` —
+   * so the rule below it decides alone and the placement is byte for byte the
+   * one this engine produced before deadlines existed. That is not an argument;
+   * it is what `fast-golden-corpus.test.ts` compares character by character.
+   *
+   * **Why a deadline outranks a priority rather than tying into it.** A
+   * priority is a standing opinion about which work is worth more; a deadline
+   * is a date that stops being satisfiable. Asking the opinion first would let
+   * a p1 with three weeks of room take the person a p3 needed on Thursday, and
+   * the plan would come back with a missed date whose reason was a ranking
+   * nobody thought applied to it. The reverse ordering cannot make that
+   * mistake, and it costs the priority rule nothing on the plans that have no
+   * deadlines — which today is all of them.
+   *
+   * The last three are what make it deterministic rather than merely correct.
+   * Two slices that tie on time are separated by their work item's number, then
+   * by their place in the step order, and finally by their slice key — and it
+   * is those **last two together** that cannot tie, neither of them alone. The
+   * step index read as though it were enough and is not: two one-slice work
+   * items both sit at 0, and a `frozenNumber` is reported verbatim, so a pair
+   * could tie on all five and the heap's insertion order decided between them.
+   * See {@link SlicePriority.key} for why the key does not close it single
+   * handed either, and `schedules the same plan from either row order when two
+   * slices tie on every key`, which reversed the rows and got the other
+   * answer; watched 2026-09-06.
    *
    * **This rule decides an order, never a date.** Whichever slice is taken
    * first is still placed at the latest of its own floors, so a priority cannot
@@ -2283,11 +2474,14 @@ export function schedule(
   const goesFirst = (left: number, right: number): boolean => {
     const first = priorityOf[left];
     const second = priorityOf[right];
+    if (first.slack !== second.slack) return first.slack < second.slack;
+    if (first.deadline !== second.deadline) return first.deadline < second.deadline;
     if (first.priority !== second.priority) return first.priority < second.priority;
     if (first.start !== second.start) return first.start < second.start;
     if (first.float !== second.float) return first.float < second.float;
     if (first.number !== second.number) return first.number < second.number;
-    return first.at < second.at;
+    if (first.at !== second.at) return first.at < second.at;
+    return first.key < second.key;
   };
 
   /**
@@ -2363,6 +2557,18 @@ export function schedule(
     const placed = leveled.placed[at];
     const { latestStart, latestFinish } = late[at];
     const slack = slackOf(latestStart, placed.start);
+    // The same folded map the ordering read, so the row's place in the queue
+    // and the number printed beside it answer to one date. Read against the
+    // *leveled* placement — where the slice actually landed — rather than
+    // against the deadline-free pass `slack` is measured on: slack asks how
+    // much room the work had, and this asks what day it will really be done.
+    const deadlineOffset = leafDeadlines.get(slice.workItemId);
+    // `workdaysLateBy` answers 0 for "met it", and the field says `null` — one
+    // narrowing here rather than a truthiness check in every reader.
+    const missed =
+      deadlineOffset === undefined
+        ? 0
+        : workdaysLateBy(placed.start, placed.finish, deadlineOffset);
     if (placed.boundBy === 'person') waiting.add(slice.workItemId);
     // Beside the person's count, never folded into it: "waiting for a person"
     // and "waiting for a slot" are different sentences, and `boundBy` names
@@ -2394,6 +2600,7 @@ export function schedule(
         placed.resourcePredecessor === NOBODY ? null : nodes[placed.resourcePredecessor].key,
       capacityPredecessorIds: placed.capacityPredecessors.map((blocker) => nodes[blocker].key),
       capacityTeamId: placed.capacityTeamId,
+      lateBy: missed === 0 ? null : missed,
     });
   });
 

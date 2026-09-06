@@ -252,6 +252,25 @@ export function nextWorkday(date: IsoDate): IsoDate {
 }
 
 /**
+ * The first workday on or **before** `date` — `date` itself unless it is a
+ * weekend.
+ *
+ * {@link nextWorkday} mirrored, and the direction is the whole point rather
+ * than a symmetry for its own sake. A start date rolls forward because a plan
+ * that begins on a Saturday begins on the Monday; a **deadline** must roll
+ * backward, because "finish by Saturday the 15th" is a promise that the work is
+ * done when that Saturday arrives, and rolling it to Monday the 17th hands out
+ * two calendar days nobody agreed to. The two rules are opposite for the same
+ * reason: each rolls towards the working day that keeps the constraint as
+ * strong as the person who typed it meant it.
+ */
+export function previousWorkday(date: IsoDate): IsoDate {
+  let at = toUtc(date);
+  while (at.getUTCDay() === 0 || at.getUTCDay() === 6) at = new Date(at.getTime() - DAY_MS);
+  return asIso(at);
+}
+
+/**
  * The date `workdays` working days after `from`, counting `from` as day zero.
  *
  * `addWorkdays(friday, 1)` is the following Monday, and `addWorkdays(x, 0)` is
@@ -337,4 +356,51 @@ export function workdaysBetween(from: IsoDate, to: IsoDate): number {
   // backwards through a constraint meant only ever to push it later.
   if (end.getTime() <= start.getTime()) return 0;
   return workdayIndexOf(end) - workdayIndexOf(start);
+}
+
+/**
+ * Where a stored deadline lands on the scheduler's workday axis, or the fact
+ * that it lands before the axis begins.
+ *
+ * The variant exists because there is no number that can say
+ * "before the project starts". Offset `0` is the plan's **first** working day,
+ * so returning it for a deadline the user typed in the past would silently
+ * replace their input with the strictest constraint the model can express —
+ * and every downstream reader would take it for a date somebody chose. A caller
+ * has to name the case to read past it.
+ */
+export type DeadlineOffset =
+  | { readonly kind: 'offset'; readonly offset: number }
+  | { readonly kind: 'before-project-start' };
+
+/**
+ * Which workday offset a `deadline` falls on, counted from `projectStart` the
+ * way {@link addWorkdays} counts — so `deadlineOffsetOf(s, addWorkdays(s, k))`
+ * is offset `k` for every workday `s` and every `k`, which is the property
+ * `workday.property.test.ts` asserts.
+ *
+ * Two rules, and neither is {@link workdaysBetween}'s:
+ *
+ * - **The deadline rolls backward** through {@link previousWorkday}. A Saturday
+ *   deadline is Friday's offset, not the following Monday's. `workdaysBetween`
+ *   rolls both ends forward, so substituting it here quietly grants two extra
+ *   calendar days on every weekend deadline.
+ * - **Day zero is `nextWorkday(projectStart)`**, not `projectStart` itself,
+ *   because that is the day `addWorkdays(projectStart, 0)` names and the whole
+ *   axis is built on it. A rolled deadline strictly before that day is
+ *   `before-project-start` and not offset `0`; `workdaysBetween` clamps it to
+ *   `0` instead, which is the second half of the same substitution fault.
+ *
+ * Both halves of that fault are watched together in `workday.test.ts` (W3): a
+ * test that catches only the weekend one passes with the impossible case turned
+ * into the strictest possible deadline, which is a check that cannot fail for
+ * the reason it was written.
+ *
+ * @throws Whatever {@link toUtc} throws when either date is not a calendar date.
+ */
+export function deadlineOffsetOf(projectStart: IsoDate, deadline: IsoDate): DeadlineOffset {
+  const dayZero = toUtc(nextWorkday(projectStart));
+  const at = toUtc(previousWorkday(deadline));
+  if (at.getTime() < dayZero.getTime()) return { kind: 'before-project-start' };
+  return { kind: 'offset', offset: workdayIndexOf(at) - workdayIndexOf(dayZero) };
 }

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import fc from 'fast-check';
 
-import { addWorkdays, type IsoDate, workdaysBetween } from './workday';
+import {
+  addWorkdays,
+  type DeadlineOffset,
+  deadlineOffsetOf,
+  type IsoDate,
+  previousWorkday,
+  workdaysBetween,
+} from './workday';
 
 const DAY_MS = 86_400_000;
 
@@ -45,6 +52,59 @@ function workdaysBetweenByWalking(from: IsoDate, to: IsoDate): number {
     if (at.getUTCDay() !== 0 && at.getUTCDay() !== 6) count += 1;
   }
   return count;
+}
+
+/** Walk backward from a date to the nearest workday. */
+function previousWorkdayByWalking(date: IsoDate): IsoDate {
+  let at = new Date(`${date}T00:00:00Z`);
+  while (at.getUTCDay() === 0 || at.getUTCDay() === 6) {
+    at = new Date(at.getTime() - DAY_MS);
+  }
+  return at.toISOString().slice(0, 10);
+}
+
+/** The same, for `deadlineOffsetOf`. */
+function deadlineOffsetOfByWalking(projectStart: IsoDate, deadline: IsoDate): DeadlineOffset {
+  // Day zero is the first workday on or after projectStart
+  let dayZero = new Date(`${projectStart}T00:00:00Z`);
+  while (dayZero.getUTCDay() === 0 || dayZero.getUTCDay() === 6) {
+    dayZero = new Date(dayZero.getTime() + DAY_MS);
+  }
+
+  // The deadline rolls backward to the nearest workday
+  let at = new Date(`${deadline}T00:00:00Z`);
+  while (at.getUTCDay() === 0 || at.getUTCDay() === 6) {
+    at = new Date(at.getTime() - DAY_MS);
+  }
+
+  // If rolled deadline is before day zero, it's before project start
+  if (at.getTime() < dayZero.getTime()) {
+    return { kind: 'before-project-start' };
+  }
+
+  // Count workdays from dayZero to at
+  let count = 0;
+  let current = dayZero;
+  while (current.getTime() < at.getTime()) {
+    current = new Date(current.getTime() + DAY_MS);
+    if (current.getUTCDay() !== 0 && current.getUTCDay() !== 6) {
+      count += 1;
+    }
+  }
+
+  return { kind: 'offset', offset: count };
+}
+
+/**
+ * A `DeadlineOffset` as one comparable string.
+ *
+ * Reading `.offset` off the union to compare two of them does not typecheck —
+ * `before-project-start` has no such field, which is the whole reason the
+ * variant exists — and a per-case `if` inside the loop would compare the two
+ * kinds under different rules. One string compares both kinds under one.
+ */
+function shown(at: DeadlineOffset): string {
+  return at.kind === 'offset' ? `offset ${String(at.offset)}` : at.kind;
 }
 
 /** A week that covers every start weekday, both weekend days included. */
@@ -138,6 +198,77 @@ describe('the closed form and the walk agree', () => {
         expect(workdaysBetween(from, addWorkdays(from, workdays))).toBe(workdays);
       }),
       { numRuns: 500, seed: 20_260_902 },
+    );
+  });
+
+  it('deadlineOffsetOf(s, addWorkdays(s, k)) is { kind: "offset", offset: k } for every s and k in 0..500', () => {
+    const disagreements: string[] = [];
+    for (const from of A_WEEK) {
+      for (let offset = 0; offset <= 500; offset += 1) {
+        const deadline = addWorkdays(from, offset);
+        const closed = shown(deadlineOffsetOf(from, deadline));
+        const expected = `offset ${String(offset)}`;
+        if (closed !== expected) {
+          disagreements.push(`${from}+${String(offset)}: got ${closed} expected ${expected}`);
+        }
+      }
+    }
+    expect(disagreements).toEqual([]);
+  });
+
+  it('deadlineOffsetOf is the same inverse it was', () => {
+    const disagreements: string[] = [];
+    for (const from of A_WEEK) {
+      for (let ahead = -10; ahead <= 400; ahead += 1) {
+        const to = new Date(new Date(`${from}T00:00:00Z`).getTime() + ahead * DAY_MS)
+          .toISOString()
+          .slice(0, 10);
+        const closed = shown(deadlineOffsetOf(from, to));
+        const walked = shown(deadlineOffsetOfByWalking(from, to));
+        if (closed !== walked) {
+          disagreements.push(`${from}→${to}: got ${closed} expected ${walked}`);
+        }
+      }
+    }
+    expect(disagreements).toEqual([]);
+    // A deadline before the project's day zero rolls back to before-project-start
+    expect(deadlineOffsetOf('2026-06-08', '2026-06-01')).toEqual({ kind: 'before-project-start' });
+  });
+
+  it('previousWorkday walks backward to the nearest workday', () => {
+    const disagreements: string[] = [];
+    for (const from of A_WEEK) {
+      for (let behind = -3; behind <= 10; behind += 1) {
+        const to = new Date(new Date(`${from}T00:00:00Z`).getTime() + behind * DAY_MS)
+          .toISOString()
+          .slice(0, 10);
+        const closed = previousWorkday(to);
+        const walked = previousWorkdayByWalking(to);
+        if (closed !== walked) {
+          disagreements.push(`${to}: ${closed} ≠ ${walked}`);
+        }
+      }
+    }
+    expect(disagreements).toEqual([]);
+    // A weekend day rolls backward to the preceding Friday
+    expect(previousWorkday('2026-06-06')).toBe('2026-06-05');
+    expect(previousWorkday('2026-06-07')).toBe('2026-06-05');
+  });
+
+  it('deadlineOffsetOf agrees with the backward walk for arbitrary date pairs', () => {
+    // The loop above covers one week of starts exhaustively; this covers pairs
+    // no hand-written week would reach — month and year boundaries, leap days,
+    // and deadlines on either side of their own project start.
+    fc.assert(
+      fc.property(isoDate, fc.integer({ min: -400, max: 400 }), (projectStart, ahead) => {
+        const deadline = new Date(new Date(`${projectStart}T00:00:00Z`).getTime() + ahead * DAY_MS)
+          .toISOString()
+          .slice(0, 10);
+        expect(shown(deadlineOffsetOf(projectStart, deadline))).toBe(
+          shown(deadlineOffsetOfByWalking(projectStart, deadline)),
+        );
+      }),
+      { numRuns: 1000, seed: 20_260_906 },
     );
   });
 });
