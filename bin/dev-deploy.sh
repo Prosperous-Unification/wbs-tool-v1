@@ -56,13 +56,12 @@ MCP_EXPOSURE_EXPECTED=$(ssh h2puni \
   < "$(dirname "${BASH_SOURCE[0]}")/dev-mcp-preflight.sh")
 export MCP_EXPOSURE_EXPECTED
 
-# Run sync from a snapshot outside the checkout it is about to reset.
+# Run the fetched target's sync from a snapshot outside the checkout it resets.
 #
-# Running it in place means the process rewrites its own source mid-run, and a
-# commit that breaks sync.ts lands on disk successfully -- wedging every later
-# deploy with no way to deploy the fix. The snapshot is taken before the reset,
-# so a broken commit fails the run it arrived in and the previous good copy is
-# still on disk at /home/puni1/wbs-dev/bin/sync.ts to deploy over it.
+# Running the checkout's pre-reset copy wedges a later fix when that old copy
+# fails before reset. The durable helper extracts this exact target SHA, so a
+# repaired target supplies the deployer that can land it without skipping any
+# sync.ts preflight or post-reset check.
 #
 # SC2029 is disabled for this command, not silenced globally: $SHA is meant to
 # expand here, on this machine. The remote has no such variable, and sending
@@ -70,10 +69,9 @@ export MCP_EXPOSURE_EXPECTED
 # shellcheck disable=SC2029
 ssh h2puni "bash -lc '
   set -e
-  mkdir -p /home/puni1/wbs-dev/bin
-  cp /home/puni1/wbs-dev/src/tools/tool-devsync/src/sync.ts /home/puni1/wbs-dev/bin/sync.next.ts
-  mv /home/puni1/wbs-dev/bin/sync.next.ts /home/puni1/wbs-dev/bin/sync.ts
-  cd /home/puni1/wbs-dev/src && bun /home/puni1/wbs-dev/bin/sync.ts $SHA
+  git -C /home/puni1/wbs-dev/src fetch --quiet origin
+  /home/puni1/wbs-dev/bin/dev-poll-sync.sh /home/puni1/wbs-dev/src \
+    /home/puni1/wbs-dev/bin bun $SHA
 '"
 
 # No credential is fetched or sent. Dev's edge password was removed 2026-08-06;
