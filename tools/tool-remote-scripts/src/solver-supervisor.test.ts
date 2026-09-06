@@ -122,31 +122,31 @@ describe('the solver supervisor executable', () => {
       callerName: 'be-01-blue',
       image: BLUE,
     });
-    expect(() =>
+    expect(() => {
       assertSolverSupervisorMapping(bytes, {
         config: '/etc/wbs/supervisor.json',
         env: 'prod',
         callerName: 'be-01-blue',
         image: OTHER,
-      }),
-    ).toThrow('image does not match its mapping');
-    expect(() =>
+      });
+    }).toThrow('image does not match its mapping');
+    expect(() => {
       assertSolverSupervisorMapping(bytes, {
         config: '/etc/wbs/supervisor.json',
         env: 'dev',
         solverImage: OTHER,
-      }),
-    ).toThrow('incompatible');
+      });
+    }).toThrow('incompatible');
   });
 
   it('refuses a prod map that points a valid caller at another solver artifact', () => {
-    expect(() =>
+    expect(() => {
       assertSolverSupervisorMapping(encoded(CONFIG), {
         config: '/etc/wbs/supervisor.json',
         env: 'prod',
         callerName: 'be-01-blue',
         image: BLUE,
-      }),
-    ).toThrow('solver image does not match its caller image');
+      });
+    }).toThrow('solver image does not match its caller image');
   });
 });

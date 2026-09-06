@@ -40,8 +40,8 @@ export function parseSolverSupervisorMappingPreflight(
   for (const raw of argv) {
     const match = /^--([^=]+)=(.*)$/.exec(raw);
     if (match === null) throw defect(`unexpected mapping-preflight argument ${raw}`);
-    const key = match[1] as string;
-    const value = match[2] as string;
+    const key = match[1];
+    const value = match[2];
     if (options.has(key)) throw defect(`duplicate --${key}`);
     options.set(key, value);
   }
