@@ -52,7 +52,7 @@ here.
       column** — the floor's `start_no_earlier_than_reason` gets no counterpart
       here, and adding one speculatively is out of scope.
 - [ ] 1.2 **`apps/be-01/drizzle/**` is a prod-mode path**
-    (`notes/delivery-modes.md`): this slice ships as a reviewed PR and is not
+  (`notes/delivery-modes.md`): this slice ships as a reviewed PR and is not
       self-merged, and it carries **nothing else** — no domain code, no API
       field, no UI. That isolation is the same one TASK-218 applied to the cache
       migration, and it is what lets slices 2–9 self-merge.
@@ -129,7 +129,7 @@ here.
 ## 5. Fast ordering and `Late by N workdays`
 
 - [ ] 5.1 Ready-slice order becomes minimum slack (`deadlineOffset −
-    earliestFinish`, whole workdays), then earliest effective deadline, then
+  earliestFinish`, whole workdays), then earliest effective deadline, then
       the **existing, untouched** priority tie-breaks. Slices with no effective
       deadline sort after every deadlined slice, holding their existing relative
       priority order.
@@ -165,7 +165,7 @@ here.
 ## 7. Canonical input, contract-version bump, retention scoping
 
 - [ ] 7.1 `deadlines` becomes the **seventh** canonical-input entry: `[workItemId,
-    deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
+  deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       against `project.startDate`, keys **as-authored and not pre-expanded to
       leaves**. The parent-with-no-bound-leaf case is the test that pins the
       as-authored choice: its hash must change even though the fold emits no
@@ -204,7 +204,7 @@ here.
       an existing latent defect; it is not — the rule already reads "allocating
       a new generation SHALL delete every cache row of that project **for that
       contract version**" and retains per `(projectId, objective,
-    contractVersion, inputHash)`. That draft had quoted the requirement's
+  contractVersion, inputHash)`. That draft had quoted the requirement's
       unscoped _title_ and ignored its scoped body. Adding a second requirement
       for behaviour a first one already owns is the divergence pattern these
       artifacts keep paying for; the test is worth having, the rule is not.
@@ -225,7 +225,7 @@ here.
       `required` sets and fails on the symmetric difference — a partial edit is a
       red gate by design, so land them together or watch the gate go red.
 - [ ] 8.3 The CP-SAT constraint `startUnits(s) + max(durationUnits(s), 1) <=
-    (D + 1) × quantum`, added **before** the objective terms and independent of
+  (D + 1) × quantum`, added **before** the objective terms and independent of
       them — not a penalty, not a soft term, not a lexicographic stage.
 - [ ] 8.4 **WATCHED RED W2** — substitute `finishUnits <= (D + 1) × quantum`. A
       zero-duration milestone one day late must be admitted as feasible. Every
@@ -299,14 +299,14 @@ here.
       sufficient — the route is reachable without the UI, which is exactly the
       hole the `corrupt`-promised-a-Retry Critical named.
 - [ ] 8.8 Revalidator clause `lastWorkdayOf(start, finish) <=
-    effectiveDeadlineOffset`, evaluated on the materialised schedule in the
+  effectiveDeadlineOffset`, evaluated on the materialised schedule in the
       **real fractional domain**, not in quantised units. A violation is
       `invalid-output` — a deadline-violating solver result is a broken engine,
       never an infeasible plan. `materialiseOptimized` is unchanged and
       `ScheduleFloor` gains **no** `boundBy: 'deadline'` member.
 - [ ] 8.9 TASK-221 copy: `Same deadline + reordered` → `Same project deadline +
-    reordered` and `Same deadline + same order` → `Same project deadline + same
-    order`, with their tests. A repository assertion that no unqualified
+  reordered` and `Same deadline + same order` → `Same project deadline + same
+  order`, with their tests. A repository assertion that no unqualified
       "deadline" string remains in shipped UI copy.
 - [ ] 8.9b **The normative text mandating the old strings is amended in the same
       commit**: `dual-optimized-scheduler/specs/scheduler-optimization/spec.md`,
