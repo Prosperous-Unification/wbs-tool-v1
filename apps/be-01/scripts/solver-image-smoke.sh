@@ -77,3 +77,23 @@ docker run --rm --name "$caller_name" \
   /run/wbs-solver/supervisor.sock \
   /app/libs/contracts/solver/fixtures/request/valid-quantised-baseline.json \
   "$attempt_token"
+
+if [ "${WBS_RUN_SOLVER_ORPHAN_PROC:-0}" = '1' ]; then
+  orphan_registry_tag="$registry/wbs-be-01:solver-orphan"
+  docker build \
+    --file "$repo_root/apps/be-01/scripts/solver-orphan-fixture.Dockerfile" \
+    --build-arg "SOLVER_BASE_IMAGE=$solver_image" \
+    --tag "$orphan_registry_tag" \
+    "$repo_root"
+  docker push "$orphan_registry_tag" >/dev/null
+  mapfile -t orphan_digests < <(
+    docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$orphan_registry_tag" |
+      grep --fixed-strings "$registry/wbs-be-01@"
+  )
+  if [ "${#orphan_digests[@]}" -ne 1 ]; then
+    echo '[solver-image-smoke] orphan fixture did not produce one matching digest' >&2
+    exit 1
+  fi
+  WBS_SOLVER_ORPHAN_IMAGE="${orphan_digests[0]}" \
+    bun test apps/be-01/src/service/optimization-orphan.proc.test.ts
+fi
