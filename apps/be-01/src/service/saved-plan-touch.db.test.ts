@@ -60,6 +60,7 @@ describe('renaming and deleting a saved plan', () => {
     serviceId: null,
     maxParallel: 1,
     startNoEarlierThanReason: null,
+    deadline: null,
     revision: 0,
   });
 

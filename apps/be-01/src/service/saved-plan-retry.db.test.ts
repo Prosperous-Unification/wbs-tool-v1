@@ -55,6 +55,7 @@ describe('a refused save retried inside its budget saves the project as it is th
     serviceId: null,
     maxParallel: 1,
     startNoEarlierThanReason: null,
+    deadline: null,
     revision: 0,
   });
 

@@ -89,6 +89,7 @@ function row(parentId: string | null, position: number, name: string): WorkItem 
     priority: null,
     startNoEarlierThan: null,
     startNoEarlierThanReason: null,
+    deadline: null,
     serviceTeamId: null,
     serviceId: null,
     maxParallel: 1,

@@ -93,6 +93,7 @@ describe('scheduling a captured plan', () => {
           serviceId: null,
           maxParallel: 1,
           startNoEarlierThanReason: null,
+          deadline: null,
           revision: 0,
         },
         [],

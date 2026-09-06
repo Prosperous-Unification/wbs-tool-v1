@@ -170,6 +170,7 @@ describe('capturing a project’s plan input', () => {
         serviceId: null,
         maxParallel: 1,
         startNoEarlierThanReason: null,
+        deadline: null,
         revision: 0,
       },
       [],

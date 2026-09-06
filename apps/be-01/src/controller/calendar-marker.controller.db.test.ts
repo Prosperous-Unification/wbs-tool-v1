@@ -1053,6 +1053,7 @@ describe('the calendar-marker routes', () => {
       priority: null,
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
+      deadline: null,
       serviceTeamId: null,
       serviceId: null,
       maxParallel: 1,

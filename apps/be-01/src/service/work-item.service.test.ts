@@ -124,6 +124,7 @@ async function fill(parentId: string, count: number): Promise<void> {
         priority: null,
         startNoEarlierThan: null,
         startNoEarlierThanReason: null,
+        deadline: null,
         serviceTeamId: null,
         serviceId: null,
         maxParallel: 1,

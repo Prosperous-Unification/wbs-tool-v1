@@ -129,6 +129,7 @@ async function leaf(
       priority,
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
+      deadline: null,
       serviceTeamId,
       serviceId: null,
       maxParallel: 1,

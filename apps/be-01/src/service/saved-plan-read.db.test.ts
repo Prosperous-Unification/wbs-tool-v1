@@ -82,6 +82,7 @@ describe('reading a saved plan back', () => {
     serviceId: null,
     maxParallel: 1,
     startNoEarlierThanReason: null,
+    deadline: null,
     revision: 0,
   });
 
