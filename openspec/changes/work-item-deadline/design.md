@@ -84,7 +84,7 @@ both of its documented behaviours are unsafe in the opposite direction:
    conservative; a ceiling rolled forward is a missed deadline reported as met.
 2. **It clamps a `to` before `from` to 0** (`workday.ts:305`), because "the plan
    cannot start before its own start". For a ceiling, offset 0 is not a clamp,
-   it is the *strictest possible* deadline — "finish on day zero" — silently
+   it is the _strictest possible_ deadline — "finish on day zero" — silently
    substituted for what the user typed.
 
 So `libs/domain/src/workday.ts` gains
@@ -103,7 +103,7 @@ not `projectStart` itself.
 **Backward is the honest reading** and is recorded as an assumption, falsifiable
 by Dany: no work happens on Saturday, so "by Saturday the 10th" means the last
 day work may happen is Friday the 9th. Rolling forward would let a plan finish
-*after* the date the user chose, which is the one thing a deadline may not
+_after_ the date the user chose, which is the one thing a deadline may not
 permit. **What would falsify it:** Dany saying a weekend deadline means "the
 start of the following week".
 
@@ -122,7 +122,7 @@ effective(leaf) = min over { deadline(n) | n = leaf or n is an ancestor of leaf,
 ```
 
 Earliest applicable wins, unconditionally — a parent dated the 5th tightens a
-child dated the 20th, and a child dated the 5th is *not* loosened by a parent
+child dated the 20th, and a child dated the 5th is _not_ loosened by a parent
 dated the 20th. This mirrors the floor's expansion (`schedule()`'s `notBefore`
 doc: "Each leaf takes the **latest** of its own floor and every ancestor's")
 with `latest` replaced by `earliest`, and it is the same tree walk with a
@@ -133,7 +133,7 @@ because the clamp differs (§1.3) and is not shared.
 That is realised as: the effective deadline applies to **every slice** of every
 work item in scope, not to a computed subtree maximum. The two are equivalent —
 intra-item step order is a precedence chain (`groupByWorkItem` preserves the
-given order and that order *is* the precedence), so a work item's last slice has
+given order and that order _is_ the precedence), so a work item's last slice has
 its maximum finish, and a subtree's maximum finish is the maximum over its
 leaves' last slices. The per-slice form is chosen because it is what a CP-SAT
 constraint and a Bun revalidator can both state directly without materialising a
@@ -169,9 +169,9 @@ In the solver's integer domain this is the reason the constraint is written
 Two kinds, and they are **not** the same thing:
 
 - **`before-project-start`** (§1.3): the deadline resolves before day zero. This
-  is a *malformed input*, not an infeasible plan. It is rejected at the write
+  is a _malformed input_, not an infeasible plan. It is rejected at the write
   boundary (§2.2) with `422`, so it never reaches a scheduler and never becomes
-  a cache row. A project whose `startDate` is *later* edited past an existing
+  a cache row. A project whose `startDate` is _later_ edited past an existing
   deadline does not retro-reject the stored value — see §2.3.
 - **Unreachable but well-formed**: the deadline is at or after day zero and the
   plan simply cannot meet it. This is legitimate input. Fast reports lateness
@@ -183,7 +183,7 @@ Two kinds, and they are **not** the same thing:
 are untouched. A deadline never moves work **earlier** and never overrides a
 floor: where a floor and a deadline contradict, the plan is late (Fast) or
 infeasible (PRI/Time), and the floor still wins the placement. A deadline is a
-constraint on the *outcome*, never a scheduling instruction.
+constraint on the _outcome_, never a scheduling instruction.
 
 ## §2 Persistence, API, realtime, undo
 
@@ -220,7 +220,7 @@ project setting and adds no new authority.
 Legal, and **not** retro-rejected. The stored date is what the user typed; the
 project moving under it does not make their input malformed. The effective
 deadline for that item resolves to `before-project-start` **at read time**, which
-is treated as *unmeetable*, not as *invalid*: Fast reports it late by the whole
+is treated as _unmeetable_, not as _invalid_: Fast reports it late by the whole
 span, PRI/Time report `plan-infeasible` naming it. The row shows its Work item
 deadline with the existing "impossible" affordance rather than being silently
 dropped. Rejecting it would delete user data on an unrelated edit.
@@ -289,7 +289,7 @@ startUnits(s) + max(durationUnits(s), 1) <= (D + 1) × quantum
 
 `(D + 1) × quantum` is the first instant of the day after the deadline day, so
 the constraint is exactly "the work occupies no instant of any later day". The
-`max(·, 1)` is §1.6: it is what makes a zero-duration milestone sit *within* day
+`max(·, 1)` is §1.6: it is what makes a zero-duration milestone sit _within_ day
 `D` rather than at the boundary that belongs to `D + 1`. Writing
 `finishUnits <= (D + 1) × quantum` instead is a watched red (§7) — it passes
 every non-zero-duration fixture and admits a milestone one day late.
@@ -303,7 +303,7 @@ engine worked correctly.
 **The stage qualifier is not decoration, and this note had it wrong.** The rule
 being amended says `INFEASIBLE` is `invalid-output` **at any stage**, because
 Fast placed the same graph and every later stage's added constraint is satisfied
-by the previous incumbent. Deadlines enter *before* the objective terms (§3.2),
+by the previous incumbent. Deadlines enter _before_ the objective terms (§3.2),
 so they are present at stage 1 — which is the one case that blanket rule now
 over-covers, and the only case that changes. A **later-stage** `INFEASIBLE` is
 still impossible on a correct engine, stays `invalid-output`, and could not
@@ -325,8 +325,8 @@ dual-scheduler design) as its own row state beside `ok` and `failed`, with:
   the effective one, because a leaf whose parent's date is the binding
   constraint must show the date that actually bound it, and pointing at the
   leaf's own later date would send the user to edit a field that changes
-  nothing. Each entry carries the work item that *owns* the binding date and the
-  work item the constraint *fell on*, which are the same id when it is a leaf's
+  nothing. Each entry carries the work item that _owns_ the binding date and the
+  work item the constraint _fell on_, which are the same id when it is a leaf's
   own.
 - **Cached like `ok`**, keyed identically. It is a deterministic function of the
   input, so re-solving the same input to learn the same answer is waste. It does
@@ -341,7 +341,7 @@ dual-scheduler design) as its own row state beside `ok` and `failed`, with:
 returning `INFEASIBLE` on a well-formed model. Malformed or invalid solver
 output — an unparseable line, an unknown status, a missing or unknown offset key,
 or any offset that fails the Bun revalidation — remains `invalid-output` and an
-**engine failure**, exactly as today. A solver that returns a *feasible* schedule
+**engine failure**, exactly as today. A solver that returns a _feasible_ schedule
 violating a deadline is likewise `invalid-output`, not `plan-infeasible`: the
 revalidator (§3.5) catches it and the engine is at fault.
 
@@ -374,12 +374,12 @@ implied:
   `schedule(rows, edges, slices, notBefore, poolSizes, reach)`**, which is what
   actually occurs in all four:
 
-  | File | Where | What is stale |
-  |---|---|---|
+  | File                                                                             | Where                                                               | What is stale                           |
+  | -------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------- |
   | `openspec/changes/dual-optimized-scheduler/specs/scheduler-optimization/spec.md` | §"The canonical input is the exact argument tuple of the Fast pass" | the normative tuple and its enumeration |
-  | `openspec/changes/dual-optimized-scheduler/design.md` | the **Canonical input** bullet | the tuple and its hashed-fields list |
-  | `openspec/changes/dual-optimized-scheduler/tasks.md` | slice 1.1 | the tuple the implementer builds from |
-  | `notes/wbs-dual-optimized-scheduler-design.md` §2.2 | "carries all six arguments and nothing else" + the numbered list | the count word **and** the list |
+  | `openspec/changes/dual-optimized-scheduler/design.md`                            | the **Canonical input** bullet                                      | the tuple and its hashed-fields list    |
+  | `openspec/changes/dual-optimized-scheduler/tasks.md`                             | slice 1.1                                                           | the tuple the implementer builds from   |
+  | `notes/wbs-dual-optimized-scheduler-design.md` §2.2                              | "carries all six arguments and nothing else" + the numbered list    | the count word **and** the list         |
 
   `openspec/changes/dual-optimized-scheduler/tasks.md` was missing from the
   first version of this list and is the one an implementer actually follows.
@@ -390,6 +390,7 @@ implied:
   ledger ("Canonical input rebuilt from `schedule()`'s actual six arguments"). A
   ledger records what a past round found and fixed; rewriting it to say seven
   would make it a false record of round 1. Amend normative text, never history.
+
 - `SCHEDULER_CONTRACT_VERSION` **must be bumped**. The canonical input, the wire
   and the materialiser all change, so every pre-existing cache row is describing
   a different function. The bump is what evicts them; there is no data migration
@@ -447,7 +448,7 @@ schedule is a broken engine, not an infeasible plan.
 
 `materialiseOptimized` needs **no** change: it pins the optimized starts and
 replays Fast's annotation pass, and a deadline changes no annotation. The
-`ScheduleFloor` union is **not** extended — a deadline never *causes* a start, so
+`ScheduleFloor` union is **not** extended — a deadline never _causes_ a start, so
 nothing is ever `boundBy: 'deadline'`. Adding a member there would be a category
 error and is a watched red (§7).
 
@@ -458,10 +459,10 @@ error and is a watched red (§7).
 existing plan schedules identically, every existing cache row is evicted by the
 bump rather than being read under a contract it does not satisfy.
 
-**Rollback boundary.** Rolling back the *application* while the column exists is
+**Rollback boundary.** Rolling back the _application_ while the column exists is
 safe: the old code selects a column list that does not name `deadline`, the
 values sit unread, and the old `SCHEDULER_CONTRACT_VERSION` keys a disjoint set
-of cache rows. Rolling back the *migration* drops user data and is not a
+of cache rows. Rolling back the _migration_ drops user data and is not a
 supported operation. The blue/green swap therefore runs the migration first and
 the application second, which is the existing order.
 
@@ -471,7 +472,7 @@ That is already handled, and further than an earlier draft of this section
 claimed: the version is part of the cache key, so the two generations read and
 write disjoint rows, **and retention is already scoped to it** — the existing
 rule reads "allocating a new generation SHALL delete every cache row of that
-project *for that contract version*", retaining per `(projectId, objective,
+project _for that contract version_", retaining per `(projectId, objective,
 contractVersion, inputHash)`.
 
 This section previously called that an existing latent defect that this change
@@ -515,7 +516,7 @@ owns is the divergence pattern these artifacts have paid for repeatedly.
 6. **API + realtime + undo** — §2.2's `422` boundary, the existing event, the
    existing undo stack (§2.4).
 7. **Canonical input and contract-version bump** — §3.4. Plus a two-version
-   retention *regression test* (§4) — not a rule fix; the scoping already
+   retention _regression test_ (§4) — not a rule fix; the scoping already
    exists.
 8. **Wire + `plan-infeasible` + TASK-221 copy** — §3.5's two schema additions
    with every tagged marker amended in the same commit, §3.3's state and
@@ -550,14 +551,14 @@ Each is watched failing before the implementation lands, per AGENTS.md R5.
 
 ## §8 Review ledger (AC #5)
 
-| Round | Head | Seat | Verdict | Artifact |
-|---|---|---|---|---|
-| Sol attempt | `80d7081f` | `openai/gpt-5.6-sol` | **refused** — 465 ms, "Codex agent harness cannot enforce this conversation's tool policy". 14th consecutive refusal on this box. | none |
-| Gemini r1 | `80d7081f` | `bin/gemini-review.sh` (agy) | **failed** — exit 1 after 2 s, "Agent execution terminated due to error", zero verdict bytes | stderr only |
-| Gemini r2 | `80d7081f` | `bin/gemini-review.sh` (agy) | **failed** — exit 1 after 3 s, identical | stderr only |
-| 1 | `80d7081f` | `anthropic/claude-fable-5` (AGENTS.md fallback) | **REQUEST CHANGES** — 2 Critical / 3 Important / 1 Minor | `queue/reviews/t240-planning-peer-r1.txt`, verified, 13259 bytes, sha256 `bc5bf80a` |
-| 2 | `b1858308` | `anthropic/claude-fable-5` | **APPROVE WITH CHANGES** — 0 Critical / 2 Important / 1 Minor; every round-1 Critical confirmed closed against source | `queue/reviews/t240-planning-peer-r2.txt`, verified, 8942 bytes, sha256 `ffedb755` |
-| 3 | `bb6cca3f` | `anthropic/claude-fable-5` | **APPROVE WITH CHANGES** — 0 Critical / 1 Important / 2 Minor, all three closed at `6d4a` below | `queue/reviews/t240-planning-peer-r3.txt`, verified, 7724 bytes, sha256 `9b29c15c` |
+| Round       | Head       | Seat                                            | Verdict                                                                                                                           | Artifact                                                                            |
+| ----------- | ---------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Sol attempt | `80d7081f` | `openai/gpt-5.6-sol`                            | **refused** — 465 ms, "Codex agent harness cannot enforce this conversation's tool policy". 14th consecutive refusal on this box. | none                                                                                |
+| Gemini r1   | `80d7081f` | `bin/gemini-review.sh` (agy)                    | **failed** — exit 1 after 2 s, "Agent execution terminated due to error", zero verdict bytes                                      | stderr only                                                                         |
+| Gemini r2   | `80d7081f` | `bin/gemini-review.sh` (agy)                    | **failed** — exit 1 after 3 s, identical                                                                                          | stderr only                                                                         |
+| 1           | `80d7081f` | `anthropic/claude-fable-5` (AGENTS.md fallback) | **REQUEST CHANGES** — 2 Critical / 3 Important / 1 Minor                                                                          | `queue/reviews/t240-planning-peer-r1.txt`, verified, 13259 bytes, sha256 `bc5bf80a` |
+| 2           | `b1858308` | `anthropic/claude-fable-5`                      | **APPROVE WITH CHANGES** — 0 Critical / 2 Important / 1 Minor; every round-1 Critical confirmed closed against source             | `queue/reviews/t240-planning-peer-r2.txt`, verified, 8942 bytes, sha256 `ffedb755`  |
+| 3           | `bb6cca3f` | `anthropic/claude-fable-5`                      | **APPROVE WITH CHANGES** — 0 Critical / 1 Important / 2 Minor, all three closed at `6d4a` below                                   | `queue/reviews/t240-planning-peer-r3.txt`, verified, 7724 bytes, sha256 `9b29c15c`  |
 
 **Rounds 2–3 dispositions.** r2 found two Importants, both true: (I1) the r1
 disposition of I3 "corrected" a true statement into a false one — `git ls-tree`
@@ -572,24 +573,23 @@ are three, dropping site 5 — the very site the item exists to protect), leavin
 `tasks.md` and the spec delta numerically contradicting each other. Corrected.
 
 **Four false counting claims in four rounds** — r1-M1, r2-I2(b), r2-I1's
-directory listing, r3's "both". Every one was a claim *about* these artifacts
-rather than a claim *in* them, and every one was found by re-reading source
+directory listing, r3's "both". Every one was a claim _about_ these artifacts
+rather than a claim _in_ them, and every one was found by re-reading source
 rather than by re-reading the text. That pattern is the finding: in this
 document, a sentence counting or locating something is the sentence most likely
 to be wrong, and it does not announce itself.
 
-
 **Round-1 dispositions.** Every finding was verified at the cited source before
 being acted on, never on the seat's word.
 
-| # | Finding | Verified | Closed at |
-|---|---|---|---|
-| C1 | Retention is *already* scoped to contract version; this note's "existing latent defect" is false and its added requirement duplicates one that exists | **true** — the rule reads "delete every cache row of that project *for that contract version*" and retains per `(projectId, objective, contractVersion, inputHash)`; the draft had quoted the requirement's unscoped **title** | `b1858308` — claim and requirement deleted, two-version survival kept as a regression test |
-| C2 | Unqualified "INFEASIBLE → `plan-infeasible`" contradicts the standing "`invalid-output` at **any** stage" rule and would cache a later-stage engine failure as an unretryable "your deadlines cannot be met" | **true** — deadlines enter at stage 1, so only the first-stage case changes; a later-stage `INFEASIBLE` is still impossible on a correct engine and carries no offending-item certificate to name | `b1858308` — first-stage only, standing clause + stage-status matrix added to the same-commit amendment list |
-| I1 | The two normative lines mandating `Same deadline + …` are not scheduled for amendment; 8.9 covers shipped UI copy, not spec text | **true** | `b1858308` — `tasks.md` 8.9b |
-| I2 | `plan-infeasible`'s integration surface: (a) the `status` CHECK constraints, (b) the Retry endpoint's answer, (c) the seventh `VariantState` member | **true**; (b) and (c) were already closed at `01c2b534`, one commit before the review published | (a) `b1858308` 8.5c; (b)(c) `01c2b534` 8.7b–8.7d |
-| I3 | Slices 7–8 assert a cache and a wire that do not exist at this head, so W2/W5/W6 have no owner | **true, and the seat's evidence was right**: `git ls-tree` shows no `libs/contracts/solver/` subtree at all. My r1 disposition "corrected" this by reading `libs/contracts/`'s own listing and attributing it to a child — a false verified-at-source claim, caught by r2 | `b1858308` owner table; evidence corrected in r2 |
-| M1 | The six-argument sweep greps for a phrase three of the four artifacts do not contain | **true**, found independently by this run | `cd919082` — four-location table + 7.2b protecting the ledger row |
+| #   | Finding                                                                                                                                                                                                      | Verified                                                                                                                                                                                                                                                                  | Closed at                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| C1  | Retention is _already_ scoped to contract version; this note's "existing latent defect" is false and its added requirement duplicates one that exists                                                        | **true** — the rule reads "delete every cache row of that project _for that contract version_" and retains per `(projectId, objective, contractVersion, inputHash)`; the draft had quoted the requirement's unscoped **title**                                            | `b1858308` — claim and requirement deleted, two-version survival kept as a regression test                   |
+| C2  | Unqualified "INFEASIBLE → `plan-infeasible`" contradicts the standing "`invalid-output` at **any** stage" rule and would cache a later-stage engine failure as an unretryable "your deadlines cannot be met" | **true** — deadlines enter at stage 1, so only the first-stage case changes; a later-stage `INFEASIBLE` is still impossible on a correct engine and carries no offending-item certificate to name                                                                         | `b1858308` — first-stage only, standing clause + stage-status matrix added to the same-commit amendment list |
+| I1  | The two normative lines mandating `Same deadline + …` are not scheduled for amendment; 8.9 covers shipped UI copy, not spec text                                                                             | **true**                                                                                                                                                                                                                                                                  | `b1858308` — `tasks.md` 8.9b                                                                                 |
+| I2  | `plan-infeasible`'s integration surface: (a) the `status` CHECK constraints, (b) the Retry endpoint's answer, (c) the seventh `VariantState` member                                                          | **true**; (b) and (c) were already closed at `01c2b534`, one commit before the review published                                                                                                                                                                           | (a) `b1858308` 8.5c; (b)(c) `01c2b534` 8.7b–8.7d                                                             |
+| I3  | Slices 7–8 assert a cache and a wire that do not exist at this head, so W2/W5/W6 have no owner                                                                                                               | **true, and the seat's evidence was right**: `git ls-tree` shows no `libs/contracts/solver/` subtree at all. My r1 disposition "corrected" this by reading `libs/contracts/`'s own listing and attributing it to a child — a false verified-at-source claim, caught by r2 | `b1858308` owner table; evidence corrected in r2                                                             |
+| M1  | The six-argument sweep greps for a phrase three of the four artifacts do not contain                                                                                                                         | **true**, found independently by this run                                                                                                                                                                                                                                 | `cd919082` — four-location table + 7.2b protecting the ledger row                                            |
 
 Two of the six (M1, and I2's (b) and (c)) were found and closed by this run
 before the seat reported them; the seat found four this run had not, two of them

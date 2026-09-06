@@ -156,7 +156,7 @@ Authorization SHALL be the existing work-item write authorization; a deadline is
 
 ### Requirement: A project start moved past a stored deadline is unmeetable, not invalid
 
-Moving a project's `startDate` later than a stored deadline SHALL be legal and SHALL NOT retro-reject or rewrite the stored value. The effective deadline for that item SHALL resolve to `before-project-start` **at read time** and SHALL be treated as *unmeetable* rather than *invalid*: Fast SHALL report it late by the whole span and PRI/Time SHALL report `plan-infeasible` naming it. The row SHALL continue to display its Work item deadline with the existing "impossible" affordance and SHALL NOT be silently dropped, because rejecting it would delete user data on an unrelated edit.
+Moving a project's `startDate` later than a stored deadline SHALL be legal and SHALL NOT retro-reject or rewrite the stored value. The effective deadline for that item SHALL resolve to `before-project-start` **at read time** and SHALL be treated as _unmeetable_ rather than _invalid_: Fast SHALL report it late by the whole span and PRI/Time SHALL report `plan-infeasible` naming it. The row SHALL continue to display its Work item deadline with the existing "impossible" affordance and SHALL NOT be silently dropped, because rejecting it would delete user data on an unrelated edit.
 
 #### Scenario: the stored date survives a project move
 
@@ -218,7 +218,7 @@ where `(D + 1) × quantum` is the first instant of the day after the deadline da
 
 CP-SAT returning `INFEASIBLE` **at the first stage** of staged lexicographic optimization SHALL be recorded as `plan-infeasible`, a first-class variant state beside `ok` and `failed` in the stored state machine. It SHALL NOT reach the `Optimization unavailable · Retry` indicator, because retrying is guaranteed to produce the same answer.
 
-**The stage qualifier is load-bearing and SHALL NOT be dropped.** The existing rule this change amends says `INFEASIBLE` SHALL be `invalid-output` **at any stage**, reasoning that Fast found a placement for the same graph and every constraint a later stage adds is satisfied by the previous incumbent. Deadlines enter the model *before* the objective terms, so they are present at stage 1 — which is what makes a first-stage `INFEASIBLE` a genuine statement about the user's deadlines and the one case the old blanket rule now over-covers. A **later-stage** `INFEASIBLE` remains impossible on a correct engine for exactly the original reason — the previous incumbent already satisfies every effective deadline and every bound added since — so it SHALL remain `invalid-output`. It also could not honour the payload contract below: a later-stage `INFEASIBLE` carries no offending-work-item certificate to name.
+**The stage qualifier is load-bearing and SHALL NOT be dropped.** The existing rule this change amends says `INFEASIBLE` SHALL be `invalid-output` **at any stage**, reasoning that Fast found a placement for the same graph and every constraint a later stage adds is satisfied by the previous incumbent. Deadlines enter the model _before_ the objective terms, so they are present at stage 1 — which is what makes a first-stage `INFEASIBLE` a genuine statement about the user's deadlines and the one case the old blanket rule now over-covers. A **later-stage** `INFEASIBLE` remains impossible on a correct engine for exactly the original reason — the previous incumbent already satisfies every effective deadline and every bound added since — so it SHALL remain `invalid-output`. It also could not honour the payload contract below: a later-stage `INFEASIBLE` carries no offending-work-item certificate to name.
 
 The existing "at any stage" clause and the stage-status matrix SHALL therefore be amended in the **same commit** that introduces `plan-infeasible`, with the same land-together rigour the wire markers get. An unqualified new rule merged against an unamended old one leaves two requirements mandating opposite outcomes for one solver status, and if the new one wins, a later-stage engine failure is cached as "your deadlines cannot be met", with no Retry, at the moment the solver's own previous stage proved a deadline-satisfying schedule exists.
 
@@ -229,7 +229,7 @@ The existing "at any stage" clause and the stage-status matrix SHALL therefore b
 - never auto-respawn, the same rule a `failed` row carries;
 - render as `Plan infeasible · N work item deadlines` with the offending items listed on demand, Fast still on screen and usable, and no toast and no modal.
 
-Malformed or invalid solver output SHALL remain `invalid-output` and an **engine failure**: an unparseable line, an unknown status, a missing or unknown offset key, any offset failing Bun revalidation, and — specifically — a *feasible* schedule that violates an effective deadline. A deadline-violating solver result is a broken engine, never an infeasible plan.
+Malformed or invalid solver output SHALL remain `invalid-output` and an **engine failure**: an unparseable line, an unknown status, a missing or unknown offset key, any offset failing Bun revalidation, and — specifically — a _feasible_ schedule that violates an effective deadline. A deadline-violating solver result is a broken engine, never an infeasible plan.
 
 #### Scenario: a later-stage INFEASIBLE stays an engine failure
 
@@ -264,13 +264,13 @@ Malformed or invalid solver output SHALL remain `invalid-output` and an **engine
 
 That union is declared **the one authority** and is enumerated in five places. All five SHALL be amended in the **same commit**:
 
-| # | Location | Form |
-|---|---|---|
-| 1 | `dual-optimized-scheduler/design.md`, the plan-read DTO bullet | the authoritative `VariantState` list |
-| 2 | `dual-optimized-scheduler/specs/scheduler-optimization/spec.md`, the plan-read requirement | the normative "SHALL be one of" |
-| 3 | `dual-optimized-scheduler/tasks.md` 7.10 | "one of six", **and** its proof-state list |
-| 4 | `dual-optimized-scheduler/tasks.md` 8.3–8.4 | the UI rendered-states list |
-| 5 | `notes/wbs-dual-optimized-scheduler-design.md` §3.2 | the event/state table that section declares authoritative — **not** its review-ledger rows, which are protected history |
+| #   | Location                                                                                   | Form                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 1   | `dual-optimized-scheduler/design.md`, the plan-read DTO bullet                             | the authoritative `VariantState` list                                                                                   |
+| 2   | `dual-optimized-scheduler/specs/scheduler-optimization/spec.md`, the plan-read requirement | the normative "SHALL be one of"                                                                                         |
+| 3   | `dual-optimized-scheduler/tasks.md` 7.10                                                   | "one of six", **and** its proof-state list                                                                              |
+| 4   | `dual-optimized-scheduler/tasks.md` 8.3–8.4                                                | the UI rendered-states list                                                                                             |
+| 5   | `notes/wbs-dual-optimized-scheduler-design.md` §3.2                                        | the event/state table that section declares authoritative — **not** its review-ledger rows, which are protected history |
 
 This is not a caution. Adding `corrupt` updated location 2 and left 1, 3 and 4 at five members, which shipped as a Critical; the two rounds before it found the same divergence in other fields. A partial amendment here repeats it a third time, and the count word "six" occurs in only two of the five — locations 1 and 3 — so a text search for it misses three sites, including two an implementer edits. Search for the member names.
 
@@ -357,7 +357,7 @@ The coordinator's independent revalidation SHALL gain one clause, stated on the 
 
 Checking it in units would re-implement the rounding a second time and could disagree with what the End date column prints — the same argument the contract already makes for comparing `sameOrder` in the real domain. A violation SHALL be `invalid-output`.
 
-`materialiseOptimized` SHALL NOT change: it pins the optimized starts and replays Fast's annotation pass, and a deadline changes no annotation. The `ScheduleFloor` union SHALL NOT be extended — a deadline never *causes* a start, so nothing is ever `boundBy: 'deadline'`, and adding such a member would be a category error.
+`materialiseOptimized` SHALL NOT change: it pins the optimized starts and replays Fast's annotation pass, and a deadline changes no annotation. The `ScheduleFloor` union SHALL NOT be extended — a deadline never _causes_ a start, so nothing is ever `boundBy: 'deadline'`, and adding such a member would be a category error.
 
 #### Scenario: the revalidator disagrees with the solver
 
