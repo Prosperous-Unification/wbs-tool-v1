@@ -45,8 +45,11 @@ export type CalendarMarkerRefusal = 'not_found' | 'forbidden' | 'taken';
  * It leaks nothing the reason did not already: an existing project the caller
  * may not write answers `forbidden` and an absent one answers `not_found`, so
  * project existence is already distinguishable from outside. Marker existence
- * is not, and stays that way: every refusal `about: 'marker'` is one the caller
- * named a marker id on.
+ * is not, and stays that way — `about` never reaches the wire, and the routes
+ * turn it into a `field` only for a request that named a marker id itself. A
+ * create that let this service mint one can still be refused `about: 'marker'`
+ * (the minted id collided), and the route blames nothing for it, because the
+ * two questions are separate and both are asked.
  */
 export type CalendarMarkerSubject = 'project' | 'marker';
 
@@ -128,7 +131,19 @@ export class CalendarMarkerService {
       createdAt: this.clock.now(),
     };
     const written = await this.opts.markers.create(row);
-    if (!written.ok) return { ok: false, reason: written.reason, about: 'marker' };
+    // **The one store call whose `not_found` is not about a marker.**
+    // `CalendarMarkerRepository.create` reads the project first and refuses
+    // `not_found` when nothing holds it, then reads the id and refuses `taken`
+    // (`repository/calendar-marker.ts:94,103`); it never reads a marker to
+    // decide the row is missing, because the row it is about does not exist
+    // yet. The other three go through `one(tx, projectId, id)` after `gate`
+    // already proved the project, so their `not_found` is the marker.
+    if (!written.ok)
+      return {
+        ok: false,
+        reason: written.reason,
+        about: written.reason === 'taken' ? 'marker' : 'project',
+      };
     await this.announce(projectId);
     return { ok: true, value: written.marker };
   }

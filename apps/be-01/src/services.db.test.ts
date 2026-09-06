@@ -208,18 +208,31 @@ describe('buildServices', () => {
     // So the payload is compared **whole** with only `seq` deleted, and the
     // deletion is by name: anything else that moved fails here, including a
     // field this test does not know about, because nothing enumerates the keys.
-    // `toEqual` catches a changed value and `JSON.stringify` catches a changed
-    // key order — the same rows in a different order are the same object to
-    // `toEqual` and a different response to a client diffing text.
+    // `toEqual` catches a changed value, and a reordered array — it compares
+    // arrays by position. What it does not see is a changed **key** order
+    // inside an object, which is the same object to `toEqual` and a different
+    // response to a client diffing text or hashing the body; `JSON.stringify`
+    // is here for that one.
     const { db, services } = bootstrap();
     const { projectId, ownerId } = await seedProject(db);
 
-    // An empty tree would be equal to itself whatever the marker writes did.
-    await services.workItems.create(projectId, ownerId, {
+    // **Three items, not one.** An empty tree is equal to itself whatever the
+    // marker writes did, and a one-item tree is equal to itself under any
+    // reordering there is — so the claim above about a reordered tree would be
+    // untrue of a fixture with fewer than two rows. A parent and two children
+    // give both a sibling order and a depth to lose (round-3 Gemini review).
+    const strip = await services.workItems.create(projectId, ownerId, {
       parentId: null,
       afterId: null,
       name: 'Strip',
     });
+    expect(strip.ok).toBe(true);
+    const parentId = strip.ok ? strip.value.id : null;
+    for (const name of ['Sand', 'Prime']) {
+      expect(
+        (await services.workItems.create(projectId, ownerId, { parentId, afterId: null, name })).ok,
+      ).toBe(true);
+    }
 
     // `tree` answers `null` for a project it cannot find. Narrowed here rather
     // than asserted away, because a `null` slipping through would make every

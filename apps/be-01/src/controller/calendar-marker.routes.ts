@@ -311,17 +311,19 @@ const isCreateProblem = (parsed: NewMarkerBody | BodyProblem): parsed is BodyPro
  *   The `PATCH` and `DELETE` paths always carry one; the `GET` collection never
  *   does; the `POST` collection does only when the body named its own id.
  *
- * `forbidden` keeps its own arm rather than leaning on `about: 'project'`. Its
- * fieldlessness is part of the contract whatever the caller sent — the refusal
- * is about the caller, not about a member of the body — and a row of the table
- * should not become falsifiable by a change to an unrelated discriminator.
+ * `forbidden` needs no arm of its own and does not get one. It is minted in
+ * exactly one place, `CalendarMarkerService.gate`, which tags it
+ * `about: 'project'`; the store never answers it. A `reason !== 'forbidden'`
+ * guard beside the `about` test would therefore be unfalsifiable — struck, no
+ * request changes and no test moves — and this file does not keep guards whose
+ * removal cannot be watched (round-3 Gemini review).
  *
  * `markerId` rather than `id` because that is what every marker request calls
  * this value: the path parameter on `PATCH` and `DELETE`, and the create body
  * property (see {@link CREATE_BODY}). `id` on this API means the project.
  */
 const refusalBody = (refused: CalendarMarkerRefused, requestCarriedMarkerId: boolean) =>
-  refused.reason !== 'forbidden' && refused.about === 'marker' && requestCarriedMarkerId
+  refused.about === 'marker' && requestCarriedMarkerId
     ? { error: refused.reason, field: 'markerId' }
     : { error: refused.reason };
 
