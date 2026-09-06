@@ -241,17 +241,21 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
 const OPENSSL_ALERT = /^ERR_SSL_[A-Z0-9]+_ALERT_[A-Z0-9_]+$/;
 
 /**
- * The alerts that say the peer looked at *our* certificate and refused it.
+ * The alerts that say the peer looked at *our* TLS credential and refused it.
  *
  * Receiving an alert proves the far end was reachable and objected — it does not
  * prove the objection was theirs to fix. `CERTIFICATE_REQUIRED` means we sent
  * none, `UNKNOWN_CA` and `BAD_CERTIFICATE` mean the one we sent was not
- * accepted. Under this file's own taxonomy those are the TLS spelling of
- * `invalid_client`: nobody typed anything wrong, every login fails, and waiting
- * will not help. They take the same `client_authentication_failed` slug.
+ * accepted, and `ACCESS_DENIED` is RFC 8446 §6.2's "a valid certificate was
+ * received, but when access control was applied, the sender decided not to
+ * proceed" — the mTLS way of saying this client is not on the list.
+ * `UNKNOWN_PSK_IDENTITY` is the same refusal for a pre-shared key. Under this
+ * file's own taxonomy those are the TLS spelling of `invalid_client`: nobody
+ * typed anything wrong, every login fails, and waiting will not help. They take
+ * the same `client_authentication_failed` slug.
  */
-const CLIENT_CERTIFICATE_ALERT =
-  /_ALERT_(BAD_CERTIFICATE|UNSUPPORTED_CERTIFICATE|CERTIFICATE_REVOKED|CERTIFICATE_EXPIRED|CERTIFICATE_UNKNOWN|UNKNOWN_CA|CERTIFICATE_REQUIRED)$/;
+const CLIENT_CREDENTIAL_ALERT =
+  /_ALERT_(BAD_CERTIFICATE|UNSUPPORTED_CERTIFICATE|CERTIFICATE_REVOKED|CERTIFICATE_EXPIRED|CERTIFICATE_UNKNOWN|UNKNOWN_CA|CERTIFICATE_REQUIRED|ACCESS_DENIED|UNKNOWN_PSK_IDENTITY)$/;
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
@@ -322,7 +326,7 @@ export function classifyOidcFailure(error: unknown): OidcFailure {
   try {
     const transport = transportCodeOf(error);
     if (transport !== undefined) {
-      return CLIENT_CERTIFICATE_ALERT.test(transport)
+      return CLIENT_CREDENTIAL_ALERT.test(transport)
         ? DEFECT('client_authentication_failed')
         : UNAVAILABLE('provider_unreachable');
     }

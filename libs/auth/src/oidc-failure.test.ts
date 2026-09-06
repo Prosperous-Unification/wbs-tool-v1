@@ -238,16 +238,29 @@ describe('classifyOidcFailure', () => {
       }
     });
 
-    it('calls an alert about our own certificate a defect, not an outage', () => {
+    it('calls an alert about our own TLS credential a defect, not an outage', () => {
       // Receiving an alert proves the far end was reachable and objected. It
       // does not prove the objection was theirs to fix: these three say the
       // certificate we presented was missing or refused, which is the TLS
       // spelling of `invalid_client` and fails every login until an operator
       // acts. Waiting, the `unavailable` move, would never clear them.
+      // One case per member of the rule. `CERTIFICATE_EXPIRED` is the one worth
+      // reading twice: as a TLS alert it means the peer rejected the
+      // certificate *we* sent, while the errno `CERT_HAS_EXPIRED` above means
+      // *theirs* had expired and is `unavailable`. Same words, opposite arms.
       for (const code of [
         'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
         'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA',
         'ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE',
+        'ERR_SSL_TLSV1_ALERT_UNSUPPORTED_CERTIFICATE',
+        'ERR_SSL_TLSV1_ALERT_CERTIFICATE_REVOKED',
+        'ERR_SSL_TLSV1_ALERT_CERTIFICATE_EXPIRED',
+        'ERR_SSL_TLSV1_ALERT_CERTIFICATE_UNKNOWN',
+        // RFC 8446 §6.2: a valid certificate arrived and access control refused
+        // it anyway. Every login fails until this client is allowed.
+        'ERR_SSL_TLSV1_ALERT_ACCESS_DENIED',
+        // The same refusal aimed at a pre-shared key rather than a certificate.
+        'ERR_SSL_TLSV13_ALERT_UNKNOWN_PSK_IDENTITY',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'defect',
