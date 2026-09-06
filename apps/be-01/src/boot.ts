@@ -103,6 +103,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     steps: services.steps,
     calendarMarkers: services.calendarMarkers,
     workItems: services.workItems,
+    optimizer: services.optimizer,
     // Built here rather than in `buildServices`, and the reason is structural
     // rather than tidiness: that factory is defined over the one shared
     // `Drizzle` handle, and both saved-plan repositories are defined by opening
