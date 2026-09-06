@@ -31,7 +31,15 @@ const itDom = hasDom ? it : it.skip;
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // The card reads its message out of the address, so a case that leaves one
+  // behind would hand it to the next case. Restored here rather than per case.
+  window.history.replaceState(null, '', '/');
 });
+
+/** Puts a refused SSO sign-in's code in the address, the way the callback does. */
+const arriveWith = (query: string) => {
+  window.history.replaceState(null, '', `/${query}`);
+};
 
 const response = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -121,5 +129,134 @@ describe('the signed-out screen', () => {
       expect(error.textContent).toBe('Username or password is incorrect.');
     });
     expect(screen.getByLabelText<HTMLInputElement>('Username').value).toBe('ada');
+  });
+});
+
+/**
+ * The OIDC callback answers a refused or failed SSO login with
+ * `302 /?auth_error=<code>` and nothing else — the provider's own
+ * `error_description` is deliberately never forwarded. So every sentence below
+ * is one this app wrote, and each is asserted whole: a message reworded in
+ * `auth-form.tsx` has to fail here rather than quietly change what a person is
+ * told about being refused.
+ */
+describe('a refused SSO sign-in', () => {
+  itDom('names the refusal for access_denied without saying the reader cancelled', () => {
+    arriveWith('?auth_error=access_denied');
+    const { container } = render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(
+      screen.getByText(
+        'SSO sign-in was refused. If you did not cancel it, your account may not have access to this app.',
+      ),
+    ).toBeDefined();
+    // `access_denied` is also what a policy refusal looks like from here, and
+    // accusing a reader of cancelling would be a lie in exactly the case where
+    // they most need the other reading. This assertion is that decision.
+    expect(container.textContent).not.toMatch(/you cancelled/i);
+  });
+
+  itDom('names the account choice SSO still needs', () => {
+    arriveWith('?auth_error=account_selection_required');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(
+      screen.getByText(
+        'SSO needs you to choose an account. Try again and pick the one you use here.',
+      ),
+    ).toBeDefined();
+  });
+
+  itDom('names the permission SSO still needs', () => {
+    arriveWith('?auth_error=consent_required');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(
+      screen.getByText(
+        'SSO needs your permission before this app can sign you in. Try again and accept the request.',
+      ),
+    ).toBeDefined();
+  });
+
+  itDom('names the step SSO could not complete on its own', () => {
+    arriveWith('?auth_error=interaction_required');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(
+      screen.getByText(
+        'SSO needs a step it could not complete on its own. Try again and follow the prompts.',
+      ),
+    ).toBeDefined();
+  });
+
+  itDom('names the sign-in SSO asks for again', () => {
+    arriveWith('?auth_error=login_required');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(
+      screen.getByText('SSO needs you to sign in again. Try again to continue.'),
+    ).toBeDefined();
+  });
+
+  itDom('offers the password form while SSO is temporarily unavailable', () => {
+    arriveWith('?auth_error=temporarily_unavailable');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(
+      screen.getByText(
+        'SSO is temporarily unavailable. Try again in a few minutes, or sign in with a password.',
+      ),
+    ).toBeDefined();
+  });
+
+  itDom('names an unpublished provider failure without repeating it', () => {
+    arriveWith('?auth_error=provider_error');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(
+      screen.getByText('SSO sign-in did not complete. Try again, or sign in with a password.'),
+    ).toBeDefined();
+  });
+
+  itDom('renders no SSO message for a code it does not publish', () => {
+    // The backend collapses everything unrecognised into `provider_error`, so a
+    // raw provider code can only reach the card if something forwarded it. The
+    // card renders nothing for it, and says nothing about it in the console.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    arriveWith('?auth_error=okta_policy_evaluation_failure');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    const slots = screen.getAllByRole('status');
+    expect(slots).toHaveLength(1);
+    expect(slots[0].className).toContain('min-h-5');
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(consoleWarn).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+    consoleWarn.mockRestore();
+  });
+
+  itDom('renders the card exactly as before when there is no auth_error', () => {
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    const slots = screen.getAllByRole('status');
+    expect(slots).toHaveLength(1);
+    expect(slots[0].className).toContain('min-h-5');
+    expect(slots[0].textContent).toBe('');
+    expect(screen.getByRole('link', { name: 'Continue with SSO' })).toBeDefined();
+  });
+
+  itDom('does not re-accuse the reader after a reload', () => {
+    const refused =
+      'SSO sign-in was refused. If you did not cancel it, your account may not have access to this app.';
+    arriveWith('?auth_error=access_denied');
+    render(<AuthForm onSignedIn={() => undefined} />);
+
+    expect(screen.getByText(refused)).toBeDefined();
+    expect(window.location.search).not.toContain('auth_error');
+
+    cleanup();
+    render(<AuthForm onSignedIn={() => undefined} />);
+    expect(screen.queryByText(refused)).toBeNull();
   });
 });
