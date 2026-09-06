@@ -165,18 +165,16 @@ async function withoutBody(res: Response): Promise<Response> {
  * binder: one that accepted a different set would let the contract suite pass
  * requests production refuses, and refuse ones it serves.
  */
-const enum ContentTypeChar {
-  /** `j`, at index 12 of `application/json…`. */
-  Json = 106,
-  /** `x`, at index 12 of `application/x-www-form-urlencoded`. */
-  Urlencoded = 120,
-  /** `o`, at index 12 of `application/octet-stream`. */
-  OctetStream = 111,
-  /** `r`, at index 12 of `multipart/form-data`. */
-  FormData = 114,
-  /** `t`, at index 0 of `text/plain`. */
-  Text = 116,
-}
+// `j`, at index 12 of `application/json…`.
+const DISPATCH_JSON = 106;
+// `x`, at index 12 of `application/x-www-form-urlencoded`.
+const DISPATCH_URLENCODED = 120;
+// `o`, at index 12 of `application/octet-stream`.
+const DISPATCH_OCTET_STREAM = 111;
+// `r`, at index 12 of `multipart/form-data`.
+const DISPATCH_FORM_DATA = 114;
+// `t`, at index 0 of `text/plain`, the one arm that reads character 0.
+const DISPATCH_TEXT = 116;
 
 /**
  * `undefined` for a request that carries no body, the parsed value for JSON,
@@ -191,10 +189,10 @@ const enum ContentTypeChar {
  * `{"name":"Sand"}` answered **422 with no service call** under `bindElysia`
  * and **200, calling `projects.create("Sand", "u")`** here — the second binder
  * admitting a route-visible write the production binder refuses. The arbitrary
- * `application/not-json` diverged the same way. {@link ContentTypeChar} closes
+ * `application/not-json` diverged the same way. The dispatch below closes
  * it, and the contract clause in `../binder.contract.test.ts` asserts the
- * *service call* rather than only the status, because two matching 422s would
- * otherwise hide exactly this.
+ * service call itself rather than only the status, because two matching 422s
+ * would otherwise hide exactly this.
  *
  * **The two form media types are read, and that is a correction rather than a
  * feature.** The sentence that used to justify dropping them — "every route in
@@ -243,12 +241,12 @@ async function decodeBody(request: Request): Promise<unknown> {
   const contentType = request.headers.get('content-type') ?? '';
   if (contentType === '') return undefined;
   const dispatch = contentType.charCodeAt(12);
-  if (dispatch === ContentTypeChar.Json) {
+  if (dispatch === DISPATCH_JSON) {
     const raw = await request.text();
     if (raw === '') return undefined;
     return JSON.parse(raw);
   }
-  if (dispatch === ContentTypeChar.OctetStream) {
+  if (dispatch === DISPATCH_OCTET_STREAM) {
     return request.arrayBuffer();
   }
   // `formData()` reads both, and a file part stays a `File` rather than being
@@ -291,7 +289,7 @@ async function decodeBody(request: Request): Promise<unknown> {
   // It is one interlocking feature — file folding into a parsed object hangs
   // off the same code — and reproducing a third of it faithfully is worse than
   // recording it, so it belongs to whoever wants it, like the 405 above.
-  if (dispatch === ContentTypeChar.Urlencoded || dispatch === ContentTypeChar.FormData) {
+  if (dispatch === DISPATCH_URLENCODED || dispatch === DISPATCH_FORM_DATA) {
     const form = await request.formData();
     return Object.fromEntries(
       [...new Set(form.keys())].map((key) => {
@@ -303,7 +301,7 @@ async function decodeBody(request: Request): Promise<unknown> {
   // The framework's `default`, and the only arm that reads a character other
   // than the thirteenth: any header beginning `t` is read as text, so
   // `text/csv` and `text/html` are parsed here exactly as `text/plain` is.
-  if (contentType.charCodeAt(0) === ContentTypeChar.Text) {
+  if (contentType.charCodeAt(0) === DISPATCH_TEXT) {
     return request.text();
   }
   return undefined;
