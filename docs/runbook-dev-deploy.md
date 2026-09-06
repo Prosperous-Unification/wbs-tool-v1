@@ -69,6 +69,24 @@ inputs move. For a solver-affecting deploy, materialize a validated config with 
 bundle, mode-0600 config, and user unit and verifies the service and socket. The config contains
 only commit and digest-pinned image identities plus resource limits; it carries no secret.
 
+The command shape is explicit; replace the descriptive image identities and local output path
+with release-manifest values, first dry-run the installer, then repeat its last command with
+`--execute`:
+
+```sh
+bun run tools/tool-remote-scripts/src/materialize-solver-supervisor-config.ts \
+  --blue-image=REGISTRY/BE@sha256:BLUE_DIGEST \
+  --green-image=REGISTRY/BE@sha256:GREEN_DIGEST \
+  --dev-solver-image=REGISTRY/BE@sha256:DEV_DIGEST \
+  --dev-source-sha=FULL_DEV_SOURCE_COMMIT \
+  --output=/absolute/local/path/solver-supervisor.json
+bunx nx run tool-remote-scripts:build
+bun run tools/tool-remote-scripts/src/install-solver-supervisor.ts \
+  --config=/absolute/local/path/solver-supervisor.json --dry-run
+bun run tools/tool-remote-scripts/src/install-solver-supervisor.ts \
+  --config=/absolute/local/path/solver-supervisor.json --execute
+```
+
 The config records a full `devSourceSha`; `tool-devsync` also diffs the solver compatibility
 paths between that commit and the requested commit, so a changed solver package cannot silently
 run under an older image.

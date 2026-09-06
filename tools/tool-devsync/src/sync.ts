@@ -118,8 +118,8 @@ export async function preflightSolver(
   const mapping = devSolverMappingOf(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   const changed = await dependencies.changedPaths(mapping.sourceSha, sha);
   assertDevSolverSourceCompatible(changed);
-  // Proof: sync.test.ts makes one solver source path differ and requires
-  // refusal before this exact host preflight can run.
+  // Proof: sync.test.ts supplies a stale mapping for a changed solver path and
+  // observes refusal before its injected host preflight can run.
   await dependencies.requireHost(mapping.image);
 }
 

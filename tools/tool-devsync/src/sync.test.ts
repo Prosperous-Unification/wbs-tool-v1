@@ -20,6 +20,15 @@ import {
 
 const DEV_IMAGE = `registry.example/wbs-be@sha256:${'a'.repeat(64)}`;
 
+function solverConfigBytes(sourceSha: string): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      devSourceSha: sourceSha,
+      images: [{ callerName: 'wbs-dev-src', solverImage: DEV_IMAGE }],
+    }),
+  );
+}
+
 describe('needsRestart', () => {
   it('does not restart when nothing in the manifest changed', () => {
     expect(needsRestart({ 'bun.lock': 'a' }, { 'bun.lock': 'a' })).toBe(false);
@@ -194,6 +203,61 @@ describe('dev supervisor', () => {
       ),
     ).toContain('missing required supervisor config');
     expect(configReads).toBe(1);
+  });
+
+  it('refuses a stale solver mapping before the host preflight', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    const mappingSha = 'd'.repeat(40);
+    let changedPathReads = 0;
+    let hostChecks = 0;
+
+    expect(
+      await rejection(
+        preflightSolver(targetSha, {
+          currentSha: () => Promise.resolve(deployedSha),
+          changedPaths: (from, to) => {
+            changedPathReads += 1;
+            expect(to).toBe(targetSha);
+            expect(from).toBe(changedPathReads === 1 ? deployedSha : mappingSha);
+            return Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']);
+          },
+          readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
+          requireHost: () => {
+            hostChecks += 1;
+            return Promise.resolve();
+          },
+        }),
+      ),
+    ).toContain('dev solver mapping is stale');
+    expect(changedPathReads).toBe(2);
+    expect(hostChecks).toBe(0);
+  });
+
+  it('runs the host preflight with the mapped image when solver sources are compatible', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    const mappingSha = 'd'.repeat(40);
+    let changedPathReads = 0;
+    let hostImage: string | undefined;
+
+    await preflightSolver(targetSha, {
+      currentSha: () => Promise.resolve(deployedSha),
+      changedPaths: () => {
+        changedPathReads += 1;
+        return Promise.resolve(
+          changedPathReads === 1 ? ['apps/be-01/Dockerfile'] : [],
+        );
+      },
+      readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
+      requireHost: (image) => {
+        hostImage = image;
+        return Promise.resolve();
+      },
+    });
+
+    expect(changedPathReads).toBe(2);
+    expect(hostImage).toBe(DEV_IMAGE);
   });
 });
 
