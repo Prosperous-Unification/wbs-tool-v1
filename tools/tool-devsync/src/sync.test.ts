@@ -184,14 +184,12 @@ describe('dev supervisor', () => {
       await rejection(
         preflightSolver('c'.repeat(40), {
           currentSha: () => Promise.resolve('b'.repeat(40)),
-          changedPaths: () =>
-            Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+          changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
           readConfig: () => {
             configReads += 1;
             return Promise.reject(new Error('missing required supervisor config'));
           },
-          requireHost: () =>
-            Promise.reject(new Error('host check must follow config validation')),
+          requireHost: () => Promise.reject(new Error('host check must follow config validation')),
         }),
       ),
     ).toContain('missing required supervisor config');
