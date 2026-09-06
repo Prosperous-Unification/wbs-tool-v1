@@ -3713,8 +3713,7 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       all carry it, and 6.2b's bind CAS is the first statement that presents
       it. The two deadlines are deliberately different:
       `childDeadlineAt = startedAt + budgetMs + 5000`, armed for that earlier
-      instant **twice — inside the child and outside it (self-found, round
-      10)**: the wrapper passes `childDeadlineAt − now` as CP-SAT's
+      instant **twice — inside the child and outside it (self-found, round 10)**: the wrapper passes `childDeadlineAt − now` as CP-SAT's
       `max_time_in_seconds` so a progressing solve stops itself and returns a
       publishable partial, and the host supervisor creates a transient systemd
       user timer that runs `docker kill <exact-id>` at `childDeadlineAt` even
