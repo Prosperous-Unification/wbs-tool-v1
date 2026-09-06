@@ -62,9 +62,7 @@ export function markerRulesAreTooDense(
   if (viewport.widthPx <= 0) return false;
   const lastVisibleDay = viewport.firstVisibleDay + viewport.widthPx / viewport.dayPx;
   const occupied = new Set(
-    markerOffsets.filter(
-      (offset) => offset >= viewport.firstVisibleDay && offset < lastVisibleDay,
-    ),
+    markerOffsets.filter((offset) => offset >= viewport.firstVisibleDay && offset < lastVisibleDay),
   );
   return (occupied.size / viewport.widthPx) * 100 > MARKER_RULE_MAX_PER_100PX;
 }

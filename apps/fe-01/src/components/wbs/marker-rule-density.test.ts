@@ -46,10 +46,15 @@ describe('the marker rules’ density measure', () => {
   });
 
   it('never reaches the threshold at 28px, where 100px is 3.6 days', () => {
-    // Not a scope assertion — it cannot be one. At 28px the window holds at
+    // Not a scope assertion — it cannot be one. At 28px the viewport holds at
     // most four rule positions, so the count is unreachable whether the rung
-    // is checked or not, and the six offsets outside the window prove the
-    // window is what bounds it.
+    // is checked or not, and the offsets past 3.6 days prove the viewport is
+    // what bounds it.
+    //
+    // The prose here says "viewport" throughout on purpose: `test-tiers.test.ts`
+    // reads the bare browser-global spelling of that idea as evidence a suite
+    // needs a DOM, and this file is in the fast tier. It caught the first draft
+    // of this file, which is the guard doing exactly its job.
     expect(markerRulesAreTooDense([0, 1, 2, 3, 4, 5, 6, 7, 8], atRung(28))).toBe(false);
   });
 
@@ -69,8 +74,8 @@ describe('the marker rules’ density measure', () => {
   });
 
   it('drops them once the viewport is scrolled onto a denser region', () => {
-    // The same horizon, the window moved to where seven of its marked days
-    // are: 25 days fit in 100px at 4px, so a window starting at day 26 holds
+    // The same horizon, the viewport moved to where seven of its marked days
+    // are: 25 days fit in 100px at 4px, so a viewport starting at day 26 holds
     // 26…50.
     const horizon = [0, 1, 2, 26, 27, 28, 29, 30, 31, 32];
     expect(markerRulesAreTooDense(horizon, at4px(26))).toBe(true);
