@@ -386,11 +386,14 @@ export function projectRoutes(
     },
     {
       method: 'POST',
-      path: '/api/projects/:projectId/optimization/retry',
+      // `:id`, matching every sibling project route: Elysia's radix tree
+      // refuses two parameter names in the same segment even though the wire
+      // path is the same `/api/projects/{projectId}/...` contract.
+      path: '/api/projects/:id/optimization/retry',
       handler: guard('signed-in', async ({ params, body }, user) => {
         const request = retryFrom(body);
         if (isRefusal(request)) return request;
-        const projectId = params['projectId'];
+        const projectId = params['id'];
         const found = await projects.read(projectId);
         if (found === null) return respond(404, { error: 'not_found' });
         if (!canEdit(found.project, user.id)) return respond(403, { error: 'forbidden' });
