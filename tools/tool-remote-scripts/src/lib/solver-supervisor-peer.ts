@@ -1,6 +1,12 @@
 import type { BackendContainerIdentity } from './solver-supervisor-docker-output';
-import { dockerContainerIdFromPeerCgroup } from './solver-supervisor-peer-cgroup';
-import type { SupervisorPeerCredentials } from './solver-supervisor-peer-credentials';
+import {
+  dockerContainerIdFromPeerCgroup,
+  readSupervisorPeerCgroup,
+} from './solver-supervisor-peer-cgroup';
+import {
+  readSupervisorPeerCredentials,
+  type SupervisorPeerCredentials,
+} from './solver-supervisor-peer-credentials';
 
 export interface SupervisorPeerPolicy {
   readonly allowedNamePatterns: readonly RegExp[];
@@ -13,6 +19,36 @@ export interface SupervisorPeerDependencies {
     containerId: string,
     allowedNamePatterns: readonly RegExp[],
   ): Promise<BackendContainerIdentity>;
+}
+
+export interface SupervisorBackendInspector {
+  inspectBackend(
+    containerId: string,
+    allowedNamePatterns: readonly RegExp[],
+  ): Promise<BackendContainerIdentity>;
+}
+
+export interface SupervisorPeerHostPrimitives {
+  credentials(socket: unknown): SupervisorPeerCredentials;
+  cgroup(pid: number): Promise<string>;
+}
+
+const HOST_PRIMITIVES: SupervisorPeerHostPrimitives = {
+  credentials: readSupervisorPeerCredentials,
+  cgroup: readSupervisorPeerCgroup,
+};
+
+/** Supplies the authenticated-peer core with only its concrete host authorities. */
+export function hostSupervisorPeerDependencies(
+  inspector: SupervisorBackendInspector,
+  host: SupervisorPeerHostPrimitives = HOST_PRIMITIVES,
+): SupervisorPeerDependencies {
+  return {
+    credentials: (socket) => host.credentials(socket),
+    cgroup: (pid) => host.cgroup(pid),
+    inspect: (containerId, allowedNamePatterns) =>
+      inspector.inspectBackend(containerId, allowedNamePatterns),
+  };
 }
 
 /** Resolves an accepted socket through kernel identity to one live allowed backend. */

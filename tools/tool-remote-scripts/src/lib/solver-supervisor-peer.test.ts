@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 
-import { authenticateSupervisorPeer } from './solver-supervisor-peer';
+import {
+  authenticateSupervisorPeer,
+  hostSupervisorPeerDependencies,
+} from './solver-supervisor-peer';
 
 const CALLER_ID = 'a'.repeat(64);
 
@@ -14,6 +17,37 @@ async function rejectionOf(operation: Promise<unknown>): Promise<Error> {
 }
 
 describe('authenticateSupervisorPeer', () => {
+  it('builds the host dependencies from kernel, proc, and driver primitives', async () => {
+    const order: string[] = [];
+    const dependencies = hostSupervisorPeerDependencies(
+      {
+        inspectBackend: (id) => {
+          order.push(`inspect:${id}`);
+          return Promise.resolve({ id, name: 'wbs-dev-src', image: 'wbs-dev-src:1' });
+        },
+      },
+      {
+        credentials: () => {
+          order.push('credentials');
+          return { pid: 4242, uid: 1000, gid: 1000 };
+        },
+        cgroup: () => {
+          order.push('cgroup');
+          return Promise.resolve(`0::/system.slice/docker-${CALLER_ID}.scope\n`);
+        },
+      },
+    );
+
+    expect(
+      await authenticateSupervisorPeer(
+        {},
+        { allowedNamePatterns: [/^wbs-dev-src$/] },
+        dependencies,
+      ),
+    ).toEqual({ id: CALLER_ID, name: 'wbs-dev-src', image: 'wbs-dev-src:1' });
+    expect(order).toEqual(['credentials', 'cgroup', `inspect:${CALLER_ID}`]);
+  });
+
   it('binds the kernel peer pid to one allowed running backend', async () => {
     const calls: unknown[][] = [];
     const identity = await authenticateSupervisorPeer(
