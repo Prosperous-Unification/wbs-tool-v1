@@ -1867,7 +1867,7 @@ in both slices rather than implied by position.
       every jsdom render in `gantt-panel.test.tsx` that passes only some of
       them, and this slice is not the place to make it silently.
 
-- [ ] 9.1 `calendar_markers_changed` on `ProjectEvent` in
+- [x] 9.1 `calendar_markers_changed` on `ProjectEvent` in
       `apps/be-01/src/service/broadcast.ts`, content-free, its own type — test:
       `apps/be-01/src/service/broadcast.test.ts`, one event per mutation across
       create, rename, recolour and delete, each carrying no payload. Negative:

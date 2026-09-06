@@ -4,6 +4,7 @@ import type {
   CalendarMarkerWritten,
   ProjectStore,
 } from '../repository';
+import type { Broadcaster } from '../service/broadcast';
 import { CalendarMarkerService } from '../service/calendar-marker.service';
 import type { Clock } from '../service/clock';
 import { inMemoryProjects } from './project-fixture';
@@ -91,6 +92,7 @@ export function testCalendarMarkerService(
   projects: ProjectStore = inMemoryProjects(),
   markers: CalendarMarkerStore = inMemoryCalendarMarkers(),
   clock?: Clock,
+  broadcast?: Broadcaster,
 ): CalendarMarkerService {
-  return new CalendarMarkerService({ projects, markers, clock });
+  return new CalendarMarkerService({ projects, markers, clock, broadcast });
 }

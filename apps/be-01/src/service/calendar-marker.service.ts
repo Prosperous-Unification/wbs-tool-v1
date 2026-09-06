@@ -1,6 +1,7 @@
 import type { IsoDate } from '@wbs/domain';
 
 import type { CalendarMarker, CalendarMarkerStore, ProjectStore } from '../repository';
+import type { Broadcaster } from './broadcast';
 import { type Clock, clockOf } from './clock';
 import { canEdit } from './project.service';
 
@@ -9,6 +10,12 @@ export interface CalendarMarkerServiceOptions {
   markers: CalendarMarkerStore;
   /** The instant every marker is dated from and the ids it mints — see {@link Clock}. */
   clock?: Clock;
+  /**
+   * Where `calendar_markers_changed` goes. Optional, because the controller
+   * suites that only assert an HTTP answer have no collaborator to announce to;
+   * a service built without one announces nothing and refuses nothing.
+   */
+  broadcast?: Broadcaster;
 }
 
 /**
@@ -96,6 +103,7 @@ export class CalendarMarkerService {
     };
     const written = await this.opts.markers.create(row);
     if (!written.ok) return { ok: false, reason: written.reason };
+    await this.announce(projectId);
     return { ok: true, value: written.marker };
   }
 
@@ -110,6 +118,7 @@ export class CalendarMarkerService {
 
     const written = await this.opts.markers.rename(projectId, id, name);
     if (!written.ok) return { ok: false, reason: written.reason };
+    await this.announce(projectId);
     return { ok: true, value: written.marker };
   }
 
@@ -124,6 +133,7 @@ export class CalendarMarkerService {
 
     const written = await this.opts.markers.recolor(projectId, id, color);
     if (!written.ok) return { ok: false, reason: written.reason };
+    await this.announce(projectId);
     return { ok: true, value: written.marker };
   }
 
@@ -133,7 +143,17 @@ export class CalendarMarkerService {
 
     const written = await this.opts.markers.remove(projectId, id);
     if (!written.ok) return { ok: false, reason: written.reason };
+    await this.announce(projectId);
     return { ok: true, value: written.marker };
+  }
+
+  /**
+   * Announced **after** the store answered ok and never before it, and never on
+   * a refusal: an event is a client's instruction to re-read, so one sent for a
+   * write that did not happen makes every reader fetch the list it already has.
+   */
+  private async announce(projectId: string): Promise<void> {
+    await this.opts.broadcast?.publish(projectId, { type: 'calendar_markers_changed' });
   }
 
   /**
