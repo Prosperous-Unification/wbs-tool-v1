@@ -354,9 +354,12 @@ Ticking it on a half ledger would claim evidence for reds nobody has run.
 | **W6** | 7.6        | omit the seventh argument from the canonical-input hash     | owed — slice 7, not this change |
 
 Every measurement below ran on **h2puni** over ssh; nothing was built or run on
-the workspace box. Each fault was reverted immediately and the restored file
-md5-compared on both hosts, and that md5 is quoted so the revert is checkable
-rather than asserted.
+the workspace box. **For W1, W3 and W4** each fault was reverted immediately and
+the restored file md5-compared on both hosts, and that md5 is quoted with the
+file it belongs to, so the revert is checkable rather than asserted. The
+slice-level table further down does not carry restoring hashes; its faults are
+cited by count and by failing assertion only, and it says so rather than
+borrowing this sentence.
 
 ### W3 — `workdaysBetween` substituted for `deadlineOffsetOf` (2.4)
 
@@ -388,7 +391,9 @@ them. Restored: `workday.ts` md5 `173c7320`, equal on both hosts.
 - `keeps a day-zero deadline, which is a real and very tight constraint` —
   expected `0`, received `12`.
 
-Restored: md5 `6ad8e4d9`, equal on both hosts. A later re-measurement of the
+Restored: `leaf-constraints.ts` md5 `6ad8e4d9`, equal on both hosts — and that
+is still the file's hash at this head, so the revert is checkable today with one
+`md5sum`. A later re-measurement of the
 same fault against the grown file read **532 pass / 4 fail**, the same three
 plus `lets an EARLIER parent tighten a later child`.
 
@@ -403,7 +408,12 @@ expected `false`, received `true` (a milestone standing a full day past its
 deadline reported on time), and `meets a day-zero deadline only at day zero`
 with it. **No fixture with a duration can produce this red:** once
 `finish > start` the `max` term changes nothing, which is why 4.4 says the test
-must be the milestone. Restored: md5 `78cb2fe8`, equal on both hosts.
+must be the milestone. Restored: `on-time.ts` md5 `78cb2fe8`, equal on both
+hosts. **That hash is the slice-4 seam's file and will not match this head.**
+`on-time.ts` held `isOnTime` alone when it was taken; `workdaysLateBy` joined it
+in slice 5, and the file never reached `origin/main` in its one-function shape —
+`8decf889` squashed both in together. A reader running `md5sum` at this head
+gets `63824ae9`, which is the *second* seam's number, immediately below.
 
 **Then, re-proved after `workdaysLateBy` took the arithmetic: 4 of 9 cases red,
 5 pass.** The substitution now has to go inside `workdaysLateBy`, because
@@ -413,6 +423,9 @@ must be the milestone. Restored: md5 `78cb2fe8`, equal on both hosts.
 - `isOnTime > meets a day-zero deadline only at day zero` — expected `false`, received `true`
 - `workdaysLateBy > counts a weekend as no time at all` — expected `1`, received `0`
 - `workdaysLateBy > counts a zero-duration milestone from the day it stands on` — expected `1`, received `0`
+
+Restored: `on-time.ts` md5 `63824ae9`, equal on both hosts, and that is the
+file's hash at this head.
 
 **The case that stayed green is why this red is worth recording at the second
 seam at all.** `workdaysLateBy > is zero exactly when the slice met its
@@ -443,7 +456,7 @@ Two honest notes on that table. **W-5.4a and W-5.4b share a case set** — a fir
 draft of the log called them separable and they are not; what still distinguishes
 the clamp is that `is late on day zero itself` reads _on time_ under it, the only
 failure among the seven that is a met date rather than a wrong number. And the
-run log of 2026-09-06T08:12Z calls the `materialise-optimized` seam red "W5";
+run log of 2026-09-06T08:07Z calls the `materialise-optimized` seam red "W5";
 **that is a local name, not `tasks.md`'s W5**, which is slice 8.6's
 `infeasible` → `unknown` map and is still owed.
 

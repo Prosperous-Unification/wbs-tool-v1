@@ -30,9 +30,9 @@ attributing it to a child. Corrected here rather than left standing, because
 
 | Slices            | Owner                                          | Why                                                                                                                                        |
 | ----------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1–6, 9, 10.1–10.3 | **this change's own queue tasks**              | column, converter, fold, `schedule()`'s seventh argument, Fast ordering, API, UI — all against code that exists                            |
+| 1–6, 9, 10.2–10.3 | **this change's own queue tasks**              | column, converter, fold, `schedule()`'s seventh argument, Fast ordering, API, UI — all against code that exists                            |
 | 7, 8              | **TASK-219 absorbs them**                      | they assert cache-key columns (7.4), hash behaviour (7.1, 7.6) and a wire schema (8.1) belonging to artifacts TASK-219 has not created yet |
-| 10.4              | **both owners, each at its own terminal gate** | AGENTS.md's cross-provider review binds whoever ships a diff; it is not one task's checkbox                                                |
+| 10.1, 10.4        | **both owners, each at its own terminal gate** | AGENTS.md's cross-provider review binds whoever ships a diff; it is not one task's checkbox — and 10.1's six reds are watched three here and three inside TASK-219, so it closes only when both have appended |
 
 Consequently **W1, W3 and W4 are watched here; W2, W5 and W6 are watched inside
 TASK-219**, and 10.1's "all six recorded failing" spans both tasks rather than
