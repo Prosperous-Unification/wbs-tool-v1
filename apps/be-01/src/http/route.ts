@@ -87,10 +87,15 @@ export interface RouteRequest {
   headers: Record<string, string | undefined>;
   body: unknown;
   /**
-   * The raw URL, for the places that need more than the decomposed request: the
-   * OIDC redirect builder and the cookie-origin check need the origin rather
-   * than the path, and the OIDC callback needs the query string *as sent*,
-   * because {@link RouteRequest.query} cannot say whether a key repeated.
+   * The raw URL, read by exactly one handler: the OIDC callback, which needs
+   * the origin the request arrived on to rebuild the provider's `Request`, and
+   * the query string *as sent* to see whether a key repeated — {@link
+   * RouteRequest.query} cannot answer the second question at all.
+   *
+   * The earlier wording here named a second reader, the cookie-origin check.
+   * It was wrong (Sol's Minor 2 on TASK-262, `queue/reviews/t262-r13-sol-44463938.md`):
+   * `hasInvalidCookieOrigin` takes the framework's own `Request`, compares the
+   * `origin` **header** against the configured app origin, and parses no URL.
    */
   url: string;
 }
