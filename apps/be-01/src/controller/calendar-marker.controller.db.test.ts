@@ -340,6 +340,66 @@ describe('the calendar-marker routes', () => {
     expect(await list('owner')).toMatchObject([{ date: '2099-12-31', name: 'The far side' }]);
   });
 
+  /**
+   * Task 7.4, and it is **two** cases because the second is what stops the
+   * first from being read as the wrong rule.
+   *
+   * The guard is 4.3's `IsoDate` validator, **not** a check on the project's
+   * start date. A workday number is not an `IsoDate`, so 4.3 already refuses
+   * it; a `startDate === null` check would refuse something else entirely and
+   * wrongly, because a marker's date is absolute (ADR 0014) and is therefore
+   * storable on a project with no start date. Such a marker simply has no axis
+   * to draw on until one exists — the same "stored, not drawn" rule the
+   * out-of-horizon case above gets.
+   *
+   * The project `beforeEach` seeds is created with a name and nothing else, so
+   * it is already the undated project this task needs; both cases read that
+   * back rather than assuming it, because the day a seeded start date appears
+   * these two would silently stop testing what they name.
+   *
+   * **The workday number goes over the wire as the string `'7'`.** The route
+   * declares `date: t.String()`, so the JSON number `7` is refused by the body
+   * schema before the handler runs — a case sending the number would answer
+   * 422 under the negative too and would be proving typebox rather than the
+   * guard this task is about. A string is also the shape a client that
+   * conflated the two really sends.
+   *
+   * Negative: `isIsoDate(body.date)` removed from the create path in
+   * `createProblem`, watched storing `7`. Recorded in `verify.md`.
+   */
+  const undatedProject = async () => {
+    const res = await as(tokens['owner'], `/api/projects/${projectId}`);
+    expect(res.status).toBe(200);
+    return (await res.json()) as { project: { startDate: string | null } };
+  };
+
+  it('refuses a workday number as a date on an undated project, and writes nothing', async () => {
+    expect((await undatedProject()).project.startDate).toBeNull();
+
+    const refused = await create('owner', {
+      markerId: 'f1000000-0000-4000-8000-000000000007',
+      date: '7',
+      name: 'Cutover',
+    });
+
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: 'malformed', field: 'date' });
+    expect(await list('owner')).toEqual([]);
+  });
+
+  it('stores an absolute date on that same undated project, and lists it back', async () => {
+    expect((await undatedProject()).project.startDate).toBeNull();
+
+    const made = await create('owner', {
+      markerId: 'f1000000-0000-4000-8000-000000000008',
+      date: '2026-08-19',
+      name: 'Cutover',
+    });
+
+    expect(made.status).toBe(201);
+    expect(await list('owner')).toMatchObject([{ date: '2026-08-19', name: 'Cutover' }]);
+  });
+
   /** Closes the project to everyone but its owner, through the route that owns that column. */
   const restrict = async () => {
     const res = await as(tokens['owner'], `/api/projects/${projectId}`, {

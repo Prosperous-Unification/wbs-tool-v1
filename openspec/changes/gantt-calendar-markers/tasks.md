@@ -1196,7 +1196,7 @@ in both slices rather than implied by position.
       the composer, watched failing here while 7.2's refusal case stays green —
       which is the exact pair that makes this slice load-bearing rather than a
       restatement of 6.1.
-- [ ] 7.4 No marker can reach storage against a workday number — and the guard
+- [x] 7.4 No marker can reach storage against a workday number — and the guard
       is the **`IsoDate` validator of 4.3, not a check on the project's start
       date.** A workday number is not an `IsoDate`, so 4.3 already refuses it;
       a `startDate === null` check would refuse something else entirely, and
@@ -3674,3 +3674,45 @@ Gates on **h2puni** at the committed bytes, `fe-01:test` target (not a focused
 invocation): 88 files / **2301 passed** / 0 fail, up from 2299 by exactly these
 two, plus the zoned tier 2 files / 3 passed. `prettier --check` rc 0 on the
 touched file before the suite ran, per the standing format-first correction.
+
+## Chunk 75 — 7.4, and the guard is the validator (TASK-235 run 37, 2026-09-06)
+
+Two cases in `calendar-marker.controller.db.test.ts`, beside the out-of-horizon
+case whose rule they extend. Test-only; no source moved.
+
+**The workday number goes over the wire as the string `'7'`, and that is not a
+detail.** The create route declares `date: t.String()`, so the JSON _number_ `7`
+is refused by the body schema before the handler runs — a case sending the
+number answers 422 under the negative too, and would be proving typebox rather
+than the guard this task is about. A string is also the shape a client that had
+conflated workday numbers with dates really sends.
+
+**Both cases read the project's `startDate` back and assert it is null** rather
+than assuming the `beforeEach` project is undated. The day a seeded start date
+appears, a case that only assumed it would silently stop testing what it names.
+
+**The second case is the whole point of the pair.** A marker's date is absolute
+(ADR 0014), so it is storable on a project with no start date — it simply has
+no axis to draw on until one exists, the same "stored, not drawn" rule the
+out-of-horizon case gets. Without that case this slice reads as "an undated
+project accepts no markers", which is the contradiction the earlier wording
+carried into `design.md` §1, and a `startDate === null` check would satisfy the
+first case while implementing exactly that.
+
+**Negative watched through the `be-01:test` target**, `isIsoDate(body.date)`
+removed from `createProblem`'s create path (gate host only, restored, md5
+`1ecabd8d` both hosts): **1563 pass / 4 fail**, the workday-number case among
+them at `expected 422, received 201` with the row written. The other three are
+4.3's own date rows — which is correct and is what the slice claims: 7.4's guard
+_is_ 4.3's validator, so one removal reddens both slices' rows. **7.4's second
+case stayed green under the fault**, which is what says the guard is the
+validator and not a start-date check.
+
+**A focused invocation is not a negative watch here either.** The first attempt
+ran `bunx vitest run <one file>` from `apps/be-01` and exited 1 on `Tests no
+tests` — collected nothing, the be-01 twin of the `fe-01` focused-run trap
+already recorded. Only the project target counts.
+
+Gates on **h2puni** at the committed bytes: `be-01:test` **1567 pass / 0 fail**
+across 127 files (up from 1565 by exactly these two), `be-01:typecheck` rc 0,
+`be-01:lint` rc 0, `prettier --check` rc 0 on the touched file.
