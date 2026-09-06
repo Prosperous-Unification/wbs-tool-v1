@@ -202,3 +202,32 @@ It has not been re-run since; the per-project gates at each committed head since
 then are recorded in `tasks.md`'s chunk sections. Re-running `run-many` belongs
 with the terminal gate, after the `origin/main` merge that PR 209 currently
 needs.
+
+## Whole-workspace gate — re-recorded at `41e9de4a` (item G, first clause)
+
+Run 37, chunk 79, 2026-09-06. Supersedes the `7d627f18` recording above, which
+was three heads stale by the time 3.4, 7.4 and 8.8 closed.
+
+`bunx nx run-many -t test lint typecheck` on **h2puni**, at the bytes of
+`41e9de4a`: **successfully ran targets test, lint, typecheck for 22 projects**,
+rc 0.
+
+- `fe-01`, the two vitest projects inside it: **88 files / 2304 passed**, 0
+  failed, and the zoned tier **2 files / 3 passed**, 0 failed.
+- `be-01`, measured in the same session: **1567 tests across 127 files**, 0
+  failed.
+- Lint, workspace-wide: **1 problem — 0 errors, 1 warning**, and the warning is
+  the pre-existing `wbs-table.tsx:4748` `react-hooks/exhaustive-deps` notice
+  about `ownedServicesByTeam` and `teamsByPerson`. Unchanged by this task.
+
+**A whole-workspace run and not the sum of the per-project ones**, per
+`LLM_README.md`: six import-sort errors reached `main` on 2026-08-30 green in
+every per-project run. That is why this line is recorded from `run-many`.
+
+**G's first clause is therefore current and its second is the table above**,
+whose remaining work is transcription of the earlier slices' negatives from
+their `## Chunk` sections. **Nothing in G is blocked on measurement any more.**
+
+**This is not a CI verdict.** PR 209 is `CONFLICTING` and no workflow run exists
+for this head; see `tasks.md`'s run-37 sections for the cause and the port the
+merge needs.
