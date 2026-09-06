@@ -59,11 +59,19 @@ file, so its mounts, user, limits and image are still the old ones). Until 2026-
 second case was silent, and the deploy reported success for a change that was in effect
 nowhere. The env row is still silent, because a gitignored file cannot arrive in a push.
 
-Every dev sync also requires the host-owned solver supervisor service and Unix socket, then
-runs its `--preflight=dev` check against the configured digest before moving the checkout.
-The config records a full `devSourceSha`; `tool-devsync` diffs the solver compatibility paths
-between that commit and the requested commit, so unrelated source changes keep the mapping
-while a changed solver package cannot silently run under an older image.
+The host-owned solver supervisor service, config, and Unix socket are deploy prerequisites only
+when `libs/solver-py/**` or `apps/be-01/Dockerfile` changed between the currently deployed and
+requested commits. Unrelated changes do not read the config or probe the service; there is no
+placeholder config to install and absence is the documented default until solver compatibility
+inputs move. For a solver-affecting deploy, materialize a validated config with the
+`tool-remote-scripts:materialize-solver-supervisor-config` target, then dry-run and execute the
+`tool-remote-scripts:install-solver-supervisor` target. The checked-in installer publishes the
+bundle, mode-0600 config, and user unit and verifies the service and socket. The config contains
+only commit and digest-pinned image identities plus resource limits; it carries no secret.
+
+The config records a full `devSourceSha`; `tool-devsync` also diffs the solver compatibility
+paths between that commit and the requested commit, so a changed solver package cannot silently
+run under an older image.
 
 Dev has **no edge password**. It was removed 2026-08-06: it was a second login on top of the
 app's own, and a browser that had cached a wrong credential for the realm could not be talked
