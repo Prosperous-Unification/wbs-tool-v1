@@ -132,7 +132,20 @@ async function withoutBody(res: Response): Promise<Response> {
 }
 
 /**
- * The framework's own body dispatch, reproduced.
+ * The framework's own body dispatch, reproduced — the switch below, and the two
+ * conditions in front of it in `decodeBody`.
+ *
+ * **The header is only read when there is a body to read.** Elysia's literal is
+ * `let contentType` then `if(c.request.body)contentType=…get('content-type')`
+ * (`elysia/dist/compose.mjs:421-426`), so a request carrying a body media type
+ * and **no body** never reaches the switch and the handler sees `undefined`.
+ * That guard was missing here when this comment first claimed the dispatch was
+ * reproduced, and the omission was service-visible: `PATCH /api/projects/:id`
+ * with `content-type: application/xml` and no body took the `x` arm, read empty
+ * text and became `{}`, and `patchFrom({})` accepts every absent field and
+ * returns an empty patch where `patchFrom(undefined)` refuses 422 before the
+ * service (`../../controller/project.routes.ts`). Elysia answered 422 with no
+ * call; this binder called `projects.update`.
  *
  * **It is not a media-type comparison, and assuming it was is what produced the
  * first draft of this fix.** A route that registers no `parse` hook — which is
@@ -253,6 +266,12 @@ async function decodeBody(request: Request): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'HEAD') {
     return undefined;
   }
+  // The framework's other precondition, and the one this binder was missing:
+  // Elysia reads `content-type` only `if(c.request.body)`
+  // (`compose.mjs:421-426`). A body media type on a request with no body is
+  // therefore not a parse instruction, and treating it as one turned an empty
+  // read into `{}` — a value `patchFrom` accepts where it refuses `undefined`.
+  if (request.body === null) return undefined;
   const contentType = request.headers.get('content-type') ?? '';
   if (contentType === '') return undefined;
   const dispatch = contentType.charCodeAt(12);

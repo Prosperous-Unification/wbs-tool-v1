@@ -73,9 +73,11 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
      *
      * The recorder is the point. A content-type clause that asserts only the
      * status cannot tell a refusal apart from a write that happened and then
-     * answered the same number, which is exactly the divergence TASK-270 item 4
-     * was: both binders answering on `application/merge-patch+json`, one of them
-     * having called the service first.
+     * answered the same number, and it is the *call* that TASK-270 item 4 was
+     * about: on `application/merge-patch+json` one binder created a project and
+     * the other did not. Their statuses differed too, so a status clause would
+     * have caught that particular pair — but only the recorder says which of
+     * the two answers had already written.
      */
     {
       method: 'POST',
@@ -86,6 +88,24 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
           return Promise.resolve(respond(422, { error: 'invalid_body' }));
         writes.push(name);
         return Promise.resolve(ok({ created: name }));
+      },
+    },
+    /**
+     * `PATCH /api/projects/:id` in miniature, and the one refusal `/probe/write`
+     * cannot express: `patchFrom` takes **any** field bag, so an *empty* object
+     * is a legal patch that reaches `projects.update` while `undefined` is a 422
+     * before it (`../controller/project.routes.ts`). A route that refuses both
+     * cannot see a binder that turned "no body" into `{}`, which is what reading
+     * `content-type` on a bodyless request did.
+     */
+    {
+      method: 'PATCH',
+      path: '/probe/patch-write',
+      handler: ({ body }) => {
+        if (typeof body !== 'object' || body === null)
+          return Promise.resolve(respond(422, { error: 'invalid_body' }));
+        writes.push('patched');
+        return Promise.resolve(ok({ patched: true }));
       },
     },
     /**
@@ -257,8 +277,9 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
   });
 
   /**
-   * TASK-270 item 4, and the clause asserts the **service call**, not only the
-   * status, because the status is what hid the defect.
+   * TASK-270 item 4, and the clause asserts the **service call** rather than
+   * only the status, because the call is the difference that matters and the
+   * status is the one a reader stops at.
    *
    * `decodeBody` dispatched on `contentType.includes('json')` until this chunk,
    * so every media type carrying the substring reached the JSON parser. The
@@ -277,11 +298,14 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * **What the framework actually dispatches on is one character**, and the
    * first draft of this clause got it wrong by reading the tidy five-name
    * `switch` at `elysia/dist/compose.mjs:500` — which is the path taken only
-   * when a route registers a `parse` hook. No route in this app does, so every
-   * request takes the fast path at `:435-444`: a `switch` on
-   * `contentType.charCodeAt(12)` alone, with a `default` that reads character 0
-   * and treats anything starting `t` as text. No `;` truncation, no
-   * lower-casing.
+   * when a route registers a `parse` hook. No route in this app does, so a
+   * request that reaches the parser at all takes the fast path at `:435-444`: a
+   * `switch` on `contentType.charCodeAt(12)` alone, with a `default` that reads
+   * character 0 and treats anything starting `t` as text. No `;` truncation, no
+   * lower-casing. **Reaching it is two conditions:** `hasBody` excludes GET and
+   * HEAD (`:257-258`) and the header is read only `if(c.request.body)`
+   * (`:421-426`), so a POST carrying a body media type and no body never
+   * dispatches — the clause below the write ones pins that.
    *
    * Which makes the accepted set stranger than any list of media types:
    * `application/json-patch+json` is **admitted** — character 12 is `j` — while
@@ -390,6 +414,49 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     );
     expect(res.status).toBe(204);
     expect(writes).toEqual(['deleted']);
+  });
+
+  /**
+   * Elysia's *other* precondition, and the one this chunk's first pass at
+   * "reproduce the dispatch" left out: the header is read only
+   * `if(c.request.body)` (`elysia/dist/compose.mjs:421-426`), so a body media
+   * type on a request carrying no body is not a parse instruction.
+   *
+   * `application/xml` makes it visible because its `x` arm reads text: an empty
+   * read through `URLSearchParams` is `{}`, not `undefined`, and `{}` is a
+   * *legal patch*. The recorder is what separates the two — both answers would
+   * otherwise be a status a reader could accept — and it is a real
+   * `PATCH /api/projects/:id`, which under Elysia is a 422 with no call and
+   * under a binder without this guard called `projects.update` with an empty
+   * patch.
+   */
+  it('does not parse a body media type on a request with no body, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/patch-write', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/xml' },
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(writes).toEqual([]);
+  });
+
+  /**
+   * The control the clause above needs: the same route with a real body still
+   * patches, so "ignore a bodyless request" did not become "ignore the body".
+   */
+  it('still reads an x-dispatched body that is actually there, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/patch-write', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/xml' },
+        body: 'name=Sand',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['patched']);
   });
 
   /**
