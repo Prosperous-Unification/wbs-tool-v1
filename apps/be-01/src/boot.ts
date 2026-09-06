@@ -173,12 +173,14 @@ export function bootBe01(opts: BootOptions): RunningBe {
         'be-01 listening (schema managed by the deploy pipeline)',
       );
       ensureLocalIdentity();
+      services.optimizer?.start();
       state.migrationsApplied = true;
       return;
     }
     opts.logger.info({ port: opts.port }, 'be-01 listening (migrating)');
     runMigrations(opts.dbPath, opts.migrationsFolder ?? './drizzle');
     ensureLocalIdentity();
+    services.optimizer?.start();
     state.migrationsApplied = true;
     opts.logger.info('migrations applied');
   });

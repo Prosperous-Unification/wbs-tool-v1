@@ -341,6 +341,5 @@ export function buildServices(opts: ServicesOptions): BeServices {
     }),
   };
   optimizerInput.workItems = services.workItems;
-  coordinator?.start();
   return services;
 }
