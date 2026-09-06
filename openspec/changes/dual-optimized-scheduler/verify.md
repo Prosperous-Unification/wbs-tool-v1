@@ -264,3 +264,20 @@ whose backend does not yet exist; lane-q TASK-222 already owns post-deploy QA.
 This closes 6.9c: weakening any one authority is observed independently, while
 the allocation, OFF transition, and drain paths remain intentionally incapable
 of presenting a worker attempt token.
+
+## 2026-09-06T22:13:33Z — Retry marker replacement boundary
+
+- Red head `e5d0e039` on h2puni: both the failed-marker and corrupt-row cases
+  reached insert-only conflict and failed on `Expected: "stored" / Received:
+  "already-recorded"`; the focused file reported 63 pass / 2 fail.
+- Exact green head `6e3beaee` on h2puni, worktree
+  `/home/puni1/t268-r3-regate.4llPBj`: 65/65 tests and 242 assertions passed;
+  scoped Prettier, be-01 fast lint, and be-01 typecheck were green. No build or
+  autotest ran on the queue-worker box.
+- A live slot may replace only a `failed`/`corrupt` row whose `createdAt`
+  predates that slot. The replacement is stamped at or after the slot start, so
+  a second outcome callback from the same attempt remains `already-recorded`.
+  Ready and plan-infeasible answers remain insert-only.
+
+This is the durable overwrite half of 7.3/7.11. The strict-order admission
+transaction and HTTP route remain before either slice can be ticked.
