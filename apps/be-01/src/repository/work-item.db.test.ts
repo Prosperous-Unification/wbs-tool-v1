@@ -1120,4 +1120,55 @@ describe('the order the work-item select answers in', () => {
     expect(spanOf(planned, earlier.id)).toEqual({ start: 0, finish: 2 });
     expect(spanOf(planned, later.id)).toEqual({ start: 2, finish: 4 });
   });
+
+  /**
+   * The three cases above watch the *returned* order, and that is no longer
+   * enough to hold the contract down at the final schema. `beforeEach` builds
+   * each database through the whole migration set, which now includes
+   * `work_item_project_id_id` on `(project_id, id)` — so with the `ORDER BY`
+   * deleted SQLite may satisfy `where project_id = ?` by walking that very
+   * index and hand back ascending id order anyway. Those assertions would pass
+   * over a query that promises nothing, and a later planner or statistics
+   * change picking `work_item_siblings` instead would restore the
+   * nondeterministic schedule with no test going red.
+   *
+   * That is exactly the gap in `verify.md` §1: the 31/3 negative was watched at
+   * `84716c40`, *before* §2 added the index, so it does not cover the schema
+   * this ships.
+   *
+   * The contract is a property of the statement, so this reads the statement.
+   * `logQuery` is drizzle's own hook and is already how this file proves round
+   * trips (`deletes a whole subtree in one statement`). Quotes and case are
+   * flattened first because the rendering is drizzle's to change and the
+   * contract is not.
+   *
+   * Peer review finding, TASK-260 round 1, Important (openai/gpt-5.6-sol):
+   * `queue/reviews/t260-r1-sol.txt`.
+   */
+  it('asks for the order in the statement rather than inheriting it from an index', async () => {
+    const statements: string[] = [];
+    const logged = new WorkItemRepository(
+      openDrizzle(dbPath, {
+        logQuery(query) {
+          statements.push(query);
+        },
+      }),
+    );
+
+    await logged.listByProject(projectId);
+
+    // The work-item select itself. The two membership reads beside it also name
+    // `work_item`, but they reach it through a join and order by their own
+    // column, so neither of them is the statement under test.
+    const select = statements.find(
+      (query) => query.includes('from "work_item"') && !query.includes('join'),
+    );
+    expect(select).toBeDefined();
+
+    const flattened = (select ?? '').replaceAll('"', '').replace(/\s+/g, ' ').toLowerCase();
+    expect(flattened).toContain('order by work_item.id');
+    // Ascending, and stated as such: descending is a different tie-break and
+    // would answer the two reads consistently while contradicting ADR 0016.
+    expect(flattened).not.toContain('order by work_item.id desc');
+  });
 });
