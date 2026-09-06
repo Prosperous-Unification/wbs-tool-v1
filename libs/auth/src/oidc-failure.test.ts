@@ -17,7 +17,9 @@ describe('classifyOidcFailure', () => {
   });
 
   it('calls an error the provider put in the callback a refusal', () => {
-    expect(classifyOidcFailure({ code: 'OAUTH_AUTHORIZATION_RESPONSE_ERROR' }).kind).toBe('refused');
+    expect(classifyOidcFailure({ code: 'OAUTH_AUTHORIZATION_RESPONSE_ERROR' }).kind).toBe(
+      'refused',
+    );
   });
 
   it('calls rejected client credentials a refusal', () => {

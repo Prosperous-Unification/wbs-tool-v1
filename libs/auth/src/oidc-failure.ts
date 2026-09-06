@@ -79,7 +79,8 @@ const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
  * before it touches the token endpoint, so an unreachable issuer surfaces as a
  * failed exchange rather than as anything of its own.
  */
-const TRANSPORT_CODE = /^(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EPROTO|UND_ERR_|CERT_|ERR_TLS_|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT)/;
+const TRANSPORT_CODE =
+  /^(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EPROTO|UND_ERR_|CERT_|ERR_TLS_|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT)/;
 
 function codeOf(value: unknown): string | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
