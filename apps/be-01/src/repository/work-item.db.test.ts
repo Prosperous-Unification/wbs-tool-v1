@@ -2,9 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
 import { effectiveTeamsOf, type Schedule, schedule } from '@wbs/domain';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { slicesOf } from '../service/work-item.service';
 import { personAdded } from '../testing/directory-fixture';
