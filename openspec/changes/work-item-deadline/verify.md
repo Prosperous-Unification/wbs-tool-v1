@@ -20,11 +20,15 @@ one:**
 | `dbe8d442` | registers `WORK_ITEM_DEADLINE` at the 32 sites that assert the newest migration by hand — **be-01 green again here**, which is what the gate table reports |
 | `42964565` | this file: 1.3's transcript, and 1.1/1.3 ticked                                                                                                            |
 | `c2f908f2` | Prettier's own formatting of this file                                                                                                                     |
+| `801b6804` | round 1's fold — **touches `schema.ts`, `migration.sql` and `down.sql`**, so the gate was re-run after it and the table below reports that run              |
+| `65fb9359` | Prettier's own formatting of the folded file                                                                                                               |
 
-So the code gate stands at `dbe8d442` and the two commits after it are
-documentation. A round-1 review read the gate table as claiming `dbe8d442`
-itself was never red and called it a contradiction; it was ambiguity rather than
-contradiction, and this table is the fix.
+A round-1 review read the gate table as claiming `dbe8d442` itself was never red
+and called it a contradiction; it was ambiguity rather than contradiction, and
+this table is the fix. A round-2 review then caught the second half of the same
+mistake — the table said the code gate "stands at `dbe8d442`" *after* the fold
+had changed three code files under it. The gate below is re-run at `65fb9359`,
+which is the only head whose numbers describe what this PR merges.
 
 ### 1.3 — forward, on a copy of a real migrated database
 
@@ -232,15 +236,28 @@ looks like a clean one.
 
 ### Gates
 
-At the committed bytes of `dbe8d442`, on h2puni, worktree clean, `md5sum` equal
-on both hosts for `schema.ts` and both `.sql` files:
+**Re-run in full after every commit that touches a code file, and reported from
+the newest such run** — quoting `dbe8d442`'s numbers after the round-1 fold had
+changed `schema.ts`, `migration.sql` and `down.sql` is exactly the stale claim
+round 2 caught. The rule this section follows from here on, so it cannot go
+stale again: **the numbers below are from the head of the most recent commit
+that changed a file outside `openspec/`, and every commit after that one is
+documentation.** On h2puni, worktree clean at that head, nothing built or run on
+the workspace box:
 
-| target                     | result                                                                                                  |
-| -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| be-01 unit                 | **1589 pass / 0 fail**, rc 0 (1515 before; the new folder adds cases to the migration walks themselves) |
-| `nx run-many -t typecheck` | rc 0, 22 projects                                                                                       |
-| be-01 lint                 | rc 0                                                                                                    |
-| `prettier --check`         | rc 0                                                                                                    |
+| target                     | result                                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| be-01 unit                 | **1589 pass / 0 fail**, rc 0, 124 files (1515 before this slice; the new folder adds cases to the migration walks themselves) |
+| `nx run-many -t typecheck` | rc 0, 22 projects                                                                                      |
+| be-01 lint                 | rc 0, zero errors and zero warnings                                                                    |
+| `nx format:check --all`    | rc 0                                                                                                   |
+| `prettier --check`         | rc 0 on the three touched text files                                                                   |
+| `openspec validate --all`  | 39 items, 39 passed, 0 failed                                                                          |
+
+**Prettier has no SQL parser.** Pointing it at the two `.sql` files exits 2 on
+`No parser could be inferred` — a caller error, not a formatting failure, and
+the reason the Prettier row names the text files rather than "everything
+touched".
 
 The column commit `5f0ede1a` alone turned **39 be-01 cases red, none of them
 about the column**: a migration folder name is asserted by hand in eight test files —
@@ -280,3 +297,29 @@ What changed as a result:
 | `verify.md`'s head/gate SHAs were ambiguous                                                     | agy (Important)                 | the commit table at the top of this section                                                                                        |
 | `down.sql` cited `migrate.test.ts`, which does not exist                                        | agy (Minor)                     | corrected to `migrate.db.test.ts` and `migrate-down.db.test.ts`                                                                    |
 | "rolling the migration back is not tested" overstated the omission                              | sol (Minor)                     | narrowed above: syntax and order are covered, seeded-data rollback is the deliberate omission                                      |
+
+### Round 2 review
+
+The fold was reviewed again at `65fb9359`. `gemini/antigravity-cli` returned
+**BLOCK** — 0 Critical, 2 Important, 1 Minor —
+`queue/reviews/t267-slice1-r2-agy.txt`, 18615 bytes, verified, footer
+`review-tree: … @ 65fb9359412b1cb33ec928f4026bcbf2ee09cf20`.
+
+It confirmed three of round 1's folds outright: the new digest encoding is
+"strictly injective and unambiguous"; the column move restores the truth of
+`startNoEarlierThanReason`'s comment and breaks no Drizzle select, index or
+column resolution; and — attacking it directly, as asked — **no code path in the
+tree can write `work_item.deadline` at this head**, so the deferred
+delete-then-undo fix is safe to merge.
+
+Its two Importants were both true and both cost the same mistake twice:
+
+- The disclaimer added in round 1 said "anything **below**" while half the
+  purpose-prose it disclaims sits above it, and the paragraph genuinely below it
+  still read as present-tense fact. It now disclaims the whole comment and does
+  so by direction rather than by position.
+- The commit table and the gate section still said the gate stood at `dbe8d442`
+  — after `801b6804` had changed `schema.ts`, `migration.sql` and `down.sql`
+  underneath it. **A stale gate claim on a prod-mode PR is the finding, not the
+  wording**: the numbers were real but they described a different tree. The
+  gate was re-run at `65fb9359` and the table now reports that run.

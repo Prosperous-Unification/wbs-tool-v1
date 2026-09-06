@@ -441,9 +441,13 @@ export const workItem = sqliteTable(
      * 1.2 keeps the migration on its own PR carrying nothing else, so slices
      * 2–5 arrive separately. When they do, the no-op argument becomes the
      * empty map rather than the absent reader, and it is their golden-corpus
-     * case that has to prove it. Anything below describing an ordering or a
-     * fold is describing the column's **purpose**, not code standing at this
-     * head.
+     * case that has to prove it. **Every sentence in this comment that
+     * describes an ordering, a fold, a late label or a read-time resolution —
+     * before this paragraph and after it — describes what the column is
+     * *for*, not code standing at this head.** Stated once here rather than
+     * hedged sentence by sentence, and stated as a direction rather than a
+     * position, because a pointer that says "below" is one edit away from
+     * pointing at the wrong half.
      *
      * **Below the floor's reason rather than beside the floor**, deliberately:
      * `startNoEarlierThanReason` says its words are about "this column and the
@@ -452,11 +456,15 @@ export const workItem = sqliteTable(
      * position in this object is not its position in the table anyway, since
      * `ALTER TABLE ADD COLUMN` appends.
      *
-     * **Stored as authored and never rewritten by a later edit.** A project
-     * start moved past a stored deadline resolves `before-project-start` at
-     * **read** time and the row is reported late by the whole span; the value
-     * is left alone and the request that moved the project is not rejected.
-     * Rewriting it would delete what the user typed on an unrelated edit.
+     * **Stored as authored, and no later edit will rewrite it** — a rule about
+     * the writes the later slices add, since at this head there are none. A
+     * project start moved past a stored deadline is to resolve
+     * `before-project-start` at **read** time and the row is to be reported
+     * late by the whole span; the value is to be left alone and the request
+     * that moved the project is not to be rejected. It is written down here,
+     * on the column, because rewriting the value would delete what somebody
+     * typed on an unrelated edit, and the place that argument has to survive
+     * is the definition of the thing being rewritten.
      */
     deadline: text('deadline'),
     /**
