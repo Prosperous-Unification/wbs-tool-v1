@@ -248,19 +248,32 @@ describe('classifyOidcFailure', () => {
       // reading twice: as a TLS alert it means the peer rejected the
       // certificate *we* sent, while the errno `CERT_HAS_EXPIRED` above means
       // *theirs* had expired and is `unavailable`. Same words, opposite arms.
+      // Every code here is in the spelling OpenSSL 3.5.7 really emits, read out
+      // of the shipped Node binary's reason table: the five certificate alerts
+      // are `ssl/tls alert …` and reach us with a literal slash in the code.
       for (const code of [
         'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
         'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA',
-        'ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE',
-        'ERR_SSL_TLSV1_ALERT_UNSUPPORTED_CERTIFICATE',
-        'ERR_SSL_TLSV1_ALERT_CERTIFICATE_REVOKED',
-        'ERR_SSL_TLSV1_ALERT_CERTIFICATE_EXPIRED',
-        'ERR_SSL_TLSV1_ALERT_CERTIFICATE_UNKNOWN',
+        'ERR_SSL_SSL/TLS_ALERT_BAD_CERTIFICATE',
+        'ERR_SSL_SSL/TLS_ALERT_UNSUPPORTED_CERTIFICATE',
+        'ERR_SSL_SSL/TLS_ALERT_CERTIFICATE_REVOKED',
+        'ERR_SSL_SSL/TLS_ALERT_CERTIFICATE_EXPIRED',
+        'ERR_SSL_SSL/TLS_ALERT_CERTIFICATE_UNKNOWN',
         // RFC 8446 §6.2: a valid certificate arrived and access control refused
         // it anyway. Every login fails until this client is allowed.
         'ERR_SSL_TLSV1_ALERT_ACCESS_DENIED',
         // The same refusal aimed at a pre-shared key rather than a certificate.
-        'ERR_SSL_TLSV13_ALERT_UNKNOWN_PSK_IDENTITY',
+        'ERR_SSL_TLSV1_ALERT_UNKNOWN_PSK_IDENTITY',
+        // RFC 6066's three alerts about a credential of ours the peer was handed
+        // a pointer to. All three are spelled with no `alert` in the reason
+        // string, so they arrive as `ERR_SSL_TLSV1_<NAME>`.
+        'ERR_SSL_TLSV1_CERTIFICATE_UNOBTAINABLE',
+        'ERR_SSL_TLSV1_BAD_CERTIFICATE_HASH_VALUE',
+        'ERR_SSL_TLSV1_BAD_CERTIFICATE_STATUS_RESPONSE',
+        // The spelling the rules were written against before this was measured.
+        // Kept so a future OpenSSL that regularises the reason table does not
+        // silently drop the row.
+        'ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'defect',
@@ -280,9 +293,14 @@ describe('classifyOidcFailure', () => {
       // configuration, which is what makes them ours — and what keeps them out
       // of the `indeterminate` arm below. One case per member of the rule.
       for (const code of [
-        'ERR_SSL_TLSV1_ALERT_ILLEGAL_PARAMETER',
-        'ERR_SSL_TLSV1_ALERT_UNEXPECTED_MESSAGE',
+        'ERR_SSL_SSL/TLS_ALERT_ILLEGAL_PARAMETER',
+        'ERR_SSL_SSL/TLS_ALERT_UNEXPECTED_MESSAGE',
         'ERR_SSL_TLSV13_ALERT_MISSING_EXTENSION',
+        // `unsupported_extension` is spelled with no `alert` in the reason
+        // string, so this is the code Node really produces for alert 110.
+        'ERR_SSL_TLSV1_UNSUPPORTED_EXTENSION',
+        // Both spellings, so regularising the reason table cannot drop the row.
+        'ERR_SSL_TLSV1_ALERT_ILLEGAL_PARAMETER',
         'ERR_SSL_TLSV1_ALERT_UNSUPPORTED_EXTENSION',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
@@ -305,6 +323,9 @@ describe('classifyOidcFailure', () => {
       // plus two extra prefixes for alert 40 because the rule is written against
       // the alert and not against the OpenSSL family.
       for (const code of [
+        // The spelling a provoked handshake failure on this project's runtime
+        // (Node 24.18.1, OpenSSL 3.5.7) really rejects with, slash and all.
+        'ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV13_ALERT_HANDSHAKE_FAILURE',
@@ -337,7 +358,9 @@ describe('classifyOidcFailure', () => {
       // it `defect` throws away the outage signal when the far end really is the
       // broken one. It is allowed to be neither, and the slug carries the rest.
       const failure = classifyOidcFailure(
-        new TypeError('fetch failed', { cause: { code: 'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE' } }),
+        new TypeError('fetch failed', {
+          cause: { code: 'ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE' },
+        }),
       );
 
       expect(failure.kind).not.toBe('unavailable');
@@ -360,8 +383,9 @@ describe('classifyOidcFailure', () => {
 
     it('does not call our own dispatcher teardown an outage', () => {
       // These three say something about this process, not about the provider,
-      // and the transport walk runs first — so listing them would have quietly
-      // overruled every other row in the file.
+      // and the transport walk is the one lookup that descends through `cause` —
+      // so listing them would let a socket we tore down outrank an answer the
+      // provider really sent.
       for (const code of ['UND_ERR_CLOSED', 'UND_ERR_DESTROYED', 'UND_ERR_ABORTED']) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'defect',
@@ -404,6 +428,94 @@ describe('classifyOidcFailure', () => {
         kind: 'defect',
         reason: 'unrecognised_failure',
       });
+    });
+  });
+
+  describe('a field the provider controls never outranks an envelope we trust', () => {
+    it('reads the OAuth envelope before walking the body hung off its cause', () => {
+      // `oauth4webapi` puts the provider's complete JSON body on
+      // `ResponseBodyError.cause`, and a token endpoint may put anything in it.
+      // Walking `cause` first read this ordinary `invalid_grant` refusal as a
+      // TLS failure and answered `indeterminate`: a provider steering our own
+      // classification, which is worse than a misfiled row. The envelope is a
+      // string the library set and this project trusts, so it decides first.
+      const failure = classifyOidcFailure({
+        code: 'OAUTH_RESPONSE_BODY_ERROR',
+        error: 'invalid_grant',
+        status: 400,
+        cause: { error: 'invalid_grant', code: 'ERR_SSL_TLSV1_UNRECOGNIZED_NAME' },
+      });
+
+      expect(failure).toEqual({ kind: 'refused', reason: 'grant_refused' });
+    });
+
+    it('will not let a provider body forge an outage either', () => {
+      // The same defect aimed the other way: a refusal dressed as an unreachable
+      // provider would take an operator to a dashboard during an ordinary
+      // password typo, and a 5xx corroboration the provider never sent.
+      const failure = classifyOidcFailure({
+        code: 'OAUTH_RESPONSE_BODY_ERROR',
+        error: 'access_denied',
+        status: 400,
+        cause: { code: 'ENOTFOUND' },
+      });
+
+      expect(failure).toEqual({ kind: 'refused', reason: 'grant_refused' });
+    });
+
+    it('still finds a transport failure when the top-level code is not one we own', () => {
+      // The ordering must not disable the walk. A bare `fetch` TypeError has no
+      // code of its own, and a code this module does not recognise is not
+      // evidence either — both still descend.
+      expect(
+        classifyOidcFailure(new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } })),
+      ).toEqual({ kind: 'unavailable', reason: 'provider_unreachable' });
+
+      expect(classifyOidcFailure({ code: 'SOMETHING_UNKNOWN', cause: { code: 'ENOTFOUND' } })).toEqual(
+        { kind: 'unavailable', reason: 'provider_unreachable' },
+      );
+    });
+  });
+
+  describe('every alert is matched in the spelling OpenSSL really emits', () => {
+    // Measured, not assumed: Node 24.18.1 ships OpenSSL 3.5.7, whose reason
+    // table spells alerts four ways — `ssl/tls alert <name>`, `tlsv1 alert
+    // <name>`, `tlsv13 alert <name>` and, for five of them, `tlsv1 <name>` with
+    // no `alert` at all. A provoked handshake failure on that runtime rejects
+    // with a literal slash in `code`. Every rule in the module used to require a
+    // single alphanumeric protocol token and an `_ALERT_` infix, so the whole
+    // `ssl/tls` family and all five bare alerts were invisible: they reached
+    // `unrecognised_failure` and an operator was paged for a provider outage.
+    it('recognises the slash family as alerts at all', () => {
+      for (const code of [
+        'ERR_SSL_SSL/TLS_ALERT_BAD_RECORD_MAC',
+        'ERR_SSL_SSL/TLS_ALERT_DECOMPRESSION_FAILURE',
+        'ERR_SSL_SSL/TLS_ALERT_NO_CERTIFICATE',
+      ]) {
+        // Not in any named arm, so the open-ended answer is the right one — but
+        // it has to be reached as an alert, not fall out as unrecognised.
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'unavailable',
+          reason: 'provider_unreachable',
+        });
+      }
+    });
+
+    it('does not admit a non-alert OpenSSL failure through the slash', () => {
+      // The negative half of widening the protocol token: `ERR_SSL_` is still
+      // OpenSSL's whole namespace, and a local cipher configuration that fails
+      // before the provider is contacted is still not an outage. A code that
+      // merely contains a slash is not an alert either.
+      for (const code of [
+        'ERR_SSL_NO_CIPHER_MATCH',
+        'ERR_SSL_SSL/TLS_NO_CIPHER_MATCH',
+        'ERR_SSL_TLSV1_SOMETHING_OPENSSL_SPELLS_WITHOUT_ALERT',
+      ]) {
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'defect',
+          reason: 'unrecognised_failure',
+        });
+      }
     });
   });
 

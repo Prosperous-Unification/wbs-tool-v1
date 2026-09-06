@@ -26,7 +26,7 @@
  * `indeterminate` is the fourth answer, and it is the honest one: some evidence
  * we fully understand still does not say whose move it is. A taxonomy built on
  * that question needs a value for "this does not answer it", or the row gets
- * assigned by whoever argued last. See {@link CAPABILITY_MISMATCH_ALERT}.
+ * assigned by whoever argued last. See {@link PARTY_NEUTRAL_ALERTS}.
  */
 export type OidcFailureKind = 'refused' | 'unavailable' | 'defect' | 'indeterminate';
 
@@ -184,9 +184,10 @@ const OAUTH_ERROR_ENVELOPES: ReadonlySet<string> = new Set([
  * Undici's *lifecycle* codes are deliberately absent for the same reason.
  * `UND_ERR_CLOSED` and `UND_ERR_DESTROYED` mean this process tore its own
  * dispatcher down, and `UND_ERR_ABORTED` can be a cancellation we asked for;
- * none of the three is evidence about the provider, and because the transport
- * walk runs before the OAuth table, listing them would have quietly overruled
- * every other row. The timeouts below are the codes that do carry that evidence.
+ * none of the three is evidence about the provider, and this walk descends
+ * through `cause` while the tables above read only the top level, so listing
+ * them would let a torn-down socket outrank an answer the provider really sent.
+ * The timeouts below are the codes that do carry that evidence.
  */
 const TRANSPORT_CODES: ReadonlySet<string> = new Set([
   // Name resolution, connection, and socket.
@@ -236,26 +237,77 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The one open-ended rule left, and it matches an alert rather than a namespace.
+ * How OpenSSL spells a TLS alert — measured, because it does not spell them all
+ * the same way and three rules here were written against spellings that never
+ * occur.
  *
- * Node surfaces the far end's TLS alerts verbatim —
- * `ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE`, `ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION`,
- * `ERR_SSL_TLSV13_ALERT_*` and an open tail of others. An alert is by definition
- * something the peer sent us, so the whole shape is evidence about the peer, and
- * one added tomorrow is still an alert. Anything a closed list could say about
- * that family it would say too late.
+ * Node builds `error.code` from OpenSSL's reason string by uppercasing it and
+ * turning spaces into underscores, so the shape of the code is the shape of the
+ * reason table. Read out of the exact runtime this project ships — Node 24.18.1
+ * with OpenSSL 3.5.7 — every alert reason in the binary falls into four
+ * spellings, and only two of them look alike:
  *
- * **`ERR_SSL_` on its own would not do**, which is the same mistake as the
- * `UND_ERR_` prefix in a different coat: it is OpenSSL's whole namespace, and
+ * | reason string | resulting code | alerts |
+ * |---|---|---|
+ * | `ssl/tls alert <name>` | `ERR_SSL_SSL/TLS_ALERT_<NAME>` | 11 |
+ * | `tlsv1 alert <name>` | `ERR_SSL_TLSV1_ALERT_<NAME>` | 15 |
+ * | `tlsv13 alert <name>` | `ERR_SSL_TLSV13_ALERT_<NAME>` | 2 |
+ * | `tlsv1 <name>` | `ERR_SSL_TLSV1_<NAME>` | 5 |
+ *
+ * **The slash is real.** A provoked handshake failure on that runtime rejects
+ * with `code: 'ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE'`, and the earlier
+ * `[A-Z0-9]+` protocol token could not match it. That single spelling carries
+ * `handshake_failure`, `illegal_parameter`, `unexpected_message` and every
+ * certificate alert, so most rows below were dead before this was measured. The
+ * last row is the other half: five alerts whose reason string omits `alert`
+ * altogether, which is how `unrecognized_name` and `unsupported_extension` were
+ * each found misfiled, one review apart, before the third showed it was a class.
+ *
+ * So **no rule in this file matches a code**. One reader turns a code into an
+ * alert name, every taxonomy row is a set of names, and the next spelling
+ * OpenSSL invents is one change here instead of four silent holes.
+ *
+ * **`ERR_SSL_` on its own still would not do**, which is the `UND_ERR_` prefix
+ * mistake in a different coat: it is OpenSSL's whole namespace, and
  * `ERR_SSL_NO_CIPHER_MATCH` is a local cipher configuration that fails before we
- * ever reach the provider. The `_ALERT_` infix is what separates "the peer
- * objected" from "our own TLS setup is wrong". Non-alert OpenSSL failures that
- * really are transport failures are enumerated below by name instead.
+ * ever reach the provider. Being an alert is what separates "the peer objected"
+ * from "our own TLS setup is wrong". Non-alert OpenSSL failures that really are
+ * transport failures are enumerated by name in {@link TRANSPORT_CODES} instead.
  *
  * `EPROTO` does not stand in for any of this: it is the errno, not the OpenSSL
  * code, and the two arrive separately.
  */
-const OPENSSL_ALERT = /^ERR_SSL_[A-Z0-9]+_ALERT_[A-Z0-9_]+$/;
+const OPENSSL_ALERT_CODE = /^ERR_SSL_[A-Z0-9/]+_ALERT_([A-Z0-9_]+)$/;
+
+/**
+ * The alerts OpenSSL 3.5.7 reports without the word `alert` in its reason
+ * string, which is why they have to be listed rather than matched by shape.
+ *
+ * All five are the RFC 6066 extension alerts (110 and 111–114). Nothing about
+ * them is less of an alert; OpenSSL simply never regularised those five reason
+ * strings. Listing them closes the class, and a sixth added later lands in
+ * `unrecognised_failure` — this module being behind, which is an operator's
+ * move — rather than being read as something it is not.
+ */
+const INFIXLESS_ALERT_NAMES: ReadonlySet<string> = new Set([
+  'UNRECOGNIZED_NAME',
+  'UNSUPPORTED_EXTENSION',
+  'CERTIFICATE_UNOBTAINABLE',
+  'BAD_CERTIFICATE_STATUS_RESPONSE',
+  'BAD_CERTIFICATE_HASH_VALUE',
+]);
+
+const OPENSSL_BARE_CODE = /^ERR_SSL_[A-Z0-9/]+_([A-Z0-9_]+)$/;
+
+/** The alert a code names, in either spelling, or `undefined` if it names none. */
+function alertNameOf(code: string): string | undefined {
+  const alert = OPENSSL_ALERT_CODE.exec(code);
+  if (alert !== null) return alert[1];
+
+  const bare = OPENSSL_BARE_CODE.exec(code);
+  if (bare !== null && INFIXLESS_ALERT_NAMES.has(bare[1])) return bare[1];
+  return undefined;
+}
 
 /**
  * The alerts that say the peer looked at *our* TLS credential and refused it.
@@ -270,9 +322,34 @@ const OPENSSL_ALERT = /^ERR_SSL_[A-Z0-9]+_ALERT_[A-Z0-9_]+$/;
  * file's own taxonomy those are the TLS spelling of `invalid_client`: nobody
  * typed anything wrong, every login fails, and waiting will not help. They take
  * the same `client_authentication_failed` slug.
+ *
+ * The last three are RFC 6066's alerts about a credential of ours that the peer
+ * was handed a *pointer* to rather than the credential itself: §5's
+ * `certificate_unobtainable` is the peer failing to fetch our certificate from
+ * the URL we supplied and `bad_certificate_hash_value` is that certificate not
+ * matching the hash we supplied with it. `bad_certificate_status_response` is
+ * the one worth stating plainly: RFC 8446 §6.2 names its sender as the client,
+ * which is the role we play, so receiving it means a peer objected in a role it
+ * should not have taken. It is filed here rather than given an arm of its own
+ * because the answer is the same either way — nothing about the provider's
+ * availability is established, nobody typed anything wrong, and only an
+ * operator can act. None of the three can arrive at all unless a deployment
+ * enabled an extension this project does not use, which is the same move.
  */
-const CLIENT_CREDENTIAL_ALERT =
-  /_ALERT_(BAD_CERTIFICATE|UNSUPPORTED_CERTIFICATE|CERTIFICATE_REVOKED|CERTIFICATE_EXPIRED|CERTIFICATE_UNKNOWN|UNKNOWN_CA|CERTIFICATE_REQUIRED|ACCESS_DENIED|UNKNOWN_PSK_IDENTITY)$/;
+const CLIENT_CREDENTIAL_ALERTS: ReadonlySet<string> = new Set([
+  'BAD_CERTIFICATE',
+  'UNSUPPORTED_CERTIFICATE',
+  'CERTIFICATE_REVOKED',
+  'CERTIFICATE_EXPIRED',
+  'CERTIFICATE_UNKNOWN',
+  'UNKNOWN_CA',
+  'CERTIFICATE_REQUIRED',
+  'ACCESS_DENIED',
+  'UNKNOWN_PSK_IDENTITY',
+  'CERTIFICATE_UNOBTAINABLE',
+  'BAD_CERTIFICATE_HASH_VALUE',
+  'BAD_CERTIFICATE_STATUS_RESPONSE',
+]);
 
 /**
  * The alerts that say the message we sent broke the protocol.
@@ -293,13 +370,17 @@ const CLIENT_CREDENTIAL_ALERT =
  * others do not carry: it "should never be observed in communication between
  * proper implementations, except when messages were corrupted in the network".
  * A corrupted message is neither end being wrong, so filing it here would page
- * an operator for a failure nobody caused. See {@link TRANSIT_CORRUPTION_ALERT_SUFFIX}.
+ * an operator for a failure nobody caused. See {@link PARTY_NEUTRAL_ALERTS}.
  *
  * They take `local_defect` rather than the credential slug because nothing about
  * our identity was refused, and an operator rather than time has to act.
  */
-const LOCAL_PROTOCOL_VIOLATION_ALERT =
-  /_ALERT_(ILLEGAL_PARAMETER|UNEXPECTED_MESSAGE|MISSING_EXTENSION|UNSUPPORTED_EXTENSION)$/;
+const LOCAL_PROTOCOL_VIOLATION_ALERTS: ReadonlySet<string> = new Set([
+  'ILLEGAL_PARAMETER',
+  'UNEXPECTED_MESSAGE',
+  'MISSING_EXTENSION',
+  'UNSUPPORTED_EXTENSION',
+]);
 
 /**
  * The alerts that report an empty intersection between two conforming ends,
@@ -336,51 +417,30 @@ const LOCAL_PROTOCOL_VIOLATION_ALERT =
  * evidence we have read and that is silent by construction, while an
  * unrecognised code is evidence we have not read at all — which is this module
  * being behind, and an operator's move.
- */
-const CAPABILITY_MISMATCH_ALERT =
-  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|NO_APPLICATION_PROTOCOL)$/;
-
-/**
- * The same party-neutral shape one layer out, and the one rule here that cannot
- * be written against the `_ALERT_` infix.
+ *
+ * Two more alerts name an outcome without naming a party, and they take the
+ * same answer rather than arms of their own.
  *
  * RFC 6066 §3's `unrecognized_name` says the server has no configuration under
  * the name our `server_name` extension asked for. That is equally an issuer
  * hostname of ours that was wrong and a provider rollout that stopped serving
- * that hostname, so it belongs with the mismatches above.
- *
- * **OpenSSL does not spell this one as an alert.** Its reason string is
- * `SSL_R_TLSV1_UNRECOGNIZED_NAME`, so Node surfaces
- * `ERR_SSL_TLSV1_UNRECOGNIZED_NAME` — no `_ALERT_` infix — and a rule written
- * against {@link OPENSSL_ALERT} would never see it. The optional group matches
- * both spellings so a future OpenSSL that regularises the name does not silently
- * drop the row, and {@link isTransportCode} names this rule directly for the
- * same reason: without that, the code is not recognised as a transport failure
- * at all and lands in `unrecognised_failure`.
- */
-const UNRECOGNISED_SNI_NAME = /^ERR_SSL_[A-Z0-9]+_(?:ALERT_)?UNRECOGNIZED_NAME$/;
-
-/**
- * The alert that says a message arrived mangled, which is nobody's defect.
+ * that hostname, so it sits exactly where the mismatches do.
  *
  * `DECODE_ERROR` is the one alert RFC 8446 §6.2 excuses outright: it "should
  * never be observed in communication between proper implementations, except when
  * messages were corrupted in the network". Receiving it proves the provider was
  * reached and that something between us damaged what it read, so neither
- * `local_defect` nor `provider_unreachable` is true — it is the same unresolved
- * responsibility the mismatch alerts carry, and it takes the same answer rather
- * than a fifth one.
+ * `local_defect` nor `provider_unreachable` is true — the same unresolved
+ * responsibility, and not a fifth kind.
  */
-const TRANSIT_CORRUPTION_ALERT_SUFFIX = '_ALERT_DECODE_ERROR';
-
-/** Every rule whose alert names an outcome and leaves responsibility open. */
-function namesNoParty(code: string): boolean {
-  return (
-    CAPABILITY_MISMATCH_ALERT.test(code) ||
-    UNRECOGNISED_SNI_NAME.test(code) ||
-    code.endsWith(TRANSIT_CORRUPTION_ALERT_SUFFIX)
-  );
-}
+const PARTY_NEUTRAL_ALERTS: ReadonlySet<string> = new Set([
+  'HANDSHAKE_FAILURE',
+  'PROTOCOL_VERSION',
+  'INSUFFICIENT_SECURITY',
+  'NO_APPLICATION_PROTOCOL',
+  'UNRECOGNIZED_NAME',
+  'DECODE_ERROR',
+]);
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
@@ -405,7 +465,7 @@ function numberProperty(value: unknown, key: string): number | undefined {
 }
 
 function isTransportCode(code: string): boolean {
-  return TRANSPORT_CODES.has(code) || OPENSSL_ALERT.test(code) || UNRECOGNISED_SNI_NAME.test(code);
+  return TRANSPORT_CODES.has(code) || alertNameOf(code) !== undefined;
 }
 
 /** Walks `cause` for a transport code, since `fetch` buries it one or more levels down. */
@@ -446,22 +506,41 @@ function classifyOAuthErrorResponse(error: unknown): OidcFailure {
  * is `unreadable_failure`; anything this module itself got wrong is
  * `local_defect`, so a regression in here is not filed as someone else's hostile
  * input.
+ *
+ * **The order of the two lookups is load-bearing, and it is this way round.**
+ * The top-level `code` is the library's own word for what failed and this
+ * project trusts it; `cause` below it is not always ours to trust. `oauth4webapi`
+ * hangs the provider's complete JSON body on `ResponseBodyError.cause`, so a
+ * perfectly ordinary token-endpoint refusal answering
+ * `{"error":"invalid_grant","code":"ERR_SSL_TLSV1_UNRECOGNIZED_NAME"}` would,
+ * walked first, be read as a TLS failure and answered `indeterminate` instead of
+ * `refused`. That is not a misfiled row — it is a field the provider controls
+ * outranking an envelope we trust, which is provider input steering our own
+ * classification. Every library error whose `cause` is provider-shaped carries
+ * one of the codes read here, so recognising them before the walk closes it.
  */
 export function classifyOidcFailure(error: unknown): OidcFailure {
   try {
+    const code = stringProperty(error, 'code');
+    if (code !== undefined) {
+      if (OAUTH_ERROR_ENVELOPES.has(code)) return classifyOAuthErrorResponse(error);
+
+      const known = CODE_TABLE.get(code);
+      if (known !== undefined) return known;
+    }
+
     const transport = transportCodeOf(error);
     if (transport !== undefined) {
-      if (CLIENT_CREDENTIAL_ALERT.test(transport)) return DEFECT('client_authentication_failed');
-      if (LOCAL_PROTOCOL_VIOLATION_ALERT.test(transport)) return DEFECT('local_defect');
-      if (namesNoParty(transport)) return INDETERMINATE('tls_negotiation_failed');
+      const alert = alertNameOf(transport);
+      if (alert !== undefined) {
+        if (CLIENT_CREDENTIAL_ALERTS.has(alert)) return DEFECT('client_authentication_failed');
+        if (LOCAL_PROTOCOL_VIOLATION_ALERTS.has(alert)) return DEFECT('local_defect');
+        if (PARTY_NEUTRAL_ALERTS.has(alert)) return INDETERMINATE('tls_negotiation_failed');
+      }
       return UNAVAILABLE('provider_unreachable');
     }
 
-    const code = stringProperty(error, 'code');
-    if (code === undefined) return DEFECT('unrecognised_failure');
-    if (OAUTH_ERROR_ENVELOPES.has(code)) return classifyOAuthErrorResponse(error);
-
-    return CODE_TABLE.get(code) ?? DEFECT('unrecognised_failure');
+    return DEFECT('unrecognised_failure');
   } catch (thrown) {
     return DEFECT(thrown instanceof UnreadableValue ? 'unreadable_failure' : 'local_defect');
   }
