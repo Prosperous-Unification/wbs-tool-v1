@@ -445,7 +445,7 @@ in both slices rather than implied by position.
       path the repo's Elysia rule names — a throw here answers a client-side
       mistake with a 500. R5's "malformed trusted data throws" governs data
       already inside the trust boundary and does not reach an inbound body.
-- [ ] 4.3a No instant is converted **on the client**, which is the only layer
+- [x] 4.3a No instant is converted **on the client**, which is the only layer
       that can convert one — test: `gantt-panel.test.tsx` under a faked
       `TZ=Pacific/Auckland` at an instant whose UTC date is the day before,
       click the cell whose `data-axis-date` is `2026-08-19`, and assert the
@@ -486,6 +486,21 @@ in both slices rather than implied by position.
       command, a `gantt-panel.zoned.test.tsx` the base config excludes, and a
       `vitest.zoned.config.ts` that reuses the base's plugins and alias map so
       `vite-config.test.ts`'s set comparison keeps covering it.
+      **Done 2026-09-06** — `gantt-panel.zoned.test.tsx`, one case, on the
+      wiring above. The panel's plan fixtures moved to `gantt-fixtures.ts`
+      rather than being copied: a second test file cannot import from a
+      collected one without running its suites, and a copy would have left two
+      plan shapes drifting apart across two tiers. Both negatives watched on the
+      gate host, and the second is the sharper of the pair. With
+      `openComposerOn` routed through
+      `new Date(date + 'T00:00:00').toISOString().slice(0, 10)`: under
+      `TZ=Pacific/Auckland` the case fails on the request body alone —
+      `"date": "2026-08-19"` against `"date": "2026-08-18"` — which is the
+      fault, reaching the create rather than stopping at the axis; under
+      `TZ=UTC`, **the same faulted build passes**, 1 test green, while
+      `zoned-runner.zoned.test.ts` fails both its cases. So the zone on the
+      command line is load-bearing and the guard file proves it is still there.
+      Restored to 3 / 3 after.
 - [x] 4.4 The client-supplied `markerId`, its fallback and its collision — test:
       same file, three cases: a create carrying a `markerId` stores that exact id;
       a create omitting `markerId` is issued one by `Clock.newId()` (asserted
