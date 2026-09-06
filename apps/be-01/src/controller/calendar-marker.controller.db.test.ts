@@ -378,9 +378,19 @@ describe('the calendar-marker routes', () => {
    * ever would satisfy the first half and break the spec's `not_found` row; one
    * that blamed `markerId` always is the defect. Only both together pin it.
    *
-   * Negative: `refusalBody` reduced to `refused.reason !== 'forbidden' &&
-   * requestCarriedMarkerId` — `about` ignored, which is exactly the behaviour
-   * before this change. Recorded with the h2puni run below.
+   * Negative: `refusalBody`'s condition reduced to `requestCarriedMarkerId`
+   * alone — `about` ignored, which is exactly the behaviour before this change.
+   * Watched at **27 pass / 2 fail** on h2puni, 2026-09-06: this case, and
+   * "refuses all four mutations for a read-only actor, and writes nothing".
+   *
+   * That second failure is worth stating, because it is what makes an earlier
+   * line of this fix falsifiable. `refusalBody` used to carry an explicit
+   * `reason !== 'forbidden'` arm; it was struck as unfalsifiable, since
+   * `forbidden` is minted only by `gate()`, which tags it `about: 'project'`.
+   * The negative confirms the subsumption rather than assuming it: with
+   * `about` ignored, `forbidden` starts carrying `field: 'markerId'` and the
+   * read-only case fails. The arm was redundant with `about`, not with
+   * nothing.
    */
   it('blames markerId for an absent marker but not for an absent project', async () => {
     const absentProject = 'e0000000-0000-4000-8000-0000000000ac';
