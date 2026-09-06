@@ -84,7 +84,7 @@ export class SupervisorOneAttemptChannel implements SupervisorAttemptChannel {
   readonly #maximum: number;
   readonly #bindTimeoutMs: number;
   readonly #timer: SupervisorChannelTimer;
-  #buffer = EMPTY;
+  #buffer: Uint8Array = EMPTY;
   #receivedBytes = 0;
   #phase: ChannelPhase = 'start';
 

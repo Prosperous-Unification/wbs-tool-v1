@@ -48,6 +48,11 @@ describe('readSupervisorPeerCredentials', () => {
   });
 
   it('obtains the real peer pid, uid, and gid from a Bun Unix listener on Linux', async () => {
+    const uid = process.getuid?.();
+    const gid = process.getgid?.();
+    if (uid === undefined || gid === undefined) {
+      throw new Error('real SO_PEERCRED proof requires Linux process credentials');
+    }
     const path = `/tmp/wbs-peer-credentials-${String(process.pid)}-${randomUUID()}.sock`;
     let resolveCredentials: (value: ReturnType<typeof readSupervisorPeerCredentials>) => void;
     const credentials = new Promise<ReturnType<typeof readSupervisorPeerCredentials>>((resolve) => {
@@ -80,8 +85,8 @@ describe('readSupervisorPeerCredentials', () => {
     try {
       expect(await credentials).toEqual({
         pid: process.pid,
-        uid: process.getuid?.(),
-        gid: process.getgid?.(),
+        uid,
+        gid,
       });
     } finally {
       client.end();
