@@ -1070,6 +1070,49 @@ export interface CreatedProject {
   restricted: boolean;
 }
 
+export type ScheduleEngineView = 'fast' | 'optimized';
+export type ScheduleObjectiveView = 'pri' | 'time';
+
+export type OptimizationVariantView =
+  | { readonly state: 'ready' }
+  | { readonly state: 'pending' }
+  | { readonly state: 'retrying' }
+  | {
+      readonly state: 'failed';
+      readonly reason:
+        | 'timeout'
+        | 'invalid-output'
+        | 'no-solution'
+        | 'internal-error'
+        | 'oom'
+        | 'horizon-overflow'
+        | 'objective-overflow';
+    }
+  | { readonly state: 'corrupt'; readonly message: string }
+  | {
+      readonly state: 'plan-infeasible';
+      readonly items: readonly {
+        readonly ownerWorkItemId: string;
+        readonly boundWorkItemId: string;
+        readonly effectiveDeadlineOffset: number;
+      }[];
+    }
+  | { readonly state: 'idle' };
+
+/** The selected schedule and both same-input optimizer states from one plan read. */
+export interface PlanOptimizationView {
+  readonly enabled: boolean;
+  readonly engine: ScheduleEngineView;
+  readonly objective: ScheduleObjectiveView;
+  readonly inputHash: string;
+  readonly generation: number | null;
+  readonly contractVersion: string;
+  readonly budgetMs: number;
+  readonly displayed: 'fast' | ScheduleObjectiveView;
+  readonly variants: Readonly<Record<ScheduleObjectiveView, OptimizationVariantView>>;
+  readonly comparison?: { readonly deltaDays: number; readonly sameOrder: boolean };
+}
+
 /**
  * The project's work items, and the event sequence they were read at.
  *
@@ -1176,6 +1219,8 @@ export interface PlanRead {
    */
   undoable: boolean;
   redoable: boolean;
+  /** Present when this backend has the optional optimizer configured. */
+  optimization?: PlanOptimizationView;
 }
 
 /**
