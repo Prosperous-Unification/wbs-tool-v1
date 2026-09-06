@@ -1922,3 +1922,19 @@ describe('a tag decides no date, asserted rather than claimed', () => {
     expect(after?.slices).toEqual(before?.slices ?? []);
   });
 });
+
+describe('secondary team removal invalidates undo', () => {
+  it('refuses a rename undo after removal of a secondary team', async () => {
+    const strip = await root('Strip');
+    await directoryStore.addTeam({ id: 'aaa', name: 'First' }, wrote());
+    await directoryStore.addTeam({ id: 'zzz', name: 'Second' }, wrote());
+    await workItems.patch(strip, ownerId, { teamIds: ['aaa', 'zzz'] });
+    await workItems.patch(strip, ownerId, { name: 'Renamed' });
+    expect((await found(strip))?.serviceTeamId).toBe('aaa');
+    expect(await directoryStore.removeTeam('zzz', true, wrote())).toMatchObject({ ok: true });
+
+    expectStale(await undone());
+    expect((await found(strip))?.name).toBe('Renamed');
+    expect(await teamIdsOf(strip)).toEqual(['aaa']);
+  });
+});

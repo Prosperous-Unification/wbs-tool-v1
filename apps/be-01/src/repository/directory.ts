@@ -27,7 +27,7 @@ import type {
   WorkItemTypeWritten,
   WriteStamp,
 } from './index';
-import { bumpedWorkItem, bumpWorkItems } from './revision';
+import { bumpWorkItems } from './revision';
 import {
   assignment,
   externalSystem,
@@ -1091,7 +1091,13 @@ export class DirectoryRepository implements DirectoryStore {
   }
 
   /**
-   * The same for a team, and it nulls every label itself.
+   * Removes a team and revises every work item losing its join membership once.
+   * The legacy singleton is cleared separately, without a second revision bump.
+   *
+   * Proof: restoring legacy-only revision stamping made `stamps each affected
+   * row once when removing team zzz` fail (revision 1, expected 2; updatedAt 1,
+   * expected 42), and `refuses a rename undo after removal of a secondary team`
+   * fail with `expected a refusal, got: rename “Renamed”`.
    *
    * `work_item.service_team_id` carries a foreign key with no `ON DELETE`
    * action — measured 2026-08-14, against what this comment claimed — so the
@@ -1134,8 +1140,13 @@ export class DirectoryRepository implements DirectoryStore {
           usage: usageRowsIn(tx, projectsOf(labelled), members, teamId),
         };
       }
+      bumpWorkItems(
+        tx,
+        labelled.map((each) => each.id),
+        stamp,
+      );
       tx.update(workItem)
-        .set({ serviceTeamId: null, revision: bumpedWorkItem, ...auditOnUpdate(stamp) })
+        .set({ serviceTeamId: null, ...auditOnUpdate(stamp) })
         .where(eq(workItem.serviceTeamId, teamId))
         .run();
       tx.delete(personTeam).where(eq(personTeam.serviceTeamId, teamId)).run();
