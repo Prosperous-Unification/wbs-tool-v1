@@ -163,9 +163,24 @@ def build_model(request: Mapping[str, Any]) -> BuiltModel:
         # Clause 6. `deadlineUnits` is the effective deadline, already folded
         # over the tree and already converted to (D + 1) × quantum, so it is a
         # bound on the finish and not on the start.
+        #
+        # `start + max(duration, 1)`, NOT `end`, and the two differ on exactly
+        # one input: a zero-duration milestone. `end == start` there, so
+        # `end <= deadline` admits a milestone standing exactly ON the exclusive
+        # `(D + 1) × quantum` boundary — which is the first instant of day
+        # `D + 1`, a day past the deadline. The domain predicate
+        # (`libs/domain/src/on-time.ts`, via `lastWorkdayOf`) reads that
+        # milestone as occupying day `D + 1` and late, and Bun re-validates with
+        # that reading. The two forms therefore disagreed, and the disagreement
+        # surfaced the wrong way round: the solver called the plan feasible, Bun
+        # refused the response as `deadline-violated`, and a deterministic
+        # `plan-infeasible` verdict was reported as `invalid-output` and fell
+        # back. `max(duration, 1)` gives the milestone the one unit of occupancy
+        # the domain already credits it with, and leaves every non-zero duration
+        # exactly where `end <= deadline` had it.
         deadline = entry["deadlineUnits"]
         if deadline is not None:
-            model.add(end <= int(deadline))
+            model.add(start + max(duration, 1) <= int(deadline))
 
         # Occupancy, for clauses 4 and 5 only. See the module docstring: a
         # zero-duration slice occupies nothing and gets no interval at all.
