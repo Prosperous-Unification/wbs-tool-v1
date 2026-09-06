@@ -146,9 +146,18 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       `N = lastWorkdayOf(start, finish) − deadlineOffset`, `N >= 1`, computed
       from 4.2's single predicate so the label and the lateness verdict cannot
       disagree. The copy says **workdays**.
-- [ ] 5.3 Fast still never backtracks and never moves work earlier than its
+- [x] 5.3 Fast still never backtracks and never moves work earlier than its
       floor: the existing invariant tests run unchanged against a corpus that now
-      carries deadlines.
+      carries deadlines. `deadline` is the **sixth generated fact** in
+      `schedule-resource-corpus.test.ts`, drawn last so no earlier draw moved,
+      and all three invariants — nobody in two places, no pool oversubscribed,
+      no manual floor undercut — pass unedited over a thousand deadlined plans.
+      The strip-differential moves 446 of the 1,000 seeds, so the fact is read
+      rather than merely written down. **Priority's own count fell 461 → 130 in
+      the same measurement**, which is the ordering change visible in a number:
+      deadlines are asked first, so on most contended plans the priority
+      comparison is never reached. Recorded in the file, with the stale
+      "tightest is dependency-reach" note amended to priority.
 - [ ] 5.4 A project start moved past a stored deadline resolves
       `before-project-start` **at read time** and is reported late by the whole
       span — the stored value is not rewritten and the request is not rejected.
