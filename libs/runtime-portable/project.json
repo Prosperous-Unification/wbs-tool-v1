@@ -1,0 +1,35 @@
+{
+  "name": "runtime-portable",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/runtime-portable/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "ring:adapter", "runtime:isomorphic", "product:wbs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/runtime-portable/src"
+      }
+    },
+    "lint:fast": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/runtime-portable/src --cache --cache-location .nx/eslintcache-runtime-portable"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/runtime-portable"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/runtime-portable/tsconfig.json"
+      }
+    }
+  }
+}

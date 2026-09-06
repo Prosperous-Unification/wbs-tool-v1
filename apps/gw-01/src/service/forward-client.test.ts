@@ -1,3 +1,4 @@
+import { systemTimers } from '@wbs/runtime-portable';
 import { describe, expect, it } from 'bun:test';
 
 import { ForwardClient } from './forward-client';
@@ -6,6 +7,9 @@ describe('ForwardClient', () => {
   it('posts to be-01 /internal/forward with auth + identity headers', async () => {
     const client = new ForwardClient({
       beUrl: 'http://be',
+      timers: systemTimers,
+      attemptMs: 5000,
+      overallMs: 15000,
       secret: 's',
       fetchImpl: (url, init) => {
         expect(url).toBe('http://be/internal/forward');
@@ -26,6 +30,9 @@ describe('ForwardClient', () => {
   it('throws when backend returns non-2xx', async () => {
     const client = new ForwardClient({
       beUrl: 'http://be',
+      timers: systemTimers,
+      attemptMs: 5000,
+      overallMs: 15000,
       secret: 's',
       fetchImpl: () => Promise.resolve(new Response('boom', { status: 502 })),
     });

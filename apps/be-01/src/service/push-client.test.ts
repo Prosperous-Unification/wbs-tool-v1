@@ -1,6 +1,6 @@
+import { systemTimers } from '@wbs/runtime-portable';
 import { describe, expect, it } from 'bun:test';
 
-import { systemTimers } from '../runtime/deadline';
 import { PushClient, PushFailed } from './push-client';
 
 describe('PushClient', () => {

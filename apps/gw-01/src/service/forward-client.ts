@@ -1,40 +1,33 @@
-/**
- * The slice of `fetch` gw-01 calls, so a test can hand it a stub.
- *
- * Narrower than `typeof fetch` on purpose: nothing in gw-01 calls
- * `fetch.preconnect`, and demanding it made every stub in gw-01's own tests a
- * type error — invisible, because no `typecheck` target compiled a test file
- * here until 2026-09-02. `globalThis.fetch` still satisfies it.
- */
-export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+import { InternalForwardResponse } from '@wbs/contracts';
+import { parseOrThrow } from '@wbs/validation';
 
-export interface ForwardClientOptions {
-  beUrl: string;
-  secret: string;
-  fetchImpl?: FetchLike;
-}
+import {
+  type BackendRequestOptions,
+  requestBackend,
+  type RequestIdentity,
+} from './backend-request';
 
+export type { FetchLike } from './backend-request';
+export type ForwardClientOptions = BackendRequestOptions;
+
+/** Forwards once with transport cancellation held through the trusted acknowledgement. */
 export class ForwardClient {
-  private readonly fetch: FetchLike;
-  constructor(private readonly opts: ForwardClientOptions) {
-    this.fetch = opts.fetchImpl ?? globalThis.fetch;
-  }
+  constructor(private readonly opts: ForwardClientOptions) {}
 
   async forward(
     message: unknown,
-    ctx: { clientId: string; connectionId: string; traceId: string },
-  ): Promise<{ ack: boolean; push_responses?: unknown[] }> {
-    const res = await this.fetch(`${this.opts.beUrl}/internal/forward`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-internal-auth': this.opts.secret,
-        'x-client-id': ctx.clientId,
-        'x-connection-id': ctx.connectionId,
-      },
-      body: JSON.stringify({ message, trace_id: ctx.traceId }),
-    });
-    if (!res.ok) throw new Error(`forward failed ${String(res.status)}`);
-    return (await res.json()) as { ack: boolean };
+    ctx: RequestIdentity,
+    signal?: AbortSignal,
+  ): Promise<InternalForwardResponse> {
+    // Proof: bypassing the parser returned {ack: "wrong"} instead of Error in
+    // request-deadline.test.ts for the malformed trusted response.
+    return requestBackend(
+      this.opts,
+      'forward',
+      { message, trace_id: ctx.traceId },
+      ctx,
+      (body) => parseOrThrow(InternalForwardResponse, body),
+      signal,
+    );
   }
 }

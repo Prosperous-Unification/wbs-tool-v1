@@ -1,7 +1,6 @@
-import { InternalResumeResponse } from '@wbs/contracts';
 import { createLogger } from '@wbs/observability';
 import { observabilityPlugin } from '@wbs/observability/server';
-import { parseOrThrow } from '@wbs/validation';
+import { systemTimers, type Timers } from '@wbs/runtime-portable';
 import { Elysia } from 'elysia';
 
 import { internalController, type SocketLike } from './controller/internal.controller';
@@ -10,6 +9,7 @@ import { type FetchLike, ForwardClient } from './service/forward-client';
 import { GatewayMetrics } from './service/gateway-metrics';
 import { JwtVerifier, type TokenVerifier } from './service/jwt-auth';
 import { Presence } from './service/presence';
+import { ResumeClient } from './service/resume-client';
 import { socketWriter } from './service/socket-writer';
 import { SubscriptionMap } from './service/subscription-map';
 import { decodeWireFrame, gatewayAdapter } from './ws-wire';
@@ -47,6 +47,8 @@ function cookieValue(raw: string | null, name: string): string | null {
  */
 interface WsConnection {
   connectionId: string;
+  /** Aborted synchronously on close, before waiting for authentication/presence. */
+  cancellation: AbortController;
   socket: SocketLike;
   /**
    * The rest of `open` — verify the token, join presence — as something the
@@ -74,6 +76,8 @@ export interface AppOptions {
   previousJwtKey?: string;
   version?: string;
   fetchImpl?: FetchLike;
+  /** Internal request policy; health retains its separate probe budget. */
+  requests?: { timers: Timers; attemptMs: number; overallMs: number };
   /**
    * The browser origin allowed to open an OIDC cookie-authenticated socket.
    *
@@ -105,12 +109,15 @@ export function buildApp(opts: AppOptions) {
       current: new TextEncoder().encode(opts.jwtKey),
       previous: opts.previousJwtKey ? new TextEncoder().encode(opts.previousJwtKey) : undefined,
     });
-  const forwarder = new ForwardClient({
+  const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+  const requestOptions = {
     beUrl: opts.beUrl,
     secret: opts.internalAuthSecret,
-    fetchImpl: opts.fetchImpl,
-  });
-  const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+    fetchImpl,
+    ...(opts.requests ?? { timers: systemTimers, attemptMs: 5000, overallMs: 15000 }),
+  };
+  const forwarder = new ForwardClient(requestOptions);
+  const resumer = new ResumeClient(requestOptions);
 
   return (
     new Elysia({ adapter: gatewayAdapter })
@@ -200,6 +207,7 @@ export function buildApp(opts: AppOptions) {
           metrics.connectionOpened();
           const conn = ws.data as unknown as WsConnection;
           conn.connectionId = crypto.randomUUID();
+          conn.cancellation = new AbortController();
           // One wrapper per connection, kept for its whole life. It used to be
           // allocated per inbound message, so the object `subscribe` stored was
           // one no later code could produce again — leaving every disconnected
@@ -260,33 +268,31 @@ export function buildApp(opts: AppOptions) {
             // Proof: parsing string values again makes the real-socket malformed-frame test
             // receive two pongs for a quoted JSON string containing a ping object.
             frame,
+            signal: conn.cancellation.signal,
             socket,
             subs,
             connectionId: conn.connectionId,
             clientId,
             forward: (m) =>
-              forwarder.forward(m, {
-                clientId,
-                connectionId: conn.connectionId,
-                traceId: crypto.randomUUID(),
-              }),
-            resume: async (points) => {
-              const res = await fetchImpl(`${opts.beUrl}/internal/resume`, {
-                method: 'POST',
-                headers: {
-                  'content-type': 'application/json',
-                  'x-internal-auth': opts.internalAuthSecret,
-                  'x-client-id': clientId,
-                  'x-connection-id': conn.connectionId,
+              forwarder.forward(
+                m,
+                {
+                  clientId,
+                  connectionId: conn.connectionId,
+                  traceId: crypto.randomUUID(),
                 },
-                body: JSON.stringify({ resume_points: points, trace_id: crypto.randomUUID() }),
-              });
-              // Parsed against the shared contract rather than cast. A be-01 that
-              // answered with the old count-only shape would otherwise reach the
-              // socket as a replay of `undefined` events and throw mid-frame,
-              // after the client had already been told to expect them.
-              return parseOrThrow(InternalResumeResponse, await res.json());
-            },
+                conn.cancellation.signal,
+              ),
+            resume: (points) =>
+              resumer.resume(
+                points,
+                {
+                  clientId,
+                  connectionId: conn.connectionId,
+                  traceId: crypto.randomUUID(),
+                },
+                conn.cancellation.signal,
+              ),
             onInbound: () => {
               metrics.inbound();
             },
@@ -319,6 +325,9 @@ export function buildApp(opts: AppOptions) {
         async close(ws) {
           metrics.connectionClosed();
           const conn = ws.data as unknown as WsConnection;
+          // Proof: omitting close abort made four real socket tests time out waiting
+          // for cancellation within250ms, before the independent1000ms attempt expiry.
+          conn.cancellation.abort(new Error('connection closed'));
           // A close that overtook the join deleted nothing and let the join
           // that followed it re-add the connection — a socket nobody holds,
           // left in whatever roster the `subscribe` behind it had put it in.

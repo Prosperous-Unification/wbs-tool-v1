@@ -2,13 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { systemTimers } from '@wbs/runtime-portable';
+import { DeadlineClock } from '@wbs/runtime-portable/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
 import { DrizzleEventLogRepo } from '../repository/event-log';
 import { runMigrations } from '../repository/migrate';
-import { systemTimers } from '../runtime/deadline';
-import { DeadlineClock } from '../testing/deadline-fixture';
 import { subscriptionFor } from './broadcast';
 import { GatewayBroadcaster } from './gateway-broadcaster';
 import { PushClient } from './push-client';

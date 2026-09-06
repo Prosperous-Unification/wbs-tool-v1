@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { systemTimers } from '@wbs/runtime-portable';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type {
@@ -26,7 +27,6 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
-import { systemTimers } from '../runtime/deadline';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { directoryWith, personAdded } from '../testing/directory-fixture';

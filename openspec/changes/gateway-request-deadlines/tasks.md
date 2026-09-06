@@ -19,10 +19,10 @@
 
 ## 3. Gateway — only after R7 handoff
 
-- [ ] 3.1 Finalize shared runtime-portable placement if staged; TDD ForwardClient and extracted resume client with identical attempt/overall/body/caller cancellation capability. Preserve one forward attempt unless explicitly justified idempotent policy. Tests hung headers/body and exact overall termination on both production clients; negative omitted signal/body lifetime and no later attempts.
-- [ ] 3.2 TDD resume response status validation:503 carrying valid success-shaped JSON maps unavailable, never successful replay. Negative remove res.ok check. Malformed trusted body must stay an explicit error, not become a default empty success.
-- [ ] 3.3 Wire gateway construction and connection-owned cancellation after R7 lifecycle review. Real-socket tests send forward/resume through buildApp with stalled transport: live connection sees existing unavailable/refusal+ack then can ping; closed connection aborts pending request with no late send/failure metric. Negative omit close abort or late-send prevention; inspect absence at the relevant instant. Preserve R4 ingress and R7 join/leave regressions.
-- [ ] 3.4 Gateway scoped verification and review: clients/controller/ingress/presence/health tests, lint/format and parent source+spec typecheck. Verify health's existing independent timeout did not change. No broad gates while other owners edit.
+- [x] 3.1 Finalize shared runtime-portable placement if staged; TDD ForwardClient and extracted resume client with identical attempt/overall/body/caller cancellation capability. Preserve one forward attempt unless explicitly justified idempotent policy. Tests hung headers/body and exact overall termination on both production clients; negative omitted signal/body lifetime and no later attempts.
+- [x] 3.2 TDD resume response status validation:503 carrying valid success-shaped JSON maps unavailable, never successful replay. Negative remove res.ok check. Malformed trusted body must stay an explicit error, not become a default empty success.
+- [x] 3.3 Wire gateway construction and connection-owned cancellation after R7 lifecycle review. Real-socket tests send forward/resume through buildApp with stalled transport: live connection sees existing unavailable/refusal+ack then can ping; closed connection aborts pending request with no late send/failure metric. Negative omit close abort or late-send prevention; inspect absence at the relevant instant. Preserve R4 ingress and R7 join/leave regressions.
+- [x] 3.4 Gateway scoped verification and review: clients/controller/ingress/presence/health tests, lint/format and parent source+spec typecheck. Verify health's existing independent timeout did not change. No broad gates while other owners edit.
 
 ## 4. Completion
 

@@ -12,7 +12,7 @@ No background delivery worker, fire-and-forget task per edit, retry of arbitrary
 
 ## Constraints
 
-Approved authority: docs/2026-09-02-refactoring-plan.md §67 R9 and ports plan §3.4. One owner coordinates runtime injection with Wave2. Start with backend-only ownership after the frozen gate releases; gateway lifecycle wiring waits for R7 handoff. Runtime capabilities stay outside domain/contracts. Preserve existing push status policy and retry-count semantics, journal/commit ordering, and post-lock publication. Unknown failures propagate rather than become transient defaults. Prove cancellation at both deterministic transport and real streaming-fetch boundaries; wrapper settlement alone is insufficient. No tests or source edits occur while preparing this ignored draft.
+Approved authority: docs/2026-09-02-refactoring-plan.md §67 R9 and ports plan §3.4. One owner coordinates runtime injection with Wave2. Start with backend-only ownership after the frozen gate releases; gateway lifecycle wiring waits for R7 handoff. Runtime capabilities stay outside domain/contracts. Preserve existing push status policy and retry-count semantics, journal/commit ordering, and post-lock publication. Unknown failures propagate rather than become transient defaults. Prove cancellation at both deterministic transport and real streaming-fetch boundaries; wrapper settlement alone is insufficient.
 
 ## Capabilities
 
@@ -22,7 +22,7 @@ Approved authority: docs/2026-09-02-refactoring-plan.md §67 R9 and ports plan �
 
 ### Modified Capabilities
 
-None identified; reconcile with existing specs at promotion.
+None.
 
 ## Domain Terms
 

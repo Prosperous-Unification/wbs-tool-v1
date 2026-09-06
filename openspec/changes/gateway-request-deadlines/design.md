@@ -1,6 +1,6 @@
 ## Context
 
-This is ignored preparation from the settled §67 R9 intent and ../r9-preflight.md, not implementation. Push retries selected HTTP statuses but has no fetch signal, body deadline or cancellable backoff; network rejection escapes. Forward makes one unbounded attempt. Resume transport is inline in gateway app.ts, lacks cancellation and fails to inspect res.ok. Broadcaster already records under the write lock, releases it before awaiting delivery, and reports delivery failure without refusing the committed edit.
+The approved §67 R9 addresses the former unbounded request paths: push retried selected HTTP statuses without fetch/body deadlines; forward made one unbounded attempt; inline resume omitted cancellation and the HTTP status check. Broadcaster already records under the write lock, releases it before awaiting delivery, and reports delivery failure without refusing the committed edit.
 
 ## Goals / Non-Goals
 
@@ -46,10 +46,18 @@ Connection composition owns cancellation for its outstanding forward/resume call
 
 A deterministic fake can falsely prove cancellation if it only rejects its own promise on a timer; assert signal observation/body termination, then reproduce with actual Bun fetch and a held streaming HTTP response. A real server test may require the parent's listener permission path; report inability explicitly rather than substituting a fake claim. Failed schema/body parsing is distinct from a body stalled awaiting bytes. Do not remove one because the other test passed.
 
-An overall deadline can make a configured retry count unreachable; this is expected and must not extend the deadline to honor every retry. Preserve deterministic timeout ordering at exact expiry. Collect proof output first, then write adjacent Proof comments. No proofs or performance measurements are claimed by this draft.
+An overall deadline can make a configured retry count unreachable; this is expected and must not extend the deadline to honor every retry. Preserve deterministic timeout ordering at exact expiry. Collect proof output first, then write adjacent Proof comments. Observed proof outputs and restored verification live in verify.md.
 
 ## Backend implementation checkpoint decisions
 
-Initial production policy is attempt5000ms, overall15000ms, maxRetries5, passed explicitly by services.ts with fetch/systemTimers. These are bounded initial defaults, not measured latency optima. The portable timer/deadline helper is staged at apps/be-01/src/runtime/deadline.ts; no new project or root config exists in this backend slice. Gateway reuse must move it once to runtime-portable after R7 handoff. Existing test-only sleep injection remains cancellably awaited for compatibility; production uses scheduled cancellable delay.
+Initial production policy is attempt5000ms, overall15000ms, maxRetries5, passed explicitly by services.ts with fetch/systemTimers. These are bounded initial defaults, not measured latency optima. The backend checkpoint staged the helper at apps/be-01/src/runtime/deadline.ts. After R7 handoff it moved once to libs/runtime-portable; backend and gateway import that package independently. Existing test-only sleep injection remains cancellably awaited for compatibility; production uses scheduled cancellable delay.
 
 Real Bun1.3.14 loopback streaming tests observed server-side request/stream cancellation for stalled headers and body. Omitting fetch signal left outer deadline settlement intact and failed both tests on expected true/received false for actual cancellation. Sandbox ephemeral listeners were denied; the focused real-server run used escalation. Initial invalid port fetch probe returned Error code FailedToOpenSocket; explicit socket errno variants remain the narrowly enumerated transport conditions, not blanket TypeError recovery.
+
+## Gateway implementation decisions
+
+`requestBackend` owns the one-attempt HTTP adapter shared by ForwardClient and ResumeClient. It validates positive finite budgets, runs fetch/status/body/schema work within min(attemptMs, overallMs), and propagates unknown failures unchanged. Neither operation retries. buildApp explicitly supplies real fetch/systemTimers and attempt5000ms/overall15000ms, with a typed requests seam for deterministic policy tests. Health retains its existing independent2000ms AbortSignal.timeout.
+
+Every connection creates its AbortController synchronously in open. Close aborts it before awaiting joined; join/leave/presence ownership remains with R7. The controller checks that lifetime after failed forward/resume and successful resume before any late reply or failure metric. Existing live-wire unavailable/denied/ack behavior stays intact. No extra early-dispatch guard was retained: the held-verifier probe could not establish the proposed real-socket dispatch window, so no speculative safety proof is attached to it.
+
+The runtime-portable Nx library has ring:adapter, runtime:isomorphic and product:wbs tags, source/spec typecheck, lint and test targets. Its exported timer/deadline APIs use standard runtime primitives, and its testing subpath owns the shared deterministic clock. No package dependencies changed.

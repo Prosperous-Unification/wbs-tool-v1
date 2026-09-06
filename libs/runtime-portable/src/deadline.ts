@@ -4,7 +4,7 @@ export interface Timers {
   schedule(ms: number, fire: () => void): () => void;
 }
 
-/** Portable adapter staged here until Wave2 moves runtime adapters to runtime-portable. */
+/** Monotonic timers over standard runtime APIs; composition supplies this adapter. */
 export const systemTimers: Timers = {
   nowMs: () => performance.now(),
   schedule: (ms, fire) => {

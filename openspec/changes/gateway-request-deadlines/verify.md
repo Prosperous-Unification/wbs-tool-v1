@@ -59,3 +59,42 @@ Scoped ESLint initially rejected a closure-assigned scalar as always falsy (Type
 ## Backend independent re-review
 
 Approved after the permanent-status correction; no remaining backend findings. Reviewer verified the terminal decision precedes diagnostic reading and checked the five-retry, body-abort, terminal-settlement and timer-cleanup oracle against the recorded guard-removal failure. No additional tests were run by the reviewer. Gateway work and parent integration gates remain pending.
+
+## Gateway continuation after R7 handoff
+
+Backend review correction was approved and committed as ff8b0bfc; gateway continuation starts from that checkpoint with R7 already cherry-picked as8d848903. Shared runtime code moved once to libs/runtime-portable (ring:adapter/runtime:isomorphic/product:wbs), with a minimal Nx project and root aliases. Shared deterministic clock moved to its testing subpath; backend/gateway never import one another. No root package/lock changes.
+
+ForwardClient and extracted ResumeClient use requestBackend with required fetch/timers/attempt/overall inputs. Both retain one attempt. Production buildApp supplies5000ms attempt/15000ms overall explicitly; the earlier deadline bounds the one attempt through status/body/schema processing. Health retains its separate2000ms policy. Connection-owned abort occurs before close waits for joined; late controller errors/replay do not send frames or increment failure metrics. Existing live forward-unavailable and resume-denied/ack mappings remain.
+
+### Observed gateway fault proofs
+
+| Guard                            | Named fault                                                   | Observed failure                                                                                                                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active transport signal          | omit fetch signal                                             | Four deterministic header/body cases expected cancelled=true, receivedfalse. Four real live-socket deadline cases timed out waiting for backend request/stream cancellation even though wire timeout replies arrived. |
+| Overall budget                   | use attemptMs alone                                           | Four deterministic cases cancellationfalse at literal250ms.                                                                                                                                                           |
+| Attempt budget                   | use overallMs alone                                           | Forward/resume settlementfalse at literal100ms.                                                                                                                                                                       |
+| Budget validation                | remove positive finite check                                  | Both clients issued one request rather than zero for invalid input.                                                                                                                                                   |
+| Status before parsing            | remove response.ok guard                                      | Client tests accepted success-shaped503 bodies instead ofError. Real socket emitted replay data and resume_ack count1 instead of resume_denied unavailable and empty ack.                                             |
+| Trusted response schema          | bypass forward/resume parser                                  | Both malformed-response tests received {ack:"wrong"} rather thanError.                                                                                                                                                |
+| Connection abort                 | omit close abort                                              | Initially forward failure metric1 vs0 and resume dropped frames2 vs0. Strengthened cancellation window: all four cases time out awaiting cancellation within250ms, before independent1000ms attempt expiry.           |
+| Parent signal propagation        | omit parent passed to deadline helper                         | All four close cases time out awaiting cancellation within250ms. This explicit window prevents the later attempt timeout hiding a missing connection cancellation link.                                               |
+| Late failure/success suppression | remove controller lifetime checks                             | Forward error, resume_denied/ack, and successful replay/ack emitted after close in the three controller negatives.                                                                                                    |
+| New library source typecheck     | add const deliberatelyWrong:number='not a number' to index.ts | runtime-portable:typecheck failed TS2322 at index.ts10. Source restored.                                                                                                                                              |
+
+All faults were observed and restored before the latest checks. No guessed Proof comments. The proposed extra pre-dispatch guard was removed: a held-verifier real-socket probe stayed CONNECTING at verifies2 and never established its claimed queued-message window. Existing R7 lifecycle guards remain, and their whole gateway suite passes.
+
+### Fresh restored commands
+
+- `bunx nx test gw-01 --skip-nx-cache`:121pass,0fail,3426assertions across15files (3.80s), including real headers/body timeout and close, status503 replay refusal, health, ingress, JWT and R7 presence/join/leave regressions. Log:/private/tmp/r9-gateway-final-tests.log.
+- The seven-file backend push/transport/deadline/broadcaster/durability/plan-command/step command recorded above:70pass,0fail,209assertions after the shared helper move. Log:/private/tmp/r9-backend-move-restored.log.
+- `bunx nx test runtime-portable --skip-nx-cache`:2pass,0fail,6assertions.
+- `bunx nx run-many -t typecheck,lint --projects=gw-01,runtime-portable --skip-nx-cache`:all four targets passed after final fault restoration; source and spec projects compile. Log:/private/tmp/r9-gateway-final-checks.log.
+- `bunx nx run-many -t typecheck,lint --projects=be-01 --skip-nx-cache`:both passed after helper move. Log:/private/tmp/r9-backend-move-checks.log.
+
+An earlier root `bun test apps/gw-01/src libs/runtime-portable/src` directory-filter command also matched emitted dist JS, producing13 module-resolution errors; it additionally saw one initial ingress socket-open failure. This was not counted as passing evidence. The configured Nx gateway target avoids dist collection and passed the full suite twice (120 before the added503 case,121 after). Real listeners required authorized escalation; no external service was used.
+
+Independent gateway review approved the scoped implementation with no findings (task3.4). Full workspace/browser gates and final integration remain parent-owned and pending (task4.1). No performance-optimal timeout claim, background worker, or task-completion/archive claim is made from this scoped verification.
+
+## Gateway independent review
+
+Parent reported independent R9 gateway review approved with no findings. Task3.4 is complete; task4.1 remains pending for parent integration and frozen full gates. This worker commit records the reviewed implementation and scoped evidence, without claiming a full workspace or browser gate.

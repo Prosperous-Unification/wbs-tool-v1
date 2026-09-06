@@ -1,4 +1,5 @@
 import type { Logger } from '@wbs/observability';
+import { systemTimers } from '@wbs/runtime-portable';
 
 import { PLAN_EVENT_RETENTION_DAYS } from './repository';
 import { ActualRepository } from './repository/actual';
@@ -18,7 +19,6 @@ import { StepMeasureRepository } from './repository/step-measure';
 import { StepProgressRepository } from './repository/step-progress';
 import { UserRepository } from './repository/user';
 import { SubtreeRepository, WorkItemRepository } from './repository/work-item';
-import { systemTimers } from './runtime/deadline';
 import { AuthService, type AuthServiceOptions } from './service/auth.service';
 import { DeferringBroadcaster } from './service/broadcast';
 import { CalendarMarkerService } from './service/calendar-marker.service';

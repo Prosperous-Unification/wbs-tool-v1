@@ -1,13 +1,12 @@
 import { type InternalPushRequest, InternalPushResponse } from '@wbs/contracts';
-import { parseOrThrow } from '@wbs/validation';
-
 import {
   DeadlineExceeded,
   delay,
   type Timers,
   untilAborted,
   withinDeadline,
-} from '../runtime/deadline';
+} from '@wbs/runtime-portable';
+import { parseOrThrow } from '@wbs/validation';
 
 /**
  * The slice of `fetch` this client calls, so a test can hand it a stub.

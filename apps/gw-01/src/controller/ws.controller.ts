@@ -22,6 +22,8 @@ export interface WsSocket {
 export interface HandleWsMessageArgs {
   /** The wire adapter has already decoded the JSON value; strings are values, never JSON to parse again. */
   frame: unknown;
+  /** Connection lifetime: cancellation suppresses late replies and failure metrics. */
+  signal?: AbortSignal;
   socket: WsSocket;
   subs: SubscriptionMap<WsSocket>;
   connectionId: string;
@@ -91,6 +93,9 @@ export async function handleWsMessage(args: HandleWsMessageArgs): Promise<void> 
     try {
       await args.forward(inbound.frame);
     } catch {
+      // Proof: removing this guard emitted failure frames after close in
+      // ws-cancellation.test.ts.
+      if (args.signal?.aborted === true) return;
       args.onBackendUnavailable?.();
       args.socket.send(wsError('backend_unavailable', { retry_after: 5 }));
     }
@@ -117,6 +122,9 @@ export async function handleWsMessage(args: HandleWsMessageArgs): Promise<void> 
     try {
       result = await args.resume(points);
     } catch {
+      // Proof: removing this guard emitted failure frames after close in
+      // ws-cancellation.test.ts.
+      if (args.signal?.aborted === true) return;
       // be-01 unreachable, a non-2xx, or a body that does not match the
       // contract — which is also what a gateway from after a partial rollout
       // sees from a backend from before it. The client is told, rather than
@@ -128,6 +136,9 @@ export async function handleWsMessage(args: HandleWsMessageArgs): Promise<void> 
       args.socket.send(wsResumeAck({}));
       return;
     }
+    // Proof: removing this guard emitted replay data and resume_ack after close
+    // in the late-success case of ws-cancellation.test.ts.
+    if (args.signal?.aborted === true) return;
     const replayed: Record<string, number> = {};
     for (const [subscription, outcome] of Object.entries(result)) {
       if (outcome.status === 'denied') {
