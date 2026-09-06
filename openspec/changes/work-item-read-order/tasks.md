@@ -73,6 +73,6 @@ Ordered TDD slices. Only `- [ ]` checkboxes are tracked by the apply phase.
       `bunx @fission-ai/openspec@1.3.0 validate --all --json` for this change
       directory.
       **Green at `0a15ebc3`, `dirty=0`, on h2puni:** `run-many -t test lint
-      typecheck build` — `Successfully ran targets test, lint, typecheck, build
-      for 22 projects`, rc 0; `nx format:check --all` rc 0; `openspec validate
-      --all --json` 38 / 38, 0 failed.
+    typecheck build` — `Successfully ran targets test, lint, typecheck, build
+    for 22 projects`, rc 0; `nx format:check --all` rc 0; `openspec validate
+    --all --json` 38 / 38, 0 failed.
