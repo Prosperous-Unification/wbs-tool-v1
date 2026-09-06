@@ -91,6 +91,29 @@ The config records a full `devSourceSha`; `tool-devsync` also diffs the solver c
 paths between that commit and the requested commit, so a changed solver package cannot silently
 run under an older image.
 
+### One-time TASK-292 outage bootstrap
+
+The fix for the 2026-09-06 missing-config outage cannot deploy itself: the poller must run the
+old checkout's `sync.ts`, and that copy throws before it can reset to the fixed commit. After the
+fix is on `origin/main`, use the following one-time recovery on h2puni. The guard must produce no
+output; if it does, stop and use the normal deploy path after satisfying the named prerequisite.
+This bypass is safe only for the source-only range that TASK-292 measured.
+
+```sh
+git -C /home/puni1/wbs-dev/src fetch --quiet origin main
+git -C /home/puni1/wbs-dev/src diff --exit-code HEAD origin/main -- \
+  libs/solver-py apps/be-01/Dockerfile bun.lock package.json nx.json \
+  apps/be-01/drizzle 'apps/*/project.json' 'apps/*/tsconfig.json' \
+  'libs/*/project.json' apps/fe-01/vite.config.ts tsconfig.base.json \
+  deploy/dev-src
+git -C /home/puni1/wbs-dev/src reset --hard origin/main
+```
+
+Then wait for the source watchers and require the next poll tick to report no work, the checkout
+HEAD to equal `origin/main`, and `/health` to report that same commit. Never reuse this reset as a
+general deploy command; it deliberately bypasses `tool-devsync` after proving that none of its
+solver, restart, or recreate paths moved.
+
 Dev has **no edge password**. It was removed 2026-08-06: it was a second login on top of the
 app's own, and a browser that had cached a wrong credential for the realm could not be talked
 out of it — which cost a real debugging session. The gated config is backed up beside
