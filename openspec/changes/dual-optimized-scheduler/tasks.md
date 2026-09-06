@@ -3686,7 +3686,7 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       add and delete the only work item and assert the same, since that
       transition is what would otherwise leave a stale row. Remove the
       short-circuit and the spawner assertion must fail.
-- [ ] 6.10 Generation allocation is one transaction against the
+- [x] 6.10 Generation allocation is one transaction against the
       `optimization_generation` row for `(projectId, contractVersion)`, and
       there is exactly one allocation algorithm in this plan — 4.1's (Sol r7
       Critical 4). Equal `inputHash` reuses the generation; a different or NULL
