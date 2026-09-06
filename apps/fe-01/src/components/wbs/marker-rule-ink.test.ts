@@ -88,6 +88,8 @@ describe('one compact raster comparison', () => {
     after.data[lastPixel + 3] = 128;
 
     expect(pixelDifference([blankStrip(3, 2), after])).toEqual({
+      width: 3,
+      height: 2,
       differingColumns: [2],
       greatestChannelDelta: 127,
       changedPixels: 1,

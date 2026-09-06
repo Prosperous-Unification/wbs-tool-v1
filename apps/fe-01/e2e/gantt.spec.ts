@@ -3742,6 +3742,34 @@ test.describe('the marker rule, measured in the columns it paints', () => {
     }
   }
 
+  /** TASK-295 measurement-only legacy path; removed after its h2puni sample. */
+  async function legacyDifferenceOf(
+    page: Page,
+    before: string,
+    after: string,
+  ): Promise<PixelDifference> {
+    const pixels = await page.evaluate(
+      async ([first, second]): Promise<readonly [ClipPixels, ClipPixels]> => {
+        const read = async (encoded: string): Promise<ClipPixels> => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${encoded}`;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx === null) throw new Error('this browser gave no 2d context');
+          ctx.drawImage(image, 0, 0);
+          const got = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          return { width: got.width, height: got.height, data: [...got.data] };
+        };
+        return [await read(first), await read(second)] as const;
+      },
+      [before, after] as const,
+    );
+    return pixelDifference(pixels);
+  }
+
   /** Moves the ladder, and waits for the day columns to have really moved. */
   async function pickRung(page: Page, rung: number): Promise<void> {
     await page.locator('[data-gantt-day-scale]').selectOption(String(rung));
@@ -3912,7 +3940,18 @@ test.describe('the marker rule, measured in the columns it paints', () => {
       // arithmetic's controlled fault pins that distinction. Proof: a
       // temporary untagged marker line eight days outside the strip failed
       // this assertion at delta 79 against the allowed 8 on h2puni.
+      const compactStarted = Date.now();
       const bodyDifference = await differenceOf(page, before.body, hidden.body);
+      const compactMs = Date.now() - compactStarted;
+      if (process.env['TASK_295_MEASURE'] === '1') {
+        const legacyStarted = Date.now();
+        const legacyDifference = await legacyDifferenceOf(page, before.body, hidden.body);
+        console.log(
+          'TASK-295 body comparison',
+          JSON.stringify({ rung, compactMs, legacyMs: Date.now() - legacyStarted, bodyDifference }),
+        );
+        expect(legacyDifference).toEqual(bodyDifference);
+      }
       expect(
         bodyDifference.greatestChannelDelta,
         `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,

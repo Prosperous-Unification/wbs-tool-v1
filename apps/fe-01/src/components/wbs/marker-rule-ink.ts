@@ -33,6 +33,8 @@ export interface ClipPixels {
 
 /** The compact facts one comparison needs outside the decoded image buffers. */
 export interface PixelDifference {
+  readonly width: number;
+  readonly height: number;
   readonly differingColumns: number[];
   readonly greatestChannelDelta: number;
   readonly changedPixels: number;
@@ -56,7 +58,7 @@ export function pixelDifference([baseline, after]: readonly [
     throw new Error(
       `clips are ${String(baseline.width)}×${String(baseline.height)} and ` +
         `${String(after.width)}×${String(after.height)}; ` +
-        'the page reflowed between photographs or a decode canvas has the wrong size',
+        'the clips cannot change size; the page reflowed or a decode canvas has the wrong size',
     );
   }
   const differingColumns: number[] = [];
@@ -79,7 +81,13 @@ export function pixelDifference([baseline, after]: readonly [
     }
     if (columnChanged) differingColumns.push(x);
   }
-  return { differingColumns, greatestChannelDelta, changedPixels };
+  return {
+    width: baseline.width,
+    height: baseline.height,
+    differingColumns,
+    greatestChannelDelta,
+    changedPixels,
+  };
 }
 
 /**
