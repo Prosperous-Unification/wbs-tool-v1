@@ -9,6 +9,9 @@ export const SOLVER_SUPERVISOR_BUNDLE: BundleFile = {
 export const SOLVER_SUPERVISOR_CONFIG = '/home/puni1/.config/wbs-solver/solver-supervisor.json';
 export const SOLVER_SUPERVISOR_UNIT =
   '/home/puni1/.config/systemd/user/wbs-solver-supervisor.service';
+export const SOLVER_SUPERVISOR_UNIT_SOURCE =
+  'deploy/solver-supervisor/wbs-solver-supervisor.service';
+export const SOLVER_SUPERVISOR_SERVICE = 'wbs-solver-supervisor.service';
 export const SOLVER_SUPERVISOR_BUN = '/usr/local/bin/bun';
 export const SOLVER_SUPERVISOR_BUN_VERSION = '1.3.14';
 export const SOLVER_SUPERVISOR_RUNTIME_DIRECTORY = 'wbs-solver';

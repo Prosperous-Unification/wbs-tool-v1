@@ -24,6 +24,14 @@
       "cache": false,
       "dependsOn": ["build", "tool-smoke:build"]
     },
+    "install-solver-supervisor": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run tools/tool-remote-scripts/src/install-solver-supervisor.ts"
+      },
+      "cache": false,
+      "dependsOn": ["build"]
+    },
     "test": {
       "executor": "nx:run-commands",
       "options": {
