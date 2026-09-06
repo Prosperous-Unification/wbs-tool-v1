@@ -4552,22 +4552,27 @@ test.describe("a marker chip's contrast, as the compositor drew it", () => {
     );
   }
 
-  test('clears 3:1 against the weekday cell it stands on, in light', async ({ page }) => {
-    await seedPlan(page, 'marker-chip-contrast');
-    await openTheChart(page);
+  /** The weekend axis days, by the shading class only they carry. */
+  async function weekendDays(page: Page): Promise<number[]> {
+    return page.evaluate(() =>
+      [...document.querySelectorAll('[data-axis-day]')]
+        .filter((cell) => cell.className.includes('bg-muted-foreground/10'))
+        .map((cell) => Number(cell.getAttribute('data-axis-day'))),
+    );
+  }
 
-    const weekdays = await weekdayDays(page);
-    // Two of them, and not adjacent: the chip is `maxWidth: dayPx` and stands
-    // at its own column's left edge, so the backdrop clip has to start a column
-    // clear of it or it photographs the chip it is the control for.
-    expect(weekdays.length, 'the fixture draws no pair of weekday cells').toBeGreaterThan(3);
-    const marked = weekdays[0];
-    const bare = weekdays[2];
-
-    await page.locator(`[data-axis-day="${String(marked)}"]`).click();
+  /**
+   * Puts a marker on `day` and returns the clip of the chip it draws.
+   *
+   * Inset, for 9.2b's reason: the chip has `rounded-sm` corners and fractional
+   * edges, and a whole-pixel clip on them catches the header behind it — which
+   * would land in the tally as a colour the chip is not.
+   */
+  async function chipShotOn(page: Page, day: number, name: string): Promise<Shot> {
+    await page.locator(`[data-axis-day="${String(day)}"]`).click();
     const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
     await expect(composer).toBeVisible();
-    await composer.getByLabel('Marker name').fill('Cut');
+    await composer.getByLabel('Marker name').fill(name);
     const saved = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
@@ -4584,9 +4589,6 @@ test.describe("a marker chip's contrast, as the compositor drew it", () => {
     await expect(chip).toHaveCount(1);
     const box = await chip.boundingBox();
     if (box === null) throw new Error('the chip is not in the layout');
-    // Inset, for 9.2b's reason: the chip has `rounded-sm` corners and
-    // fractional edges, and a whole-pixel clip on them catches the header
-    // behind it — which would land in the tally as a colour the chip is not.
     const shot: Shot = {
       x: Math.round(box.x) + 2,
       y: Math.round(box.y) + 1,
@@ -4595,30 +4597,83 @@ test.describe("a marker chip's contrast, as the compositor drew it", () => {
     };
     expect(shot.width, 'the chip is too narrow to photograph').toBeGreaterThan(2);
     expect(shot.height, 'the chip is too short to photograph').toBeGreaterThan(2);
+    return shot;
+  }
 
-    // The backdrop, **measured from the page** and not recomputed: an
-    // equal-sized box at the same height on a markerless weekday cell, so a
-    // theme change moves the chip and its ground together instead of leaving
-    // this case asserting against a literal nobody repaints.
-    const under = await page.evaluate(
-      ([offset, height, width]) => {
-        const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
-        if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
-        const at = cell.getBoundingClientRect();
-        return { x: Math.round(at.x) + 2, y: 0, width, height };
-      },
-      [bare, shot.height, shot.width],
-    );
-    const backdrop: Shot = { ...under, y: shot.y };
+  /**
+   * An equal-sized box at the chip's own height on a markerless `day`.
+   *
+   * The backdrop is **measured from the page** and never recomputed, so a theme
+   * change moves the chip and its ground together instead of leaving these
+   * cases asserting against a literal nobody repaints. The chip is
+   * `maxWidth: dayPx` at its own column's left edge and this clip is inset
+   * inside `day`'s column, so the control cannot photograph the chip it is the
+   * control for even when the two columns are adjacent.
+   */
+  async function controlShotOn(page: Page, day: number, like: Shot): Promise<Shot> {
+    const at = await page.evaluate((offset) => {
+      const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+      if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+      return Math.round(cell.getBoundingClientRect().x) + 2;
+    }, day);
+    return { x: at, y: like.y, width: like.width, height: like.height };
+  }
+
+  /** The base64 PNG of one clip of the page. */
+  const shotOf = async (page: Page, clip: Shot): Promise<string> =>
+    (await page.screenshot({ clip })).toString('base64');
+
+  test('clears 3:1 against the weekday cell it stands on, in light', async ({ page }) => {
+    await seedPlan(page, 'marker-chip-contrast');
+    await openTheChart(page);
+
+    const weekdays = await weekdayDays(page);
+    expect(weekdays.length, 'the fixture draws no pair of weekday cells').toBeGreaterThan(3);
+    const shot = await chipShotOn(page, weekdays[0], 'Cut');
+    const backdrop = await controlShotOn(page, weekdays[2], shot);
 
     const ratio = await contrastBetween(
       page,
-      (await page.screenshot({ clip: shot })).toString('base64'),
-      (await page.screenshot({ clip: backdrop })).toString('base64'),
+      await shotOf(page, shot),
+      await shotOf(page, backdrop),
     );
     expect(
       ratio,
       'the chip the compositor drew does not clear 3:1 against the weekday cell behind it',
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  test('clears 3:1 against the weekend cell it stands on, in light', async ({ page }) => {
+    await seedPlan(page, 'marker-chip-contrast');
+    await openTheChart(page);
+
+    const weekend = await weekendDays(page);
+    const weekdays = await weekdayDays(page);
+    expect(weekend.length, 'the fixture draws no pair of weekend cells').toBeGreaterThan(1);
+    const shot = await chipShotOn(page, weekend[0], 'Cut');
+    const backdrop = await controlShotOn(page, weekend[1], shot);
+
+    // **The weekend clip is bound to the weekend surface**, and this is what
+    // says so: `bg-muted-foreground/10` over the base is a different colour
+    // from the base, so a control that had landed on an unshaded cell — the
+    // way an unbound duplicate of the weekday case would — reads the weekday
+    // ground and this case measures a surface it does not name. Asserted
+    // against a weekday cell photographed in the same pass rather than against
+    // a literal, for `controlShotOn`'s reason.
+    const weekdayGround = await controlShotOn(page, weekdays[0], shot);
+    expect(
+      await shotOf(page, backdrop),
+      'the weekend control photographs the same surface as a weekday cell',
+    ).not.toBe(await shotOf(page, weekdayGround));
+
+    const ratio = await contrastBetween(
+      page,
+      await shotOf(page, shot),
+      await shotOf(page, backdrop),
+    );
+    expect(
+      ratio,
+      'the chip the compositor drew does not clear 3:1 against the weekend cell behind it',
     ).toBeGreaterThanOrEqual(3);
   });
 });
