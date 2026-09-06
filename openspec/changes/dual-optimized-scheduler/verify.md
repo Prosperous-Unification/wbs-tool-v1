@@ -1,5 +1,29 @@
 # Dual optimized scheduler verification
 
+## 2026-09-06T21:18:13Z — real supervisor orphan process boundary
+
+- Host: `h2puni`; exact tested branch bytes match head `dd86b47628dca2e690084c9c176531389beaad22`.
+- `be-01:solver-image-smoke` built and ran the real packaged solver image, then a digest-pinned
+  inert solver fixture through the production Unix listener, Docker driver and persistent
+  systemd timer. The process proof passed 1/0 with 11 assertions in 9.65 seconds.
+- Killing the bound coordinator container made socket EOF kill, wait, inspect and remove the
+  exact managed child while its SQLite `running` slot remained counted. Killing the supervisor
+  itself left the bound child running; the user-systemd timer stopped it at `childDeadlineAt`,
+  and a restarted supervisor removed that already-stopped orphan before listening.
+- The proof exposed three real boundary defects and now covers each: `docker ps` needed
+  `--no-trunc` before strict full-id parsing; terminal delivery to a dead socket could skip
+  timer/container cleanup; and SIGKILL leaves a stale Unix socket inode which restart must
+  validate and unlink. The stopped-container sweep also distinguishes `Pid=0` from a failed
+  kill of a still-live orphan.
+- Watched negative: suppressing only the post-bind EOF kill failed the real process case at the
+  child deadline (`received 1788729256111`, expected `< 1788729255690`). The systemd timer
+  eventually stopped the child, proving the assertion detects prompt disconnect cleanup rather
+  than accepting the deadline backstop as equivalent. The fault was reversed before the final
+  positive run.
+- Focused non-Docker gate: 19 passed / 1 environment-gated skip / 0 failed across command,
+  listener, lifecycle and orphan suites (40 assertions); Prettier, ShellCheck, ESLint and both
+  `tool-remote-scripts`/`be-01` typechecks passed. No build or autotest ran on h1claw.
+
 ## 2026-09-06T10:23:22Z — coordinator checkpoint
 
 - Head: `910bfad057ebc4e59dfde279f4ed44810e34dc22`
