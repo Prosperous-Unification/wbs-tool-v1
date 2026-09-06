@@ -277,8 +277,11 @@ describe('a calendar marker write announces itself', () => {
       name: 'Client demo',
     });
 
-    expect(absent).toEqual({ ok: false, reason: 'not_found' });
-    expect(stranger).toEqual({ ok: false, reason: 'forbidden' });
+    // `about: 'project'` on both: the project is the thing that was missing
+    // or closed, and neither refusal is about the marker the body described
+    // (TASK-279 AC #7).
+    expect(absent).toEqual({ ok: false, reason: 'not_found', about: 'project' });
+    expect(stranger).toEqual({ ok: false, reason: 'forbidden', about: 'project' });
     expect(recorder.published).toEqual([]);
   });
 });

@@ -173,7 +173,7 @@ describe('buildServices', () => {
     // the announcement is downstream of that answer rather than of the gate.
     expect(
       await services.calendarMarkers.rename(projectId, crypto.randomUUID(), ownerId, 'Nobody'),
-    ).toEqual({ ok: false, reason: 'not_found' });
+    ).toEqual({ ok: false, reason: 'not_found', about: 'marker' });
     expect(await seq()).toBe(start + 3);
 
     expect((await services.calendarMarkers.remove(projectId, markerId, ownerId)).ok).toBe(true);
