@@ -1,7 +1,7 @@
 import { type } from 'arktype';
 import { describe, expect, test } from 'bun:test';
 
-import { clientFromShapes } from './client';
+import { clientFromShapes, preflightRequest } from './client';
 import { ClientConfigurationError } from './client-error';
 import { fetchTransport } from './client-fetch';
 import type { ClientTransport, TransportReply } from './client-types';
@@ -469,6 +469,30 @@ test('validates optional undefined body fields as the JSON representation sent b
     (await client.writeProject({ ...input, body: { name: 'Plan', notes: undefined } })).kind,
   ).toBe('success');
   expect(received).toEqual([{ name: 'Plan' }]);
+});
+
+test('preflights synchronous request shapes without yielding and returns their wire normalization', () => {
+  const preflight = preflightRequest(write, {
+    ...input,
+    body: { name: 'Plan', notes: undefined },
+  });
+
+  expect(preflight).not.toBeInstanceOf(Promise);
+  expect(preflight).toMatchObject({
+    kind: 'ready',
+    input: { params: { id: 'p' }, body: { name: 'Plan' } },
+  });
+  expect(
+    preflightRequest(write, { ...input, params: { id: '.' }, body: { name: 'Plan' } }),
+  ).toMatchObject({ kind: 'failure', failure: { code: 'invalid_request', part: 'params' } });
+});
+
+test('keeps preflight asynchronous when a request schema validates asynchronously', async () => {
+  const shape = defineEndpointShape({ ...write, body: asynchronous(write.body) });
+  const preflight = preflightRequest(shape, { ...input, body: { name: 'Plan' } });
+
+  expect(preflight).toBeInstanceOf(Promise);
+  expect(await preflight).toMatchObject({ kind: 'ready', input: { body: { name: 'Plan' } } });
 });
 
 test('reports non-JSON client bodies before transport without hiding unexpected serialization failures', async () => {

@@ -5,6 +5,7 @@ import type {
   ClientFailure,
   ClientReply,
   ClientTransport,
+  PreflightInput,
   TransportInput,
   TransportReply,
 } from './client-types';
@@ -36,11 +37,19 @@ function failed(failure: ClientFailure): ClientBoundaryFailure {
   return { kind: 'failure', failure };
 }
 
-async function invoke(
-  shape: EndpointShape,
+export type RequestPreflight<Shape extends EndpointShape> =
+  | { kind: 'ready'; input: PreflightInput<Shape> }
+  | ClientBoundaryFailure;
+
+/**
+ * Normalizes and validates one request before transport. Synchronous schemas
+ * complete in the calling stack; an asynchronous schema returns a promise and
+ * resumes the same ordered preflight when it settles.
+ */
+export function preflightRequest<const Shape extends EndpointShape>(
+  shape: Shape,
   supplied: Partial<TransportInput>,
-  transport: ClientTransport,
-): Promise<ClientReply<EndpointShape>> {
+): RequestPreflight<Shape> | Promise<RequestPreflight<Shape>> {
   // Proof: removing cancellation guards failed already-aborted and held-validation cases (transport invoked unexpectedly).
   if (supplied.signal?.aborted) return failed({ code: 'cancelled' });
   const input: TransportInput = {
@@ -89,19 +98,55 @@ async function invoke(
     )
   )
     return failed({ code: 'invalid_request', part: 'params' });
-  for (const part of ['params', 'query', 'body'] as const) {
-    const schema = shape[part];
-    if (schema === undefined) {
-      if (part !== 'params' && input[part] !== undefined)
-        return failed({ code: 'invalid_request', part });
-      continue;
-    }
-    const value = part === 'query' && input.query === undefined ? {} : input[part];
-    const checked = await validateSchema(schema, value);
-    // Proof: bypassing request issues failed 'validates request input before invoking transport and does not share calls'.
-    if (checked.issues !== undefined) return failed({ code: 'invalid_request', part });
+  return validateRequestParts(shape, input, 0);
+}
+
+const REQUEST_PARTS = ['params', 'query', 'body'] as const;
+
+/** Continues synchronously until the next asynchronous validator, if any. */
+function validateRequestParts<Shape extends EndpointShape>(
+  shape: Shape,
+  input: TransportInput,
+  index: number,
+): RequestPreflight<Shape> | Promise<RequestPreflight<Shape>> {
+  const part = REQUEST_PARTS.at(index);
+  if (part === undefined) {
+    if (input.signal?.aborted) return failed({ code: 'cancelled' });
+    // Exact path checks plus every declared request schema establish this
+    // shape-derived type; request declarations forbid transforms and defaults.
+    return { kind: 'ready', input: input as PreflightInput<Shape> };
   }
-  if (supplied.signal?.aborted) return failed({ code: 'cancelled' });
+  const schema = shape[part];
+  if (schema === undefined) {
+    if (part !== 'params' && input[part] !== undefined)
+      return failed({ code: 'invalid_request', part });
+    return validateRequestParts(shape, input, index + 1);
+  }
+  const value = part === 'query' && input.query === undefined ? {} : input[part];
+  const validation = schema.validator['~standard'].validate(value);
+  if (isPromiseLike(validation))
+    return Promise.resolve(validation).then((completed) => {
+      // Proof: bypassing request issues failed 'validates request input before invoking transport and does not share calls'.
+      if (completed.issues !== undefined) return failed({ code: 'invalid_request', part });
+      return validateRequestParts(shape, input, index + 1);
+    });
+  // Proof: bypassing request issues failed 'validates request input before invoking transport and does not share calls'.
+  if (validation.issues !== undefined) return failed({ code: 'invalid_request', part });
+  return validateRequestParts(shape, input, index + 1);
+}
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return typeof value === 'object' && value !== null && 'then' in value;
+}
+
+async function invoke(
+  shape: EndpointShape,
+  supplied: Partial<TransportInput>,
+  transport: ClientTransport,
+): Promise<ClientReply<EndpointShape>> {
+  const preflight = await preflightRequest(shape, supplied);
+  if (preflight.kind === 'failure') return preflight;
+  const { input } = preflight;
   let response: Response | TransportReply;
   try {
     response = await transport(shape, input);

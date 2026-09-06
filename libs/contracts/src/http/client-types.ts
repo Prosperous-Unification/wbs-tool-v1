@@ -34,6 +34,23 @@ export interface TransportInput {
   signal?: AbortSignal;
 }
 
+type PreparedQuery<S extends EndpointShape> = S extends { query: SchemaShape<infer Q> }
+  ? Q | undefined
+  : undefined;
+type PreparedBody<S extends EndpointShape> = S extends { body: SchemaShape<infer B> }
+  ? B
+  : undefined;
+
+/** A request after the shape's exact runtime boundary has accepted and normalized it. */
+export type PreflightInput<S extends EndpointShape> = Omit<
+  TransportInput,
+  'params' | 'query' | 'body'
+> & {
+  params: ParamsOf<S['path']>;
+  query: PreparedQuery<S>;
+  body: PreparedBody<S>;
+};
+
 /** Explicit representations let an in-process adapter translate its own empty sentinel. */
 export type TransportReply = { status: number; headers?: HttpHeaders } & (
   | { kind: 'json'; body: unknown }

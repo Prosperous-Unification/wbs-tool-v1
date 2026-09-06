@@ -1,75 +1,80 @@
 # HTTP operation inventory
 
-Updated after feature integration at 034d5eb2. The baseline names below come from
-the committed document; four conditional OIDC routes were inspected in
-`controller/auth.routes.ts` and receive explicit names during migration. This is
-an inventory, not the final independent reachability proof. The 2610-test merged
-backend/auth/domain/solver run and 228 Gantt cases are recorded in the parent
-verification ledger. Full shape binding and real reachability checks remain task3.1.
+This is the final shared declaration inventory. Each row is one `EndpointShape` in
+`libs/contracts/src/http/shapes.ts`; the shape owns its method, path, operation ID,
+ordered policies, request schemas, response representations, refusal status/body
+pairs, and OpenAPI summary.
 
-There are 40 baseline operations and four conditional OIDC operations. The document
-route `/api/openapi.json` is the generated artifact surface, separate from this
-application endpoint inventory. HEAD dispatch to GET is preserved via raw request
-metadata, including the callback's explicit405 refusal.
+There are 40 always-mounted operations and four conditional OIDC operations. Local
+authentication therefore mounts and publishes 40 shapes; OIDC mounts and publishes
+all 44. `apps/be-01/src/app.routes.test.ts` proves one binding per owned shape and
+reaches every method/path through the production app. `/api/openapi.json` is the
+generated document route and is intentionally outside this application-operation
+inventory. The adapter retains the arrived method in request metadata, so a HEAD
+request can reach the callback's explicit 405 prevalidation without changing its
+declared GET method.
 
-| Method | Path                                             | Operation ID                                      | Composition                        |
-| ------ | ------------------------------------------------ | ------------------------------------------------- | ---------------------------------- |
-| GET    | `/metrics`                                       | `getMetrics`                                      | baseline                           |
-| POST   | `/api/smoke/echo`                                | `postApiSmokeEcho`                                | baseline                           |
-| POST   | `/api/auth/register`                             | `postApiAuthRegister`                             | baseline                           |
-| POST   | `/api/auth/login`                                | `postApiAuthLogin`                                | baseline                           |
-| GET    | `/api/auth/me`                                   | `getApiAuthMe`                                    | baseline                           |
-| GET    | `/plans/by-solution/{slug}`                      | `getPlansBy-solutionBySlug`                       | baseline                           |
-| POST   | `/api/projects`                                  | `postApiProjects`                                 | baseline                           |
-| GET    | `/api/projects`                                  | `getApiProjects`                                  | baseline                           |
-| POST   | `/api/projects/{id}/opened`                      | `postApiProjectsByIdOpened`                       | baseline                           |
-| GET    | `/api/projects/{id}/export`                      | `getApiProjectsByIdExport`                        | baseline                           |
-| GET    | `/api/projects/{id}`                             | `getApiProjectsById`                              | baseline                           |
-| PATCH  | `/api/projects/{id}`                             | `patchApiProjectsById`                            | baseline                           |
-| POST   | `/api/projects/{id}/saved-plans`                 | `postApiProjectsByIdSaved-plans`                  | baseline                           |
-| GET    | `/api/projects/{id}/saved-plans`                 | `getApiProjectsByIdSaved-plans`                   | baseline                           |
-| GET    | `/api/projects/{id}/saved-plans/compare`         | `getApiProjectsByIdSaved-plansCompare`            | baseline                           |
-| GET    | `/api/saved-plans/{id}`                          | `getApiSaved-plansById`                           | baseline                           |
-| PATCH  | `/api/saved-plans/{id}`                          | `patchApiSaved-plansById`                         | baseline                           |
-| DELETE | `/api/saved-plans/{id}`                          | `deleteApiSaved-plansById`                        | baseline                           |
-| POST   | `/api/projects/{id}/steps`                       | `postApiProjectsByIdSteps`                        | baseline                           |
-| PATCH  | `/api/projects/{id}/steps/{stepId}`              | `patchApiProjectsByIdStepsByStepId`               | baseline                           |
-| DELETE | `/api/projects/{id}/steps/{stepId}`              | `deleteApiProjectsByIdStepsByStepId`              | baseline                           |
-| GET    | `/api/projects/{id}/work-items`                  | `getApiProjectsByIdWork-items`                    | baseline                           |
-| POST   | `/api/projects/{id}/commands`                    | `postApiProjectsByIdCommands`                     | baseline                           |
-| POST   | `/api/directory/commands`                        | `postApiDirectoryCommands`                        | baseline                           |
-| POST   | `/api/projects/{id}/undo`                        | `postApiProjectsByIdUndo`                         | baseline                           |
-| POST   | `/api/projects/{id}/redo`                        | `postApiProjectsByIdRedo`                         | baseline                           |
-| GET    | `/api/teams`                                     | `getApiTeams`                                     | baseline                           |
-| GET    | `/api/people`                                    | `getApiPeople`                                    | baseline                           |
-| GET    | `/api/tags`                                      | `getApiTags`                                      | baseline                           |
-| GET    | `/api/services`                                  | `getApiServices`                                  | baseline                           |
-| GET    | `/api/work-item-types`                           | `getApiWork-item-types`                           | baseline                           |
-| GET    | `/api/external-systems`                          | `getApiExternal-systems`                          | baseline                           |
-| GET    | `/api/projects/{id}/history`                     | `getApiProjectsByIdHistory`                       | baseline                           |
-| GET    | `/api/projects/{id}/calendar-markers`            | `getApiProjectsByIdCalendar-markers`              | baseline                           |
-| POST   | `/api/projects/{id}/calendar-markers`            | `postApiProjectsByIdCalendar-markers`             | baseline                           |
-| PATCH  | `/api/projects/{id}/calendar-markers/{markerId}` | `patchApiProjectsByIdCalendar-markersByMarkerId`  | baseline                           |
-| DELETE | `/api/projects/{id}/calendar-markers/{markerId}` | `deleteApiProjectsByIdCalendar-markersByMarkerId` | baseline                           |
-| POST   | `/internal/forward`                              | `postInternalForward`                             | baseline                           |
-| POST   | `/internal/resume`                               | `postInternalResume`                              | baseline                           |
-| GET    | `/health`                                        | `getHealth`                                       | baseline                           |
-| GET    | `/api/auth/login`                                | `getApiAuthLogin`                                 | OIDC only; explicit migration name |
-| GET    | `/api/auth/okta/callback`                        | `getApiAuthOktaCallback`                          | OIDC only; explicit migration name |
-| POST   | `/api/auth/refresh`                              | `postApiAuthRefresh`                              | OIDC only; explicit migration name |
-| POST   | `/api/auth/logout`                               | `postApiAuthLogout`                               | OIDC only; explicit migration name |
+| Method | Path                                             | Operation ID                                      | Composition      |
+| ------ | ------------------------------------------------ | ------------------------------------------------- | ---------------- |
+| GET    | `/metrics`                                       | `getMetrics`                                      | always           |
+| POST   | `/api/smoke/echo`                                | `postApiSmokeEcho`                                | always           |
+| POST   | `/api/auth/register`                             | `postApiAuthRegister`                             | always           |
+| POST   | `/api/auth/login`                                | `postApiAuthLogin`                                | always           |
+| GET    | `/api/auth/me`                                   | `getApiAuthMe`                                    | always           |
+| GET    | `/plans/by-solution/{slug}`                      | `getPlansBy-solutionBySlug`                       | always           |
+| POST   | `/api/projects`                                  | `postApiProjects`                                 | always           |
+| GET    | `/api/projects`                                  | `getApiProjects`                                  | always           |
+| POST   | `/api/projects/{id}/opened`                      | `postApiProjectsByIdOpened`                       | always           |
+| GET    | `/api/projects/{id}/export`                      | `getApiProjectsByIdExport`                        | always           |
+| GET    | `/api/projects/{id}`                             | `getApiProjectsById`                              | always           |
+| PATCH  | `/api/projects/{id}`                             | `patchApiProjectsById`                            | always           |
+| POST   | `/api/projects/{id}/saved-plans`                 | `postApiProjectsByIdSaved-plans`                  | always           |
+| GET    | `/api/projects/{id}/saved-plans`                 | `getApiProjectsByIdSaved-plans`                   | always           |
+| GET    | `/api/projects/{id}/saved-plans/compare`         | `getApiProjectsByIdSaved-plansCompare`            | always           |
+| GET    | `/api/saved-plans/{id}`                          | `getApiSaved-plansById`                           | always           |
+| PATCH  | `/api/saved-plans/{id}`                          | `patchApiSaved-plansById`                         | always           |
+| DELETE | `/api/saved-plans/{id}`                          | `deleteApiSaved-plansById`                        | always           |
+| POST   | `/api/projects/{id}/steps`                       | `postApiProjectsByIdSteps`                        | always           |
+| PATCH  | `/api/projects/{id}/steps/{stepId}`              | `patchApiProjectsByIdStepsByStepId`               | always           |
+| DELETE | `/api/projects/{id}/steps/{stepId}`              | `deleteApiProjectsByIdStepsByStepId`              | always           |
+| GET    | `/api/projects/{id}/work-items`                  | `getApiProjectsByIdWork-items`                    | always           |
+| POST   | `/api/projects/{id}/commands`                    | `postApiProjectsByIdCommands`                     | always           |
+| POST   | `/api/directory/commands`                        | `postApiDirectoryCommands`                        | always           |
+| POST   | `/api/projects/{id}/undo`                        | `postApiProjectsByIdUndo`                         | always           |
+| POST   | `/api/projects/{id}/redo`                        | `postApiProjectsByIdRedo`                         | always           |
+| GET    | `/api/teams`                                     | `getApiTeams`                                     | always           |
+| GET    | `/api/people`                                    | `getApiPeople`                                    | always           |
+| GET    | `/api/tags`                                      | `getApiTags`                                      | always           |
+| GET    | `/api/services`                                  | `getApiServices`                                  | always           |
+| GET    | `/api/work-item-types`                           | `getApiWork-item-types`                           | always           |
+| GET    | `/api/external-systems`                          | `getApiExternal-systems`                          | always           |
+| GET    | `/api/projects/{id}/history`                     | `getApiProjectsByIdHistory`                       | always           |
+| GET    | `/api/projects/{id}/calendar-markers`            | `getApiProjectsByIdCalendar-markers`              | always           |
+| POST   | `/api/projects/{id}/calendar-markers`            | `postApiProjectsByIdCalendar-markers`             | always           |
+| PATCH  | `/api/projects/{id}/calendar-markers/{markerId}` | `patchApiProjectsByIdCalendar-markersByMarkerId`  | always           |
+| DELETE | `/api/projects/{id}/calendar-markers/{markerId}` | `deleteApiProjectsByIdCalendar-markersByMarkerId` | always           |
+| POST   | `/internal/forward`                              | `postInternalForward`                             | always           |
+| POST   | `/internal/resume`                               | `postInternalResume`                              | always           |
+| GET    | `/health`                                        | `getHealth`                                       | always           |
+| GET    | `/api/auth/login`                                | `getApiAuthLogin`                                 | conditional OIDC |
+| GET    | `/api/auth/okta/callback`                        | `getApiAuthOktaCallback`                          | conditional OIDC |
+| POST   | `/api/auth/refresh`                              | `postApiAuthRefresh`                              | conditional OIDC |
+| POST   | `/api/auth/logout`                               | `postApiAuthLogout`                               | conditional OIDC |
 
-Baseline document responses are largely absent; use `http-refusals.md` and each
-parser/service's actual outcomes for status/body declarations. Do not derive an
-empty response contract from missing documentation. Every family must gain actual
-shape/direct-handler/wire coverage as it migrates.
+## Generated consumers
 
-Incoming deadline slices immediately add required `lateBy: number | null` to each
-scheduled slice returned by GET work-items. The shared response must carry it even
-though the current handwritten frontend SliceView omits it. This migration does
-not add deadline editing or a new scheduling-refusal code.
+- `mountedEndpoints` binds each owned shape to a typed handler; `mountEndpoints`
+  enforces its policies and validates both sides of the boundary.
+- `openApiPlugin` publishes only the shapes mounted by that app configuration.
+  `emit-openapi-cli.ts` emits the full 44-shape registry during the backend build.
+- `mcp-01` derives 32 tools from the full generated document after excluding auth,
+  internal, smoke, health, and metrics paths.
+- `clientFromShapes` derives typed methods from operation IDs. Browser fetch and
+  in-process fake transports pass through the same request and response validation.
 
-Marker GET/POST/PATCH resolve stored null colors to an automatic string on the
-wire. Collection not_found omits field; collection taken names markerId only when
-it was supplied. Addressed PATCH/DELETE keep field:markerId. Preserve services.ts's
-shared announcements composition and the incoming actual-composition DB test.
+The declarations include success bodies and their representation: JSON 200/201,
+empty 204/302, and text 200/500. GET work-items includes required
+`lateBy: number | null` on every scheduled slice. Marker GET/POST/PATCH resolve a
+stored null color to an automatic wire color; marker refusal detail stays scoped to
+the collection or addressed operation. See `http-refusals.md` for the final failure
+boundary.

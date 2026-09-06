@@ -1,4 +1,3 @@
-import { clientFromShapes, getWorkItems } from '@wbs/contracts';
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
 import { automaticColor } from '@wbs/domain/marker-color';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
@@ -370,7 +369,7 @@ export function fakeProjectApi(): ProjectApi & {
     createProject: (name: string) => Promise.resolve({ id: 'p1', name, restricted: false }),
     openProject: () => Promise.resolve(),
     renameProject: () => Promise.resolve(),
-    tree: async (projectId) => {
+    tree: (projectId) => {
       // The sequence advances with every mutation, the way be-01's does, so a
       // test that asserts what the stream was told is asserting something real.
       const plan = {
@@ -494,25 +493,7 @@ export function fakeProjectApi(): ProjectApi & {
           },
         },
       };
-      const client = clientFromShapes([getWorkItems], () =>
-        Promise.resolve({ kind: 'json', status: 200, body: plan }),
-      );
-      const reply = await client['getApiProjectsByIdWork-items']({ params: { id: projectId } });
-      // Proof: omitting `serviceId` from `plan` made the direct fake read fail on
-      // `Error: fake_invalid_response`; fake-project-api.test.ts observed the boundary failure.
-      if (reply.kind === 'failure') throw new Error(`fake_${reply.failure.code}`);
-      if (reply.kind === 'refusal') throw new Error(reply.body.error);
-      return {
-        ...reply.body,
-        workItems: reply.body.workItems.map((row) => ({
-          ...row,
-          teamIds: [...row.teamIds],
-          tagIds: [...row.tagIds],
-          serviceIds: [...row.serviceIds],
-          typeIds: [...row.typeIds],
-          externalRefs: row.externalRefs.map((ref) => ({ ...ref })),
-        })),
-      };
+      return Promise.resolve(plan);
     },
     setDepReach(_projectId, reach) {
       depReach = reach;
