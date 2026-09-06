@@ -1,7 +1,7 @@
 import { decodeSolverSupervisorConfig } from './lib/solver-supervisor-config';
 import {
-  startSolverSupervisor,
   type SolverSupervisorRuntimeOptions,
+  startSolverSupervisor,
 } from './lib/solver-supervisor-runtime';
 
 export const SUPERVISOR_CONFIG_MAX_BYTES = 256 * 1024;
@@ -75,7 +75,9 @@ export async function runSolverSupervisor(
     ...options,
     connection: {
       ...options.connection,
-      onConnectionError: (error) => dependencies.connectionError(error),
+      onConnectionError: (error) => {
+        dependencies.connectionError(error);
+      },
     },
   });
 }
