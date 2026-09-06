@@ -144,7 +144,7 @@ export function buildSolverSupervisorInstallPlan(
 }
 
 async function command(argv: readonly string[]): Promise<CommandOutput> {
-  const child = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([...argv], { stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
