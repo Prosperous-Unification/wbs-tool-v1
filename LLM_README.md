@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-300 keeps literal tabs fail-closed in restored CI annotations, preserves encoded `%09`, and records the exact splitter-only and guard-only watched failures.
+TASK-300 keeps raw tabs fail-closed (the verdict and full log remain), preserves literal percent spellings, and awaits refreshed exact-head gates and CI.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),

@@ -44,13 +44,14 @@ describe('CI gate annotations', () => {
     expect(selectErrorAnnotations(lines.join('\n'))).toEqual([]);
   });
 
-  test('keeps literal tabs fail-closed while preserving encoded tabs', () => {
+  test('keeps literal tabs fail-closed while preserving printable percent spellings', () => {
     const rawTab = '::error file=raw-tab.test.ts,line=1::before\tafter';
-    const encodedTab = '::error file=encoded-tab.test.ts,line=2::before%09after';
+    const percentSpellings =
+      '::error file=percent-spellings.test.ts,line=2::before%0A%0D%25%09after';
 
-    // Policy: current gate producers do not require raw tabs, so keep the C0
-    // boundary closed while preserving the workflow-safe encoded spelling.
-    expect(selectErrorAnnotations(`${rawTab}\n${encodedTab}`)).toEqual([encodedTab]);
+    // Policy: Bun can emit raw tabs, so this may cost an inline annotation;
+    // the gate verdict and uploaded log remain. Keep the full C0 boundary.
+    expect(selectErrorAnnotations(`${rawTab}\n${percentSpellings}`)).toEqual([percentSpellings]);
   });
 
   test('preserves the exact file and line command emitted by the failing assertion', () => {
