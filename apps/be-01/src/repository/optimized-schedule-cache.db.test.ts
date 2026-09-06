@@ -191,8 +191,11 @@ describe('the optimizer migration', () => {
   it('is applied immediately before the project-settings migration', () => {
     const names = readMigrationFolders(FOLDER).map((folder) => folder.name);
 
-    expect(names.at(-1)).toBe(PROJECT_SETTINGS);
-    expect(names.at(-2)).toBe(OPTIMIZER_TABLES);
+    // The adjacency itself, not `at(-1)`/`at(-2)`. Those were true while
+    // project-settings was the newest folder, and they made every later
+    // migration a failure of this file — which is not what it is about.
+    expect(names.indexOf(PROJECT_SETTINGS)).toBe(names.indexOf(OPTIMIZER_TABLES) + 1);
+    expect(names).toContain(OPTIMIZER_TABLES);
   });
 
   it('is idempotent on an already-migrated file', () => {
