@@ -137,6 +137,34 @@ describe('the concrete managed-container driver', () => {
     ]);
   });
 
+  it('inspects the peer-derived backend through the configured name policy', async () => {
+    const recorder = new SpawnRecorder();
+    recorder.replies.push({
+      stdout: `${JSON.stringify({
+        id: CALLER_ID,
+        name: '/wbs-dev-src',
+        running: true,
+        image: 'wbs-dev-src:1',
+      })}\n`,
+    });
+    const driver = new BunManagedContainerDriver(recorder.spawn);
+
+    expect(await driver.inspectBackend(CALLER_ID, [/^wbs-dev-src$/])).toEqual({
+      id: CALLER_ID,
+      name: 'wbs-dev-src',
+      image: 'wbs-dev-src:1',
+    });
+    expect(recorder.argv).toEqual([
+      [
+        'docker',
+        'inspect',
+        '--format',
+        '{"id":{{json .Id}},"name":{{json .Name}},"running":{{json .State.Running}},"image":{{json .Config.Image}}}',
+        CALLER_ID,
+      ],
+    ]);
+  });
+
   it('attaches with piped input and exposes both output streams and process closure', async () => {
     const recorder = new SpawnRecorder();
     recorder.replies.push({ stdout: 'answer', stderr: 'warning' });

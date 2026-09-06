@@ -1,5 +1,10 @@
-import type { PersistentDeadlineTimerCommands } from './solver-supervisor-command';
 import {
+  inspectBackendContainerArgs,
+  type PersistentDeadlineTimerCommands,
+} from './solver-supervisor-command';
+import {
+  type BackendContainerIdentity,
+  parseBackendContainerIdentity,
   parseManagedContainerEvidence,
   parseManagedContainerId,
   parseManagedContainerList,
@@ -131,6 +136,17 @@ export class BunManagedContainerDriver implements ManagedContainerDriver {
 
   async list(argv: readonly string[]): Promise<readonly string[]> {
     return parseManagedContainerList(await this.run(argv));
+  }
+
+  async inspectBackend(
+    containerId: string,
+    allowedNamePatterns: readonly RegExp[],
+  ): Promise<BackendContainerIdentity> {
+    return parseBackendContainerIdentity(
+      await this.run(inspectBackendContainerArgs(containerId)),
+      containerId,
+      allowedNamePatterns,
+    );
   }
 
   async create(argv: readonly string[]): Promise<string> {
