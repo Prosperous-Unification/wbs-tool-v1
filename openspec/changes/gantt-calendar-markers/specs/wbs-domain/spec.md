@@ -502,11 +502,10 @@ The standalone SVG export SHALL draw every marker chip the live axis shows, in
 the same colours and at the same day positions.
 
 `buildStandaloneGanttSvg` nests the live chart SVG but **rebuilds the axis
-band from pixel arithmetic** (`gantt-panel.tsx`, `buildStandaloneGanttSvg`),
-so without this
-requirement the body rule would cross into the download — it lives inside the
-nested chart SVG — while the chip that names it would not. A coloured line
-with nothing saying what it marks is worse than no line: the reader sees a
+band from pixel arithmetic** (`gantt-panel.tsx`, `buildStandaloneGanttSvg`), so
+without this requirement the body rule would cross into the download — it lives
+inside the nested chart SVG — while the chip that names it would not. A coloured
+line with nothing saying what it marks is worse than no line: the reader sees a
 date they cannot identify and has no way to find out.
 
 `StandaloneGanttSvgInput` SHALL therefore carry the markers explicitly, the
