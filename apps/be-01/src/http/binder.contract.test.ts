@@ -82,7 +82,8 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
       path: '/probe/write',
       handler: ({ body }) => {
         const name = (body as { name?: unknown } | undefined)?.name;
-        if (typeof name !== 'string') return Promise.resolve(respond(422, { error: 'invalid_body' }));
+        if (typeof name !== 'string')
+          return Promise.resolve(respond(422, { error: 'invalid_body' }));
         writes.push(name);
         return Promise.resolve(ok({ created: name }));
       },
@@ -300,21 +301,18 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     ['application/json'],
     ['application/json; charset=utf-8'],
     ['application/json-patch+json'],
-  ])(
-    'reaches the service on a %s body, under either binder',
-    async (contentType) => {
-      writes.length = 0;
-      const res = await app.handle(
-        new Request('http://localhost/probe/write', {
-          method: 'POST',
-          headers: { 'content-type': contentType },
-          body: JSON.stringify({ name: 'Sand' }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      expect(writes).toEqual(['Sand']);
-    },
-  );
+  ])('reaches the service on a %s body, under either binder', async (contentType) => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', {
+        method: 'POST',
+        headers: { 'content-type': contentType },
+        body: JSON.stringify({ name: 'Sand' }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['Sand']);
+  });
 
   /**
    * A route module's body is the fields, not the encoding they arrived in —
