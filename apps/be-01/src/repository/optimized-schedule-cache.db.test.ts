@@ -179,7 +179,7 @@ function seedProject(path: string, id: string): void {
  * that skipped this would get `superseded` back and prove nothing about
  * retention.
  */
-function reserveSlot(path: string, contractVersion: string): void {
+function reserveSlot(path: string, contractVersion: string, budgetMs: number): void {
   const db = openDatabase(path);
   try {
     db.run(
@@ -187,8 +187,9 @@ function reserveSlot(path: string, contractVersion: string): void {
          (project_id, contract_version, generation, objective, budget_ms,
           owner_id, attempt_token, lifecycle, pid, started_at, heartbeat_at,
           cancel_requested_at, admitted_deadline_at)
-       VALUES ('p-1', '${contractVersion}', 1, 'pri', 60000,
-               'coordinator-a', 'tok-${contractVersion}', 'running', 4242, 1, 1, NULL, 99)`,
+       VALUES ('p-1', '${contractVersion}', 1, 'pri', ${String(budgetMs)},
+               'coordinator-a', 'tok-${contractVersion}-${String(budgetMs)}', 'running',
+               4242, 1, 1, NULL, 99)`,
     );
     db.run(`UPDATE project SET optimization_enabled = 1 WHERE id = 'p-1'`);
   } finally {
@@ -780,6 +781,15 @@ describe('what the deadline change must not do to the cache key', () => {
    * Both sides store under the same `input_hash`, which is the case that can
    * actually go wrong: an unscoped bound would count the two versions' rows as
    * one budget set and evict across the seam.
+   *
+   * **Three rows, not two, and that is what gives the case teeth.**
+   * `MAX_LIVE_BUDGETS` is 2, so a two-row fixture is under the bound and no
+   * `DELETE` runs at all — the scoping could be removed outright and a two-row
+   * assertion would stay green. Green's row is stored **first** and blue then
+   * takes both its budgets, so under an unscoped bound green's is the oldest of
+   * three and the surplus the last store evicts. Measured, not argued: dropping
+   * `contractVersion` from both the count and the delete in
+   * `enforceLiveBudgetBound` reds this case and nothing else in the file.
    */
   it('keeps both contract versions’ rows through a store on each side', () => {
     const db = tempDb();
@@ -790,37 +800,41 @@ describe('what the deadline change must not do to the cache key', () => {
 
       for (const contractVersion of [BLUE, GREEN]) {
         expect(allocateGeneration(handle, 'p-1', contractVersion, 'h1', 1)).toBe(1);
-        reserveSlot(db.path, contractVersion);
+        reserveSlot(db.path, contractVersion, 60000);
       }
+      // Blue's second live budget, the one a swap has in flight beside the
+      // first. Its own seat, because the slot is keyed by budget too.
+      reserveSlot(db.path, BLUE, 120000);
 
-      for (const contractVersion of [BLUE, GREEN]) {
-        expect(
-          storeOptimizedOutcome(handle, {
-            claim: {
-              projectId: 'p-1',
-              contractVersion,
-              generation: 1,
-              objective: 'pri',
-              budgetMs: 60000,
-              ownerId: 'coordinator-a',
-              attemptToken: `tok-${contractVersion}`,
-            },
-            inputHash: 'h1',
-            admittedCancelEpoch: 0,
-            outcome: { kind: 'failed', reason: 'timeout' },
-            now: 1_700,
-          }),
-        ).toBe('stored');
-      }
+      const store = (contractVersion: string, budgetMs: number, now: number): unknown =>
+        storeOptimizedOutcome(handle, {
+          claim: {
+            projectId: 'p-1',
+            contractVersion,
+            generation: 1,
+            objective: 'pri',
+            budgetMs,
+            ownerId: 'coordinator-a',
+            attemptToken: `tok-${contractVersion}-${String(budgetMs)}`,
+          },
+          inputHash: 'h1',
+          admittedCancelEpoch: 0,
+          outcome: { kind: 'failed', reason: 'timeout' },
+          now,
+        });
+
+      expect(store(GREEN, 60000, 1_700)).toBe('stored');
+      expect(store(BLUE, 60000, 1_800)).toBe('stored');
+      expect(store(BLUE, 120000, 1_900)).toBe('stored');
 
       expect(
         handle
           .select()
           .from(optimizedScheduleCache)
           .all()
-          .map((row) => `${row.contractVersion}/${row.inputHash}/${row.objective}`)
+          .map((row) => `${row.contractVersion}/${String(row.budgetMs)}`)
           .sort(),
-      ).toEqual([`${BLUE}/h1/pri`, `${GREEN}/h1/pri`]);
+      ).toEqual([`${BLUE}/120000`, `${BLUE}/60000`, `${GREEN}/60000`]);
     } finally {
       db.cleanup();
     }
