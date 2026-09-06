@@ -2309,7 +2309,39 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     // the colour the rule is drawn in, and the legend names every share.
     // {@link MARKER_BAND_MAX_PER_CELL} caps the split at 3, and at 1 on the
     // 4px rung where a share would be sub-pixel.
+    //
+    // **The empty day leaves before the arithmetic** (TASK-287 AC #2). Most
+    // days on a chart carry no marker, and `dayPx / 0` is `Infinity` — read by
+    // nothing today, because the loop under it runs zero times, but it was an
+    // `Infinity` computed once per empty day and waiting for the first
+    // refactor that hoists the expression or logs it.
+    if (standing.length === 0) continue;
     const sharePx = dayPx / standing.length;
+    // **One rounded cell, square joins inside it** (TASK-287 AC #3). Each
+    // share used to carry its own `rx="2"`, so where two shares met, the left
+    // one's right corners and the right one's left corners were both rounded
+    // and the page showed through the notch between them — a seam the screen
+    // does not have, because on screen a crowded cell is chips in a flex row
+    // and not a split rect. `rx` has no per-corner spelling, so the rounding
+    // moves off the share and onto the cell: the shares are drawn square and
+    // clipped to one rounded rect the width of the whole day. A day with a
+    // single share is unchanged by construction — its share *is* the cell, so
+    // the clip and the rect coincide and the file still carries the live
+    // chip's `rounded-sm`.
+    const cellClipId = `gantt-marker-cell-clip-${day.offset}`;
+    const cellClip = document.createElementNS(SVG_NS, 'clipPath');
+    cellClip.setAttribute('id', cellClipId);
+    cellClip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    const cellShape = svgRect(
+      cellX,
+      ROW_PX - MARKER_CHIP_HEIGHT_PX,
+      dayPx,
+      MARKER_CHIP_HEIGHT_PX,
+      '#000',
+    );
+    cellShape.setAttribute('rx', '2');
+    cellClip.appendChild(cellShape);
+    chipClips.appendChild(cellClip);
     for (const [share, marker] of standing.entries()) {
       const fill = markerFill(marker);
       const chipX = cellX + share * sharePx;
@@ -2322,8 +2354,9 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
       );
       // The live chip's `rounded-sm`, which is 2px: the file is the chart as
       // drawn, and a sharp corner where the screen has a soft one is the same
-      // class of disagreement as a wrong x, only quieter.
-      chip.setAttribute('rx', '2');
+      // class of disagreement as a wrong x, only quieter. It is the cell's
+      // clip that carries it now, for the seam reason above.
+      chip.setAttribute('clip-path', `url(#${cellClipId})`);
       // The live band's own two hooks, on the file's copy of the same chip:
       // "the export matches the screen" is a claim about two documents, and it
       // is only checkable if the same question can be asked of both.

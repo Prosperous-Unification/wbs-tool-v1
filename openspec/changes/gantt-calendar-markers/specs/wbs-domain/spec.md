@@ -516,11 +516,34 @@ disagree.
 **A chip is a position and a colour, not a name.** On screen the name lives in
 the chip's hover list, and at 4px the chip is a coloured tick; a downloaded
 file has no pointer and no 4px exemption. So the export SHALL also carry a
-**legend**: one row per marker, its swatch, its `date` and its `name`, in the
-list's `(date, created_at, id)` order, at every rung. Every marker name SHALL
-appear as text in the exported markup. A tooltip mechanism does not satisfy
-this — it is the hover answer again, and it is invisible in a printed page or
-a rasterised copy, which is what a downloaded chart is for.
+**legend**: one row per chip **the file draws**, its swatch, its `date` and its
+`name`, in the band's `(date, created_at, id)` order, at every rung. Every name
+the legend names SHALL appear as text in the exported markup. A tooltip
+mechanism does not satisfy this — it is the hover answer again, and it is
+invisible in a printed page or a rasterised copy, which is what a downloaded
+chart is for.
+
+**Per chip drawn, not per marker** (2026-09-06, TASK-287). The clause above
+said "one row per marker" until this change, while `layOutMarkerLegend` has
+taken the drawn band since it was written; TASK-281's 12px case made the two
+contradict each other in writing by asserting a capped marker's *absence* from
+the legend. The band is what loses ties here, and deliberately: a legend is a
+**key to the picture**. Its stated job two sentences up is to turn the file's
+coloured shapes back into names, so a row whose swatch names a colour that is
+nowhere in the file is a key that sends the reader hunting for a shape that
+does not exist — the same defect as an unnamed shape, pointing the other way.
+A marker off the drawn horizon and a marker past its cell's share of
+`MARKER_BAND_MAX_PER_CELL` are both undrawn, both by
+`markersDrawnInBand`, and neither has a swatch to be the key to.
+
+**What this does not settle.** "The file drops a marker the plan has" is a real
+concern and it is not the legend's to answer. On screen that cell carries a
+`+N` badge and a day card behind it; the export carries neither, so a capped
+marker leaves the download with nothing at all saying it was dropped. That is a
+gap in what the *picture* records, not in what the *key* names, and the fix for
+it is the export's own overflow affordance rather than nameless legend rows —
+an undrawn entry has no swatch to show and no chip to point at, so a legend
+built from the full marker list would have to invent both.
 
 The legend SHALL lie wholly inside the exported `viewBox`, which means the
 export SHALL grow its canvas to hold it. `buildStandaloneGanttSvg` fixes

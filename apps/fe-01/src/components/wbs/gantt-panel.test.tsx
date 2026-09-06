@@ -7210,6 +7210,90 @@ describe('downloading the chart as a standalone .svg', () => {
         [...doc.querySelectorAll('[data-legend-name]')].map((word) => word.textContent),
       ).toEqual(['Cutover', 'Freeze']);
     });
+
+    /** Every `clipPath` the export writes for a whole marker cell, in document order. */
+    const cellClipIds = (doc: Document): string[] =>
+      [...doc.querySelectorAll('clipPath')]
+        .map((clip) => clip.getAttribute('id') ?? '')
+        .filter((id) => id.startsWith('gantt-marker-cell-clip-'));
+
+    itDom('joins two shares of one day squarely, inside a single rounded cell', async () => {
+      // TASK-287 AC #3. Each share carried its own `rx="2"`, so at the seam the
+      // left share's right corners and the right share's left corners were both
+      // rounded and the background showed through the notch between them — a
+      // gap the screen does not have, where a crowded cell is chips in a flex
+      // row rather than one rect split in two. `rx` has no per-corner spelling,
+      // so the rounding moved off the share and onto the cell.
+      renderMarked([
+        { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
+        { id: 'm-freeze', date: dayAt(2), name: 'Freeze', color: CORAL },
+      ]);
+      const doc = await downloadedDoc();
+
+      const onDay = [...doc.querySelectorAll('[data-marker-chip]')].filter(
+        (chip) => chip.getAttribute('data-marker-offset') === '2',
+      );
+      expect(onDay).toHaveLength(2);
+      // **The notch's source is gone.** This is the watched negative for the
+      // whole case: restore `rx` on the share and this line is the one that
+      // fails, before any of the geometry below is reached.
+      for (const chip of onDay) {
+        expect(chip.getAttribute('rx')).toBeNull();
+      }
+      // Both shares are clipped by the same cell, which is what makes the join
+      // between them square while the pair's outer corners stay round.
+      const clipRef = 'url(#gantt-marker-cell-clip-2)';
+      expect(onDay.map((chip) => chip.getAttribute('clip-path'))).toEqual([clipRef, clipRef]);
+      // Square at the seam: the right share starts exactly where the left one
+      // ends, with no radius either side of that edge to open a gap.
+      const seam = Number(onDay[0].getAttribute('x')) + Number(onDay[0].getAttribute('width'));
+      expect(Number(onDay[1].getAttribute('x'))).toBe(seam);
+
+      // **Round at the outside**, and at the cell's width rather than a share's:
+      // the clip is the whole day, so the rounding the live chip's `rounded-sm`
+      // asks for survives on the pair's left and right ends.
+      const cell = [...doc.querySelectorAll('clipPath')].find(
+        (clip) => clip.getAttribute('id') === 'gantt-marker-cell-clip-2',
+      );
+      const cellShape = cell?.querySelector('rect');
+      expect(cellShape?.getAttribute('rx')).toBe('2');
+      expect(Number(cellShape?.getAttribute('width'))).toBe(DAY_PX);
+      expect(Number(cellShape?.getAttribute('x'))).toBe(Number(onDay[0].getAttribute('x')));
+      expect(Number(cellShape?.getAttribute('height'))).toBe(
+        Number(onDay[0].getAttribute('height')),
+      );
+      expect(Number(cellShape?.getAttribute('y'))).toBe(Number(onDay[0].getAttribute('y')));
+    });
+
+    itDom('leaves a day with no chips on it before the share arithmetic', async () => {
+      // TASK-287 AC #2. `sharePx = dayPx / standing.length` was evaluated for
+      // **every** axis day, and on the empty ones `standing.length` is 0, so it
+      // was an `Infinity` computed once per empty day on a chart that can carry
+      // hundreds. Nothing read it — the loop under it ran zero times — which is
+      // exactly why it needed an observable consequence rather than a comment:
+      // the cell clip is now written inside the same guard, so an empty day
+      // that reached the arithmetic would leave one behind in the file.
+      renderMarked([
+        { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
+        { id: 'm-freeze', date: dayAt(5), name: 'Freeze', color: CORAL },
+      ]);
+      const doc = await downloadedDoc();
+
+      // The chart really does have empty days for the guard to skip, proven off
+      // the chips themselves rather than by re-deriving the horizon: three cells
+      // separate two chips one cell wide, so offsets 3 and 4 carry nothing.
+      const chips = [...doc.querySelectorAll('[data-marker-chip]')];
+      expect(chips.map((chip) => chip.getAttribute('data-marker-offset'))).toEqual(['2', '5']);
+      expect(Number(chips[1].getAttribute('x')) - Number(chips[0].getAttribute('x'))).toBe(
+        3 * DAY_PX,
+      );
+      // So exactly two cells were reached, not one per day on the axis. Strike
+      // the guard and offsets 3 and 4 arrive here too.
+      expect(cellClipIds(doc)).toEqual([
+        'gantt-marker-cell-clip-2',
+        'gantt-marker-cell-clip-5',
+      ]);
+    });
   });
 });
 
