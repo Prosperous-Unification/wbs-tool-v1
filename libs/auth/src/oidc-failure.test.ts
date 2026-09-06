@@ -222,7 +222,6 @@ describe('classifyOidcFailure', () => {
       // case is the point: an alert added tomorrow is still an alert, because an
       // alert is by definition something the far end sent us.
       for (const code of [
-        'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR',
         'ERR_SSL_TLSV1_ALERT_SOMETHING_OPENSSL_ADDS_LATER',
         // Not alerts, but still about what came back over the wire — one case
@@ -275,6 +274,7 @@ describe('classifyOidcFailure', () => {
       // waiting — the `unavailable` move — would be advice that never comes
       // true. An operator has to change one side's TLS configuration.
       for (const code of [
+        'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
         'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
         'ERR_SSL_TLSV13_ALERT_MISSING_EXTENSION',

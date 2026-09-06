@@ -254,21 +254,21 @@ const OPENSSL_ALERT = /^ERR_SSL_[A-Z0-9]+_ALERT_[A-Z0-9_]+$/;
  * typed anything wrong, every login fails, and waiting will not help. They take
  * the same `client_authentication_failed` slug.
  */
+const CLIENT_CREDENTIAL_ALERT =
+  /_ALERT_(BAD_CERTIFICATE|UNSUPPORTED_CERTIFICATE|CERTIFICATE_REVOKED|CERTIFICATE_EXPIRED|CERTIFICATE_UNKNOWN|UNKNOWN_CA|CERTIFICATE_REQUIRED|ACCESS_DENIED|UNKNOWN_PSK_IDENTITY)$/;
+
 /**
  * The alerts that say the two ends could not agree on how to talk at all.
  *
- * `PROTOCOL_VERSION`, `INSUFFICIENT_SECURITY`, `MISSING_EXTENSION` and
- * `NO_APPLICATION_PROTOCOL` are the peer objecting to *how we asked*, not
+ * `HANDSHAKE_FAILURE`, `PROTOCOL_VERSION`, `INSUFFICIENT_SECURITY`,
+ * `MISSING_EXTENSION` and `NO_APPLICATION_PROTOCOL` are the peer objecting to *how we asked*, not
  * reporting that it is failing. The peer was reachable and answered; waiting
  * will not change either side's TLS configuration, so an operator has to. They
  * take `local_defect` rather than the credential slug because nothing about our
  * identity was refused — only our terms.
  */
 const NEGOTIATION_ALERT =
-  /_ALERT_(PROTOCOL_VERSION|INSUFFICIENT_SECURITY|MISSING_EXTENSION|UNSUPPORTED_EXTENSION|NO_APPLICATION_PROTOCOL)$/;
-
-const CLIENT_CREDENTIAL_ALERT =
-  /_ALERT_(BAD_CERTIFICATE|UNSUPPORTED_CERTIFICATE|CERTIFICATE_REVOKED|CERTIFICATE_EXPIRED|CERTIFICATE_UNKNOWN|UNKNOWN_CA|CERTIFICATE_REQUIRED|ACCESS_DENIED|UNKNOWN_PSK_IDENTITY)$/;
+  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|MISSING_EXTENSION|UNSUPPORTED_EXTENSION|NO_APPLICATION_PROTOCOL)$/;
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
