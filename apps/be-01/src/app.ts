@@ -26,6 +26,7 @@ import type { DeferringBroadcaster } from './service/broadcast';
 import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
 import type { HistoryService } from './service/history.service';
+import { LoginThrottle } from './service/login-throttle';
 import type { OuterTransaction } from './service/outer-transaction';
 import { PlanCommandRunner } from './service/plan-commands';
 import type { PriorityBandService } from './service/priority-band.service';
@@ -44,6 +45,8 @@ export interface AppOptions {
    * absent, answering 404 — indistinguishable from a routing fault at the edge.
    */
   auth: AuthService;
+  /** Per-process active password logins; defaults to eight and must be a positive integer. */
+  maxConcurrentLogins?: number;
   oidc?: OidcRouteOptions;
   /**
    * Required for the same reason as `auth`: an absent project service would
@@ -169,7 +172,14 @@ export function mountedRouteLists(
 ): readonly (readonly Route[])[] {
   return [
     smokeRoutes(),
-    authRoutes(opts.auth, opts.oidc),
+    authRoutes(
+      opts.auth,
+      opts.oidc,
+      new LoginThrottle({
+        now: opts.oidc?.now,
+        maxConcurrent: opts.maxConcurrentLogins ?? 8,
+      }),
+    ),
     solutionRoutes(opts.auth, opts.projects),
     projectRoutes(opts.auth, opts.projects, opts.workItems),
     // After `projectRoutes`, whose `/api/projects` paths it extends: the

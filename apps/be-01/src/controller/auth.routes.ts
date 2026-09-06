@@ -23,7 +23,7 @@ import {
 } from '../http/route';
 import { cookiesIn, cookieValue, userFromHeaders } from '../middleware/authenticated';
 import { type AuthService, TOKEN_TTL_SECONDS } from '../service/auth.service';
-import { LoginThrottle } from '../service/login-throttle';
+import type { LoginThrottle } from '../service/login-throttle';
 
 export interface OidcRouteOptions {
   appOrigin: string;
@@ -158,9 +158,11 @@ const CREDENTIALS_BODY = checkedBody('The account name and password.', {
  * the route list on purpose: `onRequest` in `app.ts` calls it before routing, so
  * it guards paths no route here declares.
  */
-export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] {
-  const passwordThrottle = new LoginThrottle({ now: oidc?.now });
-
+export function authRoutes(
+  auth: AuthService,
+  oidc: OidcRouteOptions | undefined,
+  passwordThrottle: LoginThrottle,
+): Route[] {
   const passwordRoutes: Route[] = [
     {
       method: 'POST',
@@ -224,23 +226,28 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
           return respond(400, { error: 'invalid_client' });
         }
         const throttleIp = clientIp ?? 'local-direct';
-        if (!passwordThrottle.canAttempt(credentials.username, throttleIp)) {
-          return respond(429, { error: 'invalid_credentials' });
+        // Proof: moving this below auth.login makes "reserves at most five held attempts" observe twenty.
+        const release = passwordThrottle.reserve(credentials.username, throttleIp);
+        if (release === null) return respond(429, { error: 'invalid_credentials' });
+        try {
+          const outcome = await auth.login(credentials.username, credentials.password);
+          if (!outcome.ok) {
+            passwordThrottle.recordFailure(credentials.username, throttleIp);
+            return respond(401, { error: 'invalid_credentials' });
+          }
+          passwordThrottle.recordSuccess(credentials.username);
+          if (oidc !== undefined) {
+            return {
+              status: 200,
+              body: { token: '', user: outcome.value.user },
+              cookies: [cookie('__Host-wbs_access', outcome.value.token, TOKEN_TTL_SECONDS)],
+            };
+          }
+          return ok(outcome.value);
+        } finally {
+          // Proof: removing release makes "releases capacity after success/refusal/error" observe two, not three.
+          release();
         }
-        const outcome = await auth.login(credentials.username, credentials.password);
-        if (!outcome.ok) {
-          passwordThrottle.recordFailure(credentials.username, throttleIp);
-          return respond(401, { error: 'invalid_credentials' });
-        }
-        passwordThrottle.recordSuccess(credentials.username);
-        if (oidc !== undefined) {
-          return {
-            status: 200,
-            body: { token: '', user: outcome.value.user },
-            cookies: [cookie('__Host-wbs_access', outcome.value.token, TOKEN_TTL_SECONDS)],
-          };
-        }
-        return ok(outcome.value);
       },
       documentation: { detail: { requestBody: CREDENTIALS_BODY } },
     },

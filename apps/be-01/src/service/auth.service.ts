@@ -93,14 +93,14 @@ export class AuthService {
     return { ok: true, value: await this.issue(created) };
   }
 
+  /** Invalid credentials return a refusal; unexpected store/verifier failures propagate. */
   async login(username: string, password: string): Promise<LoginOutcome> {
     const user = await this.opts.users.findByUsername(username);
     const passwordHash = user?.passwordHash ?? null;
     const hasUsableCredential = passwordHash !== null && password.length <= MAX_PASSWORD;
     const hash = hasUsableCredential ? passwordHash : DUMMY_HASH;
-    const matches = await this.verifyPassword(password.slice(0, MAX_PASSWORD), hash).catch(
-      () => false,
-    );
+    // Proof: restoring catch(() => false) makes "releases capacity after error" answer 401, not 500.
+    const matches = await this.verifyPassword(password.slice(0, MAX_PASSWORD), hash);
     if (!matches || user === null || passwordHash === null || password.length > MAX_PASSWORD) {
       return { ok: false, reason: 'invalid' };
     }
