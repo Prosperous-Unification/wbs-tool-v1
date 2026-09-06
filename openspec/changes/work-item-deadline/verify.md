@@ -413,7 +413,7 @@ hosts. **That hash is the slice-4 seam's file and will not match this head.**
 `on-time.ts` held `isOnTime` alone when it was taken; `workdaysLateBy` joined it
 in slice 5, and the file never reached `origin/main` in its one-function shape —
 `8decf889` squashed both in together. A reader running `md5sum` at this head
-gets `63824ae9`, which is the *second* seam's number, immediately below.
+gets `63824ae9`, which is the _second_ seam's number, immediately below.
 
 **Then, re-proved after `workdaysLateBy` took the arithmetic: 4 of 9 cases red,
 5 pass.** The substitution now has to go inside `workdaysLateBy`, because
