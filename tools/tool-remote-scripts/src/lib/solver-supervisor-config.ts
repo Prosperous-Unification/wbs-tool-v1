@@ -73,6 +73,6 @@ export function decodeSolverSupervisorConfig(
         maxStderrBytes: 256 * 1024,
       },
     },
-    imageFor: images.imageFor,
+    imageFor: (identity) => images.imageFor(identity),
   };
 }

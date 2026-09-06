@@ -55,7 +55,13 @@ describe('the solver supervisor host config', () => {
   });
 
   it('rejects missing, unknown, fractional, and embedded-authority fields', () => {
-    const { images: _, ...missing } = CONFIG;
+    const missing = {
+      socketPath: CONFIG.socketPath,
+      maxSearchWorkers: CONFIG.maxSearchWorkers,
+      maxMemoryLimitMb: CONFIG.maxMemoryLimitMb,
+      pidsLimit: CONFIG.pidsLimit,
+      maxManagedContainers: CONFIG.maxManagedContainers,
+    };
     expect(() => decodeSolverSupervisorConfig(missing)).toThrow(/missing key images/);
     expect(() => decodeSolverSupervisorConfig({ ...CONFIG, dockerSocket: '/var/run/docker.sock' })).toThrow(
       /unknown key dockerSocket/,
