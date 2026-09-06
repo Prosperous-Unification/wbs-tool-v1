@@ -1,5 +1,5 @@
 import { ASSUMED_SLICE_WORKDAYS } from '@wbs/domain/assumed-duration';
-import { automaticColor, labelInk, PALETTE } from '@wbs/domain/marker-color';
+import { automaticColor, labelInk, PALETTE, validateCustomColor } from '@wbs/domain/marker-color';
 import {
   addCalendarDays,
   addWorkdays,
@@ -2878,6 +2878,27 @@ function GanttChart({
    */
   const [composerName, setComposerName] = useState('');
   /**
+   * The fill the reader has chosen for the marker being composed, or `null`
+   * while they have chosen none.
+   *
+   * `null` and not `automaticColor(markerId)`, because automatic is the
+   * **absence** of a choice rather than a value — the same distinction
+   * {@link onCreateMarker} already documents at the route, where `null` and
+   * absent are one answer. A default of the previewed hex would send a colour
+   * every reader who never opened the picker had not asked for, and would
+   * freeze that marker's fill against a palette that may be re-derived.
+   */
+  const [composerColor, setComposerColor] = useState<string | null>(null);
+  /**
+   * Why the composer refused to save, or `null` while it has not.
+   *
+   * Its own state rather than {@link refusal}, which says why an axis **cell**
+   * would not open a composer at all: the two are read in different places and
+   * a shared slot would let a cell refusal survive into an open composer, or a
+   * colour refusal outlive the composer that produced it.
+   */
+  const [composerRefusal, setComposerRefusal] = useState<string | null>(null);
+  /**
    * Why the cell that was just operated refuses to open a composer, or `null`
    * when nothing has been refused.
    *
@@ -3317,6 +3338,10 @@ function GanttChart({
     (date: IsoDate) => {
       setSheetAt(null);
       setComposerName('');
+      // Cleared with the name and for its reason: neither a draft colour nor a
+      // refusal earned by one may outlive the opening it was made in.
+      setComposerColor(null);
+      setComposerRefusal(null);
       setComposer({ date, markerId: newMarkerId() });
     },
     [newMarkerId],
@@ -5249,7 +5274,7 @@ function GanttChart({
                 aria-hidden="true"
                 data-composer-swatch={composer.markerId}
                 className="border-border h-3 w-3 shrink-0 rounded-full border"
-                style={{ backgroundColor: automaticColor(composer.markerId) }}
+                style={{ backgroundColor: composerColor ?? automaticColor(composer.markerId) }}
               />
               <input
                 ref={focusOnOpen}
@@ -5261,7 +5286,49 @@ function GanttChart({
                 }}
                 className="border-border w-48 rounded border px-2 py-1 text-xs"
               />
+              {/*
+                The reader's own fill, and the third call site
+                {@link validateCustomColor} is owed — task 3.4. Until this
+                existed the validator had no fe-01 caller at all: both server
+                routes could be correctly wired and fully unit-tested while the
+                one surface a person actually types a colour into never asked.
+
+                `type="color"`, so the value reaching the check is always a
+                well-formed `#rrggbb` and the shape half of the contract is the
+                platform's rather than a second parser here. Its `value` shows
+                the automatic fill until a choice is made, which is what makes
+                the picker open on the colour the swatch beside it is already
+                previewing — but the choice itself stays `null` until the reader
+                changes it, so opening and closing the picker sends nothing.
+              */}
+              <input
+                type="color"
+                aria-label="Marker colour"
+                data-composer-color
+                value={composerColor ?? automaticColor(composer.markerId)}
+                onChange={(edit) => {
+                  setComposerColor(edit.target.value);
+                  setComposerRefusal(null);
+                }}
+                className="border-border h-6 w-8 shrink-0 rounded border"
+              />
             </div>
+            {/*
+              What the colour failed over, in the validator's own words.
+
+              The **message** and not a fixed string: 3.3 proves
+              {@link validateCustomColor} names the backdrop the fill failed
+              against, and a composer that suppressed the request and then said
+              only "invalid colour" would satisfy every request-body assertion
+              this slice makes while telling the reader nothing about which of
+              the twenty grounds it failed over. Both composer scenarios require
+              that sentence.
+            */}
+            {composerRefusal !== null && (
+              <p role="status" data-composer-refusal className="text-destructive mt-2 text-xs">
+                {composerRefusal}
+              </p>
+            )}
             {/*
               The save, reporting upward for {@link GanttProps.onRenameMarker}'s
               reason: the list this chart draws arrives as a prop, so the owner
@@ -5280,10 +5347,26 @@ function GanttChart({
               aria-label={`Save the new calendar marker on ${shortIsoDate(composer.date, today)}`}
               className="mt-2 text-xs underline"
               onClick={() => {
+                // Task 3.4's composer arm. The check is **before** the report
+                // upward and not after it: what the slice buys is that nothing
+                // invalid ever leaves the client, and a validate-after-send
+                // would answer the reader correctly while the sub-bar colour
+                // was already on the wire.
+                if (composerColor !== null) {
+                  const verdict = validateCustomColor(composerColor);
+                  if (!verdict.ok) {
+                    setComposerRefusal(verdict.message);
+                    return;
+                  }
+                }
                 onCreateMarker({
                   markerId: composer.markerId,
                   date: composer.date,
                   name: composerName.trim(),
+                  // Absent unless the reader chose one, for
+                  // {@link composerColor}'s reason: automatic is the absence of
+                  // a choice, and `null` and absent are one answer to the route.
+                  ...(composerColor === null ? {} : { color: composerColor }),
                 });
                 setComposer(null);
               }}

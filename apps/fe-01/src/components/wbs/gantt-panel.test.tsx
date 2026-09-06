@@ -7986,6 +7986,80 @@ describe('the composer creates the marker whose colour it previewed', () => {
     // are one colour, and they are one only because they are one id.
     expect(chip.style.backgroundColor).toBe(previewed);
   });
+
+  /**
+   * A fill so pale that no light backdrop can carry it — `#f0f0f0` against
+   * `#ffffff` is nowhere near 3:1, and `light:base` is the first entry of
+   * `MARKER_BACKDROPS`, so it is the backdrop the verdict's message names.
+   */
+  const SUB_BAR = '#f0f0f0';
+
+  itDom('keeps a sub-bar colour off the wire, and says which backdrop it failed over', () => {
+    // Task 3.4's **third** call site, and until the composer grew a colour
+    // input `validateCustomColor` had no fe-01 caller at all: both be-01 arms
+    // could be correctly wired and fully unit-tested — both their negatives are
+    // handler removals and are watched — while the one surface a person types a
+    // colour into never asked. Round-6 Sol review, Important 8.
+    //
+    // **The oracle is the outgoing request and not the UI.** With the server
+    // calls intact be-01 refuses this colour either way, so "the reader sees a
+    // refusal" is green under a composer that never validates; only "nothing
+    // invalid left the client" is not. Same oracle as 4.3a: a fake API that
+    // records what it was sent.
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    fireEvent.click(cellAt(9));
+    fireEvent.change(screen.getByLabelText('Marker name'), { target: { value: 'Go live' } });
+    fireEvent.change(screen.getByLabelText('Marker colour'), { target: { value: SUB_BAR } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
+    // Nothing left the client, and nothing was stored.
+    expect(creates).toEqual([]);
+    expect(api.markers).toEqual([]);
+    // The composer stays open on the reader's work rather than closing over a
+    // save that did not happen.
+    expect(document.querySelector('[data-marker-composer]')).not.toBeNull();
+
+    // And the refusal is the **validator's** sentence, not a fixed string. A
+    // composer that called the validator, suppressed the request and then
+    // rendered "invalid colour" would satisfy every assertion above while
+    // telling the reader nothing about which of the twenty grounds it failed
+    // over — which is what both composer scenarios require it to say.
+    const said = document.querySelector('[data-composer-refusal]')?.textContent ?? '';
+    expect(said).toContain(SUB_BAR);
+    expect(said).toContain('light:base');
+    expect(said).toContain('3:1');
+  });
+
+  itDom('sends a colour the reader chose that clears the bar, and previews it first', () => {
+    // The other half of the same call site: the check is a gate and not a ban,
+    // so a palette fill picked by hand reaches the create body as `color` —
+    // which is also what says the `undefined` in the case above is the absence
+    // of a choice rather than a colour the composer cannot send at all.
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    fireEvent.click(cellAt(9));
+    fireEvent.change(screen.getByLabelText('Marker name'), { target: { value: 'Go live' } });
+    fireEvent.change(screen.getByLabelText('Marker colour'), {
+      target: { value: PALETTE[0].fill },
+    });
+
+    // The swatch follows the choice, so the reader is never previewing one
+    // colour while about to send another — task 3.5's rule, one step along.
+    const swatch = document.querySelector<HTMLElement>('[data-composer-swatch]');
+    expect(swatch?.style.backgroundColor).toBe(asRgb(PALETTE[0].fill));
+    expect(document.querySelector('[data-composer-refusal]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
+    expect(creates).toEqual([
+      ['p1', { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live', color: PALETTE[0].fill }],
+    ]);
+  });
 });
 
 /**

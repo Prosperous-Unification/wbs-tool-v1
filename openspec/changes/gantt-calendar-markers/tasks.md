@@ -3716,3 +3716,57 @@ already recorded. Only the project target counts.
 Gates on **h2puni** at the committed bytes: `be-01:test` **1567 pass / 0 fail**
 across 127 files (up from 1565 by exactly these two), `be-01:typecheck` rc 0,
 `be-01:lint` rc 0, `prettier --check` rc 0 on the touched file.
+
+## Chunk 76 — 3.4's third call site: the composer asks (TASK-235 run 37, 2026-09-06)
+
+**3.4 stays unticked**, and exactly one case and one fault are owed — the
+fourth. Landed here: the composer's custom-colour input, the
+`validateCustomColor` call in front of its save, and the two jsdom cases that
+pin the request body either way.
+
+**Until this chunk the validator had no fe-01 caller at all.** Both be-01 arms
+were landed and watched on 2026-09-05, and both their negatives are handler
+removals — so the routes could be correctly wired and fully unit-tested while
+the one surface a person types a colour into never asked. Round-6 Sol review,
+Important 8.
+
+**`type="color"`, so the shape half of the contract is the platform's.** The
+value reaching `validateCustomColor` is always a well-formed `#rrggbb` and this
+file adds no second parser. The input's `value` shows `automaticColor(markerId)`
+until a choice is made — the picker opens on the colour the swatch is already
+previewing — but `composerColor` stays `null` until the reader changes it, so
+opening and closing the picker sends nothing. `null` and not the previewed hex,
+because automatic is the **absence** of a choice rather than a value: the create
+body omits `color` entirely unless one was chosen, which is the same distinction
+the route already documents and 7.2a's 422 arm proves.
+
+**The check is in front of the report upward, not after it.** What the slice
+buys is that nothing invalid leaves the client; a validate-after-send answers
+the reader correctly while the sub-bar colour is already on the wire.
+
+**Its own refusal state, not the cell's.** `refusal` says why an axis cell would
+not open a composer at all; a shared slot would let a cell refusal survive into
+an open composer, or a colour refusal outlive the composer that earned it. Both
+are cleared when a composer opens, with the name and for the name's reason.
+
+**Negative watched, and it is precise.** Only the composer's guard removed — 276
+bytes, the `if (composerColor !== null)` block and nothing else, applied on the
+gate host and restored, md5 `b4d16937` both hosts. **1 failed / 220 passed**,
+the sub-bar case alone, and it fails on the **request**: `expected [ [ 'p1', {
+…(4) } ] ] to deeply equal []` — a create body carrying four members, `color`
+among them. The palette-fill case beside it stays green, which is what says the
+check is a gate and not a ban.
+
+**What 3.4 still owes: the fourth case and the fourth fault.** The case here
+asserts the refusal names `light:base` and `3:1`, but the slice's fourth case is
+deliberately harder — submit 3.3's 19-of-20 colour, the one failing _only_ over
+the light pointed-row light under the today tint, and assert the rendered text
+names **that** backdrop, because a message naming the dark base could be
+produced by a composer that only knows about themes. Its fault is a consumer
+fault rather than a removal: the composer discarding the verdict's backdrop name
+and substituting a fixed string while still suppressing the request.
+
+Gates on **h2puni** at the committed bytes, the `fe-01` test target: 88 files /
+**2303 passed** / 0 fail, up from 2301 by exactly these two, plus the zoned tier
+2 files / 3 passed. `fe-01:typecheck` rc 0, `fe-01:lint` rc 0, `prettier
+--check` rc 0 on both touched files before the suite ran.
