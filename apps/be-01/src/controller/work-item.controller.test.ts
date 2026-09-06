@@ -2060,3 +2060,91 @@ describe('saying where a step’s work has got to', () => {
     expect(await res.json()).toEqual({ error: 'not_found', at: 0, kind: 'clearProgress' });
   });
 });
+
+/**
+ * What a JSON **array** body reaches on this route module, measured rather than
+ * argued.
+ *
+ * `asRecord` is spelled `typeof body !== 'object' || body === null`, and
+ * `typeof [] === 'object'`, so it admits an array where the `t.Object(...)`
+ * schema it replaced refused one. That exact spelling is what let a JSON `[]`
+ * write a saved plan earlier on this branch, and the terminal Gemini review
+ * flagged this copy of it as a **possible live hole** rather than a comment.
+ * The peer review read the same code and concluded no write path is unlocked.
+ *
+ * Two reviews disagreeing about whether a hole exists is what a test is for.
+ * These are the four ways an array can reach `asRecord` from the wire — the
+ * whole body of each batch route, a command entry inside a batch, and a
+ * command's nested `patch` — and every one of them is refused. `undo` and
+ * `redo` read no body at all.
+ *
+ * The third case was **red** when it was written — 200, not 400 — so `asRecord`
+ * now uses `isFieldBag`, the predicate the rest of this branch already uses.
+ * These assert a refusal rather than the code that produces it, so a later
+ * narrowing keeps them green; a future field that reads `raw[...]` without a
+ * required check is what puts the third one back in the red.
+ */
+describe('a JSON array body on the work-item routes', () => {
+  it('is refused as the whole batch, at both command routes', async () => {
+    const { token, send, projectId } = await setup();
+
+    const plan = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify([]),
+    });
+    const directory = await send('/api/directory/commands', token, {
+      method: 'POST',
+      body: JSON.stringify([]),
+    });
+
+    // 400 and `expected_object`, not `commands_must_be_a_list`: `asRecord`
+    // refuses the array itself, one check earlier than the missing `commands`.
+    // The body matters — a status-only assertion here would pass against the
+    // route answering its framework's 400 instead.
+    expect(plan.status).toBe(400);
+    expect(await plan.json()).toEqual({ error: 'expected_object' });
+    expect(directory.status).toBe(400);
+    expect(await directory.json()).toEqual({ error: 'expected_object' });
+  });
+
+  it('is refused as one command inside a batch', async () => {
+    const { token, send, projectId } = await setup();
+
+    const res = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify({ commands: [[]] }),
+    });
+
+    // `at` names which command, which is the whole reason a batch refusal
+    // carries it: an array entry has no `kind`, so it is refused before any
+    // write is attempted.
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ at: 0 });
+  });
+
+  it('is refused as a command’s nested patch, before any write is attempted', async () => {
+    const { token, send, projectId } = await setup();
+    const created = await command(send, token, projectId, {
+      kind: 'createWorkItem',
+      name: 'Array patch probe',
+    });
+    const workItemId = await mintedId(created);
+
+    const res = await send(`/api/projects/${projectId}/commands`, token, {
+      method: 'POST',
+      body: JSON.stringify({ commands: [{ kind: 'patchWorkItem', workItemId, patch: [] }] }),
+    });
+
+    // **This is the case that measured the hole.** Before `asRecord` was
+    // narrowed it answered **200**: every field read `undefined` off `[]`,
+    // `present()` dropped all of them, and an empty patch reached the service
+    // as a no-op write and was journalled. Both terminal reviews saw this code
+    // and disagreed about it; the run that turned the disagreement into a
+    // request got 200 back.
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'expected_object', at: 0 });
+    // Nothing was written, structurally rather than by a second read: the
+    // route is `commands.run(id, user, parseBatch(body))`, so a refusal
+    // `parseBatch` throws happens before the service is called at all.
+  });
+});

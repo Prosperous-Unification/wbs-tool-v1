@@ -11,7 +11,14 @@ import { parseOrThrow, ValidationError } from '@wbs/validation';
 
 import { handParsedBody } from '../http/body-doc';
 import { callerGuard } from '../http/caller';
-import { ok, respond, type Route, type RouteHandler, type RouteResponse } from '../http/route';
+import {
+  isFieldBag,
+  ok,
+  respond,
+  type Route,
+  type RouteHandler,
+  type RouteResponse,
+} from '../http/route';
 import type { AuthService } from '../service/auth.service';
 import {
   PLAN_COMMAND_KINDS,
@@ -60,9 +67,25 @@ class BadRequest extends Error {
   }
 }
 
+/**
+ * A JSON value this module may read named fields off, or a 400.
+ *
+ * Spelled with {@link isFieldBag} and **not** `typeof body !== 'object'`, which
+ * is what it said until a probe measured the difference: `typeof [] ===
+ * 'object'`, so the old spelling admitted an array where the `t.Object(...)`
+ * schema it replaced refused one, and the cast to `Record<string, unknown>` it
+ * needed was the tell.
+ *
+ * That was **not** only a comment. `{"kind":"patchWorkItem","workItemId":…,
+ * "patch":[]}` answered **200** at this route: every field read `undefined` off
+ * the array, `present()` dropped all of them, and an empty patch reached the
+ * service as a no-op write and was journalled. The same spelling let a JSON
+ * `[]` write a saved plan earlier on this branch. `a JSON array body on the
+ * work-item routes` in `work-item.controller.test.ts` is the standing control.
+ */
 function asRecord(body: unknown): Record<string, unknown> {
-  if (typeof body !== 'object' || body === null) throw new BadRequest('expected_object');
-  return body as Record<string, unknown>;
+  if (!isFieldBag(body)) throw new BadRequest('expected_object');
+  return body;
 }
 
 function refuseDerivedFields(body: Record<string, unknown>): void {
