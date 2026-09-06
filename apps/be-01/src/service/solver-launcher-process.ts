@@ -53,16 +53,24 @@ export function readInstalledSolverVersion(probe: SolverVersionProbe = bunVersio
 /** Uses source metadata only for the source-run dev container, which has no Python install. */
 export function readRuntimeSolverVersion(
   nodeEnv: string | undefined,
-  sourceMetadata?: string,
+  sourceModule?: string,
   probe: SolverVersionProbe = bunVersionProbe,
 ): string {
   if (nodeEnv !== 'development') return readInstalledSolverVersion(probe);
-  const pyproject =
-    sourceMetadata ??
-    readFileSync(new URL('../../../../libs/solver-py/pyproject.toml', import.meta.url), 'utf8');
-  const versions = [...pyproject.matchAll(/^version = "([^"]+)"$/gm)].map((match) => match[1]);
+  // setuptools resolves `[tool.setuptools.dynamic]` from this attribute, so
+  // source development and the installed console script share one authority.
+  // pyproject.toml intentionally has no static `[project].version` to read.
+  const module =
+    sourceModule ??
+    readFileSync(
+      new URL('../../../../libs/solver-py/src/wbs_solver/__init__.py', import.meta.url),
+      'utf8',
+    );
+  const versions = [...module.matchAll(/^__version__ = "([^"]+)"$/gm)].map(
+    (match) => match[1],
+  );
   if (versions.length !== 1) {
-    throw new Error('solver pyproject must contain exactly one non-empty project version');
+    throw new Error('solver source module must contain exactly one non-empty __version__');
   }
   return versions[0];
 }

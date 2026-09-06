@@ -134,4 +134,13 @@ describe('the browser gate’s port shift', () => {
 
     expect(backend.env?.['DB_PATH']).toContain(join(repoRoot, 'tmp'));
   });
+
+  it('gives the source backend a deterministic supervisor caller identity', async () => {
+    // A CI shell need not export HOSTNAME. Production containers still supply
+    // their authenticated Docker hostname; this value belongs only to the
+    // isolated browser stack, which must boot before it can run any case.
+    const [backend] = serversOf(await loadConfig());
+
+    expect(backend.env?.['HOSTNAME']).toBe('wbs-e2e');
+  });
 });

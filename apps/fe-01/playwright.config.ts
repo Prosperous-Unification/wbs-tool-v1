@@ -286,6 +286,10 @@ export default defineConfig({
       PORT: String(bePort),
       GW_URL: gwUrl,
       DB_PATH: runDatabase,
+      // CI shells are not required to export HOSTNAME. Production receives
+      // its authenticated Docker hostname; this fixed identity belongs only
+      // to the isolated source-run browser stack.
+      HOSTNAME: 'wbs-e2e',
       // Stated rather than inherited from `.env.example`: this file is brand
       // new, so it holds no schema at all, and a developer who turned startup
       // migration off locally would otherwise get a stack that boots and 500s
