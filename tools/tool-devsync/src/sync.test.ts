@@ -7,8 +7,8 @@ import { describe, expect, it } from 'bun:test';
 import {
   assertDevSolverSourceCompatible,
   assertMcpEnv,
-  devSyncFailureMessage,
   devSolverMappingOf,
+  devSyncFailureMessage,
   LOCK_BUSY_EXIT_CODE,
   needsRestart,
   preflightSolver,
@@ -157,18 +157,19 @@ describe('dev supervisor', () => {
     let hostChecks = 0;
 
     await preflightSolver(targetSha, {
-      currentSha: async () => deployedSha,
-      changedPaths: async (from, to) => {
+      currentSha: () => Promise.resolve(deployedSha),
+      changedPaths: (from, to) => {
         expect(from).toBe(deployedSha);
         expect(to).toBe(targetSha);
-        return [];
+        return Promise.resolve([]);
       },
-      readConfig: async () => {
+      readConfig: () => {
         configReads += 1;
-        throw new Error('missing optional supervisor config');
+        return Promise.reject(new Error('missing optional supervisor config'));
       },
-      requireHost: async () => {
+      requireHost: () => {
         hostChecks += 1;
+        return Promise.resolve();
       },
     });
 
@@ -182,15 +183,15 @@ describe('dev supervisor', () => {
     expect(
       await rejection(
         preflightSolver('c'.repeat(40), {
-          currentSha: async () => 'b'.repeat(40),
-          changedPaths: async () => ['libs/solver-py/src/wbs_solver/solve.py'],
-          readConfig: async () => {
+          currentSha: () => Promise.resolve('b'.repeat(40)),
+          changedPaths: () =>
+            Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+          readConfig: () => {
             configReads += 1;
-            throw new Error('missing required supervisor config');
+            return Promise.reject(new Error('missing required supervisor config'));
           },
-          requireHost: async () => {
-            throw new Error('host check must follow config validation');
-          },
+          requireHost: () =>
+            Promise.reject(new Error('host check must follow config validation')),
         }),
       ),
     ).toContain('missing required supervisor config');
