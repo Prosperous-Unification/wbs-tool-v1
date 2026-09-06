@@ -51,11 +51,21 @@ here.
       with a forward migration under `apps/be-01/drizzle/`. **No reason
       column** — the floor's `start_no_earlier_than_reason` gets no counterpart
       here, and adding one speculatively is out of scope.
-- [ ] 1.2 **`apps/be-01/drizzle/**` is a prod-mode path**
+- [x] 1.2 **`apps/be-01/drizzle/**` is a prod-mode path**
 (`notes/delivery-modes.md`): this slice ships as a reviewed PR and is not
       self-merged, and it carries **nothing else** — no domain code, no API
       field, no UI. That isolation is the same one TASK-218 applied to the cache
       migration, and it is what lets slices 2–9 self-merge.
+      **Done: PR #218, squashed to `b2bb095c` on 2026-09-06T11:07:15Z.** Three
+      review rounds, both seats, round 3 PASS at `240be00c` with zero Critical
+      in any of the six verdicts. Its diff is the migration folder,
+      `schema.ts`, the nine hand-written registration files and this change's
+      own spec — no domain code, no API field, no UI, exactly as written.
+      Merged on the whole `bin/h2puni-gate.sh` green at `be24dc90` (22 projects,
+      `test lint typecheck build`, plus `format:check --all`) and CI green in
+      both jobs. The two commits between round 3 and the merge fix what only a
+      complete gate could see: `jsdoc/no-multi-asterisks` in `schema.ts`, and
+      main's ninth registration site arriving under the branch at `4051512c`.
 - [x] 1.3 Proof, not assertion: the migration runs forward on a copy of a real
       migrated database file and every existing row reads `deadline: null`
       afterwards. Rolling the **application** back with the column present is
