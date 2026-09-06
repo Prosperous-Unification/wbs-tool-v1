@@ -294,3 +294,27 @@ their `## Chunk` sections. **Nothing in G is blocked on measurement any more.**
 **This is not a CI verdict.** PR 209 is `CONFLICTING` and no workflow run exists
 for this head; see `tasks.md`'s run-37 sections for the cause and the port the
 merge needs.
+
+## Whole-workspace gate — at `99d31465`, item G's first clause closed
+
+`bunx nx run-many -t test lint typecheck` on **h2puni** (`~/t235-gate`,
+`NX_DAEMON=false`, `--skip-nx-cache`), 2026-09-06T10:18:49Z:
+
+**`NX   Successfully ran targets test, lint, typecheck for 22 projects`.**
+
+- `fe-01`: **88 test files, 2305 passed**.
+- `be-01`: **1641 tests across 129 files, 0 failed** (183.02s).
+- `mcp-01`: 106 across 7 files. The other tiers: 517/43, 243/20, 178/7, 81/3,
+  34/3, 5/1, 2/1.
+- Lint workspace-wide: **1 problem, 0 errors, 1 warning** — the pre-existing
+  `wbs-table.tsx` `react-hooks/exhaustive-deps` notice, untouched by this task.
+
+**Run at the committed bytes, and that is checked rather than assumed.** md5
+equal on both hosts for every file this run touched:
+`calendar-marker.routes.ts` `8bdcdce6`, `app.ts` `a3726711`, `openapi.json`
+`a5039bdf`, `body-doc.ts` `90ac6d0d`.
+
+This supersedes the `41e9de4a` recording, which was four heads stale by the time
+the `origin/main` merge landed. **It is not a CI verdict** — CI run
+`34026841948` is in flight at this head, and PR 209 reads `MERGEABLE`
+`UNSTABLE`.

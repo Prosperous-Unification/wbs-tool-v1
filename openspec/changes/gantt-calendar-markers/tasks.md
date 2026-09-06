@@ -2062,7 +2062,7 @@ in both slices rather than implied by position.
 
 ## Gate
 
-- [ ] G Record the actual output of `bunx nx run-many -t test lint typecheck`
+- [x] G Record the actual output of `bunx nx run-many -t test lint typecheck`
       in `verify.md`, with the failure-proof table: for every negative named
       above, the fault injected, the test that observed it failing, and the
       result. A check with no observed failure is not done.
