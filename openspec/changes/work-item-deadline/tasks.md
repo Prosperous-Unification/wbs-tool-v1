@@ -105,7 +105,7 @@ here.
 
 ## 4. `schedule()`'s seventh argument and the inclusive predicate
 
-- [ ] 4.1 `schedule(rows, edges, slices, notBefore, poolSizes, reach, deadlines)`
+- [x] 4.1 `schedule(rows, edges, slices, notBefore, poolSizes, reach, deadlines)`
       with `deadlines: ReadonlyMap<string, number>` **defaulted to an empty map**,
       so every existing caller compiles unchanged and the no-op proof in 4.3 is
       about behaviour rather than about call sites.
@@ -113,7 +113,7 @@ here.
       written **once** as `lastWorkdayOf(start, finish) <= deadlineOffset` and
       referenced by slices 5, 8 and 9 rather than re-derived in any of them.
       `finish <= deadline` does not appear in the implementation.
-- [ ] 4.3 **The no-op proof.** Every case in the Fast golden corpus produces a
+- [x] 4.3 **The no-op proof.** Every case in the Fast golden corpus produces a
       **byte-identical** schedule under the seventh argument defaulted to an
       empty map. This is the one test that says the seam did not move; it is
       compared byte-for-byte against the recorded corpus, not field-by-field.
