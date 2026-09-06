@@ -2049,10 +2049,24 @@ interface LegendEntry {
   readonly dateWidth: number;
 }
 
-/** Where the legend's entries stand and how much height the document has to grow to hold them. */
+/** Where the legend's entries stand and how much the document has to grow, in both directions, to hold them. */
 interface StandaloneLegend {
   readonly entries: readonly LegendEntry[];
   readonly heightPx: number;
+  /**
+   * The width the document has to have for the legend to be inside it: the
+   * chart's own width, or the widest single entry plus its pads where that is
+   * larger.
+   *
+   * **Not an input the legend was handed.** Until 2026-09-06 the legend was
+   * laid out against a width already fixed as `gutterPx + innerWidth`, and its
+   * wrap deliberately never wrapped the first entry of a row (an entry wider
+   * than the file has nowhere better to go, and wrapping it would loop). Those
+   * two together are the fault: a name wider than the document was placed at
+   * `LEGEND_PAD_PX` and drawn straight out of the `viewBox`, with nothing
+   * clipping it and nothing growing to hold it.
+   */
+  readonly widthPx: number;
 }
 
 /**
@@ -2078,17 +2092,29 @@ interface StandaloneLegend {
  * {@link buildStandaloneGanttSvg} has to grow the document by before it writes
  * its `viewBox`. A guessed width per name is a legend that either runs off the
  * right edge of the file or reserves height for rows it never draws.
+ *
+ * **Measured whole, then placed** (2026-09-06), and in that order for a
+ * reason: the wrap needs a width to wrap against, and the width needs the
+ * widest entry, so a pass that placed as it measured would have to know its own
+ * answer before it had it. `minWidthPx` is the chart's own width and a floor,
+ * not the width — see {@link StandaloneLegend.widthPx} for the overflow that
+ * treating it as the width produced.
+ *
+ * **Why grow and not truncate.** The cheaper shape is to cut the name to the
+ * room it has, ellipsis included, which is what the live chip does with
+ * `maxWidth: dayPx`. `spec.md` forbids it here: "Every marker name SHALL appear
+ * as text in the exported markup", explicitly rejecting a tooltip because it is
+ * invisible in a printed page or a rasterised copy — and a truncation is that
+ * refusal with the characters gone rather than hidden. The download is the
+ * artefact with no pointer, so it is the one that has to carry the whole name.
  */
 function layOutMarkerLegend(
   band: readonly { readonly marker: CalendarMarkerView }[],
-  widthPx: number,
+  minWidthPx: number,
 ): StandaloneLegend {
-  if (band.length === 0) return { entries: [], heightPx: 0 };
-  const entries = withStandaloneRuler('name the markers it draws', (measure) => {
-    const placed: LegendEntry[] = [];
-    let x = LEGEND_PAD_PX;
-    let row = 0;
-    for (const { marker } of band) {
+  if (band.length === 0) return { entries: [], heightPx: 0, widthPx: minWidthPx };
+  const { entries, widthPx } = withStandaloneRuler('name the markers it draws', (measure) => {
+    const measured = band.map(({ marker }) => {
       const nameWidth = measure({
         content: marker.name,
         x: 0,
@@ -2102,12 +2128,29 @@ function layOutMarkerLegend(
         x: 0,
         fontSize: LEGEND_FONT_SIZE_PX,
       });
-      const entryWidth =
-        LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX + dateWidth + LEGEND_SWATCH_GAP_PX + nameWidth;
+      return {
+        marker,
+        dateWidth,
+        entryWidth:
+          LEGEND_SWATCH_PX + LEGEND_SWATCH_GAP_PX + dateWidth + LEGEND_SWATCH_GAP_PX + nameWidth,
+      };
+    });
+    // **The document widens to its widest entry**, which is what makes the
+    // "never wrap the first entry of a row" rule below safe rather than merely
+    // non-looping: with this floor no single entry can be wider than the row it
+    // is placed on, so being placed unconditionally is being placed inside the
+    // file. Growing here and not at the chip is the whole difference between a
+    // legend that runs off the right edge and one the reader can read.
+    const widest = measured.reduce((most, entry) => Math.max(most, entry.entryWidth), 0);
+    const documentWidth = Math.max(minWidthPx, widest + LEGEND_PAD_PX * 2);
+    const placed: LegendEntry[] = [];
+    let x = LEGEND_PAD_PX;
+    let row = 0;
+    for (const { marker, dateWidth, entryWidth } of measured) {
       // Wrap on the entry that would cross the right edge, never on the first
       // one of a row: a name wider than the whole file has nowhere better to
       // go than its own row, and wrapping it would loop.
-      if (x > LEGEND_PAD_PX && x + entryWidth > widthPx - LEGEND_PAD_PX) {
+      if (x > LEGEND_PAD_PX && x + entryWidth > documentWidth - LEGEND_PAD_PX) {
         row += 1;
         x = LEGEND_PAD_PX;
       }
@@ -2122,10 +2165,10 @@ function layOutMarkerLegend(
       });
       x += entryWidth + LEGEND_ENTRY_GAP_PX;
     }
-    return placed;
+    return { entries: placed, widthPx: documentWidth };
   });
   const rows = entries.reduce((most, entry) => Math.max(most, entry.row + 1), 0);
-  return { entries, heightPx: LEGEND_PAD_PX + rows * LEGEND_ROW_PX + LEGEND_PAD_PX };
+  return { entries, widthPx, heightPx: LEGEND_PAD_PX + rows * LEGEND_ROW_PX + LEGEND_PAD_PX };
 }
 
 /**
@@ -2160,13 +2203,20 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     fontSize: 10,
   }));
   const gutterPx = measureLabelGutterPx([monthWord, ...labelWords]);
-  const totalWidth = gutterPx + innerWidth;
   // The chips the file's axis will draw, resolved through the **live band's own
   // function** rather than a second walk of `markers`: what the download
   // promises is the chart as drawn, and the per-cell cap and the off-horizon
   // drop are two of the four things "as drawn" means at the 4px rung.
   const band = markersDrawnInBand(markers, axis, dayPx);
-  const legend = layOutMarkerLegend(band, totalWidth);
+  // **Both dimensions, and both before the writes below.** `gutterPx +
+  // innerWidth` is the width the picture needs and the floor the legend is
+  // given, not the answer: a legend entry wider than the picture widens the
+  // document, exactly as a wrapped row heightens it. Nothing in this function
+  // is positioned from the right edge — the gutter, the divider and the nested
+  // chart are all placed from `gutterPx` — so the extra width is background
+  // beside the plot rather than a coordinate shift.
+  const legend = layOutMarkerLegend(band, gutterPx + innerWidth);
+  const totalWidth = legend.widthPx;
   // **Grown here, before the five writes below.** The legend is a block under
   // the chart, and the document's height is written into the `viewBox`, the
   // `width`, the `height` and the background rect within the next ten lines —
@@ -2243,12 +2293,30 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     // coordinate space as the weekend band and the day number above — the
     // live band's `left: offset * dayPx`, its `maxWidth: dayPx` and its
     // `bottom-0`, read into the axis row's own pixels.
-    for (const marker of chipsByOffset.get(day.offset) ?? []) {
+    const standing = chipsByOffset.get(day.offset) ?? [];
+    // **A cell shared among the chips that stand on it**, 2026-09-06. Until
+    // then every chip on a day was the full cell at the cell's own `x`, so a
+    // day carrying two markers painted the second over the first — SVG has no
+    // z-index, only document order — and the file showed one colour for a day
+    // that has two. The rule under it carries `markerFill(standing[0])`, the
+    // **first**, so the download said one thing at the axis and another down
+    // the chart with nothing to reconcile them: the screen resolves exactly
+    // this stacking with the day card, and a downloaded file has no pointer.
+    //
+    // Splitting rather than stacking keeps the day's whole width the day's,
+    // keeps the shares in the band's own `(date, created_at, id)` order, and
+    // puts `standing[0]` at the cell's left edge — so the leftmost share is
+    // the colour the rule is drawn in, and the legend names every share.
+    // {@link MARKER_BAND_MAX_PER_CELL} caps the split at 3, and at 1 on the
+    // 4px rung where a share would be sub-pixel.
+    const sharePx = dayPx / standing.length;
+    for (const [share, marker] of standing.entries()) {
       const fill = markerFill(marker);
+      const chipX = cellX + share * sharePx;
       const chip = svgRect(
-        cellX,
+        chipX,
         ROW_PX - MARKER_CHIP_HEIGHT_PX,
-        dayPx,
+        sharePx,
         MARKER_CHIP_HEIGHT_PX,
         fill,
       );
@@ -2270,11 +2338,14 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
       const clip = document.createElementNS(SVG_NS, 'clipPath');
       clip.setAttribute('id', clipId);
       clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+      // The share's box and not the cell's: a name clipped to the whole day
+      // would be drawn across the neighbouring share, which is the painting-over
+      // this split exists to end, only in ink instead of in fill.
       clip.appendChild(
-        svgRect(cellX, ROW_PX - MARKER_CHIP_HEIGHT_PX, dayPx, MARKER_CHIP_HEIGHT_PX, '#000'),
+        svgRect(chipX, ROW_PX - MARKER_CHIP_HEIGHT_PX, sharePx, MARKER_CHIP_HEIGHT_PX, '#000'),
       );
       chipClips.appendChild(clip);
-      const chipText = svgText(cellX + MARKER_CHIP_PAD_PX, ROW_PX - 3, marker.name, {
+      const chipText = svgText(chipX + MARKER_CHIP_PAD_PX, ROW_PX - 3, marker.name, {
         fontSize: 9,
         // **Chosen, not carried**, for {@link markerFill}'s own reason: the ink
         // on a chip is `labelInk`'s answer about that fill, and a colour named
