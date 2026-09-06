@@ -443,11 +443,11 @@ export const workItem = sqliteTable(
      * empty map rather than the absent reader, and it is their golden-corpus
      * case that has to prove it. **Every sentence in this comment that
      * describes an ordering, a fold, a late label or a read-time resolution —
-     * before this paragraph and after it — describes what the column is
-     * *for*, not code standing at this head.** Stated once here rather than
-     * hedged sentence by sentence, and stated as a direction rather than a
-     * position, because a pointer that says "below" is one edit away from
-     * pointing at the wrong half.
+     * before this paragraph and after it — describes what the column is *for*,
+     * not code standing at this head.** Stated once here rather than hedged
+     * sentence by sentence, and stated as a direction rather than a position,
+     * because a pointer that says "below" is one edit away from pointing at
+     * the wrong half.
      *
      * **Below the floor's reason rather than beside the floor**, deliberately:
      * `startNoEarlierThanReason` says its words are about "this column and the

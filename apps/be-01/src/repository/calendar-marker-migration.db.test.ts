@@ -28,6 +28,14 @@ const PREVIOUS = '20260904140000_add_project_settings';
  * answer `rollbackTo` gave.
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
+/**
+ * The third folder this file's `PREVIOUS` comment predicted, landed by
+ * TASK-267 on 2026-09-06 and stamped after {@link READ_ORDER_INDEX}. It arrived
+ * red exactly as that comment intended: the rollback below reverses it too, and
+ * newest-first puts it at the head. Naming it is the whole cost of the
+ * prediction being right.
+ */
+const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
 
 const wrote: WriteStamp = { at: 1, by: 'owner' };
 
@@ -157,7 +165,7 @@ describe('20260905090000_add_calendar_marker', () => {
 
     const reversed = rollbackTo(path, FOLDER, PREVIOUS);
 
-    expect(reversed).toEqual([READ_ORDER_INDEX, CALENDAR_MARKER]);
+    expect(reversed).toEqual([WORK_ITEM_DEADLINE, READ_ORDER_INDEX, CALENDAR_MARKER]);
     const afterRollback = tableNames(path);
     expect(afterRollback).not.toContain('calendar_marker');
     // Nothing else moved: the forward migration is additive, so its reversal
