@@ -63,6 +63,9 @@ function fixture(
   routeOverrides: {
     passwordLoginEnabled?: boolean;
     passwordRegisterEnabled?: boolean;
+    // Spread over the fixture's own five-value list, for the cases that drive
+    // more than one login through one browser (TASK-272).
+    random?: () => string;
   } = {},
   // Separate from `routeOverrides`, which is spread onto the options object:
   // this replaces one method of the fake provider client, and the only case
@@ -155,6 +158,22 @@ function fixture(
     savedPlans: testSavedPlanService(),
   });
   return { app, calls, logs, tokens, transactions, users };
+}
+
+/**
+ * The binding cookie a browser would be holding after this response, or `null`
+ * when the response cleared it or set none — the value only, so the cases below
+ * read what changed rather than a whole cookie attribute string (TASK-272).
+ */
+function bindingCookieOf(res: Response): string | null {
+  const match = /__Host-wbs_oidc=([^;,]*)/.exec(res.headers.get('set-cookie') ?? '');
+  const value = match?.[1] ?? '';
+  return value === '' ? null : value;
+}
+
+/** What the browser sends back, or no cookie header at all when it holds none. */
+function cookieHeader(binding: string | null): Record<string, string> {
+  return binding === null ? {} : { cookie: `__Host-wbs_oidc=${binding}` };
 }
 
 describe('OIDC browser routes', () => {
@@ -519,6 +538,159 @@ describe('OIDC browser routes', () => {
       outcome: 'consumed',
       verifier: 'verifier-1',
     });
+  });
+
+  /**
+   * TASK-272, end to end, and it is the case the whole change exists for.
+   *
+   * Two tabs, one cookie name. Before this, the second login's `Set-Cookie`
+   * replaced the first's, so the first tab's callback came back holding a
+   * binding that was not its own and was refused — a login lost to nothing but
+   * a second tab, with no attacker anywhere in it. TASK-276 had already stopped
+   * that arrival from destroying the *second* tab's record; what it could not
+   * do is give the first tab back a cookie the browser had overwritten.
+   *
+   * Every request here carries what a browser would actually be holding, taken
+   * from the previous response rather than written down, because the cookie's
+   * value is now the thing under test.
+   *
+   * Measured: with the login route writing `browserBinding` alone, this fails
+   * at the late callback with `Expected: 302 Received: 400`.
+   */
+  it('lets the first tab finish a login a second tab started after it', async () => {
+    const sequence = [
+      'binding-1',
+      'state-1',
+      'nonce-1',
+      'verifier-1',
+      'binding-2',
+      'state-2',
+      'nonce-2',
+      'verifier-2',
+      'session-1',
+    ];
+    const f = fixture(claims, { random: () => sequence.shift() ?? 'extra-random' });
+
+    const firstTab = await f.app.handle(new Request('https://dev.wbs.test/api/auth/login'));
+    const afterFirst = bindingCookieOf(firstTab);
+    const secondTab = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/login', { headers: cookieHeader(afterFirst) }),
+    );
+    const afterSecond = bindingCookieOf(secondTab);
+
+    expect(afterFirst).toBe('binding-1');
+    expect(afterSecond).toBe('binding-1.binding-2');
+
+    // The first tab's callback, returning after the second login started and
+    // carrying the browser's current cookie — both bindings — with its own state.
+    const late = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(afterSecond),
+      }),
+    );
+
+    expect(late.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+    // The second tab's login is still in the browser and still live.
+    expect(bindingCookieOf(late)).toBe('binding-2');
+
+    const second = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-2', {
+        headers: cookieHeader(bindingCookieOf(late)),
+      }),
+    );
+
+    expect(second.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(2);
+    expect(bindingCookieOf(second)).toBeNull();
+  });
+
+  /**
+   * TASK-272's fourth acceptance criterion: the bound on how many logins one
+   * browser may hold is `MAX_BROWSER_BINDINGS`, it is written down, and it is
+   * the *oldest* login that is dropped — not the one being completed. Without
+   * it the cookie would grow for as long as a person keeps opening tabs and the
+   * real limit would be the user agent's silent per-domain cap.
+   */
+  it('holds three concurrent logins per browser and drops the oldest', async () => {
+    const sequence = [1, 2, 3, 4].flatMap((n) => [
+      `binding-${String(n)}`,
+      `state-${String(n)}`,
+      `nonce-${String(n)}`,
+      `verifier-${String(n)}`,
+    ]);
+    const f = fixture(claims, { random: () => sequence.shift() ?? 'session-1' });
+
+    let held: string | null = null;
+    for (let tab = 0; tab < 4; tab += 1) {
+      const res = await f.app.handle(
+        new Request('https://dev.wbs.test/api/auth/login', { headers: cookieHeader(held) }),
+      );
+      held = bindingCookieOf(res);
+    }
+
+    expect(held).toBe('binding-2.binding-3.binding-4');
+
+    // The dropped login is unfinishable, and its refusal is the ordinary one:
+    // the browser cannot present a binding it no longer holds.
+    const dropped = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(held),
+      }),
+    );
+
+    expect(dropped.status).toBe(400);
+    expect(f.calls.exchange).toHaveLength(0);
+    // …and it costs the three surviving logins nothing: state-1 matched none of
+    // them, so the answer keeps every binding.
+    expect(dropped.headers.get('set-cookie')).toBeNull();
+
+    const surviving = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-2', {
+        headers: cookieHeader(held),
+      }),
+    );
+
+    expect(surviving.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+    expect(bindingCookieOf(surviving)).toBe('binding-3.binding-4');
+  });
+
+  /**
+   * The denial TASK-272 would have opened if the stateless refusal had gone on
+   * clearing the cookie. `__Host-wbs_oidc` is `SameSite=Lax`, so a hostile page
+   * can navigate a browser to this route with **no query at all** — and once
+   * one cookie carries three logins, one such navigation would have ended all
+   * three. It is the TASK-276 attack with a shorter URL and it gets the same
+   * answer: the bodiless 400, nothing cleared.
+   */
+  it('refuses a stateless callback without discarding the logins in flight', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const stateless = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c', {
+        headers: cookieHeader('binding-1'),
+      }),
+    );
+
+    expect(stateless.status).toBe(400);
+    expect(stateless.headers.get('set-cookie')).toBeNull();
+    expect(f.calls.exchange).toHaveLength(0);
+
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader('binding-1'),
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
   });
 
   it('burns a callback with no matching browser transaction', async () => {

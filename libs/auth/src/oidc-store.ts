@@ -99,19 +99,20 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
    * record is dead for everyone, and preserving one would be a leak with no
    * login left to protect.
    *
-   * **The two-tab residual recorded here before is half closed by this, and
-   * the surviving half is the tab that lost its cookie** — both review seats
-   * caught the earlier wording, which claimed the whole thing was untouched.
-   * Two logins started in two tabs share one cookie name, so the second
-   * overwrites the browser's binding. The first tab's stale callback then
-   * arrives carrying the *second* tab's binding and the *first* tab's state,
-   * which is precisely a mismatch: under the old ordering it burnt the second
-   * tab's live record on the way to the 400, and it no longer does — the second
-   * tab's record and cookie both survive and its own callback still completes.
-   * What remains is that the **first** tab cannot finish at all, because its
-   * binding was replaced before its callback came back and no ordering here can
-   * recover a cookie the browser has already overwritten; its orphaned record
-   * waits for expiry. That half is one-cookie-per-browser and it is TASK-272.
+   * **The two-tab residual is closed, and not here** (TASK-272). Two logins
+   * started in two tabs shared one cookie name, so the second overwrote the
+   * browser's binding and the first tab's stale callback arrived carrying the
+   * *second* tab's binding with the *first* tab's state — precisely a mismatch.
+   * The half this method owned is above: that arrival no longer burns the
+   * second tab's live record, so the login being completed survives. The other
+   * half was never a store-ordering question at all, because no ordering here
+   * can give a tab back a cookie the browser has already replaced. It is fixed
+   * one layer out, in `oidc-binding.ts`: the cookie's value is now a bounded
+   * ordered list of bindings, and a callback offers every binding the browser
+   * still holds so that **this** method decides which one the arriving state
+   * proves. Nothing about single use moves — it is still keyed by the binding
+   * and still enforced by the delete below; only the transport became plural,
+   * and `consumeBrowserBinding` consumes at most one record per callback.
    */
   consume(browserBinding: string, state: string): OidcConsumeResult {
     const key = digest(browserBinding);

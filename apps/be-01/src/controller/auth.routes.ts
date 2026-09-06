@@ -3,13 +3,17 @@ import { randomBytes } from 'node:crypto';
 import {
   booleanFlagOf,
   browserOidcClientFromEnv,
+  consumeBrowserBinding,
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
   oidcIdentityFromClaims,
   oidcTokenVerifierFromEnv,
   type OidcTransactionStore,
+  parseBrowserBindings,
+  serializeBrowserBindings,
   type TokenStore,
   type TokenVerifier,
+  withBrowserBinding,
 } from '@wbs/auth';
 
 import { checkedBody } from '../http/body-doc';
@@ -291,7 +295,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
     {
       method: 'GET',
       path: '/api/auth/login',
-      handler: async () => {
+      handler: async (req) => {
         const browserBinding = random();
         const state = random();
         const nonce = random();
@@ -303,7 +307,31 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
           state,
           verifier,
         });
-        return empty(302, [cookie('__Host-wbs_oidc', browserBinding, 300)], location.href);
+        // **The new binding joins what the browser is already holding instead
+        // of replacing it** (TASK-272). This route used to write the binding
+        // alone, so a second tab's login overwrote the first tab's cookie and
+        // the first tab's callback came back holding a binding that was not its
+        // own — a login lost to nothing but a second tab. `withBrowserBinding`
+        // keeps the newest {@link MAX_BROWSER_BINDINGS} and drops the oldest,
+        // which is where the bound on concurrent logins per browser lives.
+        //
+        // Proof: `lets the first tab finish a login a second tab started after
+        // it` fails with `Expected: 302 Received: 400` when this writes
+        // `browserBinding` alone, and `holds three concurrent logins per
+        // browser and drops the oldest` fails on the cookie value when the
+        // bound is removed.
+        return empty(
+          302,
+          [
+            bindingCookie(
+              withBrowserBinding(
+                parseBrowserBindings(cookieOf(req, '__Host-wbs_oidc')),
+                browserBinding,
+              ),
+            ),
+          ],
+          location.href,
+        );
       },
     },
     {
@@ -415,9 +443,35 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // the identical 400 with the identical cleared cookie. Nothing a caller
         // can observe moves.
         const state = states[0];
-        const binding = cookieOf(req, '__Host-wbs_oidc');
-        if (!state || binding === null) return empty(400, [clear('__Host-wbs_oidc')]);
-        const transaction = options.transactions.consume(binding, state);
+        const bindings = parseBrowserBindings(cookieOf(req, '__Host-wbs_oidc'));
+        // **Two refusals where there was one, because the cookie now carries
+        // more than one login** (TASK-272). A browser holding no binding has no
+        // live login to lose, so the cookie is still cleared — that clears a
+        // value too malformed to parse, which is the only way to reach here
+        // with a cookie present. A browser that *is* holding bindings and sends
+        // a callback with no state has proven nothing about any of them, and
+        // clearing would destroy up to `MAX_BROWSER_BINDINGS` live logins on a
+        // request anyone can cause: `__Host-wbs_oidc` is `SameSite=Lax`, so a
+        // hostile page can navigate a browser to this route with no query at
+        // all. That is the TASK-276 denial with a shorter URL, and it is
+        // refused the same way — the bodiless 400, nothing cleared.
+        //
+        // Proof: `refuses a stateless callback without discarding the logins in
+        // flight` fails on the `Set-Cookie` and then on the honest callback's
+        // `Expected: 302 Received: 400` when this clears unconditionally.
+        if (bindings.length === 0) return empty(400, [clear('__Host-wbs_oidc')]);
+        if (!state) return empty(400, []);
+        // Every binding the browser holds is offered and the store decides
+        // which one this state proves; at most one record is consumed, and a
+        // mismatch leaves both the record and the cookie alone
+        // (`consumeBrowserBinding`). `remaining` is what the browser should
+        // still be holding afterwards — the logins in other tabs — and it is
+        // what every answer below writes back instead of clearing the cookie.
+        const { remaining, result: transaction } = consumeBrowserBinding(
+          options.transactions,
+          bindings,
+          state,
+        );
         // **The mismatch is the one refusal here that leaves the binding
         // alone** (TASK-276). A state this browser cannot prove it owns is a
         // callback that is not this login — a hostile top-level navigation
@@ -445,7 +499,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // re-sending the string unconditionally did not. The loss is observable
         // where a browser would suffer it, not only in the header causing it.
         if (transaction.outcome === 'state_mismatch') return empty(400, []);
-        if (transaction.outcome !== 'consumed') return empty(400, [clear('__Host-wbs_oidc')]);
+        if (transaction.outcome !== 'consumed') return empty(400, [bindingCookie(remaining)]);
 
         // **An error callback is the authorization server saying this login is
         // over**, and it is the most ordinary thing a person can do: clicking
@@ -539,7 +593,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
           // provider to learn what the empty value already said.
           if (providerError === '') {
             options.logger?.warn({}, 'oidc callback carried an empty error code');
-            return empty(400, [clear('__Host-wbs_oidc')]);
+            return empty(400, [bindingCookie(remaining)]);
           }
           const reason = reasonOf(providerError);
           // **The code, never the description.** `error` is a protocol token
@@ -559,7 +613,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
           } else {
             options.logger?.info(reported, 'oidc callback was refused at the identity provider');
           }
-          return empty(302, [clear('__Host-wbs_oidc')], `/?auth_error=${reason}`);
+          return empty(302, [bindingCookie(remaining)], `/?auth_error=${reason}`);
         }
 
         // The provider's client is handed a `Request` because that is its own
@@ -618,10 +672,10 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
           });
         } catch (err) {
           options.logger?.error({ err }, 'oidc token exchange failed');
-          return empty(401, [clear('__Host-wbs_oidc')]);
+          return empty(401, [bindingCookie(remaining)]);
         }
         if (tokenSet.idTokenClaims === undefined) {
-          return empty(401, [clear('__Host-wbs_oidc')]);
+          return empty(401, [bindingCookie(remaining)]);
         }
         let identity;
         try {
@@ -630,10 +684,10 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
             groupsClaim: options.groupsClaim,
           });
         } catch {
-          return empty(401, [clear('__Host-wbs_oidc')]);
+          return empty(401, [bindingCookie(remaining)]);
         }
         const account = await auth.resolveOidcIdentity(identity);
-        if (account === null) return empty(409, [clear('__Host-wbs_oidc')]);
+        if (account === null) return empty(409, [bindingCookie(remaining)]);
         const correlation = random();
         if (tokenSet.refreshToken !== undefined) {
           options.tokens.save({
@@ -645,7 +699,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         return empty(
           302,
           [
-            clear('__Host-wbs_oidc'),
+            bindingCookie(remaining),
             cookie('__Host-wbs_access', tokenSet.accessToken, tokenSet.expiresIn),
             cookie('__Host-wbs_session', correlation, 30 * 86_400),
           ],
@@ -786,6 +840,38 @@ function cookie(name: string, value: string, maxAge: number): string {
 
 function clear(name: string): string {
   return cookie(name, '', 0);
+}
+
+/**
+ * How long a browser keeps its in-flight bindings. Five minutes, matching the
+ * transaction store's TTL (`oidcRouteOptionsFromEnv`), and it was the literal
+ * `300` at the login route before TASK-272 gave three call sites the same
+ * number.
+ */
+const OIDC_BINDING_TTL_SECONDS = 300;
+
+/**
+ * The binding cookie for the logins a browser should still be holding, or the
+ * clear when there are none left (TASK-272).
+ *
+ * **Every answer after `consume` writes this instead of clearing.** Each of
+ * them ends one login — the exchange failed, the provider refused, the identity
+ * resolved to no account, or it succeeded — and none of them says anything
+ * about the login running in another tab, which before this had its binding
+ * thrown away by whichever tab finished first.
+ *
+ * **Re-setting extends the cookie's `Max-Age` and that is deliberate.** The
+ * store's `expiresAt` is the authoritative deadline and is not touched here, so
+ * the worst a stretched cookie can do is present a binding whose record has
+ * already expired — which `consume` answers `expired`, dropping the binding on
+ * the next callback. The alternative, tracking a per-binding remaining lifetime
+ * in the cookie, would put a second copy of the deadline where a browser can
+ * edit it.
+ */
+function bindingCookie(bindings: readonly string[]): string {
+  return bindings.length === 0
+    ? clear('__Host-wbs_oidc')
+    : cookie('__Host-wbs_oidc', serializeBrowserBindings(bindings), OIDC_BINDING_TTL_SECONDS);
 }
 
 function clearSession(): string[] {
