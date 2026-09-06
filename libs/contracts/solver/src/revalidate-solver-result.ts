@@ -481,8 +481,8 @@ export const revalidateOptimizedDeadlines = (
       );
     }
     const dueDay = slice.deadlineUnits / SOLVER_QUANTUM - 1;
-    const lastDay = lastWorkdayOf(timing.earliestStart, timing.earliestFinish);
     if (!isOnTime(timing.earliestStart, timing.earliestFinish, dueDay)) {
+      const lastDay = lastWorkdayOf(timing.earliestStart, timing.earliestFinish);
       return refuse(
         'deadline-violated',
         `slice ${JSON.stringify(slice.key)} last works on day ${String(lastDay)}, past its deadline day ${String(dueDay)}`,

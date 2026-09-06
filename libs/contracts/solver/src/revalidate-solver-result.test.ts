@@ -397,7 +397,7 @@ describe('revalidateOptimizedDeadlines', () => {
    */
   it('refuses a zero-duration milestone standing on the exclusive boundary', () => {
     const found = revalidateOptimizedDeadlines(
-      request({ slices: [slice({ key: 'a', deadlineUnits: 48 })] }),
+      request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 48 })] }),
       placedOf({ a: [1, 1] }),
     );
     expect(found.ok).toBe(false);
@@ -409,7 +409,7 @@ describe('revalidateOptimizedDeadlines', () => {
   it('accepts the same milestone one unit inside its due day', () => {
     expect(
       revalidateOptimizedDeadlines(
-        request({ slices: [slice({ key: 'a', deadlineUnits: 48 })] }),
+        request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 48 })] }),
         placedOf({ a: [47 / 48, 47 / 48] }),
       ),
     ).toEqual({ ok: true, published: true });

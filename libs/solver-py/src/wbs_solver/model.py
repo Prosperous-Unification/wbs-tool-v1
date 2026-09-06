@@ -38,10 +38,14 @@ Six clauses, in the re-validator's own order:
 5. **Assignees** — one `AddNoOverlap` per non-null `personId`
    (`assignee-double-booked`). A person is not a quantity: two slices naming one
    person overlap or they do not, whatever their widths.
-6. **Deadlines** — `finish <= deadlineUnits` when non-null. This is the one
-   clause the re-validator does **not** carry (its header says so: "the deadline
-   clause is 2.4's remaining half and is not implemented here"), and it is the
-   clause that makes design.md's `INFEASIBLE, k = 1` row mean what it says.
+6. **Deadlines** — `start + max(duration, 1) <= deadlineUnits` when non-null.
+   Not `finish <= deadlineUnits`: those agree for every non-zero duration and
+   disagree on a milestone, which `end == start` would let stand exactly on the
+   exclusive boundary that is already the next day. Bun carries the same clause
+   in the real fractional domain, through the shared `isOnTime` predicate, in
+   `revalidateOptimizedDeadlines` — a second entry point beside
+   `revalidateSolverResult` rather than part of it. This is the clause that
+   makes design.md's `INFEASIBLE, k = 1` row mean what it says.
    Deadlines enter the model *before* any objective term, so stage 1 is the one
    stage whose infeasibility can be a property of the user's plan rather than of
    the engine.
@@ -161,8 +165,10 @@ def build_model(request: Mapping[str, Any]) -> BuiltModel:
         ends[key] = end
 
         # Clause 6. `deadlineUnits` is the effective deadline, already folded
-        # over the tree and already converted to (D + 1) × quantum, so it is a
-        # bound on the finish and not on the start.
+        # over the tree and already converted to (D + 1) × quantum. It bounds
+        # the work's occupancy rather than its start — for a real duration that
+        # is the finish, and for a milestone it is the synthetic one-unit
+        # endpoint below, which is the whole point of the `max`.
         #
         # `start + max(duration, 1)`, NOT `end`, and the two differ on exactly
         # one input: a zero-duration milestone. `end == start` there, so

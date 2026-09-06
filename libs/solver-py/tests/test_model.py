@@ -365,7 +365,9 @@ class FloorAndHorizonClauses(unittest.TestCase):
 
 
 class DeadlineClause(unittest.TestCase):
-    """Clause 6, the one the re-validator does not carry.
+    """Clause 6. Bun carries the same clause on the materialised schedule in
+    the real fractional domain, through the `isOnTime` predicate the two sides
+    now share; this is the integer-unit half of it.
 
     It is what makes design.md's `INFEASIBLE, k = 1` row mean "the user's
     deadlines cannot be met" rather than "the engine is broken": deadlines are in
