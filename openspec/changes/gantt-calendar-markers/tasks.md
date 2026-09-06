@@ -3535,3 +3535,43 @@ installed in this worktree. Both were caught before the commit rather than in
 CI, which is the standing correction this task carries.
 
 **10 plan items remain open.**
+
+## Chunk 62 — 9.2b's opaque half (TASK-235 run 31, 2026-09-06)
+
+**9.2b stays unticked**: its opaque case is here and its assumed case is not,
+and a slice with one of two guarantees is not done.
+
+`leaves an opaque bar it passes under pixel-identical` clips the **footprint of
+the bar the rule crosses** and asserts the two PNGs are byte-identical with and
+without the marker. The rule is drawn in `marksUnderLight` and the bars in
+`marksOverLight`, so an opaque bar covers it: its own footprint is the one place
+on the chart a correct renderer changes nothing at all, which is why the crop is
+the predicate rather than a filter over a whole-chart diff.
+
+**Three things the case had to be told, and each was a red first.** The bar is
+found by geometry and not by id, because a named bar stops spanning the marked
+day the moment the fixture's dates move — the first draft asked for a bar
+containing the **whole** axis cell and no bar in this fixture does that, so it
+failed on `no bar spans day 3`; the rule stands at the cell's _left edge_, so
+the predicate is that one x. The footprint is recomputed after the save, because
+the new chip grows the sticky header and moves the body down, and two clips at
+one set of absolute coordinates would photograph different content. And it is
+inset a pixel on every side, because the bar's edges are fractional, the clip is
+whole pixels, and a rounded edge either side of that body shift catches a sliver
+of chart the renderer did not draw.
+
+**Watched.** The opaque arm of `barClasses` given `[fill-opacity:0.35]` —
+`estimated ? '[fill-opacity:0.35]' : ASSUMED_BAR_CLASSES`, one arm over from
+the seam `gantt-panel.tsx:701-706` documents as watched on 2026-08-12 — fails
+this case on `the marker's rule shows through an opaque bar it passes under`.
+Restored from the byte copy, `gantt-panel.tsx` md5 `583829ab`, unchanged from
+the commit. The rest of the slice's failure matrix (that 8.2's and 8.2a's DOM
+assertions stay green under that fault) was **not** measured this chunk and is
+not claimed.
+
+**Gates on h2puni at the committed bytes:** `fe-01:lint` rc 0 (one warning, the
+pre-existing `wbs-table.tsx:4748` `useMemo` notice), `fe-01:typecheck` rc 0,
+`prettier --check` rc 0, both e2e cases green together — `2 passed (10.7s)`,
+9.2a's alongside this one — and cross-host md5 equal (`41305c19` spec,
+`583829ab` panel). No vitest-visible file changed, so chunk 61's `88 files /
+2288 pass / 0 fail` stands at these bytes.

@@ -4173,3 +4173,136 @@ test.describe('a dated axis cell says where the keyboard is', () => {
     );
   });
 });
+
+/**
+ * Slice 9.2b, opaque half — the bar layer's pixels.
+ *
+ * 8.2 asserts the rule's `x`, its `width` and the critical-path class, and all
+ * three survive a rule painted straight through a bar that is supposed to hide
+ * it: `jsdom` has no rasterizer, so the guarantee needs a browser and cannot
+ * live in that file. Its own slice for 9.2a's reason — 9.2's fault mutates the
+ * rule's stroke, which this case would see too, and a slice that shares a fault
+ * gets no proof of its own.
+ *
+ * The crop **is** the bar's footprint, so "differs" and "inside the bar" are
+ * one predicate rather than two. Read over the whole chart instead, "every
+ * differing pixel lies inside the footprint" is satisfied by *zero* differing
+ * pixels and rejects the correct renderer, whose rule differs everywhere it is
+ * drawn.
+ */
+test.describe("a marker's rule against the bars, in pixels", () => {
+  /** The day the marker stands on — the same column 8.2a marks. */
+  const MARKED_OFFSET = 3;
+
+  /** A clip of the page, as `page.screenshot` takes one. */
+  interface Clip {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }
+
+  /**
+   * The footprint of the bar the rule crosses, recomputed from live geometry.
+   *
+   * Recomputed and not cached: creating the marker puts a chip in the sticky
+   * header, and a header that grows moves the whole body down. Two clips taken
+   * at one set of absolute coordinates either side of that would photograph
+   * different content and the identity below would fail for the wrong reason.
+   *
+   * Inset by a pixel on every side. The bar's box has fractional edges, the
+   * clip is whole pixels, and a rounded edge either side of a body shift can
+   * catch a sliver of the chart behind the bar — which is a difference the
+   * renderer did not draw. The interior is still the footprint, and the rule
+   * crosses the bar's full height, so nothing this case is looking for lives in
+   * the pixel that is dropped.
+   */
+  async function footprintOf(page: Page): Promise<Clip> {
+    return page.evaluate((offset) => {
+      const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+      if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+      const at = cell.getBoundingClientRect();
+      // The bar the rule really crosses, found by geometry rather than named:
+      // a bar picked by id would silently stop spanning the marked day the
+      // first time the fixture's dates move.
+      // The rule stands at the axis cell's **left edge**, so a bar it passes
+      // under is one whose footprint contains that single x — not one that
+      // contains the whole cell, which the first draft asked for and which no
+      // bar in this fixture does.
+      const bars = [...document.querySelectorAll('[data-gantt-bar]')];
+      const crossed = bars.find((bar) => {
+        const box = bar.getBoundingClientRect();
+        return box.x < at.x && at.x < box.right && box.height > 2;
+      });
+      if (crossed === undefined) {
+        const seen = bars
+          .map((bar) => {
+            const box = bar.getBoundingClientRect();
+            return `${String(Math.round(box.x))}…${String(Math.round(box.right))}`;
+          })
+          .join(', ');
+        throw new Error(
+          `no bar passes under day ${String(offset)} at x ${String(Math.round(at.x))} — bars at ${seen}`,
+        );
+      }
+      const box = crossed.getBoundingClientRect();
+      return {
+        x: Math.round(box.x) + 1,
+        y: Math.round(box.y) + 1,
+        width: Math.round(box.width) - 2,
+        height: Math.round(box.height) - 2,
+      };
+    }, MARKED_OFFSET);
+  }
+
+  test('leaves an opaque bar it passes under pixel-identical', async ({ page }) => {
+    await seedPlan(page, 'marker-rule-pixels');
+    await openTheChart(page);
+
+    const before = await footprintOf(page);
+    // A footprint with no room in it would make the comparison below vacuous —
+    // two empty clips are identical whatever the renderer does.
+    expect(before.width, 'the bar the rule crosses is too narrow to photograph').toBeGreaterThan(4);
+    expect(before.height, 'the bar the rule crosses is too short to photograph').toBeGreaterThan(2);
+    const bare = (await page.screenshot({ clip: before })).toString('base64');
+
+    await page.locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Under');
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    // Park the pointer before the second clip. Save unmounts a `fixed` composer
+    // and drops the pointer onto whatever is beneath — a bar, here — and a bar
+    // under the pointer opens a hover-card over the very pixels this case
+    // compares. 8.2a's own park, and it cost that slice a chunk.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+    // The rule exists and stands in this bar's column, which is what stops the
+    // identity below from being a photograph of a chart with no marker on it.
+    const rule = page.locator('[data-gantt-marker-rule]');
+    await expect(rule).toHaveCount(1);
+    const after = await footprintOf(page);
+    expect(
+      await rule.evaluate((line) => line.getBoundingClientRect().x),
+      'the rule does not stand inside the bar it is supposed to pass under',
+    ).toBeGreaterThan(after.x);
+
+    const marked = (await page.screenshot({ clip: after })).toString('base64');
+
+    // **The assertion.** The rule is drawn in `marksUnderLight` and the bars in
+    // `marksOverLight`, so an opaque bar covers it: the bar's own footprint is
+    // the one place on the chart a correct renderer changes nothing at all.
+    // Compared as text rather than through `Buffer.equals`, which this
+    // project's `Buffer` types will not accept another `Buffer` for.
+    expect(marked === bare, "the marker's rule shows through an opaque bar it passes under").toBe(
+      true,
+    );
+  });
+});
