@@ -1,3 +1,4 @@
+import { verifyInstalled } from './install';
 import type { BundleFile } from './lib/deploy-contract';
 import {
   assertSolverSupervisorBunVersion,
@@ -12,7 +13,6 @@ import {
   decodeSolverSupervisorConfigBytes,
   SUPERVISOR_CONFIG_MAX_BYTES,
 } from './solver-supervisor';
-import { verifyInstalled } from './install';
 
 const HOST = /^[a-zA-Z0-9._-]+$/;
 
@@ -52,7 +52,7 @@ export function parseSolverSupervisorInstallArgs(
     const match = /^--([^=]+)(?:=(.*))?$/.exec(raw);
     if (match === null) throw new Error(`unexpected argument ${raw}`);
     const key = match[1];
-    const value = match[2] ?? '';
+    const value = (match[2] as string | undefined) ?? '';
     if (key === 'host') host = value;
     else if (key === 'execute' && value === '') execute = true;
     else if (key === 'dry-run' && value === '') execute = false;

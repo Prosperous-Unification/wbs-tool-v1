@@ -73,26 +73,38 @@ function dependencies(
   };
 }
 
+async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise;
+  } catch (error: unknown) {
+    if (error instanceof Error) return error;
+    throw new Error(`expected Error rejection, got ${String(error)}`);
+  }
+  throw new Error('expected rejection');
+}
+
 describe('installSolverSupervisor', () => {
   it('rejects an invalid config before any remote command', async () => {
     const seen: string[] = [];
-    await expect(
+    const error = await rejectionOf(
       installSolverSupervisor(
         { host: 'h2puni', execute: true, config: '/work/config.json' },
         dependencies('{}', seen),
       ),
-    ).rejects.toThrow('missing key socketPath');
+    );
+    expect(error.message).toContain('missing key socketPath');
     expect(seen).toEqual([]);
   });
 
   it('rejects the wrong Bun before any remote mutation', async () => {
     const seen: string[] = [];
-    await expect(
+    const error = await rejectionOf(
       installSolverSupervisor(
         { host: 'h2puni', execute: true, config: '/work/config.json' },
         dependencies(CONFIG, seen, '1.3.13\n'),
       ),
-    ).rejects.toThrow('requires /usr/local/bin/bun 1.3.14');
+    );
+    expect(error.message).toContain('requires /usr/local/bin/bun 1.3.14');
     expect(seen).toEqual([`ssh h2puni ${SOLVER_SUPERVISOR_BUN} --version`]);
   });
 
