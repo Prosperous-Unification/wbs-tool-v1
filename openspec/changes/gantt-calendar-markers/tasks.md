@@ -1612,7 +1612,7 @@ in both slices rather than implied by position.
       is 8.2a's jsdom half, and the mechanism is the attribute. The attribute is what an implementer can get wrong; the
       painted run is what a reader sees, and neither tier can stand for the
       other.
-- [ ] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
+- [x] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
       **6**, and the measure is `occupiedDatesInViewport / viewportWidthPx * 100`
       compared with `>` (`design.md` §3: 100px is 25 days at that rung, so six is
       one rule per ~16px and seven puts two inside one heavy-gridline week) —
@@ -3121,3 +3121,65 @@ surprise: they assert the same branch through a different door.
 **GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`): full `fe-01:test` rc 0 —
 **2236 pass / 0 fail across 86 files**, exactly +1 over chunk 28's 2235;
 `fe-01:typecheck` rc 0; scoped `bunx eslint` rc 0; `prettier --check` rc 0.
+
+## Chunk 50 — 8.3 wired into the chart and ticked (TASK-235 run 24, 2026-09-06)
+
+The arithmetic landed in chunk 49 as `marker-rule-density.ts`; this is the
+chart asking that question, with the viewport it really has.
+
+- `viewportPx` + `measureTheViewport(port)` reading `port.clientWidth`, called
+  beside `measureTheFold` on all three of its paths — mount, both
+  `ResizeObserver`s and `onScroll`. On the **fold's** path and not the span's:
+  `clientWidth` is the box's own metric like the `clientHeight` the fold
+  already reads, so it rides that flush and forces none of its own, while
+  `measureTheSpan` takes a rect and is the read a scroll must not make.
+- `markerRuleOffsets` — one entry **per marker**, off-horizon markers dropped,
+  so `markerRulesAreTooDense`'s internal `new Set` stays the only
+  de-duplication and 8.3's second fault stays injectable from this side.
+- The rule block becomes `rulesAreTooDense ? null : [...].map(…)`: suppression
+  drops the block whole and never filters inside it, because the export clones
+  this chart and a rule filtered off screen is a rule missing from the export.
+
+**THE BUG THIS CHUNK WAS MOSTLY SPENT ON, and it is 8.3's fifth negative
+arriving unbidden.** `marksOverLight` is a `useMemo`, and `rulesAreTooDense`
+was not in its dependency array — so the value was computed correctly and then
+thrown away, and the memo kept the JSX it built at mount when jsdom's unlaid-out
+box made the density `false`. The failure looked impossible from outside:
+
+    REACTPROBE {"firstVisibleCell":30,"viewportPx":100,"dayPx":4,"scrolledPx":132,"rulesAreTooDense":true}
+    DOMPROBE   {"charts":1,"rules":["0","4","8","12","16","20","30","31","32","33","34","35","36"]}
+
+State right, guard present in the file the gate host ran, one panel mounted, and
+all thirteen rules still in the document. Two probes were spent ruling out the
+wrong suspects — `viewportPx` stale at 0 (it is 100; the `defineProperty`
+shadow works), a second mounted tree, a second render path — before the
+`useMemo` was read. **The lesson worth keeping: a value computed outside a
+memoised subtree is not a value that subtree can see.** That is precisely
+"the density computed once at mount and not recomputed", which is the fifth
+negative 8.3 asks for, watched with the scrolled half failing at 7 rules while
+every other case stayed green.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `--skip-nx-cache`), all
+four rc 0 at the tree that was committed, md5-verified identical on both hosts:
+`fe-01:test` **87 files / 2268 pass** UTC and **2 / 3** zoned; `lint`;
+`typecheck`; `format:check --all`.
+
+**The other two negatives, watched:**
+
+- the in-viewport filter dropped from the numerator (`filter(() => true)`) —
+  **2 failed / 2 passed**, both halves of the **unscrolled** case, while the
+  scrolled case stays green because a horizon count is already over the
+  threshold there and suppressing is the expected answer.
+- the rule elements filtered to the visible interval at render time —
+  **2 failed / 2 passed**, the horizon assertion among them: the document holds
+  the six visible rules and not the thirteen, which is the export failure the
+  slice's wording exists to forbid.
+
+**GATE TRAP, recorded because it cost a file.** Restoring an injected negative
+from a `/tmp` copy taken **after** the injection restores the injection.
+`marker-rule-density.ts` was left carrying the first fault and only an md5
+against the committed tree caught it; the restore is now always from the
+repository, never from a scratch copy.
+
+**One lint error worth naming:** `@typescript-eslint/restrict-template-expressions`
+rejects a number in a template literal, so fixture ids are `${String(offset)}`.
