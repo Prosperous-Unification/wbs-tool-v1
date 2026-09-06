@@ -3,7 +3,6 @@ import { describe, expect, it } from 'bun:test';
 import type { AuthenticatedUser, AuthService } from '../service/auth.service';
 import { callerGuard } from './caller';
 import { bindElysia } from './elysia/bind';
-import { COMPARE_QUERY } from './elysia/query-schemas';
 import { bindInProcess } from './in-process/bind';
 import { noContent, ok, respond, type Route, text } from './route';
 
@@ -21,7 +20,7 @@ import { noContent, ok, respond, type Route, text } from './route';
  * What this suite does **not** claim: that the two binders agree on everything.
  * They deliberately differ where the framework owns the answer — Elysia's own
  * 404 body, its malformed-JSON refusal, plugin-level headers, and the body of a
- * refusal produced by a `documentation.query` schema. Every clause below is a
+ * refusal produced by a `documentation.querySchema` schema. Every clause below is a
  * property a *route module* is entitled to rely on, which is exactly the set a
  * second HTTP framework would have to reproduce.
  */
@@ -107,7 +106,7 @@ function routes(auth: AuthService): Route[] {
     },
     /**
      * The compare route's shape, reduced to what makes it interesting: the one
-     * `documentation.query` schema in this app that *refuses*, plus the
+     * `documentation.querySchema` schema in this app that *refuses*, plus the
      * handler's own check of the same two parameters. The real schema is
      * imported rather than restated so this clause measures what the app ships.
      */
@@ -120,13 +119,13 @@ function routes(auth: AuthService): Route[] {
             ? ok({ left: query['left'], right: query['right'] })
             : respond(422, { error: 'invalid_query' }),
         ),
-      documentation: { query: COMPARE_QUERY },
+      documentation: { querySchema: 'compare' },
     },
     /**
      * `/probe/sides` with the guard the real compare route actually carries.
      *
      * The unguarded probe above cannot see the property below it, and that is a
-     * structural blind spot rather than a missing case: a `documentation.query`
+     * structural blind spot rather than a missing case: a `documentation.querySchema`
      * schema and an authentication guard are two refusals racing each other, and
      * a fixture with only one of them has no race to observe. Sol's review found
      * the real route's ordering because it read the route module; this fixture
@@ -143,7 +142,7 @@ function routes(auth: AuthService): Route[] {
         ),
       ),
       preflight: guard.preflight('signed-in'),
-      documentation: { query: COMPARE_QUERY },
+      documentation: { querySchema: 'compare' },
     },
     {
       method: 'GET',
@@ -349,7 +348,7 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * The second divergence this branch found, and the decision about it: a query
    * schema's refusal agrees on **status** and is not asserted to agree on body.
    *
-   * `COMPARE_QUERY` declares `left` and `right` required, and only `bindElysia`
+   * The `compare` query schema declares `left` and `right` required, and only `bindElysia`
    * enforces it — under that binder the framework refuses before the handler
    * runs, under any other the handler's own check does. Both answer 422; the
    * bodies differ, because one is the framework's validation report and the
@@ -360,7 +359,7 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * pin one binder's private format as the contract or force the schema to stop
    * declaring the two parameters required — and the schema is what keeps them in
    * the published document, so weakening it would make the API description lie.
-   * {@link COMPARE_QUERY} carries the long form of that argument.
+   * `COMPARE_QUERY` in `elysia/query-schemas.ts` carries the long form of that argument.
    *
    * The clause is still load-bearing in both directions: it fails if either
    * binder stops refusing, and it fails if either one refuses with a different
@@ -383,7 +382,7 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    *
    * **This is also the negative control for the clause below it.** The
    * unauthenticated case of this same route used to be a real divergence —
-   * Elysia answered **422**, because its `documentation.query` hook validates
+   * Elysia answered **422**, because the query hook its `documentation.querySchema` resolves to validates
    * before the handler runs, and the in-process binder answered **401**, because
    * the route module puts the guard outermost. `Route.preflight` closed that,
    * and the clause asserting it is next.
@@ -434,7 +433,7 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
   /**
    * The clause `Route.preflight` exists for, and the one divergence this suite
    * could not see until `/probe/guarded-sides` was added: a guarded route that
-   * also carries a `documentation.query` had two orderings, because only a
+   * also carries a `documentation.querySchema` had two orderings, because only a
    * framework-derived validator can get in front of a handler guard. Elysia
    * answered 422 here and the in-process binder answered 401, so an
    * unauthenticated caller learned the shape of the query under one binder and
@@ -465,7 +464,7 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
  * Chunk 12 settled the `invalid_query` divergence on status and left the bodies
  * unasserted, which was the right call about the *contract* and left a hole in
  * the *proof*. The Gemini review named it: deleting
- * `documentation: { query: COMPARE_QUERY }` from `/probe/sides` leaves every
+ * `documentation: { querySchema: 'compare' }` from `/probe/sides` leaves every
  * clause green, because the handler's own check answers the identical 422.
  * Nothing in the suite fails if `register()` stops passing `hook` to Elysia, so
  * the OpenAPI document — which is generated from those hooks — could quietly
@@ -479,7 +478,7 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
  * them, and it is a claim about the binder rather than about the route list —
  * which is exactly why it does not belong in the shared suite.
  */
-describe('the elysia binder hands documentation.query to the framework', () => {
+describe('the Elysia binder resolves documentation.querySchema for the framework', () => {
   it('answers a bad query with elysia’s validation report, not the handler’s', async () => {
     const app = bindElysia(routes(stubAuth({})));
     const res = await app.handle(new Request('http://localhost/probe/sides?left=only-one'));

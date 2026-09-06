@@ -9,8 +9,8 @@ import {
 } from '@wbs/domain';
 import { parseOrThrow, ValidationError } from '@wbs/validation';
 
+import { handParsedBody } from '../http/body-doc';
 import { callerGuard } from '../http/caller';
-import { handParsedBody } from '../http/elysia/hand-parsed-body';
 import { ok, respond, type Route, type RouteHandler, type RouteResponse } from '../http/route';
 import type { AuthService } from '../service/auth.service';
 import {

@@ -4,15 +4,17 @@
  *
  * A route is `{ method, path, handler }` and a handler is a plain async
  * function from a {@link RouteRequest} to a {@link RouteResponse}. Nothing here
- * imports `elysia`, and the ESLint boundary in `.eslintrc` is what keeps that
- * true — the whole point of the shape is that a second binder over the same
- * route list needs no framework at all, which is what
+ * imports the HTTP framework, and neither does anything under `controller/` —
+ * `eslint.config.js` restricts both the package and every module under
+ * `http/elysia/` there, which is the enforcement this comment used to claim and
+ * the repository did not have. The whole point of the shape is that a second
+ * binder over the same route list needs no framework at all, which is what
  * `http/binder.contract.test.ts` runs.
  *
  * What deliberately is **not** here: body validation, and any notion of a
  * plugin. Ten routes in this app parse their bodies by hand because Elysia
  * strips unknown properties before a guard can refuse them
- * (`http/elysia/hand-parsed-body.ts` says why at length), so a validation hook in
+ * (`http/body-doc.ts` says why at length), so a validation hook in
  * the route type would advertise a seam those routes cannot take. A route that
  * wants a schema declares it in {@link Route.documentation}, which is carried
  * to whichever binder can publish it and ignored by the ones that cannot.
@@ -142,7 +144,7 @@ export type RouteHandler = (req: RouteRequest) => Promise<RouteResponse>;
  * covered every requirement the mechanisms it replaced had covered.
  *
  * What it exists for: a binder that derives a validator from
- * {@link Route.documentation}'s `query` runs that validator before the handler,
+ * {@link Route.documentation}'s `querySchema` runs that validator before the handler,
  * so an unauthenticated caller sending a malformed query learned the shape of
  * the query before being told it may not ask — 422 under Elysia, 401 under the
  * in-process binder, for one route list. Only a framework-derived refusal can
@@ -170,20 +172,49 @@ export interface Route {
   preflight?: RoutePreflight;
   /**
    * Opaque per-route documentation, handed to a binder that can publish an
-   * OpenAPI document and ignored by one that cannot. The values are typed
+   * OpenAPI document and ignored by one that cannot. `detail` is typed
    * `unknown` on purpose: naming Elysia's `DocumentDecoration` here would put
    * the framework back into the framework-free file.
    *
-   * `query` belongs here rather than in a validation hook, and the distinction
-   * is the one `history.routes.ts` spells out: this app's query schemas refuse
-   * nothing. They exist because Elysia derives a route's documented parameters
-   * from the route plus this schema and **replaces** anything hand-written in
-   * `detail`, so a query string described only in prose is a document that
-   * omits half the contract. The parsing that gives a query meaning is in the
-   * handler, where a binder cannot skip it.
+   * `querySchema` is a **name**, not a schema, and that is the difference
+   * acceptance criterion #1 turned on. A query schema in this app has to be
+   * built with the framework's own `t` — a plain JSON Schema object in
+   * Elysia's `query` hook failed six history route tests and the
+   * committed-document diff, because its validator needs TypeBox's `Kind`
+   * symbol — so a route module that held the value would import `elysia`
+   * transitively and the controller directory would load the framework
+   * whichever binder mounted it. Naming the schema instead leaves the dialect
+   * on the binder's side of the seam: `http/elysia/query-schemas.ts` maps every
+   * {@link QuerySchemaName} to the TypeBox object, and a binder that publishes
+   * no document reads neither.
+   *
+   * The schema belongs here rather than in a validation hook for the reason
+   * `history.routes.ts` spells out: this app's query schemas refuse nothing.
+   * They exist because Elysia derives a route's documented parameters from the
+   * route plus this schema and **replaces** anything hand-written in `detail`,
+   * so a query string described only in prose is a document that omits half the
+   * contract. The parsing that gives a query meaning is in the handler, where a
+   * binder cannot skip it.
    */
-  documentation?: { detail?: unknown; query?: unknown };
+  documentation?: { detail?: unknown; querySchema?: QuerySchemaName };
 }
+
+/**
+ * The query schemas a route may name, spelled as a closed union so the mapping
+ * cannot drift in either direction.
+ *
+ * A route naming a schema this app does not have fails to compile here; a
+ * schema map missing one of these names fails to compile in
+ * `http/elysia/query-schemas.ts`, which types itself
+ * `Record<QuerySchemaName, TSchema>`. That is the whole reason the indirection
+ * is a union rather than a bare `string`: replacing an import with a name is
+ * only an improvement if the name is still checked.
+ *
+ * Two routes are documented this way — `GET /api/projects/{id}/history` and
+ * `GET /api/projects/{id}/saved-plans/compare`. Every other query string in
+ * this app is described in its handler's prose and parsed there.
+ */
+export type QuerySchemaName = 'compare' | 'history';
 
 /**
  * True for a JSON value a handler may read named fields off — an object that is

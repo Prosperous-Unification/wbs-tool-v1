@@ -1,9 +1,42 @@
-import type { DocumentDecoration } from 'elysia';
+/**
+ * A JSON Schema object as this app writes one for a documented request body.
+ *
+ * `unknown` and not a structural JSON Schema type: every value handed to the
+ * two helpers below is an object literal written a few lines from its route,
+ * and the publisher — `@elysiajs/openapi` — is the thing that decides what a
+ * schema may contain. Narrowing here would be this file inventing a dialect it
+ * does not own; {@link http/elysia/body-doc-conformance} is where the real
+ * shape is checked, against the framework's own type, on the framework's side
+ * of the seam.
+ */
+export type BodySchema = unknown;
 
-type RequestBodyDoc = NonNullable<DocumentDecoration['requestBody']>;
-type BodySchema = NonNullable<
-  Extract<RequestBodyDoc, { content: unknown }>['content'][string]['schema']
->;
+/**
+ * A documented request body: OpenAPI's `requestBody` object, in the two shapes
+ * this app emits.
+ *
+ * **This file is framework-free on purpose, and that is a correction rather
+ * than a preference.** Until the terminal review it lived at
+ * `http/elysia/hand-parsed-body.ts` and took `DocumentDecoration` from the
+ * framework package as a type-only import, on the argument that a type import
+ * costs nothing at run time. It costs nothing at run time and it still made
+ * `git grep -l elysia apps/be-01/src/controller` non-empty, which is acceptance
+ * criterion #1 word for word; four route modules import these two helpers. The
+ * old note admitted the grep failure and kept the file anyway, so a criterion
+ * this branch exists to meet stayed open for fourteen chunks.
+ *
+ * The rejected alternative was to restate `DocumentDecoration`'s inner shape
+ * structurally and hope it kept matching. That objection was right, so the
+ * check moved rather than vanished: `http/elysia/body-doc-conformance.ts`
+ * asserts this type is assignable to Elysia's, and fails `be-01:typecheck` if a
+ * framework upgrade changes the shape underneath. The type is declared where no
+ * framework is imported and proved where one is.
+ */
+export interface RequestBodyDoc {
+  required: boolean;
+  description: string;
+  content: Record<string, { schema: BodySchema }>;
+}
 
 /**
  * The sentence every hand-parsed body in this API needs, written once.
@@ -27,16 +60,6 @@ type BodySchema = NonNullable<
  * So the schema in the document is **documentation**. Saying so out loud is the
  * point: a reader who takes it for the validator will send a field this API
  * refuses and read the 400 as a fault in the API.
- *
- * **Under `http/elysia/` and not `openapi/`, because of the one import at the
- * top.** `DocumentDecoration` is a type-only import — it costs nothing at run
- * time — and it still fails the grep acceptance criterion #1 names,
- * `git grep -l "from 'elysia'" apps/be-01/src`. The type is Elysia's shape for
- * a route's `detail`, so the file belongs beside the binder that speaks that
- * dialect, next to `query-schemas.ts`, which moved here for the same reason.
- * The alternative — restating `DocumentDecoration`'s inner shape structurally
- * in a framework-free file — would be a copy of a type this app does not own,
- * silently right until Elysia changes it.
  */
 const PARSED_BY_HAND =
   'The schema here is documentation, not validation. This route parses its own ' +
@@ -108,10 +131,13 @@ const CHECKED_BY_HAND =
  * them and a refactor does not narrow a published API on the way past. Whoever
  * wants that narrowing gets it as its own change, with the clients told.
  *
- * The same `schema` object under all three keys would serialise correctly, and
- * is still spelled out three times: a shared reference is one mutation away from
- * three routes' worth of surprise, and this file is copied from more than it is
- * read.
+ * **All three keys hold the same `schema` object**, and an earlier version of
+ * this note claimed the opposite — that the schema was "spelled out three
+ * times" to keep one mutation from surprising three routes. It never was: the
+ * three entries are three references to the one argument, as the code below
+ * shows, so the note described a safety the file did not have. Serialisation is
+ * unaffected either way; a caller that mutates the schema it just passed in
+ * would see it in all three media types, and no caller does.
  */
 export function checkedBody(description: string, schema: BodySchema): RequestBodyDoc {
   return {

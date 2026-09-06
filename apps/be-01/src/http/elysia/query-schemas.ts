@@ -1,4 +1,6 @@
-import { t } from 'elysia';
+import { t, type TSchema } from 'elysia';
+
+import type { QuerySchemaName } from '../route';
 
 /**
  * The query schemas the OpenAPI document is built from, in the framework's own
@@ -12,9 +14,16 @@ import { t } from 'elysia';
  * reading of these schemas is true of their *content* and not of their type.
  *
  * That makes them a binder concern, which is where a framework dialect belongs.
- * A binder that publishes no document imports none of this, and
- * `apps/be-01/src/controller` stays free of `elysia` — which is the acceptance
- * criterion this file exists to hold.
+ *
+ * **A route reaches them by name, and the reason is measured rather than
+ * stylistic.** Until this chunk the two route modules imported the values, and
+ * `git grep -l elysia apps/be-01/src/controller` therefore matched seven files
+ * — the terminal review that found it was right, and acceptance criterion #1
+ * was not met. A `t.Object(...)` is a runtime value, so importing one loads
+ * `elysia` into whatever imports the controller, in-process binder included.
+ * {@link QUERY_SCHEMAS} closes that: the route says `querySchema: 'history'`,
+ * this file owns the dialect, and the map's own type is what keeps the two
+ * halves in step.
  */
 /**
  * The compare route's two sides — and the **one** query schema in this app that
@@ -88,3 +97,18 @@ export const HISTORY_QUERY = t.Object({
     }),
   ),
 });
+
+/**
+ * Every {@link QuerySchemaName} a route may declare, resolved to the schema the
+ * document is built from.
+ *
+ * Typed `Record<QuerySchemaName, TSchema>` and not a looser index signature so
+ * the map is total: adding a name to the union without a schema here is a
+ * typecheck failure, which is the half of the name indirection that a bare
+ * `Record<string, TSchema>` would not catch. The other half — a route naming a
+ * schema that does not exist — is caught at the route.
+ */
+export const QUERY_SCHEMAS: Record<QuerySchemaName, TSchema> = {
+  compare: COMPARE_QUERY,
+  history: HISTORY_QUERY,
+};

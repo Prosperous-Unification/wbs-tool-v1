@@ -10,7 +10,7 @@ const EchoBody = type({ text: 'string' });
  *
  * That is worth saying because it reads like the general mechanism and is not.
  * Every route carrying real domain input hand-parses instead, for the reason
- * `hand-parsed-body.ts` states: Elysia strips unknown properties before a guard
+ * `body-doc.ts` states: Elysia strips unknown properties before a guard
  * can refuse them, and a refusal has to be a code a client can branch on. This
  * route echoes a string for the deploy smoke, has no domain input to refuse, and
  * is the only place the simple form fits.

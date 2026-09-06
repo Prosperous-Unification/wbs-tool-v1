@@ -1,6 +1,5 @@
+import { checkedBody } from '../http/body-doc';
 import { callerGuard } from '../http/caller';
-import { checkedBody } from '../http/elysia/hand-parsed-body';
-import { COMPARE_QUERY } from '../http/elysia/query-schemas';
 import {
   isFieldBag,
   noContent,
@@ -155,7 +154,7 @@ const isRefusal = (parsed: object): parsed is RouteResponse => 'status' in parse
 
 /**
  * The compare route's two sides, checked here as well as declared to the
- * document — {@link COMPARE_QUERY} says why both.
+ * document — the `compare` schema beside the binder says why both.
  *
  * Without this an absent `left` reaches {@link sideRef} as `undefined` under any
  * binder that does not validate the schema, and the service is asked for a saved
@@ -353,7 +352,7 @@ export function savedPlanRoutes(
         }),
       ),
       preflight: guard.preflight('signed-in'),
-      documentation: { query: COMPARE_QUERY },
+      documentation: { querySchema: 'compare' },
     },
     {
       method: 'GET',

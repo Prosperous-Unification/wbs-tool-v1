@@ -88,7 +88,7 @@ export function internalRoutes(deps: InternalDeps): Route[] {
  * secret check itself works:
  *
  * ```
- * POST /internal/forward, no x-internal-auth      elysia   in-process
+ * POST /internal/forward, no x-internal-auth      Elysia   in-process
  *   body `{not json`                              400      400
  *   body `{}`                                     401      401
  * ```

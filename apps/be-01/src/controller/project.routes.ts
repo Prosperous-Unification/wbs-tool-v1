@@ -1,7 +1,7 @@
 import { DEPENDENCY_REACHES, ESTIMATE_METHODS, ESTIMATE_ROUNDINGS } from '@wbs/domain';
 
+import { checkedBody } from '../http/body-doc';
 import { callerGuard } from '../http/caller';
-import { checkedBody } from '../http/elysia/hand-parsed-body';
 import {
   isFieldBag,
   noContent,

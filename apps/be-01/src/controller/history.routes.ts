@@ -1,5 +1,4 @@
 import { callerGuard } from '../http/caller';
-import { HISTORY_QUERY } from '../http/elysia/query-schemas';
 import { ok, respond, type Route } from '../http/route';
 import type { PlanEventFilter } from '../repository';
 import type { AuthService } from '../service/auth.service';
@@ -53,13 +52,19 @@ function filterFrom(query: Record<string, string | undefined>): PlanEventFilter 
  * Open to every authenticated account, like every other read. `HistoryService`
  * owns the absent-project answer so there is one copy of the rule.
  *
- * The query schema is `HISTORY_QUERY`, and it lives beside the Elysia binder
- * rather than here. It was written out as a plain JSON Schema object in this
- * file first, and that **failed**: six of this route's tests and the committed
- * document diff went red, because Elysia's validator needs TypeBox's `Kind`
- * symbol and only `t` attaches it. The schema refuses nothing at runtime, but
- * its *type* is the framework's, so it is a binder concern — which is what
- * keeps `elysia` out of this directory.
+ * The route names its query schema — `querySchema: 'history'` — and the schema
+ * itself lives beside the binder that publishes it. It was written out as a
+ * plain JSON Schema object in this file first, and that **failed**: six of this
+ * route's tests and the committed document diff went red, because the
+ * framework's validator needs TypeBox's `Kind` symbol and only its `t` attaches
+ * it. The schema refuses nothing at run time, but its *type* is the framework's.
+ *
+ * Naming it rather than importing it is the second correction. This module
+ * imported the value until a terminal review measured what that cost: a
+ * `t.Object(...)` is a run-time value, so the import pulled the framework into
+ * this directory and into any binder that loads these routes. A string does
+ * not, and it is still checked — `QuerySchemaName` is a closed union and the
+ * schema map is total over it.
  */
 export function historyRoutes(auth: AuthService, history: HistoryService): Route[] {
   const guard = callerGuard(auth);
@@ -75,13 +80,13 @@ export function historyRoutes(auth: AuthService, history: HistoryService): Route
       documentation: {
         // Declared as a schema rather than left to the handler's raw `query`, which
         // is how `?cascade=true` is read two route modules over. The reason is the
-        // committed document: Elysia derives a route's parameters from the route
-        // and from this, and **replaces** anything hand-written in `detail`, so a
-        // query string described only in prose would be a document that omits half
-        // the contract. Both are optional strings and neither is refused — the
+        // committed document: the publisher derives a route's parameters from the
+        // route and from this, and **replaces** anything hand-written in `detail`,
+        // so a query string described only in prose would be a document that omits
+        // half the contract. Both are optional strings and neither is refused — the
         // parsing that gives them meaning is `filterFrom`, and its readings are
         // deliberately not 400s.
-        query: HISTORY_QUERY,
+        querySchema: 'history',
         detail: {
           summary: 'One plan’s history — every command run on it, newest first',
           description: `The plan's own record, per **project** and not per account: two people editing one

@@ -12,7 +12,7 @@ import {
   type TokenVerifier,
 } from '@wbs/auth';
 
-import { checkedBody } from '../http/elysia/hand-parsed-body';
+import { checkedBody } from '../http/body-doc';
 import {
   isFieldBag,
   ok,

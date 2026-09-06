@@ -2,6 +2,7 @@ import { Elysia, status } from 'elysia';
 
 import { toResponse } from '../response';
 import type { HttpMethod, Route, RouteRequest } from '../route';
+import { QUERY_SCHEMAS } from './query-schemas';
 
 /**
  * Elysia's context, as far as this file reads it. Named once because
@@ -51,10 +52,12 @@ function routeRequestFrom(method: HttpMethod, ctx: ElysiaContext, body: unknown)
 /**
  * The Elysia binder: a route list in, a mountable Elysia instance out.
  *
- * This file and `app.ts` are the only two places under `src/` that import
- * `elysia`, and that is the whole claim of the refactor — everything a
- * controller does is now expressed against `../route`, and swapping the
- * framework means writing a sibling of this file.
+ * Everything a controller does is expressed against `../route`, and swapping
+ * the framework means writing a sibling of this file. The framework itself is
+ * imported only under `http/elysia/` — here and by `query-schemas.ts` — plus
+ * `app.ts`, which mounts the result; nothing a route module imports reaches it,
+ * which is the claim acceptance criterion #1 makes and `git grep -l elysia
+ * apps/be-01/src` is the way to check it.
  *
  * Routes are registered through the **method-specific** calls rather than a
  * generic `.route()`, because `@elysiajs/openapi` builds its document from the
@@ -106,12 +109,18 @@ export function bindElysia(routes: readonly Route[]): Elysia {
     // registrations produced. `transform` is not a key `@elysiajs/openapi`
     // reads, so adding one does not move the document either — asserted by
     // `openapi/openapi-document.test.ts` rather than assumed.
+    // The route names its query schema and this binder owns the dialect, so the
+    // name is resolved here rather than carried as a value through the
+    // framework-free route type — see `QuerySchemaName` in `../route`. An
+    // absent name passes no `query` key at all, which is what keeps the
+    // generated document byte-identical for the routes that declare none.
+    const documentation = documentationFor(route);
     const preflight = route.preflight;
     const hook =
       preflight === undefined
-        ? route.documentation
+        ? documentation
         : {
-            ...route.documentation,
+            ...documentation,
             transform: async (ctx: ElysiaContext) => {
               const refusal = await preflight(routeRequestFrom(route.method, ctx, undefined));
               // `undefined`, not the refusal, is how a `transform` says "carry
@@ -130,16 +139,44 @@ export function bindElysia(routes: readonly Route[]): Elysia {
   return app;
 }
 
+/**
+ * The route's documentation with its named query schema resolved to the
+ * TypeBox object `@elysiajs/openapi` reads.
+ *
+ * A route with no documentation returns `undefined` and a route that documents
+ * only `detail` keeps exactly that one key, because an added `query: undefined`
+ * is not the same hook to Elysia's document builder and
+ * `openapi/openapi-document.test.ts` diffs the committed artifact.
+ */
+function documentationFor(route: Route): ElysiaHook | undefined {
+  const documentation = route.documentation;
+  if (documentation === undefined) return undefined;
+  const { querySchema, ...rest } = documentation;
+  if (querySchema === undefined) return rest;
+  return { ...rest, query: QUERY_SCHEMAS[querySchema] };
+}
+
+/**
+ * What this binder hands Elysia per route: the resolved documentation keys plus
+ * the `transform` seat a route's preflight takes.
+ *
+ * Typed structurally rather than as Elysia's own hook type for the same reason
+ * the route shape does not name `DocumentDecoration`: the framework's types
+ * stop at this file's boundary, and every value passed to `register` is built
+ * inside it.
+ */
+interface ElysiaHook {
+  detail?: unknown;
+  query?: unknown;
+  transform?: unknown;
+}
+
 function register(
   app: Elysia,
   method: HttpMethod,
   path: string,
   handle: (ctx: never) => Promise<unknown>,
-  // Widened past `Route['documentation']` for the `transform` above. Typed
-  // structurally rather than as Elysia's own hook type for the same reason the
-  // route shape does not name `DocumentDecoration`: the framework's types stop
-  // at this file's boundary, and every value passed here is built two lines up.
-  hook: (Route['documentation'] & { transform?: unknown }) | undefined,
+  hook: ElysiaHook | undefined,
 ): Elysia {
   /* eslint-disable @typescript-eslint/no-explicit-any,
                     @typescript-eslint/no-unsafe-assignment,

@@ -1,5 +1,5 @@
+import { checkedBody } from '../http/body-doc';
 import { callerGuard } from '../http/caller';
-import { checkedBody } from '../http/elysia/hand-parsed-body';
 import { isFieldBag, noContent, ok, respond, type Route, type RouteResponse } from '../http/route';
 import type { AuthService } from '../service/auth.service';
 import type { RemoveStepOutcome, StepRefusal, StepService } from '../service/step.service';
@@ -19,7 +19,7 @@ const statusFor = (reason: StepRefusal): number => statusForRefusal(reason, 422)
  * 422 before the handler ran. A route module cannot declare a validator to a
  * framework it does not import, and this is the shape that check has to take
  * instead — which is no loss: the app already hand-parses every body carrying
- * real domain input, for the reason `http/elysia/hand-parsed-body.ts` states at
+ * real domain input, for the reason `http/body-doc.ts` states at
  * length. 422 rather than 400 keeps the answer the one clients already branch
  * on, and it is the same status Elysia's schema refusal produced.
  */

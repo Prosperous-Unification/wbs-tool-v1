@@ -164,6 +164,63 @@ export default [
     },
   },
 
+  // The controller directory owns no HTTP framework, and this is what makes
+  // that true rather than aspirational.
+  //
+  // `http/route.ts` claimed an ESLint boundary held the line for the whole of
+  // the be-01 hexagonal refactor. There was none: the check was
+  // `git grep -l elysia apps/be-01/src/controller`, run by hand, and it stayed
+  // green only because nobody ran it. Two helper modules under `http/elysia/`
+  // grew controller imports — `query-schemas.ts`, which imports the runtime `t`,
+  // and the body-doc helpers, which took a type from the framework — so seven
+  // route modules loaded the framework transitively for fourteen chunks while
+  // the acceptance criterion read as met.
+  //
+  // Transitive is the whole point of the pattern list: banning `elysia` alone
+  // would still have passed, because no controller named it directly. Anything
+  // under `http/elysia/` is the framework's dialect by definition, so importing
+  // one of those modules is importing the framework one hop out.
+  //
+  // Type-only imports are restricted too. A type import costs nothing at run
+  // time and it is still the thing that failed the criterion, which is written
+  // against the grep and not against the emitted bundle.
+  //
+  // This block repeats the `bun:sqlite` restriction from the block above,
+  // because flat config replaces a rule's options per file rather than merging
+  // them — without the repeat, controllers would silently lose it.
+  {
+    files: ['apps/be-01/src/controller/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'bun:sqlite',
+              allowTypeImports: true,
+              message:
+                'Open connections through openDatabase() in repository/db.ts — it sets and ' +
+                'asserts WAL, busy_timeout and foreign_keys, and busy_timeout/foreign_keys ' +
+                'are per-connection, so a direct `new Database()` silently loses them.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['elysia', 'elysia/*', '**/http/elysia/*'],
+              allowTypeImports: false,
+              message:
+                'A route module names no HTTP framework — acceptance criterion #1 of the ' +
+                'be-01 refactor. Express what the route needs against http/route.ts, and ' +
+                'put anything in the framework’s dialect behind a name the binder resolves ' +
+                '(see QuerySchemaName) or in a framework-free module under http/ ' +
+                '(see http/body-doc.ts).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // AGENTS.md R3: knowledge about a symbol lives in JSDoc on that symbol.
   //
   // Deliberately NOT `jsdoc/require-jsdoc`. A rule demanding a comment on every
