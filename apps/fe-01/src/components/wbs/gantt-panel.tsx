@@ -103,6 +103,27 @@ export const DAY_SCALE_NAMES: Record<DayPx, string> = {
 };
 
 /**
+ * How many marker chips one day cell may show before the rest collapse.
+ *
+ * **A ladder and not a threshold, for the same reason the zoom is one.** The
+ * chip is `maxWidth: dayPx` at its own column's left edge, so what fits is a
+ * function of the rung and nothing else: three chips are legible in 28px of
+ * day, two survive 12px, and at 4px a cell has room for a single coloured tick.
+ * A constant tuned at the widest rung draws three ticks in four pixels, which
+ * is a smear rather than three marks — which is why task 8.4's negative
+ * replaces this record with `3` and watches the 4px case, not the 28px one.
+ *
+ * Keyed by {@link DayPx} rather than looked up by arithmetic on `dayPx`, so a
+ * rung added to {@link DAY_SCALES} fails typecheck here instead of silently
+ * inheriting whichever branch a comparison chain happened to fall through.
+ */
+export const MARKER_BAND_MAX_PER_CELL: Record<DayPx, number> = {
+  28: 3,
+  12: 2,
+  4: 1,
+};
+
+/**
  * Whether a claim off a boundary is one of the rungs.
  *
  * Beside the ladder rather than beside the storage read that needs it, so there
@@ -867,6 +888,46 @@ export function isoToday(today: Date): IsoDate {
  */
 export function axisOffsetOf(axis: readonly AxisDay[], date: IsoDate): number | null {
   return axis.find((day) => day.date === date)?.offset ?? null;
+}
+
+/**
+ * The chips the band actually draws, and where each one stands.
+ *
+ * Two things at once, because they are one decision: a marker off the drawn
+ * horizon has no cell to stand on (`offset === null`, task 8.5's arm), and a
+ * marker past its cell's share of {@link MARKER_BAND_MAX_PER_CELL} has a cell
+ * with no room left. Both come out of the band the same way — undrawn — and a
+ * caller that resolved the offsets first and capped second would count the
+ * off-horizon ones against the cap of whichever cell they were never on.
+ *
+ * **The cap is per cell and the order is the list's.** `markers` arrives in
+ * `(date, created_at, id)` order from the store, so "the first `n` on this
+ * date" is the oldest `n`, which is stable across a re-read: capping by
+ * anything the render computes would let a repaint change which chip is hidden
+ * while nothing about the data moved.
+ *
+ * Extracted rather than inlined in the band's `map` because 8.4's cases assert
+ * the cap per rung and its negative replaces the ladder with a constant —
+ * neither is reachable through a JSX callback, and a cap written inside the map
+ * would need a mutable tally in render.
+ */
+export function markersDrawnInBand(
+  markers: readonly CalendarMarkerView[],
+  axis: readonly AxisDay[],
+  dayPx: DayPx,
+): { readonly marker: CalendarMarkerView; readonly offset: number }[] {
+  const room = MARKER_BAND_MAX_PER_CELL[dayPx];
+  const drawn = new Map<number, number>();
+  const band: { readonly marker: CalendarMarkerView; readonly offset: number }[] = [];
+  for (const marker of markers) {
+    const offset = axisOffsetOf(axis, marker.date);
+    if (offset === null) continue;
+    const already = drawn.get(offset) ?? 0;
+    if (already >= room) continue;
+    drawn.set(offset, already + 1);
+    band.push({ marker, offset });
+  }
+  return band;
 }
 
 /**
@@ -4752,14 +4813,15 @@ function GanttChart({
                 className="pointer-events-none absolute inset-y-0"
                 style={{ left: CHART_PAD_PX }}
               >
-                {markers.map((marker) => {
-                  const offset = axisOffsetOf(axis, marker.date);
-                  // A marker off the drawn horizon draws nothing — the axis has
-                  // no cell to stand it on, and inventing one would put it at
-                  // the edge as if it were on the last day. Task 8.5 is the case
-                  // that says so; this arm is what lets it pass silently rather
-                  // than at `NaN` pixels.
-                  if (offset === null) return null;
+                {/*
+                  A marker off the drawn horizon draws nothing — the axis has no
+                  cell to stand it on, and inventing one would put it at the edge
+                  as if it were on the last day (task 8.5) — and so does a marker
+                  past its cell's share of the rung (task 8.4). Both live in
+                  {@link markersDrawnInBand}, which is where the two questions
+                  are one.
+                */}
+                {markersDrawnInBand(markers, axis, dayPx).map(({ marker, offset }) => {
                   const fill = markerFill(marker);
                   return (
                     <span

@@ -43,6 +43,8 @@ import {
   isDayPx,
   isoToday,
   LABEL_COLUMN_PX,
+  MARKER_BAND_MAX_PER_CELL,
+  markersDrawnInBand,
   monthWords,
   ROW_PX,
   rowWords,
@@ -7884,5 +7886,80 @@ describe('the composer creates the marker whose colour it previewed', () => {
     // **The slice's own assertion**: the colour promised and the colour drawn
     // are one colour, and they are one only because they are one id.
     expect(chip.style.backgroundColor).toBe(previewed);
+  });
+});
+
+/**
+ * Task 8.4's cap, at each rung of the ladder.
+ *
+ * The cases below are the module half — how many chips the band hands the
+ * renderer at each `dayPx`. The `+N` text and the hover list are the render
+ * half and are not asserted here.
+ */
+describe('the marker band caps each cell at its rung', () => {
+  const axis = [
+    { offset: 0, workday: 0, date: '2026-08-10', shown: '10', weekend: false, heavy: true },
+    { offset: 1, workday: 1, date: '2026-08-11', shown: '11', weekend: false, heavy: false },
+  ];
+
+  /**
+   * Four markers on one date and one on the next, in the list's own
+   * `(date, created_at, id)` order.
+   *
+   * Four, so the same fixture has one more than every rung allows: at 28px it
+   * exceeds 3, at 12px it exceeds 2 and at 4px it exceeds 1. A fixture sized to
+   * one rung would leave the other two asserting nothing.
+   */
+  const markers: CalendarMarkerView[] = [
+    { id: 'a', date: '2026-08-10', name: 'A', color: null },
+    { id: 'b', date: '2026-08-10', name: 'B', color: null },
+    { id: 'c', date: '2026-08-10', name: 'C', color: null },
+    { id: 'd', date: '2026-08-10', name: 'D', color: null },
+    { id: 'e', date: '2026-08-11', name: 'E', color: null },
+  ];
+
+  const drawnAt = (dayPx: 28 | 12 | 4): string[] =>
+    markersDrawnInBand(markers, axis, dayPx).map(({ marker }) => marker.id);
+
+  it('shows three of four on a 28px day, and the neighbour is untouched', () => {
+    // The cap is per cell: the fifth marker is on the next date and has its own
+    // room, so a cap applied to the list rather than the cell would drop it.
+    expect(drawnAt(28)).toEqual(['a', 'b', 'c', 'e']);
+  });
+
+  it('shows two on a 12px day', () => {
+    expect(drawnAt(12)).toEqual(['a', 'b', 'e']);
+  });
+
+  it('shows one on a 4px day', () => {
+    // Proof: `MARKER_BAND_MAX_PER_CELL` replaced by a flat `3` — the constant
+    // tuned at the widest rung, which is task 8.4's own negative — fails here
+    // on `expected [ 'a', 'b', 'c', 'e' ] to deeply equal [ 'a', 'e' ]` while
+    // the 28px case above stays green. A threshold tested at one rung is not a
+    // ladder. Watched 2026-09-06, chunk 69.
+    expect(drawnAt(4)).toEqual(['a', 'e']);
+  });
+
+  it('keeps the ladder pointing down as the rungs narrow', () => {
+    // Not a restatement of the record: this is the property the record exists
+    // for, and it is what a future rung has to satisfy. A wider day never shows
+    // fewer chips than a narrower one.
+    expect(MARKER_BAND_MAX_PER_CELL[28]).toBeGreaterThan(MARKER_BAND_MAX_PER_CELL[12]);
+    expect(MARKER_BAND_MAX_PER_CELL[12]).toBeGreaterThan(MARKER_BAND_MAX_PER_CELL[4]);
+    expect(MARKER_BAND_MAX_PER_CELL[4]).toBeGreaterThanOrEqual(1);
+  });
+
+  it('draws nothing for a marker off the drawn horizon, at any rung', () => {
+    // Task 8.5's arm, asserted through the new seam: an off-horizon marker is
+    // undrawn and does not spend a cell's room either — capping after the
+    // offsets were resolved would count it against a cell it was never on.
+    const offHorizon: CalendarMarkerView[] = [
+      { id: 'z', date: '2026-09-01', name: 'Z', color: null },
+      ...markers,
+    ];
+    expect(markersDrawnInBand(offHorizon, axis, 4).map(({ marker }) => marker.id)).toEqual([
+      'a',
+      'e',
+    ]);
   });
 });
