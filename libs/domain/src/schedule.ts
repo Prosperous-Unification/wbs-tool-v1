@@ -2104,8 +2104,15 @@ export function schedule(
    * moved no scheduled offset. Slice 5 reads it to *order* ready slices and to
    * report `Late by N workdays`; a deadline that pulled work earlier would be a
    * wish the calendar granted, which is the one thing it must never be.
+   *
+   * **Underscored because nothing below reads it yet, and that is the claim
+   * 4.3 proves rather than a gap to be tidied away.** The argument is
+   * positional — {@link ScheduleInput} is what names the tuple's members — so
+   * the prefix costs callers nothing and buys the one thing worth having here:
+   * a reader who removes it and finds the linter silent has learnt that slice 5
+   * landed. Slice 5 drops it in the same commit that first reads the map.
    */
-  deadlines: ReadonlyMap<string, number> = new Map(),
+  _deadlines: ReadonlyMap<string, number> = new Map(),
   /**
    * Task 4.9's `materialiseOptimized`: a start per slice key, or Fast's own.
    *
