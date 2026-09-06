@@ -7,8 +7,8 @@ import { CHART_PAD_PX, DAY_PX, LABEL_COLUMN_PX, ROW_PX } from '../src/components
 import {
   type ClipPixels,
   isContiguousRun,
-  pixelDifference,
   type PixelDifference,
+  pixelDifference,
   sameColumns,
 } from '../src/components/wbs/marker-rule-ink';
 import { createProject } from './create-project';
@@ -3713,16 +3713,10 @@ test.describe('the marker rule, measured in the columns it paints', () => {
    * `img.decode()` before drawing, and the canvas sized from the image before
    * that, since a fresh `<canvas>` is 300×150 and would crop a wider clip.
    */
-  async function differenceOf(
-    page: Page,
-    before: string,
-    after: string,
-  ): Promise<PixelDifference> {
+  async function differenceOf(page: Page, before: string, after: string): Promise<PixelDifference> {
     const decoded = await page.evaluateHandle(
       async ([first, second]): Promise<readonly [ClipPixels, ClipPixels]> => {
-        const read = async (
-          encoded: string,
-        ): Promise<ClipPixels> => {
+        const read = async (encoded: string): Promise<ClipPixels> => {
           const image = new Image();
           image.src = `data:image/png;base64,${encoded}`;
           await image.decode();

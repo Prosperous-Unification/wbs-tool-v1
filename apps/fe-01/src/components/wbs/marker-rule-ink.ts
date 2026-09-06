@@ -48,10 +48,10 @@ export interface PixelDifference {
  * @throws If the clips are not the same size. A mismatch means either the page
  * reflowed between photographs or a decode canvas kept its default dimensions.
  */
-export function pixelDifference([
-  baseline,
-  after,
-]: readonly [ClipPixels, ClipPixels]): PixelDifference {
+export function pixelDifference([baseline, after]: readonly [
+  ClipPixels,
+  ClipPixels,
+]): PixelDifference {
   if (baseline.width !== after.width || baseline.height !== after.height) {
     throw new Error(
       `clips are ${String(baseline.width)}×${String(baseline.height)} and ` +
