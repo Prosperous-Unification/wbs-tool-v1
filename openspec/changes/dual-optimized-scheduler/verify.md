@@ -42,7 +42,7 @@ then make the best-effort socket push through `pushRecorded`; the convenience
 - Host: `h2puni`, clean exact-head checkout
   `/home/puni1/t220-r25-final2.TsxGEY`
 - Command: `NX_DAEMON=false bunx nx run-many -t test lint typecheck
-  --projects=be-01 --parallel=1 --skip-nx-cache`, followed by scoped Prettier.
+--projects=be-01 --parallel=1 --skip-nx-cache`, followed by scoped Prettier.
 - Verdict: exit 0; be-01 1,671 passed / 0 failed across 139 files, lint and
   typecheck green, and all nine changed files formatted.
 - The focused event suite passed 3/0: two cold-result variants each recorded
