@@ -165,9 +165,14 @@ describe('what a stored schedule refuses', () => {
     const version1 = {
       ...payload,
       dtoVersion: 1,
-      slices: payload.slices.map(({ key, value }) => {
-        const { lateBy: _dropped, ...withoutLateBy } = value;
-        return { key, value: withoutLateBy };
+      slices: payload.slices.map((entry) => {
+        // Deleted off a loose copy rather than destructured away: `lateBy` is
+        // required on `ScheduledSlice`, so the rest-sibling form leaves a bound
+        // name this package's lint rejects and `delete` needs the field to be
+        // optional. A `Record` is what a stored row is anyway.
+        const value: Record<string, unknown> = { ...entry.value };
+        delete value['lateBy'];
+        return { key: entry.key, value };
       }),
     };
     expect(version1.slices.every((entry) => !('lateBy' in entry.value))).toBe(true);
