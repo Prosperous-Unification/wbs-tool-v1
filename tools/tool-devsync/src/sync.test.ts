@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,6 +14,7 @@ import {
   preflightSolver,
   RECREATE_PATHS,
   RESTART_PATHS,
+  runDevSyncLock,
   SOLVER_COMPATIBILITY_PATHS,
   sync,
 } from './sync';
@@ -260,6 +261,35 @@ describe('dev supervisor', () => {
 });
 
 describe('dev-sync lock diagnostics', () => {
+  it('passes the dedicated contention exit code to the production flock invocation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'wbs-devsync-flock-'));
+    const argumentsPath = join(directory, 'arguments');
+    const flockPath = join(directory, 'flock');
+    const lockPath = join(directory, 'devsync.lock');
+    const scriptPath = join(directory, 'sync.ts');
+    await writeFile(flockPath, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argumentsPath}'\n`);
+    await chmod(flockPath, 0o755);
+
+    expect(
+      await runDevSyncLock('target-sha', {
+        bunPath: 'test-bun',
+        flockPath,
+        lockPath,
+        scriptPath,
+      }),
+    ).toBe(0);
+    expect((await readFile(argumentsPath, 'utf8')).trim().split('\n')).toEqual([
+      '-E',
+      '75',
+      '-n',
+      lockPath,
+      'test-bun',
+      scriptPath,
+      '--locked',
+      'target-sha',
+    ]);
+  });
+
   it('identifies only flock lock contention as a held deploy lock', () => {
     expect(devSyncFailureMessage(LOCK_BUSY_EXIT_CODE)).toBe(
       '[dev-sync] skipped: another deploy holds the lock',

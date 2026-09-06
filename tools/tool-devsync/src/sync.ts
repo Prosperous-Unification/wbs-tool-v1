@@ -129,6 +129,29 @@ export function devSyncFailureMessage(exitCode: number): string {
     : `[dev-sync] failed (exit ${String(exitCode)}); see the error above`;
 }
 
+export interface DevSyncLockOptions {
+  bunPath?: string;
+  flockPath?: string;
+  lockPath?: string;
+  scriptPath?: string;
+}
+
+/** Runs the production child invocation under the deploy lock. */
+export async function runDevSyncLock(
+  sha: string,
+  options: DevSyncLockOptions = {},
+): Promise<number> {
+  const bunPath = options.bunPath ?? 'bun';
+  const flockPath = options.flockPath ?? 'flock';
+  const lockPath = options.lockPath ?? LOCK;
+  const scriptPath = options.scriptPath ?? import.meta.path;
+  // Proof: removing `-E 75` failed the production-invocation test's exact argv
+  // assertion: Expected began "-E", "75"; Received began "-n", devsync.lock.
+  const run =
+    await $`${flockPath} -E ${LOCK_BUSY_EXIT_CODE} -n ${lockPath} ${bunPath} ${scriptPath} --locked ${sha}`.nothrow();
+  return run.exitCode;
+}
+
 /**
  * Paths whose change a running dev environment cannot pick up by itself.
  *
@@ -303,11 +326,10 @@ if (import.meta.main) {
     // makes the whole sequence exclusive; -n fails fast rather than queueing a
     // deploy whose operator has stopped watching. The dedicated conflict exit
     // keeps a child failure from being mislabeled as lock contention.
-    const run =
-      await $`flock -E ${LOCK_BUSY_EXIT_CODE} -n ${LOCK} bun ${import.meta.path} --locked ${sha}`.nothrow();
-    if (run.exitCode !== 0) {
-      console.error(devSyncFailureMessage(run.exitCode));
+    const exitCode = await runDevSyncLock(sha);
+    if (exitCode !== 0) {
+      console.error(devSyncFailureMessage(exitCode));
     }
-    process.exit(run.exitCode);
+    process.exit(exitCode);
   }
 }

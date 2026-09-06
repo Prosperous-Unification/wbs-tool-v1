@@ -38,9 +38,10 @@ const AUTH_ERROR_PARAM = 'auth_error';
 /**
  * What the card says about a refused SSO sign-in, in this app's own words.
  *
- * The keys are exactly the codes the callback will emit — `REPORTABLE_AUTH_ERRORS`
- * in `apps/be-01/src/controller/auth.routes.ts` plus its `provider_error` collapse
- * target — and nothing else reaches a reader: the provider's own
+ * The keys are the public `auth_error` values emitted by the callback in
+ * `apps/be-01/src/controller/auth-oidc-endpoints.ts`. That boundary collapses
+ * every unpublished provider code to `provider_error`, and nothing else reaches
+ * a reader: the provider's own
  * `error_description` is deliberately never sent, so this app chooses the words
  * on its own origin and there is no string here it did not write.
  *
