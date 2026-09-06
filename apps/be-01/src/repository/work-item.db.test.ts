@@ -1058,7 +1058,7 @@ describe('the order the work-item select answers in', () => {
    * `deriveNumbers` sorts each sibling group by `position` and `Array#sort` is
    * stable, so tied positions leave the labels decided by the array order — and
    * the number is the third of `goesFirst`'s four tie-breaks
-   * (`schedule.ts:1940`). Measured at `705f1bc5`, two unestimated leaves on a
+   * (`schedule.ts:2283`). Measured at `705f1bc5`, two unestimated leaves on a
    * one-slot pool: id order gives `00000000…` `010` and `ffffffff…` `020`, so
    * `00000000…` takes the slot at 0 → 2 and `ffffffff…` waits at 2 → 4; the
    * insert order gives `ffffffff…` `010` and the two placements exchange.
@@ -1077,7 +1077,7 @@ describe('the order the work-item select answers in', () => {
    * queue both start at day 0 whatever order they arrive in; one slot is what
    * makes one of them wait, and the tie-break is what decides which.
    *
-   * **Watched red:** the `ORDER BY` deleted from 1.7's production path and this
+   * Proof: with the `ORDER BY` deleted from 1.7's production path, this
    * assertion fails with the two spans exchanged, alongside 1.7's and 1.8's.
    */
   it('schedules the same project two ways when the rows arrive in two orders', async () => {

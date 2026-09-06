@@ -11,7 +11,7 @@ outside any lock (`libs/domain/src/place-sibling.ts:53`), so two appends racing 
 both compute the same number. That tie is not inert: `deriveNumbers` sorts each sibling group
 with `Array#sort`, which is **stable**, so the order the repository answered in survives into
 the derived number, and the number is the third of `goesFirst`'s four tie-breaks
-(`schedule.ts:1940`). Whatever breaks the tie decides dates.
+(`schedule.ts:2283`). Whatever breaks the tie decides dates.
 
 **We tolerate the tie and make `work_item.id` its documented resolution.** The alternative —
 repair the positions and constrain them unique — was considered and rejected on two counts,
