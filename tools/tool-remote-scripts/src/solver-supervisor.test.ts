@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  assertSolverSupervisorMapping,
   decodeSolverSupervisorConfigBytes,
   parseSolverSupervisorArgs,
+  parseSolverSupervisorMappingPreflight,
   runSolverSupervisor,
   SUPERVISOR_CONFIG_MAX_BYTES,
 } from './solver-supervisor';
 
 const BLUE = `registry.example/wbs-be@sha256:${'a'.repeat(64)}`;
 const SOLVER = `registry.example/wbs-solver@sha256:${'b'.repeat(64)}`;
+const OTHER = `registry.example/wbs-be@sha256:${'c'.repeat(64)}`;
 const CONFIG = {
   socketPath: '/run/user/1000/wbs-solver/supervisor.sock',
   maxSearchWorkers: 2,
@@ -68,5 +71,82 @@ describe('the solver supervisor executable', () => {
     ]);
     expect(events.join('\n')).not.toContain(BLUE);
     expect(events.join('\n')).not.toContain(SOLVER);
+  });
+
+  it('parses separate closed prod and dev mapping preflights', () => {
+    expect(
+      parseSolverSupervisorMappingPreflight([
+        '--preflight=prod',
+        '--config=/etc/wbs/supervisor.json',
+        '--caller-name=be-01-green',
+        `--image=${BLUE}`,
+      ]),
+    ).toEqual({
+      config: '/etc/wbs/supervisor.json',
+      env: 'prod',
+      callerName: 'be-01-green',
+      image: BLUE,
+    });
+    expect(
+      parseSolverSupervisorMappingPreflight([
+        '--preflight=dev',
+        '--config=/etc/wbs/supervisor.json',
+        `--solver-image=${SOLVER}`,
+      ]),
+    ).toEqual({
+      config: '/etc/wbs/supervisor.json',
+      env: 'dev',
+      solverImage: SOLVER,
+    });
+    expect(() =>
+      parseSolverSupervisorMappingPreflight([
+        '--preflight=prod',
+        '--config=/etc/wbs/supervisor.json',
+        '--caller-name=wbs-dev-src',
+        `--image=${BLUE}`,
+      ]),
+    ).toThrow('prod --caller-name');
+  });
+
+  it('refuses stale prod colour and incompatible dev solver mappings', () => {
+    const bytes = encoded({
+      ...CONFIG,
+      images: [
+        { callerName: 'be-01-blue', callerImage: BLUE, solverImage: BLUE },
+        { callerName: 'wbs-dev-src', callerImage: null, solverImage: SOLVER },
+      ],
+    });
+    assertSolverSupervisorMapping(bytes, {
+      config: '/etc/wbs/supervisor.json',
+      env: 'prod',
+      callerName: 'be-01-blue',
+      image: BLUE,
+    });
+    expect(() =>
+      assertSolverSupervisorMapping(bytes, {
+        config: '/etc/wbs/supervisor.json',
+        env: 'prod',
+        callerName: 'be-01-blue',
+        image: OTHER,
+      }),
+    ).toThrow('image does not match its mapping');
+    expect(() =>
+      assertSolverSupervisorMapping(bytes, {
+        config: '/etc/wbs/supervisor.json',
+        env: 'dev',
+        solverImage: OTHER,
+      }),
+    ).toThrow('incompatible');
+  });
+
+  it('refuses a prod map that points a valid caller at another solver artifact', () => {
+    expect(() =>
+      assertSolverSupervisorMapping(encoded(CONFIG), {
+        config: '/etc/wbs/supervisor.json',
+        env: 'prod',
+        callerName: 'be-01-blue',
+        image: BLUE,
+      }),
+    ).toThrow('solver image does not match its caller image');
   });
 });
