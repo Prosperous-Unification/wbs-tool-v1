@@ -14,7 +14,7 @@ import { DRAIN_RECONCILE_INTERVAL_MS } from '../repository/optimization-drain';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
 import { enqueueSolverRequest } from '../repository/optimization-queue';
 import { readOptimizedPair } from '../repository/optimized-schedule-cache';
-import { solverQueue, solverSlot } from '../repository/schema';
+import { eventLog, optimizedScheduleCache, solverQueue, solverSlot } from '../repository/schema';
 import {
   OptimizationCoordinator,
   type ReservedSolverChild,
@@ -315,6 +315,8 @@ describe('OptimizationCoordinator read', () => {
       expect(coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input })).toBeNull();
       expect(calls).toEqual([]);
       expect(db.select().from(solverSlot).all()).toEqual([]);
+      expect(db.select().from(optimizedScheduleCache).all()).toEqual([]);
+      expect(db.select().from(eventLog).all()).toEqual([]);
       expect(readGeneration(db, 'p-1', CONTRACT)).toBeNull();
     }
 
