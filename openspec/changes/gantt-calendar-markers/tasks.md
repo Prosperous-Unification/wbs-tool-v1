@@ -3575,3 +3575,13 @@ pre-existing `wbs-table.tsx:4748` `useMemo` notice), `fe-01:typecheck` rc 0,
 9.2a's alongside this one — and cross-host md5 equal (`41305c19` spec,
 `583829ab` panel). No vitest-visible file changed, so chunk 61's `88 files /
 2288 pass / 0 fail` stands at these bytes.
+
+## Correction to chunk 61 — the openspec gate did run (TASK-235 run 31)
+
+Chunk 61 recorded `openspec validate` as unavailable on both hosts and did not
+claim it green. That was a wrong package name, not an outage: `bunx openspec`
+has no executable and is installed nowhere, and the invocation that works is
+**`bunx @fission-ai/openspec@latest`** — which chunk 56 already recorded after
+the same miss cost it a run. At the chunk 62 bytes it is **rc 0, 39 items, 39
+valid, 0 invalid**, unchanged from chunk 60's reading. Chunk 61's own bytes are
+this file's parent commit and the same 39 items validated there.
