@@ -269,8 +269,8 @@ Nothing SHALL be drawn over a bar. Bar fill and the critical-path
 
 **"Fully opaque over it" is false of one bar kind, and the guarantee SHALL be
 stated as it actually holds** (round-12 Sol review, Important). An **assumed**
-bar carries `[fill-opacity:0.35]` by design (`ASSUMED_BAR_CLASSES`,
-`gantt-panel.tsx:706`), so a rule painted behind one shows through it exactly as
+bar carries `[fill-opacity:0.35]` by design (`ASSUMED_BAR_CLASSES` in
+`gantt-panel.tsx`), so a rule painted behind one shows through it exactly as
 the gridlines, zebra band and weekend column beneath it already do. That is the
 treatment's purpose and this feature SHALL NOT special-case it: masking the rule
 under assumed bars alone would give the marker a paint privilege none of the
@@ -293,10 +293,12 @@ crop to the footprint and require a difference inside it.
 **The rule SHALL be 1px on screen at every rung, and that needs a mechanism
 rather than a width** (round-12 Sol review, Important). The chart's SVG user
 space is days by rows and is stretched non-uniformly to `dayPx`
-(`viewBox` days×rows with `preserveAspectRatio="none"`, `gantt-panel.tsx:3940-3943`),
+(`viewBox` days×rows with `preserveAspectRatio="none"` on the chart `<svg>` in
+`gantt-panel.tsx`),
 so a stroke of one user unit is **a day wide** — 28, 12 or 4 CSS pixels across
 the ladder. Today's leading edge already carries `vectorEffect="non-scaling-stroke"`
-for precisely this reason (`gantt-panel.tsx:2984-2995`). The marker rule SHALL
+for precisely this reason (the today leading-edge `<line>` in
+`gantt-panel.tsx`). The marker rule SHALL
 carry `vector-effect: non-scaling-stroke` and SHALL render one CSS pixel wide at
 every rung.
 
@@ -321,9 +323,10 @@ outside the geometry the box measures. The browser proof SHALL therefore be
 **That width SHALL be bounded rather than exact** (round-15 Gemini review,
 Critical). The rule sits at an integer user coordinate and the chart's
 horizontal map is `x * dayPx + CHART_PAD_PX` with all three integers
-(`gantt-panel.tsx:590`), so a 1 CSS pixel non-scaling stroke is centred **on** a
-pixel boundary and rasterizes at partial coverage into the two columns it
-straddles — and nothing in the component sets `shape-rendering` to opt out.
+(`CHART_PAD_PX` in `gantt-panel.tsx`), so a 1 CSS pixel non-scaling stroke is
+centred **on** a pixel boundary and rasterizes at partial coverage into the two
+columns it straddles — and nothing in the component sets `shape-rendering` to
+opt out.
 "Exactly one painted column" would therefore fail the correct renderer, which is
 the same shape of error as the bounding box it replaced. The requirement is a
 hairline against a day: **1 or 2 painted columns**, against the 28 and 4 a
@@ -403,7 +406,7 @@ wash, and at 12px they do not merge.
 
 A marker SHALL find its day by locating its `IsoDate` in the rendered
 `AxisDay[]`, through the same generalised lookup today uses
-(`todayOffset`, `gantt-panel.tsx:872`). A marker SHALL NOT compute its own
+(`todayOffset` in `gantt-panel.tsx`). A marker SHALL NOT compute its own
 offset from a date, and SHALL NOT read `CalendarScale` — that interface takes
 a **workday** number and returns a calendar offset, so an absolute date is
 already past it.
