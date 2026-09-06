@@ -124,20 +124,20 @@ test.describe('the project settings control, in a browser', () => {
     );
   });
 
-  test('opens on its control, offers four sections, and closes back onto it', async ({ page }) => {
+  test('opens on its control, offers five sections, and closes back onto it', async ({ page }) => {
     await freshProject(page);
     const control = page.getByRole('button', { name: 'Project settings' });
     await control.click();
     const dialog = page.getByRole('dialog', { name: 'Project settings' });
     await expect(dialog).toBeVisible();
-    // Four since `estimate-weights-and-rounding`: `Estimating` is where the
-    // PERT weights and the per-step rounding are typed, and it sits last
-    // because it is the section a plan is least often opened for.
+    // Five since `wbs-dual-optimized-scheduler`: `Optimization` follows
+    // `Estimating` as the final project-level scheduling section.
     await expect(dialog.getByRole('tab')).toHaveText([
       'Teams',
       'Priorities',
       'Steps',
       'Estimating',
+      'Optimization',
     ]);
 
     // The arrow keys walk the list and select as they go — a real keydown on a
