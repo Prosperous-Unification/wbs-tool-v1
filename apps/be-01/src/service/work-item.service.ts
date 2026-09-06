@@ -1,6 +1,7 @@
 import {
   addWorkdays,
   deadlineOffsetOf,
+  deadlineOffsetsOf,
   type DependencyReach,
   deriveNumbers,
   effectiveTeamsOf,
@@ -103,14 +104,19 @@ import {
  * them is a plan.
  */
 /**
- * The deadlines the plan read has to offer the hash, which is none of them.
+ * The deadlines a project **off the calendar** offers, which is none of them.
  *
- * `ScheduleInput` declares the member because 1.1 hashes it and the wire
- * carries it; the `deadline` column, `deadlineOffsetOf` and the effective fold
- * that would populate it are **TASK-241's**, not this task's (tasks.md, the
- * boundary at the top). An empty map is the true value here rather than a
- * placeholder: a plan with no deadlines stated hashes the same on both sides of
- * that task, so a row written today is still readable after it lands.
+ * No longer the placeholder it was: the plan read now resolves the stored
+ * `deadline` column against `project.startDate` and hands the offsets to
+ * `schedule()`. This constant is what is left of that state — the one branch
+ * where there is still nothing to say, because a project with no start date has
+ * no day zero to count workdays from. It is the same rule the floors beside it
+ * take and the same one 6.1's write path takes when it asks such a project
+ * nothing about a deadline it is being handed.
+ *
+ * An empty map is the true value there rather than a stand-in: a plan whose
+ * dates cannot be resolved states no deadline to the hash, so it keys the same
+ * as a plan that has none, and both read the same cached row.
  *
  * Frozen into a module constant rather than built per read so the empty case
  * cannot be handed a map somebody later writes into.
@@ -1541,6 +1547,35 @@ export class WorkItemService {
         notBefore.set(row.id, workdaysBetween(project.startDate, row.startNoEarlierThan));
       }
     }
+    // The stored dates, read the same way and under the same rule as the floors
+    // above: a calendar date becomes a whole-workday offset here, and the
+    // schedule never sees a calendar. A project with no start date has no day
+    // zero to count from, so no deadline is applied — which is the state every
+    // plan off the calendar has always been in, and the same answer 6.1's write
+    // path gives when it asks such a project nothing.
+    //
+    // **Keyed as authored, parents included.** `leafDeadlinesOf` inside
+    // `schedule()` owns the fold down to leaves, and the canonical hash reads
+    // this same as-authored map (`canonical-schedule-input.ts` (g)); expanding
+    // here would do it twice and let the hash and the fold disagree about which
+    // day a leaf owes.
+    //
+    // `deadlineOffsetsOf` never drops an entry, so a date that now resolves
+    // before day zero arrives as `UNMEETABLE_DEADLINE_OFFSET` rather than as an
+    // absence — tasks.md 5.4's read-time resolution. The stored value is not
+    // rewritten and the read is not refused: the row is reported late by the
+    // whole span it stands on.
+    const deadlines =
+      project.startDate === null
+        ? NO_DEADLINES
+        : deadlineOffsetsOf(
+            project.startDate,
+            new Map(
+              rows
+                .filter((row): row is typeof row & { deadline: IsoDate } => row.deadline !== null)
+                .map((row) => [row.id, row.deadline]),
+            ),
+          );
     // tasks.md 4.11's seam, and the reason `readOptimizedPair` finally has a
     // production caller. Asked **before** the `try` on purpose: everything the
     // cache models — a miss, a `failed` row, a superseded generation, a
@@ -1559,7 +1594,7 @@ export class WorkItemService {
       notBefore,
       poolSizes: slotsOf,
       reach: project.depReach,
-      deadlines: NO_DEADLINES,
+      deadlines,
     });
     let timing = new Map<string, Scheduled>();
     let scheduleError: ScheduleError = null;
@@ -1598,7 +1633,8 @@ export class WorkItemService {
       // `each project is scheduled by its own reach` failed on `Expected: 5 /
       // Received: 3` for the second project's successor; watched 2026-08-29.
       const planned =
-        optimized ?? schedule(rows, edges, slices, notBefore, slotsOf, project.depReach);
+        optimized ??
+        schedule(rows, edges, slices, notBefore, slotsOf, project.depReach, deadlines);
       timing = planned.workItems;
       waitingForPerson = planned.waitingForPerson;
       waitingForCapacity = planned.waitingForCapacity;
