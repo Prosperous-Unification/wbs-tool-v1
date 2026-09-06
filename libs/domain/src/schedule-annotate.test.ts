@@ -104,9 +104,9 @@ describe('a pinned start the plan refuses', () => {
     // predecessor. Not a worse schedule — not a schedule.
     pinned.set(sliceKey('b', null), 1);
 
-    expect(() => schedule(rows, chain, slices, new Map(), new Map(), 'whole-item', new Map(), pinned)).toThrow(
-      ScheduleInvalidOptimizedStartError,
-    );
+    expect(() =>
+      schedule(rows, chain, slices, new Map(), new Map(), 'whole-item', new Map(), pinned),
+    ).toThrow(ScheduleInvalidOptimizedStartError);
   });
 
   it('throws when a start has no room in the pool it named', () => {
@@ -122,17 +122,17 @@ describe('a pinned start the plan refuses', () => {
       [sliceKey('b', null), 4],
     ]);
 
-    expect(() => schedule(rows, [], pooled, new Map(), sizes, 'whole-item', new Map(), pinned)).toThrow(
-      ScheduleInvalidOptimizedStartError,
-    );
+    expect(() =>
+      schedule(rows, [], pooled, new Map(), sizes, 'whole-item', new Map(), pinned),
+    ).toThrow(ScheduleInvalidOptimizedStartError);
   });
 
   it('throws when the optimizer returned no start for a slice the plan has', () => {
     const pinned = new Map([[sliceKey('a', null), 0]]);
 
-    expect(() => schedule(rows, chain, slices, new Map(), new Map(), 'whole-item', new Map(), pinned)).toThrow(
-      ScheduleInvalidOptimizedStartError,
-    );
+    expect(() =>
+      schedule(rows, chain, slices, new Map(), new Map(), 'whole-item', new Map(), pinned),
+    ).toThrow(ScheduleInvalidOptimizedStartError);
   });
 });
 
@@ -180,7 +180,16 @@ describe('the two rules the corpus cannot see, because it pins Fast onto Fast', 
       [sliceKey('b', null), 0],
     ]);
 
-    const produced = schedule(rows, [], slices, new Map(), new Map(), 'whole-item', new Map(), pinned);
+    const produced = schedule(
+      rows,
+      [],
+      slices,
+      new Map(),
+      new Map(),
+      'whole-item',
+      new Map(),
+      pinned,
+    );
 
     // Drained in priority order this throws rather than misreporting: `a` is
     // reached first, `kat` is busy until 5, and `b`'s pinned 0 is then below its
@@ -297,9 +306,9 @@ describe('a pinned start the pool releases a ulp later', () => {
       [sliceKey('b', null), PINNED_A],
     ]);
 
-    expect(() => schedule(rows, [], pooled, new Map(), sizes, 'whole-item', new Map(), pinned)).toThrow(
-      ScheduleInvalidOptimizedStartError,
-    );
+    expect(() =>
+      schedule(rows, [], pooled, new Map(), sizes, 'whole-item', new Map(), pinned),
+    ).toThrow(ScheduleInvalidOptimizedStartError);
   });
 });
 
