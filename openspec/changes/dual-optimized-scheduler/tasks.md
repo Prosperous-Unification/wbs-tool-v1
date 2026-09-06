@@ -3673,7 +3673,7 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       drain protocol and 3.9b's phase 2 must fail. Assert in (b), (c) and (d)
       that the eviction is authorized by the CAS, the epoch increment and the
       drain phase respectively — not by a token.
-- [ ] 6.9b **The empty project bypasses both solvers** (Sol r7 Important 12).
+- [x] 6.9b **The empty project bypasses both solvers** (Sol r7 Important 12).
       A project with no slices is legal — `schedule` handles it explicitly with
       `projectFinish = Math.max(0, ...placedFinishes)` and empty maps — but
       `MAKESPAN = max finish` has no empty-set identity, so it was undefined on
@@ -3828,7 +3828,7 @@ recorded, event)` buffers and pushes an already-recorded sequence
       at least once" over a live socket was false. **Watched red:** kill
       between commit and push; the record must exist and a client resuming
       from its last sequence must receive it.
-- [ ] 7.10 The plan-read DTO: `tree()` returns an `optimization`
+- [x] 7.10 The plan-read DTO: `tree()` returns an `optimization`
       block — `enabled`, `engine`, `objective`, `inputHash`, `generation`,
       `contractVersion`, `budgetMs`, `displayed`, `variants: { pri, time }`,
       `comparison` present iff `displayed !== 'fast'`. A variant is one of seven:

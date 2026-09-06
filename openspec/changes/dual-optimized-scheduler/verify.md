@@ -113,3 +113,26 @@ This is the service/coordinator half of 7.10. Its checkbox stays open until the
 seven states are proven through the real controller payload, as that task
 explicitly requires. Likewise 6.9b stays open until its controller-level
 empty-plan payload proof lands.
+
+## 2026-09-06T11:58:10Z — controller optimizer-state matrix
+
+- Head: `fc3e7d3038724754a4a826b8ae74e6c4e27af6db`
+- Host: `h2puni`, worktree `/home/puni1/t220-r27.o9jpyv`
+- Focused real-controller payload test: 1/0, followed by be-01 lint and
+  typecheck green.
+- The HTTP payload matrix covers cold admission, durable queued work,
+  retrying, failed with reason, corrupt with decoder message,
+  plan-infeasible with effective-deadline items, partial success, and full
+  hit. Every non-ready selection publishes Fast with no comparison; ready PRI
+  publishes optimizer-bound slices and a real-domain comparison.
+- The same route proves an initially empty project, and the transition after
+  adding then deleting its only work item, both return empty arrays,
+  `generation: null`, and two `idle` variants. The coordinator database proof
+  immediately above owns the complementary no-allocation/no-row/no-event
+  assertions.
+- Watched negative: removing the `optimization` member from the tree return
+  failed the controller proof 0/1 on its first empty-plan response. Restoring
+  the member returned the same test to 1/0.
+
+Together with the full-key database tests and seven-state mapper tests at
+`2600a3e9`, this closes 6.9b and 7.10.
