@@ -79,3 +79,16 @@ reuse the same transaction and push seam.
 Every fault was reversed and each remote checkout was verified clean. These
 are four separate assertions and four separate `Proof:` comments: no one
 green case stands in for another fence.
+
+## 2026-09-06T11:08:22Z — empty-plan coordinator guard
+
+- Head: `068a89f2`; focused coordinator suite on h2puni passed 15/0, with
+  lint and Prettier green for the changed test.
+- Both zero slices and all-zero durations allocate no generation or slot, write
+  no cache or event row, and call no spawner.
+- Watched negative: deleting the coordinator guard failed the suite 14/1 when
+  the empty plan reached the request builder. The fault was reversed and the
+  remote checkout verified clean.
+
+This closes the coordinator/cache/event portion of 6.9b. Its checkbox remains
+open for the plan-read DTO's `idle` rendering, which belongs with slice 7.10.
