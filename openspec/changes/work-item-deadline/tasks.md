@@ -416,13 +416,13 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
 
 ## 7. Canonical input, contract-version bump, retention scoping
 
-- [ ] 7.1 `deadlines` becomes the **seventh** canonical-input entry: `[workItemId,
+- [x] 7.1 `deadlines` becomes the **seventh** canonical-input entry: `[workItemId,
 deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       against `project.startDate`, keys **as-authored and not pre-expanded to
       leaves**. The parent-with-no-bound-leaf case is the test that pins the
       as-authored choice: its hash must change even though the fold emits no
       constraint.
-- [ ] 7.2 Four stale statements amended in the same commit. **Grep for the
+- [x] 7.2 Four stale statements amended in the same commit. **Grep for the
       literal `schedule(rows, edges, slices, notBefore, poolSizes, reach)`, not
       for "six"** — verified 2026-09-03, only one of the four uses the count
       word and the other three state the tuple literally, so a count-word grep
@@ -439,13 +439,13 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       arguments" sentence and its numbered list — **a workspace file, not a wbs
       one**, so a grep inside the wbs checkout will not see it.
       A stale tuple is a false statement about the hash, not a typo.
-- [ ] 7.2b **Do not amend the review ledger.** The round-1 row of
+- [x] 7.2b **Do not amend the review ledger.** The round-1 row of
       `notes/wbs-dual-optimized-scheduler-design.md`'s ledger reads "Canonical
       input rebuilt from `schedule()`'s actual six arguments" and is a record of
       what round 1 found and fixed. Rewriting it to seven makes it a false
       record. Amend normative text; never history. This is the one occurrence
       7.2's grep will surface that must be left alone.
-- [ ] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
+- [x] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
       corpus in the same commit and evicts every pre-existing cache row. There is
       **no** data migration of cached results.
       **Still 7, deliberately, and the corpus was regenerated under it by 5.2.**
@@ -493,9 +493,9 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       substitutes**: that constant answers "did the engine that computed this
       stored plan behave like the one running now", which this change does
       alter; this one keys a cache of results that cannot exist yet.
-- [ ] 7.4 `deadline` is **not** a new cache-key dimension. Assert the key columns
+- [x] 7.4 `deadline` is **not** a new cache-key dimension. Assert the key columns
       are still `(projectId, inputHash, objective, contractVersion, budgetMs)`.
-- [ ] 7.5 A **regression test**, not a rule change: run two contract versions
+- [x] 7.5 A **regression test**, not a rule change: run two contract versions
       against one SQLite file and assert both row sets survive a store on each
       side. **Do not add a retention requirement.** An earlier draft called this
       an existing latent defect; it is not — the rule already reads "allocating
@@ -511,12 +511,12 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
 
 ## 8. Wire, `plan-infeasible`, revalidator, TASK-221 copy
 
-- [ ] 8.1 `deadlineUnits: integer | null` per slice in
+- [x] 8.1 `deadlineUnits: integer | null` per slice in
       `libs/contracts/solver/solver-wire.v1.json` — the **effective** deadline,
       already folded and already converted to `(D + 1) × quantum`, so Python
       never sees the tree. `null` is unconstrained. The schema is the single
       normative definition; prose does not restate its field list.
-- [ ] 8.2 **Every `<!-- wire-fields:slice -->` and `<!-- wire-fields:response -->`
+- [x] 8.2 **Every `<!-- wire-fields:slice -->` and `<!-- wire-fields:response -->`
       marker amended in the same commit as the schema.** The repository
       enumeration check compares the tagged lists against the schema's own
       `required` sets and fails on the symmetric difference — a partial edit is a
