@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { openDatabase, openDrizzle } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
+import { DRAIN_RECONCILE_INTERVAL_MS } from '../repository/optimization-drain';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
 import { enqueueSolverRequest } from '../repository/optimization-queue';
 import { readOptimizedPair } from '../repository/optimized-schedule-cache';
@@ -167,6 +168,68 @@ function coordinator(
 }
 
 describe('OptimizationCoordinator read', () => {
+  it('reconciles abandoned drains at startup and on the owned interval without resuming work', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const markDraining = (hash: string): void => {
+      allocateGeneration(db, 'p-1', CONTRACT, hash, 2);
+      const raw = openDatabase(path);
+      try {
+        raw.run(
+          `UPDATE optimization_generation SET admission_state = 'draining'
+           WHERE project_id = 'p-1' AND contract_version = '${CONTRACT}'`,
+        );
+      } finally {
+        raw.close();
+      }
+    };
+    markDraining('startup-hash');
+    let tick = (): void => {
+      throw new Error('drain reconciliation interval was not installed');
+    };
+    const scheduled: number[] = [];
+    const cleared: unknown[] = [];
+    const spawned: ReservedSpawnRequest[] = [];
+    const errors: unknown[] = [];
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'restarted',
+      now: () => 600,
+      attemptToken: () => 'unused-token',
+      inputOf: () => Promise.resolve(INPUT),
+      enabledOf: () => Promise.resolve(true),
+      spawn: (request) => {
+        spawned.push(request);
+        throw new Error('a drain reconciliation must not resume a solve');
+      },
+      onChildError: (error) => errors.push(error),
+      setInterval: (callback, milliseconds) => {
+        tick = callback;
+        scheduled.push(milliseconds);
+        return 'drain-timer';
+      },
+      clearInterval: (handle) => void cleared.push(handle),
+    });
+
+    instance.start();
+    expect(readGeneration(db, 'p-1', CONTRACT)).toBeNull();
+    expect(scheduled).toEqual([DRAIN_RECONCILE_INTERVAL_MS]);
+    expect(spawned).toEqual([]);
+
+    markDraining('interval-hash');
+    tick();
+    expect(readGeneration(db, 'p-1', CONTRACT)).toBeNull();
+    await instance.stop();
+    expect(cleared).toEqual(['drain-timer']);
+    expect(errors).toEqual([]);
+
+    // Proof: remove the startup call and `startup-hash` remains; remove the
+    // interval callback and `interval-hash` remains; call spawn and this fails.
+  });
+
   it('debounces edits and reads the newest enabled input once', async () => {
     const { path, db } = database();
     seedProject(path);

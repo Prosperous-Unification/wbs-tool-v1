@@ -3599,7 +3599,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       the slot release. **Watched red:** arm the child anyway
       with the non-positive remainder — the test must show either a
       `wbs-solver` process or an unbounded one.
-- [ ] 6.5 Restart: nothing resumed, no queue rebuilt. Orphan handling is not a
+- [x] 6.5 Restart: nothing resumed, no queue rebuilt. Orphan handling is not a
       PID search. Coordinator socket EOF makes the supervisor kill that exact
       managed container; its persistent per-attempt systemd timer retains the
       child-deadline kill across a supervisor-process restart. The
@@ -3608,7 +3608,11 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       slot counted until the deadline margin. Startup **does** run 3.9b's
       `reconcileOptimizationDrains()` once before serving and then on its
       interval; that is the only startup sweep, and it resumes no solve
-      (Sol r12 Critical 3).
+      (Sol r12 Critical 3). `optimization-coordinator.db.test.ts` proves the
+      startup and periodic passes plus timer shutdown, while `boot.db.test.ts`
+      proves the serving composition calls startup before health turns green.
+      The supervisor channel, lifecycle and runtime suites prove EOF cleanup,
+      the persistent deadline timer command, and pre-listen orphan sweeping.
 - [ ] 6.6 **Proven by** `optimization-coordinator.test.ts`, asserting on an
       injected spawner rather than timing: a cold input spawns exactly two; a
       full hit spawns none; **two concurrent first reads spawn exactly one per

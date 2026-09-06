@@ -9,7 +9,11 @@ import {
   reserveSolverSlot,
   type SolverSlotAdmission,
 } from '../repository/optimization-admission';
-import { releaseSolverSlot } from '../repository/optimization-drain';
+import {
+  DRAIN_RECONCILE_INTERVAL_MS,
+  reconcileOptimizationDrains,
+  releaseSolverSlot,
+} from '../repository/optimization-drain';
 import { allocateGeneration } from '../repository/optimization-generation';
 import { dequeueSolverRequest, enqueueSolverRequest } from '../repository/optimization-queue';
 import {
@@ -52,6 +56,8 @@ export interface OptimizationCoordinatorOptions {
   readonly onChildError: (error: unknown) => void;
   readonly editDebounceMs?: number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  readonly setInterval?: (callback: () => void, milliseconds: number) => unknown;
+  readonly clearInterval?: (handle: unknown) => void;
 }
 
 type ReservedAdmission = Extract<SolverSlotAdmission, { kind: 'reserved' }>;
@@ -99,6 +105,7 @@ export class OptimizationCoordinator {
   private pumpInFlight: Promise<void> | undefined;
   private pumpRequested = false;
   private readonly editEpoch = new Map<string, number>();
+  private reconcileHandle: unknown = null;
 
   constructor(private readonly options: OptimizationCoordinatorOptions) {}
 
@@ -107,9 +114,35 @@ export class OptimizationCoordinator {
     while (this.inFlight.size > 0) await Promise.all([...this.inFlight]);
   }
 
-  /** Start the restart reconciliation after the composition root has wired the input reader. */
+  /** Start restart reconciliation after the composition root has wired the input reader. */
   start(): void {
+    if (this.reconcileHandle !== null) return;
+    this.reconcileDrains();
+    const handle = (this.options.setInterval ?? setInterval)(() => {
+      this.reconcileDrains();
+    }, DRAIN_RECONCILE_INTERVAL_MS);
+    (handle as { unref?: () => void }).unref?.();
+    this.reconcileHandle = handle;
     this.requestPump();
+  }
+
+  /** Stop periodic reconciliation, then await attempts already owned by this process. */
+  async stop(): Promise<void> {
+    if (this.reconcileHandle !== null) {
+      (this.options.clearInterval ?? clearInterval)(
+        this.reconcileHandle as ReturnType<typeof setInterval>,
+      );
+      this.reconcileHandle = null;
+    }
+    await this.drain();
+  }
+
+  private reconcileDrains(): void {
+    try {
+      reconcileOptimizationDrains(this.options.db, this.options.now());
+    } catch (error) {
+      this.options.onChildError(error);
+    }
   }
 
   /** Coalesce project events, then admit both absent variants for the newest input. */

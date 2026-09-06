@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; slices 6.1-6.3, 6.7, and 6.10 now cover read/edit admission, shared SQLite ceilings, restart-safe FIFO launch, deadline-only reclaim, and transactional generation reuse/eviction. Slice 6.2b's two-coordinator real-process bind fence is closed. Next reconcile 6.5/6.6 restart and orphan handling. Do not merge or install the host service.
+Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; slices 6.1-6.3, 6.5, 6.7, and 6.10 now cover read/edit admission, shared SQLite ceilings, startup/periodic drain reconciliation, restart-safe FIFO launch, deadline-only reclaim, and transactional generation reuse/eviction. Slice 6.2b's two-coordinator real-process bind fence is closed. Next reconcile 6.6 and 6.8b restart cases. Do not merge or install the host service.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),

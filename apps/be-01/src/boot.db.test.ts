@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { bootBe01, type RunningBe } from './boot';
 import type { OidcRouteOptions } from './controller/auth.routes';
+import { openDatabase, openDrizzle } from './repository/db';
 import { runMigrations } from './repository/migrate';
+import { allocateGeneration, readGeneration } from './repository/optimization-generation';
 import type { AuthenticatedUser } from './service/auth.service';
 import type { GatewayBroadcaster } from './service/gateway-broadcaster';
 import type { WriteLock } from './service/write-lock';
@@ -95,6 +97,66 @@ function oidcOptions(passwordLoginEnabled: boolean): OidcRouteOptions {
 }
 
 describe('bootBe01', () => {
+  it('reconciles an abandoned optimizer drain before reporting healthy', async () => {
+    const dir = tempDir('wbs-optimizer-reconcile-');
+    const dbPath = join(dir, 'test.db');
+    runMigrations(dbPath, FOLDER);
+    const raw = openDatabase(dbPath);
+    try {
+      raw.run(
+        `INSERT INTO users (id, username, password_hash, created_at)
+         VALUES ('u-1', 'owner', 'hash', 1)`,
+      );
+      raw.run(
+        `INSERT INTO project (id, name, owner_id, restricted, revision, created_at,
+                              optimization_enabled, schedule_engine, schedule_objective)
+         VALUES ('p-1', 'Plan', 'u-1', 0, 0, 1, 1, 'optimized', 'pri')`,
+      );
+    } finally {
+      raw.close();
+    }
+    const observer = openDrizzle(dbPath);
+    const contractVersion = '7+0.1.0';
+    allocateGeneration(observer, 'p-1', contractVersion, 'abandoned', 1);
+    const state = openDatabase(dbPath);
+    try {
+      state.run(
+        `UPDATE optimization_generation SET admission_state = 'draining'
+         WHERE project_id = 'p-1' AND contract_version = '${contractVersion}'`,
+      );
+    } finally {
+      state.close();
+    }
+
+    running = bootBe01({
+      dbPath,
+      port: 0,
+      logger: createLogger({ service: 'be-01' }),
+      jwtKey: 'k'.repeat(32),
+      gwUrl: 'http://gw.invalid',
+      internalAuthSecret: 's'.repeat(32),
+      optimizer: {
+        solverVersion: '0.1.0',
+        budgetMs: 60_000,
+        spawn: () => {
+          throw new Error('startup reconciliation must not spawn');
+        },
+      },
+    });
+    let health: Response | undefined;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      health = await fetch(`http://localhost:${String(running.port)}/health`);
+      if (health.status === 200) break;
+      await Bun.sleep(10);
+    }
+
+    expect(health?.status).toBe(200);
+    expect(readGeneration(observer, 'p-1', contractVersion)).toBeNull();
+
+    // Proof: remove `services.optimizer.start()` from boot and the abandoned
+    // draining generation remains after health says this process is serving.
+  });
+
   it('hands the installed optimizer runtime into the serving process graph', async () => {
     // This is the boundary main.ts calls. Proof: omit the `optimizer` forwarding
     // from bootBe01 to buildServices and the settings write is refused even

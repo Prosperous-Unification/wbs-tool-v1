@@ -191,7 +191,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     /** Stops accepting, waits for a retention sweep in flight, then closes the file. */
     stop: async () => {
       await app.stop();
-      await services.optimizer?.drain();
+      await services.optimizer?.stop();
       await services.retention.stop();
       connection.close();
     },
