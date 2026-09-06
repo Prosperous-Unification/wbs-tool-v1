@@ -1,0 +1,45 @@
+-- The day a work item is owed by, beside the day it may not start before.
+--
+-- `start_no_earlier_than` has carried the floor since 2026-08-06. This column
+-- carries the deadline, and the two are mirrors in shape and opposites in
+-- effect. A floor moves work **later** and always wins the placement: the
+-- schedule takes the later of it and whatever the dependencies allow. A
+-- deadline moves work **nowhere**. It orders the queue — minimum slack, then
+-- earliest date, in front of the priority tie-breaks that are otherwise
+-- untouched — and where the plan cannot meet it the plan is reported *late*
+-- rather than rewritten. A leaf whose floor stands after its deadline still
+-- starts at its floor and is reported late; that is the whole relationship
+-- between the two columns, and it is asserted in
+-- `libs/domain/src/schedule-deadline-order.test.ts` rather than left here.
+--
+-- **No reason column.** `start_no_earlier_than_reason` gets no counterpart.
+-- The floor's words exist because a floor is somebody's decision to hold work
+-- back and the planner is owed the why; a deadline is a date the work is owed
+-- by, and the tool has nothing to add to it. Adding a column speculatively is
+-- adding a second thing that has to stay true.
+--
+-- **Nullable, no default, and that is what makes it additive.** Blue and green
+-- share one SQLite file mid-swap, and the outgoing release's
+-- `INSERT INTO work_item (...)` does not name this column, so every row it
+-- writes gets NULL — which reads as "no deadline", the same thing every row on
+-- the server means today. `start_no_earlier_than_reason`'s argument and its
+-- watched proof, one column over. There is nothing to seed and nothing that
+-- could be seeded: a deadline is somebody's commitment, and inventing one would
+-- be the tool making a promise on a planner's behalf.
+--
+-- **No date moves.** The engine's `deadlines` argument is defaulted to an empty
+-- map, an empty map ties on both of the new comparisons, and every case in the
+-- Fast golden corpus produces a byte-identical schedule under it — which is
+-- `fast-golden-corpus.test.ts`'s no-op proof, run as a real byte comparison and
+-- not as a structural one. So the release that carries this column schedules
+-- every existing plan exactly as the release before it did, and it does so
+-- because the map is empty rather than because nothing reads it.
+--
+-- **Date-only text, in the format every other date in this table uses.** No
+-- time, no zone, no instant: a deadline names a calendar day, and storing an
+-- instant would make the day the row is owed by depend on where the reader is
+-- standing. The resolution from that day to the whole-workday offset the
+-- scheduler reads is `deadlineOffsetOf`, which rolls a weekend deadline
+-- **backward** — no work happens on Saturday, so "by Saturday the 13th" means
+-- the last day work may happen is Friday the 12th.
+ALTER TABLE `work_item` ADD `deadline` text;

@@ -1,0 +1,35 @@
+-- Reverses `20260906090000_add_work_item_deadline`.
+--
+-- **What is lost is dates somebody committed to, and nothing else.** Every
+-- other column of `work_item` is untouched, so every floor still holds its row
+-- on the same day and every plan comes back with the dates it had — because
+-- the dates it had were never a function of this column. A deadline orders the
+-- queue and labels a row late; it does not place work. So the rollback returns
+-- a plan to the state it is in today: the same placement, without the ordering
+-- among contended slices and without a row anywhere reading late.
+--
+-- That is the one asymmetry worth stating plainly rather than implying a safety
+-- net: the placement is recoverable because it never depended on this column,
+-- and **the dates themselves are not**. `plan_event` holds the `patch` commands
+-- that wrote them, for as long as retention keeps them (365 days), so a
+-- deadline could in principle be read back out of a plan's events by hand.
+-- Nothing replays them and this rollback does not try.
+--
+-- Undo and redo are unaffected in shape and lossy in one arm, the position
+-- every rollback of an additive column leaves its own kind in: `command_journal`
+-- is not touched, so every entry stays pressable, but a `patch` entry whose
+-- forward or inverse names `deadline` names a column that is no longer there
+-- and fails when applied.
+--
+-- Reversed **before** `20260906003000_add_work_item_read_order_index`: rollback
+-- order is the reverse of application order, which is what
+-- `migrate-down-cli.ts --to=<name>` does with the applied set, and
+-- `migrate.test.ts` walks it rather than trusting the CLI's exit code.
+--
+-- `DROP COLUMN` and not a table rebuild: SQLite has supported it since 3.35 and
+-- `20260818090000_add_not_before_reason`'s down script is the precedent one
+-- column over. It runs solely when the release that added the column is being
+-- taken away — a forward migration in this repo is additive so blue and green
+-- can share one file mid-swap, and reversing an additive change is destructive
+-- by definition, which is why it lives here and not there.
+ALTER TABLE `work_item` DROP COLUMN `deadline`;

@@ -378,6 +378,38 @@ export const workItem = sqliteTable(
      */
     startNoEarlierThan: text('start_no_earlier_than'),
     /**
+     * A calendar day this work item is owed by, or null.
+     *
+     * The mirror of {@link workItem.startNoEarlierThan} and deliberately shaped
+     * like it: a nullable date-only `TEXT`, no default, and **no reason column
+     * beside it**. The floor's `start_no_earlier_than_reason` gets no
+     * counterpart here; adding one speculatively would be a second thing to
+     * keep true about a date nobody has asked to explain.
+     *
+     * **It is not a floor pointing the other way.** A floor moves work later
+     * and always wins the placement; a deadline moves work **nowhere**. It
+     * orders the queue — minimum slack, then earliest date, in front of
+     * priority — and where the plan cannot meet it the plan is reported *late*
+     * rather than rewritten. A leaf whose floor stands after its deadline still
+     * starts at its floor. The two folds differ for the same reason: an
+     * ancestor's floor takes the **latest** of the tree, an ancestor's deadline
+     * the **earliest**, because a constraint that binds tightens as it inherits.
+     *
+     * **Null is a real state**: the absence of a deadline, not a date that
+     * happens to be far away. Every existing row reads null after the migration
+     * and every plan schedules exactly as it did — the engine's `deadlines`
+     * argument defaults to an empty map, and an empty map ties on both new
+     * comparisons, so an undeadlined project is scheduled by the rules that
+     * predate this column.
+     *
+     * **Stored as authored and never rewritten by a later edit.** A project
+     * start moved past a stored deadline resolves `before-project-start` at
+     * *read* time and the row is reported late by the whole span; the value is
+     * left alone and the request that moved the project is not rejected.
+     * Rewriting it would delete what the user typed on an unrelated edit.
+     */
+    deadline: text('deadline'),
+    /**
      * Why this work item may not start before {@link workItem.startNoEarlierThan},
      * in the planner's own words, or null where nobody has said.
      *
