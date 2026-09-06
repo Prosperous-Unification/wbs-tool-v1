@@ -7060,61 +7060,64 @@ describe('downloading the chart as a standalone .svg', () => {
       Number(word.getAttribute('x')) +
       (word.textContent.length * Number(word.getAttribute('font-size'))) / 2;
 
-    itDom('widens the file to its widest legend entry, so no name is drawn outside it', async () => {
-      // TASK-281 AC #1, and the case both of TASK-271's review seats found
-      // blind. `wraps the legend on measured widths` above uses 400-character
-      // names too, and asserts only the row count and the height — so the entry
-      // that ran off the **right** edge passed straight through it.
-      //
-      // The fault: `layOutMarkerLegend` never wraps the first entry of a row
-      // (an entry wider than the file has nowhere better to go, and wrapping it
-      // would loop) and nothing clipped it, cut it or grew the document, so a
-      // name wider than the chart was drawn into air outside the `viewBox` —
-      // present in the markup, invisible in every rasterisation and every
-      // print, which is the only thing a downloaded chart is for.
-      const long = 'A'.repeat(400);
-      renderMarked([{ id: 'm-one', date: dayAt(2), name: 'Short', color: AZURE }]);
-      const narrow = Number((await downloadedDoc()).documentElement.getAttribute('width'));
-      cleanup();
+    itDom(
+      'widens the file to its widest legend entry, so no name is drawn outside it',
+      async () => {
+        // TASK-281 AC #1, and the case both of TASK-271's review seats found
+        // blind. `wraps the legend on measured widths` above uses 400-character
+        // names too, and asserts only the row count and the height — so the entry
+        // that ran off the **right** edge passed straight through it.
+        //
+        // The fault: `layOutMarkerLegend` never wraps the first entry of a row
+        // (an entry wider than the file has nowhere better to go, and wrapping it
+        // would loop) and nothing clipped it, cut it or grew the document, so a
+        // name wider than the chart was drawn into air outside the `viewBox` —
+        // present in the markup, invisible in every rasterisation and every
+        // print, which is the only thing a downloaded chart is for.
+        const long = 'A'.repeat(400);
+        renderMarked([{ id: 'm-one', date: dayAt(2), name: 'Short', color: AZURE }]);
+        const narrow = Number((await downloadedDoc()).documentElement.getAttribute('width'));
+        cleanup();
 
-      renderMarked([
-        { id: 'm-one', date: dayAt(2), name: long, color: AZURE },
-        { id: 'm-two', date: dayAt(5), name: 'Freeze', color: CORAL },
-      ]);
-      const doc = await downloadedDoc();
-      const root = doc.documentElement;
-      const declared = Number(root.getAttribute('width'));
+        renderMarked([
+          { id: 'm-one', date: dayAt(2), name: long, color: AZURE },
+          { id: 'm-two', date: dayAt(5), name: 'Freeze', color: CORAL },
+        ]);
+        const doc = await downloadedDoc();
+        const root = doc.documentElement;
+        const declared = Number(root.getAttribute('width'));
 
-      // **The document grew**, which is what makes the edge assertion below a
-      // claim rather than a coincidence: a chart already wide enough for the
-      // name would satisfy the edge on a build that grows nothing at all.
-      expect(declared).toBeGreaterThan(narrow);
-      // The width is the `viewBox`'s too — a `width` a renderer scales against
-      // a narrower `viewBox` is the same clip with an extra step.
-      expect(root.getAttribute('viewBox')).toBe(
-        `0 0 ${String(declared)} ${root.getAttribute('height') ?? ''}`,
-      );
-      // The background is painted to it, so the widened band is page rather
-      // than nothing.
-      expect(Number(doc.querySelector('rect')?.getAttribute('width'))).toBe(declared);
+        // **The document grew**, which is what makes the edge assertion below a
+        // claim rather than a coincidence: a chart already wide enough for the
+        // name would satisfy the edge on a build that grows nothing at all.
+        expect(declared).toBeGreaterThan(narrow);
+        // The width is the `viewBox`'s too — a `width` a renderer scales against
+        // a narrower `viewBox` is the same clip with an extra step.
+        expect(root.getAttribute('viewBox')).toBe(
+          `0 0 ${String(declared)} ${root.getAttribute('height') ?? ''}`,
+        );
+        // The background is painted to it, so the widened band is page rather
+        // than nothing.
+        expect(Number(doc.querySelector('rect')?.getAttribute('width'))).toBe(declared);
 
-      // **Every name's right edge, not merely the last row's.** This is the
-      // watched negative's target. With `Math.max(minWidthPx, …)` in
-      // `layOutMarkerLegend` struck back to `minWidthPx` the growth assertion
-      // above fails on `expected 1712 to be greater than 1712`, and with that
-      // line lifted as well so this one is reached, on `expected 1870 to be
-      // less than or equal to 1712` — 158px of name outside the file. Both
-      // watched 2026-09-06 on h2puni.
-      const names = [...doc.querySelectorAll('[data-legend-name]')];
-      expect(names.map((word) => word.textContent)).toEqual([long, 'Freeze']);
-      for (const word of names) {
-        expect(rightEdgeOf(word)).toBeLessThanOrEqual(declared);
-      }
-      // And the whole name is in the file, uncut: `spec.md` requires every
-      // marker name to appear as text in the exported markup, which is why the
-      // document grows instead of the name shrinking.
-      expect(names[0].textContent).toHaveLength(long.length);
-    });
+        // **Every name's right edge, not merely the last row's.** This is the
+        // watched negative's target. With `Math.max(minWidthPx, …)` in
+        // `layOutMarkerLegend` struck back to `minWidthPx` the growth assertion
+        // above fails on `expected 1712 to be greater than 1712`, and with that
+        // line lifted as well so this one is reached, on `expected 1870 to be
+        // less than or equal to 1712` — 158px of name outside the file. Both
+        // watched 2026-09-06 on h2puni.
+        const names = [...doc.querySelectorAll('[data-legend-name]')];
+        expect(names.map((word) => word.textContent)).toEqual([long, 'Freeze']);
+        for (const word of names) {
+          expect(rightEdgeOf(word)).toBeLessThanOrEqual(declared);
+        }
+        // And the whole name is in the file, uncut: `spec.md` requires every
+        // marker name to appear as text in the exported markup, which is why the
+        // document grows instead of the name shrinking.
+        expect(names[0].textContent).toHaveLength(long.length);
+      },
+    );
 
     itDom('shares a crowded day between its chips, left share first, as the rule is', async () => {
       // TASK-281 AC #2. SVG has no z-index, only document order: two chips at
