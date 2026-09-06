@@ -1724,7 +1724,7 @@ in both slices rather than implied by position.
       assertion with the document holding exactly the six visible rules, while
       every `x`-filtered count in this slice — and every case at 28px, 12px and
       the two 4px rungs — stays green.
-- [ ] 8.4 Overflow collapses to a count with the list on hover or tap —
+- [x] 8.4 Overflow collapses to a count with the list on hover or tap —
       `MARKER_BAND_MAX_PER_CELL` is **3** at 28px, **2** at 12px and **1** at
       4px, and the collapsed cell renders `+N` for the markers it did not show —
       test: same file, one case per rung with one marker more than that rung

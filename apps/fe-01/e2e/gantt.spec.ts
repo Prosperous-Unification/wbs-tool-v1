@@ -4749,3 +4749,176 @@ test.describe("a marker chip's contrast, as the compositor drew it", () => {
     });
   });
 });
+
+/**
+ * Slice 8.4's browser tier — the half `gantt-panel.test.tsx` cannot reach.
+ *
+ * The jsdom cases already fix the arithmetic: three chips and `+1` at 28px, two
+ * and `+2` at 12px, one and `+3` at 4px, the uncrowded neighbour left alone, and
+ * the badge's own `aria-label`. What they cannot say is the word the acceptance
+ * criterion actually uses — **hover**. A `pointerenter` fired at a detached
+ * jsdom node proves the handler runs; it does not prove a real pointer can
+ * reach the badge at all, and reaching it is the whole question here: the band
+ * is `pointer-events-none` with exactly one element opting back in, and at the
+ * 4px rung that element is wider than the day it belongs to and hangs left off
+ * its own column. Either of those is a way for the badge to be un-hoverable
+ * while every jsdom assertion in the slice stays green.
+ *
+ * Seeded once and re-read at each rung. Four markers on one day is four
+ * composer round trips — the first through the axis cell, the rest through the
+ * day's sheet, because `operateDay` routes a cell that already carries a marker
+ * to the sheet and not to the composer — and paying that per rung would be
+ * twelve round trips for a ladder the module tier has already measured.
+ */
+test.describe('the crowded day collapses to a +N a pointer can open', () => {
+  /**
+   * The rungs and what `MARKER_BAND_MAX_PER_CELL` lets each of them draw.
+   *
+   * All three, not just the ends: a badge that only the widest rung can be
+   * pointed at is exactly the fault this tier exists to catch, and it lives at
+   * the narrow end of the ladder.
+   */
+  const LADDER = [
+    { rung: DAY_PX, drawn: 3 },
+    { rung: 12, drawn: 2 },
+    { rung: 4, drawn: 1 },
+  ] as const;
+
+  /**
+   * The day everything is piled onto. Offset 3 for `marker-rule-ink`'s reason:
+   * far enough in that the cell clears the chart's left padding at the
+   * narrowest rung, so the badge hanging left off it still has page to hang
+   * into.
+   */
+  const CROWDED_OFFSET = 3;
+
+  /** One more name than the widest rung will draw. */
+  const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta'] as const;
+
+  /** Moves the ladder, and waits for the day columns to have really moved. */
+  async function pickRung(page: Page, rung: number): Promise<void> {
+    await page.locator('[data-gantt-day-scale]').selectOption(String(rung));
+    await expect
+      .poll(async () =>
+        page
+          .locator(`[data-axis-day="${String(CROWDED_OFFSET)}"]`)
+          .evaluate((cell) => Math.round(cell.getBoundingClientRect().width)),
+      )
+      .toBe(rung);
+  }
+
+  /**
+   * Puts one more marker on `offset`, through whichever surface that day's
+   * click opens.
+   *
+   * `throughTheSheet` is passed rather than probed, so the branch is itself an
+   * assertion: `operateDay` opens the composer on an empty day and the sheet on
+   * a day that already carries one, and a routing change would fail here on the
+   * dialog that did not appear rather than quietly seeding fewer markers and
+   * failing later as a wrong `+N`.
+   */
+  async function addMarkerOn(
+    page: Page,
+    offset: number,
+    name: string,
+    { throughTheSheet }: { throughTheSheet: boolean },
+  ): Promise<void> {
+    await page.locator(`[data-axis-day="${String(offset)}"]`).click();
+    if (throughTheSheet) {
+      const sheet = page.getByRole('dialog', { name: /^Calendar markers on / });
+      await expect(sheet).toBeVisible();
+      await sheet.getByRole('button', { name: /^Add a calendar marker on / }).click();
+    }
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill(name);
+    // A REST `POST …/calendar-markers` and **not** a `/commands` batch, per the
+    // rule-ink case: markers are their own route.
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+  }
+
+  /**
+   * Puts the pointer somewhere that opens nothing, and waits for the page to
+   * agree.
+   *
+   * Save unmounts the composer and drops the pointer onto whatever is under it,
+   * which in this fixture is a bar — and a bar under the pointer opens a
+   * hover-card. Every card assertion below counts the cards on the page, so a
+   * stray one is not a nuisance, it is a wrong count.
+   */
+  async function park(page: Page): Promise<void> {
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+  }
+
+  test('draws its rung’s chips, counts the rest, and names the whole day on hover', async ({
+    page,
+  }) => {
+    await seedPlan(page, 'marker-band-overflow');
+    await openTheChart(page);
+
+    // Seeded at the widest rung: at 4px the axis cell is four pixels across and
+    // this is a fixture step, not the thing under test.
+    await pickRung(page, DAY_PX);
+    for (const [at, name] of NAMES.entries()) {
+      await addMarkerOn(page, CROWDED_OFFSET, name, { throughTheSheet: at > 0 });
+    }
+    await park(page);
+
+    for (const { rung, drawn } of LADDER) {
+      await pickRung(page, rung);
+      const hidden = NAMES.length - drawn;
+      const at = `rung ${String(rung)}px`;
+
+      await expect(
+        page.locator(`[data-marker-chip][data-marker-offset="${String(CROWDED_OFFSET)}"]`),
+        `${at}: the band drew the wrong number of chips on the crowded day`,
+      ).toHaveCount(drawn);
+
+      const badge = page.locator(`[data-marker-overflow="${String(CROWDED_OFFSET)}"]`);
+      await expect(badge, `${at}: the badge does not read the markers it hid`).toHaveText(
+        `+${String(hidden)}`,
+      );
+      // The count beside the pixels: text alone reads the formatter as much as
+      // the arithmetic.
+      await expect(badge).toHaveAttribute('data-marker-hidden', String(hidden));
+      await expect(badge).toHaveAttribute('aria-expanded', 'false');
+
+      // The assertion this whole tier is for: a real pointer, landing on a real
+      // badge, through a layer that refuses pointer events everywhere else.
+      await badge.hover();
+      const card = page.getByRole('tooltip');
+      await expect(card, `${at}: hovering the badge opened no card`).toBeVisible();
+      await expect(badge).toHaveAttribute('aria-expanded', 'true');
+      // Exactly one: `showMarkerOverflow` clears the day surface as it opens, so
+      // two cards would mean the pointer opened the axis cell's card as well and
+      // the list read below could be either of them.
+      await expect(card).toHaveCount(1);
+
+      const listed = await card.locator('[data-marker-listed]').allTextContents();
+      // The whole day and not the hidden tail — a list opened from `+3` that
+      // named only the undrawn markers is one the reader has to join to the chip
+      // still on screen.
+      expect(
+        [...listed].sort(),
+        `${at}: the card does not name every marker standing on the day`,
+      ).toEqual([...NAMES].sort());
+      // Sorted, and only here. `CalendarMarkerRepository.listFor` orders by
+      // `(date, createdAt, id)`, so four writes that land inside one clock tick
+      // fall back to an id this fixture does not choose. The order the band
+      // draws in is fixed by the jsdom case, which owns its own ids; what this
+      // tier owes is that the pointer opened a card naming the day entire.
+
+      await park(page);
+      await expect(badge, `${at}: the card outlived the pointer that opened it`).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+    }
+  });
+});
