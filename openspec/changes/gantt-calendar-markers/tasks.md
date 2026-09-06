@@ -1823,6 +1823,35 @@ in both slices rather than implied by position.
 
 ## 9. Live update and end-to-end
 
+- [x] 9.0 **The host seam** — `wbs-table.tsx` reads `listCalendarMarkers` and
+      passes `markers` and the four write callbacks to `<GanttPanel>`. Added at
+      chunk 54 because no slice owned it and its absence made everything above
+      unreachable: all five marker props on the panel are **optional**
+      (`gantt-panel.tsx:2289, 2314, 2329, 2339, 2353`), so twenty-five chunks of
+      marker work landed and gated green while the running product drew nothing
+      and `listCalendarMarkers` had no caller in fe-01 outside the fake. It is
+      what held 8.2a's browser tier at `fixme`, and 9.2/9.2a/9.2b/9.2c/9.3 stood
+      behind the same gap.
+      Test: `apps/fe-01/src/components/wbs/plan-chart-seam.test.tsx`, five cases
+      through the **real** panel in the **real** table — the list is drawn from
+      the project's own read; a saved composer creates through `ProjectApi` and
+      the chip appears under the id be-01 answered with; and rename, recolour
+      and delete each reach their own call and redraw from the answer. A fixture
+      that handed the panel its props would be re-proving section 6 and would
+      have passed against the very gap this closes.
+      Negatives, each failing only what it should against a 19/19 baseline:
+      `markers={markers}` dropped — 5 failed / 14 passed, every marker case and
+      nothing else; the reread after a write dropped — 3 failed / 16 passed,
+      exactly the three cases that assert a redraw, with the read case and the
+      recolour case (which asserts only the store) still green; the recolour
+      call replaced by `Promise.resolve()` — 1 failed / 18 passed, which is what
+      says the four writes are four and not one.
+      The five marker props stay **optional**. Making them required would turn a
+      future host that forgets them into a type error rather than a dead
+      feature, and that is a real trade worth its own decision — it would touch
+      every jsdom render in `gantt-panel.test.tsx` that passes only some of
+      them, and this slice is not the place to make it silently.
+
 - [ ] 9.1 `calendar_markers_changed` on `ProjectEvent` in
       `apps/be-01/src/service/broadcast.ts`, content-free, its own type — test:
       `apps/be-01/src/service/broadcast.test.ts`, one event per mutation across
@@ -3198,3 +3227,54 @@ repository, never from a scratch copy.
 
 **One lint error worth naming:** `@typescript-eslint/restrict-template-expressions`
 rejects a number in a template literal, so fixture ids are `${String(offset)}`.
+
+## Chunk 54 — slice 9.0, the host seam (TASK-235 run 27, 2026-09-06)
+
+`wbs-table.tsx` now owns the marker list. Three pieces, and each is an argument
+already written down somewhere else in this plan:
+
+- **Its own state off its own read**, not a member of `chartRead`. That is
+  `ProjectApi.listCalendarMarkers`'s own comment turned around: a marker moves
+  nothing in the schedule (task 4, axis-1), so folding it into the tree would
+  make every marker write a full plan reread and every plan reread carry markers
+  the table never looks at. It carries `latestMarkerRead`, a generation counter
+  beside `latestRefresh` and for its fault: four writes in a burst are four reads
+  that may land out of order, and an earlier one landing last puts a deleted
+  marker back on the chart.
+- **`runMarkerWrite`, beside `run` rather than through it.** `run` ends in
+  `refreshOrMarkStale`, a full plan reread a marker write has no business asking
+  for. What it invalidates is the marker list and nothing else. The reread
+  happens on the refusal path too: a rename aimed at a marker somebody else
+  deleted is be-01's `not_found`, and leaving that marker drawn is the reader
+  being told "no" while still looking at the thing that is gone.
+- **The read failure is said out loud.** A silent one is a chart that draws no
+  markers and gives no reason, which is indistinguishable from a project that
+  has none — and that indistinguishability *is* the bug this chunk was found by.
+
+**Six api doubles had to grow the read**, and that is the `refusingApi` proxy
+working as designed rather than collateral: it refuses anything a test did not
+state precisely so a new call says so instead of passing against a silent
+default. Three cases failed on it and were watched failing — `project-page`'s
+`shows no error when recording fails` on `expected <div data-toast="error"> to
+be null`, its `shows be-01's refusal and keeps the old name` on `Found multiple
+elements with the role "alert"`, and `plan-dependencies`' `shows dashes rather
+than zeroes when there is no schedule`. `listCalendarMarkers: () =>
+Promise.resolve([])` in each; empty is what those projects have.
+
+**GATES on h2puni** (`~/t235-gate`, `NX_DAEMON=false`, `--skip-nx-cache`), all
+rc 0 at the committed tree, both files md5-identical on both hosts
+(`wbs-table.tsx` `f8dd7e0b`, `plan-chart-seam.test.tsx` `08c70608`):
+`fe-01:test` — **88 files / 2287 pass / 0 fail** UTC and **2 files / 3 pass**
+zoned; `typecheck`; `lint`; `build`; `prettier --check` on all seven touched
+files.
+
+**One lint error was real and is fixed**: `api.markers[0]` typed as always
+present (`noUncheckedIndexedAccess` is off here), so the `=== undefined` guard
+after it read as dead code — `no-unnecessary-condition`. `.at(0)` gives the
+`| undefined` the guard is about. The one remaining warning
+(`useMemo has unnecessary dependencies: 'ownedServicesByTeam'`) predates this
+chunk and is untouched by it.
+
+**Next**: 8.2a's `fixme` comes off — the browser tier now has a host that passes
+the props it was waiting for, so the case can be watched failing and passing on
+h2puni's playwright. Then 9.2 and the rest of section 9, then 8.4.
