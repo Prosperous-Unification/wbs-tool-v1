@@ -1633,8 +1633,7 @@ export class WorkItemService {
       // `each project is scheduled by its own reach` failed on `Expected: 5 /
       // Received: 3` for the second project's successor; watched 2026-08-29.
       const planned =
-        optimized ??
-        schedule(rows, edges, slices, notBefore, slotsOf, project.depReach, deadlines);
+        optimized ?? schedule(rows, edges, slices, notBefore, slotsOf, project.depReach, deadlines);
       timing = planned.workItems;
       waitingForPerson = planned.waitingForPerson;
       waitingForCapacity = planned.waitingForCapacity;

@@ -329,7 +329,7 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       none, which is the one branch `NO_DEADLINES` still names. The two claims
       this item makes about the write are asserted in
       `deadline-plan-read.test.ts`'s `reports a project start moved past a
-      stored deadline late by the whole span`, which moves the project under a
+    stored deadline late by the whole span`, which moves the project under a
       legally-written date and then reads both the plan and the row: `lateBy`
       **2** for a two-day slice standing on workday 1 — `-1` subtracted, the
       whole span — and the stored `2026-03-04` still on the work item. The
@@ -390,7 +390,7 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       `schedule()` (`publishedOptimized`), so an edit invalidates the cache
       exactly when it moves that input — and as of the plan read a deadline is
       in it. `deadline-plan-read.test.ts`'s `puts the resolved offsets in the
-      input the optimized cache is keyed on` reads the ask itself: `[]` before
+    input the optimized cache is keyed on` reads the ask itself: `[]` before
       the edit and `[[id, 2]]` after, off the same `OptimizedScheduleAsk` the
       hash is computed from. Asserted on the ask rather than on a stored row on
       purpose — whether the cache then misses is 4.1–4.8's, proved against real
@@ -459,7 +459,7 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       keys a cache; the thing that changed here is already in the key, so
       bumping would evict every correct row to no end.
       **What it does not cover, and why that is not this task's:** the solver
-      does not read `deadlines` at this head, so a *published optimized* row for
+      does not read `deadlines` at this head, so a _published optimized_ row for
       a deadlined plan is not stale — it is unreachable, by the same hash. The
       hard finish constraint that would make the solver's answer depend on the
       dates is TASK-241's, and the bump belongs with it. The bump's blast radius is also this
