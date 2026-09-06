@@ -32,9 +32,7 @@ export function decodeSolverSupervisorConfigBytes(
   now?: () => number,
 ): SolverSupervisorRuntimeOptions {
   if (bytes.byteLength === 0 || bytes.byteLength > SUPERVISOR_CONFIG_MAX_BYTES) {
-    throw defect(
-      `config must contain 1 through ${String(SUPERVISOR_CONFIG_MAX_BYTES)} bytes`,
-    );
+    throw defect(`config must contain 1 through ${String(SUPERVISOR_CONFIG_MAX_BYTES)} bytes`);
   }
   let text: string;
   try {
@@ -52,7 +50,9 @@ export function decodeSolverSupervisorConfigBytes(
 }
 
 async function readConfig(path: string): Promise<Uint8Array> {
-  const bytes = await Bun.file(path).slice(0, SUPERVISOR_CONFIG_MAX_BYTES + 1).arrayBuffer();
+  const bytes = await Bun.file(path)
+    .slice(0, SUPERVISOR_CONFIG_MAX_BYTES + 1)
+    .arrayBuffer();
   return new Uint8Array(bytes);
 }
 
