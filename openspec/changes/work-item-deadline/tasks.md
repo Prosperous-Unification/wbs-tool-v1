@@ -529,10 +529,10 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       zero-duration milestone one day late must be admitted as feasible. Every
       non-zero-duration fixture stays green under the substitution, so the test
       must be the milestone.
-- [ ] 8.5 Response `status: infeasible` joins the stage-status matrix as a
+- [x] 8.5 Response `status: infeasible` joins the stage-status matrix as a
       first-class outcome, distinct from `unknown`. `horizonUnits` is
       **unchanged** and is not tightened to the latest deadline.
-- [ ] 8.5b **`plan-infeasible` is FIRST-stage `INFEASIBLE` only, and the
+- [x] 8.5b **`plan-infeasible` is FIRST-stage `INFEASIBLE` only, and the
       standing "at any stage" rule must be amended in the same commit.** The
       dual-scheduler spec says `INFEASIBLE` SHALL be `invalid-output` **at any
       stage**, because Fast placed the same graph and every later stage's added
@@ -548,7 +548,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       new one wins, a later-stage engine failure is cached as "your deadlines
       cannot be met" with no Retry — at the moment the solver's own earlier
       stage proved a deadline-satisfying schedule exists. Test both stages.
-- [ ] 8.5c The cache schema's declared integrity admits a third status:
+- [x] 8.5c The cache schema's declared integrity admits a third status:
       `CHECK (status IN ('ok','failed'))` appears in `dual-optimized-scheduler`
       `design.md` and `tasks.md`, together with the CHECKs tying `ok` to a
       non-NULL `resultJson` and the inverse for `failed`. `plan-infeasible`
@@ -692,3 +692,43 @@ This is the same removal the 1.9 sweep recorded as `22 / 2` at `05b78008`. The
 third red is new because 7.1 added a case, and the first now reds on **both** of
 its assertions rather than on the hash alone, because the engine has read the
 field since TASK-267 slice 5. Tree restored clean after the probe.
+
+## 8.5 / 8.5b / 8.5c, measured
+
+**8.5 and 8.5b were already true on the wire and in Python; the sentence that
+had no implementation was the disposition.** The response schema admits
+`infeasible` as a first-class status distinct from `unknown`, `horizonUnits` is
+untouched by any deadline, `design.md` carries both `INFEASIBLE` rows, and
+`stage_disposition` returns `ROW_STOP_PLAN_INFEASIBLE` at stage 1 and
+`ROW_STOP_INVALID` after it — both stages asserted in `test_solve.py`, with the
+empty-stdout rule in `test_cli.py::UnencodableOutcomes`. What no code honoured
+was `spec.md`'s "the coordinator SHALL record that run as `invalid-output`",
+which `design.md`'s `INFEASIBLE, k > 1` row and the wire schema's response
+`$comment` each repeat: `processOutcome` mapped **every** non-zero exit onto
+`internal-error`. `dispositionOfExitCode` now splits `cli.py`'s two refusals —
+`70` (ran, could not answer) is `invalid-output`, `64` (request refused before
+solving) stays `internal-error` — and `cli.py`'s EXIT CODES docstring, which
+stated the old blanket rule twelve lines above a handler stating the new one,
+is amended in the same commit.
+
+Measured at `1bf4f1c2`: targeted 32/0, `libs/contracts` 261/0, `apps/be-01`
+1840/0. Three controls, each reverted after measuring — reverting the
+coordinator call gives 15/1, exactly the terminal-evidence case; returning
+`internal-error` unconditionally gives 30/2, exactly the two new assertions;
+moving `cli.py`'s `EXIT_INTERNAL` from 70 to 71 gives 15/1, exactly the
+non-circularity case that reads the codes out of the entrypoint.
+
+**8.5c was a live divergence in one direction only.** `tasks.md` 3.1 and the
+shipped table both carried `plan-infeasible` in the status CHECK and as a third
+payload disjunct; `design.md`'s Cache identity bullet still declared `status`
+(`'ok' | 'failed'`) and `CHECK (status IN ('ok','failed'))`. Nothing failed,
+because no assertion read that bullet — the identical guard for
+`failure_reason` lives in `solver-failure-disposition.test.ts` and is why that
+vocabulary never drifted. The bullet is amended and
+`optimizer-rows.db.test.ts` now parses it, so the status vocabulary and the
+payload rule cannot drift from `OPTIMIZED_SCHEDULE_STATUSES` again.
+
+**Left for 8.7, found here:** the same bullet says "a row satisfies a read iff
+`status='ok'`", which a `plan-infeasible` row also has to satisfy or it would
+auto-respawn. It is qualified to "a read for a schedule" here rather than
+rewritten, because the read rule is 8.7's to state.
