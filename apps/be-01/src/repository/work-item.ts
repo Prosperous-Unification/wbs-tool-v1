@@ -149,18 +149,27 @@ export class WorkItemRepository implements WorkItemStore {
    * `EffectiveTeams.teamIds`, `EffectiveTags.tagIds` and
    * `EffectiveServices.serviceIds` all document.
    *
-   * **The work-item select itself is deliberately unordered, and that is a
-   * known gap rather than an oversight — TASK-260.** An `ORDER BY work_item.id`
-   * here was written for this task (`dual-optimized-scheduler/tasks.md` §1.7,
-   * §1.8) and taken back out of it on review: `slicesOf` walks these rows in
-   * order and `deriveNumbers` sorts each sibling group **stably**, so for two
-   * siblings tied on `position` — a legal and reachable state, since
-   * `work_item_siblings` is a plain index and `placeAfter` appends without a
-   * lock — the repository's order is what breaks the tie, and imposing one
-   * would move an existing project's dates on the deploy that shipped it. That
-   * is a real change with a real population, and it belongs to a change that
-   * says so, indexes for it and carries pre/post fixtures. Not to this one,
-   * whose subject is the solver core.
+   * **The work-item select is ordered by `work_item.id`, and that order is a
+   * promise this method makes rather than a property of the query plan.** It is
+   * load-bearing, which is why it is stated here and in the spec rather than
+   * left to a reader to notice: `slicesOf` walks these rows in order and emits
+   * its `slices` argument in that order, and `deriveNumbers` sorts each sibling
+   * group **stably** — so for two siblings tied on `position` the array order is
+   * what breaks the tie, and the derived number is the third of `goesFirst`'s
+   * four tie-breaks. Unordered, two reads of an unchanged project hand Fast two
+   * different argument tuples and produce two different plans.
+   *
+   * A tied `position` is a legal and reachable state rather than a corruption to
+   * repair — `work_item_siblings` is a plain index and `placeAfter` appends
+   * without a lock — and `work_item.id` is its documented resolution:
+   * arbitrary, because ids are UUIDv4, but **stable**, which is the property
+   * the defect was about. Why the tie is tolerated instead of constrained
+   * unique, and what the one-time date movement cost: `docs/adr/0016-a-tied-sibling-position-is-legal-and-the-row-id-resolves-it.md`.
+   *
+   * Index-served rather than sorted: `work_item_project_id_id` —
+   * `(project_id, id)` — covers this `WHERE` and this `ORDER BY` as one read.
+   * `work_item_siblings` opens on `project_id` too, so the filter always
+   * resolved; what did not was the sort, which SQLite spent a temp B-tree on.
    *
    * The optimized cache key is unaffected either way: `canonical-schedule-input`
    * groups slices by work item rather than hashing the array it was handed, so
@@ -170,7 +179,8 @@ export class WorkItemRepository implements WorkItemStore {
     const rows = await this.db
       .select(WORK_ITEM_COLUMNS)
       .from(workItem)
-      .where(eq(workItem.projectId, projectId));
+      .where(eq(workItem.projectId, projectId))
+      .orderBy(asc(workItem.id));
     const joined = await this.db
       .select({ workItemId: workItemTeam.workItemId, teamId: workItemTeam.teamId })
       .from(workItemTeam)

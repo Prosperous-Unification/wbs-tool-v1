@@ -12,6 +12,11 @@ const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 /** The migration under test: slice 3b.1's three project settings columns. */
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
+/**
+ * Newer than the settings columns, so a rollback aimed at the optimizer
+ * tables reverses it first — this file names it only to say so.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 
 /** The one below it, which is where every rollback here stops. */
 const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
@@ -139,7 +144,10 @@ describe('the project settings migration', () => {
       // and nothing else, which is the claim `PRAGMA`-plus-`toContain` alone
       // cannot make: a migration that also dropped a column would still pass
       // every line above.
-      expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([PROJECT_SETTINGS]);
+      expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        READ_ORDER_INDEX,
+        PROJECT_SETTINGS,
+      ]);
       expect(projectColumns(db.path)).toEqual(
         migrated.filter((name) => !ADDED_COLUMNS.includes(name as never)),
       );
@@ -169,7 +177,10 @@ describe('the project settings migration', () => {
     const db = tempDb();
     try {
       runMigrations(db.path, FOLDER);
-      expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([PROJECT_SETTINGS]);
+      expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        READ_ORDER_INDEX,
+        PROJECT_SETTINGS,
+      ]);
 
       seedProject(db.path, 'p-unmigrated');
       runMigrations(db.path, FOLDER);
@@ -242,7 +253,10 @@ describe('the project settings migration', () => {
       seedProject(db.path, 'p-1');
       const migratedDdl = projectDdl(db.path);
 
-      expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([PROJECT_SETTINGS]);
+      expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        READ_ORDER_INDEX,
+        PROJECT_SETTINGS,
+      ]);
 
       const rolledBack = projectColumns(db.path);
       for (const column of ADDED_COLUMNS) expect(rolledBack).not.toContain(column);

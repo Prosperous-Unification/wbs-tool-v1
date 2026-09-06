@@ -36,6 +36,14 @@ const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
  * folder happens to be last.
  */
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
+/**
+ * The newest: the `(project_id, id)` index that serves
+ * `listByProject`'s stated `ORDER BY` (ADR 0016). Additive and
+ * index-only, so it heads every descending reversal list here and tails
+ * every ascending one, exactly as {@link PROJECT_SETTINGS} did while it
+ * was newest.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 
 /** The one below it, which is where every rollback here stops. */
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
@@ -183,8 +191,11 @@ describe('the optimizer migration', () => {
   it('is applied immediately before the project-settings migration', () => {
     const names = readMigrationFolders(FOLDER).map((folder) => folder.name);
 
-    expect(names.at(-1)).toBe(PROJECT_SETTINGS);
-    expect(names.at(-2)).toBe(OPTIMIZER_TABLES);
+    // The adjacency itself, not `at(-1)`/`at(-2)`. Those were true while
+    // project-settings was the newest folder, and they made every later
+    // migration a failure of this file — which is not what it is about.
+    expect(names.indexOf(PROJECT_SETTINGS)).toBe(names.indexOf(OPTIMIZER_TABLES) + 1);
+    expect(names).toContain(OPTIMIZER_TABLES);
   });
 
   it('is idempotent on an already-migrated file', () => {
@@ -218,6 +229,7 @@ describe('the optimizer migration', () => {
       // Newest first, so the settings columns come off before the tables they
       // steer — this migration is no longer the only thing above LOOKUP_INDEXES.
       expect(rollbackTo(db.path, FOLDER, LOOKUP_INDEXES)).toEqual([
+        READ_ORDER_INDEX,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,

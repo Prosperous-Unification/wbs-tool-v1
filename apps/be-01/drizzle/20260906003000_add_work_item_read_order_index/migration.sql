@@ -1,0 +1,24 @@
+-- One index, and it serves an `ORDER BY` rather than a `WHERE`.
+--
+-- `WorkItemRepository.listByProject` filters on `project_id` and orders by `id`,
+-- and that order is a stated contract as of this change — `slicesOf` walks the
+-- rows in order and `deriveNumbers` sorts each sibling group stably, so for two
+-- siblings tied on `position` the read order decides the plan's dates. See
+-- `docs/adr/0016-a-tied-sibling-position-is-legal-and-the-row-id-resolves-it.md`.
+--
+-- Additive, which is what blue/green needs: `CREATE INDEX` adds a structure the
+-- outgoing release never reads and the incoming one does, so both colours run
+-- against this file happily during a swap.
+--
+-- The `WHERE` alone already resolved: `work_item_siblings` opens on `project_id`.
+-- What did not was the sort, and that is what this measures. `EXPLAIN QUERY
+-- PLAN` for `listByProject`'s select, on two freshly migrated databases whose
+-- only difference is this folder, each plan read in its own process:
+--
+--   before  SEARCH work_item USING INDEX work_item_siblings (project_id=?)
+--           USE TEMP B-TREE FOR ORDER BY
+--   after   SEARCH work_item USING INDEX work_item_project_id_id (project_id=?)
+--
+-- So this removes a sort of every row in the project, not a scan. `verify.md`
+-- carries the run and the `SELECT id` variant, which is additionally covering.
+CREATE INDEX `work_item_project_id_id` ON `work_item` (`project_id`,`id`);
