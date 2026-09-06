@@ -148,11 +148,13 @@ describe('buildServices', () => {
 
     const markerId = crypto.randomUUID();
     expect(
-      (await services.calendarMarkers.create(projectId, ownerId, {
-        id: markerId,
-        date: '2026-03-02',
-        name: 'Freeze',
-      })).ok,
+      (
+        await services.calendarMarkers.create(projectId, ownerId, {
+          id: markerId,
+          date: '2026-03-02',
+          name: 'Freeze',
+        })
+      ).ok,
     ).toBe(true);
     expect(await seq()).toBe(start + 1);
 
@@ -169,9 +171,9 @@ describe('buildServices', () => {
     // Refused *after* the project gate passed, which is the interesting half:
     // the store decides a marker's existence inside its own transaction, and
     // the announcement is downstream of that answer rather than of the gate.
-    expect(await services.calendarMarkers.rename(projectId, crypto.randomUUID(), ownerId, 'Nobody')).toEqual(
-      { ok: false, reason: 'not_found' },
-    );
+    expect(
+      await services.calendarMarkers.rename(projectId, crypto.randomUUID(), ownerId, 'Nobody'),
+    ).toEqual({ ok: false, reason: 'not_found' });
     expect(await seq()).toBe(start + 3);
 
     expect((await services.calendarMarkers.remove(projectId, markerId, ownerId)).ok).toBe(true);
