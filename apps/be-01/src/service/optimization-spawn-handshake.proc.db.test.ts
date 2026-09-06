@@ -145,7 +145,7 @@ describe('the two-coordinator spawn handshake', () => {
     const blueAttempts: ReturnType<typeof processChild>[] = [];
     const greenAttempts: ReturnType<typeof processChild>[] = [];
     const errors: unknown[] = [];
-    const coordinator = (db: typeof blue, owner: 'blue' | 'green'): OptimizationCoordinator =>
+    const coordinator = (db: typeof blue, owner: string): OptimizationCoordinator =>
       new OptimizationCoordinator({
         db,
         contractVersion: CONTRACT,
