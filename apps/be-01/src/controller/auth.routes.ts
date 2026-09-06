@@ -331,16 +331,16 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // it. Writing this binding under the shared old name instead reddens
         // `lets the first tab finish a login a second tab started after it` at
         // the late callback, `Expected: 302 Received: 400`.
-        const held = selectBrowserBindings(options.transactions, browserBindingsIn(cookiesOf(req)), now());
+        const held = selectBrowserBindings(
+          options.transactions,
+          browserBindingsIn(cookiesOf(req)),
+          now(),
+        );
         const evicted = [
           ...held.surplus,
           ...held.offered.slice(0, Math.max(0, held.offered.length - (MAX_BROWSER_BINDINGS - 1))),
         ];
-        return empty(
-          302,
-          [bindingCookie(browserBinding), ...clearsFor(evicted)],
-          location.href,
-        );
+        return empty(302, [bindingCookie(browserBinding), ...clearsFor(evicted)], location.href);
       },
     },
     {
@@ -461,7 +461,11 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // started while it was in flight: the answer names only cookies that
         // are finished, and a name no answer mentions is left exactly as the
         // login that wrote it left it, `Max-Age` included.
-        const held = selectBrowserBindings(options.transactions, browserBindingsIn(cookiesOf(req)), now());
+        const held = selectBrowserBindings(
+          options.transactions,
+          browserBindingsIn(cookiesOf(req)),
+          now(),
+        );
         let settled = held.surplus;
         // **Two refusals where there was one, because a browser now holds more
         // than one login** (TASK-272). A browser offering no live binding has

@@ -45,9 +45,7 @@ describe('browser binding cookie', () => {
     expect(browserBindingCookieName('binding-1')).toBe(first);
     // Nothing of the binding survives into the name a browser would send back.
     expect(first).not.toContain('binding-1');
-    expect(() => browserBindingCookieName('')).toThrow(
-      'OIDC browser binding must not be empty',
-    );
+    expect(() => browserBindingCookieName('')).toThrow('OIDC browser binding must not be empty');
   });
 
   it('reads every binding cookie in a request and ignores everything else', () => {

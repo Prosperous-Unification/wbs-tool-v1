@@ -692,7 +692,10 @@ describe('OIDC browser routes', () => {
     // A second between tabs, so "oldest" is a fact the store holds rather than
     // the order the browser happened to send its cookies in.
     let clock = now;
-    const f = fixture(claims, { clock: () => clock, random: () => sequence.shift() ?? 'session-1' });
+    const f = fixture(claims, {
+      clock: () => clock,
+      random: () => sequence.shift() ?? 'session-1',
+    });
 
     let held = new Map<string, string>();
     for (let tab = 0; tab < 4; tab += 1) {
