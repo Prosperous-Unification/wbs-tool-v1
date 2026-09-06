@@ -4685,6 +4685,35 @@ test.describe("a marker chip's contrast, as the compositor drew it", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
+  /**
+   * The weekend half, and the one whose negative had to be **computed**.
+   *
+   * `ratioOn`'s binding assertion proves the two controls are different
+   * surfaces. The stronger claim — that the difference is enough to decide a
+   * case — needs a fill this case fails while the weekday case above stays
+   * green, and no fill on offer is one. The recolour list writes `PALETTE`
+   * (`gantt-panel.tsx:5171-5185`), and all eight of its entries were built to a
+   * single ratio against `--background`: 4.232–4.249 over the base, 3.740–3.755
+   * over base-over-weekend. Every one clears 3:1 on both grounds, so the
+   * separating fill has to be **injected**, not picked.
+   *
+   * The window it has to land in is fixed by the two grounds the page paints.
+   * `--background` is `oklch(1 0 0)`, luminance 1; the weekend cell is
+   * `bg-muted-foreground/10` over it, which composites to `rgb(239, 241, 244)`,
+   * luminance 0.87793. A darker fill therefore reads `1.05 / (L + 0.05)` on the
+   * weekday cell and `0.92793 / (L + 0.05)` on the weekend one — the same
+   * denominator under a numerator 1.133x smaller — so it separates the two
+   * cases only for `0.2589 < L <= 0.3`, a window 13% wide and the reason this
+   * negative is arithmetic rather than a class edit.
+   *
+   * **Watched (2026-09-06):** `backgroundColor: '#909090'` in place of
+   * `backgroundColor: fill` — luminance 0.28088, the widest-margin integer grey
+   * in that window. The weekday case **passes** at a predicted 3.1925 and this
+   * one **fails**, `Received: 2.8195195603146335` against `Expected: >= 3`.
+   * The model was checked before it was trusted: a first pass at `#b0b0b0`
+   * predicted 2.1687 and 1.9154 and the browser returned 2.16873306642071 and
+   * 1.915350293503602, so the grounds above are the page's and not a guess.
+   */
   test('clears 3:1 against the weekend cell it stands on, in light', async ({ page }) => {
     expect(
       await ratioOn(page, 'weekend'),

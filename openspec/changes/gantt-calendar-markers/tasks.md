@@ -1968,7 +1968,7 @@ in both slices rather than implied by position.
       9.2a's reason: 9.2's fault mutates the rule's stroke, which both cases here
       would see, so sharing that slice would leave this one with no fault of its
       own.
-- [ ] 9.2c The chip's **rendered** contrast — same file
+- [x] 9.2c The chip's **rendered** contrast — same file
       (`apps/fe-01/e2e/gantt.spec.ts`).
       3.2 proves the palette's eight literals against computed backdrops and
       8.1 and 6.x read the chip's colour at the DOM seam; none of them sees what
@@ -3585,3 +3585,51 @@ has no executable and is installed nowhere, and the invocation that works is
 the same miss cost it a run. At the chunk 62 bytes it is **rc 0, 39 items, 39
 valid, 0 invalid**, unchanged from chunk 60's reading. Chunk 61's own bytes are
 this file's parent commit and the same 39 items validated there.
+
+## Chunk 68 — 9.2c's second negative, which had to be computed (TASK-235 run 33, 2026-09-06)
+
+**9.2c is TICKED.** Both negatives are now watched and the slice's four cases
+stand. `apps/fe-01/e2e/gantt.spec.ts` gained a docblock only; no product code
+changed and `gantt-panel.tsx` is `583829ab` on both hosts.
+
+**No fill on offer can separate the two light cases, and that is measurable
+rather than suspected.** The recolour list writes `PALETTE`
+(`gantt-panel.tsx:5171-5185`), and all eight entries were built to one ratio
+against `--background`: **4.232–4.249** over the base and **3.740–3.755** over
+base-over-weekend. Every one clears 3:1 on both grounds, so the separating fill
+had to be **injected** at the chip's own `backgroundColor` rather than picked
+through the palette — the narrowest injection available, since the property
+under test is the property the fault has to move.
+
+**The window is fixed by the two grounds the page paints.** `--background` is
+`oklch(1 0 0)`, luminance 1; the weekend cell is `bg-muted-foreground/10`
+(`gantt-panel.tsx:4704`) over it, compositing to `rgb(239, 241, 244)`, luminance
+**0.87793**. A darker fill reads `1.05 / (L + 0.05)` on the weekday cell and
+`0.92793 / (L + 0.05)` on the weekend one — one denominator under a numerator
+**1.133x** smaller — so it separates the cases only for `0.2589 < L <= 0.3`, a
+window 13% wide. That is why this negative is arithmetic and not a class edit.
+
+**The model was proved against the browser before it was trusted.** A first pass
+at `#b0b0b0` predicted 2.1687 and 1.9154 and the run returned
+**2.16873306642071** and **1.915350293503602** — five figures on both grounds,
+so the luminances above are the page's and not a derivation nobody checked.
+
+**WATCHED NEGATIVE (the second):** `backgroundColor: '#909090'` in place of
+`backgroundColor: fill` — luminance 0.28088, the widest-margin integer grey in
+the window. The **light weekday** case **passes**; the **light weekend** case
+**fails**, `Received: 2.8195195603146335` against `Expected: >= 3`. That is the
+proof `ratioOn`'s binding assertion could not give: the two controls are not
+merely different surfaces, they are different enough to decide a case.
+
+**What else the fault reddens, stated rather than implied.** `domain:test` is
+**517 tests across 43 files, rc 0** with the fault in — including 3.2's own
+`clears 3:1 on every one of the twenty backdrops, and 4.5:1 for its own label`,
+3.2a's chooser table and `validateCustomColor`'s twenty — which is the watch the
+slice asks for. `fe-01:test` is **2285 passed / 3 failed (2288)**, and all three
+reds are the cases whose entire subject is the property the fault overwrites:
+`paints its label in the ink labelInk chooses for its fill`, `draws an automatic
+marker in the colour its own id decides`, and `sends the previewed id and draws
+the chip in the previewed colour`. Unlike the `opacity: 0.35` negative — which
+moves no DOM-visible property and left all 2288 green — a fill negative is
+visible at the DOM seam by construction, so those three are the fault landing
+where it should rather than collateral.
