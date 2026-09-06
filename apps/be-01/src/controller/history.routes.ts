@@ -46,8 +46,9 @@ function filterFrom(query: Record<string, string | undefined>): PlanEventFilter 
  * edited all week would put a thousand rows nobody asked for into every tree read.
  *
  * Registered after the project routes, whose prefix it shares: `/:id/history`
- * cannot be shadowed by anything that route declares, and adjacency is what
- * makes that checkable at a glance.
+ * cannot be shadowed by anything that route declares. Four route lists sit
+ * between the two in `mountedRouteLists` and none of them can either, so what
+ * is load-bearing is the relative order rather than adjacency.
  *
  * Open to every authenticated account, like every other read. `HistoryService`
  * owns the absent-project answer so there is one copy of the rule.

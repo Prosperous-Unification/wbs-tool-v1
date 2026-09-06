@@ -13,9 +13,10 @@ type Assignable<A, B> = [A] extends [B] ? true : false;
  * The one thing `http/body-doc.ts` cannot check about itself: that the shape it
  * declares is still the shape the publisher accepts.
  *
- * `handParsedBody` and `checkedBody` build the `requestBody` object that four
- * route modules hand to `Route.documentation.detail`, which this binder passes
- * to `@elysiajs/openapi`. Those helpers live in a framework-free file because
+ * `handParsedBody`, `checkedBody` and `tableRefusedBody` build the `requestBody`
+ * object that six route modules hand to `Route.documentation.detail`, which this
+ * binder passes to `@elysiajs/openapi`. Those helpers live in a framework-free
+ * file because
  * importing `DocumentDecoration` from a module the controllers import — even
  * `import type` — is what left `git grep -l elysia apps/be-01/src/controller`
  * matching seven files and acceptance criterion #1 unmet.

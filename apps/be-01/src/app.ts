@@ -163,15 +163,19 @@ export interface AppOptions {
  * the wiring beside it. That distinction is the whole value: a check that
  * assembles its own lists proves a property of the check's list, and the routes
  * it forgot to include are exactly the ones it cannot speak for. `app.routes.test.ts`
- * still asserts these cover every path Elysia ended up with, because a factory
- * dropped from this array would otherwise be invisible here too.
+ * still asserts these cover every path Elysia ended up with, which catches the
+ * paths mounted outside this array — `/health`, `/metrics`,
+ * `/api/openapi.json`. It cannot catch a factory dropped from the array itself:
+ * `buildApp` reads this same function, so the route would leave both sides of
+ * that equality together. Each controller's own route tests are what would go
+ * red.
  *
  * **Order is behaviour, not style.** Elysia matches in registration order, and
  * two *relative* orders below are load-bearing rather than tidy — relative, not
  * adjacent, which an earlier version of this note got wrong: `historyRoutes` is
- * separated from `projectRoutes` by the step, work-item and directory lists and
- * is still correct, because nothing between them declares a path that could
- * shadow `/:id/history`. What must not move is the order itself.
+ * separated from `projectRoutes` by the saved-plan, step, work-item and
+ * directory lists and is still correct, because nothing between them declares a
+ * path that could shadow `/:id/history`. What must not move is the order itself.
  */
 export function mountedRouteLists(
   opts: AppOptions,
@@ -205,8 +209,10 @@ export function mountedRouteLists(
     workItemRoutes(opts.auth, opts.workItems, commands),
     directoryRoutes(opts.auth, opts.directory),
     // After `projectRoutes`, whose prefix it shares: Elysia matches in
-    // registration order, `/:id/history` cannot be shadowed by anything that
-    // route declares, and adjacency is what makes that checkable at a glance.
+    // registration order and `/:id/history` cannot be shadowed by anything that
+    // route declares. Four lists intervene and that is fine — what is
+    // load-bearing is the relative order, not adjacency, as the note on
+    // `mountedRouteLists` says.
     historyRoutes(opts.auth, opts.history),
     // `savedPlanRoutes`'s reason, without its adjacency: every marker path is
     // one segment longer than anything `projectRoutes` declares and carries a

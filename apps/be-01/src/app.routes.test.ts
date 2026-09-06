@@ -95,20 +95,23 @@ describe('the mounted route list', () => {
   });
 
   /**
-   * What makes the clause above speak for the whole app rather than for
-   * whatever `mountedRouteLists` happens to contain. A controller factory
-   * dropped from that array would take its routes out of both the app and the
-   * check together, and every clause would stay green.
+   * The paths that reach the app **without** passing through
+   * `mountedRouteLists`, which is the only thing the clause above cannot speak
+   * for. Elysia's route table is built from what was actually registered,
+   * including through `.use()`, so a route that reaches the app by any path
+   * shows up here. Three do not come from a list, and they are **named** rather
+   * than filtered by shape, because a filter is one more thing that can quietly
+   * widen: `/health` is attached to the instance directly, and `/metrics` and
+   * `/api/openapi.json` are mounted by `observabilityPlugin` and
+   * `openApiPlugin`. Finding those is what this clause is for — no route list
+   * mentions them, so nothing else in the suite would have said they exist.
    *
-   * Elysia's own route table is the independent witness: it is built from what
-   * was actually registered, including through `.use()`, so a route that
-   * reaches the app by any path shows up here. Three do not come from a list,
-   * and they are **named** rather than filtered by shape, because a filter is
-   * one more thing that can quietly widen: `/health` is attached to the
-   * instance directly, and `/metrics` and `/api/openapi.json` are mounted by
-   * `observabilityPlugin` and `openApiPlugin`. Finding those two is what this
-   * clause is for — no route list mentions them, so nothing else in the suite
-   * would have said they exist.
+   * **It is not an independent witness that every controller is mounted, and an
+   * earlier version of this note claimed it was.** `buildApp` registers routes
+   * by calling `mountedRouteLists` (`app.ts`), and `assembled()` below calls the
+   * same function, so a controller factory dropped from that array leaves both
+   * sides of this equality together and the test stays green. What catches that
+   * omission is each controller's own route tests, not this assertion.
    */
   it('covers every path the app actually mounts', () => {
     const mounted = (

@@ -163,11 +163,13 @@ async function withoutBody(res: Response): Promise<Response> {
  * The third row above is **not** a divergence and is deliberately left alone:
  * both binders drop a JSON body sent with no content type.
  *
- * **Closed since this note was written.** The four operations lost their
+ * **Closed since this note was written.** Those four operations lost their
  * media-type *declarations* in the emitted document when the controllers
- * stopped declaring TypeBox, and `checkedBody` now emits all three — JSON,
- * form-urlencoded and multipart — for every body in that class
- * (`../body-doc.ts`). Behaviour and document match. The committed
+ * stopped declaring TypeBox, and `checkedBody` and `tableRefusedBody` now emit
+ * all three — JSON, form-urlencoded and multipart — for every body in that
+ * class (`../body-doc.ts`). Ten operations are in it today, not four; the list
+ * `openapi/openapi-document.test.ts` asserts them on is the count that moves.
+ * Behaviour and document match. The committed
  * `apps/be-01/openapi.json` is the check that keeps them matching, diffed by
  * `openapi/openapi-document.test.ts`.
  */

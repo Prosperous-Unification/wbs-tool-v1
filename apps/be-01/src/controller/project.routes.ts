@@ -288,11 +288,12 @@ export function projectMarkdown(project: Project, workItems: readonly ExportedWo
 }
 
 /**
- * Reading is open to every authenticated account and writing is not, so
- * authentication is checked on every route and *authorisation* only on the ones
- * that write. `ProjectService.update` owns that second check — the routes
- * translate its refusal into a status rather than deciding anything themselves,
- * which keeps one copy of the rule for the mutations still to come.
+ * Reading is open to every authenticated account and writing is not. Most reads
+ * check only authentication, but `GET /api/projects/:id/export` also checks
+ * authorisation with `read-scope`. `ProjectService.update` owns the authorisation
+ * check for writes — the routes translate its refusal into a status rather than
+ * deciding anything themselves, which keeps one copy of the rule for the mutations
+ * still to come.
  */
 export function projectRoutes(
   auth: AuthService,

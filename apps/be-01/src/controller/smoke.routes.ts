@@ -33,8 +33,8 @@ export function smokeRoutes(): Route[] {
     {
       method: 'POST',
       path: '/api/smoke/echo',
-      // Not `async`: echoing a string awaits nothing, and an `async` handler
-      // with no `await` in it is a promise of work that never happens.
+      // Not `async`: the work is synchronous, so `async` would add a microtask
+      // tick and a promise wrapper for nothing.
       handler: (req) => Promise.resolve(echo(smoke, req.body)),
     },
   ];
