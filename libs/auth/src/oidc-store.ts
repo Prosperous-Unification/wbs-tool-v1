@@ -54,6 +54,28 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
     });
   }
 
+  /**
+   * **The record is deleted before the state is checked, and that stays true —
+   * settled 2026-09-06 under TASK-269 rather than left implicit.**
+   *
+   * The finding that raised it is real: a callback carrying the wrong state
+   * destroys a transaction that was about to succeed, so any way of reading the
+   * wrong string turns into a login the person has to start again. The fix went
+   * to the reading — the OIDC callback now refuses a duplicated `state` before
+   * it gets here — because single-use is a property of the *browser binding*,
+   * which is the only thing this map is keyed by. A record left behind after a
+   * mismatch is a record anything holding the binding cookie may keep trying
+   * states against, and `burns a transaction when the initiating browser
+   * returns the wrong state` is the case that pins the promise this store makes
+   * of one callback per login.
+   *
+   * **The residual is recorded rather than fixed here:** two logins started in
+   * two tabs share one cookie name, so the second overwrites the browser's
+   * binding and the first tab's stale callback then burns the second tab's live
+   * transaction. That is a lost login with no attacker in it, but it is a
+   * property of one cookie per browser rather than of this ordering, and moving
+   * the delete would hide it rather than close it.
+   */
   consume(browserBinding: string, state: string): ConsumedOidcTransaction | null {
     const key = digest(browserBinding);
     const transaction = this.records.get(key);

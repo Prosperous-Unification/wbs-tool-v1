@@ -15,7 +15,7 @@ Each implementation change keeps ordered slices and fresh evidence in its own
 - [ ] R1: plan refresh coordinator; after W4-4, before client migration.
 - [ ] R2: team removal revisions and audit stamps — implementation/review/typecheck done (`e9141949`); full gate pending.
 - [ ] R3: authentication storage fault boundary — implementation/review/typecheck done (`271500c4`); full gate pending.
-- [ ] R4: validate WebSocket ingress; before R7/R9 gateway edits.
+- [ ] R4: ingress committed (`ae1fc858`), 337 scoped tests and review passed; composed gate pending.
 - [ ] R5: login admission committed (`47167984`), 131 scoped tests/review/typecheck passed; full gate pending.
 - [ ] R6: scoped queries committed (`20801719`), scoped tests/review/typecheck passed; full gate pending.
 - [ ] R7: project-scoped presence delivery; after R4.
@@ -28,7 +28,7 @@ Each implementation change keeps ordered slices and fresh evidence in its own
 - [ ] Core Wave 3: extract packages and enforce rings with negative proofs.
 - [ ] Namespacing: move packages and update gates.
 - [ ] Review each implementation and resolve findings.
-- [ ] Merge latest feature-bearing main into this branch; resolve semantic conflicts.
+- [ ] Integrate feature-bearing main `a91f831b`: three conflict resolutions under review; check for later features again before final gates.
 - [ ] Freeze final tree; full workspace/browser gates and whole-branch review.
 
 ## Integration policy

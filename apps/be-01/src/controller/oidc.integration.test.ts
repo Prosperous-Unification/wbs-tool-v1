@@ -5,6 +5,7 @@ import { errors } from 'jose';
 
 import { buildApp } from '../app';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -51,11 +52,24 @@ function registeredRoutes(value: unknown): RegisteredRoute[] {
   });
 }
 
+interface ExchangeResult {
+  accessToken: string;
+  expiresIn: number;
+  refreshToken?: string;
+  idTokenClaims?: JwtClaims;
+}
+
 function fixture(
   idTokenClaims?: JwtClaims,
   routeOverrides: {
     passwordLoginEnabled?: boolean;
     passwordRegisterEnabled?: boolean;
+  } = {},
+  // Separate from `routeOverrides`, which is spread onto the options object:
+  // this replaces one method of the fake provider client, and the only case
+  // that uses it makes `exchange` reject (TASK-273).
+  clientOverrides: {
+    exchange?: (request: Request, checks: unknown) => Promise<ExchangeResult>;
   } = {},
 ) {
   const exchangeClaims = arguments.length === 0 ? claims : idTokenClaims;
@@ -91,15 +105,23 @@ function fixture(
       calls.revoke.push(token);
       return Promise.resolve();
     },
+    ...clientOverrides,
   };
   const transactions = new InMemoryOidcTransactionStore({ now: () => now, ttlMs: 300_000 });
   const tokens = new InMemoryTokenStore({ now: () => now });
   const random = ['binding-1', 'state-1', 'nonce-1', 'verifier-1', 'session-1'];
+  // What a refused or failed login writes down. `buildApp` hands the route list
+  // its own pino logger when the options carry none; supplying one here wins,
+  // which is what lets these cases read the fields without a destination.
+  const logs: { level: string; fields: Record<string, unknown>; message: string }[] = [];
+  const record = (level: string) => (fields: Record<string, unknown>, message: string) =>
+    void logs.push({ level, fields, message });
   const oidc = {
     appOrigin: 'https://dev.wbs.test',
     client,
     groupPrefix: 'dev',
     groupsClaim: 'wbs_groups',
+    logger: { info: record('info'), warn: record('warn'), error: record('error') },
     mode: 'oidc' as const,
     now: () => now,
     random: () => random.shift() ?? 'extra-random',
@@ -120,6 +142,7 @@ function fixture(
     capacity: testCapacityService(),
     directory: testDirectoryService(),
     history: testHistoryService(),
+    calendarMarkers: testCalendarMarkerService(),
     internalAuthSecret: 'x'.repeat(32),
     writes: testWrites(),
     migrationsApplied: true,
@@ -132,7 +155,7 @@ function fixture(
     workItems: testWorkItemService(),
     savedPlans: testSavedPlanService(),
   });
-  return { app, calls, tokens, transactions, users, oidc };
+  return { app, calls, logs, tokens, transactions, users, oidc };
 }
 
 describe('OIDC browser routes', () => {
@@ -506,6 +529,416 @@ describe('OIDC browser routes', () => {
 
     expect(res.status).toBe(400);
     expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  /**
+   * TASK-269, the first half. `searchParams.get('state')` answers the **first**
+   * value of a repeated key and `RouteRequest.query` answers the **last**, so
+   * moving this handler onto the framework-free route shape silently changed
+   * which string a duplicated `state` selected — and `consume` deletes the
+   * record before it compares, so the wrong value burned a login that was about
+   * to succeed.
+   *
+   * The decision is to refuse the request rather than to pick a value: no
+   * authorization server sends `state` twice, and `openid-client` refuses a
+   * repeated response parameter a moment later regardless, so first-value would
+   * only move the failure past the point where the transaction is gone.
+   *
+   * The assertion that carries it is the second callback: refusing costs the
+   * caller nothing, and the login they actually started still completes.
+   */
+  it('refuses a callback carrying two states without spending the transaction', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const polluted = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1&state=other', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(polluted.status).toBe(400);
+    // Read as text, because the answer this refusal replaces is a *bodiless*
+    // 400 with the binding cookie cleared, and `json()` on that throws a
+    // `SyntaxError` before any assertion can report what actually differed.
+    expect(await polluted.text()).toBe(JSON.stringify({ error: 'duplicate_parameter' }));
+    expect(f.calls.exchange).toHaveLength(0);
+    expect(polluted.headers.get('set-cookie')).toBeNull();
+
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+  });
+
+  /**
+   * The same refusal one parameter over, and the case that says why the rule is
+   * "any repeated key" rather than "a repeated `state`".
+   *
+   * A doubled `code` passes the state check, so `consume` succeeds and spends
+   * the transaction — and then `authorizationCodeGrant` throws on the duplicate,
+   * which nothing in this handler catches. The caller would get a framework 500
+   * for a login that is now gone. The fixture's `exchange` is a stub and cannot
+   * reproduce that throw, so what is asserted is the refusal that stops it
+   * happening — and, as above, the honest callback that still completes, which
+   * is what says the transaction and the cookie both survived.
+   */
+  it('refuses a callback carrying two codes with the transaction still unspent', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const polluted = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&code=c2&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(polluted.status).toBe(400);
+    expect(await polluted.text()).toBe(JSON.stringify({ error: 'duplicate_parameter' }));
+    expect(f.calls.exchange).toHaveLength(0);
+    expect(polluted.headers.get('set-cookie')).toBeNull();
+
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+  });
+
+  /**
+   * TASK-269, the second half. Elysia answers a HEAD from the path's GET and so
+   * does the second binder, which is right for a route that reads something.
+   * This one consumes a single-use transaction and mints session cookies, so a
+   * HEAD — a link preview, an uptime probe — would spend a whole login on a
+   * request that carries no body back.
+   *
+   * Before the route shape the handler read the raw `request.method` and the
+   * provider saw HEAD; afterwards it read the registered verb and the provider
+   * saw GET. Refusing closes the difference instead of choosing which of the
+   * two the provider should be told.
+   */
+  it('refuses a HEAD callback with 405 and Allow, before consuming or exchanging', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const probed = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        method: 'HEAD',
+      }),
+    );
+
+    expect(probed.status).toBe(405);
+    expect(probed.headers.get('allow')).toBe('GET');
+    expect(f.calls.exchange).toHaveLength(0);
+    // The cookie has to survive the refusal, not just the record: reading
+    // `f.transactions` by key would still pass if the 405 cleared
+    // `__Host-wbs_oidc`, and a browser with no binding cannot finish the login
+    // the record is still holding. So the carrying assertion is the honest GET
+    // that follows, sending the same cookie the probe was answered with.
+    expect(probed.headers.get('set-cookie')).toBeNull();
+
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+  });
+
+  /**
+   * TASK-273. Clicking **Cancel** at the identity provider is the most ordinary
+   * thing a person can do in a login flow, and it came back as an untyped 500:
+   * the state matches, so every check above passed, `consume` spent the
+   * transaction, and `authorizationCodeGrant` then threw for the missing `code`
+   * into a handler that caught nothing.
+   *
+   * The transaction being spent is asserted rather than tolerated — no code
+   * will ever arrive for this state, so the record is dead and the second
+   * request here is what says so.
+   *
+   * **This case does not observe the 500 and its name no longer claims to.**
+   * The fake client above resolves a token set for any query, so with the guard
+   * removed this handler *completes* the cancelled login and the case reads
+   * `Expected: "/?auth_error=access_denied" Received: "/"` — measured, not
+   * assumed, and a worse defect than the one being fixed. That is the sharper
+   * statement anyway: what removes the 500 is that an error callback never
+   * reaches the provider, which `f.calls.exchange` is here to say. The 500
+   * itself belongs to the real `authorizationCodeGrant` and is reproduced by
+   * `answers a failed exchange with a typed refusal rather than a framework
+   * 500` below, the one case whose client actually rejects.
+   *
+   * **The description is sent and the assertion is not vacuous**, which is the
+   * round-1 review's point: an exact `toBe` on a location that also had to
+   * survive `error_description` is what says the suppression holds for an
+   * allowlisted code, where a `not.toContain` after an exact `toBe` would have
+   * asserted nothing at all.
+   */
+  it('answers a cancelled login by returning to the sign-in page without reaching the provider', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const cancelled = await f.app.handle(
+      new Request(
+        'https://dev.wbs.test/api/auth/okta/callback?error=access_denied&error_description=The+resource+owner+declined&state=state-1',
+        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+      ),
+    );
+
+    expect(cancelled.status).toBe(302);
+    expect(cancelled.headers.get('location')).toBe('/?auth_error=access_denied');
+    expect(f.calls.exchange).toHaveLength(0);
+    expect(cancelled.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+
+    // The login is over, so the transaction went with it: a code arriving for
+    // the same state afterwards finds nothing to complete.
+    const late = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(late.status).toBe(400);
+    expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  it('sends a silent-login refusal back under its own name', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const refused = await f.app.handle(
+      new Request(
+        'https://dev.wbs.test/api/auth/okta/callback?error=login_required&state=state-1',
+        {
+          headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        },
+      ),
+    );
+
+    expect(refused.status).toBe(302);
+    expect(refused.headers.get('location')).toBe('/?auth_error=login_required');
+    expect(refused.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  /**
+   * The `error` and `error_description` a callback carries are both written by
+   * the authorization server, and this app repeats one of them on its own
+   * origin and never the other. An unrecognised code collapses to
+   * `provider_error` so the provider cannot choose the string in the URL; the
+   * description is dropped from the answer entirely.
+   *
+   * A `?error=` with nothing after it is the same callback one degree more
+   * malformed and takes the same exit, which is the round-1 review's third
+   * finding: letting it fall through spent a real request on the provider to
+   * learn what the presence of the key already said.
+   */
+  it('repeats no provider text the app does not publish', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const opaque = await f.app.handle(
+      new Request(
+        'https://dev.wbs.test/api/auth/okta/callback?error=okta_policy_evaluation_failure&error_description=Call+support+on+555-0100&state=state-1',
+        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+      ),
+    );
+
+    expect(opaque.status).toBe(302);
+    expect(opaque.headers.get('location')).toBe('/?auth_error=provider_error');
+    expect(opaque.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(f.calls.exchange).toHaveLength(0);
+    // The location is not the only place a description could surface. This
+    // answer carries no body at all, and a regression that started explaining
+    // itself would fail here rather than in a reader's browser.
+    expect(await opaque.text()).toBe('');
+  });
+
+  /**
+   * A blank `?error=` names no reason, so it is a malformed callback rather than
+   * an error response, and it takes this route's existing shape for one: the
+   * bodiless 400 with the binding cleared. The first version let it fall through
+   * to `exchange`, which spent a real request on the provider to learn what the
+   * empty value already said.
+   */
+  it('refuses a blank error code at the boundary instead of at the provider', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const blank = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?error=&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(blank.status).toBe(400);
+    expect(blank.headers.get('location')).toBeNull();
+    expect(blank.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  /**
+   * What the operator is told, which is the half the reader is deliberately not
+   * told. Round 1 of this change logged nothing anywhere and recorded that as a
+   * decision; both terminal seats called it Important on an auth path, because
+   * a sign-on policy that starts refusing every login looks — with no line
+   * written down — exactly like a building full of people clicking Cancel.
+   *
+   * **The level carries the distinction**, so the routine cancellations cannot
+   * bury the deployment fault: a code this app names is `info`, and a code it
+   * will not repeat is `warn`. Both carry the provider's raw `error` and its
+   * `error_description`, neither of which reaches the browser.
+   */
+  it('writes the provider’s own words to the log and not to the answer', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    await f.app.handle(
+      new Request(
+        'https://dev.wbs.test/api/auth/okta/callback?error=okta_policy_evaluation_failure&error_description=Blocked+by+policy+Zone-7&state=state-1',
+        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+      ),
+    );
+
+    expect(f.logs).toHaveLength(1);
+    expect(f.logs[0]?.level).toBe('warn');
+    expect(f.logs[0]?.fields).toEqual({
+      error: 'okta_policy_evaluation_failure',
+      has_description: true,
+      auth_error: 'provider_error',
+    });
+    // The description itself is nowhere in the log line either. `error` is a
+    // protocol token from a small vocabulary; `error_description` is prose the
+    // provider composes and has been seen naming the person it refused, and an
+    // operator does not need it to learn that a policy started refusing
+    // everyone.
+    expect(JSON.stringify(f.logs)).not.toContain('Zone-7');
+  });
+
+  it('reports a person’s own cancellation at info, not as a fault', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?error=access_denied&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(f.logs).toHaveLength(1);
+    expect(f.logs[0]?.level).toBe('info');
+    expect(f.logs[0]?.fields).toEqual({
+      error: 'access_denied',
+      has_description: false,
+      auth_error: 'access_denied',
+    });
+  });
+
+  /**
+   * The other half of TASK-273: a rejection out of `exchange` for any other
+   * reason — the provider unreachable, a `code` it will not honour, clock skew
+   * on the ID token — was the same untyped 500. It answers 401 with the binding
+   * cleared, which is what the verified-claims refusal below already answers,
+   * because a browser cannot act on the difference.
+   *
+   * **And the error reaches the log**, which round 1 discarded: a bodiless 401
+   * with no stack anywhere turns an expired token-endpoint certificate into an
+   * unexplained login failure, the defect this route was just fixed for one
+   * layer down.
+   */
+  it('answers a failed exchange with a typed refusal rather than a framework 500', async () => {
+    const failure = new Error('idp unreachable');
+    // The override records before it rejects. Replacing `exchange` outright
+    // would take the fixture's counter with it, and a 401 returned from
+    // anywhere *before* the exchange would then satisfy a case whose name says
+    // one was attempted.
+    const attempts: unknown[] = [];
+    const f = fixture(
+      claims,
+      {},
+      {
+        exchange: (request, checks) => {
+          attempts.push({ request, checks });
+          return Promise.reject(failure);
+        },
+      },
+    );
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const failed = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(failed.status).toBe(401);
+    expect(attempts).toHaveLength(1);
+    expect(failed.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    // A failed exchange mints nothing: the two session cookies never appear.
+    expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_access=');
+    expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_session=');
+    expect(f.logs).toHaveLength(1);
+    expect(f.logs[0]?.level).toBe('error');
+    expect(f.logs[0]?.fields).toEqual({ err: failure });
   });
 
   it('exchanges once and sets hardened access and refresh-correlation cookies', async () => {

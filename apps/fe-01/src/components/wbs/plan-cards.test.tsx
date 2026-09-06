@@ -279,6 +279,11 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       listExternalSystems: () => Promise.resolve([]),
       listServices: () => Promise.resolve(services.map((service) => ({ ...service }))),
       listPeople: () => Promise.resolve(people.map((person) => ({ ...person }))),
+      // The table reads the calendar markers on mount, alongside the plan, so a
+      // double that stands in for a project has to answer it: unstated, this api
+      // refuses on purpose and the refusal arrives as a toast over every case in
+      // this file. Empty is what these projects have.
+      listCalendarMarkers: () => Promise.resolve([]),
       createWorkItem: (_projectId: string, input: { parentId: string | null; name?: string }) => {
         next += 1;
         const id = `w${String(next)}`;

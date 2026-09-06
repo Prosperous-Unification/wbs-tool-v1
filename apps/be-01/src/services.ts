@@ -2,6 +2,7 @@ import type { Logger } from '@wbs/observability';
 
 import { PLAN_EVENT_RETENTION_DAYS } from './repository';
 import { ActualRepository } from './repository/actual';
+import { CalendarMarkerRepository } from './repository/calendar-marker';
 import { CapacityRepository } from './repository/capacity';
 import { CommandJournalRepository } from './repository/command-journal';
 import type { Drizzle } from './repository/db';
@@ -19,6 +20,7 @@ import { UserRepository } from './repository/user';
 import { SubtreeRepository, WorkItemRepository } from './repository/work-item';
 import { AuthService, type AuthServiceOptions } from './service/auth.service';
 import { DeferringBroadcaster } from './service/broadcast';
+import { CalendarMarkerService } from './service/calendar-marker.service';
 import { CapacityService } from './service/capacity.service';
 import { clockOf } from './service/clock';
 import { DirectoryService } from './service/directory.service';
@@ -93,6 +95,7 @@ export interface BeServices {
   gatewayBroadcaster: GatewayBroadcaster;
   auth: AuthService;
   projects: ProjectService;
+  calendarMarkers: CalendarMarkerService;
   capacity: CapacityService;
   priorityBands: PriorityBandService;
   steps: StepService;
@@ -126,6 +129,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
   const directoryStore = new DirectoryRepository(opts.db);
   const capacityStore = new CapacityRepository(opts.db);
   const priorityBandStore = new PriorityBandRepository(opts.db);
+  const calendarMarkerStore = new CalendarMarkerRepository(opts.db);
   const eventLog = new DrizzleEventLogRepo(opts.db);
   // One store for the route that reads the history and the timer that prunes it.
   const planEventStore = new PlanEventRepository(opts.db);
@@ -203,6 +207,15 @@ export function buildServices(opts: ServicesOptions): BeServices {
       projects: projectStore,
       capacity: capacityStore,
       broadcast: announcements,
+    }),
+    // No broadcaster yet, and that is this slice rather than an omission: task
+    // 4.1 is the routes, and slice 9 is where a marker write announces itself.
+    // A service handed one it never publishes through would read as a route
+    // that already fans out.
+    calendarMarkers: new CalendarMarkerService({
+      clock,
+      projects: projectStore,
+      markers: calendarMarkerStore,
     }),
     // The same broadcaster again, for the capacity service's reason: a ladder
     // event takes its place in the project's one sequence, so a client resuming

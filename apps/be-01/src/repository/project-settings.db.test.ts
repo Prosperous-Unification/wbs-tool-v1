@@ -11,6 +11,7 @@ import { rollbackTo } from './migrate-down';
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 /** The migration under test: slice 3b.1's three project settings columns. */
+const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
 /**
  * Newer than the settings columns, so a rollback aimed at the optimizer
@@ -146,6 +147,7 @@ describe('the project settings migration', () => {
       // every line above.
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
       ]);
       expect(projectColumns(db.path)).toEqual(
@@ -179,6 +181,7 @@ describe('the project settings migration', () => {
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
       ]);
 
@@ -255,6 +258,7 @@ describe('the project settings migration', () => {
 
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
       ]);
 

@@ -221,6 +221,14 @@ const SAVED_PLAN = '20260903190000_add_saved_plan';
  * below and tails the ascending folder order.
  */
 const CREATED_BY_ID = '20260904020000_add_saved_plan_created_by_id';
+/**
+ * `calendar_marker`, one table and one index added whole. It sits directly
+ * under {@link READ_ORDER_INDEX} in every descending reversal list below, and
+ * directly before it in the ascending folder order. Its own rollback and
+ * cascade cases live in `calendar-marker-migration.db.test.ts`; this file only
+ * fixes its place in the order.
+ */
+const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
 
@@ -521,6 +529,7 @@ describe('readMigrationFolders', () => {
       CREATED_BY_ID,
       OPTIMIZER_TABLES,
       PROJECT_SETTINGS,
+      CALENDAR_MARKER,
       READ_ORDER_INDEX,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
@@ -634,6 +643,7 @@ describe('rollbackTo, against a real database', () => {
         CREATED_BY_ID,
         OPTIMIZER_TABLES,
         PROJECT_SETTINGS,
+        CALENDAR_MARKER,
         READ_ORDER_INDEX,
       ]);
 
@@ -641,6 +651,7 @@ describe('rollbackTo, against a real database', () => {
 
       expect(reversed).toEqual([
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
@@ -741,6 +752,7 @@ describe('rollbackTo, against a real database', () => {
         CREATED_BY_ID,
         OPTIMIZER_TABLES,
         PROJECT_SETTINGS,
+        CALENDAR_MARKER,
         READ_ORDER_INDEX,
       ]);
     } finally {
@@ -813,6 +825,7 @@ describe('rollbackTo, against a real database', () => {
 
       expect(reversed).toEqual([
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
@@ -898,6 +911,7 @@ describe('rollbackTo, against a real database', () => {
       expect(rollbackTo(db.path, FOLDER, newest ?? '')).toEqual([]);
       expect(rollbackTo(db.path, FOLDER, AUDIT_COLUMNS)).toEqual([
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
@@ -968,6 +982,7 @@ describe('rollbackTo, against a real database', () => {
       // before the rename they were written against.
       expect(rollbackTo(db.path, FOLDER, WEIGHTS_AND_ROUNDING)).toEqual([
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,

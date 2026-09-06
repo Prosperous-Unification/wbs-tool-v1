@@ -126,7 +126,8 @@ export class AuthService {
         );
       } catch (cause) {
         // Proof: removing this rethrow makes the mounted unexpected-verifier
-        // regression receive 401 rather than 500.
+        // regression receive 401 rather than 500. The real boot outage cases also
+        // receive 401 (password login off) and 200 (on), rather than 500.
         if (!isInvalidCredential(cause)) throw cause;
         if (this.opts.passwordSessions !== true) return null;
       }

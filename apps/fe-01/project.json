@@ -25,7 +25,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "TZ=UTC bunx vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1",
+        "command": "TZ=UTC bunx vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1 && TZ=Pacific/Auckland bunx vitest run --config vitest.zoned.config.ts --no-file-parallelism --maxWorkers=1 --minWorkers=1",
         "cwd": "apps/fe-01"
       }
     },
@@ -61,13 +61,13 @@
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint apps/fe-01/src apps/fe-01/e2e apps/fe-01/e2e-packaged apps/fe-01/playwright.config.ts apps/fe-01/playwright.packaged.config.ts apps/fe-01/vite.config.ts apps/fe-01/vitest.config.ts apps/fe-01/vitest.node.config.ts apps/fe-01/vitest.node-suites.ts apps/fe-01/vite-config.test.ts apps/fe-01/vitest.setup.ts apps/fe-01/playwright-config.test.ts"
+        "command": "bunx eslint apps/fe-01/src apps/fe-01/e2e apps/fe-01/e2e-packaged apps/fe-01/playwright.config.ts apps/fe-01/playwright.packaged.config.ts apps/fe-01/vite.config.ts apps/fe-01/vitest.config.ts apps/fe-01/vitest.node.config.ts apps/fe-01/vitest.zoned.config.ts apps/fe-01/vitest.node-suites.ts apps/fe-01/vite-config.test.ts apps/fe-01/vitest.setup.ts apps/fe-01/playwright-config.test.ts"
       }
     },
     "lint:fast": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx eslint apps/fe-01/src apps/fe-01/e2e apps/fe-01/e2e-packaged apps/fe-01/playwright.config.ts apps/fe-01/playwright.packaged.config.ts apps/fe-01/vite.config.ts apps/fe-01/vitest.config.ts apps/fe-01/vitest.node.config.ts apps/fe-01/vitest.node-suites.ts apps/fe-01/vite-config.test.ts apps/fe-01/vitest.setup.ts apps/fe-01/playwright-config.test.ts --cache --cache-location .nx/eslintcache-fe-01"
+        "command": "bunx eslint apps/fe-01/src apps/fe-01/e2e apps/fe-01/e2e-packaged apps/fe-01/playwright.config.ts apps/fe-01/playwright.packaged.config.ts apps/fe-01/vite.config.ts apps/fe-01/vitest.config.ts apps/fe-01/vitest.node.config.ts apps/fe-01/vitest.zoned.config.ts apps/fe-01/vitest.node-suites.ts apps/fe-01/vite-config.test.ts apps/fe-01/vitest.setup.ts apps/fe-01/playwright-config.test.ts --cache --cache-location .nx/eslintcache-fe-01"
       }
     },
     "typecheck": {

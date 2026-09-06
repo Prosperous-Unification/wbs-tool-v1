@@ -5,6 +5,7 @@ import { buildApp, mountedRouteLists } from './app';
 import type { Route } from './http/route';
 import { PlanCommandRunner } from './service/plan-commands';
 import { inMemoryUsers, testAuthService } from './testing/auth-fixture';
+import { testCalendarMarkerService } from './testing/calendar-marker-fixture';
 import { testCapacityService } from './testing/capacity-fixture';
 import { testDirectoryService } from './testing/directory-fixture';
 import { testHistoryService } from './testing/history-fixture';
@@ -27,6 +28,7 @@ function options(): AppOptions {
   return {
     directory: testDirectoryService(),
     capacity: testCapacityService(),
+    calendarMarkers: testCalendarMarkerService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
     auth: testAuthService(inMemoryUsers()),

@@ -240,6 +240,8 @@ export function WbsTable({
     setSteps,
     treeMayBeStale,
     setTreeMayBeStale,
+    markers,
+    setMarkers,
     busy,
     setBusy,
     connected,
@@ -524,12 +526,13 @@ export function WbsTable({
    */
   const frameRef = useRef<HTMLDivElement | null>(null);
   usePlanLayoutEffects({ frameRef, ganttOpen, renderer, chartRead, ganttColumn, setGanttRoomPx });
-  const { refreshOrMarkStale, run, stepStack } = usePlanRead({
+  const { refreshOrMarkStale, run, stepStack, runMarkerWrite } = usePlanRead({
     setDrafts,
     projectId,
     activeProject,
     api,
     setTreeMayBeStale,
+    setMarkers,
     setTeams,
     setTags,
     setServices,
@@ -1889,6 +1892,26 @@ export function WbsTable({
             // pointer is holding.
             onPointRow={pointChartRow}
             pointed={pointedRows}
+            // The calendar markers, and the four writes that change them.
+            //
+            // Read here and passed down, never read by the panel: the panel
+            // draws the list it is given and reports every write back, so this
+            // component is the one place where a write and the redraw after it
+            // can agree. Rename and recolour stay **two** callbacks because
+            // be-01 refuses a `PATCH` body naming both.
+            markers={markers}
+            onCreateMarker={(marker) => {
+              void runMarkerWrite(() => api.createCalendarMarker(projectId, marker));
+            }}
+            onRenameMarker={(markerId, name) => {
+              void runMarkerWrite(() => api.renameCalendarMarker(projectId, markerId, name));
+            }}
+            onRecolorMarker={(markerId, color) => {
+              void runMarkerWrite(() => api.recolorCalendarMarker(projectId, markerId, color));
+            }}
+            onDeleteMarker={(markerId) => {
+              void runMarkerWrite(() => api.deleteCalendarMarker(projectId, markerId));
+            }}
             // The panel lends the toolbar its own `.svg` downloader while it is
             // mounted, and takes it back when it is not: the file is a clone of
             // the live drawing, so only the panel can make one.

@@ -12,6 +12,13 @@ const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const SAVED_PLAN = '20260903190000_add_saved_plan';
 /** Reversed ahead of {@link SAVED_PLAN}: it adds a column to the table below. */
 const CREATED_BY_ID = '20260904020000_add_saved_plan_created_by_id';
+/**
+ * `calendar_marker`, one table and one index added whole. It sits directly
+ * under {@link READ_ORDER_INDEX} in every descending reversal list in this
+ * file, and it takes nothing with it. Its own cases live in
+ * `calendar-marker-migration.db.test.ts`.
+ */
+const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
 // The two migrations the dual-scheduler branch adds after this file's own.
 // `rollbackTo` reverses everything applied after its target, newest first, so
@@ -107,6 +114,7 @@ describe('the saved-plan migration', () => {
 
     expect(rollbackTo(path, FOLDER, LOOKUP_INDEXES)).toEqual([
       READ_ORDER_INDEX,
+      CALENDAR_MARKER,
       PROJECT_SETTINGS,
       OPTIMIZER_TABLES,
       CREATED_BY_ID,

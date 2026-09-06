@@ -31,6 +31,10 @@ interface ElysiaContext {
 function routeRequestFrom(method: HttpMethod, ctx: ElysiaContext, body: unknown): RouteRequest {
   return {
     method,
+    // The verb off the raw `Request`, which is the only place Elysia keeps it
+    // once HEAD has been resolved to this path's GET: `method` above is the
+    // route's, taken from the registration. See `RouteRequest.receivedMethod`.
+    receivedMethod: receivedMethodOf(ctx.request.method, method),
     path: new URL(ctx.request.url).pathname,
     params: ctx.params,
     // Elysia types a query value as possibly undefined because a bare `?flag`
@@ -47,6 +51,21 @@ function routeRequestFrom(method: HttpMethod, ctx: ElysiaContext, body: unknown)
     body,
     url: ctx.request.url,
   };
+}
+
+/**
+ * The arrived verb, narrowed to what {@link RouteRequest.receivedMethod} may
+ * hold.
+ *
+ * Anything that is neither the route's own verb nor `HEAD` reads as the route's
+ * verb rather than being carried through: this binder registers a route under
+ * exactly one method and Elysia dispatches HEAD to a GET, so those are the two
+ * cases that exist. A third would be a framework behaviour no route module can
+ * be told about safely, and the in-process binder — which reaches its route by
+ * the same two rules — would have nothing to agree with.
+ */
+function receivedMethodOf(raw: string, method: HttpMethod): HttpMethod | 'HEAD' {
+  return raw.toUpperCase() === 'HEAD' ? 'HEAD' : method;
 }
 
 /**

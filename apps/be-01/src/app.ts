@@ -7,6 +7,7 @@ import {
   hasInvalidCookieOrigin,
   type OidcRouteOptions,
 } from './controller/auth.routes';
+import { calendarMarkerRoutes } from './controller/calendar-marker.routes';
 import { directoryRoutes } from './controller/directory.routes';
 import { historyRoutes } from './controller/history.routes';
 import { internalRoutes } from './controller/internal.routes';
@@ -23,6 +24,7 @@ import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
 import type { DeferringBroadcaster } from './service/broadcast';
+import type { CalendarMarkerService } from './service/calendar-marker.service';
 import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
 import type { HistoryService } from './service/history.service';
@@ -90,6 +92,14 @@ export interface AppOptions {
    * day the table ships, so the mistake would be invisible for a week.
    */
   history: HistoryService;
+  /**
+   * Required for the same reason as `history`, and for its exact failure mode: a
+   * process built without it answers 404 on every marker route, which a client
+   * cannot tell from a project that has no markers — and "none" is the answer
+   * for every project the day the table ships, so the mistake would be
+   * invisible for a week.
+   */
+  calendarMarkers: CalendarMarkerService;
   /**
    * Shared secret gw-01 presents on /internal/*. Required — a default here
    * would silently diverge from the value gw-01 loads from the environment,
@@ -208,6 +218,13 @@ export function mountedRouteLists(
     // registration order, `/:id/history` cannot be shadowed by anything that
     // route declares, and adjacency is what makes that checkable at a glance.
     historyRoutes(opts.auth, opts.history),
+    // `savedPlanRoutes`'s reason, without its adjacency: every marker path is
+    // one segment longer than anything `projectRoutes` declares and carries a
+    // literal `calendar-markers` segment, so neither can shadow the other
+    // wherever it sits. Several lists intervene and that is fine — the
+    // separation here is structural, not positional, which is the difference
+    // from the two comments above (Sol's Minor, run 38).
+    calendarMarkerRoutes(opts.auth, opts.calendarMarkers),
     internalRoutes({
       secret: opts.internalAuthSecret,
       // A deliberate pure ack, not a stub. Every mutation in this product is
@@ -223,6 +240,13 @@ export function mountedRouteLists(
 
 export function buildApp(opts: AppOptions) {
   const logger = createLogger({ service: 'be-01', version: opts.version });
+  // The OIDC callback is the one route list that reports anything, and it names
+  // no framework, so it cannot reach the decorated `logger` above and is handed
+  // it here instead of at every call site that builds `OidcRouteOptions`
+  // (TASK-273). A caller that supplied its own wins — that is how a test
+  // asserts on what a refused login writes down without a pino destination.
+  const routedOptions: AppOptions =
+    opts.oidc === undefined ? opts : { ...opts, oidc: { logger, ...opts.oidc } };
   const commands = new PlanCommandRunner({
     workItems: opts.workItems,
     directory: opts.directory,
@@ -269,7 +293,7 @@ export function buildApp(opts: AppOptions) {
         return undefined;
       })
       .use(
-        mountedRouteLists(opts, commands).reduce(
+        mountedRouteLists(routedOptions, commands).reduce(
           (app, list) => app.use(bindElysia(list)),
           new Elysia(),
         ),

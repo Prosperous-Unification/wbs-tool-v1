@@ -23,7 +23,8 @@
         "default",
         "^production",
         "{workspaceRoot}/apps/be-01/drizzle/*/migration.sql",
-        "{workspaceRoot}/docs/adr/*.md"
+        "{workspaceRoot}/docs/adr/*.md",
+        "{workspaceRoot}/apps/fe-01/src/styles.css"
       ],
       "options": {
         "command": "bun test --coverage --coverage-reporter=lcov",

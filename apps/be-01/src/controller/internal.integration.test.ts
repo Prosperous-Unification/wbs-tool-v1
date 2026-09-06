@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
 import { testAuthService } from '../testing/auth-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -22,6 +23,7 @@ function buildHarness() {
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
+    calendarMarkers: testCalendarMarkerService(),
     auth: testAuthService(),
     projects: testProjectService(),
     workItems: testWorkItemService(),

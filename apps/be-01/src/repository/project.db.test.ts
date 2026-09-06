@@ -107,6 +107,7 @@ describe('ProjectRepository', () => {
 
     expect(rollbackTo(join(dir, 'test.db'), FOLDER, '20260824010000_add_oidc_identity')).toEqual([
       '20260906003000_add_work_item_read_order_index',
+      '20260905090000_add_calendar_marker',
       '20260904140000_add_project_settings',
       '20260904100000_add_optimizer_tables',
       '20260904020000_add_saved_plan_created_by_id',

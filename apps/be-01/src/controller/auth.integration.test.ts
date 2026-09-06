@@ -6,6 +6,7 @@ import { bindInProcess } from '../http/in-process/bind';
 import { AuthService } from '../service/auth.service';
 import { LoginThrottle } from '../service/login-throttle';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -28,6 +29,7 @@ function app(auth = testAuthService(), maxConcurrentLogins?: number) {
     history: testHistoryService(),
     auth,
     maxConcurrentLogins,
+    calendarMarkers: testCalendarMarkerService(),
     projects: testProjectService(),
     workItems: testWorkItemService(),
     savedPlans: testSavedPlanService(),
@@ -129,6 +131,7 @@ describe('GET /api/auth/me', () => {
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(),
+      calendarMarkers: testCalendarMarkerService(),
       auth: local,
       projects: testProjectService(),
       workItems: testWorkItemService(),

@@ -72,6 +72,19 @@ const DOM_EVIDENCE =
  */
 const INDIRECT_DOM_SUITES: readonly string[] = ['src/lib/api.test.ts'];
 
+/**
+ * The third tier: suites `vitest.zoned.config.ts` collects and neither other
+ * config does.
+ *
+ * They are DOM-free by nothing but coincidence — what puts a file here is the
+ * zone its runner must have **started** under, which no rule over the file's
+ * text could tell from a preference. The suffix is the mechanism for the same
+ * reason the two configs disagree about exactly this pattern: a zoned suite
+ * collected by the UTC run is a row of vacuous greens, because under UTC the
+ * local-midnight fault these cases exist to catch returns the correct answer.
+ */
+const isZoned = (suite: string): boolean => /\.zoned\.test\.tsx?$/.test(suite);
+
 const needsADom = (suite: string): boolean =>
   suite.endsWith('.tsx') ||
   INDIRECT_DOM_SUITES.includes(suite) ||
@@ -103,7 +116,10 @@ describe('fe-01’s test tiers', () => {
     // other way, `…(17) to deeply equal …(18)`: a DOM-free suite paying jsdom
     // for nothing. The partition case failed with each of them too, on `80 to
     // be 79` and `78 to be 79`.
-    const domFree = [...everySuite().filter((suite) => !needsADom(suite)), SELF].sort();
+    const domFree = [
+      ...everySuite().filter((suite) => !needsADom(suite) && !isZoned(suite)),
+      SELF,
+    ].sort();
 
     expect([...NODE_SUITES].sort()).toEqual(domFree);
   });
@@ -113,9 +129,10 @@ describe('fe-01’s test tiers', () => {
     // counted twice and nothing is dropped. A list is the one mechanism where
     // "dropped" is silent.
     const all = [...everySuite(), SELF];
-    const domTier = all.filter((suite) => suite !== SELF && needsADom(suite));
+    const zonedTier = all.filter(isZoned);
+    const domTier = all.filter((suite) => suite !== SELF && !isZoned(suite) && needsADom(suite));
 
-    expect(NODE_SUITES.length + domTier.length).toBe(all.length);
+    expect(NODE_SUITES.length + domTier.length + zonedTier.length).toBe(all.length);
     expect(new Set(NODE_SUITES).size).toBe(NODE_SUITES.length);
   });
 
@@ -125,5 +142,23 @@ describe('fe-01’s test tiers', () => {
     for (const suite of NODE_SUITES) {
       expect(() => readFileSync(join(APP, suite), 'utf8'), suite).not.toThrow();
     }
+  });
+});
+
+/** The lint inputs are explicit paths, so each new root source needs an entry. */
+describe('fe-01 lint inputs', () => {
+  it.each(['lint', 'lint:fast'])('includes every root TypeScript source in %s', (target) => {
+    // Proof: leaving vitest.zoned.config.ts out of both production commands
+    // failed these cases on expected ['apps/fe-01/vitest.zoned.config.ts']
+    // to deeply equal [], before either input list was repaired.
+    const project = JSON.parse(readFileSync(join(APP, 'project.json'), 'utf8')) as {
+      targets: Record<string, { options: { command: string } }>;
+    };
+    const inputs = new Set(project.targets[target].options.command.split(/\s+/));
+    const missing = readdirSync(APP, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+      .map((entry) => `apps/fe-01/${entry.name}`)
+      .filter((path) => !inputs.has(path));
+    expect(missing).toEqual([]);
   });
 });
