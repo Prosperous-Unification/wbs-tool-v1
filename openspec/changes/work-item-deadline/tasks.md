@@ -122,17 +122,26 @@ here.
       milestone starting at exactly offset `D + 1.0` must be reported **on
       time**. A non-zero-duration fixture cannot produce this red; the test must
       be the milestone.
-- [ ] 4.5 A deadline never moves work earlier and never overrides a floor: a leaf
+- [x] 4.5 A deadline never moves work earlier and never overrides a floor: a leaf
       whose floor is later than its effective deadline still starts at its floor
-      and is reported late.
+      and is reported late. Landed as two cases in
+      `schedule-deadline-order.test.ts`, and both stay green under 5.1's watched
+      reds — correctly, because a comparator decides an order and the floor
+      decides the date, so nothing a comparator does can move this.
 
 ## 5. Fast ordering and `Late by N workdays`
 
-- [ ] 5.1 Ready-slice order becomes minimum slack (`deadlineOffset −
+- [x] 5.1 Ready-slice order becomes minimum slack (`deadlineOffset −
 earliestFinish`, whole workdays), then earliest effective deadline, then
       the **existing, untouched** priority tie-breaks. Slices with no effective
       deadline sort after every deadlined slice, holding their existing relative
-      priority order.
+      priority order. Landed as two comparisons in front of `goesFirst`'s four,
+      with `slack` and `deadline` on `SlicePriority`. `earliestFinish` is read
+      as `lastWorkdayOf(start, finish)` over the **deadline-free** placement —
+      the same pass `start` and `float` already read, because slack against the
+      leveled placement would be circular. Absence is `Infinity` for both, by
+      the arithmetic that already gives `priority` its `Infinity`, so the
+      undeadlined ordering is the old one unchanged rather than a special case.
 - [ ] 5.2 `Late by N workdays` per missed slice, with
       `N = lastWorkdayOf(start, finish) − deadlineOffset`, `N >= 1`, computed
       from 4.2's single predicate so the label and the lateness verdict cannot

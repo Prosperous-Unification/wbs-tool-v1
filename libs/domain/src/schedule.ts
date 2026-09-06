@@ -1,10 +1,10 @@
 import { ASSUMED_SLICE_WORKDAYS } from './assumed-duration';
 import type { DependencyReach } from './dependency-reach';
 import { deriveNumbers, type PlannedRow } from './derive-numbers';
-import { leafFloorsOf } from './leaf-constraints';
+import { leafDeadlinesOf, leafFloorsOf } from './leaf-constraints';
 import { sliceGraphEdges } from './slice-edges';
 import { groupSlicesByLeaf } from './slice-groups';
-import { snapWorkdays, withinDrift } from './workday';
+import { lastWorkdayOf, snapWorkdays, withinDrift } from './workday';
 
 /** A finish-to-start edge, as written: either end may be a parent. */
 export interface DependencyEdge {
@@ -1048,6 +1048,37 @@ interface SlicePriority {
    * this field existed — every slice ties here and the three below decide alone.
    */
   priority: number;
+  /**
+   * How many whole workdays of room this slice has against its effective
+   * deadline, smaller first — or `Infinity` where it has no deadline.
+   *
+   * `deadlineOffset − lastWorkdayOf(start, finish)` over the **deadline-free**
+   * placement, so it is negative exactly when that placement already misses,
+   * and it is the same subtraction `workdaysLateBy` prints with its sign
+   * flipped. Asked before {@link priority} because a date somebody committed to
+   * outranks a number somebody ranked by: a priority says which work matters
+   * more, a deadline says which work is running out of time, and only the
+   * second can stop being true tomorrow.
+   *
+   * `Infinity` for an undeadlined slice by the same arithmetic that gives
+   * {@link priority} its `Infinity` — `Infinity − finite` is `Infinity`, so an
+   * undeadlined slice sorts behind every deadlined one, two undeadlined slices
+   * tie here and fall through to the rules below unchanged, and a plan with no
+   * deadlines at all schedules byte for byte as it did before this field
+   * existed. That is what `fast-golden-corpus.test.ts` asserts.
+   */
+  slack: number;
+  /**
+   * Its effective deadline offset, smaller first — or `Infinity` where it has
+   * none.
+   *
+   * Second and not first, because slack already carries the deadline *and* the
+   * work in front of it: two slices due the same day are not equally urgent if
+   * one of them is three days of work and the other is one. This separates the
+   * pair that slack cannot — equal room, different dates — and there the
+   * earlier date is the one that cannot wait.
+   */
+  deadline: number;
   /** Where the critical path puts it, with nobody's calendar in the way. */
   start: number;
   /** How much it could slip there without moving the project. */
@@ -2098,21 +2129,22 @@ export function schedule(
    * `leafDeadlinesOf`, which takes each leaf the **earliest** of its own
    * deadline and every ancestor's, where a floor takes the latest.
    *
-   * **It changes no placement, here or ever.** A deadline is a statement about
-   * when work was wanted, not about when it may run: nothing below reads this
-   * map, and `fast-golden-corpus.test.ts` proves byte-for-byte that its arrival
-   * moved no scheduled offset. Slice 5 reads it to *order* ready slices and to
-   * report `Late by N workdays`; a deadline that pulled work earlier would be a
+   * **It moves no slice earlier, and it overrides no floor.** A deadline is a
+   * statement about when work was *wanted*, not about when it may run. Slice
+   * 5.1 reads it in exactly one place — the ready-slice comparator, which
+   * decides who goes first where two slices are both eligible and want one
+   * person — and a comparator cannot place anything: whichever slice is taken
+   * first is still placed at the latest of its own floors. So a leaf whose
+   * floor stands after its deadline starts at its floor and is reported late,
+   * which is tasks.md 4.5, and a deadline that pulled work earlier would be a
    * wish the calendar granted, which is the one thing it must never be.
    *
-   * **Nothing below reads it yet, and that is the claim 4.3 proves rather than
-   * a gap to be tidied away** — so the suppression below is narrow, named and
-   * dated rather than an underscore, which would have renamed a documented
-   * positional argument to say something the doc already says. Slice 5 deletes
-   * the line in the same commit that first reads the map; a reader who deletes
-   * it early and finds the linter silent has learnt that slice 5 landed.
+   * With this map empty the comparator ties on both of its deadline rules and
+   * the four rules behind them decide alone, so an undeadlined plan schedules
+   * byte for byte as it did before this argument existed —
+   * `fast-golden-corpus.test.ts` compares the whole corpus character by
+   * character to say so.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- TASK-267 4.1: the seventh argument arrives inert; slice 5 reads it.
   deadlines: ReadonlyMap<string, number> = new Map(),
   /**
    * Task 4.9's `materialiseOptimized`: a start per slice key, or Fast's own.
@@ -2273,23 +2305,58 @@ export function schedule(
 
   const numbers = deriveNumbers(rows);
   const leafPriorities = priorityByLeaf(rows, index);
-  const priorityOf: SlicePriority[] = nodes.map((node, at) => ({
-    // Both slices of one work item carry its priority, which is what keeps a priority a
-    // fact about the work rather than about one of its steps.
-    priority: leafPriorities.get(node.slice.workItemId) ?? Infinity,
-    start: unleveled.placed[at].start,
-    float: criticalPath[at].latestStart - unleveled.placed[at].start,
-    // `deriveNumbers` covers every row or throws, so the fallback is
-    // unreachable; it is a default rather than a throw because this is the
-    // third of four tie-breaks and an empty string only ever reorders slices
-    // that are already equal on time.
-    number: numbers.get(node.slice.workItemId) ?? '',
-    at: node.at,
-  }));
+  // Deadlines expanded down the tree by the same walk the floors take and the
+  // solver wire takes — see {@link leafDeadlinesOf}, which holds the rule that
+  // the *earliest* date binds where a floor takes the latest. Read here rather
+  // than re-folded, so Fast's ordering and `deadlineUnits` on the wire cannot
+  // disagree about which day a leaf owes.
+  const leafDeadlines = leafDeadlinesOf(deadlines, index);
+  const priorityOf: SlicePriority[] = nodes.map((node, at) => {
+    // Both slices of one work item carry its deadline, exactly as they carry its
+    // priority: the date is a fact about the work, and a step that inherited no
+    // deadline would be a step the ordering stops hurrying half way through.
+    const deadline = leafDeadlines.get(node.slice.workItemId) ?? Infinity;
+    return {
+      // Both slices of one work item carry its priority, which is what keeps a priority a
+      // fact about the work rather than about one of its steps.
+      priority: leafPriorities.get(node.slice.workItemId) ?? Infinity,
+      deadline,
+      // Measured against the placement with nobody's calendar in it, which is
+      // the same pass `start` and `float` already read. Slack against the
+      // *leveled* placement would be circular: the leveler is the thing this
+      // number is about to order.
+      slack: deadline - lastWorkdayOf(unleveled.placed[at].start, unleveled.placed[at].finish),
+      start: unleveled.placed[at].start,
+      float: criticalPath[at].latestStart - unleveled.placed[at].start,
+      // `deriveNumbers` covers every row or throws, so the fallback is
+      // unreachable; it is a default rather than a throw because this is the
+      // third of four tie-breaks and an empty string only ever reorders slices
+      // that are already equal on time.
+      number: numbers.get(node.slice.workItemId) ?? '',
+      at: node.at,
+    };
+  });
   /**
-   * The priority rule, in full: what somebody said matters most, then what the
+   * The priority rule, in full: what is closest to running out of time, then
+   * what is due soonest, then what somebody said matters most, then what the
    * critical path needs first, then what has least room to move, then the
    * plan's own order.
+   *
+   * **The two deadline rules are in front, and the four behind them are
+   * untouched** (tasks.md 5.1). A plan that carries no deadlines ties on both
+   * of the new comparisons — every slice's slack and deadline are `Infinity` —
+   * so the rule below it decides alone and the placement is byte for byte the
+   * one this engine produced before deadlines existed. That is not an argument;
+   * it is what `fast-golden-corpus.test.ts` compares character by character.
+   *
+   * **Why a deadline outranks a priority rather than tying into it.** A
+   * priority is a standing opinion about which work is worth more; a deadline
+   * is a date that stops being satisfiable. Asking the opinion first would let
+   * a p1 with three weeks of room take the person a p3 needed on Thursday, and
+   * the plan would come back with a missed date whose reason was a ranking
+   * nobody thought applied to it. The reverse ordering cannot make that
+   * mistake, and it costs the priority rule nothing on the plans that have no
+   * deadlines — which today is all of them.
    *
    * The last two are what make it deterministic rather than merely correct.
    * Two slices that tie on time are separated by their work item's number and
@@ -2318,6 +2385,8 @@ export function schedule(
   const goesFirst = (left: number, right: number): boolean => {
     const first = priorityOf[left];
     const second = priorityOf[right];
+    if (first.slack !== second.slack) return first.slack < second.slack;
+    if (first.deadline !== second.deadline) return first.deadline < second.deadline;
     if (first.priority !== second.priority) return first.priority < second.priority;
     if (first.start !== second.start) return first.start < second.start;
     if (first.float !== second.float) return first.float < second.float;
