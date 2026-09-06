@@ -3815,7 +3815,7 @@ inputHash, objective, contractVersion, budgetMs, failureReason)` and no
       result announced itself under the smaller-budget identity and a client
       holding that identity ignored the only notice that should move it.
       **Watched red:** raise the budget, store, assert the client refetches.
-- [ ] 7.8 Name the seam rather than assume it: `EventLogRepo.recordEventIn(tx,
+- [x] 7.8 Name the seam rather than assume it: `EventLogRepo.recordEventIn(tx,
 subscription, message, createdAt)` writes inside the caller's
       transaction, and `GatewayBroadcaster.pushRecorded(subscription,
 recorded, event)` buffers and pushes an already-recorded sequence
