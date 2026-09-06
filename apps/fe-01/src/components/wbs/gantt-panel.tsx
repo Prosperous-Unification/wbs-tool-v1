@@ -3662,6 +3662,13 @@ function GanttChart({
                   // with the chip standing on it. See {@link markerFill}.
                   stroke={markerFill(standing[0])}
                   pointerEvents="none"
+                  // One CSS pixel, declared rather than left to the SVG default
+                  // of 1. The default paints the same hairline, so nothing on
+                  // screen moves — what the declaration buys is an oracle: the
+                  // jsdom tier reads this attribute, and an absent one reads as
+                  // "nothing on the chart at …" instead of as a width that is
+                  // not 1. Slice 8.2a.
+                  strokeWidth={1}
                   // The gridlines' reason: user space is one unit per day, so an
                   // unscaled stroke would be a day wide at every rung.
                   vectorEffect="non-scaling-stroke"

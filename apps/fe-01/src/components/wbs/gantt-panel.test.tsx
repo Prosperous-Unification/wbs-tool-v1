@@ -5413,6 +5413,41 @@ describe('the marker rule takes its named slot in marksOverLight', () => {
     expect(theRule().getAttribute('stroke')).toBe(AZURE);
   });
 
+  itDom('is a `line` element declaring a 1px non-scaling stroke', () => {
+    // Slice 8.2a's jsdom half: the tag, the mechanism and the declared width.
+    // Three assertions with three different jobs, and none of them stands for
+    // another.
+    //
+    // **The width is not the requirement on its own.** The chart's user space
+    // is days by rows stretched non-uniformly to `dayPx` (`viewBox` with
+    // `preserveAspectRatio="none"`), so one user unit is a whole day — 28, 12
+    // or 4 CSS pixels. A rule declared `stroke-width` 1 **without**
+    // `vector-effect` renders a day wide and still passes every order, colour,
+    // count and pointer assertion above. The today edge already carries the
+    // property for exactly this reason.
+    //
+    // **And the mechanism is not the requirement either**: `stroke-width` 2
+    // with `vector-effect` paints two CSS columns at every rung, which
+    // satisfies the property assertion and the browser tier's 1-or-2 painted
+    // column bound, while the requirement says one pixel.
+    //
+    // **The tag is asserted because the other two read the element the test
+    // QUERIES, not the element that PAINTS**: a `<g data-gantt-marker-rule
+    // stroke-width="1" vector-effect="non-scaling-stroke">` wrapping a 2px
+    // `<line>` answers both equalities from the wrapper while the child paints
+    // two columns.
+    //
+    // What jsdom cannot do is the other half — it has no SVG layout and
+    // computes no style, so `getComputedStyle(rule).strokeWidth` reads `1px`
+    // whether the property is present or absent. The screen is 8.2a's browser
+    // tier; this case pins what an implementer can get wrong in the source.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(theRule().localName).toBe('line');
+    expect(markAttribute('[data-gantt-marker-rule]', 'vector-effect')).toBe('non-scaling-stroke');
+    expect(markAttribute('[data-gantt-marker-rule]', 'stroke-width')).toBe('1');
+  });
+
   /**
    * The plan the unchanged-bar half is read off, twice: once marked and once
    * not.
