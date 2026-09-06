@@ -1732,7 +1732,7 @@ in both slices rather than implied by position.
       hover. Negative: the rung ladder replaced by a single constant of 3,
       watched failing at 4px, where three chips do not fit a four-pixel cell.
       A threshold tested at one rung is not a ladder.
-- [ ] 8.5 A marker outside the current horizon draws nothing and is still
+- [x] 8.5 A marker outside the current horizon draws nothing and is still
       returned by the API — test: same file plus the controller test from 4.1,
       and the **return trip**: lengthen the plan so the horizon covers that date
       again and assert the chip is drawn at its axis offset. Negative: the

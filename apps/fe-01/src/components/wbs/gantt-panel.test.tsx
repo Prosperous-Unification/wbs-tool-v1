@@ -5225,7 +5225,9 @@ describe('a calendar marker is a chip in the axis band, placed by its date', () 
    *
    * The other half of 8.5 — that the marker is still *stored* and still
    * answered by the list route — is not observable here at all; it belongs to
-   * the be-01 controller test and is why 8.5 stays unticked after this.
+   * `calendar-marker.controller.db.test.ts`'s "accepts and returns a marker
+   * outside any drawable horizon", which landed with slice 4.1's routes and was
+   * already standing when these two cases were written.
    */
   const OFF_THE_END: CalendarMarkerView = {
     id: 'm-late',
