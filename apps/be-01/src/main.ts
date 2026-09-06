@@ -37,13 +37,15 @@ try {
       solverVersion,
       budgetMs: cfg.SOLVER_BUDGET_MS,
       spawn: (request) =>
-        spawnSolverLauncher({
-          attemptToken: request.admission.attemptToken,
-          childDeadlineAt: request.admission.childDeadlineAt,
-          searchWorkers: cfg.SOLVER_SEARCH_WORKERS,
-          memoryLimitMb: cfg.SOLVER_MEMORY_LIMIT_MB,
-          request: request.request,
-        }),
+        Promise.resolve(
+          spawnSolverLauncher({
+            attemptToken: request.admission.attemptToken,
+            childDeadlineAt: request.admission.childDeadlineAt,
+            searchWorkers: cfg.SOLVER_SEARCH_WORKERS,
+            memoryLimitMb: cfg.SOLVER_MEMORY_LIMIT_MB,
+            request: request.request,
+          }),
+        ),
     },
   });
 } catch (err) {

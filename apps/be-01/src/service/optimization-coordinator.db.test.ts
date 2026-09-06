@@ -15,6 +15,7 @@ import { solverSlot } from '../repository/schema';
 import {
   OptimizationCoordinator,
   type ReservedSolverChild,
+  type ReservedSolverTerminal,
   type ReservedSpawnRequest,
 } from './optimization-coordinator';
 import { runSolverChildLifecycle } from './solver-child-lifecycle';
@@ -41,6 +42,16 @@ const INPUT: ScheduleInput = {
   reach: 'whole-item',
   deadlines: new Map(),
 };
+const FEASIBLE_RESPONSE = `${JSON.stringify({
+  wireVersion: 1,
+  status: 'feasible',
+  offsets: { 'w-1\u0000step-dev': 0 },
+  objectiveValues: {
+    makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
+    priority: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
+    movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
+  },
+})}\n`;
 
 const dirs: string[] = [];
 
@@ -54,6 +65,30 @@ function stream(text: string): ReadableStream<Uint8Array> {
 }
 
 const never = new Promise<number>(() => undefined);
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (error: Error) => void;
+} {
+  let settle: ((value: T) => void) | undefined;
+  let fail: ((error: Error) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    settle = resolve;
+    fail = reject;
+  });
+  return {
+    promise,
+    resolve: (value) => {
+      if (settle === undefined) throw new Error('deferred promise has no resolver');
+      settle(value);
+    },
+    reject: (error) => {
+      if (fail === undefined) throw new Error('deferred promise has no rejecter');
+      fail(error);
+    },
+  };
+}
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -88,7 +123,9 @@ function coordinator(
   db: ReturnType<typeof openDrizzle>,
   calls: ReservedSpawnRequest[],
   ownerId = 'blue',
-  childOf: (request: ReservedSpawnRequest) => ReservedSolverChild = () => ({
+  childOf: (
+    request: ReservedSpawnRequest,
+  ) => ReservedSolverChild | Promise<ReservedSolverChild> = () => ({
     pid: 100 + calls.length,
     stdout: stream(''),
     stderr: stream(''),
@@ -96,7 +133,7 @@ function coordinator(
     verdict: () => undefined,
     kill: () => undefined,
   }),
-  runChild: typeof runSolverChildLifecycle = () => new Promise(() => undefined),
+  runChild: typeof runSolverChildLifecycle = () => Promise.resolve({ kind: 'exited', code: 0 }),
   onChildError: (error: unknown) => void = (error) => {
     throw error;
   },
@@ -110,9 +147,9 @@ function coordinator(
     ownerId,
     now: () => 10,
     attemptToken: () => `${ownerId}-token-${String(token++)}`,
-    spawn: (request) => {
+    spawn: async (request) => {
       calls.push(request);
-      return childOf(request);
+      return await childOf(request);
     },
     runChild,
     onChildError,
@@ -141,7 +178,7 @@ describe('OptimizationCoordinator read', () => {
     // rows on the first cold read, despite there being nothing to optimize.
   });
 
-  it('requests both absent objectives once while Fast remains the immediate answer', () => {
+  it('requests both absent objectives once while Fast remains the immediate answer', async () => {
     const { path, db } = database();
     seedProject(path);
     const calls: ReservedSpawnRequest[] = [];
@@ -149,6 +186,8 @@ describe('OptimizationCoordinator read', () => {
     expect(
       coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input: INPUT }),
     ).toBeNull();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(calls.map(({ objective }) => objective)).toEqual(['pri', 'time']);
     expect(calls.every(({ key }) => key.inputHash === scheduleInputHash(INPUT))).toBe(true);
     expect(calls.map(({ request }) => request.objective)).toEqual(['pri', 'time']);
@@ -239,7 +278,7 @@ describe('OptimizationCoordinator read', () => {
     // failed or corrupt row is durable evidence and only explicit Retry spends it.
   });
 
-  it('aborts a launcher whose reservation was reclaimed before its PID bind', () => {
+  it('aborts and awaits a launcher whose reservation was reclaimed before its PID bind', async () => {
     const { path, db } = database();
     seedProject(path);
     const calls: ReservedSpawnRequest[] = [];
@@ -269,8 +308,9 @@ describe('OptimizationCoordinator read', () => {
     });
 
     expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await instance.drain();
     expect(verdicts).toEqual(['abort', 'abort']);
-    expect(killed).toBe(2);
+    expect(killed).toBe(0);
     expect(
       db
         .select({ token: solverSlot.attemptToken, lifecycle: solverSlot.lifecycle })
@@ -283,29 +323,20 @@ describe('OptimizationCoordinator read', () => {
 
     // Proof: dropping the bind CAS or sending `bound` unconditionally lets
     // both delayed launchers exec against replacement-owned reservations.
+    // Calling kill here would race the host's awaited abort cleanup.
   });
 
   it('runs bound children through evaluation, the token-fenced store, and release', async () => {
     const { path, db } = database();
     seedProject(path);
     const calls: ReservedSpawnRequest[] = [];
-    const response = `${JSON.stringify({
-      wireVersion: 1,
-      status: 'feasible',
-      offsets: { 'w-1\u0000step-dev': 0 },
-      objectiveValues: {
-        makespan: { value: 96, stageValue: 96, bound: 96, status: 'optimal' },
-        priority: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
-        movement: { value: 0, stageValue: 0, bound: 0, status: 'optimal' },
-      },
-    })}\n`;
     const instance = coordinator(
       db,
       calls,
       'blue',
       () => ({
         pid: 100 + calls.length,
-        stdout: stream(response),
+        stdout: stream(FEASIBLE_RESPONSE),
         stderr: stream(''),
         exited: Promise.resolve(0),
         verdict: () => undefined,
@@ -330,7 +361,7 @@ describe('OptimizationCoordinator read', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('stores an internal failure and releases admission when process creation throws', () => {
+  it('stores an internal failure but retains admission when creation has no terminal proof', async () => {
     const { path, db } = database();
     seedProject(path);
     const calls: ReservedSpawnRequest[] = [];
@@ -347,6 +378,7 @@ describe('OptimizationCoordinator read', () => {
     );
 
     expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await instance.drain();
 
     const pair = readOptimizedPair(db, {
       projectId: 'p-1',
@@ -356,14 +388,19 @@ describe('OptimizationCoordinator read', () => {
     });
     expect(pair.pri).toMatchObject({ kind: 'failed', reason: 'internal-error' });
     expect(pair.time).toMatchObject({ kind: 'failed', reason: 'internal-error' });
-    expect(db.select().from(solverSlot).all()).toEqual([]);
+    expect(
+      db.select({ lifecycle: solverSlot.lifecycle, pid: solverSlot.pid }).from(solverSlot).all(),
+    ).toEqual([
+      { lifecycle: 'starting', pid: null },
+      { lifecycle: 'starting', pid: null },
+    ]);
     expect(errors).toHaveLength(2);
 
     expect(instance.read({ projectId: 'p-1', objective: 'time', input: INPUT })).toBeNull();
     expect(calls).toHaveLength(2);
   });
 
-  it('kills, drains, and stores an internal failure when the bind transport breaks', async () => {
+  it('kills and stores failure without releasing when bind transport has no terminal proof', async () => {
     const { path, db } = database();
     seedProject(path);
     const calls: ReservedSpawnRequest[] = [];
@@ -398,8 +435,163 @@ describe('OptimizationCoordinator read', () => {
     });
     expect(pair.pri).toMatchObject({ kind: 'failed', reason: 'internal-error' });
     expect(pair.time).toMatchObject({ kind: 'failed', reason: 'internal-error' });
-    expect(db.select().from(solverSlot).all()).toEqual([]);
+    expect(
+      db.select({ lifecycle: solverSlot.lifecycle, pid: solverSlot.pid }).from(solverSlot).all(),
+    ).toEqual([
+      { lifecycle: 'running', pid: 101 },
+      { lifecycle: 'running', pid: 102 },
+    ]);
     expect(killed).toBe(2);
+    expect(errors).toHaveLength(2);
+  });
+
+  it('tracks asynchronous start through bind and child lifecycle in drain', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const starts: ReturnType<typeof deferred<ReservedSolverChild>>[] = [];
+    const instance = coordinator(db, calls, 'blue', () => {
+      const start = deferred<ReservedSolverChild>();
+      starts.push(start);
+      return start.promise;
+    });
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    expect(calls).toHaveLength(2);
+    expect(starts).toHaveLength(2);
+    expect(db.select({ lifecycle: solverSlot.lifecycle }).from(solverSlot).all()).toEqual([
+      { lifecycle: 'starting' },
+      { lifecycle: 'starting' },
+    ]);
+
+    let drained = false;
+    const draining = instance.drain().then(() => void (drained = true));
+    for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+    expect(drained).toBe(false);
+
+    for (const [index, start] of starts.entries()) {
+      start.resolve({
+        pid: 201 + index,
+        stdout: stream(''),
+        stderr: stream(''),
+        exited: Promise.resolve(0),
+        verdict: () => undefined,
+        kill: () => undefined,
+      });
+    }
+    await draining;
+    expect(drained).toBe(true);
+    expect(
+      db.select({ lifecycle: solverSlot.lifecycle, pid: solverSlot.pid }).from(solverSlot).all(),
+    ).toEqual([
+      { lifecycle: 'running', pid: 201 },
+      { lifecycle: 'running', pid: 202 },
+    ]);
+  });
+
+  it('classifies authenticated terminal evidence before evaluating solver output', async () => {
+    const cases = [
+      {
+        terminal: { exitCode: 0, deadlineKilled: true, oomKilled: true },
+        expected: 'timeout',
+      },
+      {
+        terminal: { exitCode: 0, deadlineKilled: false, oomKilled: true },
+        expected: 'oom',
+      },
+      {
+        terminal: { exitCode: 0, deadlineKilled: false, oomKilled: false },
+        expected: 'ok',
+      },
+      {
+        terminal: { exitCode: 1, deadlineKilled: false, oomKilled: false },
+        expected: 'internal-error',
+      },
+    ] as const;
+
+    for (const item of cases) {
+      const { path, db } = database();
+      seedProject(path);
+      const calls: ReservedSpawnRequest[] = [];
+      const terminal: Promise<ReservedSolverTerminal> = Promise.resolve(item.terminal);
+      const instance = coordinator(
+        db,
+        calls,
+        'blue',
+        () => ({
+          pid: 300 + calls.length,
+          stdout: stream(FEASIBLE_RESPONSE),
+          stderr: stream(''),
+          exited: terminal.then((evidence) => evidence.exitCode),
+          terminal,
+          verdict: () => undefined,
+          kill: () => undefined,
+        }),
+        runSolverChildLifecycle,
+      );
+
+      expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+      await instance.drain();
+      const pair = readOptimizedPair(db, {
+        projectId: 'p-1',
+        inputHash: scheduleInputHash(INPUT),
+        contractVersion: CONTRACT,
+        budgetMs: BUDGET,
+      });
+      for (const outcome of [pair.pri, pair.time]) {
+        if (item.expected === 'ok') expect(outcome.kind).toBe('ok');
+        else expect(outcome).toMatchObject({ kind: 'failed', reason: item.expected });
+      }
+      expect(db.select().from(solverSlot).all()).toEqual([]);
+    }
+  });
+
+  it('stores internal-error and retains the slot when terminal evidence is lost after start', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const terminals: ReturnType<typeof deferred<ReservedSolverTerminal>>[] = [];
+    const errors: unknown[] = [];
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => {
+        const terminal = deferred<ReservedSolverTerminal>();
+        terminals.push(terminal);
+        return {
+          pid: 400 + calls.length,
+          stdout: stream(''),
+          stderr: stream(''),
+          exited: terminal.promise.then((evidence) => evidence.exitCode),
+          terminal: terminal.promise,
+          verdict: () => undefined,
+          kill: () => undefined,
+        };
+      },
+      runSolverChildLifecycle,
+      (error) => void errors.push(error),
+    );
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await Promise.resolve();
+    for (const terminal of terminals) {
+      terminal.reject(new Error('supervisor EOF before terminal'));
+    }
+    await instance.drain();
+
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(INPUT),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    expect(pair.pri).toMatchObject({ kind: 'failed', reason: 'internal-error' });
+    expect(pair.time).toMatchObject({ kind: 'failed', reason: 'internal-error' });
+    expect(db.select({ lifecycle: solverSlot.lifecycle }).from(solverSlot).all()).toEqual([
+      { lifecycle: 'running' },
+      { lifecycle: 'running' },
+    ]);
     expect(errors).toHaveLength(2);
   });
 });

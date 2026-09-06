@@ -22,9 +22,9 @@ import {
   runSolverChildLifecycle,
   type SolverChildLifecycleOptions,
   type SolverChildLifecycleResult,
+  type SolverChildProcess,
 } from './solver-child-lifecycle';
 import { evaluateSolverOutcome, type SolverProcessOutcome } from './solver-exit-outcome';
-import type { SpawnedSolverLauncher } from './solver-launcher-process';
 import { buildSolverRequestPair, type SolverRequestPair } from './solver-request-pair';
 
 export interface OptimizationCoordinatorOptions {
@@ -60,10 +60,19 @@ export interface ReservedSpawnRequest extends SpawnRequest {
   readonly input: ScheduleInput;
 }
 
-/** The bound launcher and the streams its lifecycle drains immediately. */
-export type ReservedSolverChild = SpawnedSolverLauncher;
+export interface ReservedSolverTerminal {
+  readonly exitCode: number;
+  readonly deadlineKilled: boolean;
+  readonly oomKilled: boolean;
+}
 
-export type ReservedSpawner = (request: ReservedSpawnRequest) => ReservedSolverChild;
+/** The authenticated host child and the streams its lifecycle drains immediately. */
+export interface ReservedSolverChild extends SolverChildProcess {
+  readonly terminal?: Promise<ReservedSolverTerminal>;
+  readonly verdict: (verdict: 'bound' | 'abort') => void | Promise<void>;
+}
+
+export type ReservedSpawner = (request: ReservedSpawnRequest) => Promise<ReservedSolverChild>;
 
 /**
  * The synchronous plan-read half of the optimizer coordinator (tasks.md 6.1).
@@ -83,12 +92,8 @@ export class OptimizationCoordinator {
     await Promise.all([...this.inFlight]);
   }
 
-  private runChild(
-    request: ReservedSpawnRequest,
-    child: ReservedSolverChild,
-    forcedOutcome?: SolverProcessOutcome,
-  ): void {
-    const slot = {
+  private slotOf(request: ReservedSpawnRequest) {
+    return {
       projectId: request.key.projectId,
       contractVersion: request.key.contractVersion,
       generation: request.generation,
@@ -97,28 +102,98 @@ export class OptimizationCoordinator {
       attemptToken: request.admission.attemptToken,
       admittedCancelEpoch: request.admission.admittedCancelEpoch,
     };
+  }
+
+  private storeInternalFailure(request: ReservedSpawnRequest): void {
+    storeOptimizedOutcome(this.options.db, {
+      claim: { ...this.slotOf(request), ownerId: this.options.ownerId },
+      inputHash: request.key.inputHash,
+      admittedCancelEpoch: request.admission.admittedCancelEpoch,
+      outcome: { kind: 'failed', reason: 'internal-error' },
+      now: this.options.now(),
+    });
+  }
+
+  private async processOutcome(
+    child: ReservedSolverChild,
+    exit: { readonly code: number; readonly stdout: string },
+  ): Promise<SolverProcessOutcome> {
+    if (child.terminal === undefined) {
+      return exit.code === 0
+        ? { kind: 'response', stdout: exit.stdout }
+        : { kind: 'failed', reason: 'internal-error' };
+    }
+    const terminal = await child.terminal;
+    if (terminal.deadlineKilled) return { kind: 'failed', reason: 'timeout' };
+    if (terminal.oomKilled) return { kind: 'failed', reason: 'oom' };
+    return terminal.exitCode === 0
+      ? { kind: 'response', stdout: exit.stdout }
+      : { kind: 'failed', reason: 'internal-error' };
+  }
+
+  private async runReserved(request: ReservedSpawnRequest): Promise<void> {
+    const slot = this.slotOf(request);
+    let child: ReservedSolverChild;
+    try {
+      child = await this.options.spawn(request);
+    } catch (error) {
+      // Without host terminal evidence, a process may still exist. Preserve
+      // the counted seat until its admitted deadline rather than overbook.
+      this.storeInternalFailure(request);
+      throw error;
+    }
+
+    const bound = bindSolverSlot(this.options.db, {
+      ...slot,
+      pid: child.pid,
+    });
+    if (!bound) {
+      await child.verdict('abort');
+      await child.exited;
+      return;
+    }
+
+    try {
+      await child.verdict('bound');
+    } catch (error) {
+      try {
+        await child.kill();
+      } catch {
+        // The first transport failure is the useful error. Either way there is
+        // no terminal evidence, so the reservation remains counted.
+      }
+      this.storeInternalFailure(request);
+      throw error;
+    }
+
     const execute = this.options.runChild ?? runSolverChildLifecycle;
-    const tracked = execute({
-      db: this.options.db,
-      slot,
-      child,
-      now: this.options.now,
-      onExit: (exit) => {
-        const outcome: SolverProcessOutcome =
-          forcedOutcome ??
-          (exit.code === 0
-            ? { kind: 'response', stdout: exit.stdout }
-            : { kind: 'failed', reason: 'internal-error' });
-        storeOptimizedOutcome(this.options.db, {
-          claim: { ...slot, ownerId: this.options.ownerId },
-          inputHash: request.key.inputHash,
-          admittedCancelEpoch: request.admission.admittedCancelEpoch,
-          outcome: evaluateSolverOutcome(request.input, request.request, outcome),
-          now: this.options.now(),
-        });
-      },
-    })
-      .then(() => undefined)
+    try {
+      await execute({
+        db: this.options.db,
+        slot,
+        child,
+        now: this.options.now,
+        onExit: async (exit) => {
+          const outcome = await this.processOutcome(child, exit);
+          storeOptimizedOutcome(this.options.db, {
+            claim: { ...slot, ownerId: this.options.ownerId },
+            inputHash: request.key.inputHash,
+            admittedCancelEpoch: request.admission.admittedCancelEpoch,
+            outcome: evaluateSolverOutcome(request.input, request.request, outcome),
+            now: this.options.now(),
+          });
+        },
+      });
+    } catch (error) {
+      // The lifecycle releases only after a proved terminal or cancellation.
+      // A rejected terminal/EOF therefore leaves this exact slot present.
+      this.storeInternalFailure(request);
+      throw error;
+    }
+  }
+
+  private startReserved(request: ReservedSpawnRequest): void {
+    const tracked = this.runReserved(request)
       .catch((error: unknown) => {
         this.options.onChildError(error);
       })
@@ -208,40 +283,7 @@ export class OptimizationCoordinator {
             request: built.request,
             input: ask.input,
           };
-          let child: ReservedSolverChild;
-          try {
-            child = this.options.spawn(launch);
-          } catch (error) {
-            try {
-              storeOptimizedOutcome(this.options.db, {
-                claim: { ...slot, ownerId: this.options.ownerId },
-                inputHash: request.key.inputHash,
-                admittedCancelEpoch: admission.admittedCancelEpoch,
-                outcome: { kind: 'failed', reason: 'internal-error' },
-                now: this.options.now(),
-              });
-            } finally {
-              releaseSolverSlot(this.options.db, slot);
-            }
-            this.options.onChildError(error);
-            return;
-          }
-          const bound = bindSolverSlot(this.options.db, {
-            ...slot,
-            pid: child.pid,
-          });
-          try {
-            child.verdict(bound ? 'bound' : 'abort');
-          } catch (error) {
-            child.kill();
-            if (bound) {
-              this.runChild(launch, child, { kind: 'failed', reason: 'internal-error' });
-            }
-            this.options.onChildError(error);
-            return;
-          }
-          if (bound) this.runChild(launch, child);
-          else child.kill();
+          this.startReserved(launch);
         }
       },
     );

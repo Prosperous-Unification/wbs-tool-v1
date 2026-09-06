@@ -322,14 +322,14 @@ describe('buildServices', () => {
               controller.close();
             },
           });
-        return {
+        return Promise.resolve({
           pid: 10_000 + spawned.length,
           stdout: empty(),
           stderr: empty(),
           exited: Promise.resolve(1),
           verdict: () => undefined,
           kill: () => undefined,
-        };
+        });
       },
     });
     const { projectId, ownerId } = await seedProject(db);

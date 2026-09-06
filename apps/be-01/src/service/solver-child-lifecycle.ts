@@ -4,8 +4,6 @@ import {
   type SolverSlotHeartbeatOutcome,
 } from '../repository/optimization-admission';
 import { releaseSolverSlot, type SolverSlotRelease } from '../repository/optimization-drain';
-import type { SpawnedSolverLauncher } from './solver-launcher-process';
-
 export const SOLVER_HEARTBEAT_INTERVAL_MS = 5_000;
 
 export interface SolverChildSlot extends SolverSlotRelease {
@@ -16,6 +14,14 @@ export interface SolverChildExit {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
+}
+
+export interface SolverChildProcess {
+  readonly pid: number;
+  readonly stdout: ReadableStream<Uint8Array>;
+  readonly stderr: ReadableStream<Uint8Array>;
+  readonly exited: Promise<number>;
+  readonly kill: () => void | Promise<void>;
 }
 
 export type SolverChildLifecycleResult =
@@ -29,7 +35,7 @@ export type SolverChildLifecycleResult =
 export interface SolverChildLifecycleOptions {
   readonly db: Drizzle;
   readonly slot: SolverChildSlot;
-  readonly child: SpawnedSolverLauncher;
+  readonly child: SolverChildProcess;
   readonly now: () => number;
   /** Called while this attempt still owns its row, before release. */
   readonly onExit: (exit: SolverChildExit) => void | Promise<void>;
@@ -88,7 +94,7 @@ export async function runSolverChildLifecycle(
     });
     if (heartbeat.kind === 'live') continue;
 
-    options.child.kill();
+    await options.child.kill();
     const exit = await completed;
     releaseSolverSlot(options.db, options.slot);
     return {
