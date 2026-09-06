@@ -35,6 +35,7 @@ import { type RefusalWords, sentenceForRefusal } from '@/lib/refusal';
 import { type Remembered, remembered } from '@/lib/remembered';
 import type {
   AssignedPersonView,
+  CalendarMarkerView,
   ExternalSystemView,
   PersonView,
   PriorityBandView,
@@ -2083,6 +2084,18 @@ const NO_CHART_READ: ChartRead = {
   generation: 0,
 };
 
+/**
+ * No calendar markers — the state before the first read lands, and the state a
+ * project with none stays in.
+ *
+ * Hoisted out of the component so the empty case is one object rather than a
+ * new array on every render: `GanttPanel` takes `markers` straight into a
+ * `useMemo` dependency list, and a fresh `[]` each time would rebuild the chip
+ * layer on renders that changed nothing about it. `gantt-panel.tsx` keeps its
+ * own `NO_MARKERS` for the same reason on the other side of the prop.
+ */
+const NO_MARKERS: readonly CalendarMarkerView[] = [];
+
 const column = createColumnHelper<TreeRow>();
 
 declare module '@tanstack/react-table' {
@@ -3845,6 +3858,94 @@ export function WbsTable({
   }, [refresh, pushToast]);
 
   /**
+   * The calendar markers on this project — the list `GanttPanel` draws.
+   *
+   * **Its own state off its own read**, and not a member of `chartRead`, which
+   * is `ProjectApi.listCalendarMarkers`'s own argument turned around: a marker
+   * moves nothing in the schedule (task 4, axis-1), so folding it into the plan
+   * would make every marker write a full tree reread and every tree reread
+   * carry markers the table never looks at.
+   *
+   * The panel reports its four writes upward rather than performing them
+   * ({@link GanttProps.onRenameMarker}) precisely so that this component — the
+   * owner of the list — is the single place where a write and the redraw after
+   * it can agree. Everything below is that owner.
+   */
+  const [markers, setMarkers] = useState<readonly CalendarMarkerView[]>(NO_MARKERS);
+  /**
+   * Which marker read is the newest, on {@link latestRefresh}'s reasoning and
+   * for the same fault: four writes in a burst are four reads that may land out
+   * of order, and an earlier one landing last would put a deleted marker back
+   * on the chart with nothing guaranteed to arrive afterwards and take it off
+   * again.
+   */
+  const latestMarkerRead = useRef(0);
+
+  const readMarkers = useCallback(async () => {
+    const issuedFor = projectId;
+    const generation = latestMarkerRead.current + 1;
+    latestMarkerRead.current = generation;
+    const listed = await api.listCalendarMarkers(projectId);
+    // The project may have changed under the request, and a newer read may have
+    // been issued while this one was in flight. Both checks after the await,
+    // both for `refresh`'s reasons.
+    if (activeProject.current !== issuedFor) return;
+    if (generation !== latestMarkerRead.current) return;
+    setMarkers(listed);
+  }, [api, projectId]);
+
+  useEffect(() => {
+    void readMarkers().catch((thrown: unknown) => {
+      // Said out loud rather than swallowed. A silent failure here is a chart
+      // that draws no markers and gives no reason for it, which is
+      // indistinguishable from a project that has none — and that
+      // indistinguishability is exactly the bug this seam was found by: twenty
+      // -five chunks of marker work gated green while the running product drew
+      // nothing, because nothing anywhere said so.
+      //
+      // `failureText` and not `refusalSentence`, on the plan read's reasoning:
+      // nobody asked for a change, so "That change could not be completed"
+      // would name a change that was never made.
+      pushToast({ kind: 'error', text: failureText(thrown, 'load_failed') });
+    });
+  }, [readMarkers, pushToast]);
+
+  /**
+   * One of the panel's four marker writes, performed and then read back.
+   *
+   * Beside {@link run} rather than through it, and the difference is the whole
+   * point: `run` ends in `refreshOrMarkStale`, a full plan reread this write
+   * has no business asking for. What a marker write invalidates is the marker
+   * list and nothing else.
+   *
+   * The reread happens on the **refusal path too**. A refused write is often a
+   * screen that is behind — a rename aimed at a marker somebody else deleted is
+   * be-01's `not_found`, and leaving that marker drawn is the reader being told
+   * "no" while still looking at the thing that is gone.
+   */
+  const runMarkerWrite = useCallback(
+    async (write: () => Promise<unknown>) => {
+      const issuedFor = projectId;
+      try {
+        await write();
+      } catch (thrown: unknown) {
+        // A refusal from a project the reader has left is not a refusal of
+        // anything on the screen now — `run`'s rule, and for its reason.
+        if (activeProject.current !== issuedFor) return;
+        pushToast({ kind: 'error', text: refusalSentence(thrown) });
+      }
+      if (activeProject.current !== issuedFor) return;
+      await readMarkers().catch(() => {
+        // The write landed or was refused and has already been reported; a
+        // reread that then failed is the network, and a second toast about the
+        // same outage would say nothing the first did not.
+        setTreeMayBeStale(true);
+      });
+    },
+    [projectId, pushToast, readMarkers],
+  );
+
+  /**
    * `?` anywhere on the page opens the cheat sheet.
    *
    * On the window rather than on the table, because the point is that it works
@@ -3874,10 +3975,29 @@ export function WbsTable({
     if (subscribe === undefined) return undefined;
     const opened = subscribe(projectId, {
       onChange: (changed) => {
+        const scope = readScopeFor(changed);
         // No toast: nobody asked for this read, so nothing of theirs was
         // refused. What it can leave behind is a tree that has fallen behind,
         // and that is the banner's job.
-        void refreshOrMarkStale(readScopeFor(changed));
+        void refreshOrMarkStale(scope);
+        // The markers are their own state off their own read, so the plan
+        // reread above cannot carry them. Without this line be-01's
+        // `calendar_markers_changed` is a broadcast into an empty room: the
+        // frame arrives on every other client's socket and changes nothing on
+        // their screens until somebody reloads the page.
+        //
+        // Gated on the full scope rather than on the event's name, which is
+        // {@link readScopeFor}'s whole contract — the two narrow scopes are
+        // claims about be-01's tree and step events, and neither of those moves
+        // a marker. An event this build has never heard of takes the full read
+        // here for the same reason it takes one there.
+        if (scope === 'all') {
+          void readMarkers().catch(() => {
+            // {@link runMarkerWrite}'s rule for exactly this failure: the
+            // banner rather than a second toast about a read nobody asked for.
+            setTreeMayBeStale(true);
+          });
+        }
       },
       onConnectionChange: setConnected,
     });
@@ -3886,7 +4006,7 @@ export function WbsTable({
       opened.unsubscribe();
       stream.current = null;
     };
-  }, [subscribe, projectId, refreshOrMarkStale]);
+  }, [subscribe, projectId, refreshOrMarkStale, readMarkers]);
 
   /**
    * A drag does not survive the tree changing underneath it.
@@ -12084,6 +12204,26 @@ export function WbsTable({
             // pointer is holding.
             onPointRow={pointChartRow}
             pointed={pointedRows}
+            // The calendar markers, and the four writes that change them.
+            //
+            // Read here and passed down, never read by the panel: the panel
+            // draws the list it is given and reports every write back, so this
+            // component is the one place where a write and the redraw after it
+            // can agree. Rename and recolour stay **two** callbacks because
+            // be-01 refuses a `PATCH` body naming both.
+            markers={markers}
+            onCreateMarker={(marker) => {
+              void runMarkerWrite(() => api.createCalendarMarker(projectId, marker));
+            }}
+            onRenameMarker={(markerId, name) => {
+              void runMarkerWrite(() => api.renameCalendarMarker(projectId, markerId, name));
+            }}
+            onRecolorMarker={(markerId, color) => {
+              void runMarkerWrite(() => api.recolorCalendarMarker(projectId, markerId, color));
+            }}
+            onDeleteMarker={(markerId) => {
+              void runMarkerWrite(() => api.deleteCalendarMarker(projectId, markerId));
+            }}
             // The panel lends the toolbar its own `.svg` downloader while it is
             // mounted, and takes it back when it is not: the file is a clone of
             // the live drawing, so only the panel can make one.

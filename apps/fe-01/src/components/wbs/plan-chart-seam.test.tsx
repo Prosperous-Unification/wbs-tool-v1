@@ -10,7 +10,7 @@ import { planRead, projectListEntry, sliceView, workItemView } from '@/testing/v
 
 import type * as GanttGeometryModule from './gantt-geometry';
 import type * as TableFrameModule from './table-frame';
-import { WbsTable } from './wbs-table';
+import { type SubscriptionHandlers, WbsTable, type WbsTableProps } from './wbs-table';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
@@ -125,12 +125,20 @@ const rowFor = (number: string): HTMLElement => {
   return found;
 };
 
-/** Three named root rows: `010 Strip`, `020 Sand`, `030 Paint`. */
-async function threeRoots() {
+/**
+ * Three named root rows: `010 Strip`, `020 Sand`, `030 Paint`.
+ *
+ * The fake is a parameter rather than always minted here so a caller can seed
+ * it **before** the mount — the marker cases below need a project that already
+ * has a start date and a marker on it, and both arrive on the first read.
+ *
+ * `subscribe` is optional for the prop's own reason: the table is driven by a
+ * fake here and only the peer case below has a socket to open.
+ */
+async function threeRoots(api = fakeApi(), subscribe?: WbsTableProps['subscribe']) {
   // Dev's columns take part in the keyboard grid below, so they are open.
 
-  const api = fakeApi();
-  render(<WbsTable projectId="p1" api={api} />);
+  render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
   // Named, not left blank. Blank names made an ordering assertion compare three
   // empty strings against three empty strings, which passes for any order.
   for (const [number, name] of [
@@ -157,8 +165,8 @@ async function threeRoots() {
  * wiring **between** the two faces: a suite that only hovered rows in the
  * table would be asserting the absence of a light with nothing to light.
  */
-async function planWithTheChartOpen() {
-  const api = await threeRoots();
+async function planWithTheChartOpen(seeded = fakeApi(), subscribe?: WbsTableProps['subscribe']) {
+  const api = await threeRoots(seeded, subscribe);
   // `threeRoots` unfolds Dev, so the three points are three boxes rather than
   // the folded cell's one.
   for (const number of ['010', '020', '030']) {
@@ -484,6 +492,11 @@ describe('the chart under a plan being edited', () => {
       listServices: () => Promise.resolve([]),
       addTeam: () => Promise.reject(new Error('not_in_these_tests')),
       listPeople: () => Promise.resolve([]),
+      // The table reads the calendar markers on mount, alongside the plan, so a
+      // double that stands in for a project has to answer it: unstated, this api
+      // refuses on purpose and the refusal arrives as a toast over every case in
+      // this file. Empty is what these projects have.
+      listCalendarMarkers: () => Promise.resolve([]),
       addPerson: () => Promise.reject(new Error('not_in_these_tests')),
       assignPerson: () => Promise.resolve(),
       renameProject: () => Promise.resolve(),
@@ -722,5 +735,199 @@ describe('holding the chart to the row the table is showing', () => {
     }
 
     expect(reported).toEqual([]);
+  });
+});
+
+/**
+ * Slice 9.0 — the host seam.
+ *
+ * The five marker props on `GanttPanel` are all **optional**, which is why this
+ * suite exists as its own thing rather than as a line in section 8: the host
+ * compiles perfectly well passing none of them, so every jsdom case in
+ * `gantt-panel.test.tsx` can stay green while the running product draws no
+ * marker at all and `listCalendarMarkers` has no caller. That is exactly the
+ * state chunk 53 found the branch in, and it is what held 8.2a's browser tier
+ * at `fixme`.
+ *
+ * So the assertions here are about the **wire**, not about the panel: the list
+ * reaches the chart from `ProjectApi`, and each of the four writes reaches
+ * `ProjectApi` back and is drawn from the answer rather than from a local
+ * guess. Every case drives the real panel through the real table — a fixture
+ * that handed the panel its props would be re-proving section 6 and would have
+ * passed against the very gap this closes.
+ */
+describe('the calendar markers the host owns', () => {
+  /**
+   * A Monday, so offset 0 and offset 1 are both workdays.
+   *
+   * The three roots are three-day PERT siblings with no dependency between
+   * them, so they run together from the start date and the horizon is short —
+   * a marker parked several days out would be off the chart and 8.5 would
+   * (correctly) draw nothing, which reads exactly like an unwired seam.
+   */
+  const MONDAY = '2026-08-10';
+
+  /** The fake, already on a calendar: an undated plan refuses every mark (7.2). */
+  const datedApi = async () => {
+    const api = fakeApi();
+    await api.setStartDate('p1', MONDAY);
+    return api;
+  };
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  const chip = (markerId: string): Element | null =>
+    document.querySelector(`[data-marker-chip="${markerId}"]`);
+
+  itDom('draws the markers the project is already holding', async () => {
+    const api = await datedApi();
+    await api.createCalendarMarker('p1', { markerId: 'launch', date: MONDAY, name: 'Launch' });
+
+    await planWithTheChartOpen(api);
+
+    // The read is the half that has no gesture behind it: nothing on this
+    // screen asked for these markers, so a host that only wired the writes
+    // would fail here and nowhere else.
+    await waitFor(() => {
+      expect(chip('launch')).not.toBeNull();
+    });
+    expect(chip('launch')?.textContent).toBe('Launch');
+  });
+
+  itDom('takes a saved composer to the api and draws the marker it answers with', async () => {
+    const api = await datedApi();
+    await planWithTheChartOpen(api);
+
+    // Offset 1: a dated cell with nothing on it yet, so the click opens the
+    // composer rather than the day sheet.
+    fireEvent.click(cellAt(1));
+    const composer = await screen.findByRole('dialog');
+    const day = composer.getAttribute('data-composer-date');
+    if (day === null) throw new Error('the composer named no day');
+    fireEvent.change(screen.getByLabelText('Marker name'), { target: { value: 'Cutover' } });
+    fireEvent.click(screen.getByLabelText(new RegExp('^Save the new calendar marker on ')));
+
+    // The owner's store, not a call log: a host that reported the create and
+    // dropped the answer would show the chip from its own guess and leave the
+    // project holding nothing.
+    await waitFor(() => {
+      expect(api.markers.map((marker) => [marker.date, marker.name])).toEqual([[day, 'Cutover']]);
+    });
+    // `.at` and not `[0]`: this project has `noUncheckedIndexedAccess` off, so
+    // the index signature is typed as always present and the guard below reads
+    // as dead code to eslint.
+    const created = api.markers.at(0);
+    if (created === undefined) throw new Error('nothing was created');
+    // Drawn under the **id be-01 answered with**, which is what says the chart
+    // is showing the read and not the request.
+    await waitFor(() => {
+      expect(chip(created.id)?.textContent).toBe('Cutover');
+    });
+  });
+
+  itDom('renames through the api, and redraws from the answer', async () => {
+    const api = await datedApi();
+    await api.createCalendarMarker('p1', { markerId: 'launch', date: MONDAY, name: 'Launch' });
+    await planWithTheChartOpen(api);
+    await waitFor(() => {
+      expect(chip('launch')).not.toBeNull();
+    });
+
+    // A populated cell opens the sheet, which is where the three edits live.
+    fireEvent.click(cellAt(0));
+    fireEvent.click(await screen.findByLabelText('Rename Launch'));
+    fireEvent.change(screen.getByLabelText('New name for Launch'), {
+      target: { value: 'Go live' },
+    });
+    fireEvent.click(screen.getByLabelText('Save the new name for Launch'));
+
+    await waitFor(() => {
+      expect(api.markers.map((marker) => marker.name)).toEqual(['Go live']);
+    });
+    await waitFor(() => {
+      expect(chip('launch')?.textContent).toBe('Go live');
+    });
+  });
+
+  itDom('recolours through the api, and paints from the answer', async () => {
+    const api = await datedApi();
+    await api.createCalendarMarker('p1', { markerId: 'launch', date: MONDAY, name: 'Launch' });
+    await planWithTheChartOpen(api);
+    await waitFor(() => {
+      expect(chip('launch')).not.toBeNull();
+    });
+
+    fireEvent.click(cellAt(0));
+    fireEvent.click(await screen.findByLabelText('Recolour Launch'));
+    fireEvent.click(screen.getByLabelText('teal for Launch'));
+
+    // Its own call and not a second field on the rename, because be-01 refuses
+    // a `PATCH` naming both — the seam has to keep them two.
+    await waitFor(() => {
+      expect(api.markers.map((marker) => marker.color)).toEqual(['#0386a5']);
+    });
+  });
+
+  itDom('deletes through the api, and the chip goes with it', async () => {
+    const api = await datedApi();
+    await api.createCalendarMarker('p1', { markerId: 'launch', date: MONDAY, name: 'Launch' });
+    await planWithTheChartOpen(api);
+    await waitFor(() => {
+      expect(chip('launch')).not.toBeNull();
+    });
+
+    fireEvent.click(cellAt(0));
+    fireEvent.click(await screen.findByLabelText('Delete Launch'));
+
+    await waitFor(() => {
+      expect(api.markers).toEqual([]);
+    });
+    await waitFor(() => {
+      expect(chip('launch')).toBeNull();
+    });
+  });
+
+  itDom('draws a peer’s new marker on the event, without remounting', async () => {
+    const api = await datedApi();
+    await api.createCalendarMarker('p1', { markerId: 'launch', date: MONDAY, name: 'Launch' });
+
+    // The socket, as the table sees one: a `subscribe` that hands back the
+    // frame handler. `WbsTable` owns the stream (`wbs-table.tsx`'s `subscribe`
+    // prop) and `GanttPanel` has none at all, so a case that mounted the panel
+    // would have no way to deliver this event.
+    let notify: SubscriptionHandlers['onChange'] = () => {
+      throw new Error('the table never subscribed');
+    };
+    await planWithTheChartOpen(api, (_projectId, handlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    });
+    await waitFor(() => {
+      expect(chip('launch')).not.toBeNull();
+    });
+
+    // What a peer's write looks like from here: the project is holding a second
+    // marker and nothing on this screen did it or knows about it.
+    await api.createCalendarMarker('p1', { markerId: 'cutover', date: MONDAY, name: 'Cutover' });
+    expect(chip('cutover')).toBeNull();
+
+    // The cell the reader is in. Its identity is what says the frame was a
+    // re-render and not a remount — a remounted table would build a new input
+    // and take the caret out of a half-typed name with it.
+    const nameCell = screen.getByLabelText('Name of 010');
+
+    notify('calendar_markers_changed');
+
+    // 9.1 counts the emissions be-01 sends. This is the half that makes the
+    // content-free event worth sending: the frame carries no marker, so the
+    // client has to go and read one.
+    await waitFor(() => {
+      expect(chip('cutover')?.textContent).toBe('Cutover');
+    });
+    expect(screen.getByLabelText('Name of 010')).toBe(nameCell);
   });
 });

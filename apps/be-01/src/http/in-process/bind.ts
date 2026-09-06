@@ -44,10 +44,13 @@ export function bindInProcess(routes: readonly Route[]): {
       const verb = request.method.toUpperCase();
       // HEAD is answered by the path's GET, which is what Elysia does and what
       // RFC 9110 §9.3.2 requires; no route in this app declares HEAD, so the
-      // mapping is unambiguous. The handler is told `GET` because that is the
-      // route it belongs to and it is what the Elysia binder passes — a handler
-      // branching on a method it was never registered under would be a
-      // difference between the binders rather than a shared contract.
+      // mapping is unambiguous. `method` is the route's, because the route a
+      // request belongs to is what almost every handler branches on — and the
+      // arrived verb is not thrown away with it any more, it is carried beside
+      // it as `receivedMethod`, which both binders set and
+      // `binder.contract.test.ts` pins. The one handler that needs the
+      // difference is the OIDC callback, which mints session cookies and will
+      // not do it for a request that cannot carry them back (TASK-269).
       const method = (verb === 'HEAD' ? 'GET' : verb) as HttpMethod;
 
       for (const route of routes) {
@@ -67,6 +70,10 @@ export function bindInProcess(routes: readonly Route[]): {
         // is an app-level property this fixture does not reproduce.
         const req: RouteRequest = {
           method,
+          // The verb as it arrived, beside the route's own. The Elysia binder
+          // reads it off `ctx.request`; here it is the one the dispatch above
+          // already normalised away. See `RouteRequest.receivedMethod`.
+          receivedMethod: verb === 'HEAD' ? 'HEAD' : method,
           path: url.pathname,
           params,
           // Last value wins on a repeated key, and unlike the form body below

@@ -1,0 +1,28 @@
+-- Reverses 20260905090000_add_calendar_marker.
+--
+-- **This destroys every calendar marker, and there is nowhere to rebuild one
+-- from.** A marker is a name, a colour and an absolute date, and no other table
+-- restates any of the three — that independence is the point of the feature,
+-- because the alternative it replaces is a zero-duration work item the
+-- scheduler can see. `plan_event` is a log of plan commands and never carried
+-- these writes.
+--
+-- The cost is acceptable while the feature is new. Once markers are in real
+-- use this stops being a routine rollback, on the same terms
+-- `20260903190000_add_saved_plan`'s down script states for saved plans.
+--
+-- **No date moves, either way.** The scheduler reads work items, estimates,
+-- dependencies, capacity and the calendar. It does not read `calendar_marker`,
+-- nothing writes to a scheduler input on its behalf, and slice 5 of the change
+-- asserts that structurally. A plan scheduled against a database with this
+-- table and the same plan after this rollback come out byte-identical.
+--
+-- The index is dropped before the table it is on, so the order does not lean on
+-- SQLite dropping it implicitly. Both statements run solely when the release
+-- that added them is being taken away: a forward migration here is additive so
+-- blue and green can share one file mid-swap, and reversing an additive change
+-- is destructive by definition, which is why it lives in this file and not in
+-- that one. The migration lint deliberately does not enforce additive-only on a
+-- `down.sql`.
+DROP INDEX IF EXISTS `calendar_marker_project_date`;--> statement-breakpoint
+DROP TABLE IF EXISTS `calendar_marker`;

@@ -25,7 +25,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "TZ=UTC bunx vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1",
+        "command": "TZ=UTC bunx vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1 && TZ=Pacific/Auckland bunx vitest run --config vitest.zoned.config.ts --no-file-parallelism --maxWorkers=1 --minWorkers=1",
         "cwd": "apps/fe-01"
       }
     },

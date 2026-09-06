@@ -704,12 +704,26 @@ request, and the automatic colour it previews SHALL be the colour the created
 marker has. A preview the create can contradict is worse than none: it invites
 the user to accept a colour they will not get.
 
-be-01 SHALL accept a client-supplied `id` and SHALL fall back to its existing
+be-01 SHALL accept a client-supplied id and SHALL fall back to its existing
 `Clock.newId()` when the body omits one, so every other caller of that port is
 unchanged.
 
-A create whose `id` already exists SHALL be refused with no row written and no
-existing marker modified. Ids are v4 UUIDs, so a collision is a defect or an
+**The create body SHALL call that id `markerId`, not `id`.** The create's path is
+`/api/projects/:id/calendar-markers`, so `id` on this API already means the
+project. `apps/mcp-01`'s `openapi-tools.ts` derives one MCP tool per operation
+from `apps/be-01/openapi.json` and flattens path and body inputs into a single
+argument object; its `claim()` throws on a name declared in both places rather
+than ship a tool where one input silently overwrites the other, so a create body
+spelling it `id` takes the whole MCP server down at build time rather than
+degrading. Renaming the _path_ parameter instead is not available: memoirist
+refuses two different parameter names in the same position, so `:projectId` here
+would mean renaming `:id` across every `/api/projects/:id/...` route in be-01.
+`markerId` is what the `PATCH` and `DELETE` paths already call this same value.
+The **domain** field stays `id` — inside the service there is no project id to
+collide with — so the two names meet in exactly one mapping line in the handler.
+
+A create whose `markerId` already exists SHALL be refused with no row written and
+no existing marker modified. Ids are v4 UUIDs, so a collision is a defect or an
 attack, never ordinary traffic, and merging into the existing row would let a
 caller overwrite a marker it cannot otherwise address.
 
@@ -721,7 +735,7 @@ caller overwrite a marker it cannot otherwise address.
 
 #### Scenario: an omitted id is issued by the server
 
-- **WHEN** a create arrives with no `id`
+- **WHEN** a create arrives with no `markerId`
 - **THEN** the marker is created with a server-issued id
 
 #### Scenario: a duplicate id is refused
@@ -849,16 +863,16 @@ an absent project 404 — so a marker route that said only "the existing shape"
 would have specified nothing (round-4 Sol review). The marker routes' default
 SHALL be **422**, the malformed-body answer:
 
-| failure                                    | reason      | status | field   |
-| ------------------------------------------ | ----------- | ------ | ------- |
-| `date` is not an `IsoDate`                 | `malformed` | 422    | `date`  |
-| `id` is not a UUID v4                      | `malformed` | 422    | `id`    |
-| `color` is not a hex triple                | `malformed` | 422    | `color` |
-| `name` is empty or over `MARKER_NAME_MAX`  | `malformed` | 422    | `name`  |
-| `color` fails the 3:1 contrast bar         | `contrast`  | 422    | `color` |
-| `id` already exists                        | `taken`     | 409    | `id`    |
-| the marker is absent, or another project's | `not_found` | 404    | `id`    |
-| the caller may not write the project       | `forbidden` | 403    | —       |
+| failure                                    | reason      | status | field      |
+| ------------------------------------------ | ----------- | ------ | ---------- |
+| `date` is not an `IsoDate`                 | `malformed` | 422    | `date`     |
+| `markerId` is not a UUID v4                | `malformed` | 422    | `markerId` |
+| `color` is not a hex triple                | `malformed` | 422    | `color`    |
+| `name` is empty or over `MARKER_NAME_MAX`  | `malformed` | 422    | `name`     |
+| `color` fails the 3:1 contrast bar         | `contrast`  | 422    | `color`    |
+| `markerId` already exists                  | `taken`     | 409    | `markerId` |
+| the marker is absent, or another project's | `not_found` | 404    | `markerId` |
+| the caller may not write the project       | `forbidden` | 403    | —          |
 
 `MARKER_NAME_MAX` SHALL be **120** characters, counted in Unicode code points
 rather than UTF-16 units so an emoji costs one. 120 rather than 255 because the
@@ -921,8 +935,9 @@ stated. A marker of another project answers `not_found` rather than `forbidden`
 
 #### Scenario: a malformed marker id is refused with no row written
 
-- **WHEN** a create supplies an `id` that is not a valid UUID v4
-- **THEN** it is refused naming the `id` field, and the marker count is unchanged
+- **WHEN** a create supplies a `markerId` that is not a valid UUID v4
+- **THEN** it is refused naming the `markerId` field, and the marker count is
+  unchanged
 
 #### Scenario: same-millisecond markers keep one order
 

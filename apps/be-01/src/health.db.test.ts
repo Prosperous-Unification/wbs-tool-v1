@@ -9,6 +9,7 @@ import { openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
 import { runMigrations } from './repository/migrate';
 import { testAuthService } from './testing/auth-fixture';
+import { testCalendarMarkerService } from './testing/calendar-marker-fixture';
 import { testCapacityService } from './testing/capacity-fixture';
 import { testDirectoryService } from './testing/directory-fixture';
 import { testHistoryService } from './testing/history-fixture';
@@ -29,6 +30,7 @@ describe('GET /health', () => {
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(),
+      calendarMarkers: testCalendarMarkerService(),
       auth: testAuthService(),
       projects: testProjectService(),
       workItems: testWorkItemService(),
@@ -52,6 +54,7 @@ describe('GET /health', () => {
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(),
+      calendarMarkers: testCalendarMarkerService(),
       auth: testAuthService(),
       projects: testProjectService(),
       workItems: testWorkItemService(),
@@ -81,6 +84,7 @@ describe('/health tells the truth about the database', () => {
         capacity: testCapacityService(),
         priorityBands: testPriorityBandService(),
         history: testHistoryService(),
+        calendarMarkers: testCalendarMarkerService(),
         auth: testAuthService(),
         projects: testProjectService(),
         workItems: testWorkItemService(),
@@ -114,6 +118,7 @@ describe('/health tells the truth about the database', () => {
         capacity: testCapacityService(),
         priorityBands: testPriorityBandService(),
         history: testHistoryService(),
+        calendarMarkers: testCalendarMarkerService(),
         auth: testAuthService(),
         projects: testProjectService(),
         workItems: testWorkItemService(),
@@ -141,6 +146,7 @@ describe('/health tells the truth about the database', () => {
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(),
+      calendarMarkers: testCalendarMarkerService(),
       auth: testAuthService(),
       projects: testProjectService(),
       workItems: testWorkItemService(),

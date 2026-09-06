@@ -4,6 +4,11 @@ import { expect, type Locator, type Page, type Response, test } from '@playwrigh
 
 import { calendarScale } from '../src/components/wbs/gantt-geometry';
 import { CHART_PAD_PX, DAY_PX, LABEL_COLUMN_PX, ROW_PX } from '../src/components/wbs/gantt-panel';
+import {
+  differingColumns,
+  isContiguousRun,
+  sameColumns,
+} from '../src/components/wbs/marker-rule-ink';
 import { createProject } from './create-project';
 
 /**
@@ -3575,5 +3580,1345 @@ test.describe('the chart downloaded as a standalone .svg', () => {
     // And the plot begins where the divider stands, so what the gutter took is
     // room the chart gave up rather than room drawn over.
     expect(measured.plotX).toBe(measured.dividerX);
+  });
+});
+
+/**
+ * Slice 8.2a's browser tier — the half jsdom cannot reach.
+ *
+ * The jsdom tier (`gantt-panel.test.tsx`) pins the rule's tag, its
+ * `vector-effect` attribute and its declared width. None of those three says
+ * the stroke reaches the screen as a hairline: the chart's user space is days
+ * by rows stretched to `dayPx` (`viewBox` with `preserveAspectRatio="none"`),
+ * so a declared `1` without the mechanism rasterizes **a whole day wide** and
+ * passes every attribute assertion there is. Only pixels can tell those two
+ * renderers apart, and only at two rungs — a single rung cannot distinguish a
+ * non-scaling stroke from a width that happens to equal that rung's day pixels.
+ *
+ * **The oracle is painted columns, not `boundingBox().width`.** The rule is a
+ * vertical `<line>` with `x1 === x2` and therefore has no area; this file's own
+ * `seedEdgeRoutes` note records that a browser reports such a line hidden. The
+ * box cannot see the stroke, which is painted outside the geometry it measures.
+ *
+ * Three clips per rung, and the two derived sets are what close the two holes a
+ * single comparison leaves. `totalInk` is what the marker adds; `ruleInk` is
+ * what the queried element itself adds. A coincident untagged 2px line makes
+ * `ruleInk` empty; an adjacent untagged 1px line makes the two sets differ; an
+ * auxiliary line in some other row band survives both, and is caught by the
+ * whole-body identity instead. The arithmetic between the clips lives in
+ * `marker-rule-ink.ts`, where each of its faults is watchable on a box with no
+ * browser on it.
+ */
+test.describe('the marker rule, measured in the columns it paints', () => {
+  /**
+   * 28 and 4 are the ends of the ladder and are what make the mechanism
+   * visible; 12 is rendered too because the requirement says *every* rung and a
+   * fault conditioned on the middle one would otherwise reach no browser
+   * assertion at all.
+   */
+  const RUNGS = [DAY_PX, 12, 4] as const;
+
+  /**
+   * The day the marker stands on: far enough in that the strip clears the
+   * chart's left padding at the narrowest rung, early enough that the last
+   * row's bar has not started yet, so the band the strip crosses is empty.
+   */
+  const MARKED_OFFSET = 3;
+
+  /** Half the strip's width, in columns either side of the rule. */
+  const STRIP_REACH_PX = 6;
+
+  /** A clip of the chart, as the page can carry it back in. */
+  interface Strip {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }
+
+  /**
+   * Where to clip, recomputed from live geometry every time.
+   *
+   * Chart-relative rather than absolute: creating the marker puts a chip in the
+   * sticky header, and a header that grows moves the body down. Absolute clips
+   * taken either side of that would compare different content and the identity
+   * below would fail for the wrong reason.
+   */
+  async function geometryOf(page: Page): Promise<{ strip: Strip; body: Strip }> {
+    return page.evaluate(
+      ({ offset, reach }) => {
+        const chart = document.querySelector('[data-gantt-chart]');
+        const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+        const rows = [...document.querySelectorAll('[data-gantt-row-line]')];
+        if (chart === null) throw new Error('nothing on the chart at [data-gantt-chart]');
+        if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+        // The length rather than the element: without `noUncheckedIndexedAccess`
+        // an index off a non-empty-typed array is not `undefined` to the
+        // checker, and the guard would read as an impossible comparison.
+        if (rows.length === 0) throw new Error('the chart draws no row lines');
+        const band = rows[rows.length - 1];
+        const chartBox = chart.getBoundingClientRect();
+        const cellBox = cell.getBoundingClientRect();
+        const bandBox = band.getBoundingClientRect();
+        return {
+          // A short horizontal strip crossing the rule, in a row band with no
+          // bar in it. The rule stands at the axis cell's own left edge: the
+          // band carries the same `CHART_PAD_PX` the SVG keeps at its left, so
+          // day 0's cell starts where user x=0 does.
+          strip: {
+            x: Math.round(cellBox.x - reach),
+            y: Math.round(bandBox.y + 4),
+            width: reach * 2 + 1,
+            height: 8,
+          },
+          // The rows and not the axis band: the chip is header ink and is
+          // supposed to differ. `[data-gantt-chart]` is the body SVG alone,
+          // clamped to what the viewport can actually photograph.
+          body: {
+            x: Math.round(Math.max(chartBox.x, 0)),
+            y: Math.round(Math.max(chartBox.y, 0)),
+            width: Math.round(
+              Math.min(chartBox.right, window.innerWidth) - Math.max(chartBox.x, 0),
+            ),
+            height: Math.round(
+              Math.min(chartBox.bottom, window.innerHeight) - Math.max(chartBox.y, 0),
+            ),
+          },
+        };
+      },
+      { offset: MARKED_OFFSET, reach: STRIP_REACH_PX },
+    );
+  }
+
+  /** Both clips of one state, as base64 PNGs. */
+  async function photograph(page: Page): Promise<{ strip: string; body: string }> {
+    const where = await geometryOf(page);
+    const strip = await page.screenshot({ clip: where.strip });
+    const body = await page.screenshot({ clip: where.body });
+    // `toString('base64')` rather than `Buffer.equals`, which this project's
+    // `Buffer` types will not accept another `Buffer` for — `hover-cards.spec.ts`
+    // compares two clips the same way.
+    return { strip: strip.toString('base64'), body: body.toString('base64') };
+  }
+
+  /**
+   * Decodes two clips **in the page** and returns the columns they differ in.
+   *
+   * `page.screenshot` hands back a Node `Buffer` and there is no PNG decoder in
+   * this workspace, so the bytes are carried in as a data URL and drawn into a
+   * canvas — the extraction `measure-ink.ts:78` already uses, with the loading
+   * spelled out because two of its steps throw or truncate when left implicit:
+   * `img.decode()` before drawing, and the canvas sized from the image before
+   * that, since a fresh `<canvas>` is 300×150 and would crop a wider clip.
+   */
+  async function differingColumnsOf(page: Page, before: string, after: string): Promise<number[]> {
+    const pixels = await page.evaluate(
+      async ([first, second]) => {
+        const read = async (
+          encoded: string,
+        ): Promise<{ width: number; height: number; data: number[] }> => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${encoded}`;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx === null) throw new Error('this browser gave no 2d context');
+          ctx.drawImage(image, 0, 0);
+          // All four arguments: `getImageData()` with none is a `TypeError`, not
+          // a whole-canvas read.
+          const got = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          return { width: got.width, height: got.height, data: [...got.data] };
+        };
+        return [await read(first), await read(second)];
+      },
+      [before, after] as const,
+    );
+    return differingColumns(pixels[0], pixels[1]);
+  }
+
+  /** Moves the ladder, and waits for the day columns to have really moved. */
+  async function pickRung(page: Page, rung: number): Promise<void> {
+    await page.locator('[data-gantt-day-scale]').selectOption(String(rung));
+    await expect
+      .poll(async () =>
+        page
+          .locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`)
+          .evaluate((cell) => Math.round(cell.getBoundingClientRect().width)),
+      )
+      .toBe(rung);
+  }
+
+  /**
+   * The first end-to-end reading this feature has: a marker made through the
+   * real composer, persisted through the real route, drawn by the real chart.
+   *
+   * It was held at `fixme` twice and both holds are closed. The first was the
+   * host — `wbs-table.tsx` passed `<GanttPanel>` no marker props at all, so
+   * Save reported upward into nothing and the `POST …/calendar-markers` never
+   * left the browser; slice 9.0 wired that seam and the request now lands. The
+   * second was this file's own gesture: with the pointer left where Save
+   * unmounted the composer, a bar's hover-card stood open over the strip and
+   * **every one of its thirteen columns** differed from the marker-free clip —
+   * `STRIP_REACH_PX` 6 makes the strip `6 * 2 + 1` wide, and the failure named
+   * exactly `0…12`, which is the whole of it. The park above closes that.
+   */
+  test('is one opaque hairline at every rung, and the only body ink the marker adds', async ({
+    page,
+  }) => {
+    await seedPlan(page, 'marker-rule-ink');
+    await openTheChart(page);
+
+    // Marker absent, at every rung, before anything is created: the geometry is
+    // read off the axis cell rather than the rule, so these clips need no
+    // marker to exist yet.
+    const absent = new Map<number, { strip: string; body: string }>();
+    for (const rung of RUNGS) {
+      await pickRung(page, rung);
+      absent.set(rung, await photograph(page));
+    }
+
+    await pickRung(page, DAY_PX);
+    await page.locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Ink');
+    // A REST `POST …/calendar-markers` and **not** a `/commands` batch: markers
+    // are their own route, so `savedCommand`'s kind matcher would wait forever.
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    // Park the pointer before any `present` clip is cut. The composer is
+    // `fixed bottom-4 left-1/2`; Save unmounts it and drops the pointer onto
+    // whatever is underneath, which in this plan is a bar — and a bar under the
+    // pointer opens a hover-card. The `absent` clips were cut before any click
+    // and carry no card, so the two states would then differ over the whole
+    // strip for a reason that is not marker ink. `(0, 0)` and a wait for the
+    // count to reach zero is `hover-cards.spec.ts:54`'s own inert park.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+    const rule = page.locator('[data-gantt-marker-rule]');
+    await expect(rule).toHaveCount(1);
+    // The rule really stands where the strip was cut, which is what stops every
+    // measurement below from being a photograph of empty chart.
+    expect(
+      await rule.evaluate((line) => line.getBoundingClientRect().x),
+      'the rule does not stand at its axis cell, so the strip crosses nothing',
+    ).toBeCloseTo(
+      await page
+        .locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`)
+        .evaluate((cell) => cell.getBoundingClientRect().x),
+      0,
+    );
+
+    // The cascade's resolved width, in the one engine that resolves a cascade
+    // at all. This is **not** a proof of `vector-effect` — computed style
+    // cannot see that property — it is the one thing it reports faithfully, and
+    // it closes the renderer whose inline style overrides a declared `1`.
+    const painted = await rule.evaluate((line) => {
+      const style = getComputedStyle(line);
+      // Every element from the rule up to the chart `<svg>` inclusive: CSS
+      // `opacity` does not inherit, so a `<g opacity="0.5">` around the rule
+      // leaves the rule itself computing `1`.
+      const opacities: string[] = [];
+      let walk: Element | null = line;
+      while (walk !== null) {
+        opacities.push(getComputedStyle(walk).opacity);
+        if (walk.hasAttribute('data-gantt-chart')) break;
+        walk = walk.parentElement;
+      }
+      return {
+        strokeWidth: style.strokeWidth,
+        strokeOpacity: style.strokeOpacity,
+        stroke: style.stroke,
+        opacities,
+      };
+    });
+    expect(painted.strokeWidth, 'the rule resolves to something other than one pixel').toBe('1px');
+    expect(painted.strokeOpacity).toBe('1');
+    // A separate channel from the colour, so the alpha is checked in both
+    // places it can live: `oklch(… / 0.4)` is the form this stylesheet's own
+    // tokens take and it leaves `stroke-opacity` computing `1`.
+    expect(painted.stroke, 'the rule’s colour carries an alpha component').toMatch(
+      /^rgb\([^)]*\)$/,
+    );
+    expect(
+      painted.opacities.every((each) => each === '1'),
+      `something between the rule and the chart is translucent: ${painted.opacities.join(', ')}`,
+    ).toBe(true);
+    // And the walk really reached the chart, rather than stopping at a detached
+    // parent — an `every` over one element would pass whatever is above it.
+    expect(painted.opacities.length).toBeGreaterThan(1);
+
+    for (const rung of RUNGS) {
+      await pickRung(page, rung);
+      const present = await photograph(page);
+
+      // `visibility` rather than `display`, so nothing reflows between the two
+      // clips — and on **the element the assertions above queried**, which is
+      // what binds the width to the paint.
+      await rule.evaluate((line) => {
+        line.style.visibility = 'hidden';
+      });
+      const hidden = await photograph(page);
+      await rule.evaluate((line) => {
+        line.style.visibility = '';
+      });
+
+      const before = absent.get(rung);
+      if (before === undefined) throw new Error(`no absent clip at ${String(rung)}px`);
+
+      const totalInk = await differingColumnsOf(page, before.strip, present.strip);
+      const ruleInk = await differingColumnsOf(page, hidden.strip, present.strip);
+
+      // A hairline against a day. The bound is deliberately not tight enough to
+      // tell 1 CSS pixel from 2 — the rule sits on a pixel boundary and Skia
+      // paints it at partial coverage into the two columns it straddles — but
+      // 28 or 4 against 2 is the discrimination that matters.
+      expect(
+        isContiguousRun(ruleInk),
+        `the rule paints ${String(ruleInk.length)} columns at ${String(rung)}px, ` +
+          `and they are not one run: ${ruleInk.join(', ')}`,
+      ).toBe(true);
+      expect(
+        ruleInk.length,
+        `the rule is ${String(rung)}px wide, not a hairline`,
+      ).toBeLessThanOrEqual(2);
+
+      // An equality, not a bound: the 1-or-2 slack cannot hide inside it. An
+      // adjacent untagged line makes the marker's ink a strict superset of the
+      // rule's, and a containment would pass it.
+      expect(
+        sameColumns(totalInk, ruleInk),
+        `at ${String(rung)}px the marker paints ${totalInk.join(', ') || '(nothing)'} ` +
+          `and the rule paints ${ruleInk.join(', ') || '(nothing)'}`,
+      ).toBe(true);
+
+      // The binding, over the whole body rather than the strip: a strip cannot
+      // prove the absence of paint it does not cover. If hiding one element
+      // returns the chart to its marker-free state, that element is the only
+      // body ink the marker adds, anywhere.
+      expect(
+        hidden.body === before.body,
+        `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,
+      ).toBe(true);
+      // And the marker really drew something, so the identity above is not two
+      // photographs of the same empty chart.
+      expect(
+        present.body === before.body,
+        `at ${String(rung)}px the marker changes nothing in the body at all`,
+      ).toBe(false);
+    }
+  });
+});
+
+/**
+ * Slice 9.2 — the round trip, in a browser.
+ *
+ * Section 8 asserts positions in jsdom and section 6 asserts the panel's own
+ * behaviour with props a test supplied. This is the only case that watches a
+ * marker survive the one thing neither can reach: a reload, which throws away
+ * every piece of component state and rebuilds the chart from what be-01 kept.
+ */
+test.describe('a calendar marker, made and unmade in a browser', () => {
+  /** The day the marker goes on, as an offset into the drawn axis. */
+  const MARKED_OFFSET = 3;
+  const MARKER_NAME = 'Kickoff';
+
+  /** The one dated axis cell this case operates, at whatever rung is showing. */
+  const axisCell = (page: Page): Locator =>
+    page.locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`);
+
+  test('survives a reload, and a delete takes both its marks away', async ({ page }) => {
+    await seedPlan(page, 'marker-round-trip');
+    await openTheChart(page);
+
+    // Nothing yet, and asserted rather than assumed: a chip already on the
+    // chart would make every count below pass without the composer doing
+    // anything at all.
+    await expect(page.locator('[data-marker-chip]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-marker-rule]')).toHaveCount(0);
+
+    await axisCell(page).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill(MARKER_NAME);
+    // The REST route markers have of their own, not a `/commands` batch — the
+    // same wait `the marker rule` uses, and for the same reason.
+    const created = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await created;
+
+    // Both marks, which are two different layers: the chip is a `<span>` in the
+    // sticky header band and the rule is a `<line>` in the body SVG, and a
+    // marker that drew only one of them would be half a feature.
+    const chip = page.locator(`[data-marker-chip]`);
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toHaveText(MARKER_NAME);
+    await expect(chip).toHaveAttribute('data-marker-offset', String(MARKED_OFFSET));
+    const rule = page.locator(`[data-gantt-marker-rule="${String(MARKED_OFFSET)}"]`);
+    await expect(rule).toHaveCount(1);
+
+    // **The rule is a colour a person can see, and this is the assertion 9.2's
+    // negative moves.** A count or a position would pass a rule stroked in the
+    // chart's own background — an element at the right `x` painted invisibly is
+    // precisely what only a browser catches (round-4 Sol review), and every
+    // other assertion in this case would stay green through it. Resolved
+    // through `getComputedStyle` on both sides so a token, a variable and a
+    // literal all compare as the same rendered rgb.
+    const paint = await rule.evaluate((line) => {
+      const chart = line.closest('[data-gantt-chart]');
+      if (chart === null) throw new Error('the rule is not inside a chart');
+      // **Both sides rasterized before they are compared, and the string forms
+      // are kept only for the failure message.** This project's tokens are
+      // `oklch()` and the SVG `stroke` resolves to `rgb()`, so the two computed
+      // values are in different syntaxes: comparing them as text would call
+      // white and white different and the negative below could never fail.
+      // A 1×1 canvas is the one thing in the page that resolves any CSS colour
+      // to the same four bytes.
+      // `color-mix(in srgb, …)` and **not** a canvas: this engine's
+      // `fillStyle` silently rejects `oklch()` and leaves the swatch
+      // transparent, which was watched — the guard below is what caught it.
+      // Mixing into `srgb` makes the engine convert, and a computed `color` is
+      // reported in the mix's own space, so both sides come back comparable.
+      const swatch = document.createElement('span');
+      swatch.style.display = 'none';
+      document.body.append(swatch);
+      const rasterize = (colour: string): string => {
+        swatch.style.color = '';
+        swatch.style.color = `color-mix(in srgb, ${colour} 100%, transparent)`;
+        return getComputedStyle(swatch).color;
+      };
+      // The nearest ancestor that actually paints: `background-color` computes
+      // to `rgba(0, 0, 0, 0)` on anything transparent, and comparing the rule
+      // against *that* would compare it against nothing.
+      let behind: Element | null = chart;
+      let backdrop = 'rgba(0, 0, 0, 0)';
+      while (behind !== null) {
+        const seen = getComputedStyle(behind).backgroundColor;
+        if (seen !== 'rgba(0, 0, 0, 0)' && seen !== 'transparent') {
+          backdrop = seen;
+          break;
+        }
+        behind = behind.parentElement;
+      }
+      const stroke = getComputedStyle(line).stroke;
+      const measured = {
+        stroke,
+        backdrop,
+        strokePixels: rasterize(stroke),
+        backdropPixels: rasterize(backdrop),
+      };
+      swatch.remove();
+      return measured;
+    });
+    expect(paint.backdrop, 'nothing behind the rule paints a background to contrast with').not.toBe(
+      'rgba(0, 0, 0, 0)',
+    );
+    // And the mix really resolved it, rather than leaving the swatch at the
+    // transparent default a colour the engine cannot parse would give it —
+    // which would make the comparison below true for the wrong reason. This
+    // guard is not hypothetical: it is what caught the canvas.
+    expect(
+      paint.backdropPixels,
+      `the backdrop ${paint.backdrop} did not resolve to a comparable colour`,
+    ).not.toBe('rgba(0, 0, 0, 0)');
+    expect(
+      paint.strokePixels,
+      `the rule is painted in the chart's own background — stroke ${paint.stroke} against ` +
+        `backdrop ${paint.backdrop}, both resolving to ${paint.strokePixels} — and cannot be seen`,
+    ).not.toBe(paint.backdropPixels);
+
+    // **The step nothing else in this plan can take.** Every jsdom case above
+    // renders a panel that was handed its markers; this drops all of it and
+    // rebuilds from be-01's answer, which is the only thing that says the save
+    // persisted rather than merely updated the screen.
+    await page.reload();
+    await openTheChart(page, { drawn: '[data-marker-chip]' });
+    await expect(page.locator('[data-marker-chip]')).toHaveText(MARKER_NAME);
+    await expect(page.locator(`[data-gantt-marker-rule="${String(MARKED_OFFSET)}"]`)).toHaveCount(
+      1,
+    );
+
+    // A day that already carries a marker opens the sheet, not the composer
+    // (`gantt-panel.tsx:3204-3212`) — so this click is also what says the two
+    // affordances are told apart by the data rather than by which one was
+    // wired last.
+    await axisCell(page).click();
+    const sheet = page.getByRole('dialog', { name: /^Calendar markers on / });
+    await expect(sheet).toBeVisible();
+    const deleted = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' && response.url().includes('/calendar-markers'),
+    );
+    await sheet.getByRole('button', { name: `Delete ${MARKER_NAME}` }).click();
+    await deleted;
+
+    // Gone from both layers, and gone from the server too: the second reload is
+    // what separates a delete from a hidden element.
+    await expect(page.locator('[data-marker-chip]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-marker-rule]')).toHaveCount(0);
+    await page.reload();
+    await openTheChart(page);
+    await expect(page.locator('[data-marker-chip]')).toHaveCount(0);
+    await expect(page.locator('[data-gantt-marker-rule]')).toHaveCount(0);
+  });
+});
+
+/**
+ * Slice 9.2a — the visible focus ring on a dated axis cell.
+ *
+ * Its own case rather than an assertion inside 9.2, because 9.2's negative
+ * mutates the marker rule's stroke and a focus ring cannot observe that: two
+ * guarantees in one slice share whichever fault is injected, and the one that
+ * shares gets no proof.
+ *
+ * Section 6 gave these cells `role="button"` and `tabIndex={0}` so the calendar
+ * could be operated by keyboard. That is the whole reason this case exists: a
+ * row of tab stops that all look the same is worse than no tab stops, and jsdom
+ * computes no styles, so nothing in section 6 can tell whether the stop a
+ * reader is standing on says so.
+ */
+test.describe('a dated axis cell says where the keyboard is', () => {
+  /** The cell the keyboard walks to — the first one on the axis. */
+  const FOCUSED_OFFSET = 0;
+
+  /** What a focus indicator is made of, read off one cell in one state. */
+  interface Indicator {
+    outlineStyle: string;
+    outlineWidth: string;
+    boxShadow: string;
+  }
+
+  const indicatorOf = (cell: Locator): Promise<Indicator> =>
+    cell.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth,
+        boxShadow: style.boxShadow,
+      };
+    });
+
+  test('grows a focus indicator when the keyboard reaches it', async ({ page }) => {
+    await seedPlan(page, 'axis-focus-ring');
+    await openTheChart(page);
+
+    const cell = page.locator(`[data-axis-day="${String(FOCUSED_OFFSET)}"]`);
+    // Dated, and asserted rather than assumed: an undated cell is
+    // `aria-disabled` and is a different slice's contract (6.4a), so a fixture
+    // that lost its project start date would test the wrong cell silently.
+    await expect(cell).toHaveAttribute('data-axis-date', /^\d{4}-\d{2}-\d{2}$/);
+
+    // Read at rest **first**. The assertion below is a transition, and a
+    // resting reading cannot be taken after the cell already holds focus.
+    const resting = await indicatorOf(cell);
+
+    // **Arrived at by a keypress, and not by `.focus()`.** The ring is authored
+    // under `focus-visible`, which Chromium matches when focus moved by
+    // keyboard — a bare programmatic `focus()` reads the resting style straight
+    // back and would call the ring missing on a healthy build.
+    //
+    // The keypress is one `Shift+Tab` off the **next** cell rather than a walk
+    // from the top of the document: the tab order ahead of the axis is the
+    // whole WBS table, which is more than 200 stops deep on this fixture, so a
+    // walk fails on the fixture's row count instead of on the ring. The
+    // starting `focus()` is only a seek — Chromium's heuristic reads the input
+    // that *moved* focus, and that is the keypress below.
+    await page
+      .locator(`[data-axis-day="${String(FOCUSED_OFFSET + 1)}"]`)
+      .evaluate((node: HTMLElement) => {
+        node.focus();
+      });
+    await page.keyboard.press('Shift+Tab');
+    await expect(cell).toBeFocused();
+    // The precondition, asserted rather than assumed: if the keypress did not
+    // engage `:focus-visible` this case would read two resting styles and fail
+    // on a healthy build. It stays green under the fault below — the selector
+    // matches whether or not the classes it selects draw anything.
+    expect(
+      await cell.evaluate((node) => node.matches(':focus-visible')),
+      'the keypress did not make the cell focus-visible, so no ring could apply',
+    ).toBe(true);
+
+    const focused = await indicatorOf(cell);
+
+    // **The transition is the assertion, and a static reading is not.** "the
+    // focused outline is not none" passes against a global reset that outlines
+    // every element permanently, which indicates nothing about focus at all.
+    expect(
+      focused,
+      `the cell reads the same focused as at rest — ${JSON.stringify(resting)}`,
+    ).not.toEqual(resting);
+
+    // And what it changed into is something a person can see. Tailwind emits
+    // `outline-style: none` for `outline-none` and drives `ring-*` through
+    // `box-shadow`, so a cell carrying only the `outline-none` half reads
+    // `none`/`0px`/`none` in **both** states — which is exactly the fault this
+    // case is watched failing on.
+    const indicated =
+      (focused.outlineStyle !== 'none' && focused.outlineWidth !== '0px') ||
+      focused.boxShadow !== 'none';
+    expect(indicated, `the focused cell draws no indicator — ${JSON.stringify(focused)}`).toBe(
+      true,
+    );
+  });
+});
+
+/**
+ * Slice 9.2b, opaque half — the bar layer's pixels.
+ *
+ * 8.2 asserts the rule's `x`, its `width` and the critical-path class, and all
+ * three survive a rule painted straight through a bar that is supposed to hide
+ * it: `jsdom` has no rasterizer, so the guarantee needs a browser and cannot
+ * live in that file. Its own slice for 9.2a's reason — 9.2's fault mutates the
+ * rule's stroke, which this case would see too, and a slice that shares a fault
+ * gets no proof of its own.
+ *
+ * The crop **is** the bar's footprint, so "differs" and "inside the bar" are
+ * one predicate rather than two. Read over the whole chart instead, "every
+ * differing pixel lies inside the footprint" is satisfied by *zero* differing
+ * pixels and rejects the correct renderer, whose rule differs everywhere it is
+ * drawn.
+ */
+test.describe("a marker's rule against the bars, in pixels", () => {
+  /** The day the marker stands on — the same column 8.2a marks. */
+  const MARKED_OFFSET = 3;
+
+  /** A clip of the page, as `page.screenshot` takes one. */
+  interface Clip {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }
+
+  /**
+   * The footprint of the bar the rule crosses, recomputed from live geometry.
+   *
+   * Recomputed and not cached: creating the marker puts a chip in the sticky
+   * header, and a header that grows moves the whole body down. Two clips taken
+   * at one set of absolute coordinates either side of that would photograph
+   * different content and the identity below would fail for the wrong reason.
+   *
+   * Inset by a pixel on every side. The bar's box has fractional edges, the
+   * clip is whole pixels, and a rounded edge either side of a body shift can
+   * catch a sliver of the chart behind the bar — which is a difference the
+   * renderer did not draw. The interior is still the footprint, and the rule
+   * crosses the bar's full height, so nothing this case is looking for lives in
+   * the pixel that is dropped.
+   */
+  async function footprintOf(page: Page): Promise<Clip> {
+    return page.evaluate((offset) => {
+      const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+      if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+      const at = cell.getBoundingClientRect();
+      // The bar the rule really crosses, found by geometry rather than named:
+      // a bar picked by id would silently stop spanning the marked day the
+      // first time the fixture's dates move.
+      // The rule stands at the axis cell's **left edge**, so a bar it passes
+      // under is one whose footprint contains that single x — not one that
+      // contains the whole cell, which the first draft asked for and which no
+      // bar in this fixture does.
+      const bars = [...document.querySelectorAll('[data-gantt-bar]')];
+      const crossed = bars.find((bar) => {
+        const box = bar.getBoundingClientRect();
+        return box.x < at.x && at.x < box.right && box.height > 2;
+      });
+      if (crossed === undefined) {
+        const seen = bars
+          .map((bar) => {
+            const box = bar.getBoundingClientRect();
+            return `${String(Math.round(box.x))}…${String(Math.round(box.right))}`;
+          })
+          .join(', ');
+        throw new Error(
+          `no bar passes under day ${String(offset)} at x ${String(Math.round(at.x))} — bars at ${seen}`,
+        );
+      }
+      const box = crossed.getBoundingClientRect();
+      return {
+        x: Math.round(box.x) + 1,
+        y: Math.round(box.y) + 1,
+        width: Math.round(box.width) - 2,
+        height: Math.round(box.height) - 2,
+      };
+    }, MARKED_OFFSET);
+  }
+
+  test('leaves an opaque bar it passes under pixel-identical', async ({ page }) => {
+    await seedPlan(page, 'marker-rule-pixels');
+    await openTheChart(page);
+
+    const before = await footprintOf(page);
+    // A footprint with no room in it would make the comparison below vacuous —
+    // two empty clips are identical whatever the renderer does.
+    expect(before.width, 'the bar the rule crosses is too narrow to photograph').toBeGreaterThan(4);
+    expect(before.height, 'the bar the rule crosses is too short to photograph').toBeGreaterThan(2);
+    const bare = (await page.screenshot({ clip: before })).toString('base64');
+
+    await page.locator(`[data-axis-day="${String(MARKED_OFFSET)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Under');
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    // Park the pointer before the second clip. Save unmounts a `fixed` composer
+    // and drops the pointer onto whatever is beneath — a bar, here — and a bar
+    // under the pointer opens a hover-card over the very pixels this case
+    // compares. 8.2a's own park, and it cost that slice a chunk.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+    // The rule exists and stands in this bar's column, which is what stops the
+    // identity below from being a photograph of a chart with no marker on it.
+    const rule = page.locator('[data-gantt-marker-rule]');
+    await expect(rule).toHaveCount(1);
+    const after = await footprintOf(page);
+    expect(
+      await rule.evaluate((line) => line.getBoundingClientRect().x),
+      'the rule does not stand inside the bar it is supposed to pass under',
+    ).toBeGreaterThan(after.x);
+
+    const marked = (await page.screenshot({ clip: after })).toString('base64');
+
+    // **The assertion.** The rule is drawn in `marksUnderLight` and the bars in
+    // `marksOverLight`, so an opaque bar covers it: the bar's own footprint is
+    // the one place on the chart a correct renderer changes nothing at all.
+    // Compared as text rather than through `Buffer.equals`, which this
+    // project's `Buffer` types will not accept another `Buffer` for.
+    expect(marked === bare, "the marker's rule shows through an opaque bar it passes under").toBe(
+      true,
+    );
+  });
+
+  /**
+   * The assumed bar the rule is asked to show through, and the axis day it
+   * stands on — both found by geometry, neither named.
+   *
+   * `[data-assumed]` is the seam: a slice nobody estimated is drawn across the
+   * assumed span at `[fill-opacity:0.35]`, and only with the detail asked for.
+   * Which day such a bar covers is the schedule's business —
+   * it moves with the estimate, the weekend and the assumed span — so the day
+   * is read off the bar rather than written here, the way the opaque case
+   * reads its bar off the day.
+   *
+   * The day is required **strictly** inside the bar, by more than the inset
+   * below on each side: a rule standing on the footprint's own edge is a rule
+   * the clip can drop, and the case would then fail against a correct
+   * renderer.
+   */
+  async function assumedDay(page: Page): Promise<number> {
+    return page.evaluate(() => {
+      const bars = [...document.querySelectorAll('[data-gantt-bar][data-assumed]')];
+      for (const bar of bars) {
+        const box = bar.getBoundingClientRect();
+        if (box.height <= 4 || box.width <= 8) continue;
+        for (const cell of document.querySelectorAll('[data-axis-day]')) {
+          const at = cell.getBoundingClientRect();
+          if (box.x + 2 < at.x && at.x < box.right - 2) {
+            return Number(cell.getAttribute('data-axis-day'));
+          }
+        }
+      }
+      throw new Error(
+        `no assumed bar wide enough to hold an axis day — ${String(bars.length)} drawn`,
+      );
+    });
+  }
+
+  /**
+   * The footprint of the assumed bar standing over `day`, inset like
+   * {@link footprintOf} and for its reasons.
+   *
+   * Recomputed after the save for {@link footprintOf}'s reason too — the new
+   * chip grows the sticky header and moves the body down — and that recompute
+   * is what makes the comparison below a comparison of the same bar rather
+   * than of two different slices of the chart. The opaque case is the proof
+   * that it is shift-stable: it takes its two clips across the same shift and
+   * asserts them byte-**identical**.
+   */
+  async function assumedFootprintOn(page: Page, day: number): Promise<Clip> {
+    return page.evaluate((offset) => {
+      const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+      if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+      const at = cell.getBoundingClientRect();
+      const crossed = [...document.querySelectorAll('[data-gantt-bar][data-assumed]')].find(
+        (bar) => {
+          const box = bar.getBoundingClientRect();
+          return box.x < at.x && at.x < box.right && box.height > 2;
+        },
+      );
+      if (crossed === undefined) {
+        throw new Error(`no assumed bar passes under day ${String(offset)}`);
+      }
+      const box = crossed.getBoundingClientRect();
+      return {
+        x: Math.round(box.x) + 1,
+        y: Math.round(box.y) + 1,
+        width: Math.round(box.width) - 2,
+        height: Math.round(box.height) - 2,
+      };
+    }, day);
+  }
+
+  test('shows the rule through an assumed bar it passes under', async ({ page }) => {
+    await seedPlan(page, 'marker-rule-assumed-pixels');
+    await openTheChart(page);
+    // The assumed bars are the half of the chart that is drawn only when the
+    // detail is asked for, so the state is pressed and asserted rather than
+    // inherited: a fixture that opened without them would leave every
+    // measurement below reading a chart with no assumed bar on it at all.
+    await askForTheDetail(page, 1);
+    await expect(page.locator('[data-gantt-bar][data-assumed]')).toHaveCount(2);
+
+    const day = await assumedDay(page);
+    const before = await assumedFootprintOn(page, day);
+    expect(before.width, 'the assumed bar is too narrow to photograph').toBeGreaterThan(4);
+    expect(before.height, 'the assumed bar is too short to photograph').toBeGreaterThan(2);
+    const bare = (await page.screenshot({ clip: before })).toString('base64');
+
+    await page.locator(`[data-axis-day="${String(day)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Through');
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    // The opaque case's park, for its reason: save drops the pointer onto
+    // whatever the `fixed` composer was covering, and a hover-card opened over
+    // these pixels is a difference this case would read as the rule.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+    const rule = page.locator('[data-gantt-marker-rule]');
+    await expect(rule).toHaveCount(1);
+    const after = await assumedFootprintOn(page, day);
+    // Same bar, same size. Without this the comparison is vacuous in the
+    // permissive direction: two clips of different dimensions differ whatever
+    // the renderer drew, and the assertion below would pass over a rule that
+    // never reached the screen.
+    expect(after.width, 'the photographed bar changed width across the save').toBe(before.width);
+    expect(after.height, 'the photographed bar changed height across the save').toBe(before.height);
+
+    const marked = (await page.screenshot({ clip: after })).toString('base64');
+
+    // **The assertion.** The crop **is** the bar's footprint, so "differs" and
+    // "inside the bar" are one predicate: read over the whole chart instead,
+    // "every differing pixel lies inside the footprint" is satisfied by *zero*
+    // differing pixels — which is exactly what a rule masked under assumed
+    // bars produces — and rejects the correct renderer, whose rule differs
+    // everywhere it is drawn.
+    //
+    // Two PNGs of equal dimensions from one deterministic encoder: identical
+    // pixels give identical bytes, which is the fact the opaque case above
+    // asserts directly. So differing bytes here are differing pixels, and at
+    // this size a difference is the rule and nothing else — the footprint holds
+    // one translucent bar whose own geometry the guards above pinned.
+    expect(marked === bare, 'the assumed bar hides the rule that passes under it').toBe(false);
+  });
+});
+
+/**
+ * Slice 9.2c, the light pair's weekday half — the chip's **rendered** contrast.
+ *
+ * 3.2 proves the palette's eight literals against computed backdrops, and 8.1
+ * and 6.x read the chip's colour at the DOM seam. None of them sees what the
+ * compositor put on screen: a chip carrying `opacity: 0.5`, an alpha-bearing
+ * fill or an opacity-reducing ancestor passes every one of them while its
+ * composited colour falls under 3:1.
+ *
+ * **`measureInk` is the right precedent for the pipeline and the wrong oracle
+ * for this bar**, and both reasons are in its source. It returns `contrast`
+ * between a node's `color` and its composited ground — the 4.5:1 *label* bar —
+ * while the claim here is the chip **fill** against the header backdrop, two
+ * surfaces and a ratio it never forms. And its walk reads
+ * `getComputedStyle(ancestor).backgroundColor` alone
+ * (`apps/fe-01/e2e/measure-ink.ts:110-115`), breaking at the first layer with
+ * alpha 1: `opacity` is a separate property and group opacity is not a
+ * per-layer alpha, so the negative this slice exists for passes `measureInk`
+ * **unchanged**. A negative that cannot fail is how the Criticals before it
+ * were written, so the oracle here is the pixel the screenshot already carries.
+ */
+test.describe("a marker chip's contrast, as the compositor drew it", () => {
+  /** A clip of the page, as `page.screenshot` takes one. */
+  interface Shot {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }
+
+  /**
+   * The contrast between two clips of the page, each read at its **modal** RGB.
+   *
+   * Modal rather than mean because the chip carries its own label glyphs, and a
+   * mean of fill and ink is a colour neither of them is: the fill is the
+   * majority of the box and the mode is what a reader would call "the colour of
+   * that chip".
+   *
+   * Decoded in the page, per `apps/fe-01/e2e/hover-cards.spec.ts:148-158`'s
+   * pipeline — the two clips arrive as base64, `img.decode()` resolves before
+   * anything is drawn, and the canvas takes its size from `naturalWidth` and
+   * `naturalHeight` **before** `drawImage`, because a canvas left at its
+   * default 300×150 silently scales the pixels being counted.
+   *
+   * The transfer function is `measure-ink.ts:89-94`'s, spelled out again rather
+   * than imported: that module's export is the `color`-against-ground walk this
+   * slice's own docblock explains cannot answer this question, and copying the
+   * four lines it does share is cheaper than exporting a second entry point out
+   * of a helper whose subject is a different bar.
+   */
+  async function contrastBetween(page: Page, top: string, under: string): Promise<number> {
+    return page.evaluate(
+      async ([first, second]) => {
+        const modal = async (data: string): Promise<[number, number, number]> => {
+          const img = new Image();
+          img.src = `data:image/png;base64,${data}`;
+          await img.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const context = canvas.getContext('2d');
+          if (context === null) throw new Error('no 2d context to count pixels in');
+          context.drawImage(img, 0, 0);
+          const { data: pixels } = context.getImageData(0, 0, canvas.width, canvas.height);
+          const tally = new Map<string, number>();
+          for (let at = 0; at < pixels.length; at += 4) {
+            const key = `${String(pixels[at])},${String(pixels[at + 1])},${String(pixels[at + 2])}`;
+            tally.set(key, (tally.get(key) ?? 0) + 1);
+          }
+          let best = '';
+          let seen = -1;
+          for (const [key, count] of tally) {
+            if (count > seen) {
+              best = key;
+              seen = count;
+            }
+          }
+          const [red, green, blue] = best.split(',').map(Number);
+          return [red, green, blue];
+        };
+        const linear = (raw: number): number => {
+          const unit = raw / 255;
+          return unit <= 0.04045 ? unit / 12.92 : Math.pow((unit + 0.055) / 1.055, 2.4);
+        };
+        const luminance = (colour: [number, number, number]): number =>
+          0.2126 * linear(colour[0]) + 0.7152 * linear(colour[1]) + 0.0722 * linear(colour[2]);
+        const one = luminance(await modal(first));
+        const other = luminance(await modal(second));
+        const brighter = Math.max(one, other);
+        const dimmer = Math.min(one, other);
+        return (brighter + 0.05) / (dimmer + 0.05);
+      },
+      [top, under],
+    );
+  }
+
+  /**
+   * A weekday axis day with no marker on it, and one clear of the chip's own
+   * column.
+   *
+   * The weekend cells carry `bg-muted-foreground/10`
+   * (`gantt-panel.tsx:4704`) and the weekday ones nothing, so "of the same
+   * kind" is that class being absent from both the marked cell and the cell the
+   * backdrop is read from. Read off the page rather than computed from the plan
+   * start: which offsets fall on a Saturday is the calendar's business and it
+   * moves with `PLAN_START`.
+   */
+  async function weekdayDays(page: Page): Promise<number[]> {
+    return page.evaluate(() =>
+      [...document.querySelectorAll('[data-axis-day]')]
+        .filter((cell) => !cell.className.includes('bg-muted-foreground/10'))
+        .map((cell) => Number(cell.getAttribute('data-axis-day'))),
+    );
+  }
+
+  /** The weekend axis days, by the shading class only they carry. */
+  async function weekendDays(page: Page): Promise<number[]> {
+    return page.evaluate(() =>
+      [...document.querySelectorAll('[data-axis-day]')]
+        .filter((cell) => cell.className.includes('bg-muted-foreground/10'))
+        .map((cell) => Number(cell.getAttribute('data-axis-day'))),
+    );
+  }
+
+  /**
+   * Puts a marker on `day` and returns the clip of the chip it draws.
+   *
+   * Inset, for 9.2b's reason: the chip has `rounded-sm` corners and fractional
+   * edges, and a whole-pixel clip on them catches the header behind it — which
+   * would land in the tally as a colour the chip is not.
+   */
+  async function chipShotOn(page: Page, day: number, name: string): Promise<Shot> {
+    await page.locator(`[data-axis-day="${String(day)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill(name);
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    // The opaque case's park, for its reason — a hover-card over the header is
+    // a surface neither clip is supposed to contain.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+    const chip = page.locator('[data-marker-chip]');
+    await expect(chip).toHaveCount(1);
+    const box = await chip.boundingBox();
+    if (box === null) throw new Error('the chip is not in the layout');
+    const shot: Shot = {
+      x: Math.round(box.x) + 2,
+      y: Math.round(box.y) + 1,
+      width: Math.round(box.width) - 4,
+      height: Math.round(box.height) - 2,
+    };
+    expect(shot.width, 'the chip is too narrow to photograph').toBeGreaterThan(2);
+    expect(shot.height, 'the chip is too short to photograph').toBeGreaterThan(2);
+    return shot;
+  }
+
+  /**
+   * An equal-sized box at the chip's own height on a markerless `day`.
+   *
+   * The backdrop is **measured from the page** and never recomputed, so a theme
+   * change moves the chip and its ground together instead of leaving these
+   * cases asserting against a literal nobody repaints. The chip is
+   * `maxWidth: dayPx` at its own column's left edge and this clip is inset
+   * inside `day`'s column, so the control cannot photograph the chip it is the
+   * control for even when the two columns are adjacent.
+   */
+  async function controlShotOn(page: Page, day: number, like: Shot): Promise<Shot> {
+    const at = await page.evaluate((offset) => {
+      const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+      if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+      return Math.round(cell.getBoundingClientRect().x) + 2;
+    }, day);
+    return { x: at, y: like.y, width: like.width, height: like.height };
+  }
+
+  /** The base64 PNG of one clip of the page. */
+  const shotOf = async (page: Page, clip: Shot): Promise<string> =>
+    (await page.screenshot({ clip })).toString('base64');
+
+  /**
+   * The composited ratio between a chip on a `kind` cell and the same kind of
+   * cell with no marker on it.
+   *
+   * One body for all four cases, because the four differ only in which cells
+   * they read and which palette the page is in: a case written out four times
+   * is four places for the pipeline above to drift, and this slice's whole
+   * subject is that the pipeline is the oracle.
+   *
+   * On the weekend it also proves its own binding. `bg-muted-foreground/10`
+   * over the base is a different colour from the base, so the weekend control
+   * is asserted **different** from a weekday control photographed in the same
+   * pass: a control that had landed on an unshaded cell — the way an unbound
+   * duplicate of the weekday case would — reads the weekday ground, and two
+   * cases then measure one surface. Against a cell photographed in the same
+   * pass and not against a literal, for `controlShotOn`'s reason.
+   */
+  async function ratioOn(
+    page: Page,
+    kind: 'weekday' | 'weekend',
+    palette: 'light' | 'dark' = 'light',
+  ): Promise<number> {
+    await seedPlan(page, 'marker-chip-contrast');
+    await openTheChart(page);
+    // Asserted here rather than before the navigation: the root's `dark` class
+    // is the app's answer to the media preference and there is no root to read
+    // it off until something has loaded. A case that skipped this would
+    // measure the light palette twice and call the second one dark.
+    expect(
+      await page.evaluate(() =>
+        document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+      ),
+      'the page is not in the palette this case is about',
+    ).toBe(palette);
+
+    const weekdays = await weekdayDays(page);
+    expect(weekdays.length, 'the fixture draws no pair of weekday cells').toBeGreaterThan(3);
+    if (kind === 'weekday') {
+      const shot = await chipShotOn(page, weekdays[0], 'Cut');
+      const backdrop = await controlShotOn(page, weekdays[2], shot);
+      return contrastBetween(page, await shotOf(page, shot), await shotOf(page, backdrop));
+    }
+
+    const weekend = await weekendDays(page);
+    expect(weekend.length, 'the fixture draws no pair of weekend cells').toBeGreaterThan(1);
+    const shot = await chipShotOn(page, weekend[0], 'Cut');
+    const backdrop = await controlShotOn(page, weekend[1], shot);
+    const weekdayGround = await controlShotOn(page, weekdays[0], shot);
+    expect(
+      await shotOf(page, backdrop),
+      'the weekend control photographs the same surface as a weekday cell',
+    ).not.toBe(await shotOf(page, weekdayGround));
+    return contrastBetween(page, await shotOf(page, shot), await shotOf(page, backdrop));
+  }
+
+  test('clears 3:1 against the weekday cell it stands on, in light', async ({ page }) => {
+    expect(
+      await ratioOn(page, 'weekday'),
+      'the chip the compositor drew does not clear 3:1 against the weekday cell behind it',
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * The weekend half, and the one whose negative had to be **computed**.
+   *
+   * `ratioOn`'s binding assertion proves the two controls are different
+   * surfaces. The stronger claim — that the difference is enough to decide a
+   * case — needs a fill this case fails while the weekday case above stays
+   * green, and no fill on offer is one. The recolour list writes `PALETTE`
+   * (`gantt-panel.tsx:5171-5185`), and all eight of its entries were built to a
+   * single ratio against `--background`: 4.232–4.249 over the base, 3.740–3.755
+   * over base-over-weekend. Every one clears 3:1 on both grounds, so the
+   * separating fill has to be **injected**, not picked.
+   *
+   * The window it has to land in is fixed by the two grounds the page paints.
+   * `--background` is `oklch(1 0 0)`, luminance 1; the weekend cell is
+   * `bg-muted-foreground/10` over it, which composites to `rgb(239, 241, 244)`,
+   * luminance 0.87793. A darker fill therefore reads `1.05 / (L + 0.05)` on the
+   * weekday cell and `0.92793 / (L + 0.05)` on the weekend one — the same
+   * denominator under a numerator 1.133x smaller — so it separates the two
+   * cases only for `0.2589 < L <= 0.3`, a window 13% wide and the reason this
+   * negative is arithmetic rather than a class edit.
+   *
+   * **Watched (2026-09-06):** `backgroundColor: '#909090'` in place of
+   * `backgroundColor: fill` — luminance 0.28088, the widest-margin integer grey
+   * in that window. The weekday case **passes** at a predicted 3.1925 and this
+   * one **fails**, `Received: 2.8195195603146335` against `Expected: >= 3`.
+   * The model was checked before it was trusted: a first pass at `#b0b0b0`
+   * predicted 2.1687 and 1.9154 and the browser returned 2.16873306642071 and
+   * 1.915350293503602, so the grounds above are the page's and not a guess.
+   */
+  test('clears 3:1 against the weekend cell it stands on, in light', async ({ page }) => {
+    expect(
+      await ratioOn(page, 'weekend'),
+      'the chip the compositor drew does not clear 3:1 against the weekend cell behind it',
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * The dark pair, and the emulation comes **before the first navigation**.
+   *
+   * `dark-mode.spec.ts:302` drives the palette with `emulateMedia`, and this
+   * app resolves the root's `dark` class off that preference. Set after
+   * `seedPlan` the sign-up and the project creation would paint light and only
+   * the chart would repaint, which is a page these cases are not about.
+   */
+  test.describe('in dark', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.emulateMedia({ colorScheme: 'dark' });
+    });
+
+    test('clears 3:1 against the weekday cell it stands on', async ({ page }) => {
+      expect(
+        await ratioOn(page, 'weekday', 'dark'),
+        'the chip the compositor drew does not clear 3:1 against the weekday cell behind it',
+      ).toBeGreaterThanOrEqual(3);
+    });
+
+    test('clears 3:1 against the weekend cell it stands on', async ({ page }) => {
+      expect(
+        await ratioOn(page, 'weekend', 'dark'),
+        'the chip the compositor drew does not clear 3:1 against the weekend cell behind it',
+      ).toBeGreaterThanOrEqual(3);
+    });
+  });
+});
+
+/**
+ * Slice 8.4's browser tier — the half `gantt-panel.test.tsx` cannot reach.
+ *
+ * The jsdom cases already fix the arithmetic: three chips and `+1` at 28px, two
+ * and `+2` at 12px, one and `+3` at 4px, the uncrowded neighbour left alone, and
+ * the badge's own `aria-label`. What they cannot say is the word the acceptance
+ * criterion actually uses — **hover**. A `pointerenter` fired at a detached
+ * jsdom node proves the handler runs; it does not prove a real pointer can
+ * reach the badge at all, and reaching it is the whole question here: the band
+ * is `pointer-events-none` with exactly one element opting back in, and at the
+ * 4px rung that element is wider than the day it belongs to and hangs left off
+ * its own column. Either of those is a way for the badge to be un-hoverable
+ * while every jsdom assertion in the slice stays green.
+ *
+ * Seeded once and re-read at each rung. Four markers on one day is four
+ * composer round trips — the first through the axis cell, the rest through the
+ * day's sheet, because `operateDay` routes a cell that already carries a marker
+ * to the sheet and not to the composer — and paying that per rung would be
+ * twelve round trips for a ladder the module tier has already measured.
+ */
+test.describe('the crowded day collapses to a +N a pointer can open', () => {
+  /**
+   * The rungs and what `MARKER_BAND_MAX_PER_CELL` lets each of them draw.
+   *
+   * All three, not just the ends: a badge that only the widest rung can be
+   * pointed at is exactly the fault this tier exists to catch, and it lives at
+   * the narrow end of the ladder.
+   */
+  const LADDER = [
+    { rung: DAY_PX, drawn: 3 },
+    { rung: 12, drawn: 2 },
+    { rung: 4, drawn: 1 },
+  ] as const;
+
+  /**
+   * The day everything is piled onto. Offset 3 for `marker-rule-ink`'s reason:
+   * far enough in that the cell clears the chart's left padding at the
+   * narrowest rung, so the badge hanging left off it still has page to hang
+   * into.
+   */
+  const CROWDED_OFFSET = 3;
+
+  /** One more name than the widest rung will draw. */
+  const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta'] as const;
+
+  /** Moves the ladder, and waits for the day columns to have really moved. */
+  async function pickRung(page: Page, rung: number): Promise<void> {
+    await page.locator('[data-gantt-day-scale]').selectOption(String(rung));
+    await expect
+      .poll(async () =>
+        page
+          .locator(`[data-axis-day="${String(CROWDED_OFFSET)}"]`)
+          .evaluate((cell) => Math.round(cell.getBoundingClientRect().width)),
+      )
+      .toBe(rung);
+  }
+
+  /**
+   * Puts one more marker on `offset`, through whichever surface that day's
+   * click opens.
+   *
+   * `throughTheSheet` is passed rather than probed, so the branch is itself an
+   * assertion: `operateDay` opens the composer on an empty day and the sheet on
+   * a day that already carries one, and a routing change would fail here on the
+   * dialog that did not appear rather than quietly seeding fewer markers and
+   * failing later as a wrong `+N`.
+   */
+  async function addMarkerOn(
+    page: Page,
+    offset: number,
+    name: string,
+    { throughTheSheet }: { throughTheSheet: boolean },
+  ): Promise<void> {
+    await page.locator(`[data-axis-day="${String(offset)}"]`).click();
+    if (throughTheSheet) {
+      const sheet = page.getByRole('dialog', { name: /^Calendar markers on / });
+      await expect(sheet).toBeVisible();
+      await sheet.getByRole('button', { name: /^Add a calendar marker on / }).click();
+    }
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill(name);
+    // A REST `POST …/calendar-markers` and **not** a `/commands` batch, per the
+    // rule-ink case: markers are their own route.
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+  }
+
+  /**
+   * Puts the pointer somewhere that opens nothing, and waits for the page to
+   * agree.
+   *
+   * Save unmounts the composer and drops the pointer onto whatever is under it,
+   * which in this fixture is a bar — and a bar under the pointer opens a
+   * hover-card. Every card assertion below counts the cards on the page, so a
+   * stray one is not a nuisance, it is a wrong count.
+   */
+  async function park(page: Page): Promise<void> {
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+  }
+
+  test('draws its rung’s chips, counts the rest, and names the whole day on hover', async ({
+    page,
+  }) => {
+    await seedPlan(page, 'marker-band-overflow');
+    await openTheChart(page);
+
+    // Seeded at the widest rung: at 4px the axis cell is four pixels across and
+    // this is a fixture step, not the thing under test.
+    await pickRung(page, DAY_PX);
+    for (const [at, name] of NAMES.entries()) {
+      await addMarkerOn(page, CROWDED_OFFSET, name, { throughTheSheet: at > 0 });
+    }
+    await park(page);
+
+    for (const { rung, drawn } of LADDER) {
+      await pickRung(page, rung);
+      const hidden = NAMES.length - drawn;
+      const at = `rung ${String(rung)}px`;
+
+      await expect(
+        page.locator(`[data-marker-chip][data-marker-offset="${String(CROWDED_OFFSET)}"]`),
+        `${at}: the band drew the wrong number of chips on the crowded day`,
+      ).toHaveCount(drawn);
+
+      const badge = page.locator(`[data-marker-overflow="${String(CROWDED_OFFSET)}"]`);
+      await expect(badge, `${at}: the badge does not read the markers it hid`).toHaveText(
+        `+${String(hidden)}`,
+      );
+      // The count beside the pixels: text alone reads the formatter as much as
+      // the arithmetic.
+      await expect(badge).toHaveAttribute('data-marker-hidden', String(hidden));
+      await expect(badge).toHaveAttribute('aria-expanded', 'false');
+
+      // The assertion this whole tier is for: a real pointer, landing on a real
+      // badge, through a layer that refuses pointer events everywhere else.
+      await badge.hover();
+      const card = page.getByRole('tooltip');
+      await expect(card, `${at}: hovering the badge opened no card`).toBeVisible();
+      await expect(badge).toHaveAttribute('aria-expanded', 'true');
+      // Exactly one: `showMarkerOverflow` clears the day surface as it opens, so
+      // two cards would mean the pointer opened the axis cell's card as well and
+      // the list read below could be either of them.
+      await expect(card).toHaveCount(1);
+
+      const listed = await card.locator('[data-marker-listed]').allTextContents();
+      // The whole day and not the hidden tail — a list opened from `+3` that
+      // named only the undrawn markers is one the reader has to join to the chip
+      // still on screen.
+      expect(
+        [...listed].sort(),
+        `${at}: the card does not name every marker standing on the day`,
+      ).toEqual([...NAMES].sort());
+      // Sorted, and only here. `CalendarMarkerRepository.listFor` orders by
+      // `(date, createdAt, id)`, so four writes that land inside one clock tick
+      // fall back to an id this fixture does not choose. The order the band
+      // draws in is fixed by the jsdom case, which owns its own ids; what this
+      // tier owes is that the pointer opened a card naming the day entire.
+
+      await park(page);
+      await expect(badge, `${at}: the card outlived the pointer that opened it`).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+    }
   });
 });

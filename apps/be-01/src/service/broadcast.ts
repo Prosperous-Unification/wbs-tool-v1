@@ -135,7 +135,24 @@ export type ProjectEvent =
    * could only be reached by the reader's *own* save, because nothing a
    * collaborator did ever arrived.
    */
-  | { type: 'saved_plans_changed' };
+  | { type: 'saved_plans_changed' }
+  /**
+   * A project's calendar markers changed — one was added, renamed, recoloured
+   * or deleted.
+   *
+   * Its own type rather than `tree_replaced` or `directory_changed`, and the
+   * distinction is the same load-bearing one `saved_plans_changed` draws: **no
+   * work item moved and no date changed.** A marker is an annotation on the
+   * axis, so a reader that folded this into a tree change would re-fetch and
+   * re-render a plan byte-identical to the one on screen every time any
+   * collaborator dropped a marker on a day.
+   *
+   * Content-free, for `directory_changed`'s reason: a client reads a project's
+   * markers as one list, so the only useful thing to say is "read again".
+   * Carrying the row would additionally announce it to every reader of the
+   * project — including one the list route would have answered differently.
+   */
+  | { type: 'calendar_markers_changed' };
 
 /**
  * The subscription name carrying a project's edits.

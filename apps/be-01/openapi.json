@@ -3289,6 +3289,204 @@
         "operationId": "getApiProjectsByIdHistory"
       }
     },
+    "/api/projects/{id}/calendar-markers": {
+      "get": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "getApiProjectsByIdCalendar-markers"
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "description": "A new calendar marker on an absolute project date.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type or an unusable value, answers 422 with an `error` naming the fault and a `field` naming the member it blames.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "date",
+                  "name"
+                ],
+                "properties": {
+                  "markerId": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "date",
+                  "name"
+                ],
+                "properties": {
+                  "markerId": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "date",
+                  "name"
+                ],
+                "properties": {
+                  "markerId": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "postApiProjectsByIdCalendar-markers"
+      }
+    },
+    "/api/projects/{id}/calendar-markers/{markerId}": {
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "description": "Exactly one of the marker’s two writable columns.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type or an unusable value, answers 422 with an `error` naming the fault and a `field` naming the member it blames.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "markerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "patchApiProjectsByIdCalendar-markersByMarkerId"
+      },
+      "delete": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "markerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "deleteApiProjectsByIdCalendar-markersByMarkerId"
+      }
+    },
     "/internal/forward": {
       "post": {
         "operationId": "postInternalForward"

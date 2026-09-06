@@ -144,6 +144,53 @@ const CHECKED_BY_HAND =
  * unaffected either way; a caller that mutates the schema it just passed in
  * would see it in all three media types, and no caller does.
  */
+/**
+ * The third caveat, and the reason it is a third rather than a reuse.
+ *
+ * {@link CHECKED_BY_HAND} promises `{ "error": "invalid_body" }`. The calendar
+ * marker routes do not answer that: their refusal is a **row of the spec's
+ * refusal table** — `{ "error": "malformed", "field": "date" }` and its five
+ * siblings, including a `contrast` reason that is not a shape complaint at all
+ * — and the fields were checked that way while Elysia still validated their
+ * types. Borrowing the shorter sentence would publish a refusal body those
+ * routes never send, which is the exact defect `checkedBody`'s own note
+ * records: six operations documented as answering 400, on the strength of a
+ * neighbouring helper reading close enough.
+ *
+ * So the rule this file enforces is unchanged — one caveat per class of
+ * refusal, written where the document is built — and this is the class the
+ * marker routes are in. A second route family answering a typed table joins it
+ * here rather than spelling a fourth sentence in a controller.
+ */
+const TABLE_REFUSED_BY_HAND =
+  'The schema here is documentation, not validation. This route checks its own ' +
+  'body: the fields named here are checked and everything else is ignored, and ' +
+  'a body that is not an object, or that names one of these fields with the ' +
+  'wrong type or an unusable value, answers 422 with an `error` naming the ' +
+  'fault and a `field` naming the member it blames.';
+
+/**
+ * A documented request body for a route that checks itself and refuses with a
+ * typed row of its own refusal table — see {@link TABLE_REFUSED_BY_HAND}.
+ *
+ * Three media types for {@link checkedBody}'s reason: these bodies were
+ * `t.Object(...)` schemas from which Elysia derived `application/json`,
+ * `application/x-www-form-urlencoded` and `multipart/form-data`, the app still
+ * serves all three, and a refactor does not narrow a published API on the way
+ * past.
+ */
+export function tableRefusedBody(description: string, schema: BodySchema): RequestBodyDoc {
+  return {
+    required: true,
+    description: `${description}\n\n${TABLE_REFUSED_BY_HAND}`,
+    content: {
+      'application/json': { schema },
+      'application/x-www-form-urlencoded': { schema },
+      'multipart/form-data': { schema },
+    },
+  };
+}
+
 export function checkedBody(description: string, schema: BodySchema): RequestBodyDoc {
   return {
     required: true,

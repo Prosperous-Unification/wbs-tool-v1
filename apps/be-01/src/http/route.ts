@@ -36,19 +36,66 @@ export type HttpMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
  * is the one refusal the route list does not own.
  */
 export interface RouteRequest {
+  /**
+   * The method of the **route** this request was dispatched to, which is what a
+   * handler branching on a verb it was registered under wants. A HEAD answered
+   * by a path's GET reads `GET` here under every binder — see {@link
+   * RouteRequest.receivedMethod} for the other half.
+   */
   method: HttpMethod;
+  /**
+   * The verb the request actually **arrived** with. Equal to {@link
+   * RouteRequest.method} for everything except a HEAD answered by this path's
+   * GET, where it is `'HEAD'`.
+   *
+   * Two fields rather than one, and the split is a finding rather than a
+   * preference. HEAD resolves to the GET route (RFC 9110 §9.3.2) and the route
+   * it belongs to is the fact almost every handler wants, so `method` stays the
+   * registered verb; but the OIDC callback rebuilds a provider `Request` and
+   * mints session cookies, and answering that from a HEAD spends a single-use
+   * login transaction on a request that cannot carry the answer back. Before
+   * the framework-free route shape it read the raw `request.method` and could
+   * tell; with only `method` it cannot, which is TASK-269's second half.
+   *
+   * Widening {@link HttpMethod} to include `'HEAD'` was the other option and is
+   * worse: no route in this app declares HEAD, so the union would grow a member
+   * every route table, `switch` and registration has to consider in order to
+   * describe a verb none of them can be registered under.
+   *
+   * `binder.contract.test.ts` pins that both binders agree on both fields; a
+   * binder that set only one would let a route read a verb under Elysia it
+   * cannot read anywhere else, which is the whole class the second binder
+   * exists to catch.
+   */
+  receivedMethod: HttpMethod | 'HEAD';
   /** The pathname as matched, without query string. */
   path: string;
   /** Path parameters by name, from the `:name` segments of {@link Route.path}. */
   params: Record<string, string>;
-  /** Query parameters. A repeated key keeps its **last** value, as Elysia does. */
+  /**
+   * Query parameters. A repeated key keeps its **last** value, as Elysia does.
+   *
+   * Last, and therefore **not** what `new URL(url).searchParams.get(k)` answers
+   * — that is the first. The two spellings sat side by side on this branch and
+   * the OIDC callback changed which value it read when it moved onto this
+   * shape (TASK-269). A route that cares whether a key repeated at all cannot
+   * learn it from this record and reads {@link RouteRequest.url} instead; the
+   * callback is the one route in this app that does.
+   */
   query: Record<string, string>;
   /** Request headers, keys lowercased. */
   headers: Record<string, string | undefined>;
   body: unknown;
   /**
-   * The raw URL, for the two places that need the origin rather than the path
-   * (the OIDC redirect builder and the cookie-origin check).
+   * The raw URL, read by exactly one handler: the OIDC callback, which needs
+   * the origin the request arrived on to rebuild the provider's `Request`, and
+   * the query string *as sent* to see whether a key repeated — {@link
+   * RouteRequest.query} cannot answer the second question at all.
+   *
+   * The earlier wording here named a second reader, the cookie-origin check.
+   * It was wrong (Sol's Minor 2 on TASK-262, `queue/reviews/t262-r13-sol-44463938.md`):
+   * `hasInvalidCookieOrigin` takes the framework's own `Request`, compares the
+   * `origin` **header** against the configured app origin, and parses no URL.
    */
   url: string;
 }

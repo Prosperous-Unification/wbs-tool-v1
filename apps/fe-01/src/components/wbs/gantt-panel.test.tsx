@@ -1,10 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { automaticColor, labelInk, PALETTE, parseHex } from '@wbs/domain/marker-color';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import type { IsoDate } from '@wbs/domain/workday';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   Days,
+  NewCalendarMarkerView,
   PersonView,
   ProjectApi,
   SliceView,
@@ -13,14 +16,19 @@ import type {
   WorkItemView,
 } from '@/lib/wbs-api';
 import { DEFAULT_PERT_WEIGHTS_VIEW } from '@/lib/wbs-api';
+import { fakeProjectApi } from '@/testing/fake-project-api';
+import { recordCalls } from '@/testing/record-calls';
 
-import type { GanttPlan, GanttRow, GanttSlice } from './gantt-geometry';
+import { MONDAY_START, planOf, pointedAtRow, rowAt, sliceAt } from './gantt-fixtures';
+import type { GanttPlan } from './gantt-geometry';
 import { PERSON_BAR_COLORS, UNASSIGNED_BAR_COLOR } from './gantt-geometry';
 import {
   appliedGanttHeight,
   axisNumberShown,
+  axisOffsetOf,
   barLabelFor,
   barText,
+  type CalendarMarkerView,
   CHART_PAD_PX,
   chartBelowTheFold,
   clampedGanttHeight,
@@ -35,30 +43,22 @@ import {
   isDayPx,
   isoToday,
   LABEL_COLUMN_PX,
+  MARKER_BAND_MAX_PER_CELL,
+  markersDrawnInBand,
   monthWords,
   ROW_PX,
   rowWords,
+  workdayAxis,
 } from './gantt-panel';
 import type * as InitialsModule from './initials';
 import { initialsOf } from './initials';
-import { createPointedRows, type PointedRows } from './pointed-row-store';
+import { createPointedRows } from './pointed-row-store';
 import type * as ShortDateModule from './short-date';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
-
-/**
- * A {@link PointedRows} already answering `rowId` — the chart's pointer, which
- * needs no shown-row guard. What every render here hands the panel in place of
- * the resolved string the prop used to be.
- */
-const pointedAtRow = (rowId: string | null): PointedRows => {
-  const pointed = createPointedRows();
-  pointed.pointChart(rowId, 'pointer');
-  return pointed;
-};
 
 /**
  * How many times a bar has computed its assignee's initials — one
@@ -95,90 +95,6 @@ vi.mock('./short-date', async (importOriginal) => {
       return real.shortIsoDate(...args);
     },
   };
-});
-
-/** A shown row: a leaf over these workdays, unless `extras` says otherwise. */
-const rowAt = (
-  id: string,
-  earliestStart: number,
-  earliestFinish: number,
-  extras: Partial<GanttRow> = {},
-): GanttRow => ({
-  id,
-  number: id,
-  name: id,
-  depth: 0,
-  leaf: true,
-  schedule: { earliestStart, earliestFinish },
-  notBeforeOffset: null,
-  priority: null,
-  maxParallel: 1,
-  // The facts a row is enriched with before the chart is drawn. Absent by
-  // default and named by the tests that are about them, so a fixture never has
-  // to state a team it is not asking about.
-  team: { state: 'none' },
-  tags: { own: [], inherited: [] },
-  trioByStep: new Map(),
-  waitsFor: [],
-  ...extras,
-});
-
-/** A scheduled slice over these workdays, under the `dev` step. */
-const sliceAt = (
-  id: string,
-  workItemId: string,
-  earliestStart: number,
-  earliestFinish: number,
-  extras: Partial<GanttSlice> = {},
-): GanttSlice => ({
-  id,
-  workItemId,
-  stepId: 'dev',
-  personId: null,
-  duration: earliestFinish - earliestStart,
-  estimated: true,
-  earliestStart,
-  earliestFinish,
-  float: 0,
-  critical: false,
-  boundBy: 'projectStart',
-  resourcePredecessorId: null,
-  capacityTeamId: null,
-  width: 1,
-  effort: earliestFinish - earliestStart,
-  capacityPredecessorIds: [],
-  ...extras,
-});
-
-/**
- * The full tree a fixture's shown rows imply: each row's parent is the
- * nearest shallower row above it — enough for every plan in this file, whose
- * predecessors are all shown.
- */
-const treeFrom = (rows: readonly GanttRow[]): { id: string; parentId: string | null }[] => {
-  const above: { id: string; depth: number }[] = [];
-  return rows.map((row) => {
-    while (above.length > 0 && above[above.length - 1].depth >= row.depth) above.pop();
-    const parentId = above.length > 0 ? above[above.length - 1].id : null;
-    above.push({ id: row.id, depth: row.depth });
-    return { id: row.id, parentId };
-  });
-};
-
-const planOf = (parts: Partial<GanttPlan>): GanttPlan => ({
-  rows: [],
-  slices: [],
-  dependencies: [],
-  tree: treeFrom(parts.rows ?? []),
-  // Off unless a test is about the sentence a filter's dropped waits earn.
-  narrowedByFilter: false,
-  steps: [{ id: 'dev', name: 'Dev' }],
-  personNames: new Map(),
-  teamNames: new Map([['team-platform', 'Platform']]),
-  priorityBands: DEFAULT_PRIORITY_BANDS,
-  // The default a project takes unless it asks otherwise.
-  depReach: 'whole-item',
-  ...parts,
 });
 
 const barFor = (sliceId: string): Element | null =>
@@ -308,16 +224,6 @@ afterEach(() => {
   cleanup();
   widthIs(LAPTOP);
 });
-
-/**
- * The Monday every calendar fixture in this file begins on.
- *
- * Every coordinate asserted against it is taken at an offset **past the first
- * weekend**, where the calendar number and the workday number differ. An
- * assertion at workday 3 passes unchanged on the axis this change replaced and
- * so proves nothing.
- */
-const MONDAY_START = '2026-08-10';
 
 /**
  * One mark's box on the chart, refused when it has no area.
@@ -3248,6 +3154,16 @@ function fakeApi(startDate: string | null, skew: ReadSkew = {}): ProjectApi {
     setEstimateArithmetic: () => notImplemented('setEstimateArithmetic'),
     setPriorityBands: () => notImplemented('setPriorityBands'),
     setTeamCapacity: () => notImplemented('setTeamCapacity'),
+    // Refusals rather than a store, on purpose: the cases in this file draw
+    // markers from the `markers` prop, and 7.2's point is that an undated
+    // plan's cell reaches **no** write at all. A fake that quietly accepted a
+    // create would turn that assertion into "the composer happened to be
+    // closed" — `notImplemented` makes the write audible instead.
+    listCalendarMarkers: () => notImplemented('listCalendarMarkers'),
+    createCalendarMarker: () => notImplemented('createCalendarMarker'),
+    renameCalendarMarker: () => notImplemented('renameCalendarMarker'),
+    recolorCalendarMarker: () => notImplemented('recolorCalendarMarker'),
+    deleteCalendarMarker: () => notImplemented('deleteCalendarMarker'),
   };
 }
 
@@ -4747,6 +4663,1156 @@ describe('the axis says its date, at the chart’s own speed', () => {
   });
 });
 
+describe('clicking a dated axis cell opens the composer on that cell’s day', () => {
+  const drawDated = (startDate: IsoDate | null) =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={startDate}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  /**
+   * The clock stands inside the fixture's own year so {@link shortIsoDate}
+   * prints `19 Aug` rather than `19 Aug 2026` — it drops the year only when it
+   * matches the reader's, so a test read against the real clock would start
+   * failing on 1 January 2027 for no reason connected to this slice.
+   */
+  const drawnIn2026 = () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 12, 9, 0));
+    try {
+      drawDated(MONDAY_START);
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  itDom('reads the day off the cell, not off its offset and not off its workday', () => {
+    drawnIn2026();
+    // Cell 9 is the one cell of this fixture where all three candidate answers
+    // differ, which is the whole reason it is the cell clicked. Its date is
+    // 2026-08-19, its workday is 7, and the plan starts Monday 2026-08-10:
+    //
+    //   the cell's own `data-axis-date`      → 2026-08-19  (correct)
+    //   `addWorkdays(start, day.offset)`     → 2026-08-21
+    //   `addCalendarDays(start, day.workday)`→ 2026-08-17
+    //
+    // `addCalendarDays(start, day.offset)` is **also** 2026-08-19, so a
+    // negative that recomputes the date calendar-wise from the offset passes
+    // with the fault in. That is why neither watched fault is that one.
+    //
+    // Proof, in two runs against a 164/0 baseline on this file and both watched
+    // 2026-09-05, the composer's `setComposerAt(day.date)` replaced by:
+    //   `addWorkdays(startDate, day.offset)`      — 163 pass / 1 fail, this case
+    //     alone, `expected '2026-08-21' to be '2026-08-19'`;
+    //   `addCalendarDays(startDate, day.workday)` — 163 pass / 1 fail, this case
+    //     alone, `expected '2026-08-17' to be '2026-08-19'`.
+    // Restored to 164 / 0 after each.
+    expect(cellAt(9).getAttribute('data-axis-date')).toBe('2026-08-19');
+    expect(cellAt(9).getAttribute('data-axis-workday')).toBe('7');
+
+    fireEvent.click(cellAt(9));
+
+    const composer = screen.getByRole('dialog');
+    // The ISO string the composer will send, and the words a reader sees. Both,
+    // because the words come out of `shortIsoDate` — a test reading only them
+    // asserts about the formatter as much as about the day the composer is on.
+    expect(composer.getAttribute('data-composer-date')).toBe('2026-08-19');
+    expect(composer.textContent).toContain('19 Aug');
+    expect(composer.getAttribute('aria-label')).toBe('New calendar marker on 19 Aug');
+  });
+
+  const axisPointer = (kind: 'mouse' | 'touch', name: 'pointerover' | 'pointerout'): Event => {
+    const event = new Event(name, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'pointerType', { value: kind });
+    return event;
+  };
+
+  itDom('opens beside the hover card rather than instead of it', () => {
+    // The two surfaces answer different questions about the same cell — which
+    // day is this, versus mark this day — and the pointer that clicked is by
+    // definition still resting on the cell that opened the card. A click that
+    // dismissed it would take the date away from the reader at the moment they
+    // are about to name it.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 12, 9, 0));
+    try {
+      drawDated(MONDAY_START);
+      fireEvent(cellAt(9), axisPointer('mouse', 'pointerover'));
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      // Asserted **before** the click as well as after: without this line the
+      // case passes against an implementation whose hover never opened at all,
+      // which is the same green a click that closed it would produce.
+      expect(linesOf(screen.getByRole('tooltip'))[0]).toBe('Wed 19 Aug 2026');
+
+      fireEvent.click(cellAt(9));
+
+      // Both standing, on the same cell, at the same time.
+      expect(linesOf(screen.getByRole('tooltip'))[0]).toBe('Wed 19 Aug 2026');
+      expect(screen.getByRole('dialog').getAttribute('data-composer-date')).toBe('2026-08-19');
+      //
+      // Proof, watched 2026-09-05 against a 165/0 baseline on this file: the
+      // click handler given a `setOpenDay(null)` ahead of its `setComposerAt`
+      // — 164 pass / 1 fail, this case alone, on the second tooltip assertion
+      // with `Unable to find an accessible element with the role "tooltip"`.
+      // Restored to 165 / 0 after.
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('the dated axis cell is a control a keyboard can operate', () => {
+  /** A `PALETTE` fill, for the reason task 4.5 found: an arbitrary hex is not a
+   *  colour this API would accept in the first place. */
+  const AZURE = '#5d6afe';
+
+  /**
+   * The clock stands inside the fixture's own year so {@link shortIsoDate}
+   * prints `19 Aug` rather than `19 Aug 2026` — it drops the year only when it
+   * matches the reader's. The accessible names below are read against it, so a
+   * test drawn on the real clock would start failing on 1 January 2027 for no
+   * reason connected to this slice.
+   */
+  const drawnIn2026 = (markers: readonly CalendarMarkerView[] = []) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 12, 9, 0));
+    try {
+      render(
+        <GanttPanel
+          plan={planOf({
+            rows: [rowAt('strip', 0, 10)],
+            slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+          })}
+          startDate={MONDAY_START}
+          scheduleError={null}
+          generation={0}
+          heightPx={null}
+          onPickRow={() => undefined}
+          onPointRow={() => undefined}
+          pointed={pointedAtRow(null)}
+          markers={markers}
+        />,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  // Cell 9 of the Monday-2026-08-10 fixture is 2026-08-19 — the same cell 6.1
+  // and 8.1 use, and for the same reason: it is the one cell where the offset,
+  // the workday and the calendar day all disagree.
+  const CUTOVER: IsoDate = '2026-08-19';
+
+  itDom('opens the composer on Enter', () => {
+    // A `<span>` with an `onClick` and a tab stop is a control no keyboard can
+    // activate (WCAG 2.1.1). This is the case that says the key reaches it.
+    drawnIn2026();
+
+    fireEvent.keyDown(cellAt(9), { key: 'Enter' });
+
+    expect(screen.getByRole('dialog').getAttribute('data-composer-date')).toBe(CUTOVER);
+  });
+
+  itDom('opens the composer on Space', () => {
+    // Space is its own case and not a variant of Enter: a `keydown` handler
+    // that forwards **every** key passes an Enter-only test, and so does one
+    // that handles Enter alone — the two defects are opposite and only a second
+    // key distinguishes them.
+    //
+    // Proof, watched 2026-09-05 against a 180 / 0 baseline on this file: the
+    // axis cell's `key.key !== 'Enter' && key.key !== ' '` narrowed to
+    // `key.key !== 'Enter'` — 179 pass / 1 fail, this case alone, on `Unable
+    // to find an accessible element with the role "dialog"`. Restored after.
+    drawnIn2026();
+
+    fireEvent.keyDown(cellAt(9), { key: ' ' });
+
+    expect(screen.getByRole('dialog').getAttribute('data-composer-date')).toBe(CUTOVER);
+  });
+
+  itDom('names its own date and how many markers already stand on it', () => {
+    // The chips are drawn in a `pointer-events-none` layer over the band, so
+    // what is on a day is available to sight and to nothing else. Two markers
+    // on one date, and a neighbour with none, because a name that reported a
+    // count of zero everywhere would satisfy either case alone.
+    drawnIn2026([
+      { id: 'm-cut', date: CUTOVER, name: 'Cutover', color: AZURE },
+      { id: 'm-freeze', date: CUTOVER, name: 'Freeze', color: null },
+    ]);
+
+    expect(cellAt(9).getAttribute('aria-label')).toBe('19 Aug, 2 calendar markers');
+    expect(cellAt(8).getAttribute('aria-label')).toBe('18 Aug, no calendar markers');
+  });
+
+  itDom('is a tab stop that says it opens a dialog', () => {
+    drawnIn2026();
+
+    expect(cellAt(9).getAttribute('tabindex')).toBe('0');
+    expect(cellAt(9).getAttribute('aria-haspopup')).toBe('dialog');
+  });
+
+  itDom('reports the composer open on the cell that opened it and on no other', () => {
+    // **The transition, not the attribute.** `aria-expanded` hard-coded to
+    // either value passes a single-state assertion, so both states are read on
+    // one cell; and a value derived from `composerAt !== null` would announce
+    // every dated cell on the axis as open, so a second cell is read beside it.
+    drawnIn2026();
+
+    expect(cellAt(9).getAttribute('aria-expanded')).toBe('false');
+    expect(cellAt(8).getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(cellAt(9));
+
+    expect(cellAt(9).getAttribute('aria-expanded')).toBe('true');
+    expect(cellAt(8).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  itDom('is back to closed once the composer is dismissed', () => {
+    // Escape is the composer's only close path, and it exists because of this
+    // case: a cell that says `true` forever is a cell that lies to every reader
+    // who arrives after the first one.
+    drawnIn2026();
+    fireEvent.click(cellAt(9));
+    expect(cellAt(9).getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(cellAt(9).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  itDom('is reachable by its role and its name alone', () => {
+    // The case that makes `role="button"` an assertion instead of prose: every
+    // other case here locates the cell by `data-axis-day`, and a focusable
+    // generic `<span>` carrying every handler and every ARIA attribute would
+    // pass all of them while never being announced as a button.
+    //
+    // Proof, watched 2026-09-05 against the same 180 / 0 baseline:
+    // `role="button"` made conditional so only the **undated** branch keeps it
+    // — 179 pass / 1 fail, this case alone, on `Unable to find an accessible
+    // element with the role "button" and name "19 Aug, 1 calendar marker"`,
+    // while the six cases that locate the cell by `data-axis-day` stayed
+    // green. Restored after.
+    drawnIn2026([{ id: 'm-cut', date: CUTOVER, name: 'Cutover', color: AZURE }]);
+
+    fireEvent.click(screen.getByRole('button', { name: '19 Aug, 1 calendar marker' }));
+
+    // The **sheet** and not the composer, as of 6.3: this fixture's cell already
+    // carries a marker, and a populated day opens the list. The subject of the
+    // case is unchanged — that the cell is findable by role and name at all —
+    // and the dialog it reaches is only how that is observed.
+    expect(screen.getByRole('dialog').getAttribute('data-sheet-date')).toBe(CUTOVER);
+  });
+});
+
+describe('the undated axis cell announces which cell it is and why it is unavailable', () => {
+  // Three of 6.4a's five cases. The other two — Enter and Space putting the
+  // refusal in the live region — wait on slice 7.2, which is what builds the
+  // refusal and the region to put it in; there is neither in the panel today.
+  // 6.4a therefore stays unticked.
+  const drawUndated = () =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 8)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 8)],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+  itDom('is a focusable control that says it is unavailable', () => {
+    drawUndated();
+    // The axis really is the dateless one, or the rest of this describe is
+    // asserting about the calendar branch under another name.
+    expect(document.querySelectorAll('[data-axis-date]')).toHaveLength(0);
+
+    const cell = document.querySelector('[data-axis-day="3"]');
+    if (cell === null) throw new Error('no axis cell at offset 3');
+    expect(cell.getAttribute('role')).toBe('button');
+    expect(cell.getAttribute('tabindex')).toBe('0');
+    expect(cell.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  itDom('carries neither aria-haspopup nor aria-expanded', () => {
+    // It opens nothing, so it must not claim to. A cell that inherited the
+    // dated branch's attributes would announce a dialog that no key on it can
+    // reach.
+    drawUndated();
+
+    const cell = document.querySelector('[data-axis-day="3"]');
+    if (cell === null) throw new Error('no axis cell at offset 3');
+    expect(cell.getAttribute('aria-haspopup')).toBeNull();
+    expect(cell.getAttribute('aria-expanded')).toBeNull();
+  });
+
+  itDom('names its workday position and the start date it is missing', () => {
+    // Located by role **and name**, which is the half round-8's review found
+    // missing: an implementation with the tab stop, both handlers and every
+    // ARIA attribute passes the two cases above while announcing nothing but
+    // "button", and a row of those is worse than no tab stop at all.
+    //
+    // Proof, watched 2026-09-05 against a 183 / 0 baseline on this file: the
+    // undated branch's `aria-label` replaced by the bare string `Day` — see
+    // the run log for counts; this case failed on the query alone.
+    drawUndated();
+
+    const named = screen.getByRole('button', { name: 'Workday 3, no project start date' });
+
+    expect(named.getAttribute('data-axis-day')).toBe('3');
+  });
+});
+
+describe('an undated plan refuses the mark and names the date it is missing', () => {
+  // Slice 7.2, **all three assertions now**. The third — "the fake API received
+  // no create call" — was left out at chunk 27 because nothing on `ProjectApi`
+  // could be posted through, so the fault it exists to catch could not be
+  // written either and the assertion would have been the vacuous form this plan
+  // rejects by name (9.2b). 7.2a gave the client its writer and 3.5 gave the
+  // composer the save that uses it, so the fault is injectable now: a refusal
+  // path that synthesised an `IsoDate` and created against it would leave the
+  // message rendered and no composer in the document, and 7.4 cannot catch it
+  // either — its guard is the `IsoDate` validator, and a synthesised date is a
+  // valid one.
+  const undatedPanel = (
+    startDate: string | null,
+    onCreateMarker: (marker: NewCalendarMarkerView) => void = () => undefined,
+  ) => (
+    <GanttPanel
+      plan={planOf({
+        rows: [rowAt('strip', 0, 8)],
+        slices: [sliceAt('strip-dev', 'strip', 0, 8)],
+      })}
+      startDate={startDate}
+      scheduleError={null}
+      generation={0}
+      heightPx={null}
+      onPickRow={() => undefined}
+      onPointRow={() => undefined}
+      pointed={pointedAtRow(null)}
+      onCreateMarker={onCreateMarker}
+    />
+  );
+
+  const drawUndated = () => render(undatedPanel(null));
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  itDom('clicking a cell renders the refusal, opens no composer and writes nothing', () => {
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(
+      undatedPanel(null, (marker) => {
+        void api.createCalendarMarker('p1', marker);
+      }),
+    );
+
+    fireEvent.click(cellAt(3));
+
+    // Named, not merely present: "this day cannot be marked" is a dead control
+    // with a caption, and the reader learns nothing to go and do. The match is
+    // on the missing thing itself rather than on the whole sentence, so the
+    // wording stays editable and the contract does not.
+    expect(document.querySelector('[data-marker-refusal]')?.textContent).toMatch(
+      /project start date/,
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // **7.2's third assertion, and it is last on purpose**: the two above have
+    // to be seen green in the same run for its negative to mean anything — a
+    // refusal path that also created would leave the message rendered and the
+    // composer absent, and only this line would move.
+    expect(creates).toEqual([]);
+    // The owner's own store, not just the recorder: a fake that recorded
+    // without performing would show an empty call log either way.
+    expect(api.markers).toEqual([]);
+  });
+
+  itDom('the keyboard reaches the same refusal', () => {
+    // The cell has a tab stop and an Enter handler as of 6.4a, so the refusal
+    // has to be reachable the way that stop promises. Without this case the
+    // key handler's undated branch is an implemented path with no test, and
+    // the click case above stays green while a reader operating the axis by
+    // keyboard gets silence.
+    drawUndated();
+
+    fireEvent.keyDown(cellAt(3), { key: 'Enter' });
+
+    // 6.5, and 6.4a's fifth case with it: **located by the live-region role**,
+    // not by the test id and then checked for a role. A reader who operates
+    // this cell by keyboard is exactly the reader who cannot see the box the
+    // click case looks at, so a refusal outside the region is silence for the
+    // only person the tab stop was added for. Asserting the region's own text
+    // is what says the sentence is *in* it rather than beside it.
+    expect(screen.getByRole('status').textContent).toMatch(/project start date/);
+    expect(screen.getByRole('status')).toBe(document.querySelector('[data-marker-refusal]'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  itDom('Space reaches it too, and that is a separate branch from Enter', () => {
+    // 6.4a's fourth case. It promises "the same Enter and Space handlers" on
+    // the **undated** branch, and until now only Enter was proved there: 6.4's
+    // dated Space case is green against a panel whose undated branch ignores
+    // Space entirely, because the two cells take different arms of the same
+    // handler.
+    //
+    // Which is also why the negative for this case cannot be the shared key
+    // guard narrowed to Enter — that one fails 6.4's dated Space case at the
+    // same time and proves nothing about this branch. See the run log.
+    drawUndated();
+
+    fireEvent.keyDown(cellAt(3), { key: ' ' });
+
+    expect(screen.getByRole('status').textContent).toMatch(/project start date/);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  itDom('the same cell goes live once the plan has a start date', () => {
+    // Slice 7.3, and it is what makes 7.2 a refusal rather than an inert cell.
+    // "No composer appeared" is equally true of a click handler that was never
+    // wired at all, so the refusal cases above cannot tell the two apart on
+    // their own; this one gives the same panel a start date and shows the same
+    // click doing the thing it was refused.
+    //
+    // A rerender rather than a fresh render, because a fresh one proves 6.1
+    // over again and this slice is about the transition: the plan gained a
+    // calendar, so the axis it draws did too.
+    const { rerender } = render(undatedPanel(null));
+    fireEvent.click(cellAt(3));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    rerender(undatedPanel(MONDAY_START));
+    fireEvent.click(cellAt(3));
+
+    expect(screen.getByRole('dialog').getAttribute('data-composer-date')).not.toBeNull();
+  });
+});
+
+describe('a calendar marker is a chip in the axis band, placed by its date', () => {
+  /**
+   * The colour the fixture marker is stored in — a `PALETTE` entry, so it is a
+   * fill this API would really accept: task 4.5 found that an arbitrary-looking
+   * custom hex (`#4c3a86`) fails ten of the twenty backdrops and could never be
+   * on a marker in the first place.
+   */
+  const AZURE = '#5d6afe';
+
+  const drawWithMarkers = (markers: readonly CalendarMarkerView[], workdays = 10) =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, workdays)],
+          slices: [sliceAt('strip-dev', 'strip', 0, workdays)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+      />,
+    );
+
+  const chipFor = (id: string): HTMLElement => {
+    const chip = document.querySelector(`[data-marker-chip="${id}"]`);
+    if (chip === null) throw new Error(`no chip for marker ${id}`);
+    return chip as HTMLElement;
+  };
+
+  /** What jsdom hands back for a hex written into an inline style. */
+  const asRgb = (hex: string): string => {
+    const [r, g, b] = parseHex(hex);
+    return `rgb(${String(r)}, ${String(g)}, ${String(b)})`;
+  };
+
+  itDom('stands at the calendar x of its date and not at its workday number', () => {
+    // The same cell 6.1 clicks, and for the same reason: on a plan that starts
+    // Monday 2026-08-10, the date 2026-08-19 is axis **offset 9** and workday
+    // **7**. The two numbers agree until the first weekend and drift by a day
+    // per weekend after it, which is the whole drift `gantt-calendar-axis`
+    // exists to end — so a chip placed workday-wise looks right in week one and
+    // is two days early here.
+    //
+    //   axisOffsetOf(axis, '2026-08-19') → 9  → left 252px  (correct)
+    //   the cell's own `data-axis-workday` → 7 → left 196px  (the fault)
+    drawWithMarkers([{ id: 'm-cut', date: '2026-08-19', name: 'Cutover', color: AZURE }]);
+
+    const chip = chipFor('m-cut');
+    expect(chip.getAttribute('data-marker-offset')).toBe('9');
+    // The pixels as well as the number, because the attribute alone is a claim
+    // about what the component computed and not about where it put the chip.
+    expect(chip.style.left).toBe(`${String(9 * DAY_PX)}px`);
+    expect(chip.style.left).not.toBe(`${String(7 * DAY_PX)}px`);
+    expect(chip.textContent).toBe('Cutover');
+  });
+
+  itDom('paints its label in the ink labelInk chooses for its fill', () => {
+    // 3.2a built the chooser and unit-tested it; this is its only call site in
+    // the application. A chip whose label is a hard-coded `text-white` passes
+    // 3.2, 3.2a, 8.4 and 8.6 — 3.2a's table is a table about the function, not
+    // about anything drawing a chip — so without this assertion the algorithm
+    // can be missing from the component with every other check green.
+    //
+    // Computed here rather than written out: a test that spelled `rgb(0, 0, 0)`
+    // would agree with a chooser that had been replaced by that constant.
+    drawWithMarkers([{ id: 'm-cut', date: '2026-08-19', name: 'Cutover', color: AZURE }]);
+
+    const chip = chipFor('m-cut');
+    expect(chip.style.backgroundColor).toBe(asRgb(AZURE));
+    expect(chip.style.color).toBe(asRgb(labelInk(AZURE)));
+  });
+
+  itDom('draws an automatic marker in the colour its own id decides', () => {
+    // `color: null` is *automatic* and it is what the database really stores
+    // for a marker nobody has recoloured — `schema.ts` derives the fill on the
+    // way out rather than materialising it. The resolution shipped with this
+    // chip, so it is asserted with it: without this case `?? automaticColor(id)`
+    // is a branch the application never proves it takes.
+    drawWithMarkers([{ id: 'm-auto', date: '2026-08-19', name: 'Freeze', color: null }]);
+
+    const chip = chipFor('m-auto');
+    expect(chip.style.backgroundColor).toBe(asRgb(automaticColor('m-auto')));
+    // Still chosen, on the resolved fill and not on the stored null.
+    expect(chip.style.color).toBe(asRgb(labelInk(automaticColor('m-auto'))));
+  });
+
+  /**
+   * The **return trip**, which is the half of task 8.5 the panel can see.
+   *
+   * A marker past the drawn horizon has no cell to stand on, and inventing one
+   * would put it at the chart's edge as if it were on the last day — the same
+   * lie the today marker's out-of-range arms already refuse. But "draws
+   * nothing" alone is a claim a component that had simply stopped drawing chips
+   * would also satisfy, so the same marker is asserted **back** when the plan
+   * grows long enough to hold its date. One fixture, two horizons, and the
+   * marker is untouched between them.
+   *
+   * The other half of 8.5 — that the marker is still *stored* and still
+   * answered by the list route — is not observable here at all; it belongs to
+   * `calendar-marker.controller.db.test.ts`'s "accepts and returns a marker
+   * outside any drawable horizon", which landed with slice 4.1's routes and was
+   * already standing when these two cases were written.
+   */
+  const OFF_THE_END: CalendarMarkerView = {
+    id: 'm-late',
+    date: '2026-08-19',
+    name: 'Cutover',
+    color: AZURE,
+  };
+
+  itDom('draws no chip for a date the horizon does not reach', () => {
+    // Three workdays from Monday 2026-08-10 draws 2026-08-10..08-12, so
+    // 2026-08-19 is a week past the last cell.
+    drawWithMarkers([OFF_THE_END], 3);
+
+    expect(document.querySelector('[data-marker-chip="m-late"]')).toBeNull();
+    // The band itself is still there, so the absence above is one marker's and
+    // not the whole layer having failed to render.
+    expect(document.querySelector('[data-gantt-marker-band]')).not.toBeNull();
+  });
+
+  itDom('draws it again once the plan is long enough to hold its date', () => {
+    drawWithMarkers([OFF_THE_END], 10);
+
+    expect(chipFor('m-late').getAttribute('data-marker-offset')).toBe('9');
+  });
+});
+
+describe('the marker rule takes its named slot in marksOverLight', () => {
+  /**
+   * The eight marks slice 8.2 fixes the rule between, in the order
+   * `design.md` §2.1 lists them.
+   *
+   * Eight and not three: an earlier draft jumped from the rule straight to the
+   * first bar, which leaves the row hit lines and the capacity marks undecided
+   * — a rule emitted **after** those and still before every bar satisfies
+   * "before the bars" while sitting in the wrong slot, which is the same
+   * "behind the bars" error in miniature.
+   */
+  const SLOTS = [
+    'data-gantt-weekend',
+    'data-gantt-today',
+    'data-gantt-gridline',
+    'data-gantt-today-edge',
+    'data-gantt-marker-rule',
+    'data-gantt-row-line',
+    'data-gantt-capacity-link',
+    'data-gantt-bar',
+  ] as const;
+
+  /**
+   * Which kinds of mark the document holds, in paint order, one entry per
+   * **run** of a kind.
+   *
+   * Collapsing only *consecutive* repeats is the point: a kind emitted in two
+   * places appears twice and the comparison against {@link SLOTS} says so,
+   * where a `Set` or a sort would quietly forgive it.
+   */
+  const paintOrder = (): string[] => {
+    const runs: string[] = [];
+    for (const mark of document.querySelectorAll(SLOTS.map((slot) => `[${slot}]`).join(','))) {
+      const slot = SLOTS.find((candidate) => mark.hasAttribute(candidate));
+      if (slot !== undefined && runs[runs.length - 1] !== slot) runs.push(slot);
+    }
+    return runs;
+  };
+
+  /** A PALETTE entry, for the chip suite's reason — a fill be-01 would accept. */
+  const AZURE = '#5d6afe';
+  const CORAL = '#ff6b6b';
+
+  /**
+   * A plan carrying every one of the eight marks at once, drawn on the reader's
+   * Wednesday.
+   *
+   * All eight in **one** render because the assertion is about their order, and
+   * an order read off a document missing a slot is an order with a hole in it
+   * that nothing would report. The capacity link is the expensive one: it needs
+   * a named team whose slots are full, which is `sand` waiting on `strip` at
+   * `width: 2` against a two-slot team.
+   *
+   * `haul` is here for the **weekend**: the capacity pair alone runs five
+   * workdays, a calendar axis over five workdays is Monday to Friday, and the
+   * first run of this case failed on a missing `data-gantt-weekend` for exactly
+   * that reason. Nine workdays reaches the Saturday.
+   */
+  const markedChart = (markers: readonly CalendarMarkerView[]) => {
+    vi.useFakeTimers();
+    // Wednesday of the first week — offset 2 on a plan that starts Monday
+    // 2026-08-10, so today is on the chart and draws both its column and edge.
+    vi.setSystemTime(new Date(2026, 7, 12, 9, 0));
+    try {
+      render(
+        <GanttPanel
+          plan={planOf({
+            rows: [
+              rowAt('strip', 0, 3, { team: { state: 'named', name: 'Platform' } }),
+              rowAt('sand', 3, 5, { team: { state: 'named', name: 'Platform' }, maxParallel: 2 }),
+              rowAt('haul', 0, 9),
+            ],
+            slices: [
+              sliceAt('haul-dev', 'haul', 0, 9),
+              sliceAt('strip-dev', 'strip', 0, 3),
+              sliceAt('sand-dev', 'sand', 3, 5, {
+                boundBy: 'capacity',
+                capacityTeamId: 'team-platform',
+                resourcePredecessorId: 'strip-dev',
+                capacityPredecessorIds: ['strip-dev'],
+                width: 2,
+                effort: 4,
+                duration: 2,
+              }),
+            ],
+          })}
+          startDate={MONDAY_START}
+          scheduleError={null}
+          generation={0}
+          heightPx={null}
+          onPickRow={() => undefined}
+          onPointRow={() => undefined}
+          pointed={pointedAtRow(null)}
+          markers={markers}
+        />,
+      );
+    } finally {
+      // Before any assertion, for the today suite's reason: fake timers left
+      // running poison every test after this one.
+      vi.useRealTimers();
+    }
+  };
+
+  const theRule = (): Element => {
+    const rule = document.querySelector('[data-gantt-marker-rule]');
+    if (rule === null) throw new Error('no marker rule drawn');
+    return rule;
+  };
+
+  /**
+   * The one mark at a selector, or a throw naming it.
+   *
+   * A throw rather than {@link markAttribute}'s sentence because slice 8.8's
+   * two cases order **elements** against each other: a missing mark would make
+   * `compareDocumentPosition` an invalid call rather than a failed comparison,
+   * and the message would name neither the mark nor the day.
+   */
+  const markAt = (selector: string): Element => {
+    const mark = document.querySelector(selector);
+    if (mark === null) throw new Error(`nothing on the chart at ${selector}`);
+    return mark;
+  };
+
+  /**
+   * Whether `mark` is painted after `earlier` — document order, which is SVG
+   * paint order.
+   *
+   * `compareDocumentPosition` and not an index into {@link paintOrder}, because
+   * slice 8.8's collisions are about **one day's** marks and the run-collapsing
+   * that makes the order assertion above readable throws away exactly the
+   * offset that says which day a run belongs to. Both of these cases put the
+   * rule and the mark it collides with on the same offset, and `paintOrder`
+   * cannot tell that apart from 8.2's fixture, where they are two days apart.
+   */
+  const paintedAfter = (mark: Element, earlier: Element): boolean =>
+    (earlier.compareDocumentPosition(mark) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  /**
+   * What the Saturday band is, as the comparison across two renders reads it.
+   *
+   * Geometry **and** class: a weekend column moved by a marker and a weekend
+   * column that lost its tint are two different regressions, and the geometry
+   * alone would forgive the second.
+   */
+  const weekendBandFacts = () => {
+    const band = markAt('[data-gantt-weekend="5"]');
+    return {
+      x: band.getAttribute('x'),
+      y: band.getAttribute('y'),
+      width: band.getAttribute('width'),
+      height: band.getAttribute('height'),
+      className: band.getAttribute('class'),
+    };
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  itDom('is emitted after today’s edge and before the row lines, the links and every bar', () => {
+    // The mechanism, and it needs its own assertion because the requirement —
+    // "a bar crossing the rule is unchanged" — cannot see it: a rule painted
+    // over the bars leaves every bar attribute exactly where it was.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(paintOrder()).toEqual([...SLOTS]);
+  });
+
+  itDom('declares pointer-events none, so a reorder cannot take the row hover with it', () => {
+    // Belt-and-braces rather than load-bearing, and asserted for that reason:
+    // the row hit lines are painted **over** this rule and Chromium hit-tests
+    // front to back, so the hover reaches `data-gantt-row-line` first whatever
+    // the rule carries. There is no behavioural half to send to a browser —
+    // the declaration is the whole claim.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(theRule().getAttribute('pointer-events')).toBe('none');
+  });
+
+  itDom('runs the full height of the body, not the band it was sampled in', () => {
+    // Nothing else in 8.2 or 8.2a can see this. Order, pointer behaviour, the
+    // count and the colour are all true of a rule one row tall, and 8.2a
+    // samples one short strip in one empty row band — so a rule drawn through
+    // that band alone passes every other check while vanishing from the rest of
+    // the chart. Three rows here, so a rule truncated to one row and a rule
+    // running the body are different numbers.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(theRule().getAttribute('y1')).toBe('0');
+    expect(theRule().getAttribute('y2')).toBe('3');
+  });
+
+  itDom('draws one rule per marked day, in the first marker’s colour', () => {
+    // Two markers, one day, two colours. One rule, because the rule says "this
+    // day is marked" and a second line at the same x is invisible ink drawn
+    // twice — and the colour is the **first** by `(created_at, id)`, which is
+    // the order be-01 sends and `markersByDate` preserves.
+    //
+    // The count alone cannot see which colour won, which is why the stroke is
+    // asserted beside it.
+    markedChart([
+      { id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE },
+      { id: 'm-freeze', date: '2026-08-13', name: 'Freeze', color: CORAL },
+    ]);
+
+    expect(document.querySelectorAll('[data-gantt-marker-rule="3"]')).toHaveLength(1);
+    expect(theRule().getAttribute('stroke')).toBe(AZURE);
+  });
+
+  itDom('is a `line` element declaring a 1px non-scaling stroke', () => {
+    // Slice 8.2a's jsdom half: the tag, the mechanism and the declared width.
+    // Three assertions with three different jobs, and none of them stands for
+    // another.
+    //
+    // **The width is not the requirement on its own.** The chart's user space
+    // is days by rows stretched non-uniformly to `dayPx` (`viewBox` with
+    // `preserveAspectRatio="none"`), so one user unit is a whole day — 28, 12
+    // or 4 CSS pixels. A rule declared `stroke-width` 1 **without**
+    // `vector-effect` renders a day wide and still passes every order, colour,
+    // count and pointer assertion above. The today edge already carries the
+    // property for exactly this reason.
+    //
+    // **And the mechanism is not the requirement either**: `stroke-width` 2
+    // with `vector-effect` paints two CSS columns at every rung, which
+    // satisfies the property assertion and the browser tier's 1-or-2 painted
+    // column bound, while the requirement says one pixel.
+    //
+    // **The tag is asserted because the other two read the element the test
+    // QUERIES, not the element that PAINTS**: a `<g data-gantt-marker-rule
+    // stroke-width="1" vector-effect="non-scaling-stroke">` wrapping a 2px
+    // `<line>` answers both equalities from the wrapper while the child paints
+    // two columns.
+    //
+    // What jsdom cannot do is the other half — it has no SVG layout and
+    // computes no style, so `getComputedStyle(rule).strokeWidth` reads `1px`
+    // whether the property is present or absent. The screen is 8.2a's browser
+    // tier; this case pins what an implementer can get wrong in the source.
+    markedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+
+    expect(theRule().localName).toBe('line');
+    expect(markAttribute('[data-gantt-marker-rule]', 'vector-effect')).toBe('non-scaling-stroke');
+    expect(markAttribute('[data-gantt-marker-rule]', 'stroke-width')).toBe('1');
+  });
+
+  /**
+   * The plan the unchanged-bar half is read off, twice: once marked and once
+   * not.
+   *
+   * A second fixture rather than {@link markedChart} with a slice flipped,
+   * because that one's `y2` assertion counts its rows and its capacity link
+   * needs the pair that draws it — a fourth row for an assumed bar would move
+   * the extent this slice also asserts, and quietly.
+   *
+   * `haul-dev` is **unestimated and on the critical path** so that one bar
+   * carries both facts the comparison reads: the translucency
+   * ({@link ASSUMED_BAR_CLASSES}) and the ring.
+   *
+   * It starts on workday 2 because an unestimated slice is drawn
+   * `ASSUMED_SLICE_WORKDAYS` — two — wide from its start whatever `finish`
+   * says, so the bar covers offsets 2 and 3 and the rule at the marked Thursday
+   * (offset 3) runs **through** it rather than beside it. The first draft of
+   * this fixture asked for nine workdays and got a two-day bar and a horizon of
+   * 3, which put the marked date off the drawn horizon: no rule was emitted at
+   * all and the case failed on `expected -1 to be greater than or equal to 0`.
+   */
+  const assumedChart = (markers: readonly CalendarMarkerView[]) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 12, 9, 0));
+    try {
+      render(
+        <GanttPanel
+          plan={planOf({
+            rows: [rowAt('strip', 0, 3), rowAt('haul', 2, 2)],
+            slices: [
+              sliceAt('strip-dev', 'strip', 0, 3),
+              sliceAt('haul-dev', 'haul', 2, 2, { estimated: false, critical: true }),
+            ],
+          })}
+          startDate={MONDAY_START}
+          scheduleError={null}
+          generation={0}
+          heightPx={null}
+          onPickRow={() => undefined}
+          onPointRow={() => undefined}
+          pointed={pointedAtRow(null)}
+          markers={markers}
+        />,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  /**
+   * The three things this slice compares across the two renders, plus the one
+   * it asserts outright.
+   *
+   * The critical-path mark is read by class name and not by `data-critical`,
+   * for the reason `rings the critical bar and leaves the other one alone`
+   * gives: the attribute can be right while the bar draws like every other one.
+   */
+  const assumedBarFacts = () => {
+    const bar = barFor('haul-dev');
+    if (bar === null) throw new Error('the assumed bar is not on the chart');
+    const box = drawnBox('[data-gantt-bar="haul-dev"]');
+    return {
+      x: box.x,
+      width: box.width,
+      critical: bar.classList.contains('stroke-foreground'),
+      translucent: bar.classList.contains('[fill-opacity:0.35]'),
+    };
+  };
+
+  itDom('leaves a bar it crosses where it was, translucency and ring included', () => {
+    // The requirement. The sequence above is the mechanism that delivers it,
+    // and it needs its own assertion because this comparison cannot see it: a
+    // rule painted *over* the bars leaves every attribute below exactly where
+    // it was.
+    //
+    // An **assumed** bar and not a costed one, because the old wording — "the
+    // bar is fully opaque over it" — is false of this bar kind:
+    // `[fill-opacity:0.35]` is the design (`ASSUMED_BAR_CLASSES`), so a rule
+    // behind an assumed bar shows through it and the guarantee is about `x`,
+    // `width` and the ring rather than about paint. An unestimated slice draws
+    // nothing until the detail is asked for, which is why both renders go
+    // through `askForTheDetail`.
+    assumedChart([{ id: 'm-cut', date: '2026-08-13', name: 'Cutover', color: AZURE }]);
+    askForTheDetail('[data-assumed]');
+    const marked = assumedBarFacts();
+    const order = paintOrder();
+
+    // The same plan with no marker, on a fresh document. The detail answer is
+    // stored, so the second render already has the bar and the helper only
+    // proves it arrived.
+    cleanup();
+    assumedChart([]);
+    askForTheDetail('[data-assumed]');
+    const bare = assumedBarFacts();
+
+    expect(marked).toEqual(bare);
+    expect(marked.critical).toBe(true);
+    // And the rule is still behind it — read off the marked render, since the
+    // bare one has no rule to order anything against.
+    expect(order.indexOf('data-gantt-marker-rule')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('data-gantt-marker-rule')).toBeLessThan(order.indexOf('data-gantt-bar'));
+    // Last, and named outright as well as compared: the equality alone holds of
+    // two renders that both lost the translucency, which is exactly what the
+    // assumed arm of `barClasses` emptied produces. Ordered last so that when
+    // that fault is watched, every other claim in this case has already been
+    // evaluated and passed rather than been skipped by the throw.
+    expect(marked.translucent).toBe(true);
+  });
+
+  itDom('a marker on today is drawn after today’s edge, and today keeps its column', () => {
+    // Slice 8.8, first collision, and the one `design.md` §2.1's slot exists
+    // to decide: the edge is a stroke at the **same x** as the rule, so the
+    // opposite ordering would have hidden a marker the user had just placed
+    // behind the sky-500 line — the chart answering a click with nothing.
+    //
+    // 8.2's order case cannot see this. Its marker is on 2026-08-13 and today
+    // is 2026-08-12, so the rule and the edge are two days apart there and the
+    // collapsed run order it compares would read the same if the chart drew
+    // them in either order at a shared offset.
+    markedChart([{ id: 'm-cut', date: '2026-08-12', name: 'Cutover', color: AZURE }]);
+
+    expect(
+      paintedAfter(markAt('[data-gantt-marker-rule="2"]'), markAt('[data-gantt-today-edge="2"]')),
+    ).toBe(true);
+    // And the tint underneath is still there, at that offset and a whole day
+    // wide: two facts about one day, and the marker replaces neither. A rule
+    // that had taken today's column with it would satisfy the ordering above
+    // vacuously, since a document with no `data-gantt-today` still orders the
+    // two marks it does hold.
+    expect(markAttribute('[data-gantt-today="2"]', 'x')).toBe('2');
+    expect(markAttribute('[data-gantt-today="2"]', 'width')).toBe('1');
+    expect(document.querySelectorAll('[data-gantt-today]')).toHaveLength(1);
+  });
+
+  itDom('a marker on a Saturday is drawn after the weekend column, and leaves it alone', () => {
+    // Slice 8.8, second collision. The weekend band is a `rect` a whole day
+    // wide painted in an earlier layer than `marksOverLight`, so "after" here
+    // is a claim about the two layers and not about two siblings — a rule
+    // hoisted under the calendar's own furniture would be a marker the reader
+    // placed on a Saturday and cannot see.
+    //
+    // Offset 5 is the Saturday of the first week: the plan starts Monday
+    // 2026-08-10 and `haul` runs nine workdays, which is what reaches it.
+    markedChart([{ id: 'm-freeze', date: '2026-08-15', name: 'Freeze', color: CORAL }]);
+    const marked = weekendBandFacts();
+
+    expect(
+      paintedAfter(markAt('[data-gantt-marker-rule="5"]'), markAt('[data-gantt-weekend="5"]')),
+    ).toBe(true);
+
+    // The same plan with no marker, on a fresh document — the band is read
+    // twice rather than asserted against literals, because what the slice
+    // claims is that the marker changed nothing about it, and a literal would
+    // pin this case to whatever the weekend band happens to be drawn as today.
+    cleanup();
+    markedChart([]);
+
+    expect(marked).toEqual(weekendBandFacts());
+  });
+});
+
+/**
+ * Slice 8.3's other half: the chart asking the density question at all, with
+ * the viewport it really has.
+ *
+ * The arithmetic lives in `marker-rule-density.test.ts` on the fast tier —
+ * the threshold, what is counted, and the rung it is scoped to are nine cases
+ * of a pure function there and cost no rendered chart. What only a rendered
+ * chart can say is what this suite holds: that the panel calls that function,
+ * that it hands it the **scrollport's** width and the day the scroll really
+ * starts at, that a scroll re-answers it, and that suppression drops the lines
+ * out of the DOM without taking the off-screen ones with them.
+ *
+ * **The viewport is supplied the way the browser would have supplied it.**
+ * jsdom lays nothing out, so `clientWidth` is 0 on every box and the panel
+ * would measure "no viewport" forever. Each case defines it on the scroll box
+ * and fires a scroll, which is the panel's own re-measure path — the same one
+ * a reader's wheel takes.
+ */
+describe('the marker rules are dropped when they would be a fence', () => {
+  /** The rung the suppression is scoped to. A day is four pixels wide here. */
+  const FENCE_RUNG_PX = 4;
+  /** The window the density is measured against — `100px` in 8.3's wording. */
+  const VIEWPORT_PX = 100;
+  /** A PALETTE entry, for the chip suite's reason — a fill be-01 would accept. */
+  const AZURE = '#5d6afe';
+
+  /** `MONDAY_START` plus `offset` **calendar** days, which is the axis's step. */
+  const dayAt = (offset: number): string => {
+    const day = new Date(`${MONDAY_START}T00:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + offset);
+    return day.toISOString().slice(0, 10);
+  };
+
+  const markerAt = (offset: number): CalendarMarkerView => ({
+    id: `m-${String(offset)}`,
+    date: dayAt(offset),
+    name: `Day ${String(offset)}`,
+    color: AZURE,
+  });
+
+  /**
+   * Six occupied dates inside the opening 100px window, and seven more packed
+   * into a fortnight far off its right edge.
+   *
+   * Both halves are load-bearing and neither is decoration. At 4px a 100px
+   * viewport spans 25 days, so the opening window holds offsets 0 to 24 and
+   * its six dates are `6 / 100 * 100 = 6`, which `>` does not suppress — the
+   * boundary. Offsets 30 to 36 are seven dates inside the 25-day window that
+   * opens at 30, which `7 > 6` does. So one fixture answers both halves of
+   * 8.3's sixth case, and the difference between them is nothing but where the
+   * reader has scrolled to.
+   *
+   * Forty workdays is eight calendar weeks, which reaches offset 36 with the
+   * horizon to spare that the unfiltered count below needs.
+   */
+  const VISIBLE_DATES = [0, 4, 8, 12, 16, 20];
+  const OFFSCREEN_DATES = [30, 31, 32, 33, 34, 35, 36];
+
+  const fencedChart = () =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('span', 0, 40)],
+          slices: [sliceAt('span-dev', 'span', 0, 40)],
+        })}
+        startDate={MONDAY_START}
+        dayPx={FENCE_RUNG_PX}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={[...VISIBLE_DATES, ...OFFSCREEN_DATES].map(markerAt)}
+      />,
+    );
+
+  /**
+   * Gives the scroll box the width and scroll position a browser would have,
+   * and takes the panel's re-measure path to read them.
+   *
+   * `clientWidth` is defined rather than assigned: jsdom's is a getter on the
+   * prototype answering 0, and an assignment to it is silently dropped.
+   */
+  const scrolledTo = (firstVisibleDay: number): void => {
+    const panel = document.querySelector('[data-gantt-panel]');
+    if (!(panel instanceof HTMLElement)) throw new Error('the panel is not on the page');
+    Object.defineProperty(panel, 'clientWidth', { value: VIEWPORT_PX, configurable: true });
+    panel.scrollLeft = firstVisibleDay * FENCE_RUNG_PX + CHART_PAD_PX;
+    fireEvent.scroll(panel);
+  };
+
+  /** The rules whose `x` lies in the 25 days the viewport can see from here. */
+  const visibleRules = (firstVisibleDay: number): Element[] =>
+    [...document.querySelectorAll('[data-gantt-marker-rule]')].filter((rule) => {
+      const offset = Number(rule.getAttribute('data-gantt-marker-rule'));
+      return offset >= firstVisibleDay && offset < firstVisibleDay + VIEWPORT_PX / FENCE_RUNG_PX;
+    });
+
+  itDom('draws the six at the boundary, because the comparison is > and not >=', () => {
+    // The half of 8.3's sixth case that says the measure is scoped to the
+    // viewport at all. Thirteen dates are occupied in this horizon and only six
+    // of them are on screen; an implementation that counted the horizon would
+    // read 13 per 100px and suppress every one of these.
+    fencedChart();
+    scrolledTo(0);
+
+    expect(visibleRules(0)).toHaveLength(VISIBLE_DATES.length);
+  });
+
+  itDom('leaves the off-screen rules in the document rather than virtualizing them', () => {
+    // The decision the count above cannot carry, and the reason it needs its
+    // own assertion: a renderer that drew rules only for the visible interval
+    // would pass every `x`-filtered count in this suite while dropping the
+    // other seven — and the standalone export clones this chart, so those seven
+    // would be missing from the export as well.
+    //
+    // Asserted as the exact horizon total, not merely "more than six": a
+    // renderer that virtualized to a wider-but-still-bounded interval would
+    // satisfy a `toBeGreaterThan` and still lose rules off the end.
+    fencedChart();
+    scrolledTo(0);
+
+    expect(document.querySelectorAll('[data-gantt-marker-rule]')).toHaveLength(
+      VISIBLE_DATES.length + OFFSCREEN_DATES.length,
+    );
+  });
+
+  itDom('drops them all when the reader scrolls into the fortnight that is packed', () => {
+    // The density is re-answered on scroll and not computed once at mount —
+    // 8.3's fifth negative. Nothing about the chart changed here except where
+    // the reader is looking: the same thirteen markers, the same rung, and the
+    // seven dates that were off screen a moment ago are now the seven inside
+    // the window.
+    fencedChart();
+    scrolledTo(30);
+
+    expect(visibleRules(30)).toHaveLength(0);
+  });
+
+  itDom('keeps every chip when the rules are dropped, because only the lines are the fence', () => {
+    // Suppression is about ink the reader cannot separate, and thirteen chips
+    // in the band are still thirteen markers the reader can find. A version
+    // that dropped the markers instead of their rules would pass the case
+    // above and lose the data.
+    fencedChart();
+    scrolledTo(30);
+
+    expect(document.querySelectorAll('[data-marker-chip]')).toHaveLength(
+      VISIBLE_DATES.length + OFFSCREEN_DATES.length,
+    );
+  });
+});
+
 describe('the dates a bar says are printed by shortIsoDate and nothing else', () => {
   itDom('prints a day in another year with that year on it', () => {
     // `shortIsoDate` drops the year only when it matches the reader's own, so a
@@ -5898,6 +6964,81 @@ describe('today is marked on the chart', () => {
   });
 });
 
+describe('a plan with no start date is drawn on cells that hold no date', () => {
+  it('gives every workday-axis cell a null date', () => {
+    // Asserted on `workdayAxis` itself rather than through the panel, and the
+    // directness is the slice. Section 7's whole refusal hangs off this one
+    // field: a calendar marker is an absolute date, an undated plan has none,
+    // and the cell says so by having no date. Routed through a render, the same
+    // assertion would go green the day some future change gave every project a
+    // start date — the exact regression it exists to catch, made invisible.
+    //
+    // Proof: `date: null` replaced by `date: addWorkdays('2026-01-01', workday)`
+    // inside `workdayAxis` — the plausible "helpful" change, and a literal
+    // origin needs no new input because `addWorkdays` is already imported into
+    // that module — failed here on the first cell while every refusal test in
+    // section 7 would have kept passing, since a live cell refuses nothing.
+    // Watched 2026-09-05, chunk 22.
+    const axis = workdayAxis(8);
+
+    expect(axis).toHaveLength(8);
+    expect(axis.every((day) => day.date === null)).toBe(true);
+    // Named per cell as well, so a failure says which one rather than `false`.
+    expect(axis.map((day) => day.date)).toEqual(Array.from({ length: 8 }, () => null));
+    // And the cells are otherwise the axis the chart draws: the offsets are
+    // there, so "no date" is not passing by way of an empty or broken axis.
+    expect(axis.map((day) => day.offset)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+});
+
+describe('where a date stands on the axis is read off the axis, not recomputed', () => {
+  /**
+   * An axis whose offsets are neither the array index nor the calendar distance
+   * from the first cell — and it has to be hand-made, because no axis the panel
+   * builds is like this.
+   *
+   * That is the whole point. On every axis `calendarAxis` produces, cell `k`'s
+   * stored `offset`, its index and `calendarDaysBetween(axis[0].date, date)` are
+   * all the same number, so a lookup replaced by either piece of arithmetic
+   * returns the right answer everywhere in the suite and the drift is
+   * unobservable. Here the third cell is `2026-08-12`: its index is 2, its
+   * calendar distance from `2026-08-10` is 2, and the offset the axis stored is
+   * **9**. Only one of the three readings can produce 9.
+   */
+  const drifted = [
+    { offset: 0, workday: 0, date: '2026-08-10', shown: '10', weekend: false, heavy: true },
+    { offset: 7, workday: 1, date: '2026-08-11', shown: '11', weekend: false, heavy: false },
+    { offset: 9, workday: 2, date: '2026-08-12', shown: '12', weekend: false, heavy: false },
+  ];
+
+  it('answers with the offset the axis stored', () => {
+    // Proof: the body replaced by `calendarDaysBetween(axis[0].date, date)` —
+    // the second scale `calendarAxis`' docstring warns about, and the spelling
+    // this function exists instead of — failed here on `expected 2 to be 9`,
+    // while every case in "today is marked on the chart" stayed green because
+    // on a real axis the two readings agree. Watched 2026-09-05, chunk 21.
+    expect(axisOffsetOf(drifted, '2026-08-12')).toBe(9);
+    // And the middle cell, so the case cannot be passed by returning the last
+    // offset in the array.
+    expect(axisOffsetOf(drifted, '2026-08-11')).toBe(7);
+  });
+
+  it('answers null for a date the axis does not hold', () => {
+    // A date past the end, and one before the beginning: what a caller does
+    // about it is the caller's, but there is no offset to give.
+    expect(axisOffsetOf(drifted, '2026-08-13')).toBeNull();
+    expect(axisOffsetOf(drifted, '2026-08-09')).toBeNull();
+    // And the plan with no calendar, where every cell carries `date: null` —
+    // the lookup finds nothing without needing to know why. `null` is not a
+    // date, so it is not a key either: nothing matches.
+    const noCalendar = [
+      { offset: 0, workday: 0, date: null, shown: '0', weekend: false, heavy: true },
+      { offset: 1, workday: 1, date: null, shown: '1', weekend: false, heavy: false },
+    ];
+    expect(axisOffsetOf(noCalendar, '2026-08-10')).toBeNull();
+  });
+});
+
 describe('isoToday reads the reader’s own calendar, not UTC', () => {
   it('reads a late evening as the day the reader is having', () => {
     // The one place in this panel a `Date` becomes an `IsoDate`, and the
@@ -6204,5 +7345,955 @@ describe('the day scale', () => {
     expect(isDayPx(9)).toBe(false);
     expect(isDayPx('28')).toBe(false);
     expect(isDayPx(null)).toBe(false);
+  });
+});
+
+describe('a day that already carries markers opens a sheet listing every one of them', () => {
+  /**
+   * A `PALETTE` entry, for 4.5's reason: an arbitrary-looking custom hex is a
+   * fill this API would refuse, so a fixture wearing one is a marker that could
+   * never exist.
+   */
+  const AZURE = '#5d6afe';
+
+  const drawWithMarkers = (markers: readonly CalendarMarkerView[]) =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+      />,
+    );
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  /** The sheet, or a failure naming what stood there instead. */
+  const sheet = (): HTMLElement => {
+    const open = document.querySelector('[data-marker-sheet]');
+    if (open === null) {
+      const composer = document.querySelector('[data-marker-composer]');
+      throw new Error(
+        composer === null
+          ? 'no day sheet, and no composer either'
+          : 'no day sheet — the composer opened instead',
+      );
+    }
+    return open as HTMLElement;
+  };
+
+  const rowsInSheet = (): readonly HTMLElement[] =>
+    Array.from(sheet().querySelectorAll('[data-marker-row]'));
+
+  /**
+   * Cell 9 is 2026-08-19 on a Monday-2026-08-10 start — 6.1's cell, and the one
+   * where offset, workday and date all disagree.
+   */
+  const CUTOVER_DAY: IsoDate = '2026-08-19';
+
+  const CUTOVER: CalendarMarkerView = {
+    id: 'm-cut',
+    date: CUTOVER_DAY,
+    name: 'Cutover',
+    color: AZURE,
+  };
+  const FREEZE: CalendarMarkerView = {
+    id: 'm-freeze',
+    date: CUTOVER_DAY,
+    name: 'Code freeze',
+    color: null,
+  };
+  /** On a different day, so it proves the sheet lists *this* date and not all. */
+  const ELSEWHERE: CalendarMarkerView = {
+    id: 'm-else',
+    date: '2026-08-20',
+    name: 'Retro',
+    color: null,
+  };
+
+  itDom('lists both markers on a doubly-marked day, and offers to add another', () => {
+    drawWithMarkers([CUTOVER, FREEZE, ELSEWHERE]);
+
+    fireEvent.click(cellAt(9));
+
+    expect(sheet().getAttribute('data-sheet-date')).toBe(CUTOVER_DAY);
+    // By id and not by count: a sheet listing the right *number* of rows off the
+    // wrong day would pass a `toHaveLength(2)` on this fixture.
+    expect(rowsInSheet().map((row) => row.getAttribute('data-marker-row'))).toEqual([
+      'm-cut',
+      'm-freeze',
+    ]);
+    expect(rowsInSheet().map((row) => row.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('Cutover')]),
+    );
+    // The day's own markers and nothing else — `Retro` stands on 2026-08-20.
+    expect(sheet().textContent).not.toContain('Retro');
+    // Each row offers all three, because the slice is "rename, recolour and
+    // delete per row" and a sheet that offered them on the first row alone
+    // would pass an assertion made against the sheet as a whole.
+    for (const row of rowsInSheet()) {
+      const labels = Array.from(row.querySelectorAll('button')).map((button) =>
+        button.getAttribute('aria-label'),
+      );
+      expect(labels).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^Rename /),
+          expect.stringMatching(/^Recolour /),
+          expect.stringMatching(/^Delete /),
+        ]),
+      );
+    }
+    expect(screen.getByRole('button', { name: /^Add a calendar marker on / })).not.toBeNull();
+  });
+
+  itDom('still lists — and still offers Add — when the day carries exactly one', () => {
+    // **The point of the slice.** An implementation that sent a lone marker
+    // straight to its own editor passes the two-marker case above and makes a
+    // second marker on that day unreachable, which is the conflict 6.3 exists
+    // to resolve.
+    drawWithMarkers([CUTOVER, ELSEWHERE]);
+
+    fireEvent.click(cellAt(9));
+
+    expect(sheet().getAttribute('data-sheet-date')).toBe(CUTOVER_DAY);
+    expect(rowsInSheet().map((row) => row.getAttribute('data-marker-row'))).toEqual(['m-cut']);
+    expect(screen.getByRole('button', { name: /^Add a calendar marker on / })).not.toBeNull();
+  });
+
+  itDom('opens the composer, focused, on a day carrying none', () => {
+    drawWithMarkers([ELSEWHERE]);
+
+    fireEvent.click(cellAt(9));
+
+    expect(document.querySelector('[data-marker-sheet]')).toBeNull();
+    const composer = screen.getByRole('dialog');
+    expect(composer.getAttribute('data-composer-date')).toBe(CUTOVER_DAY);
+    // Focused, because a composer a reader has to go and find with the mouse
+    // they just clicked with is a composer that costs a second gesture to use.
+    expect(document.activeElement).toBe(screen.getByLabelText('Marker name'));
+  });
+
+  itDom('takes the caret when it opens and not again when the chart remounts', () => {
+    // **The CI red this exists for.** `pixels` failed at `f7df7f0d` on
+    // `e2e/gantt.spec.ts:2072`: a touch reader taps an axis cell to dismiss a
+    // bar's facts — which opens the composer, because that cell is a control as
+    // of 6.4 — and the deliberate second tap that leaves full screen and takes
+    // the plan to the row then lost the caret to the composer.
+    //
+    // The cause is structural and older than 6.3: the panel returns
+    // `fullScreen ? <div data-gantt-fullscreen>{chart}</div> : chart`, so
+    // toggling full screen changes the element at the root position and React
+    // unmounts and remounts everything under it. `fullScreen` lives in the panel
+    // so its own state survives — the composer is still open — but the field is
+    // a **new node**, and a callback ref that focuses on every mount takes a
+    // caret the reader has just put somewhere else. Nothing before 6.3 moved
+    // focus on mount, so the remount was invisible.
+    //
+    // Asserted in jsdom rather than left to the 16-minute browser job: React
+    // reconciles the same way here, and this is the layer that can say *why*.
+    drawWithMarkers([ELSEWHERE]);
+
+    fireEvent.click(cellAt(9));
+    expect(document.activeElement).toBe(screen.getByLabelText('Marker name'));
+
+    // Where the caret goes next stands outside the panel on purpose: the e2e's
+    // is a row's name cell in the table, and the point is that leaving it is
+    // the composer's doing rather than the remount's.
+    const away = document.createElement('input');
+    document.body.append(away);
+    away.focus();
+    expect(document.activeElement).toBe(away);
+
+    const toggle = document.querySelector('[data-gantt-fullscreen-toggle]');
+    if (!(toggle instanceof HTMLElement)) {
+      throw new Error('the full-screen switch is not on the panel');
+    }
+    fireEvent.click(toggle);
+    if (document.querySelector('[data-gantt-fullscreen]') === null) {
+      throw new Error('the full-screen switch was pressed and no layer arrived');
+    }
+
+    // The composer really did come back — an assertion that only read
+    // `activeElement` would pass just as well against a composer that closed,
+    // which is a different behaviour and not this fix.
+    expect(document.querySelector('[data-marker-composer]')).not.toBeNull();
+    expect(document.activeElement).toBe(away);
+    away.remove();
+  });
+});
+
+describe('Add on a day that already carries a marker opens an empty composer on that day', () => {
+  const AZURE = '#5d6afe';
+  const CUTOVER_DAY: IsoDate = '2026-08-19';
+
+  const drawWithMarkers = (markers: readonly CalendarMarkerView[]) =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+      />,
+    );
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  itDom('reaches a composer 6.1’s empty-day click can never reach', () => {
+    // The third offered-and-never-used action. 6.1 gets to a composer by
+    // clicking an **empty** date and the three listing cases assert only that
+    // Add is present, so a populated sheet whose Add is inert passes every
+    // other case in this plan — 6.1 cannot cover it, because it never goes
+    // through the sheet at all.
+    drawWithMarkers([{ id: 'm-cut', date: CUTOVER_DAY, name: 'Cutover', color: AZURE }]);
+
+    fireEvent.click(cellAt(9));
+    // The precondition, asserted rather than assumed: without this line the
+    // case passes against a cell that opened the composer directly and never
+    // drew a sheet, which is the one-marker shortcut 6.3 forbids.
+    expect(document.querySelector('[data-marker-sheet]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a calendar marker on 19 Aug' }));
+
+    const composer = screen.getByRole('dialog');
+    // On **that** date — the sheet's day, carried across, not recomputed.
+    expect(composer.getAttribute('data-composer-date')).toBe(CUTOVER_DAY);
+    // Empty, and not prefilled with the marker already standing there: this is
+    // a second marker on the day, not an edit of the first.
+    const field = screen.getByLabelText<HTMLInputElement>('Marker name');
+    expect(field.value).toBe('');
+    expect(document.activeElement).toBe(field);
+    // The sheet gives way to it rather than stacking behind: two dialogs open on
+    // one date is two things for a keyboard to be lost between.
+    expect(document.querySelector('[data-marker-sheet]')).toBeNull();
+  });
+});
+
+describe('the day sheet renames a listed marker', () => {
+  const AZURE = '#5d6afe';
+  const CUTOVER_DAY: IsoDate = '2026-08-19';
+
+  /**
+   * The panel with somebody above it owning the marker list.
+   *
+   * That owner is not a convenience of this test: the sheet draws the `markers`
+   * prop, so a new name can only reach the screen through a redraw somebody
+   * above the panel asks for. Rendering `<GanttPanel>` with a frozen array
+   * would make "the list now says Go live" unobservable however the handler
+   * behaved — and the shape here is the one `wbs-table.tsx` will have, a write
+   * followed by a read.
+   */
+  function OwnedMarkers({ api }: { api: ProjectApi & { markers: CalendarMarkerView[] } }) {
+    const [markers, setMarkers] = useState<readonly CalendarMarkerView[]>(() =>
+      api.markers.map((marker) => ({ ...marker })),
+    );
+    return (
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+        onRenameMarker={(markerId, name) => {
+          void api.renameCalendarMarker('p1', markerId, name);
+          setMarkers(api.markers.map((marker) => ({ ...marker })));
+        }}
+        onRecolorMarker={(markerId, color) => {
+          void api.recolorCalendarMarker('p1', markerId, color);
+          setMarkers(api.markers.map((marker) => ({ ...marker })));
+        }}
+      />
+    );
+  }
+
+  /** The fake, already holding one marker on {@link CUTOVER_DAY}. */
+  const apiHoldingCutover = (): ProjectApi & { markers: CalendarMarkerView[] } => {
+    const api = fakeProjectApi();
+    // The store's own create rather than a hand-pushed object, so the marker
+    // under test is one this fake could really have answered.
+    void api.createCalendarMarker('p1', {
+      markerId: 'm-cut',
+      date: CUTOVER_DAY,
+      name: 'Cutover',
+      color: AZURE,
+    });
+    return api;
+  };
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  const namesInSheet = (): readonly (string | null)[] =>
+    Array.from(document.querySelectorAll('[data-marker-row]')).map(
+      (row) => row.querySelector('span.grow')?.textContent ?? null,
+    );
+
+  itDom('sends the new name and draws what came back', () => {
+    // **The oracle is the recorded call as well as the DOM**, which is 3.4's
+    // rule: a handler that repainted optimistically and sent nothing is green
+    // on a DOM-only assertion, and this is the second of the three actions
+    // 6.3 offers that nothing had ever invoked.
+    const api = apiHoldingCutover();
+    const renames = recordCalls(api, 'renameCalendarMarker');
+    render(<OwnedMarkers api={api} />);
+
+    fireEvent.click(cellAt(9));
+    // The precondition, asserted rather than assumed: a cell that opened the
+    // composer instead would fail every query below with a confusing message.
+    expect(document.querySelector('[data-marker-sheet]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Cutover' }));
+    const field = screen.getByLabelText<HTMLInputElement>('New name for Cutover');
+    // Seeded with the name it replaces: renaming is nearly always an edit.
+    expect(field.value).toBe('Cutover');
+
+    fireEvent.change(field, { target: { value: '  Go live  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new name for Cutover' }));
+
+    // One call, naming this marker and this name — **trimmed**, and carrying
+    // no colour: be-01 refuses a `PATCH` body naming both, so a rename that
+    // sent a colour with it could only ever be refused (7.2a).
+    expect(renames).toEqual([['p1', 'm-cut', 'Go live']]);
+    // And the fake really holds it, which a recorder that pushed without
+    // performing would not show.
+    expect(api.markers.map((marker) => marker.name)).toEqual(['Go live']);
+    // Back to a list, drawn from what the owner read back.
+    expect(namesInSheet()).toEqual(['Go live']);
+    expect(document.querySelector('[aria-label="New name for Cutover"]')).toBeNull();
+  });
+});
+
+describe('the day sheet recolours a listed marker', () => {
+  const AZURE = '#5d6afe';
+  const CUTOVER_DAY: IsoDate = '2026-08-19';
+
+  /** The panel with an owner over it — see the rename block for why. */
+  function OwnedMarkers({ api }: { api: ProjectApi & { markers: CalendarMarkerView[] } }) {
+    const [markers, setMarkers] = useState<readonly CalendarMarkerView[]>(() =>
+      api.markers.map((marker) => ({ ...marker })),
+    );
+    return (
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+        onRecolorMarker={(markerId, color) => {
+          void api.recolorCalendarMarker('p1', markerId, color);
+          setMarkers(api.markers.map((marker) => ({ ...marker })));
+        }}
+      />
+    );
+  }
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  /** The chip beside the listed name, whose `background-color` is the fill. */
+  const chipOf = (markerId: string): HTMLElement => {
+    const chip = document.querySelector(`[data-marker-row="${markerId}"] span[aria-hidden]`);
+    if (!(chip instanceof HTMLElement)) throw new Error(`no chip on row ${markerId}`);
+    return chip;
+  };
+
+  itDom('sends the picked fill and draws what came back', () => {
+    // The last of the three actions 6.3 offers that nothing had ever invoked.
+    // Same three oracles as the rename: the recorded call, the fake's own
+    // store, and the chip drawn from what the owner read back — a handler that
+    // repainted optimistically and sent nothing passes on the chip alone.
+    const api = fakeProjectApi();
+    void api.createCalendarMarker('p1', {
+      markerId: 'm-cut',
+      date: CUTOVER_DAY,
+      name: 'Cutover',
+      color: AZURE,
+    });
+    const recolours = recordCalls(api, 'recolorCalendarMarker');
+    render(<OwnedMarkers api={api} />);
+
+    fireEvent.click(cellAt(9));
+    expect(document.querySelector('[data-marker-sheet]')).not.toBeNull();
+    // Azure to begin with, so the assertion below is a change rather than a
+    // colour that was already there.
+    expect(chipOf('m-cut').style.backgroundColor).toBe('rgb(93, 106, 254)');
+
+    const opener = screen.getByRole('button', { name: 'Recolour Cutover' });
+    // The palette is not standing open: a swatch reachable without this gesture
+    // would make the case pass against a `Recolour` button that does nothing.
+    expect(opener.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('[data-marker-palette]')).toBeNull();
+    fireEvent.click(opener);
+    expect(opener.getAttribute('aria-expanded')).toBe('true');
+
+    // Every entry of the fixed palette is offered, named, and named per marker.
+    expect(
+      Array.from(document.querySelectorAll(`[data-marker-palette="m-cut"] button`), (swatch) =>
+        swatch.getAttribute('aria-label'),
+      ),
+    ).toEqual(PALETTE.map((entry) => `${entry.name} for Cutover`));
+
+    fireEvent.click(screen.getByRole('button', { name: 'teal for Cutover' }));
+
+    // One call, this marker, that entry's own fill — and no name with it: be-01
+    // refuses a PATCH body naming both (7.2a).
+    expect(recolours).toEqual([['p1', 'm-cut', '#0386a5']]);
+    expect(api.markers.map((marker) => marker.color)).toEqual(['#0386a5']);
+    expect(chipOf('m-cut').style.backgroundColor).toBe('rgb(3, 134, 165)');
+    // Picked, so the palette gives way rather than staying open over a choice
+    // already made.
+    expect(document.querySelector('[data-marker-palette]')).toBeNull();
+  });
+});
+
+describe('the day sheet takes a listed marker off the chart', () => {
+  const AZURE = '#5d6afe';
+  const CUTOVER_DAY: IsoDate = '2026-08-19';
+
+  /** The panel with an owner over it — see the rename block for why. */
+  function OwnedMarkers({ api }: { api: ProjectApi & { markers: CalendarMarkerView[] } }) {
+    const [markers, setMarkers] = useState<readonly CalendarMarkerView[]>(() =>
+      api.markers.map((marker) => ({ ...marker })),
+    );
+    return (
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+        onDeleteMarker={(markerId) => {
+          void api.deleteCalendarMarker('p1', markerId);
+          setMarkers(api.markers.map((marker) => ({ ...marker })));
+        }}
+      />
+    );
+  }
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  itDom('sends the delete and drops the row the answer no longer holds', () => {
+    // Two markers on the day, because deleting the only one leaves an empty
+    // sheet whatever the handler did: the surviving row is what says the right
+    // marker went.
+    const api = fakeProjectApi();
+    void api.createCalendarMarker('p1', {
+      markerId: 'm-cut',
+      date: CUTOVER_DAY,
+      name: 'Cutover',
+      color: AZURE,
+    });
+    void api.createCalendarMarker('p1', {
+      markerId: 'm-freeze',
+      date: CUTOVER_DAY,
+      name: 'Freeze',
+      color: null,
+    });
+    const deletes = recordCalls(api, 'deleteCalendarMarker');
+    render(<OwnedMarkers api={api} />);
+
+    fireEvent.click(cellAt(9));
+    expect(
+      Array.from(document.querySelectorAll('[data-marker-row]'), (row) =>
+        row.getAttribute('data-marker-row'),
+      ),
+    ).toEqual(['m-cut', 'm-freeze']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Cutover' }));
+
+    expect(deletes).toEqual([['p1', 'm-cut']]);
+    expect(api.markers.map((marker) => marker.id)).toEqual(['m-freeze']);
+    expect(
+      Array.from(document.querySelectorAll('[data-marker-row]'), (row) =>
+        row.getAttribute('data-marker-row'),
+      ),
+    ).toEqual(['m-freeze']);
+    // The sheet stays open on the day that still carries something.
+    expect(document.querySelector('[data-marker-sheet]')).not.toBeNull();
+  });
+});
+
+describe('the composer creates the marker whose colour it previewed', () => {
+  // Slice 3.5. **Both ids are pinned and land in different palette buckets**,
+  // which is what makes the negative below a negative at all: `automaticColor`
+  // is one of eight, so a composer that minted a fresh id at submit would draw
+  // the previewed colour anyway one time in eight — and a fault that is
+  // present-and-green on one run in eight is not caught, it is tolerated.
+  //
+  // Both are UUID v4s because 4.6a's route refuses anything else, so the ids
+  // this test pins are ids the create it asserts could really have carried.
+  /** fnv1a32 mod 8 → 1, amber. What the composer previews and must send. */
+  const PREVIEW_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  /** fnv1a32 mod 8 → 7, magenta. What a second mint would reach for. */
+  const FRESH_ID = '9c858901-8a57-4791-81fe-4c455b099bc9';
+  const GO_LIVE_DAY: IsoDate = '2026-08-19';
+
+  /** What jsdom hands back for a hex written into an inline style. */
+  const asRgb = (hex: string): string => {
+    const [r, g, b] = parseHex(hex);
+    return `rgb(${String(r)}, ${String(g)}, ${String(b)})`;
+  };
+
+  /**
+   * The panel with somebody above it owning the marker list, as in 6.3's cases:
+   * the chip can only reach the screen through a redraw the owner asks for, so
+   * a frozen array would make "the marker is now on the chart" unobservable
+   * however the composer behaved.
+   */
+  function OwnedMarkers({
+    api,
+    newMarkerId,
+  }: {
+    api: ProjectApi & { markers: CalendarMarkerView[] };
+    newMarkerId: () => string;
+  }) {
+    const [markers, setMarkers] = useState<readonly CalendarMarkerView[]>([]);
+    return (
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={markers}
+        newMarkerId={newMarkerId}
+        onCreateMarker={(marker) => {
+          void api.createCalendarMarker('p1', marker);
+          setMarkers(api.markers.map((stored) => ({ ...stored })));
+        }}
+      />
+    );
+  }
+
+  /**
+   * The injected factory: the previewed id first, then the id a **second** mint
+   * would get. Handing back the same id twice would make the negative
+   * uninjectable, which is the vacuous form 9.2b rejects.
+   */
+  const twoIds = (): (() => string) => {
+    const queued = [PREVIEW_ID, FRESH_ID];
+    return () => queued.shift() ?? FRESH_ID;
+  };
+
+  const cellAt = (offset: number): Element => {
+    const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+    if (cell === null) throw new Error(`no axis cell at offset ${String(offset)}`);
+    return cell;
+  };
+
+  itDom('sends the previewed id and draws the chip in the previewed colour', () => {
+    // The pinning is asserted rather than trusted: if the palette ever grows or
+    // reorders, these two ids can collide in one bucket and this case would go
+    // on passing while proving nothing. Failing here says which.
+    expect(automaticColor(PREVIEW_ID)).not.toBe(automaticColor(FRESH_ID));
+
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    // Offset 9 on a plan starting Monday 2026-08-10 is 2026-08-19, and it
+    // carries no marker — so it opens the composer rather than the sheet.
+    fireEvent.click(cellAt(9));
+    const composer = document.querySelector('[data-marker-composer]');
+    expect(composer).not.toBeNull();
+    expect(composer?.getAttribute('data-composer-date')).toBe(GO_LIVE_DAY);
+
+    // The colour the reader is shown **before** anything is written.
+    const swatch = document.querySelector<HTMLElement>('[data-composer-swatch]');
+    if (swatch === null) throw new Error('the composer previewed no colour');
+    const previewed = swatch.style.backgroundColor;
+    expect(previewed).toBe(asRgb(automaticColor(PREVIEW_ID)));
+
+    fireEvent.change(screen.getByLabelText('Marker name'), {
+      target: { value: '  Go live  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
+    // One create, carrying the id the swatch was derived from — asserted
+    // exactly, so this case fails for the reason it is about rather than for a
+    // date or a name. Trimmed, and **no colour**: automatic is the absence of a
+    // choice, and `undefined` is what 7.2a's 422 arm proves the body may carry.
+    expect(creates).toEqual([['p1', { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live' }]]);
+    // And the fake really holds it, which a recorder that pushed without
+    // performing would not show.
+    expect(api.markers.map((marker) => marker.id)).toEqual([PREVIEW_ID]);
+
+    // The composer gives way to the chart it just changed.
+    expect(document.querySelector('[data-marker-composer]')).toBeNull();
+    const chip = document.querySelector<HTMLElement>(`[data-marker-chip="${PREVIEW_ID}"]`);
+    if (chip === null) throw new Error('the created marker drew no chip');
+    // **The slice's own assertion**: the colour promised and the colour drawn
+    // are one colour, and they are one only because they are one id.
+    expect(chip.style.backgroundColor).toBe(previewed);
+  });
+
+  /**
+   * A fill so pale that no light backdrop can carry it — `#f0f0f0` against
+   * `#ffffff` is nowhere near 3:1, and `light:base` is the first entry of
+   * `MARKER_BACKDROPS`, so it is the backdrop the verdict's message names.
+   */
+  const SUB_BAR = '#f0f0f0';
+
+  /**
+   * 3.3's 19-of-20 colour: `#ff0000` fails exactly one of the twenty backdrops,
+   * the light theme's pointed-row light under the today tint, at 2.943:1.
+   *
+   * Deliberate, and it is the whole of the fourth case: a message naming the
+   * dark base could be produced by a composer that only knows about themes, and
+   * this backdrop is the one a validator that composites the three tints over
+   * `--background` and stops there never builds at all.
+   */
+  const NINETEEN_OF_TWENTY = '#ff0000';
+
+  itDom('keeps a sub-bar colour off the wire, and says which backdrop it failed over', () => {
+    // Task 3.4's **third** call site, and until the composer grew a colour
+    // input `validateCustomColor` had no fe-01 caller at all: both be-01 arms
+    // could be correctly wired and fully unit-tested — both their negatives are
+    // handler removals and are watched — while the one surface a person types a
+    // colour into never asked. Round-6 Sol review, Important 8.
+    //
+    // **The oracle is the outgoing request and not the UI.** With the server
+    // calls intact be-01 refuses this colour either way, so "the reader sees a
+    // refusal" is green under a composer that never validates; only "nothing
+    // invalid left the client" is not. Same oracle as 4.3a: a fake API that
+    // records what it was sent.
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    fireEvent.click(cellAt(9));
+    fireEvent.change(screen.getByLabelText('Marker name'), { target: { value: 'Go live' } });
+    fireEvent.change(screen.getByLabelText('Marker colour'), { target: { value: SUB_BAR } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
+    // Nothing left the client, and nothing was stored.
+    expect(creates).toEqual([]);
+    expect(api.markers).toEqual([]);
+    // The composer stays open on the reader's work rather than closing over a
+    // save that did not happen.
+    expect(document.querySelector('[data-marker-composer]')).not.toBeNull();
+
+    // Something was said, and *what* it said is the next case's subject — kept
+    // apart deliberately, so the fault that guts the message reddens that case
+    // alone and leaves these three request assertions green.
+    expect(document.querySelector('[data-composer-refusal]')).not.toBeNull();
+  });
+
+  itDom('names the backdrop the colour failed over, in the validator’s own words', () => {
+    // 3.4's **fourth** case, and it is a different claim from the one above.
+    // "Nothing left the client" is not the whole composer contract: a composer
+    // that calls the validator, suppresses the request and then renders a
+    // generic "invalid colour" passes every request assertion in this suite
+    // while violating both composer scenarios, which require the reader to be
+    // told which fill the colour failed over. Round-12 Sol review, Important.
+    //
+    // The colour is `#ff0000` and the choice is the case: it fails **one** of
+    // the twenty backdrops, the light theme's pointed-row light under the today
+    // tint. A message naming the dark base could be produced by a composer that
+    // only knows about themes; this backdrop is the one a validator that
+    // composites the three tints over `--background` and stops there never
+    // builds at all.
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    fireEvent.click(cellAt(9));
+    fireEvent.change(screen.getByLabelText('Marker name'), { target: { value: 'Go live' } });
+    fireEvent.change(screen.getByLabelText('Marker colour'), {
+      target: { value: NINETEEN_OF_TWENTY },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
+    const said = document.querySelector('[data-composer-refusal]')?.textContent ?? '';
+    expect(said).toContain('light:pointed+today');
+    expect(said).toContain('3:1');
+    // The suppression as well, because a composer that named the backdrop and
+    // sent the colour anyway would be a refusal the reader can read and the API
+    // cannot.
+    expect(creates).toEqual([]);
+  });
+
+  itDom('sends a colour the reader chose that clears the bar, and previews it first', () => {
+    // The other half of the same call site: the check is a gate and not a ban,
+    // so a palette fill picked by hand reaches the create body as `color` —
+    // which is also what says the `undefined` in the case above is the absence
+    // of a choice rather than a colour the composer cannot send at all.
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    fireEvent.click(cellAt(9));
+    fireEvent.change(screen.getByLabelText('Marker name'), { target: { value: 'Go live' } });
+    fireEvent.change(screen.getByLabelText('Marker colour'), {
+      target: { value: PALETTE[0].fill },
+    });
+
+    // The swatch follows the choice, so the reader is never previewing one
+    // colour while about to send another — task 3.5's rule, one step along.
+    const swatch = document.querySelector<HTMLElement>('[data-composer-swatch]');
+    expect(swatch?.style.backgroundColor).toBe(asRgb(PALETTE[0].fill));
+    expect(document.querySelector('[data-composer-refusal]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
+    expect(creates).toEqual([
+      ['p1', { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live', color: PALETTE[0].fill }],
+    ]);
+  });
+});
+
+/**
+ * Task 8.4's cap, at each rung of the ladder.
+ *
+ * The cases below are the module half — how many chips the band hands the
+ * renderer at each `dayPx`. The `+N` text and the hover list are the render
+ * half and are not asserted here.
+ */
+describe('the marker band caps each cell at its rung', () => {
+  const axis = [
+    { offset: 0, workday: 0, date: '2026-08-10', shown: '10', weekend: false, heavy: true },
+    { offset: 1, workday: 1, date: '2026-08-11', shown: '11', weekend: false, heavy: false },
+  ];
+
+  /**
+   * Four markers on one date and one on the next, in the list's own
+   * `(date, created_at, id)` order.
+   *
+   * Four, so the same fixture has one more than every rung allows: at 28px it
+   * exceeds 3, at 12px it exceeds 2 and at 4px it exceeds 1. A fixture sized to
+   * one rung would leave the other two asserting nothing.
+   */
+  const markers: CalendarMarkerView[] = [
+    { id: 'a', date: '2026-08-10', name: 'A', color: null },
+    { id: 'b', date: '2026-08-10', name: 'B', color: null },
+    { id: 'c', date: '2026-08-10', name: 'C', color: null },
+    { id: 'd', date: '2026-08-10', name: 'D', color: null },
+    { id: 'e', date: '2026-08-11', name: 'E', color: null },
+  ];
+
+  const drawnAt = (dayPx: 28 | 12 | 4): string[] =>
+    markersDrawnInBand(markers, axis, dayPx).map(({ marker }) => marker.id);
+
+  it('shows three of four on a 28px day, and the neighbour is untouched', () => {
+    // The cap is per cell: the fifth marker is on the next date and has its own
+    // room, so a cap applied to the list rather than the cell would drop it.
+    expect(drawnAt(28)).toEqual(['a', 'b', 'c', 'e']);
+  });
+
+  it('shows two on a 12px day', () => {
+    expect(drawnAt(12)).toEqual(['a', 'b', 'e']);
+  });
+
+  it('shows one on a 4px day', () => {
+    // Proof: `MARKER_BAND_MAX_PER_CELL` replaced by a flat `3` — the constant
+    // tuned at the widest rung, which is task 8.4's own negative — fails here
+    // on `expected [ 'a', 'b', 'c', 'e' ] to deeply equal [ 'a', 'e' ]` while
+    // the 28px case above stays green. A threshold tested at one rung is not a
+    // ladder. Watched 2026-09-06, chunk 69.
+    expect(drawnAt(4)).toEqual(['a', 'e']);
+  });
+
+  it('keeps the ladder pointing down as the rungs narrow', () => {
+    // Not a restatement of the record: this is the property the record exists
+    // for, and it is what a future rung has to satisfy. A wider day never shows
+    // fewer chips than a narrower one.
+    expect(MARKER_BAND_MAX_PER_CELL[28]).toBeGreaterThan(MARKER_BAND_MAX_PER_CELL[12]);
+    expect(MARKER_BAND_MAX_PER_CELL[12]).toBeGreaterThan(MARKER_BAND_MAX_PER_CELL[4]);
+    expect(MARKER_BAND_MAX_PER_CELL[4]).toBeGreaterThanOrEqual(1);
+  });
+
+  it('draws nothing for a marker off the drawn horizon, at any rung', () => {
+    // Task 8.5's arm, asserted through the new seam: an off-horizon marker is
+    // undrawn and does not spend a cell's room either — capping after the
+    // offsets were resolved would count it against a cell it was never on.
+    const offHorizon: CalendarMarkerView[] = [
+      { id: 'z', date: '2026-09-01', name: 'Z', color: null },
+      ...markers,
+    ];
+    expect(markersDrawnInBand(offHorizon, axis, 4).map(({ marker }) => marker.id)).toEqual([
+      'a',
+      'e',
+    ]);
+  });
+});
+
+/**
+ * Task 8.4's render half: the `+N` the crowded cell collapses to, and the list
+ * it opens.
+ *
+ * One case per rung, on one fixture with four markers on a Wednesday and a
+ * fifth on the Thursday after it — one more than every rung allows, so the
+ * count under test differs at each and the uncrowded neighbour is the same
+ * neighbour throughout. The chip counts here are {@link markersDrawnInBand}'s
+ * answer *as rendered*: the module cases above assert the seam, these assert
+ * that the band is wired to it and that the badge's arithmetic agrees.
+ */
+describe('a crowded cell collapses to a count that lists the day', () => {
+  /** Wednesday of the first week — axis offset 2 on a Monday start. */
+  const CROWD_AT = 2;
+  /** The Thursday after it, which never crowds: one marker at any rung. */
+  const QUIET_AT = 3;
+
+  const crowd: CalendarMarkerView[] = [
+    { id: 'm1', date: '2026-08-12', name: 'Alpha', color: null },
+    { id: 'm2', date: '2026-08-12', name: 'Bravo', color: null },
+    { id: 'm3', date: '2026-08-12', name: 'Charlie', color: null },
+    { id: 'm4', date: '2026-08-12', name: 'Delta', color: null },
+    { id: 'm5', date: '2026-08-13', name: 'Echo', color: null },
+  ];
+
+  const drawAt = (dayPx: 28 | 12 | 4): void => {
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={dayPx}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={crowd}
+      />,
+    );
+  };
+
+  const chipsAt = (offset: number): number =>
+    document.querySelectorAll(`[data-marker-offset="${String(offset)}"]`).length;
+
+  const badgeAt = (offset: number): HTMLElement | null =>
+    document.querySelector<HTMLElement>(`[data-marker-overflow="${String(offset)}"]`);
+
+  const theBadge = (offset: number): HTMLElement => {
+    const badge = badgeAt(offset);
+    if (badge === null) throw new Error(`no overflow badge at offset ${String(offset)}`);
+    return badge;
+  };
+
+  itDom('shows three chips and +1 at the Days rung', () => {
+    drawAt(28);
+    expect(chipsAt(CROWD_AT)).toBe(3);
+    expect(theBadge(CROWD_AT).textContent).toBe('+1');
+  });
+
+  itDom('shows two chips and +2 at the Weeks rung', () => {
+    drawAt(12);
+    expect(chipsAt(CROWD_AT)).toBe(2);
+    expect(theBadge(CROWD_AT).textContent).toBe('+2');
+  });
+
+  itDom('shows one chip and +3 at the Months rung', () => {
+    // The rung the ladder exists for: three chips do not fit four pixels of
+    // day, and a cap tuned at 28px would draw them anyway. The module case
+    // above watches that fault on the seam; this one is what a reader sees.
+    drawAt(4);
+    expect(chipsAt(CROWD_AT)).toBe(1);
+    expect(theBadge(CROWD_AT).textContent).toBe('+3');
+  });
+
+  itDom('leaves the uncrowded neighbour with its chip and no badge', () => {
+    // The cap is per cell, and the badge is too. A `+N` on a day that hid
+    // nothing is the same fault as a chip dropped from one that had room —
+    // both are the list being counted instead of the cell — and at 4px the
+    // neighbour is one marker against a cap of one, the tightest place for it
+    // to go wrong.
+    drawAt(4);
+    expect(chipsAt(QUIET_AT)).toBe(1);
+    expect(badgeAt(QUIET_AT)).toBeNull();
+  });
+
+  itDom('opens the whole day on a tap, chips and hidden alike', () => {
+    // A tap and not a hover: hovering is a real-pointer fact and belongs in the
+    // browser tier. What jsdom can say is that the badge is a `<button>` whose
+    // activation opens the card — which is also the keyboard path, since Enter
+    // and Space synthesize this same click.
+    //
+    // **The whole day, not the hidden tail.** A list opened from `+3` that
+    // named only the three undrawn markers is one the reader has to join to the
+    // chip still on screen; `markerBandOverflow` carries the cell entire.
+    drawAt(4);
+    fireEvent.click(theBadge(CROWD_AT));
+
+    const listed = [...document.querySelectorAll('[data-marker-listed]')].map(
+      (line) => line.textContent,
+    );
+    expect(listed).toEqual(['Alpha', 'Bravo', 'Charlie', 'Delta']);
+    // Echo stands on the next day and is not on this card: the surface is the
+    // cell's, not the band's.
+    expect(document.querySelector('[data-marker-listed="m5"]')).toBeNull();
+    expect(theBadge(CROWD_AT).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  itDom('says whose day the count belongs to, in the date the cell publishes', () => {
+    // The badge reads `+3`, which is how many and not of what. Every other
+    // badge on a crowded chart reads the same three characters, so the name is
+    // the only thing telling a reader on a screen reader which one they are on.
+    drawAt(4);
+    expect(theBadge(CROWD_AT).getAttribute('aria-label')).toBe('3 more markers on 2026-08-12');
+    expect(theBadge(CROWD_AT).getAttribute('aria-expanded')).toBe('false');
   });
 });

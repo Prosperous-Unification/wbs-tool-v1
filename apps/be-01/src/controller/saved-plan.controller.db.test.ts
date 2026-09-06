@@ -14,6 +14,7 @@ import { ProjectService } from '../service/project.service';
 import { defaultSavedPlanName } from '../service/saved-plan-default-name';
 import { TEST_JWT_KEY } from '../testing/auth-fixture';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -99,6 +100,7 @@ describe('the saved-plan routes', () => {
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(),
+      calendarMarkers: testCalendarMarkerService(),
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),

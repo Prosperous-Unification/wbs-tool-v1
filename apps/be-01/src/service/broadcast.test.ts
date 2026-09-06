@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { Project, ProjectStore } from '../repository';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import {
+  inMemoryCalendarMarkers,
+  testCalendarMarkerService,
+} from '../testing/calendar-marker-fixture';
 import { inMemoryServices } from '../testing/harness';
-import { projectRow } from '../testing/project-fixture';
+import { inMemoryProjects, projectRow } from '../testing/project-fixture';
 import { DeferringBroadcaster, type ProjectEvent } from './broadcast';
+import type { CalendarMarkerService } from './calendar-marker.service';
 import type { WorkItemService } from './work-item.service';
 
 const OWNER = 'owner-account';
@@ -166,5 +171,114 @@ describe('DeferringBroadcaster refuses a nested hold', () => {
     expect(pending).toEqual([{ projectId: 'p-1', event: { type: 'directory_changed' } }]);
     // And nothing escaped to the inner broadcaster while the hold was open.
     expect(inner.published).toEqual([]);
+  });
+});
+
+/**
+ * Slice 9.1. A marker is the one project-scoped object a collaborator can add
+ * that moves no work item, so nothing this project already announces covers it:
+ * `tree_replaced` is wrong (no row changed) and `directory_changed` is wrong
+ * (the vocabulary is untouched). Without its own event the second client's axis
+ * stays as it was until something unrelated forces a re-read.
+ *
+ * Content-free, for `saved_plans_changed`'s reason: a client reads a project's
+ * markers as one list, so the only useful thing to say is "read again", and
+ * carrying the row would announce a marker to every reader of the project
+ * before the list route has decided what that reader may see.
+ *
+ * **Watched negative:** with the `await this.announce(projectId)` line deleted
+ * from `CalendarMarkerService.remove` and nothing else changed, exactly the two
+ * cases that reach a delete fail — `deleting one` on its single event and
+ * `all four` on its fourth — while the refusal case stays green. Watched that
+ * way on h2puni, 2026-09-06. The delete is called out on its own because it is
+ * the write a client cannot recover from by re-reading something else: there is
+ * nothing left on the axis to notice is missing.
+ */
+describe('a calendar marker write announces itself', () => {
+  const ACTOR = 'owner-account';
+  let markerProjects: ReturnType<typeof inMemoryProjects>;
+  let recorder: RecordingBroadcaster;
+  let markerService: CalendarMarkerService;
+  let markerProjectId: string;
+
+  beforeEach(async () => {
+    markerProjects = inMemoryProjects();
+    recorder = recordingBroadcaster();
+    markerService = testCalendarMarkerService(
+      markerProjects,
+      inMemoryCalendarMarkers(),
+      undefined,
+      recorder,
+    );
+    const project = projectRow({ id: crypto.randomUUID(), ownerId: ACTOR });
+    await markerProjects.create(project, [], { at: 1, by: ACTOR });
+    markerProjectId = project.id;
+  });
+
+  /** The one event, so every case below states the whole payload it expects. */
+  const CHANGED: ProjectEvent = { type: 'calendar_markers_changed' };
+
+  async function makeMarker(): Promise<string> {
+    const created = await markerService.create(markerProjectId, ACTOR, {
+      date: '2026-08-24',
+      name: 'Client demo',
+    });
+    if (!created.ok) throw new Error(`create failed: ${created.reason}`);
+    return created.value.id;
+  }
+
+  it('announces one content-free event per write, on all four', async () => {
+    const id = await makeMarker();
+    await markerService.rename(markerProjectId, id, ACTOR, 'Client demo, moved');
+    await markerService.recolor(markerProjectId, id, ACTOR, '#3b82f6');
+    await markerService.remove(markerProjectId, id, ACTOR);
+
+    // Four writes, four announcements, in write order and each carrying
+    // nothing: `toEqual` on the whole list is what makes "content-free" an
+    // assertion rather than a claim about a field nobody reads.
+    expect(recorder.published).toEqual([
+      { projectId: markerProjectId, event: CHANGED },
+      { projectId: markerProjectId, event: CHANGED },
+      { projectId: markerProjectId, event: CHANGED },
+      { projectId: markerProjectId, event: CHANGED },
+    ]);
+  });
+
+  it('announces deleting one, which is the write a re-read cannot recover', async () => {
+    const id = await makeMarker();
+    recorder.published.length = 0;
+
+    await markerService.remove(markerProjectId, id, ACTOR);
+
+    expect(recorder.published).toEqual([{ projectId: markerProjectId, event: CHANGED }]);
+  });
+
+  it('announces nothing for a write it refused', async () => {
+    // Both refusals the gate can give, because an event on either would tell
+    // every reader of a project to go and read a list that did not change, on
+    // nothing but somebody else's rejected attempt.
+    //
+    // `not-the-owner` needs a **restricted** project to be refused: `canEdit`
+    // is `!restricted || ownerId === actorId`, so a stranger writing to an
+    // ordinary project is allowed here and is not the negative this case wants.
+    const restricted = projectRow({
+      id: crypto.randomUUID(),
+      ownerId: ACTOR,
+      restricted: true,
+    });
+    await markerProjects.create(restricted, [], { at: 1, by: ACTOR });
+
+    const absent = await markerService.create('no-such-project', ACTOR, {
+      date: '2026-08-24',
+      name: 'Client demo',
+    });
+    const stranger = await markerService.create(restricted.id, 'not-the-owner', {
+      date: '2026-08-24',
+      name: 'Client demo',
+    });
+
+    expect(absent).toEqual({ ok: false, reason: 'not_found' });
+    expect(stranger).toEqual({ ok: false, reason: 'forbidden' });
+    expect(recorder.published).toEqual([]);
   });
 });
