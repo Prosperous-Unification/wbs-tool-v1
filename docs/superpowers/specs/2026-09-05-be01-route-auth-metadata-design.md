@@ -444,10 +444,11 @@ covered".
 
 ## The two named refusals stay (constraint 6)
 
-- **`GET /api/auth/me` answers `{ error: 'invalid_token' }`** (`auth.routes.ts:249`), which
-  `bin/dev-be-probe.sh:8` and `tools/tool-devsync/src/be-probe.test.ts:41` read. It declares
-  `identity: 'open'` and keeps checking its own token, so nothing intercepts it. A clause asserts the
-  body, not just the status.
+- **`GET /api/auth/me` answers `{ user: null }` with no presented credential and
+  `{ error: 'invalid_token' }` for a rejected credential** (`auth.routes.ts`). The canonical
+  anonymous body is read by `bin/dev-be-probe.sh` and `tools/tool-devsync/src/be-probe.test.ts`. It
+  declares `identity: 'open'` and keeps checking its own token, so nothing intercepts it. A clause
+  asserts the body, not just the status.
 - **`POST /api/projects/:id/opened` keeps `scope: 'write'`**, asserted today by
   `oidc.integration.test.ts:446`. It is a row in the quadruple table and in the predicate diff.
 
@@ -597,9 +598,9 @@ them, both total:
 
 Neither route is touched, because neither uses `callerGuard` and neither gets a `preflight`:
 
-- `GET /api/auth/me` resolves its own token and answers `{ error: 'invalid_token' }`
-  (`auth.routes.ts:247-251`), read by `bin/dev-be-probe.sh:8` and
-  `tools/tool-devsync/src/be-probe.test.ts:41`.
+- `GET /api/auth/me` resolves its own token and distinguishes an anonymous caller (`{ user: null }`)
+  from a rejected credential (`{ error: 'invalid_token' }`). The anonymous response is read by
+  `bin/dev-be-probe.sh` and `tools/tool-devsync/src/be-probe.test.ts`.
 - `/internal/forward` and `/internal/resume` check a pre-shared secret inline
   (`internal.routes.ts:51`, `:68`).
 

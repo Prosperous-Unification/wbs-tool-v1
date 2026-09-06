@@ -281,7 +281,24 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
       path: '/api/auth/me',
       handler: async ({ headers }) => {
         const user = await userFromHeaders(auth, headers);
-        if (user === null) return respond(401, { error: 'invalid_token' });
+        if (user === null) {
+          const presentedCredential =
+            cookiesIn(headers['cookie']).has('__Host-wbs_access') ||
+            headers['authorization'] !== undefined ||
+            headers['x-wbs-token'] !== undefined;
+          /*
+           * No browser session is an ordinary signed-out state, not a failed
+           * resource: Chromium reports every 401 fetch in its console. A
+           * credential that was actually presented still fails closed.
+           *
+           * Proof: treating every null user as anonymous makes the forged,
+           * altered, and retired-header cases in auth.integration.test.ts
+           * return 200; restoring the blanket 401 makes its anonymous case
+           * fail and reproduces TASK-299's two StrictMode console errors.
+           */
+          if (!presentedCredential) return ok({ user: null });
+          return respond(401, { error: 'invalid_token' });
+        }
         return ok({ user });
       },
     },
