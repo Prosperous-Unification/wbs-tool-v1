@@ -158,10 +158,10 @@ describe('the managed solver lifecycle', () => {
     expect(driver.events.map((event) => event.split(':')[0])).toEqual([
       'list',
       'create',
-      'attach',
       'timer',
       'start',
       'inspect1',
+      'attach',
       'send',
       'write',
       'write',

@@ -103,7 +103,6 @@ export async function runManagedSolverAttempt(
   }
 
   const containerId = await driver.create(buildManagedContainerArgs(frame, options));
-  const attachment = await driver.attach(exactManagedContainerArgs('attach', containerId));
   const deadlineTimer = await driver.armDeadline(
     buildPersistentDeadlineTimerCommands(frame, containerId),
   );
@@ -113,6 +112,9 @@ export async function runManagedSolverAttempt(
   if (!Number.isSafeInteger(started.pid) || started.pid < 1) {
     throw new Error('managed solver lifecycle: started container has no positive init PID');
   }
+  // Docker CLI refuses to attach to a merely created container. The launcher
+  // waits for the bound verdict, so starting before attach cannot expose work.
+  const attachment = await driver.attach(exactManagedContainerArgs('attach', containerId));
   await channel.send({ type: 'started', pid: started.pid });
   // Docker can expose child output as soon as start returns. Do not consume
   // the attached streams until the protocol's mandatory first reply is sent.
