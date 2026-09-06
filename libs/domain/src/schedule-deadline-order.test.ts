@@ -239,7 +239,18 @@ describe('minimum slack orders the ready set', () => {
   });
 });
 
-describe('a deadline never moves work earlier and never overrides a floor', () => {
+/**
+ * tasks.md 4.5, under its corrected name.
+ *
+ * The describe was called `a deadline never moves work earlier and never
+ * overrides a floor`, and the first half of that is false here: winning a
+ * minimum-slack queue *is* moving earlier, and the first case above has `b`
+ * starting at 2 undeadlined and at 0 deadlined. The rule these two cases
+ * actually prove is the narrower one — a comparator decides which of two
+ * eligible slices goes first, and a slice's own floors, dependencies and
+ * earlier steps decide the day it can start at all.
+ */
+describe('a deadline decides an order, never a date', () => {
   it('starts a leaf at its floor even when the floor stands after its deadline', () => {
     // tasks.md 4.5. `a` is due on day 2 and may not start before day 6. The
     // floor is the answer, `notBefore` is the reason, and the row is reported

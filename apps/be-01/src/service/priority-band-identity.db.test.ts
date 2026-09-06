@@ -479,9 +479,11 @@ describe('a priority ladder moves no date', () => {
         // capture cannot have — a payload that gained a field, which is not a
         // payload that moved a date. Null is the assertion and not a
         // convenience: no work item in these sixteen plans can carry a deadline
-        // at all, because the column does not exist yet, so a replay reporting
-        // any slice late would mean the engine had invented a date rather than
-        // read one.
+        // at all, so a replay reporting any slice late would mean the engine
+        // had invented a date rather than read one. The column exists as of
+        // `b2bb095c` — what makes the claim true is that nothing reads or
+        // writes it, since `WORK_ITEM_COLUMNS` does not name `deadline` and the
+        // plan read passes the `NO_DEADLINES` placeholder.
         expect(lateBy).toBeNull();
         return slice;
       }),

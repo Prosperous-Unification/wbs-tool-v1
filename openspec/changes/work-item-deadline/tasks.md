@@ -199,12 +199,20 @@ constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
       milestone starting at exactly offset `D + 1.0` must be reported **on
       time**. A non-zero-duration fixture cannot produce this red; the test must
       be the milestone.
-- [x] 4.5 A deadline never moves work earlier and never overrides a floor: a leaf
-      whose floor is later than its effective deadline still starts at its floor
-      and is reported late. Landed as two cases in
+- [x] 4.5 A deadline decides an order, never a date: no slice starts before its
+      own floors, its dependencies or its earlier steps, whatever date is
+      written on it — so a leaf whose floor is later than its effective deadline
+      still starts at its floor and is reported late. Landed as two cases in
       `schedule-deadline-order.test.ts`, and both stay green under 5.1's watched
       reds — correctly, because a comparator decides an order and the floor
       decides the date, so nothing a comparator does can move this.
+
+      **The clause first read "a deadline never moves work earlier", and that is
+      false under a minimum-slack queue** — winning the ready set is precisely
+      moving earlier, and the first case in `minimum slack orders the ready set`
+      has `b` starting at 2 with the map empty and at 0 with it populated.
+      Corrected 2026-09-06 against a review finding; the two cases below it
+      always proved the narrower rule above, which is the one that holds.
 
 ## 5. Fast ordering and `Late by N workdays`
 
@@ -345,11 +353,14 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       reproduce, and the stored `contractVersion` equals the constant — and
       regenerating at 7 satisfies both, so the guard is not being worked around.
       What makes 7 still true is measurable rather than argued: **no work item
-      can carry a deadline yet.** Slice 1's migration is unstarted and
-      `grep deadline apps/be-01/src/repository/schema.ts` finds only the
-      unrelated `admitted_deadline_at`, so `deadlines` is empty for every real
-      plan, every new comparison ties, and no cached row can have been computed
-      from a date that could not be stored. The bump's blast radius is also this
+      can carry a deadline yet.** Slice 1 landed at `b2bb095c`, so the column
+      is now there — the reason this holds moved with it and the claim did not.
+      Nothing reads or writes it: `WORK_ITEM_COLUMNS` in
+      `apps/be-01/src/repository/work-item.ts` does not name `deadline`, so no
+      row is selected with one or written with one, and the plan read hands
+      `schedule()` the `NO_DEADLINES` placeholder. So `deadlines` is empty for
+      every real plan, every new comparison ties, and no cached row can have
+      been computed from a date that could not be stored. The bump's blast radius is also this
       slice's own: seven `libs/contracts/solver` request fixtures pinned by
       `wire-contract-version.test.ts`, `revalidate-solver-result.test.ts` and
       `libs/solver-py`, all of them slice 7/8 artifacts TASK-219 owns. Splitting
