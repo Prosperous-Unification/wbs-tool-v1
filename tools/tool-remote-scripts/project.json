@@ -32,6 +32,13 @@
       "cache": false,
       "dependsOn": ["build"]
     },
+    "materialize-solver-supervisor-config": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run tools/tool-remote-scripts/src/materialize-solver-supervisor-config.ts"
+      },
+      "cache": false
+    },
     "test": {
       "executor": "nx:run-commands",
       "options": {
