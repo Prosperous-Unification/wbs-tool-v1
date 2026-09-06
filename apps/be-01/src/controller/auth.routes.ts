@@ -456,7 +456,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // `settled` is the list of binding cookies this request proved are dead
         // — the ones already addressing nothing when they arrived, and then the
         // one this callback spent — and it is the complete cookie list of every
-        // refusal and of the success below. A live login's cookie is never
+        // answer below, refusals and success alike. A live login's cookie is never
         // re-sent, which is what makes a callback unable to erase a login
         // started while it was in flight: the answer names only cookies that
         // are finished, and a name no answer mentions is left exactly as the
@@ -512,19 +512,21 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // the bodiless 400 the other dead-transaction answers give, because a
         // caller who is told "your state was wrong" while the record survives
         // has been handed the retry signal the old ordering was destroying the
-        // record to deny. The only observable difference is the absent
-        // `Set-Cookie`.
+        // record to deny. The only observable difference is that no live
+        // binding is named: `settled` here is the dead names this request
+        // arrived carrying and nothing else, which is usually empty.
         //
         // Proof: `refuses a forged error callback without burning the login it
-        // interrupts` fails with `Received: "__Host-wbs_oidc=; HttpOnly;
-        // Secure; SameSite=Lax; Path=/; Max-Age=0"` against `toBeNull()` when
-        // this clears the binding. That is the red bun reports, because the
-        // header assertion throws first and ends the case; delete that
-        // assertion as well and the honest callback fails `Expected: 302
-        // Received: 400`, which is what the case's derived cookie buys and what
-        // re-sending the string unconditionally did not. The loss is observable
-        // where a browser would suffer it, not only in the header causing it.
-        if (transaction.outcome === 'state_mismatch') return empty(400, []);
+        // interrupts` fails with `Received: "__Host-wbs_oidc_<digest>=;
+        // HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"` against
+        // `toBeNull()` when this clears the mismatched binding. That is the red
+        // bun reports, because the header assertion throws first and ends the
+        // case; delete that assertion as well and the honest callback fails
+        // `Expected: 302 Received: 400`, which is what the case's derived jar
+        // buys and what re-sending the cookie unconditionally did not. The loss
+        // is observable where a browser would suffer it, not only in the header
+        // causing it.
+        if (transaction.outcome === 'state_mismatch') return empty(400, clearsFor(settled));
         if (transaction.outcome !== 'consumed') return empty(400, clearsFor(settled));
 
         // **An error callback is the authorization server saying this login is

@@ -26,8 +26,9 @@ import type { OidcConsumeResult, OidcTransactionStore } from './oidc-store';
  *
  * **What distinct names cost, honestly.** The cookie jar grows with concurrent
  * logins instead of one value growing, so the bound has to be kept by clearing
- * names rather than by truncating a list — {@link selectBrowserBindings} does
- * that, and it is the only place the number is enforced. The earlier version of
+ * names rather than by truncating a list. {@link selectBrowserBindings} decides
+ * which names those are; the login route emits the clears it names, and is the
+ * only other reader of this number. The earlier version of
  * this comment also claimed a security objection to per-login names that does
  * not exist: deriving a name from the URL's `state` would let the arriving
  * request select *which* proof is offered, never what it is. That objection is
@@ -131,8 +132,9 @@ export interface BrowserBindingSelection {
 /**
  * Decide which of a browser's binding cookies are live and which are litter.
  *
- * **The bound on concurrent logins lives here and nowhere else** (acceptance
- * criterion 4). A cookie the browser holds is surplus when any of these is
+ * **Which cookies count against the bound is decided here** (acceptance
+ * criterion 4), and the login route acts on the answer rather than repeating
+ * the rule. A cookie the browser holds is surplus when any of these is
  * true, and each is a decision:
  *
  * - Its record is gone or expired. The binding can never address anything
