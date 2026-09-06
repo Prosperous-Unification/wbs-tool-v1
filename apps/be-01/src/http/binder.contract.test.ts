@@ -299,6 +299,48 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     expect(await res.json()).toEqual({ id: '7', mode: 'last' });
   });
 
+  /**
+   * Sol's Important 4. A path whose only declared route is a GET answers HEAD
+   * from that GET under Elysia and answered 404 here, which made a HEAD probe
+   * — the cheapest liveness check a client has — disagree with the API it was
+   * probing. Measured on h2puni at `806f8580`, elysia 1.4.28:
+   *
+   * ```
+   * HEAD /probe/plain      elysia 200 cl=17 body=""   in-process 404
+   * HEAD /probe/headers    elysia 200 x-probe=set     in-process 404
+   * HEAD /probe/only-post  elysia 404                 in-process 404   agree
+   * HEAD /probe/nope       elysia 404                 in-process 404   agree
+   * OPTIONS /probe/plain   elysia 404                 in-process 404   agree
+   * ```
+   *
+   * The last row is what bounds the fix: this is HEAD reaching GET, **not** a
+   * general fallback from any verb to any other, so a HEAD with no GET beneath
+   * it stays the 404 both binders already agreed on.
+   */
+  it('answers HEAD on a path declaring only a GET, with the GET’s status and headers', async () => {
+    const res = await app.handle(new Request('http://localhost/probe/headers', { method: 'HEAD' }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-probe')).toBe('set');
+    expect(await res.text()).toBe('');
+  });
+
+  /**
+   * The body is absent but its length is not: a client sizing a download off a
+   * HEAD gets the number the GET would have sent. `{"hello":"world"}` is 17
+   * bytes and Elysia answers exactly that.
+   */
+  it('gives a HEAD answer the content-length of the body it withheld', async () => {
+    const res = await app.handle(new Request('http://localhost/probe/plain', { method: 'HEAD' }));
+    expect(res.headers.get('content-length')).toBe('17');
+    expect(await res.text()).toBe('');
+  });
+
+  /** The bound: HEAD is not a licence to reach any other verb. */
+  it('does not answer HEAD on a path whose only route takes a body verb', async () => {
+    const res = await app.handle(new Request('http://localhost/probe/body', { method: 'HEAD' }));
+    expect(res.status).toBe(404);
+  });
+
   it('answers a 204 with no body at all', async () => {
     const res = await app.handle(
       new Request('http://localhost/probe/gone/7', { method: 'DELETE' }),

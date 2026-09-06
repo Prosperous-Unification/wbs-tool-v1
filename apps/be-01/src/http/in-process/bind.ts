@@ -41,7 +41,14 @@ export function bindInProcess(routes: readonly Route[]): {
   return {
     handle: async (request: Request): Promise<Response> => {
       const url = new URL(request.url);
-      const method = request.method.toUpperCase() as HttpMethod;
+      const verb = request.method.toUpperCase();
+      // HEAD is answered by the path's GET, which is what Elysia does and what
+      // RFC 9110 §9.3.2 requires; no route in this app declares HEAD, so the
+      // mapping is unambiguous. The handler is told `GET` because that is the
+      // route it belongs to and it is what the Elysia binder passes — a handler
+      // branching on a method it was never registered under would be a
+      // difference between the binders rather than a shared contract.
+      const method = (verb === 'HEAD' ? 'GET' : verb) as HttpMethod;
 
       for (const route of routes) {
         const params = matchPath(route.path, url.pathname);
@@ -91,13 +98,30 @@ export function bindInProcess(routes: readonly Route[]): {
         } catch {
           return toResponse(respond(400, { error: 'invalid_body' }));
         }
-        return toResponse(await route.handler(req));
+        const answer = toResponse(await route.handler(req));
+        return verb === 'HEAD' ? await withoutBody(answer) : answer;
       }
       // One pass, and one answer: an unknown path and a known path reached with
       // the wrong verb are both 404. See the note on this function.
       return toResponse(respond(404, { error: 'not_found' }));
     },
   };
+}
+
+/**
+ * The GET's answer with its body withheld and its length kept.
+ *
+ * `content-length` is set rather than dropped because that number is the reason
+ * a client sends HEAD at all — sizing a download without fetching it. Elysia
+ * answers `content-length: 17` for the 17-byte `{"hello":"world"}` and this
+ * reproduces it; the status, the content type and every header the route set
+ * carry over untouched.
+ */
+async function withoutBody(res: Response): Promise<Response> {
+  const body = await res.arrayBuffer();
+  const headers = new Headers(res.headers);
+  headers.set('content-length', String(body.byteLength));
+  return new Response(null, { status: res.status, headers });
 }
 
 /**
@@ -141,7 +165,12 @@ export function bindInProcess(routes: readonly Route[]): {
  * `openapi/openapi-document.test.ts`.
  */
 async function decodeBody(request: Request): Promise<unknown> {
-  if (request.method === 'GET' || request.method === 'DELETE') return undefined;
+  // HEAD is here for the same reason GET is, and explicitly rather than by
+  // falling through the content-type checks below: it reaches this function
+  // carrying its own verb, not the GET it was dispatched to.
+  if (request.method === 'GET' || request.method === 'DELETE' || request.method === 'HEAD') {
+    return undefined;
+  }
   const contentType = request.headers.get('content-type') ?? '';
   if (contentType.includes('json')) {
     const raw = await request.text();
