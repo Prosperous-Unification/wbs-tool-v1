@@ -1341,7 +1341,7 @@ in both slices rather than implied by position.
       is 9.2b's**, below. The attribute half is what stops the guarantee being
       restated as a falsehood; the pixel half is what stops it being weakened to
       "no attribute moved", and neither tier can stand for the other.
-- [ ] 8.2a The rule is an opaque 1px `<line>` on screen at both ends of the
+- [x] 8.2a The rule is an opaque 1px `<line>` on screen at both ends of the
       ladder, and the mechanism is
       `vector-effect: non-scaling-stroke`. **All three rungs, and the ends carry the mechanism**
       (round-18 Gemini review, Minor, revised in round 19): 28 and 4 are the
@@ -1627,6 +1627,18 @@ in both slices rather than implied by position.
       be unblocked by a fixture that injects markers past the app, since a
       browser tier reached through a back door proves nothing about the
       product.
+      **Both holds are closed and the tier passes (chunk 56).** Slice 9.0 gave
+      the host its marker props, and chunk 56 removed the second hold, which was
+      this file's own gesture rather than the product: the composer is
+      `fixed bottom-4 left-1/2`, so Save unmounted it onto a bar and left a
+      hover-card standing over the strip. `STRIP_REACH_PX` is 6, so the strip is
+      `6 * 2 + 1` = 13 columns wide and the reported failure named exactly
+      `0…12` — the whole clip, which is the arithmetic that turned the lead into
+      the cause. Parking the pointer at `(0, 0)` after the save and waiting for
+      `[role="tooltip"]` to reach zero — `hover-cards.spec.ts:54`'s own inert
+      park — makes it **1 passed**, watched on h2puni at 2026-09-06T03:56Z. The
+      park is its own watched negative: removed, the same run fails at the same
+      assertion with the same `0…12` against `5, 6`.
 - [x] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
       **6**, and the measure is `occupiedDatesInViewport / viewportWidthPx * 100`
       compared with `>` (`design.md` §3: 100px is 25 days at that rung, so six is
@@ -3328,3 +3340,44 @@ h2puni, plus `test-failed-1.png`), not another guess. The question to answer
 first is what the thirteen columns _are_ — the scroll offset changing between
 the two photographs is the leading candidate, and if it is, the clip has to be
 pinned to the scrollport rather than recomputed from a box that moves.
+
+## Chunk 56 — 8.2a passes, and the hover-card was the cause (TASK-235 run 28, 2026-09-06)
+
+**8.2a is ticked.** The browser tier runs green on h2puni: `1 passed (11.3s)`,
+`gantt.spec.ts:3767`, watched at 2026-09-06T03:56Z against the same gate tree
+chunk 55 used.
+
+**Chunk 55's lead was right and its arithmetic objection was wrong.** That entry
+weighed the ~258px hover-card against "only thirteen columns" and could not make
+the two agree. The thirteen columns are not a measurement of the card — they are
+the **whole strip**: `STRIP_REACH_PX` is 6 and `geometryOf` cuts a strip
+`reach * 2 + 1` wide, so `0…12` is every column it has. A card of any width over
+that strip differs in all thirteen. Nothing about the clip's geometry needed
+dumping after that; the objection dissolved on the constant.
+
+**The fix is one gesture, not a contract change.** The composer is
+`fixed bottom-4 left-1/2`; Save unmounts it and drops the pointer onto whatever
+lies beneath, which in this plan is a bar, and a bar under the pointer opens its
+hover-card. The `absent` clips were cut before any click and carry none. So
+`present` and `absent` differed over the whole strip for a reason that has
+nothing to do with marker ink, while `hidden` and `present` — both taken with the
+card open — differed only in the rule, which is exactly the `0…12` against `5, 6`
+that was reported. `await page.mouse.move(0, 0)` plus a wait for
+`[role="tooltip"]` to reach count 0, after the save and before any `present`
+clip, is `hover-cards.spec.ts:54`'s established inert park.
+
+**Negative watched, and it is the same experiment run backwards:** with the two
+park lines deleted from the gate tree's copy and nothing else changed, the case
+fails at `gantt.spec.ts:3899` with
+`at 28px the marker paints 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 and the rule paints 5, 6`
+— chunk 55's failure exactly. Restored, it passes. The gate tree was returned to
+the committed bytes afterwards, md5 `0e955b86` on both hosts.
+
+**No assertion in 8.2a was weakened to get here.** The hairline bound, the
+`totalInk == ruleInk` set equality, the whole-body identity and the
+"the marker really drew something" check all stand as round 19 left them, and all
+of them now pass at 28, 12 and 4 px.
+
+**Next**: 9.2 — click a day, name a marker, see the chip and the rule, reload,
+delete — which shares this file and now has a working host and a settled gesture.
+Then 8.4.

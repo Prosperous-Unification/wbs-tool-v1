@@ -3751,29 +3751,20 @@ test.describe('the marker rule, measured in the columns it paints', () => {
   }
 
   /**
-   * **Held at `fixme` because the live app cannot make a marker yet, and the
-   * failure that says so was watched.** Run on h2puni at
-   * 2026-09-06T02:24:36Z, this case reached the composer — the axis cell
-   * opened it, `Marker name` took the text — and then timed out at 60s on the
-   * `POST …/calendar-markers` that never left the browser. The cause is not in
-   * this file: `wbs-table.tsx:12043` renders `<GanttPanel>` with thirteen
-   * props and **not one of them is a marker prop** — no `markers` to draw and
-   * no `onCreateMarker` for Save to call — so the composer's button reports
-   * upward into nothing and every axis cell still reads `no calendar markers`
-   * in the failure snapshot. The chart's marker layer is wired in jsdom, where
-   * the tests supply those props themselves, and nowhere else.
+   * The first end-to-end reading this feature has: a marker made through the
+   * real composer, persisted through the real route, drawn by the real chart.
    *
-   * That gap is not 8.2a's to close and no slice in this plan owns it, which is
-   * why this is recorded here rather than papered over with a fixture that
-   * injects markers past the app: **9.2, 9.2a, 9.2b, 9.2c and 9.3 are all
-   * blocked behind the same wiring**, and a browser tier that reached the
-   * screen through a back door would prove nothing about the product.
-   *
-   * `fixme` rather than `skip`: this is a test that should pass and does not.
-   * Drop this call once the host passes the marker props, and the body below
-   * runs unchanged — everything up to the save was watched working.
+   * It was held at `fixme` twice and both holds are closed. The first was the
+   * host — `wbs-table.tsx` passed `<GanttPanel>` no marker props at all, so
+   * Save reported upward into nothing and the `POST …/calendar-markers` never
+   * left the browser; slice 9.0 wired that seam and the request now lands. The
+   * second was this file's own gesture: with the pointer left where Save
+   * unmounted the composer, a bar's hover-card stood open over the strip and
+   * **every one of its thirteen columns** differed from the marker-free clip —
+   * `STRIP_REACH_PX` 6 makes the strip `6 * 2 + 1` wide, and the failure named
+   * exactly `0…12`, which is the whole of it. The park above closes that.
    */
-  test.fixme('is one opaque hairline at every rung, and the only body ink the marker adds', async ({
+  test('is one opaque hairline at every rung, and the only body ink the marker adds', async ({
     page,
   }) => {
     await seedPlan(page, 'marker-rule-ink');
@@ -3801,6 +3792,16 @@ test.describe('the marker rule, measured in the columns it paints', () => {
     );
     await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
     await saved;
+
+    // Park the pointer before any `present` clip is cut. The composer is
+    // `fixed bottom-4 left-1/2`; Save unmounts it and drops the pointer onto
+    // whatever is underneath, which in this plan is a bar — and a bar under the
+    // pointer opens a hover-card. The `absent` clips were cut before any click
+    // and carry no card, so the two states would then differ over the whole
+    // strip for a reason that is not marker ink. `(0, 0)` and a wait for the
+    // count to reach zero is `hover-cards.spec.ts:54`'s own inert park.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
     const rule = page.locator('[data-gantt-marker-rule]');
     await expect(rule).toHaveCount(1);
