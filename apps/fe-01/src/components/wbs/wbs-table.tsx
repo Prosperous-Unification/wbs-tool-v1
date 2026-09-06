@@ -10343,13 +10343,7 @@ export function WbsTable({
                   onKeyDown={(e) => {
                     // A bare Enter opens the editor; a chord is the table's and is
                     // left to it, which is why the modifiers are asked about first.
-                    if (
-                      e.key === 'Enter' &&
-                      !e.metaKey &&
-                      !e.ctrlKey &&
-                      !e.altKey &&
-                      !e.shiftKey
-                    ) {
+                    if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
                       e.preventDefault();
                       open();
                       return;
