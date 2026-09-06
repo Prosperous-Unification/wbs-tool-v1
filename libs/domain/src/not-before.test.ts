@@ -43,7 +43,7 @@ describe('isOrphanedNotBeforeReason', () => {
 
 describe('LONGEST_NOT_BEFORE_REASON', () => {
   it('is a sentence rather than a paragraph', () => {
-    // The bound is read by `work-item.controller.ts` and by nothing else, so
+    // The bound is read by `work-item.routes.ts` and by nothing else, so
     // the number is asserted where it is stated: a change to it is a change to
     // what a hover card can carry, and it should have to be typed twice.
     expect(LONGEST_NOT_BEFORE_REASON).toBe(200);

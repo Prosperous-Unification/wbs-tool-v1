@@ -94,10 +94,27 @@ function usageRowsIn(
   // `DirectoryRepository`'s own doc: a bare `select()` reads every column
   // drizzle knows about, and these rows are folded into the usage preview a
   // person is shown before consenting to a removal.
+  //
+  // **Ordered by `work_item.id`, and the order is a promise rather than a
+  // property of the query plan** — the same contract `WorkItemRepository.
+  // listByProject` states and ADR 0016 argues, applied to the one select in
+  // this function that was missing it while the five below all order
+  // explicitly. This is a preview a person reads before consenting to a
+  // removal, so two reads of unchanged data returning two different orders is
+  // a defect in what they are shown, not a cosmetic one.
+  //
+  // It was latent until an index made it visible: `work_item_project_id_id`
+  // — `(project_id, id)`, added with that contract — can serve this
+  // `WHERE project_id IN (…)` on its own, and an index read comes back in key
+  // order where the table scan it replaced came back in rowid order, i.e. in
+  // insertion order. CI run 34020910596 at `44463938` failed on exactly that
+  // flip (`work-item-type.db.test.ts:265`, the two ids swapped into ascending
+  // id order) at bytes whose only change was merging the index in.
   const rows = reader
     .select(WORK_ITEM_COLUMNS)
     .from(workItem)
     .where(inArray(workItem.projectId, ids))
+    .orderBy(asc(workItem.id))
     .all();
   const joined = reader
     .select({ workItemId: workItemTeam.workItemId, teamId: workItemTeam.teamId })

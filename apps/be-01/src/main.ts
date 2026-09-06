@@ -2,7 +2,7 @@ import { createLogger } from '@wbs/observability';
 
 import { bootBe01 } from './boot';
 import { loadConfig } from './config';
-import { oidcRouteOptionsFromEnv } from './controller/auth.controller';
+import { oidcRouteOptionsFromEnv } from './controller/auth.routes';
 
 const cfg = loadConfig();
 const logger = createLogger({ service: 'be-01', level: cfg.LOG_LEVEL });

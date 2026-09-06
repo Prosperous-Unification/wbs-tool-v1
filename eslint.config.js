@@ -164,6 +164,132 @@ export default [
     },
   },
 
+  // The controller directory owns no HTTP framework, and this is what makes
+  // that true rather than aspirational.
+  //
+  // `http/route.ts` claimed an ESLint boundary held the line for the whole of
+  // the be-01 hexagonal refactor. There was none: the check was
+  // `git grep -l elysia apps/be-01/src/controller`, run by hand, and it stayed
+  // green only because nobody ran it. Two helper modules under `http/elysia/`
+  // grew controller imports — `query-schemas.ts`, which imports the runtime `t`,
+  // and the body-doc helpers, which took a type from the framework — so seven
+  // route modules loaded the framework transitively for fourteen chunks while
+  // the acceptance criterion read as met.
+  //
+  // Transitive is the whole point of the pattern list: banning `elysia` alone
+  // would still have passed, because no controller named it directly. Anything
+  // under `http/elysia/` is the framework's dialect by definition, so importing
+  // one of those modules is importing the framework one hop out.
+  //
+  // Type-only imports are restricted too. A type import costs nothing at run
+  // time and it is still the thing that failed the criterion, which is written
+  // against the grep and not against the emitted bundle.
+  //
+  // This block repeats the `bun:sqlite` restriction from the block above,
+  // because flat config replaces a rule's options per file rather than merging
+  // them — without the repeat, controllers would silently lose it.
+  {
+    files: ['apps/be-01/src/controller/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'bun:sqlite',
+              allowTypeImports: true,
+              message:
+                'Open connections through openDatabase() in repository/db.ts — it sets and ' +
+                'asserts WAL, busy_timeout and foreign_keys, and busy_timeout/foreign_keys ' +
+                'are per-connection, so a direct `new Database()` silently loses them.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['elysia', 'elysia/*', '@elysiajs/*', '**/http/elysia/*'],
+              allowTypeImports: false,
+              message:
+                'A route module names no HTTP framework — acceptance criterion #1 of the ' +
+                'be-01 refactor. Express what the route needs against http/route.ts, and ' +
+                'put anything in the framework’s dialect behind a name the binder resolves ' +
+                '(see QuerySchemaName) or in a framework-free module under http/ ' +
+                '(see http/body-doc.ts).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // The other half of the same criterion, and the half a review found missing:
+  // the fence above stands in front of `src/controller`, so it says nothing
+  // about what the modules a controller is *allowed* to import may themselves
+  // import. `http/` is the framework-free layer every controller reaches the
+  // outside through — `route.ts`, `response.ts`, `caller.ts`, `body-doc.ts`
+  // and the second binder under `http/in-process/` — so `elysia` arriving in
+  // any of them is the criterion failing one hop out, with the grep in AC 1
+  // still clean.
+  //
+  // `http/elysia/` is excluded because it *is* the dialect: it is the one
+  // place under `src/` outside `app.ts` that AC 1 lets import the framework.
+  //
+  // Measured rather than assumed, on a probe controller run through this
+  // config (2026-09-06, h2puni, `~/t262-gate`): `import 'elysia'` errors and
+  // `import '../http/elysia/query-schemas'` errors — so `**/http/elysia/*`
+  // *does* match a `../`-relative specifier, contrary to the review's second
+  // claim — while `import '@elysiajs/openapi'` did **not**, which is why
+  // `@elysiajs/*` is now in both groups.
+  //
+  // What this still does not do, stated so nobody reads more into it: eslint
+  // matches specifier strings, not a dependency graph, so a controller
+  // importing some third module that imports the framework is caught by AC 1's
+  // own `git grep` control and by `app.routes.test.ts`, not by this rule.
+  // `openapi/openapi-plugin.ts` imports `@elysiajs/openapi` and is deliberately
+  // outside this fence — it is a plugin `app.ts` mounts, not a module on any
+  // controller's import path.
+  //
+  // It repeats the `bun:sqlite` restriction for the controller block's reason:
+  // flat config replaces a rule's options per file rather than merging them, so
+  // without the repeat every module under `http/` would silently lose it.
+  //
+  // `binder.contract.test.ts` is the second exclusion and the more interesting
+  // one: it is AC 3's parameterised suite, whose whole job is to run the same
+  // route list through BOTH binders, so it imports `./elysia/bind` on purpose.
+  // Measured, not guessed — it is the one file in `http/` this block reddened
+  // (`elysia/*` matches a `./elysia/…` specifier), and excluding the suite that
+  // proves the seam is cheaper than a pattern that has to know about it.
+  {
+    files: ['apps/be-01/src/http/**/*.ts'],
+    ignores: ['apps/be-01/src/http/elysia/**', 'apps/be-01/src/http/binder.contract.test.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'bun:sqlite',
+              allowTypeImports: true,
+              message:
+                'Open connections through openDatabase() in repository/db.ts — it sets and ' +
+                'asserts WAL, busy_timeout and foreign_keys, and busy_timeout/foreign_keys ' +
+                'are per-connection, so a direct `new Database()` silently loses them.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['elysia', 'elysia/*', '@elysiajs/*'],
+              allowTypeImports: false,
+              message:
+                'http/ is the framework-free layer — acceptance criterion #1 of the be-01 ' +
+                'refactor. Only http/elysia/ names the framework; a module here that needs ' +
+                'something from it takes a name the binder resolves instead ' +
+                '(see QuerySchemaName in http/route.ts).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // AGENTS.md R3: knowledge about a symbol lives in JSDoc on that symbol.
   //
   // Deliberately NOT `jsdoc/require-jsdoc`. A rule demanding a comment on every

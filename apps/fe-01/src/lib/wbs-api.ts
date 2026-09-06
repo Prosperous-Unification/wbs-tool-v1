@@ -1173,7 +1173,7 @@ export interface CalendarMarkerView {
  *
  * `markerId` and not `id`, because that is the name the route reads: the path
  * `/api/projects/:id/calendar-markers` already spends `id` on the project, so
- * `calendar-marker.controller.ts` takes the marker's own id under `markerId`
+ * `calendar-marker.routes.ts` takes the marker's own id under `markerId`
  * and maps it back to the domain's `id` in the one line of the `POST` handler.
  * Optional, because be-01 mints one when the client does not name it.
  */

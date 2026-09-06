@@ -30,7 +30,7 @@ const CONFLICTS = new Set([
  *
  * Four arms are shared by every route that refuses anything, and were written
  * out five times: as a ladder of `if`s in `statusForBatch`, as a three-deep
- * ternary in `step.controller.ts`, as another in `project.controller.ts`'s
+ * ternary in `step.routes.ts`, as another in `project.routes.ts`'s
  * PATCH, and twice inline. What each route does **not** share is its default,
  * which is why that is the argument: a malformed step body is 422, a batch with
  * a step nothing can parse is 400, an undo of an empty stack is 409, and a

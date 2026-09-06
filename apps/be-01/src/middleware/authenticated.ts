@@ -30,7 +30,7 @@ export async function userFromHeaders(
  * undecodable one as no cookie at all (so a Bearer header still gets its
  * chance), while `hasInvalidCookieOrigin` only asks **whether** a session
  * cookie is there and must not care. Decoding here would force one answer on
- * both — and did: the copy in `auth.controller.ts` decoded every value to read
+ * both — and did: the copy in `auth.routes.ts` decoded every value to read
  * none of them, so a single malformed `%` in any cookie threw a `URIError` out
  * of `onRequest` and answered 500 to a request the origin check had no quarrel
  * with.

@@ -852,6 +852,48 @@ describe('failures you can see', () => {
     });
   });
 
+  itDom('turns be-01’s own word for an unreadable body into the same sentence', async () => {
+    // The sibling above covers `http_422`, which is what `send` throws when the
+    // 422 carries no `error` field. That was every schema refusal until the
+    // controllers stopped declaring schemas to Elysia: they now check their own
+    // bodies and answer `{ error: 'invalid_body' }`, so `send` has a word to
+    // read and throws it instead of the status.
+    //
+    // Reachable, and measured on this branch rather than assumed:
+    // `wbs-table.tsx` sends the plan's start date through `run` →
+    // `api.setStartDate` → `PATCH /api/projects/:id`, whose `startDate` was
+    // `t.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })` and is now
+    // `checkedStartDate`. A year typed one digit at a time makes `82026-12-01`,
+    // which fails both — the 2026-08-09 observation `DateField` was built for.
+    // Before the refactor that arrived as `http_422` and got the sentence
+    // below; without this entry it arrives as `invalid_body` and gets
+    // `That change could not be completed (invalid_body).`, with no reread.
+    const api = await threeRoots();
+    let reads = 0;
+    const realTree = api.tree.bind(api);
+    api.tree = (projectId: string) => {
+      reads += 1;
+      return realTree(projectId);
+    };
+    api.patchWorkItem = () => Promise.reject(new Error('invalid_body'));
+
+    fireEvent.change(screen.getByLabelText('Name of 020'), { target: { value: 'Sand it' } });
+    fireEvent.blur(screen.getByLabelText('Name of 020'));
+
+    await waitFor(() => {
+      expect(toastTexts()).toContain(
+        'That change was not valid, so nothing was saved — what is on screen was read again.',
+      );
+    });
+    // The wire token never reaches the reader, the same bar the sibling holds
+    // `http_422` to.
+    expect(toastTexts().join(' ')).not.toContain('invalid_body');
+    // And the sentence's claim is honest: the plan really was read again.
+    await waitFor(() => {
+      expect(reads).toBe(1);
+    });
+  });
+
   itDom('puts a code it has no sentence for inside one', async () => {
     // The grammatical fallback `auth-form.tsx` established. A code nobody has
     // written a sentence for is still a sentence, with the word in brackets for

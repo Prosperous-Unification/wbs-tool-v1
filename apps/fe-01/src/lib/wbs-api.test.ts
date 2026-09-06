@@ -777,7 +777,7 @@ describe('the calendar-marker client', () => {
   it('sends the client-named id as `markerId`, which is the only name the route reads', async () => {
     // The one place the wire name and the domain name differ: the path already
     // spends `id` on the project, so the create body calls the marker's own id
-    // `markerId` and `calendar-marker.controller.ts` maps it back. A client
+    // `markerId` and `calendar-marker.routes.ts` maps it back. A client
     // that sent `id` would have its id silently ignored and be answered a
     // marker under a different one — which is exactly the collision
     // `openapi-tools.ts` refuses to ship a tool for.
