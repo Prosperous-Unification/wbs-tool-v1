@@ -205,25 +205,42 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
   'ERR_TLS_CERT_ALTNAME_INVALID',
   'ERR_TLS_HANDSHAKE_TIMEOUT',
   'HOSTNAME_MISMATCH',
+  // OpenSSL failures that are not alerts but are still about what came back
+  // over the wire: a peer speaking a protocol we cannot, or a middlebox
+  // answering in something that is not TLS at all.
+  'ERR_SSL_WRONG_VERSION_NUMBER',
+  'ERR_SSL_UNSUPPORTED_PROTOCOL',
+  'ERR_SSL_PACKET_LENGTH_TOO_LONG',
 ]);
 
 /**
- * The one prefix left, and the reason it is not the mistake the `UND_ERR_` one
- * was.
+ * The one open-ended rule left, and it matches an alert rather than a namespace.
  *
- * Node surfaces OpenSSL's alerts verbatim — `ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE`,
- * `ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION`, and a long open tail of others — and
- * every member of that family is a protocol failure between us and the far end.
- * There is no argument error and no programming error hiding under it, which is
- * exactly what made `UND_ERR_` unsafe, so an alert this list has never heard of
- * is still an alert. `EPROTO` does not stand in for these: it is the errno, not
- * the OpenSSL code, and the two arrive separately.
+ * Node surfaces the far end's TLS alerts verbatim —
+ * `ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE`, `ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION`,
+ * `ERR_SSL_TLSV13_ALERT_*` and an open tail of others. An alert is by definition
+ * something the peer sent us, so the whole shape is evidence about the peer, and
+ * one added tomorrow is still an alert. Anything a closed list could say about
+ * that family it would say too late.
+ *
+ * **`ERR_SSL_` on its own would not do**, which is the same mistake as the
+ * `UND_ERR_` prefix in a different coat: it is OpenSSL's whole namespace, and
+ * `ERR_SSL_NO_CIPHER_MATCH` is a local cipher configuration that fails before we
+ * ever reach the provider. The `_ALERT_` infix is what separates "the peer
+ * objected" from "our own TLS setup is wrong". Non-alert OpenSSL failures that
+ * *are* transport failures are enumerated below by name instead.
+ *
+ * `EPROTO` does not stand in for any of this: it is the errno, not the OpenSSL
+ * code, and the two arrive separately.
  */
-const OPENSSL_ALERT_PREFIX = 'ERR_SSL_';
+const OPENSSL_ALERT = /^ERR_SSL_[A-Z0-9]+_ALERT_[A-Z0-9_]+$/;
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
   try {
+    // The cast is safe because the line above has already established that this
+    // is a non-null object; indexing one with a string is always defined
+    // behaviour, and the `try` is here because the *getter* may not be.
     return (value as Record<string, unknown>)[key];
   } catch {
     throw new UnreadableValue(key);
@@ -241,7 +258,7 @@ function numberProperty(value: unknown, key: string): number | undefined {
 }
 
 function isTransportCode(code: string): boolean {
-  return TRANSPORT_CODES.has(code) || code.startsWith(OPENSSL_ALERT_PREFIX);
+  return TRANSPORT_CODES.has(code) || OPENSSL_ALERT.test(code);
 }
 
 /** Walks `cause` for a transport code, since `fetch` buries it one or more levels down. */

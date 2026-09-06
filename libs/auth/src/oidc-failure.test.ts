@@ -204,19 +204,34 @@ describe('classifyOidcFailure', () => {
       }
     });
 
-    it('calls an OpenSSL alert unavailable, including one it has never heard of', () => {
-      // A failed handshake is a real outage arm, and OpenSSL's alert names are
-      // an open family — so this row is a prefix, unlike the undici one. The
-      // last case is the point: an alert added tomorrow is still an alert.
+    it('calls an alert the peer sent unavailable, including one it has never heard of', () => {
+      // A failed handshake is a real outage arm, and TLS alert names are an open
+      // family — so this row is matched by shape, not by a closed list. The last
+      // case is the point: an alert added tomorrow is still an alert, because an
+      // alert is by definition something the far end sent us.
       for (const code of [
         'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
+        'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
+        'ERR_SSL_TLSV1_ALERT_SOMETHING_OPENSSL_ADDS_LATER',
+        // Not an alert, but still about what came back over the wire.
         'ERR_SSL_WRONG_VERSION_NUMBER',
-        'ERR_SSL_SOMETHING_OPENSSL_ADDS_LATER',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'unavailable',
           reason: 'provider_unreachable',
+        });
+      }
+    });
+
+    it('does not call our own TLS configuration an outage', () => {
+      // `ERR_SSL_` is OpenSSL's whole namespace, not the alert family: a cipher
+      // list that matches nothing fails before the provider is ever contacted,
+      // and calling that an outage is the `UND_ERR_` mistake in a different coat.
+      for (const code of ['ERR_SSL_NO_CIPHER_MATCH', 'ERR_SSL_NO_SHARED_CIPHER']) {
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'defect',
+          reason: 'unrecognised_failure',
         });
       }
     });
