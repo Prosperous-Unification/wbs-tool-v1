@@ -2283,3 +2283,32 @@ describe('the priority a create stamps', () => {
     expect([stamped.value.priority, blank.value.priority]).toEqual([7, null]);
   });
 });
+
+describe('assignment projections isolate memory projects', () => {
+  it('names only the people assigned in the requested project', async () => {
+    const first = await service.create(projectId, OWNER, {
+      parentId: null,
+      afterId: null,
+      name: 'First',
+    });
+    if (!first.ok) throw new Error('first row refused');
+    const other = projectRow({ id: 'other-assignment-project', ownerId: OWNER });
+    await projects.create(
+      other,
+      [{ id: 'other-step', projectId: other.id, name: 'Other', position: 10 }],
+      WROTE,
+    );
+    const second = await service.create(other.id, OWNER, {
+      parentId: null,
+      afterId: null,
+      name: 'Second',
+    });
+    if (!second.ok) throw new Error('second row refused');
+    await directory.assign(first.value.id, stepId, 'ada', WROTE);
+    await directory.assign(second.value.id, 'other-step', 'grace', WROTE);
+    expect((await service.tree(projectId))?.assignedPeople).toEqual([{ id: 'ada', name: 'ada' }]);
+    expect((await service.tree(other.id))?.assignedPeople).toEqual([
+      { id: 'grace', name: 'grace' },
+    ]);
+  });
+});

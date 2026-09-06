@@ -1673,6 +1673,14 @@ export interface DirectoryStore {
    * update to a row that stays does.
    */
   removeTeam(teamId: string, cascade: boolean, stamp: WriteStamp): Promise<DirectoryRemoved>;
+  /** Assignments and their current person names, read together within one project. */
+  assignmentsInProject(projectId: string): Promise<{
+    assignments: Assignment[];
+    people: { id: string; name: string }[];
+  }>;
+  /** Assignments on one work item, bounded by its indexed key. */
+  assignmentsFor(workItemId: string): Promise<Assignment[]>;
+  /** Subset consumer compatibility; each distinct work item uses its indexed key. */
   assignmentsOf(workItemIds: readonly string[]): Promise<Assignment[]>;
   /**
    * Sets, replaces or (with `null`) removes one work item's assignee for one

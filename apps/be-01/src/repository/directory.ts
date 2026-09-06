@@ -1263,19 +1263,69 @@ export class DirectoryRepository implements DirectoryStore {
       .all();
   }
 
-  async assignmentsOf(
-    workItemIds: readonly string[],
-  ): Promise<{ workItemId: string; stepId: string; personId: string }[]> {
-    if (workItemIds.length === 0) return [];
-    const wanted = new Set(workItemIds);
+  /**
+   * Joins only this project's assignments and their person names in one statement.
+   * The work-item project/id index leads into the assignment and person primary keys.
+   *
+   * Proof: restoring the unfiltered assignment read and filtering its answer
+   * afterward made `materializes only assigned project rows and names during a
+   * tiny tree read` fail on 41 materialized rows, expected at most 1. Making
+   * project equality unindexable with `project_id || ''` preserved the payload
+   * but failed that test on `SCAN assignment`, expected no scanned tables.
+   */
+  async assignmentsInProject(
+    projectId: string,
+  ): ReturnType<DirectoryStore['assignmentsInProject']> {
     const rows = await this.db
       .select({
         workItemId: assignment.workItemId,
         stepId: assignment.stepId,
         personId: assignment.personId,
+        name: person.name,
       })
-      .from(assignment);
-    return rows.filter((row) => wanted.has(row.workItemId));
+      .from(workItem)
+      .innerJoin(assignment, eq(assignment.workItemId, workItem.id))
+      .innerJoin(person, eq(person.id, assignment.personId))
+      .where(eq(workItem.projectId, projectId))
+      .orderBy(asc(person.name));
+    return {
+      assignments: rows.map(({ workItemId, stepId, personId }) => ({
+        workItemId,
+        stepId,
+        personId,
+      })),
+      people: [
+        ...new Map(rows.map(({ personId, name }) => [personId, { id: personId, name }])).values(),
+      ],
+    };
+  }
+
+  /**
+   * Reads through the leading work-item column of the assignment primary key.
+   *
+   * Proof: removing the predicate made `uses an indexed prior assignment read
+   * during one assignment write` fail on 40 materialized rows, expected at most
+   * 1. Replacing the key by `work_item_id || ''` kept the answer but failed the
+   * query-plan SEARCH assertion: expected true, received false.
+   */
+  async assignmentsFor(workItemId: string): ReturnType<DirectoryStore['assignmentsFor']> {
+    return this.db
+      .select({
+        workItemId: assignment.workItemId,
+        stepId: assignment.stepId,
+        personId: assignment.personId,
+      })
+      .from(assignment)
+      .where(eq(assignment.workItemId, workItemId));
+  }
+
+  /** Preserves subset callers without a global scan or an unbounded parameter list. */
+  async assignmentsOf(workItemIds: readonly string[]): ReturnType<DirectoryStore['assignmentsOf']> {
+    const assigned: Awaited<ReturnType<DirectoryStore['assignmentsOf']>> = [];
+    for (const workItemId of new Set(workItemIds)) {
+      assigned.push(...(await this.assignmentsFor(workItemId)));
+    }
+    return assigned;
   }
 
   /**

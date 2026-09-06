@@ -1282,10 +1282,8 @@ export class WorkItemService {
      * the slices in this very payload. `/api/people` answers a different question — who
      * could be assigned — and is still what the pickers read.
      *
-     * Read after {@link DirectoryStore.assignmentsOf} on purpose. People are
-     * only ever added, so a person created between the two reads is one this
-     * list has and no assignment names; the other order would hand out an
-     * assignment to somebody unnamed.
+     * Read together with assignments through {@link DirectoryStore.assignmentsInProject},
+     * so the names and assignments share one project-scoped database statement.
      *
      * Typed as the two columns it is, not as a `Person`. The builder has always
      * mapped to `{ id, name }` — "the names, not the whole directory" above is
@@ -1381,14 +1379,11 @@ export class WorkItemService {
     // {@link MeasureStore}.
     const measured = await this.opts.measures.listByProject(projectId);
     const edges = await this.opts.dependencies.listByProject(projectId);
-    const assigned = await this.opts.directory.assignmentsOf(rows.map((row) => row.id));
-    // The names for the ids just read, on this read rather than on a client's
-    // separate one. Filtered to who is actually on this plan: the directory is
-    // global and a chart has no use for people no slice names.
-    const assignedIds = new Set(assigned.map((each) => each.personId));
-    const assignedPeople = (await this.opts.directory.listPeople())
-      .filter((each) => assignedIds.has(each.id))
-      .map(({ id, name }) => ({ id, name }));
+    // Proof: restoring listPeople() followed by the assigned-id filter made
+    // `materializes only assigned project rows and names during a tiny tree read`
+    // fail on 41 materialized people, expected at most 1, with the same payload.
+    const { assignments: assigned, people: assignedPeople } =
+      await this.opts.directory.assignmentsInProject(projectId);
     const assigneesOf = new Map<string, Record<string, string>>();
     for (const each of assigned) {
       assigneesOf.set(each.workItemId, {
@@ -1939,7 +1934,7 @@ export class WorkItemService {
     if (!(await this.holdsStep(workItem.projectId, stepId)))
       return { ok: false, reason: 'unknown_step' };
     const before =
-      (await this.opts.directory.assignmentsOf([id])).find((each) => each.stepId === stepId)
+      (await this.opts.directory.assignmentsFor(id)).find((each) => each.stepId === stepId)
         ?.personId ?? null;
     const stamp = this.clock.stampFor(actorId);
     const assigned = await this.writeNamingStep(workItem.projectId, stepId, () =>
@@ -2453,7 +2448,7 @@ export class WorkItemService {
       }));
     const cut = allEdges.filter((edge) => edge.predecessorId === id || edge.successorId === id);
     // Read before the delete: the assignment rows cascade with the work item.
-    const deletedAssignments = await this.opts.directory.assignmentsOf([id]);
+    const deletedAssignments = await this.opts.directory.assignmentsFor(id);
     // The same reason as the cascade branch above: an edge to a row that is
     // going has nothing to point at, and the foreign keys say so. Only this row
     // leaves here — its children are promoted, and their edges stay valid.

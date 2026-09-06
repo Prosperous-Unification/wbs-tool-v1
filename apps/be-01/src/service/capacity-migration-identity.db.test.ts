@@ -534,7 +534,9 @@ describe('every plan schedules identically across the migration', () => {
     seeded: ReadonlyMap<string, ReadonlyMap<string, number>>,
   ): Promise<NonNullable<Awaited<ReturnType<WorkItemService['tree']>>>> {
     const projects = inMemoryProjects();
-    const directory = inMemoryDirectory();
+    const directory = inMemoryDirectory(
+      (projectId): Promise<readonly { id: string }[]> => workItems.listByProject(projectId),
+    );
     const workItems = inMemoryWorkItems(directory);
     const estimates = inMemoryEstimates(workItems);
     const actuals = inMemoryActuals(workItems);

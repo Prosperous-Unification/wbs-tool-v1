@@ -62,7 +62,9 @@ export function directoryWith(
   });
 }
 
-export function inMemoryDirectory(): DirectoryStore & { stampsSeen: WriteStamp[] } {
+export function inMemoryDirectory(
+  readProject?: (projectId: string) => Promise<readonly { id: string }[]>,
+): DirectoryStore & { stampsSeen: WriteStamp[] } {
   const teams = new Map<string, ServiceTeam>();
   const tags = new Map<string, Tag>();
   const services = new Map<string, Service>();
@@ -365,6 +367,28 @@ export function inMemoryDirectory(): DirectoryStore & { stampsSeen: WriteStamp[]
       for (const held of memberships.values()) held.delete(teamId);
       teams.delete(teamId);
       return Promise.resolve({ ok: true, removal: { workItemIds: [], projectIds: [] } });
+    },
+    // Proof: removing the project filter made `names only the people assigned
+    // in the requested project` receive grace alongside the requested ada.
+    async assignmentsInProject(projectId) {
+      if (readProject === undefined)
+        throw new Error('project assignment reads require a work-item store');
+      const wanted = new Set((await readProject(projectId)).map((row) => row.id));
+      const assigned = [...assignments.values()].filter((each) => wanted.has(each.workItemId));
+      const named = [...new Set(assigned.map((each) => each.personId))].map((id) => {
+        const found = people.get(id);
+        if (found === undefined) throw new Error(`assignment names absent person ${id}`);
+        return { id, name: found.name };
+      });
+      return {
+        assignments: assigned,
+        people: named.sort((left, right) => left.name.localeCompare(right.name)),
+      };
+    },
+    assignmentsFor(workItemId) {
+      return Promise.resolve(
+        [...assignments.values()].filter((each) => each.workItemId === workItemId),
+      );
     },
     assignmentsOf(workItemIds) {
       const wanted = new Set(workItemIds);
