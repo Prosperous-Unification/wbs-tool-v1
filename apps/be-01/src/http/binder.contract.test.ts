@@ -495,6 +495,120 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     expect(await res.json()).toEqual({ received: { tag: 'a', name: 'Sand' } });
   });
 
+  /**
+   * TASK-270 item 1, and the row of its measured table that crossed the
+   * service-call boundary rather than merely differing in shape.
+   *
+   * A multipart field whose single value opens with `{` or `[` is an **object**
+   * by the time a handler sees it (`adapter/web-standard/index.mjs:52-64`), and
+   * every `typeof value !== 'string'` refusal in the controllers reads that:
+   * `POST /api/projects` with multipart `name={"a":1}` is a 422 with no service
+   * call under Elysia, and was a 200 that called `projects.create` under a
+   * binder that kept the bytes. That is the same defect class as item 4's, one
+   * media type further in.
+   */
+  it('parses a multipart field whose whole value is JSON into an object', async () => {
+    const form = new FormData();
+    form.append('tag', '{"a":1}');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: { a: 1 } } });
+  });
+
+  /**
+   * The control the clause above needs, and the reason its coercion is a `try`
+   * rather than a shape check (`adapter/web-standard/index.mjs:56-63`): a value
+   * that opens with `{` and does not parse keeps its bytes and reaches the
+   * handler, so a half-typed body is still the handler's 422 to give rather
+   * than a parser's 400.
+   */
+  it('leaves a multipart value that opens with a brace but is not JSON as its bytes', async () => {
+    const form = new FormData();
+    form.append('tag', '{oops');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: '{oops' } });
+  });
+
+  /**
+   * A multipart key is a **path** when it carries a `.` or a `[`
+   * (`adapter/web-standard/index.mjs:76-96`): `user.name` names a field inside
+   * an object, not a flat field spelled with a dot. A route module reading
+   * `body['user.name']` finds nothing under either binder, which is the whole
+   * point of pinning it — the flat spelling is what an in-process binder
+   * without this rule handed over.
+   */
+  it('builds a nested object from a multipart dotted key', async () => {
+    const form = new FormData();
+    form.append('user.name', 'Sand');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { user: { name: 'Sand' } } });
+  });
+
+  /**
+   * The bracketed half of the same rule: `t[0]` and `t[1]` are indices into one
+   * array, not two fields (`adapter/web-standard/index.mjs:76-96`). Note this
+   * is a *different* array from the repeated-key one two clauses up — that one
+   * is a key sent twice, this one is a key sent once per index — and both
+   * binders have to reach the same shape down both routes.
+   */
+  it('builds an array from multipart bracketed keys', async () => {
+    const form = new FormData();
+    form.append('t[0]', 'a');
+    form.append('t[1]', 'b');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { t: ['a', 'b'] } });
+  });
+
+  /**
+   * The third rule, and the one with no visible parser in it: the multipart
+   * body is accumulated onto a normally-parented object, so a field named
+   * `__proto__` is skipped by the loop's own `if(c.body[key])` guard before it
+   * is assigned (`adapter/web-standard/index.mjs:47-48`). The field is simply
+   * not there, while its neighbour is — measured on h2puni as
+   * `{"ok":"y"}` under Elysia against `{"__proto__":"x","ok":"y"}` under a
+   * binder folding with `Object.fromEntries` onto a fresh object.
+   *
+   * `ok` is in the body to keep this a clause about one field disappearing
+   * rather than about the request being refused.
+   */
+  it('drops a multipart field named __proto__ and keeps its neighbour', async () => {
+    const form = new FormData();
+    form.append('__proto__', 'x');
+    form.append('ok', 'y');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { ok: 'y' } });
+  });
+
+  /**
+   * The control that keeps the two form arms honest: none of the four rules
+   * above is a *form* rule, they are all `multipart` rules. The same bytes sent
+   * as `application/x-www-form-urlencoded` go through `parseQuery`, which has
+   * no JSON coercion, no key paths and no prototype-shaped guard
+   * (`parse-query.mjs:94-130`), so the value stays the string a handler
+   * compares. Folding the two arms into one implementation is the exact mistake
+   * item 4 made in the other direction, and this clause fails if it is made
+   * again.
+   */
+  it('leaves a urlencoded value that looks like JSON as its string', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: 'tag={"a":1}',
+      }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: '{"a":1}' } });
+  });
+
   /** The query half of the same finding, which measured as agreement. */
   it('answers a repeated query key with its last value', async () => {
     const res = await get('/probe/echo/7?mode=first&mode=last');
