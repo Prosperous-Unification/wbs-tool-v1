@@ -423,9 +423,9 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * type on a request carrying no body is not a parse instruction.
    *
    * `application/xml` makes it visible because its `x` arm reads text: an empty
-   * read through `URLSearchParams` is `{}`, not `undefined`, and `{}` is a
-   * *legal patch*. The recorder is what separates the two — both answers would
-   * otherwise be a status a reader could accept — and it is a real
+   * read through `URLSearchParams` is `{}`, not `undefined`, and an empty
+   * object is a legal patch. The recorder is what separates the two — both
+   * answers would otherwise be a status a reader could accept — and it is a real
    * `PATCH /api/projects/:id`, which under Elysia is a 422 with no call and
    * under a binder without this guard called `projects.update` with an empty
    * patch.
