@@ -657,6 +657,14 @@ order`, with their tests. A repository assertion that no unqualified
 - [ ] 10.1 All six watched reds (W1–W6) recorded failing before their
       implementation lands, per AGENTS.md R5, each with the exact fault injected
       and the exact assertion that caught it.
+      **Half of it is written and the half is named: `verify.md` § "10.1 — the
+      watched-red ledger" carries W1, W3 and W4** — fault, exact failing
+      assertion text, pass/fail counts, and the restoring md5 on both hosts —
+      plus the eight slice-level reds that are not among the six. **W2 (8.4),
+      W5 (8.6) and W6 (7.6) are slices 7–8 and belong to
+      `dual-optimized-scheduler` (TASK-219/241);** they append to the same
+      section when they land. Deliberately unticked until then: a ledger missing
+      three of six is not the item.
 - [ ] 10.2 Full remote autotest + lint + typecheck gate on h2puni at the exact
       head, for `libs/domain`, `apps/be-01` and `apps/fe-01`. Nothing is built or
       run on the workspace box.
