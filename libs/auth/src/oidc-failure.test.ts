@@ -510,7 +510,10 @@ describe('classifyOidcFailure', () => {
       // code that did nothing wrong is the misfiling, aimed at ourselves.
       const failure = classifyOidcFailure({
         code: 'OAUTH_PARSE_ERROR',
-        cause: { code: 'OAUTH_PARSE_ERROR', cause: new SyntaxError('Unexpected end of JSON input') },
+        cause: {
+          code: 'OAUTH_PARSE_ERROR',
+          cause: new SyntaxError('Unexpected end of JSON input'),
+        },
       });
 
       expect(failure).toEqual({ kind: 'unavailable', reason: 'provider_response_unusable' });
@@ -525,9 +528,9 @@ describe('classifyOidcFailure', () => {
         classifyOidcFailure(new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } })),
       ).toEqual({ kind: 'unavailable', reason: 'provider_unreachable' });
 
-      expect(classifyOidcFailure({ code: 'SOMETHING_UNKNOWN', cause: { code: 'ENOTFOUND' } })).toEqual(
-        { kind: 'unavailable', reason: 'provider_unreachable' },
-      );
+      expect(
+        classifyOidcFailure({ code: 'SOMETHING_UNKNOWN', cause: { code: 'ENOTFOUND' } }),
+      ).toEqual({ kind: 'unavailable', reason: 'provider_unreachable' });
     });
   });
 
