@@ -192,3 +192,27 @@ TASK-220's scope boundary explicitly defers 7.11, the only route that could
 exercise it. At 2026-09-06T12:19:00Z the clause was therefore annotated as
 deferred with 7.11 and 7.4 was closed without claiming a nonexistent Retry
 proof.
+
+## 2026-09-06T17:42:32Z — project selector and comparison UI
+
+- Head: `f39af67ee6ff506b8e68b10cfec7236f21d0089f`; host: `h2puni`, worktree
+  `/home/puni1/wbs-t221`. No build or autotest ran on the queue-worker box.
+- Focused final suites passed 108/0 before the exhaustive-state refactor, then
+  the three directly affected suites passed 27/0. FE typecheck passed;
+  changed-file lint has no errors; scoped Prettier is clean.
+- The first canonical `bin/h2puni-gate.sh` invocation at `85679bc1` ran the
+  whole workspace and found one owned stale expectation: the toolbar test
+  expected four settings tabs after Optimization became the fifth. That case
+  was corrected and passed in the 108-test focused run. The final exact-head
+  gate is CI.
+- Watched project-ownership negative: capturing the initial settings value in
+  component state failed both remount persistence and collaborator-event
+  convergence (0/2); restoring the plan-read binding passed 2/2.
+- Two independently verified terminal artifacts at `85679bc1` reported zero
+  Critical findings. Their concrete stale-comparison, optional-payload,
+  refusal, fractional-copy, exhaustiveness, disclosure, and regression-test
+  findings were closed before the final focused proof above.
+
+Slices 8.1, 8.2, and 8.5 are closed. Retry remains a route owned by TASK-268,
+so the broader 8.3–8.4 checkboxes stay open rather than claiming an affordance
+whose backend does not yet exist; lane-q TASK-222 already owns post-deploy QA.

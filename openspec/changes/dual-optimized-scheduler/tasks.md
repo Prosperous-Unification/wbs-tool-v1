@@ -3876,10 +3876,10 @@ recorded, event)` buffers and pushes an already-recorded sequence
 
 ## 8. UI — toggle, selectors, indicator
 
-- [ ] 8.1 Project Settings hidden toggle bound to `optimization_enabled` (3b),
+- [x] 8.1 Project Settings hidden toggle bound to `optimization_enabled` (3b),
       OFF by default, project-scoped and persisted through the PATCH contract —
       **not** component-local state.
-- [ ] 8.2 Engine (Fast / Optimized) and Objective (Priority-first /
+- [x] 8.2 Engine (Fast / Optimized) and Objective (Priority-first /
       Finish-first) selectors bound to `schedule_engine` and
       `schedule_objective`, project-scoped and persisted. Switching to an
       already-cached output starts no solve. Both react to an incoming
@@ -3910,7 +3910,7 @@ workdays` per missed item — Fast's lateness is a report, never a verdict
       toggle change issues the PATCH and **survives a remount** (proving it is
       persisted, not local); and an incoming `project_settings_changed` moves
       the selector without a local click.
-- [ ] 8.5 **Negative check, watched red** — hold the three settings in
+- [x] 8.5 **Negative check, watched red** — hold the three settings in
       component state instead of the project row and watch 8.4's remount and
       incoming-event cases fail. `Proof:` comment names the reverted binding.
       Local-only controls are exactly the failure the persistence slice exists
