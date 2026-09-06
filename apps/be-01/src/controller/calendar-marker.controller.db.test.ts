@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { MARKER_NAME_MAX } from '@wbs/domain';
+import { automaticColor, MARKER_NAME_MAX } from '@wbs/domain';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
@@ -263,9 +263,10 @@ describe('the calendar-marker routes', () => {
       projectId,
       date: '2026-09-14',
       name: 'Site visit',
-      // Absent in the body and `null` in the answer: automatic has one
-      // spelling and it is the absence of a fill.
-      color: null,
+      // Absent in the body, and **resolved** in the answer: `null` is what
+      // storage holds for automatic, and `spec.md`'s "the API SHALL NOT return
+      // one" is what the route answers instead (TASK-279 AC #6).
+      color: automaticColor('a1000000-0000-4000-8000-000000000001'),
       createdAt: FIXED_NOW,
     });
 
@@ -274,7 +275,11 @@ describe('the calendar-marker routes', () => {
     });
     expect(renamed.status).toBe(200);
     expect(await list('owner')).toMatchObject([
-      { name: 'Site visit, rescheduled', date: '2026-09-14', color: null },
+      {
+        name: 'Site visit, rescheduled',
+        date: '2026-09-14',
+        color: automaticColor('a1000000-0000-4000-8000-000000000001'),
+      },
     ]);
 
     const recoloured = await patch('owner', 'a1000000-0000-4000-8000-000000000001', {
@@ -292,6 +297,60 @@ describe('the calendar-marker routes', () => {
     );
     expect(removed.status).toBe(204);
     expect(await list('owner')).toEqual([]);
+  });
+
+  /**
+   * TASK-279 AC #6: `spec.md` — "Storage MAY hold no colour, meaning automatic,
+   * but the API SHALL NOT return one: every marker in every response SHALL
+   * carry a resolved colour".
+   *
+   * Both halves are asserted, and the second is what makes it a contract rather
+   * than a formatting choice: the **column** still holds `null`, read straight
+   * off `CalendarMarkerRepository`, so the resolution happens on the way out and
+   * a palette change does not have to migrate rows. A test that only read the
+   * response would pass equally against a create that materialised the fill.
+   */
+  it('resolves an automatic colour on the way out and still stores none', async () => {
+    const made = await create('owner', { markerId: SEEDED, date: '2026-09-14', name: 'Site visit' });
+    expect(made.status).toBe(201);
+    const fill = automaticColor(SEEDED);
+    expect(((await made.json()) as { marker: { color: string } }).marker.color).toBe(fill);
+
+    expect(await list('owner')).toMatchObject([{ color: fill }]);
+
+    const renamed = await patch('owner', SEEDED, { name: 'Site visit, rescheduled' });
+    expect(renamed.status).toBe(200);
+    expect(((await renamed.json()) as { marker: { color: string } }).marker.color).toBe(fill);
+
+    // The column itself, which no response can show.
+    expect(await new CalendarMarkerRepository(db).listFor(projectId)).toMatchObject([
+      { color: null },
+    ]);
+  });
+
+  /**
+   * TASK-279 AC #7: a refusal names a field only when that field was on the
+   * request.
+   *
+   * Both collection routes refuse an unknown project with `not_found`, and
+   * neither request carries a marker id — the `GET` cannot, and this `POST`
+   * does not. `refusalBody` used to answer `field: 'markerId'` for every
+   * non-`forbidden` refusal, so both bodies blamed a value that was never sent.
+   *
+   * Negative: the `blames` argument dropped from either collection call site,
+   * and only this case fails; the `PATCH` and `DELETE` cases above and below,
+   * which are addressed **at** a marker and keep the field, stay green.
+   */
+  it('refuses an unknown project on the collection routes without blaming markerId', async () => {
+    const absent = 'e0000000-0000-4000-8000-0000000000ab';
+
+    const listed = await as(tokens['owner'], `/api/projects/${absent}/calendar-markers`);
+    expect(listed.status).toBe(404);
+    expect(await listed.json()).toEqual({ error: 'not_found' });
+
+    const created = await createIn(absent, 'owner', { date: '2026-09-14', name: 'Site visit' });
+    expect(created.status).toBe(404);
+    expect(await created.json()).toEqual({ error: 'not_found' });
   });
 
   /**
@@ -684,7 +743,7 @@ describe('the calendar-marker routes', () => {
       (await create('owner', { markerId: SEEDED, date: '2026-09-14', name: 'Site visit' })).status,
     ).toBe(201);
     const before = await list('owner');
-    expect(before).toMatchObject([{ color: null }]);
+    expect(before).toMatchObject([{ color: automaticColor(SEEDED) }]);
 
     const refused = await patch('owner', SEEDED, { color: '#ff0000' });
     expect(refused.status).toBe(422);
