@@ -42,21 +42,28 @@ unchanged to the nanosecond.
 **Not every change can reach a running process that way.** This is the constraint the
 design trades for its speed, not a feature — know which column your change is in:
 
-| Change                                                          | What carries it                                                                                                                                                     |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App source under `apps/*/src`                                   | The watchers. Nothing restarts.                                                                                                                                     |
-| `bun.lock`                                                      | `tool-devsync` restarts and runs `bun install`.                                                                                                                     |
-| A migration under `apps/be-01/drizzle`                          | `tool-devsync` restarts; be-01 migrates at boot (`MIGRATE_ON_STARTUP=true`). Migrations are imported by no watched module, so nothing else would notice one arrive. |
-| `package.json`, `nx.json`, any `project.json`, `vite.config.ts` | `tool-devsync` restarts. Nx and Vite read these once at startup.                                                                                                    |
-| `deploy/dev-src/Dockerfile`                                     | **The deploy fails and names the fix** (`RECREATE_PATHS`, since 2026-08-04). Rebuild the image on h2puni from `deploy/dev-src`, then recreate.                      |
-| `deploy/dev-src/compose.yml`                                    | **The deploy fails and names the fix.** `cd /home/puni1/wbs-dev/src/deploy/dev-src && docker compose up -d`.                                                        |
-| Per-tier `apps/<tier>/.env`                                     | **Nothing** — gitignored, so a push cannot carry it. Edit on h2puni and restart the container.                                                                      |
+| Change                                                          | What carries it                                                                                                                                                                                          |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App source under `apps/*/src`                                   | The watchers. Nothing restarts.                                                                                                                                                                          |
+| `bun.lock`                                                      | `tool-devsync` restarts and runs `bun install`.                                                                                                                                                          |
+| A migration under `apps/be-01/drizzle`                          | `tool-devsync` restarts; be-01 migrates at boot (`MIGRATE_ON_STARTUP=true`). Migrations are imported by no watched module, so nothing else would notice one arrive.                                      |
+| `package.json`, `nx.json`, any `project.json`, `vite.config.ts` | `tool-devsync` restarts. Nx and Vite read these once at startup.                                                                                                                                         |
+| `libs/solver-py/**`, `apps/be-01/Dockerfile`                    | **The deploy fails before reset** unless the host supervisor config binds the target source to a compatible digest-pinned solver image. Publish that image and materialize/install the new config first. |
+| `deploy/dev-src/Dockerfile`                                     | **The deploy fails and names the fix** (`RECREATE_PATHS`, since 2026-08-04). Rebuild the image on h2puni from `deploy/dev-src`, then recreate.                                                           |
+| `deploy/dev-src/compose.yml`                                    | **The deploy fails and names the fix.** `cd /home/puni1/wbs-dev/src/deploy/dev-src && docker compose up -d`.                                                                                             |
+| Per-tier `apps/<tier>/.env`                                     | **Nothing** — gitignored, so a push cannot carry it. Edit on h2puni and restart the container.                                                                                                           |
 
 `tools/tool-devsync/src/sync.ts` holds both lists: `RESTART_PATHS` (a restart applies it)
 and `RECREATE_PATHS` (a restart cannot — the running container was created from the old
 file, so its mounts, user, limits and image are still the old ones). Until 2026-08-04 the
 second case was silent, and the deploy reported success for a change that was in effect
 nowhere. The env row is still silent, because a gitignored file cannot arrive in a push.
+
+Every dev sync also requires the host-owned solver supervisor service and Unix socket, then
+runs its `--preflight=dev` check against the configured digest before moving the checkout.
+The config records a full `devSourceSha`; `tool-devsync` diffs the solver compatibility paths
+between that commit and the requested commit, so unrelated source changes keep the mapping
+while a changed solver package cannot silently run under an older image.
 
 Dev has **no edge password**. It was removed 2026-08-06: it was a second login on top of the
 app's own, and a browser that had cached a wrong credential for the realm could not be talked
