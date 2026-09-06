@@ -299,9 +299,7 @@ describe('optimized outcome events', () => {
     const raw = openDatabase(path);
     try {
       expect(
-        raw
-          .query('SELECT status FROM optimized_schedule_cache ORDER BY objective')
-          .all(),
+        raw.query('SELECT status FROM optimized_schedule_cache ORDER BY objective').all(),
       ).toEqual([{ status: 'plan-infeasible' }, { status: 'plan-infeasible' }]);
     } finally {
       raw.close();
