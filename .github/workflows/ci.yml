@@ -122,6 +122,9 @@ jobs:
       # and upload; CI 34033278085 failed Nx while upload retained distinct
       # nx-gate-log-1/-2 artifacts across attempts; CI 34034640885 restored the
       # exact source annotation from the parser-fixed artifact.
+      # TASK-289 control: CI 34056520601 completed the unchanged Nx command for
+      # all 24 projects, then an unexpected helper argument made this gate red;
+      # the always-run nx-gate-log-1 upload still passed.
       - name: Gate — test, lint, typecheck, build
         id: nx_gate
         run: |

@@ -1,6 +1,9 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-268 is active on PR 253: the built image's production launcher path is green through the authenticated host supervisor and real Docker; item 5.11's two negative images, full gate, and review remain.
+TASK-268 is active on PR 253: image packaging and the real Docker/systemd orphan boundary are
+green; slice 6.8 is closed, and 6.9c plus the retry/event slices remain.
+
+TASK-289 hardens CI annotation restoration against control-command injection on PR 251. The h2puni project gate and live fail-closed control are green; final exact-head CI and reviews remain.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
