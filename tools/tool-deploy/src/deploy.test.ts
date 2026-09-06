@@ -5,10 +5,10 @@ import { materialize, parseDeployArgs, type Tier } from './affected';
 import {
   buildDeployPlan,
   buildSmokeCommand,
-  prodSolverSupervisorPreflightCommand,
   type DeployPlanDeps,
   installCommandFor,
   parseSha256sumOutput,
+  prodSolverSupervisorPreflightCommand,
   type ReleaseRecord,
 } from './deploy';
 import { parseRemoteStateOutput, type RemoteTierState } from './remote-state';
