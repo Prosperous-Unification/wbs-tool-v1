@@ -6,6 +6,7 @@ import {
   SOLVER_SUPERVISOR_BUNDLE,
   SOLVER_SUPERVISOR_CONFIG,
   SOLVER_SUPERVISOR_SERVICE,
+  SOLVER_SUPERVISOR_SOCKET,
   SOLVER_SUPERVISOR_UNIT,
   SOLVER_SUPERVISOR_UNIT_SOURCE,
 } from './lib/solver-supervisor-install-contract';
@@ -188,6 +189,9 @@ export async function installSolverSupervisor(
 ): Promise<readonly SolverSupervisorInstallStep[]> {
   const bytes = await dependencies.read(args.config);
   const options = decodeSolverSupervisorConfigBytes(bytes);
+  if (options.connection.unix !== SOLVER_SUPERVISOR_SOCKET) {
+    throw new Error(`solver supervisor config socket must be ${SOLVER_SUPERVISOR_SOCKET}`);
+  }
   const files = solverSupervisorInstallFiles(args.config);
   for (const file of files) {
     if (!(await dependencies.exists(file.local))) {

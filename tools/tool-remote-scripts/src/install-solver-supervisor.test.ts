@@ -96,6 +96,19 @@ describe('installSolverSupervisor', () => {
     expect(seen).toEqual([]);
   });
 
+  it('rejects a different user runtime socket before any remote command', async () => {
+    const seen: string[] = [];
+    const config = JSON.stringify({ ...JSON.parse(CONFIG), socketPath: '/run/user/1001/wbs-solver/supervisor.sock' });
+    const error = await rejectionOf(
+      installSolverSupervisor(
+        { host: 'h2puni', execute: true, config: '/work/config.json' },
+        dependencies(config, seen),
+      ),
+    );
+    expect(error.message).toContain('/run/user/1000/wbs-solver/supervisor.sock');
+    expect(seen).toEqual([]);
+  });
+
   it('rejects the wrong Bun before any remote mutation', async () => {
     const seen: string[] = [];
     const error = await rejectionOf(

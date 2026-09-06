@@ -15,6 +15,7 @@ export const SOLVER_SUPERVISOR_SERVICE = 'wbs-solver-supervisor.service';
 export const SOLVER_SUPERVISOR_BUN = '/usr/local/bin/bun';
 export const SOLVER_SUPERVISOR_BUN_VERSION = '1.3.14';
 export const SOLVER_SUPERVISOR_RUNTIME_DIRECTORY = 'wbs-solver';
+export const SOLVER_SUPERVISOR_SOCKET = '/run/user/1000/wbs-solver/supervisor.sock';
 
 /** Refuses an ambient or stale host Bun before an installer mutates the service. */
 export function assertSolverSupervisorBunVersion(stdout: string): void {
