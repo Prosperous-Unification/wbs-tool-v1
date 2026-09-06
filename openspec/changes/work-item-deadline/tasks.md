@@ -327,9 +327,9 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       `deadlineOffsetsOf`, under the same rule the floors beside it take: a
       project with no `startDate` has no day zero to count from and applies
       none, which is the one branch `NO_DEADLINES` still names. The two claims
-      this item makes about the write are asserted in
-      `deadline-plan-read.test.ts`'s `reports a project start moved past a
-    stored deadline late by the whole span`, which moves the project under a
+      this item makes about the write are asserted by the moved-start case in
+      `deadline-plan-read.test.ts` — the one named for reporting a moved project
+      start late by the whole span — which moves the project under a
       legally-written date and then reads both the plan and the row: `lateBy`
       **2** for a two-day slice standing on workday 1 — `-1` subtracted, the
       whole span — and the stored `2026-03-04` still on the work item. The
@@ -389,8 +389,9 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       asks.** The cache key is the whole `ScheduleInput` the plan read hands
       `schedule()` (`publishedOptimized`), so an edit invalidates the cache
       exactly when it moves that input — and as of the plan read a deadline is
-      in it. `deadline-plan-read.test.ts`'s `puts the resolved offsets in the
-    input the optimized cache is keyed on` reads the ask itself: `[]` before
+      in it. The cache-key case in `deadline-plan-read.test.ts` — the one named
+      for putting the resolved offsets in the input the cache is keyed on —
+      reads the ask itself: `[]` before
       the edit and `[[id, 2]]` after, off the same `OptimizedScheduleAsk` the
       hash is computed from. Asserted on the ask rather than on a stored row on
       purpose — whether the cache then misses is 4.1–4.8's, proved against real
