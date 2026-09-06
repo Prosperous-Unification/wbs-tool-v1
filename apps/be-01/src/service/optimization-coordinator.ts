@@ -1,5 +1,6 @@
 import type { BuiltSolverRequest } from '@wbs/contracts/solver/build-request';
 import { dispositionOfPreflightFailure } from '@wbs/contracts/solver/solver-failure-disposition';
+import type { Schedule } from '@wbs/domain';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 
@@ -18,6 +19,7 @@ import {
 import { allocateGeneration } from '../repository/optimization-generation';
 import { dequeueSolverRequest, enqueueSolverRequest } from '../repository/optimization-queue';
 import {
+  optimizedVariantIsLive,
   type OutcomeWrite,
   type OutcomeWriteResult,
   readOptimizedPairAndSpawn,
@@ -26,7 +28,10 @@ import {
 } from '../repository/optimized-schedule-cache';
 import type { SolverObjectiveName } from '../repository/schema';
 import { type ProjectEvent, subscriptionFor } from './broadcast';
-import type { OptimizedScheduleReader } from './optimized-schedule-reader';
+import {
+  optimizationVariantState,
+  type OptimizedScheduleReader,
+} from './optimized-schedule-reader';
 import {
   runSolverChildLifecycle,
   type SolverChildLifecycleOptions,
@@ -429,16 +434,27 @@ export class OptimizationCoordinator {
    * The reader wired into {@link WorkItemService}. It is an arrow so handing it
    * to the service cannot lose the coordinator instance as `this`.
    */
-  readonly read: OptimizedScheduleReader = (ask: {
-    readonly projectId: string;
-    readonly objective: SolverObjectiveName;
-    readonly input: ScheduleInput;
-  }) => {
-    if (ask.input.slices.length === 0 || ask.input.slices.every((slice) => slice.days === 0)) {
-      return null;
+  readonly readPlan: OptimizedScheduleReader = (ask) => {
+    const inputHash = scheduleInputHash(ask.input);
+    const key = {
+      projectId: ask.projectId,
+      inputHash,
+      contractVersion: this.options.contractVersion,
+      budgetMs: this.options.budgetMs,
+    };
+    if (
+      ask.enabled === false ||
+      ask.input.slices.length === 0 ||
+      ask.input.slices.every((slice) => slice.days === 0)
+    ) {
+      return {
+        ...key,
+        generation: null,
+        variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+        selectedSchedule: null,
+      };
     }
 
-    const inputHash = scheduleInputHash(ask.input);
     const now = this.options.now();
     const generation = allocateGeneration(
       this.options.db,
@@ -448,82 +464,90 @@ export class OptimizationCoordinator {
       now,
     );
     let requests: SolverRequestPair | undefined;
-    const pair = readOptimizedPairAndSpawn(
-      this.options.db,
-      {
-        projectId: ask.projectId,
-        inputHash,
-        contractVersion: this.options.contractVersion,
-        budgetMs: this.options.budgetMs,
-      },
-      (request) => {
-        const admission = reserveSolverSlot(this.options.db, {
+    const pair = readOptimizedPairAndSpawn(this.options.db, key, (request) => {
+      const admission = reserveSolverSlot(this.options.db, {
+        projectId: request.key.projectId,
+        contractVersion: request.key.contractVersion,
+        generation,
+        objective: request.objective,
+        budgetMs: request.key.budgetMs,
+        ownerId: this.options.ownerId,
+        attemptToken: this.options.attemptToken(),
+        now,
+      });
+      if (admission.kind === 'project-full' || admission.kind === 'global-full') {
+        enqueueSolverRequest(this.options.db, {
           projectId: request.key.projectId,
           contractVersion: request.key.contractVersion,
           generation,
           objective: request.objective,
           budgetMs: request.key.budgetMs,
-          ownerId: this.options.ownerId,
-          attemptToken: this.options.attemptToken(),
-          now,
+          enqueuedAt: now,
         });
-        if (admission.kind === 'project-full' || admission.kind === 'global-full') {
-          enqueueSolverRequest(this.options.db, {
-            projectId: request.key.projectId,
-            contractVersion: request.key.contractVersion,
-            generation,
-            objective: request.objective,
-            budgetMs: request.key.budgetMs,
-            enqueuedAt: now,
-          });
+        return;
+      }
+      if (admission.kind === 'reserved') {
+        requests ??= buildSolverRequestPair(
+          ask.input,
+          this.options.solverVersion,
+          this.options.budgetMs,
+        );
+        const built = requests[request.objective];
+        const slot = {
+          projectId: request.key.projectId,
+          contractVersion: request.key.contractVersion,
+          generation,
+          objective: request.objective,
+          budgetMs: request.key.budgetMs,
+          attemptToken: admission.attemptToken,
+        };
+        if (!built.ok) {
+          try {
+            this.storeOutcome({
+              claim: { ...slot, ownerId: this.options.ownerId },
+              inputHash: request.key.inputHash,
+              admittedCancelEpoch: admission.admittedCancelEpoch,
+              outcome: {
+                kind: 'failed',
+                reason: dispositionOfPreflightFailure(built.failure),
+              },
+              now,
+            });
+          } finally {
+            releaseSolverSlot(this.options.db, slot);
+            this.requestPump();
+          }
           return;
         }
-        if (admission.kind === 'reserved') {
-          requests ??= buildSolverRequestPair(
-            ask.input,
-            this.options.solverVersion,
-            this.options.budgetMs,
-          );
-          const built = requests[request.objective];
-          const slot = {
-            projectId: request.key.projectId,
-            contractVersion: request.key.contractVersion,
-            generation,
-            objective: request.objective,
-            budgetMs: request.key.budgetMs,
-            attemptToken: admission.attemptToken,
-          };
-          if (!built.ok) {
-            try {
-              this.storeOutcome({
-                claim: { ...slot, ownerId: this.options.ownerId },
-                inputHash: request.key.inputHash,
-                admittedCancelEpoch: admission.admittedCancelEpoch,
-                outcome: {
-                  kind: 'failed',
-                  reason: dispositionOfPreflightFailure(built.failure),
-                },
-                now,
-              });
-            } finally {
-              releaseSolverSlot(this.options.db, slot);
-              this.requestPump();
-            }
-            return;
-          }
 
-          const launch = {
-            ...request,
-            generation,
-            admission,
-            request: built.request,
-            input: ask.input,
-          };
-          this.startReserved(launch);
-        }
-      },
-    );
+        const launch = {
+          ...request,
+          generation,
+          admission,
+          request: built.request,
+          input: ask.input,
+        };
+        this.startReserved(launch);
+      }
+    });
     const outcome = pair[ask.objective];
-    return outcome.kind === 'ok' ? outcome.result.schedule : null;
+    const live = (objective: SolverObjectiveName): boolean =>
+      optimizedVariantIsLive(this.options.db, key, generation, objective);
+    return {
+      ...key,
+      generation,
+      variants: {
+        pri: optimizationVariantState(pair.pri, live('pri')),
+        time: optimizationVariantState(pair.time, live('time')),
+      },
+      selectedSchedule: outcome.kind === 'ok' ? outcome.result.schedule : null,
+    };
   };
+
+  /** Compatibility seam for queue callbacks and tests that need only the selected schedule. */
+  readonly read = (ask: {
+    readonly projectId: string;
+    readonly objective: SolverObjectiveName;
+    readonly input: ScheduleInput;
+  }): Schedule | null => this.readPlan(ask).selectedSchedule;
 }

@@ -84,7 +84,11 @@ import {
   touchedBy,
 } from './compensating';
 import { canDepend } from './dependency';
-import type { OptimizedScheduleReader } from './optimized-schedule-reader';
+import type {
+  OptimizationVariantState,
+  OptimizedScheduleRead,
+  OptimizedScheduleReader,
+} from './optimized-schedule-reader';
 import { canEdit } from './project.service';
 import {
   type Days,
@@ -1288,6 +1292,50 @@ export interface Collected<T> {
   dirty: boolean;
 }
 
+export interface PlanOptimization {
+  readonly enabled: boolean;
+  readonly engine: Project['scheduleEngine'];
+  readonly objective: Project['scheduleObjective'];
+  readonly inputHash: string;
+  readonly generation: number | null;
+  readonly contractVersion: string;
+  readonly budgetMs: number;
+  readonly displayed: 'fast' | Project['scheduleObjective'];
+  readonly variants: Readonly<Record<Project['scheduleObjective'], OptimizationVariantState>>;
+  readonly comparison?: { readonly deltaDays: number; readonly sameOrder: boolean };
+}
+
+function scheduleFinish(schedule: Schedule): number {
+  return Math.max(
+    0,
+    ...[...schedule.workItems.values()].map(({ earliestFinish }) => earliestFinish),
+  );
+}
+
+function schedulesHaveSameOrder(left: Schedule, right: Schedule): boolean {
+  const shared = [...left.slices.keys()].filter((key) => right.slices.has(key)).sort();
+  for (let first = 0; first < shared.length; first += 1) {
+    for (let second = first + 1; second < shared.length; second += 1) {
+      const firstKey = shared[first];
+      const secondKey = shared[second];
+      const leftFirst = left.slices.get(firstKey)?.earliestStart;
+      const leftSecond = left.slices.get(secondKey)?.earliestStart;
+      const rightFirst = right.slices.get(firstKey)?.earliestStart;
+      const rightSecond = right.slices.get(secondKey)?.earliestStart;
+      if (
+        leftFirst === undefined ||
+        leftSecond === undefined ||
+        rightFirst === undefined ||
+        rightSecond === undefined
+      ) {
+        throw new Error('shared schedule slice vanished during comparison');
+      }
+      if (Math.sign(leftFirst - leftSecond) !== Math.sign(rightFirst - rightSecond)) return false;
+    }
+  }
+  return true;
+}
+
 interface BatchCollector {
   recordings: CollectedRecording[];
   dirty: boolean;
@@ -1339,12 +1387,15 @@ export class WorkItemService {
    * key built from anything else would name a different plan than the one about
    * to be scheduled, which is the ABA the `inputHash` exists to fence.
    */
-  private publishedOptimized(project: Project, input: ScheduleInput): Schedule | null {
+  private readOptimization(project: Project, input: ScheduleInput): OptimizedScheduleRead | null {
     const read = this.opts.optimized;
     if (read === undefined) return null;
-    if (!project.optimizationEnabled) return null;
-    const optimized = read({ projectId: project.id, objective: project.scheduleObjective, input });
-    return project.scheduleEngine === 'optimized' ? optimized : null;
+    return read({
+      projectId: project.id,
+      objective: project.scheduleObjective,
+      input,
+      enabled: project.optimizationEnabled,
+    });
   }
 
   /** Rebuild the canonical input a durable solver queue entry names. */
@@ -1516,6 +1567,8 @@ export class WorkItemService {
      * below it, each of which carries its own.
      */
     projectRevision: number;
+    /** Present when this process has the optimizer runtime wired. */
+    optimization?: PlanOptimization;
   } | null> {
     const project = await this.opts.projects.findById(projectId);
     if (project === null) return null;
@@ -1624,7 +1677,8 @@ export class WorkItemService {
     // through `schedule()` itself, which throws on a cycle before anything is
     // stored, so a plan that would raise `ScheduleCycleError` here has no row
     // to serve. The cycle banner is not lost by taking this branch.
-    const optimized = this.publishedOptimized(project, canonical.input);
+    const optimizationRead = this.readOptimization(project, canonical.input);
+    let optimization: PlanOptimization | undefined;
     let timing = new Map<string, Scheduled>();
     let scheduleError: ScheduleError = null;
     /**
@@ -1661,8 +1715,42 @@ export class WorkItemService {
       // memoised on the first plan read — the read hoisted out of the run — and
       // `each project is scheduled by its own reach` failed on `Expected: 5 /
       // Received: 3` for the second project's successor; watched 2026-08-29.
-      const planned =
-        optimized ?? schedule(rows, edges, slices, notBefore, slotsOf, project.depReach, deadlines);
+      const fast = schedule(rows, edges, slices, notBefore, slotsOf, project.depReach, deadlines);
+      let optimized: Schedule | null = null;
+      if (
+        optimizationRead !== null &&
+        project.optimizationEnabled &&
+        project.scheduleEngine === 'optimized' &&
+        optimizationRead.variants[project.scheduleObjective].state === 'ready'
+      ) {
+        if (optimizationRead.selectedSchedule === null) {
+          throw new Error('optimized plan reader reported ready without a schedule');
+        }
+        optimized = optimizationRead.selectedSchedule;
+      }
+      const planned = optimized ?? fast;
+      if (optimizationRead !== null) {
+        const displayed = optimized === null ? 'fast' : project.scheduleObjective;
+        optimization = {
+          enabled: project.optimizationEnabled,
+          engine: project.scheduleEngine,
+          objective: project.scheduleObjective,
+          inputHash: optimizationRead.inputHash,
+          generation: optimizationRead.generation,
+          contractVersion: optimizationRead.contractVersion,
+          budgetMs: optimizationRead.budgetMs,
+          displayed,
+          variants: optimizationRead.variants,
+          ...(optimized === null
+            ? {}
+            : {
+                comparison: {
+                  deltaDays: scheduleFinish(optimized) - scheduleFinish(fast),
+                  sameOrder: schedulesHaveSameOrder(fast, optimized),
+                },
+              }),
+        };
+      }
       timing = planned.workItems;
       waitingForPerson = planned.waitingForPerson;
       waitingForCapacity = planned.waitingForCapacity;
@@ -1794,6 +1882,7 @@ export class WorkItemService {
       depReach: project.depReach,
       startDate: project.startDate,
       projectRevision: project.revision,
+      ...(optimization === undefined ? {} : { optimization }),
     };
   }
 

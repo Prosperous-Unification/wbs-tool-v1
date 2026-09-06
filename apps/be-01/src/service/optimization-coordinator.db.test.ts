@@ -312,7 +312,12 @@ describe('OptimizationCoordinator read', () => {
     };
 
     for (const input of [empty, zeroDuration]) {
-      expect(coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input })).toBeNull();
+      const read = coordinator(db, calls).readPlan({ projectId: 'p-1', objective: 'pri', input });
+      expect(read).toMatchObject({
+        generation: null,
+        variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+        selectedSchedule: null,
+      });
       expect(calls).toEqual([]);
       expect(db.select().from(solverSlot).all()).toEqual([]);
       expect(db.select().from(optimizedScheduleCache).all()).toEqual([]);
@@ -329,9 +334,17 @@ describe('OptimizationCoordinator read', () => {
     seedProject(path);
     const calls: ReservedSpawnRequest[] = [];
 
-    expect(
-      coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input: INPUT }),
-    ).toBeNull();
+    const read = coordinator(db, calls).readPlan({
+      projectId: 'p-1',
+      objective: 'pri',
+      input: INPUT,
+    });
+    expect(read).toMatchObject({
+      inputHash: scheduleInputHash(INPUT),
+      generation: 1,
+      variants: { pri: { state: 'pending' }, time: { state: 'pending' } },
+      selectedSchedule: null,
+    });
     await Promise.resolve();
     await Promise.resolve();
     expect(calls.map(({ objective }) => objective)).toEqual(['pri', 'time']);
@@ -364,6 +377,52 @@ describe('OptimizationCoordinator read', () => {
 
     // Proof: bypassing SQLite leaves zero rows; removing the full-key conflict
     // check lets green call the spawner twice more for the same generation.
+  });
+
+  it('does not label a terminal row retrying from a different-budget slot', () => {
+    const { path, db } = database();
+    seedProject(path);
+    const inputHash = scheduleInputHash(INPUT);
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, inputHash, 2);
+    db.insert(optimizedScheduleCache)
+      .values({
+        projectId: 'p-1',
+        inputHash,
+        objective: 'pri',
+        contractVersion: CONTRACT,
+        budgetMs: BUDGET,
+        generation,
+        status: 'failed',
+        resultJson: null,
+        failureReason: 'timeout',
+        createdAt: 3,
+      })
+      .run();
+    expect(
+      reserveSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET + 1,
+        ownerId: 'other-budget',
+        attemptToken: 'other-budget-token',
+        now: 4,
+      }),
+    ).toMatchObject({ kind: 'reserved' });
+
+    const read = coordinator(db, []).readPlan({
+      projectId: 'p-1',
+      objective: 'pri',
+      input: INPUT,
+    });
+    expect(read.variants).toEqual({
+      pri: { state: 'failed', reason: 'timeout' },
+      time: { state: 'pending' },
+    });
+
+    // Proof: dropping `budget_ms` from the live-slot predicate changes `pri`
+    // to `retrying`, even though the only running solve cannot fill this row.
   });
 
   it('persists both absent objectives when project capacity is already full', () => {

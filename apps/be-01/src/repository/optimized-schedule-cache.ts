@@ -21,6 +21,7 @@ import {
   SOLVER_OBJECTIVES,
   type SolverFailureReason,
   type SolverObjectiveName,
+  solverQueue,
   solverSlot,
 } from './schema';
 
@@ -102,6 +103,46 @@ export type CachedOutcome =
 
 /** Both objectives' outcomes for one key, which is what a plan read asks for. */
 export type OptimizedPair = Readonly<Record<SolverObjectiveName, CachedOutcome>>;
+
+/** Whether this exact generation/objective/key still owns a slot or FIFO entry. */
+export function optimizedVariantIsLive(
+  db: Reader,
+  key: OptimizedCacheKey,
+  generation: number,
+  objective: SolverObjectiveName,
+): boolean {
+  const identity = [
+    eq(solverSlot.projectId, key.projectId),
+    eq(solverSlot.contractVersion, key.contractVersion),
+    eq(solverSlot.generation, generation),
+    eq(solverSlot.objective, objective),
+    eq(solverSlot.budgetMs, key.budgetMs),
+  ] as const;
+  if (
+    db
+      .select({ projectId: solverSlot.projectId })
+      .from(solverSlot)
+      .where(and(...identity))
+      .get()
+  ) {
+    return true;
+  }
+  return (
+    db
+      .select({ projectId: solverQueue.projectId })
+      .from(solverQueue)
+      .where(
+        and(
+          eq(solverQueue.projectId, key.projectId),
+          eq(solverQueue.contractVersion, key.contractVersion),
+          eq(solverQueue.generation, generation),
+          eq(solverQueue.objective, objective),
+          eq(solverQueue.budgetMs, key.budgetMs),
+        ),
+      )
+      .get() !== undefined
+  );
+}
 
 /** No row at all, and the value every objective starts at. */
 const MISS: CachedOutcome = { kind: 'miss' };

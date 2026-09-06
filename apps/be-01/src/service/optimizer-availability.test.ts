@@ -1,6 +1,6 @@
-import type { Schedule } from '@wbs/domain';
 import { describe, expect, it } from 'bun:test';
 
+import type { OptimizedScheduleReader } from './optimized-schedule-reader';
 import { optimizerWiring } from './optimizer-wiring';
 
 /**
@@ -22,7 +22,14 @@ describe('optimizerWiring', () => {
   it('reports available exactly when it is holding the reader it hands out', () => {
     // Never called: what is under test is the pairing, not the read. A reader
     // that threw would prove the same thing, and less clearly.
-    const read = () => null as Schedule | null;
+    const read: OptimizedScheduleReader = () => ({
+      inputHash: 'hash',
+      generation: null,
+      contractVersion: '7+test',
+      budgetMs: 60_000,
+      variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+      selectedSchedule: null,
+    });
     const wiring = optimizerWiring(read);
     // The same function object, not merely a truthy one — a wiring that
     // reported available while handing `WorkItemService` something else would

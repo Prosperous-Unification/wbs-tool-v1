@@ -214,7 +214,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // Both service-facing halves derive from the same coordinator instance: a
   // process cannot accept the ON setting unless its plan reader can also admit
   // and consume optimized rows.
-  const optimizer = optimizerWiring(coordinator?.read);
+  const optimizer = optimizerWiring(coordinator?.readPlan);
 
   const services: BeServices = {
     announcements,

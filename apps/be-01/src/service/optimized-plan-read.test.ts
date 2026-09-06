@@ -103,7 +103,15 @@ function recordingReader(answer: Schedule | null) {
     asks,
     read: (ask: OptimizedScheduleAsk) => {
       asks.push(ask);
-      return answer;
+      const state = answer === null ? ({ state: 'idle' } as const) : ({ state: 'ready' } as const);
+      return {
+        inputHash: 'test-input-hash',
+        generation: answer === null ? null : 1,
+        contractVersion: '7+test',
+        budgetMs: 60_000,
+        variants: { pri: state, time: state },
+        selectedSchedule: answer,
+      };
     },
   };
 }
@@ -171,6 +179,18 @@ describe('the plan read and the optimized cache', () => {
     expect(tree.slices.map((each) => [each.earliestStart, each.boundBy])).toEqual([
       [3, 'optimizer'],
     ]);
+    expect(tree.optimization).toEqual({
+      enabled: true,
+      engine: 'optimized',
+      objective: 'pri',
+      inputHash: 'test-input-hash',
+      generation: 1,
+      contractVersion: '7+test',
+      budgetMs: 60_000,
+      displayed: 'pri',
+      variants: { pri: { state: 'ready' }, time: { state: 'ready' } },
+      comparison: { deltaDays: 3, sameOrder: true },
+    });
   });
 
   it('falls back to Fast when the cache has nothing to serve', async () => {
@@ -187,19 +207,23 @@ describe('the plan read and the optimized cache', () => {
       [0, 'projectStart'],
     ]);
     expect(seen.asks).toHaveLength(1);
+    expect(tree.optimization).toMatchObject({
+      displayed: 'fast',
+      variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+    });
+    expect(tree.optimization).not.toHaveProperty('comparison');
   });
 
-  it('never consults the cache for a project that has optimization switched off', async () => {
-    // Proof: the `optimizationEnabled` refusal deleted and this failed on
-    // `[]` receiving one ask — a project an administrator had just switched off
-    // went on being served solver schedules, which is the state 3b.1's flag
-    // exists to make immediate. Watched 2026-09-04.
+  it('reads disabled identity without serving a solver schedule', async () => {
     await leaf('Rewire');
     await settings({ optimizationEnabled: false, scheduleEngine: 'optimized' });
     const seen = recordingReader(null);
     const service = new WorkItemService({ ...serviceOptions, optimized: seen.read });
-    await service.tree(projectId);
-    expect(seen.asks).toEqual([]);
+    const tree = await service.tree(projectId);
+    if (tree === null) throw new Error('project vanished');
+    expect(seen.asks).toHaveLength(1);
+    expect(seen.asks[0]?.enabled).toBe(false);
+    expect(tree.optimization).toMatchObject({ enabled: false, displayed: 'fast' });
   });
 
   it('warms absent variants while the enabled project keeps publishing Fast', async () => {

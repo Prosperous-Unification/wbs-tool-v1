@@ -1,7 +1,9 @@
+import type { PlanInfeasibleItem } from '@wbs/contracts/solver/plan-infeasible';
 import type { Schedule } from '@wbs/domain';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 
-import type { SolverObjectiveName } from '../repository';
+import type { CachedOutcome } from '../repository/optimized-schedule-cache';
+import type { SolverFailureReason, SolverObjectiveName } from '../repository/schema';
 
 /**
  * Everything the plan read knows and the reader needs, and nothing it has to
@@ -28,18 +30,52 @@ export interface OptimizedScheduleAsk {
   readonly projectId: string;
   readonly objective: SolverObjectiveName;
   readonly input: ScheduleInput;
+  /** False reads identity only: it neither allocates a generation nor admits work. */
+  readonly enabled?: boolean;
+}
+
+export type OptimizationVariantState =
+  | { readonly state: 'ready' }
+  | { readonly state: 'pending' }
+  | { readonly state: 'retrying' }
+  | { readonly state: 'failed'; readonly reason: SolverFailureReason }
+  | { readonly state: 'corrupt'; readonly message: string }
+  | { readonly state: 'plan-infeasible'; readonly items: readonly PlanInfeasibleItem[] }
+  | { readonly state: 'idle' };
+
+export interface OptimizedScheduleRead {
+  readonly inputHash: string;
+  readonly generation: number | null;
+  readonly contractVersion: string;
+  readonly budgetMs: number;
+  readonly variants: Readonly<Record<SolverObjectiveName, OptimizationVariantState>>;
+  readonly selectedSchedule: Schedule | null;
+}
+
+/** Add the full-key liveness fact to one stored-row outcome. */
+export function optimizationVariantState(
+  outcome: CachedOutcome,
+  live: boolean,
+): OptimizationVariantState {
+  if (outcome.kind === 'ok') return { state: 'ready' };
+  if (outcome.kind === 'miss') return { state: live ? 'pending' : 'idle' };
+  if (outcome.kind === 'failed') {
+    return live ? { state: 'retrying' } : { state: 'failed', reason: outcome.reason };
+  }
+  if (outcome.kind === 'corrupt') {
+    return live ? { state: 'retrying' } : { state: 'corrupt', message: outcome.reason };
+  }
+  return { state: 'plan-infeasible', items: outcome.certificate.items };
 }
 
 /**
- * The plan read's one question of the optimized cache: *is there a published
- * schedule for exactly this plan?*
+ * The plan read's one question of the optimized cache: *what is the published
+ * and live state for exactly this plan?*
  *
- * `Schedule | null` and not an outcome union, because the answer this seam acts
- * on is binary. A miss, a `failed` row, a superseded generation and a `corrupt`
- * payload are four different facts to the cache (4.1–4.8) and the same fact
- * here: **fall back to Fast**. Widening the return would move those four
- * decisions up into `WorkItemService`, where they would be a second copy of
- * `readOptimizedPair`'s rules and the copy that disagreed after an edit.
+ * It returns the identity and both variants' seven-state projection as well as
+ * the selected materialized schedule. `WorkItemService` therefore chooses Fast
+ * from `ready` versus every other state without re-decoding cache rows or
+ * guessing whether a slot is live.
  *
  * Synchronous, because every implementation is a SQLite read on the same
  * connection the plan read is already using and 4.1's `readOptimizedPair` is
@@ -51,4 +87,4 @@ export interface OptimizedScheduleAsk {
  * outside its own `try`, so a throw is a defect and is reported as one rather
  * than being relabelled "your dependencies run in a circle".
  */
-export type OptimizedScheduleReader = (ask: OptimizedScheduleAsk) => Schedule | null;
+export type OptimizedScheduleReader = (ask: OptimizedScheduleAsk) => OptimizedScheduleRead;
