@@ -75,7 +75,7 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
       handler: ({ body }) => Promise.resolve(ok({ received: body })),
     },
     /**
-     * `GET /api/plans/by-solution/:slug` in miniature: an exact lookup keyed by
+     * `GET /plans/by-solution/:slug` in miniature: an exact lookup keyed by
      * a path parameter, over a store that holds one ordinary key and one whose
      * name is a percent sequence no decoder accepts. The echo route above shows
      * what each binder *puts* in `params`; this one shows what that value can
@@ -967,16 +967,32 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * The first fix handed the segment over **raw** and asserted only the status,
    * on the argument that `'%ZZ'` and `null` both reach a repository lookup that
    * answers `not_found`. TASK-270 item 2 measured that argument false — see the
-   * clause below — so the value is now asserted too, and the two binders agree
-   * on it. Measured on h2puni at `53d78020` across nine segments: both binders
-   * answer `null` for `%ZZ`, `%`, `%%`, `%E0%A4%A` and `%C0%80`, and both
-   * decode `%20`, `%F0%9F%98%80`, `a%2Fb` and `ok` to the same value, so the
-   * set of segments each one can decode is the same set on every probe.
+   * clause below — so the value is asserted too, and the two binders agree on it.
+   *
+   * The table is the whole probe, not one row of it, and that is the point of
+   * its shape: a decoder special-casing `%ZZ` would satisfy a single malformed
+   * case and still disagree with Elysia everywhere else, so the five undecodable
+   * rows pin the failure and the four decodable ones pin that failing is not the
+   * answer to everything. Measured on h2puni at `53d78020` before the fix: both
+   * binders already produced the decoded value for `%20`, `a%2Fb`,
+   * `%F0%9F%98%80` and a plain segment, and only the five malformed rows
+   * differed. So `decodeURIComponent` throwing and Elysia's
+   * `fast-decode-uri-component` returning `null` are the same accept set here.
    */
-  it('answers a malformed percent-encoded parameter rather than throwing', async () => {
-    const res = await get('/probe/echo/%ZZ');
+  it.each([
+    ['a bare percent', '%', null],
+    ['a stray pair of them', '%%', null],
+    ['a truncated multi-byte sequence', '%E0%A4%A', null],
+    ['an overlong encoding', '%C0%80', null],
+    ['two characters that are not hex', '%ZZ', null],
+    ['an encoded space', '%20', ' '],
+    ['an encoded slash', 'a%2Fb', 'a/b'],
+    ['an encoded astral character', '%F0%9F%98%80', '😀'],
+    ['a segment needing no decoding', 'plain', 'plain'],
+  ])('decodes %s the same way under either binder', async (_label, segment, expected) => {
+    const res = await get(`/probe/echo/${segment}`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ id: null, mode: null });
+    expect(await res.json()).toEqual({ id: expected, mode: null });
   });
 
   /**
@@ -987,11 +1003,14 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * matches no key; the raw `'%ZZ'` matches a record whose key is literally
    * those three characters. Nothing forbids one: a solution slug is any
    * non-empty string (`controller/project.routes.ts`), and
-   * `GET /api/plans/by-solution/:slug` is an exact lookup
+   * `GET /plans/by-solution/:slug` is an exact lookup
    * (`controller/solution.routes.ts`), so the second binder answered 200 with a
    * record where the shipped server answers 404.
    *
-   * Measured on h2puni at `53d78020` before the fix, with this exact store:
+   * Measured on h2puni at `53d78020` before the fix, over the same two keys —
+   * the probe's handler returned the stored value where this one returns only
+   * whether it was found, so the shape below is the probe's and not this
+   * fixture's:
    * `FIND elysia "%ZZ" -> 200 {"found":false}` and
    * `FIND in-process "%ZZ" -> 200 {"found":true,...}`. That is the divergence
    * the second binder exists to catch, found in the second binder itself.

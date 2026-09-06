@@ -357,7 +357,8 @@ export function noContent(): RouteResponse {
  * alone so the root path does not normalise to the empty string.
  */
 /**
- * One path segment, decoded — or left exactly as it arrived where it cannot be.
+ * One path segment, decoded — or `null` where it cannot be, which is what
+ * Elysia puts there.
  *
  * `decodeURIComponent` **throws** `URIError` on malformed percent encoding, and
  * `matchPath` is called outside the in-process binder's `try`, so
@@ -373,7 +374,7 @@ export function noContent(): RouteResponse {
  * The first fix handed it over raw instead, on the argument that `'%ZZ'` and
  * `null` both reach a repository lookup that answers `not_found`. TASK-270
  * item 2 measured that argument false. A solution slug is any non-empty string
- * (`controller/project.routes.ts`) and `GET /api/plans/by-solution/:slug` is an
+ * (`controller/project.routes.ts`) and `GET /plans/by-solution/:slug` is an
  * exact lookup (`controller/solution.routes.ts`), so a stored slug spelled
  * `%ZZ` is reachable by the raw value and unreachable by Elysia's `null`: on
  * h2puni at `53d78020`, over a store holding that key, `elysia -> found:false`
@@ -387,10 +388,14 @@ export function noContent(): RouteResponse {
  * 1.4.28 — and puts `null` there anyway. Reproducing it keeps one meaning per
  * URL across binders. The honest alternative — widening {@link
  * RouteRequest.params} to `Record<string, string | null>` — is deferred, not
- * rejected: it puts a case no client sends in front of the 27 parameter reads
- * in the seven controller modules while changing no answer any of them gives.
- * Whoever wants the compiler to enforce it should widen the type and keep these
- * clauses, which assert values and not just statuses.
+ * rejected: it puts a case no client sends in front of 31 parameter reads on 27
+ * lines of the seven controller modules. Measured at this head, deferring it
+ * changes no answer any of them gives except one: `POST /projects/:id/commands`
+ * hands `null` to `PlanCommandRunner`'s no-project sentinel, so a batch naming a
+ * work item answers 400 `project_required` where the raw segment answered 404
+ * `not_found`. Both refuse, both roll back, and neither is the wrong 200 the
+ * divergence itself was. Whoever wants the compiler to enforce the case should
+ * widen the type and keep these clauses, which assert values and not statuses.
  *
  * Same accept set, measured rather than assumed: across `%ZZ`, `%`, `%%`,
  * `%E0%A4%A`, `%C0%80`, `%20`, `%F0%9F%98%80`, `a%2Fb` and `ok`, this decoder
