@@ -25,8 +25,10 @@ import { WorkItemService, type WorkItemServiceOptions } from './work-item.servic
  * once before the date exists and once after, and asserts the difference. A
  * single read asserting `lateBy === 2` would pass against a fixture that was
  * always late, which is the check-that-cannot-fail R5 names; the before-read is
- * what makes the deadline the cause. The two that read once are the negative
- * controls, each labelled as one where it stands.
+ * what makes the deadline the cause. The two that read the **scheduling
+ * outcome** once are the negative controls, each labelled as one where it
+ * stands — the no-start-date one does call `tree()` twice, once for the plan
+ * and once for the stored row, which is the pair it exists to hold together.
  *
  * Measured, not argued: with **both** newly threaded uses reverted to
  * `NO_DEADLINES` — the cache ask and the `schedule()` call — on h2puni at
