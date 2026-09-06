@@ -66,9 +66,7 @@ export function readRuntimeSolverVersion(
       new URL('../../../../libs/solver-py/src/wbs_solver/__init__.py', import.meta.url),
       'utf8',
     );
-  const versions = [...module.matchAll(/^__version__ = "([^"]+)"$/gm)].map(
-    (match) => match[1],
-  );
+  const versions = [...module.matchAll(/^__version__ = "([^"]+)"$/gm)].map((match) => match[1]);
   if (versions.length !== 1) {
     throw new Error('solver source module must contain exactly one non-empty __version__');
   }

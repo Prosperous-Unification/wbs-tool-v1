@@ -1,5 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
-Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216 at `951b3156`; next exact-head h2puni gate, peer + Gemini, green CI. Do not merge or install the host service.
+
+Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; next exact-head h2puni gate, peer + Gemini, green CI. Do not merge or install the host service.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
@@ -146,5 +147,4 @@ any first message _containing_ `"pong"`; drain reads a malformed metrics body as
 | `docs/2026-08-30-agent-loop-audit.md`                                               | **before gating while other agents are live** — worktree ownership, lock lanes, five false greens                                                          |
 | `docs/2026-09-02-refactoring-plan.md`, `docs/2026-09-05-ports-and-adapters-plan.md` | before any refactor — five waves and ledgers; then the core / store-sqlite / store-memory / be-01 split, ADR 0014–0015; its `-history.md` is not normative |
 
-Conventions: pure planners + thin IO shell; `strictTypeChecked`; comments say **why** and state
-verification; never print a secret value. Explicit return types are house style, **not** lint-enforced.
+Conventions: pure planners + thin IO shell; strict types; comments say **why** and what was verified; never print secrets.
