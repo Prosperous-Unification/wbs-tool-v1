@@ -42,7 +42,12 @@
     },
     "test": {
       "executor": "nx:run-commands",
-      "inputs": ["default", "^production", "{workspaceRoot}/libs/domain/src/schedule.ts"],
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/libs/domain/src/schedule.ts",
+        "{workspaceRoot}/openspec/changes/dual-optimized-scheduler/design.md"
+      ],
       "options": {
         "command": "bun test --coverage --coverage-reporter=lcov",
         "cwd": "apps/be-01"
