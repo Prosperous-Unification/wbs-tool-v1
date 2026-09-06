@@ -1,10 +1,11 @@
-import type { SupervisorAttemptChannel, SupervisorControl } from './solver-supervisor-lifecycle';
 import {
   decodeSupervisorStartFrame,
   type SupervisorReplyFrame,
   type SupervisorStartDecodeContext,
   type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
+} from '@wbs/contracts/solver/supervisor-protocol';
+
+import type { SupervisorAttemptChannel, SupervisorControl } from './solver-supervisor-lifecycle';
 
 export interface SupervisorChannelTimer {
   after(milliseconds: number, callback: () => void): unknown;

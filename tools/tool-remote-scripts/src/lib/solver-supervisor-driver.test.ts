@@ -1,3 +1,7 @@
+import {
+  SUPERVISOR_PROTOCOL_VERSION,
+  type SupervisorStartFrame,
+} from '@wbs/contracts/solver/supervisor-protocol';
 import { describe, expect, it } from 'bun:test';
 
 import {
@@ -10,11 +14,6 @@ import {
   type ManagedCommandProcess,
   type ManagedCommandSpawn,
 } from './solver-supervisor-driver';
-import {
-  SUPERVISOR_PROTOCOL_VERSION,
-  type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
-
 const CALLER_ID = 'a'.repeat(64);
 const CONTAINER_ID = 'b'.repeat(64);
 const CREATED_ID = 'c'.repeat(64);

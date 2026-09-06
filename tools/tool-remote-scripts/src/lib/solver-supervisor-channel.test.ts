@@ -1,13 +1,13 @@
+import {
+  SUPERVISOR_PROTOCOL_VERSION,
+  type SupervisorStartFrame,
+} from '@wbs/contracts/solver/supervisor-protocol';
 import { describe, expect, it } from 'bun:test';
 
 import {
   type SupervisorChannelTimer,
   SupervisorOneAttemptChannel,
 } from './solver-supervisor-channel';
-import {
-  SUPERVISOR_PROTOCOL_VERSION,
-  type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
 
 const CALLER_ID = 'a'.repeat(64);
 const START: SupervisorStartFrame = {

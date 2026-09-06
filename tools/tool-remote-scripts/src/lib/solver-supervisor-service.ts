@@ -1,3 +1,5 @@
+import type { SupervisorStartFrame } from '@wbs/contracts/solver/supervisor-protocol';
+
 import {
   type SupervisorChannelOptions,
   SupervisorOneAttemptChannel,
@@ -9,8 +11,6 @@ import {
   type SupervisorPeerDependencies,
   type SupervisorPeerPolicy,
 } from './solver-supervisor-peer';
-import type { SupervisorStartFrame } from './solver-supervisor-protocol';
-
 export interface SupervisorConnectionOptions
   extends SupervisorChannelOptions, SupervisorPeerPolicy {
   readonly maxSearchWorkers: number;

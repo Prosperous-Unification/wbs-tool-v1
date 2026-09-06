@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, it } from 'bun:test';
-
-import { listenForSupervisorConnections } from './solver-supervisor-listener';
 import {
   SUPERVISOR_PROTOCOL_VERSION,
   type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
+} from '@wbs/contracts/solver/supervisor-protocol';
+import { describe, expect, it } from 'bun:test';
+
+import { listenForSupervisorConnections } from './solver-supervisor-listener';
 
 const CALLER_ID = 'a'.repeat(64);
 const FRAME: SupervisorStartFrame = {

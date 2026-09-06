@@ -1,4 +1,4 @@
-import type { SupervisorStartFrame } from './solver-supervisor-protocol';
+import type { SupervisorStartFrame } from '@wbs/contracts/solver/supervisor-protocol';
 
 export interface ManagedContainerOptions {
   readonly image: string;

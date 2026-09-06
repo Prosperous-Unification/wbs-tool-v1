@@ -66,6 +66,9 @@
       "@wbs/contracts/solver/revalidate-solver-result": [
         "libs/contracts/solver/src/revalidate-solver-result.ts"
       ],
+      "@wbs/contracts/solver/supervisor-protocol": [
+        "libs/contracts/solver/supervisor-protocol/src/index.ts"
+      ],
       "@wbs/deploy-contract": ["tools/tool-remote-scripts/src/lib/deploy-contract.ts"],
       "@wbs/tool-compose": ["tools/tool-compose/src/index.ts"],
       "@wbs/tool-env": ["tools/tool-remote-scripts/src/lib/env.ts"],

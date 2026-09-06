@@ -1,3 +1,8 @@
+import type {
+  SupervisorReplyFrame,
+  SupervisorStartFrame,
+} from '@wbs/contracts/solver/supervisor-protocol';
+
 import {
   buildManagedContainerArgs,
   buildPersistentDeadlineTimerCommands,
@@ -10,8 +15,6 @@ import {
   relayManagedContainerOutput,
   type SupervisorOutputLimits,
 } from './solver-supervisor-output';
-import type { SupervisorReplyFrame, SupervisorStartFrame } from './solver-supervisor-protocol';
-
 export type SupervisorControl = 'bound' | 'abort' | 'kill' | 'eof' | 'timeout';
 
 export interface ManagedContainerAttachment {

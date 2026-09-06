@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 
-import type { SupervisorReplyFrame } from './solver-supervisor-protocol';
+import type { SupervisorReplyFrame } from '@wbs/contracts/solver/supervisor-protocol';
 
 export type SupervisorOutputFrame = Extract<
   SupervisorReplyFrame,

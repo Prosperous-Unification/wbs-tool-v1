@@ -1,3 +1,4 @@
+/** Version shared by the backend client and host-owned solver supervisor. */
 export const SUPERVISOR_PROTOCOL_VERSION = 1;
 
 export type SupervisorObjective = 'pri' | 'time';

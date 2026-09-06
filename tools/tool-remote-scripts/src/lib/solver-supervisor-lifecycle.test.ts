@@ -1,3 +1,8 @@
+import {
+  SUPERVISOR_PROTOCOL_VERSION,
+  type SupervisorReplyFrame,
+  type SupervisorStartFrame,
+} from '@wbs/contracts/solver/supervisor-protocol';
 import { describe, expect, it } from 'bun:test';
 
 import {
@@ -10,12 +15,6 @@ import {
   type SupervisorControl,
   sweepManagedSolverOrphans,
 } from './solver-supervisor-lifecycle';
-import {
-  SUPERVISOR_PROTOCOL_VERSION,
-  type SupervisorReplyFrame,
-  type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
-
 const CALLER_ID = 'a'.repeat(64);
 const CONTAINER_ID = 'b'.repeat(64);
 const IMAGE = `registry.example/wbs-be-01@sha256:${'c'.repeat(64)}`;

@@ -6,7 +6,7 @@ import {
   SUPERVISOR_PROTOCOL_VERSION,
   type SupervisorReplyBudget,
   type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
+} from './index';
 
 const CALLER_ID = 'a'.repeat(64);
 const PROJECT_ID = '018f3f08-2ef7-7d1c-b645-14f877575d65';

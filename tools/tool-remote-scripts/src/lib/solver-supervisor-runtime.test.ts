@@ -1,3 +1,8 @@
+import {
+  SUPERVISOR_PROTOCOL_VERSION,
+  type SupervisorReplyFrame,
+  type SupervisorStartFrame,
+} from '@wbs/contracts/solver/supervisor-protocol';
 import { describe, expect, it } from 'bun:test';
 
 import type {
@@ -6,11 +11,6 @@ import type {
   ManagedDeadlineTimer,
   SupervisorAttemptChannel,
 } from './solver-supervisor-lifecycle';
-import {
-  SUPERVISOR_PROTOCOL_VERSION,
-  type SupervisorReplyFrame,
-  type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
 import {
   type SolverSupervisorDriver,
   startSolverSupervisor,

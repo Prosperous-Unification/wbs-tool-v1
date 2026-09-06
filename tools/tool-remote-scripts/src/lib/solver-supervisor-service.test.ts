@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'bun:test';
-
 import {
   SUPERVISOR_PROTOCOL_VERSION,
   type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
+} from '@wbs/contracts/solver/supervisor-protocol';
+import { describe, expect, it } from 'bun:test';
+
 import { serveSupervisorConnection } from './solver-supervisor-service';
 
 const CALLER_ID = 'a'.repeat(64);

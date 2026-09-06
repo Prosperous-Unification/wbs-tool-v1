@@ -1,3 +1,7 @@
+import {
+  SUPERVISOR_PROTOCOL_VERSION,
+  type SupervisorStartFrame,
+} from '@wbs/contracts/solver/supervisor-protocol';
 import { describe, expect, it } from 'bun:test';
 
 import {
@@ -7,11 +11,6 @@ import {
   inspectBackendContainerArgs,
   listManagedContainersArgs,
 } from './solver-supervisor-command';
-import {
-  SUPERVISOR_PROTOCOL_VERSION,
-  type SupervisorStartFrame,
-} from './solver-supervisor-protocol';
-
 const CALLER_ID = 'a'.repeat(64);
 const CONTAINER_ID = 'b'.repeat(64);
 const ATTEMPT_TOKEN = '018f3f08-2ef7-7d1c-b645-14f877575d66';
