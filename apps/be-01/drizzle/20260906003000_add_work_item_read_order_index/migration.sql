@@ -11,5 +11,14 @@
 -- against this file happily during a swap.
 --
 -- The `WHERE` alone already resolved: `work_item_siblings` opens on `project_id`.
--- What did not was the sort, and that is what this measures.
+-- What did not was the sort, and that is what this measures. `EXPLAIN QUERY
+-- PLAN` for `listByProject`'s select, on two freshly migrated databases whose
+-- only difference is this folder, each plan read in its own process:
+--
+--   before  SEARCH work_item USING INDEX work_item_siblings (project_id=?)
+--           USE TEMP B-TREE FOR ORDER BY
+--   after   SEARCH work_item USING INDEX work_item_project_id_id (project_id=?)
+--
+-- So this removes a sort of every row in the project, not a scan. `verify.md`
+-- carries the run and the `SELECT id` variant, which is additionally covering.
 CREATE INDEX `work_item_project_id_id` ON `work_item` (`project_id`,`id`);
