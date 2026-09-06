@@ -42,7 +42,7 @@ function locatedErrorCommandOf(line: string): string | null {
       ? line.slice(nxPrefixLength)
       : null;
   // Proof: removing this guard made the direct C0/DEL selection case retain
-  // all 31 forbidden-control fixtures while CR splitting remained active.
+  // the first 20 of 31 forbidden fixtures while CR splitting remained active.
   if (!command || containsCommandControl(command)) return null;
 
   const separator = command.indexOf('::', ERROR_PREFIX.length);
