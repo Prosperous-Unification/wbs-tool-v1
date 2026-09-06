@@ -318,3 +318,20 @@ its response mapping remain.
 
 Together with the retained-marker replacement and atomic-admission proofs
 above, this closes 7.3 and 7.11.
+
+## 2026-09-06T22:49:00Z — outcome-event negative controls
+
+- Exact head `52e97e09` on h2puni, worktree
+  `/home/puni1/t268-r3-event-negatives.mBUA6j`: the focused event suite passed
+  5/5 with 48 assertions before and after two isolated mutations.
+- Emitting `schedule_optimized` from `readPlan` for an `ok` cache hit made the
+  exact no-hit-push assertion red at 3 received events versus 2 expected.
+- Moving the cache write outside the event transaction made the injected
+  event-write crash leave one cache row; the rollback assertion failed at 1
+  received versus 0 expected. Each mutation was restored and the worktree was
+  clean before the next.
+- The same suite's two preflight failures remain the no-other-event proof for
+  `schedule_optimization_failed`; the earlier success-only event mutation made
+  that case red, as recorded in the durable failure-announcement section.
+
+This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.

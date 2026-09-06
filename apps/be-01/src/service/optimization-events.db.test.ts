@@ -302,6 +302,8 @@ describe('optimized outcome events', () => {
     } finally {
       raw.close();
     }
+    // Proof: publishing `schedule_optimized` from `readPlan` when this cache
+    // hit is observed makes `pushed` contain 3 above instead of 2.
   });
 
   it('rolls the cache row back when recording the event crashes', () => {

@@ -3804,13 +3804,13 @@ inputHash, objective, contractVersion, budgetMs)` (7.7). **The cache row
       starts a fresh generation rather than the stale variant” case is deferred
       with 7.11 by TASK-220's explicit scope boundary above; keeping it as a
       prerequisite here would make that boundary impossible to satisfy.
-- [ ] 7.5 **Negative checks, watched red** — emit `schedule_optimized` on a
+- [x] 7.5 **Negative checks, watched red** — emit `schedule_optimized` on a
       cache hit and watch the "cache hit emits nothing" case fail; then split
       the cache write and the event write into two transactions and watch the
       crash-injection case fail. Two `Proof:` comments. A broadcast per read
       would make every collaborator refetch unchanged data; a split write is a
       result nobody is told about.
-- [ ] 7.6 A newly written failure marker emits `schedule_optimization_failed`
+- [x] 7.6 A newly written failure marker emits `schedule_optimization_failed`
       in the same transaction as the row, carrying `(projectId, generation,
 inputHash, objective, contractVersion, budgetMs, failureReason)` and no
       schedule. Without it the read returns Fast, success emits
