@@ -18,6 +18,13 @@ const PROJECT_SETTINGS = '20260904140000_add_project_settings';
  * tables reverses it first — this file names it only to say so.
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
+/**
+ * The newest: `work_item.deadline`, the nullable date-only column slice 1 adds.
+ * Additive forward and `DROP COLUMN` on the way back, so it heads every
+ * descending reversal list here and tails every ascending one, exactly as
+ * {@link READ_ORDER_INDEX} did while it was newest.
+ */
+const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
 
 /** The one below it, which is where every rollback here stops. */
 const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
@@ -146,6 +153,7 @@ describe('the project settings migration', () => {
       // cannot make: a migration that also dropped a column would still pass
       // every line above.
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
@@ -180,6 +188,7 @@ describe('the project settings migration', () => {
     try {
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
@@ -257,6 +266,7 @@ describe('the project settings migration', () => {
       const migratedDdl = projectDdl(db.path);
 
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,

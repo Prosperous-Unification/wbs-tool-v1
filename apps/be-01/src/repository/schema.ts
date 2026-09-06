@@ -412,6 +412,62 @@ export const workItem = sqliteTable(
      */
     startNoEarlierThanReason: text('start_no_earlier_than_reason'),
     /**
+     * A calendar day this work item is owed by, or null.
+     *
+     * The mirror of {@link workItem.startNoEarlierThan} and deliberately shaped
+     * like it: a nullable date-only `TEXT`, no default, and **no reason column
+     * beside it**. The floor's `start_no_earlier_than_reason` gets no
+     * counterpart here; adding one speculatively would be a second thing to
+     * keep true about a date nobody has asked to explain.
+     *
+     * **It is not a floor pointing the other way.** A floor moves work later
+     * and always wins the placement; a deadline moves work **nowhere**. It
+     * orders the queue — minimum slack, then earliest date, in front of
+     * priority — and where the plan cannot meet it the plan is reported *late*
+     * rather than rewritten. A leaf whose floor stands after its deadline still
+     * starts at its floor. The two folds differ for the same reason: an
+     * ancestor's floor takes the **latest** of the tree, an ancestor's deadline
+     * the **earliest**, because a constraint that binds tightens as it inherits.
+     *
+     * **Null is a real state**: the absence of a deadline, not a date that
+     * happens to be far away. Every existing row reads null after the
+     * migration — measured against a copy of dev's live database in
+     * `openspec/changes/work-item-deadline/verify.md`, not assumed.
+     *
+     * **In the release that adds it, nothing reads this column at all**, and
+     * that is the whole reason plans schedule exactly as they did. It is not
+     * yet threaded to `schedule()`, and the scheduler has no `deadlines`
+     * argument at this commit: `openspec/changes/work-item-deadline/tasks.md`
+     * 1.2 keeps the migration on its own PR carrying nothing else, so slices
+     * 2–5 arrive separately. When they do, the no-op argument becomes the
+     * empty map rather than the absent reader, and it is their golden-corpus
+     * case that has to prove it. **Every sentence in this comment that
+     * describes an ordering, a fold, a late label or a read-time resolution —
+     * before this paragraph and after it — describes what the column is *for*,
+     * not code standing at this head.** Stated once here rather than hedged
+     * sentence by sentence, and stated as a direction rather than a position,
+     * because a pointer that says "below" is one edit away from pointing at
+     * the wrong half.
+     *
+     * **Below the floor's reason rather than beside the floor**, deliberately:
+     * `startNoEarlierThanReason` says its words are about "this column and the
+     * one above it", and a deadline slipped between the two would make that
+     * sentence point here. The floor and its reason stay adjacent; a column's
+     * position in this object is not its position in the table anyway, since
+     * `ALTER TABLE ADD COLUMN` appends.
+     *
+     * **Stored as authored, and no later edit will rewrite it** — a rule about
+     * the writes the later slices add, since at this head there are none. A
+     * project start moved past a stored deadline is to resolve
+     * `before-project-start` at **read** time and the row is to be reported
+     * late by the whole span; the value is to be left alone and the request
+     * that moved the project is not to be rejected. It is written down here,
+     * on the column, because rewriting the value would delete what somebody
+     * typed on an unrelated edit, and the place that argument has to survive
+     * is the definition of the thing being rewritten.
+     */
+    deadline: text('deadline'),
+    /**
      * How important this work is, or null for "nobody has said" — an integer of
      * 1 or more, smaller being more important.
      *

@@ -1,0 +1,42 @@
+-- Reverses `20260906090000_add_work_item_deadline`.
+--
+-- **What is lost is dates somebody committed to — and, where a deadline had
+-- won a contention, some placements move with them.** Every other column of
+-- `work_item` is untouched and every floor still holds its row on the same day,
+-- but "a deadline does not place work" is a statement about the *constraint*
+-- and not about the queue: minimum slack and earliest date sort contended ready
+-- slices ahead of priority, so two one-day slices sharing one person come back
+-- in the priority order once the deadlines are gone, and both their dates move.
+-- The rollback therefore returns a plan to the state it would be in had the
+-- deadlines never been entered — which is the state it is in today, but is not
+-- the same thing as "the same placement". An earlier draft of this comment said
+-- it was; a round-2 review measured the counter-example and it is written here
+-- instead of quietly left.
+--
+-- That is the one asymmetry worth stating plainly rather than implying a safety
+-- net: the placement is recoverable because it never depended on this column,
+-- and **the dates themselves are not**. `plan_event` holds the `patch` commands
+-- that wrote them, for as long as retention keeps them (365 days), so a
+-- deadline could in principle be read back out of a plan's events by hand.
+-- Nothing replays them and this rollback does not try.
+--
+-- Undo and redo are unaffected in shape and lossy in one arm, the position
+-- every rollback of an additive column leaves its own kind in: `command_journal`
+-- is not touched, so every entry stays pressable, but a `patch` entry whose
+-- forward or inverse names `deadline` names a column that is no longer there
+-- and fails when applied.
+--
+-- Reversed **before** `20260906003000_add_work_item_read_order_index`: rollback
+-- order is the reverse of application order, which is what
+-- `migrate-down-cli.ts --to=<name>` does with the applied set, and
+-- `migrate.db.test.ts` and `migrate-down.db.test.ts` walk it rather than
+-- trusting the CLI's exit code. (There is no `migrate.test.ts`; the earlier
+-- spelling here named a file that does not exist.)
+--
+-- `DROP COLUMN` and not a table rebuild: SQLite has supported it since 3.35 and
+-- `20260818090000_add_not_before_reason`'s down script is the precedent one
+-- column over. It runs solely when the release that added the column is being
+-- taken away — a forward migration in this repo is additive so blue and green
+-- can share one file mid-swap, and reversing an additive change is destructive
+-- by definition, which is why it lives here and not there.
+ALTER TABLE `work_item` DROP COLUMN `deadline`;

@@ -45,6 +45,13 @@ const PROJECT_SETTINGS = '20260904140000_add_project_settings';
  * was newest.
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
+/**
+ * The newest: `work_item.deadline`, the nullable date-only column slice 1 adds.
+ * Additive forward and `DROP COLUMN` on the way back, so it heads every
+ * descending reversal list here and tails every ascending one, exactly as
+ * {@link READ_ORDER_INDEX} did while it was newest.
+ */
+const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
 
 /** The one below it, which is where every rollback here stops. */
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
@@ -236,6 +243,7 @@ describe('the optimizer migration', () => {
       // Newest first, so the settings columns come off before the tables they
       // steer — this migration is no longer the only thing above LOOKUP_INDEXES.
       expect(rollbackTo(db.path, FOLDER, LOOKUP_INDEXES)).toEqual([
+        WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,

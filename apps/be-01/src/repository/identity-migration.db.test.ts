@@ -61,6 +61,13 @@ const PROJECT_SETTINGS = '20260904140000_add_project_settings';
  * was newest.
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
+/**
+ * The newest: `work_item.deadline`, the nullable date-only column slice 1 adds.
+ * Additive forward and `DROP COLUMN` on the way back, so it heads every
+ * descending reversal list here and tails every ascending one, exactly as
+ * {@link READ_ORDER_INDEX} did while it was newest.
+ */
+const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 function tempDb(): { path: string; cleanup: () => void } {
@@ -76,6 +83,7 @@ function tempDb(): { path: string; cleanup: () => void } {
 function beforeIdentity(dbPath: string): void {
   runMigrations(dbPath, FOLDER);
   expect(rollbackTo(dbPath, FOLDER, PERSON_KIND)).toEqual([
+    WORK_ITEM_DEADLINE,
     READ_ORDER_INDEX,
     CALENDAR_MARKER,
     PROJECT_SETTINGS,
@@ -175,6 +183,7 @@ describe('the OIDC identity migration', () => {
       beforeIdentity(db.path);
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
@@ -238,6 +247,7 @@ describe('the OIDC identity migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
