@@ -55,7 +55,8 @@ provider's limit, and carry environment-scoped read/write permissions.
 ordered list of up to 200 typed commands — every plan edit and every directory
 edit — applies them all or none in one transaction and records them as one undo.
 Later commands may name what earlier ones created by \`ref\`. A refused command
-refuses the batch with \`{ "error", "at", "kind" }\` and nothing is applied. Its
+refuses the batch with \`{ "error", "at" }\` — and \`"kind"\` too, once the
+command's kind is known — and nothing is applied. Its
 body is described under the route, one variant per command kind.
 
 **This document describes bodies; it does not declare any.** Every
@@ -68,13 +69,16 @@ The two batch routes parse their body by hand for a further reason — because
 the server strips unknown properties before a handler runs, which would silently
 delete refusals like \`number_is_derived\` and the priority and parallelism
 guards — and each command inside them is checked by the parser its retired route
-had. Their bodies are written out one variant per command kind, and they answer
-400 with a code, the command's index and its kind.
+had. Their bodies are written out one variant per command kind. They answer 400
+with a code; a refusal that belongs to one command also names its \`at\`, and
+names its \`kind\` once that is known. A refusal of the envelope itself — a
+\`commands\` that is not a list — carries the code alone.
 
 **Refusals.** A refused request answers \`{ "error": "<code>" }\` with a status
 that means something: 400 "do not send this", 409 "try again against a different
 state", 404 "that id is not here", 403 "you may read it but not write it". A
-refused batch adds \`"at"\` and \`"kind"\`. The batch routes list their codes in
+refused batch adds \`"at"\`, and \`"kind"\` with it once the command's kind is
+known; a refusal of the envelope itself carries neither. The batch routes list their codes in
 their own descriptions. The rest do not yet — that pass is change A2.
 
 **Numbers are derived.** Work-item numbers, dates, floats and slices are

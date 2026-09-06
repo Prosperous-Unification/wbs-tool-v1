@@ -95,8 +95,32 @@ jobs:
       # The same reasoning rules out a retry: it would have become the gate
       # people re-run until it is green, a check that cannot fail wearing a
       # different hat.
+      #
+      # The runner's step log also cut this command off at ~760 KB, before
+      # either the failing case or Nx's final summary. Stream avoids Nx's
+      # aggregate renderer, while the file keeps the complete output outside
+      # the runner log path. The bounded tail is only a convenience; the
+      # uploaded file below is the diagnostic record.
+      # Proof: CI 34029234602 at bca2e32d changed `isWithin`'s named root-self
+      # assertion to a real failure. The gate failed, the upload still passed,
+      # and its 1,094,648-byte artifact names the case and `domain:test`.
+      # Green control CI 34028724397 carries the four-target Nx summary.
       - name: Gate — test, lint, typecheck, build
-        run: bunx nx run-many -t test lint typecheck build --parallel=2
+        run: |
+          set +e
+          bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
+            > nx-gate.log 2>&1
+          gate_status=$?
+          tail -n 200 nx-gate.log
+          exit "$gate_status"
+
+      - name: Upload gate log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nx-gate-log
+          path: nx-gate.log
+          if-no-files-found: error
 
       # The host-wide heavy-work mutex, which is the only thing keeping two
       # heavy runs off one machine. It went unexercised until 2026-08-30, when
