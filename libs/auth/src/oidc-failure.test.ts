@@ -464,6 +464,43 @@ describe('classifyOidcFailure', () => {
       expect(failure).toEqual({ kind: 'refused', reason: 'grant_refused' });
     });
 
+    it('does not let a library code we trust bury the outage recorded beneath it', () => {
+      // The other half of the ordering, and the half that is easy to break while
+      // fixing the first. `oauth4webapi` raises `OAUTH_PARSE_ERROR` when
+      // `response.json()` rejects and keeps the rejection as its `cause`, so a
+      // provider that closes the socket mid-body arrives exactly like this.
+      // Reading the code table before the walk answers `local_defect` and files
+      // a real outage as our own bug — the same evidence thrown away, one layer
+      // out from the defect the ordering above was written to fix. Only a code
+      // whose `cause` the provider fills in may outrank the walk.
+      const failure = classifyOidcFailure({
+        code: 'OAUTH_PARSE_ERROR',
+        cause: new TypeError('terminated', { cause: { code: 'UND_ERR_SOCKET' } }),
+      });
+
+      expect(failure).toEqual({ kind: 'unavailable', reason: 'provider_unreachable' });
+    });
+
+    it('still answers from the code table when nothing beneath it is a transport failure', () => {
+      // The walk running first must not cost the table its rows: a parse error
+      // with nothing underneath it is still ours.
+      expect(classifyOidcFailure({ code: 'OAUTH_PARSE_ERROR' })).toEqual({
+        kind: 'defect',
+        reason: 'local_defect',
+      });
+      expect(classifyOidcFailure({ code: 'OAUTH_RESPONSE_IS_NOT_JSON' })).toEqual({
+        kind: 'unavailable',
+        reason: 'provider_response_unusable',
+      });
+      // And a challenge is provider-controlled, so it keeps deciding first.
+      expect(
+        classifyOidcFailure({
+          code: 'OAUTH_WWW_AUTHENTICATE_CHALLENGE',
+          cause: [{ scheme: 'bearer', parameters: { code: 'ENOTFOUND' } }],
+        }),
+      ).toEqual({ kind: 'defect', reason: 'client_authentication_failed' });
+    });
+
     it('still finds a transport failure when the top-level code is not one we own', () => {
       // The ordering must not disable the walk. A bare `fetch` TypeError has no
       // code of its own, and a code this module does not recognise is not

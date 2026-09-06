@@ -169,6 +169,33 @@ const OAUTH_ERROR_ENVELOPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The codes whose `cause` the provider fills in, which is the only reason a
+ * top-level code is ever read before the transport walk.
+ *
+ * The walk exists because `fetch` buries the real failure one or more levels
+ * down, so it has to descend — and descending is exactly what a provider can
+ * exploit. `oauth4webapi` hangs the complete JSON error body on
+ * `ResponseBodyError.cause`, the authorization response parameters on
+ * `AuthorizationResponseError.cause`, and the parsed challenge on
+ * `WWWAuthenticateChallengeError.cause`. For those three the top level is the
+ * library's own word and the level below it is the provider's, so the top level
+ * decides and the walk never runs.
+ *
+ * **Every other code is the other way round and must not be listed here.** Their
+ * causes are the library's or the platform's, and they are frequently the only
+ * place the real failure is recorded: `oauth4webapi` raises `OAUTH_PARSE_ERROR`
+ * for a rejected `response.json()` and preserves the rejection as its `cause`,
+ * so a provider that closes the socket mid-body arrives as
+ * `OAUTH_PARSE_ERROR` wrapping `UND_ERR_SOCKET`. Reading the top level first
+ * there would file a real outage as `local_defect` — the same evidence thrown
+ * away, one layer out from the defect this ordering was written to fix.
+ */
+const PROVIDER_CONTROLLED_CAUSE: ReadonlySet<string> = new Set([
+  ...OAUTH_ERROR_ENVELOPES,
+  'OAUTH_WWW_AUTHENTICATE_CHALLENGE',
+]);
+
+/**
  * Transport failures, which arrive with no OAuth code of their own.
  *
  * `fetch` rejects with a bare `TypeError` and hangs the real cause off `cause`,
@@ -511,22 +538,30 @@ function classifyOAuthErrorResponse(error: unknown): OidcFailure {
  * `local_defect`, so a regression in here is not filed as someone else's hostile
  * input.
  *
- * **The order of the two lookups is load-bearing, and it is this way round.**
- * The top-level `code` is the library's own word for what failed and this
- * project trusts it; `cause` below it is not always ours to trust. `oauth4webapi`
- * hangs the provider's complete JSON body on `ResponseBodyError.cause`, so a
- * perfectly ordinary token-endpoint refusal answering
+ * **The order of the three lookups is load-bearing, and it turns on one
+ * question: whose `cause` is it?**
+ *
+ * A code in {@link PROVIDER_CONTROLLED_CAUSE} is read first and the walk never
+ * runs, because the level below it belongs to the provider. `oauth4webapi` hangs
+ * the complete JSON body on `ResponseBodyError.cause`, so a perfectly ordinary
+ * token-endpoint refusal answering
  * `{"error":"invalid_grant","code":"ERR_SSL_TLSV1_UNRECOGNIZED_NAME"}` would,
  * walked first, be read as a TLS failure and answered `indeterminate` instead of
- * `refused`. That is not a misfiled row — it is a field the provider controls
- * outranking an envelope we trust, which is provider input steering our own
- * classification. Every library error whose `cause` is provider-shaped carries
- * one of the codes read here, so recognising them before the walk closes it.
+ * `refused` — a field the provider controls outranking an envelope we trust,
+ * which is provider input steering our own classification.
+ *
+ * Every other code is read *after* the walk, because its `cause` is the
+ * library's or the platform's and is often the only place the real failure is
+ * recorded. `OAUTH_PARSE_ERROR` wrapping `UND_ERR_SOCKET` is a provider that
+ * closed the socket mid-body; reading the table first would answer
+ * `local_defect` and lose the outage — the same mistake as the one above, made
+ * one layer out. Trusting the top level everywhere is not the fix; trusting it
+ * exactly where the layer below is untrusted is.
  */
 export function classifyOidcFailure(error: unknown): OidcFailure {
   try {
     const code = stringProperty(error, 'code');
-    if (code !== undefined) {
+    if (code !== undefined && PROVIDER_CONTROLLED_CAUSE.has(code)) {
       if (OAUTH_ERROR_ENVELOPES.has(code)) return classifyOAuthErrorResponse(error);
 
       const known = CODE_TABLE.get(code);
@@ -542,6 +577,11 @@ export function classifyOidcFailure(error: unknown): OidcFailure {
         if (PARTY_NEUTRAL_ALERTS.has(alert)) return INDETERMINATE('tls_negotiation_failed');
       }
       return UNAVAILABLE('provider_unreachable');
+    }
+
+    if (code !== undefined) {
+      const known = CODE_TABLE.get(code);
+      if (known !== undefined) return known;
     }
 
     return DEFECT('unrecognised_failure');
