@@ -126,7 +126,7 @@ describe('browser binding cookie', () => {
         ...jarOf(['binding-3']),
         // The same binding under a second name, and a binding under a name this
         // app would never have written for it: both break the one-name-per-login
-        // bijection every clear depends on, so neither is offered.
+        // one-name-per-login pairing every clear depends on, so neither is offered.
         [`${BROWSER_BINDING_COOKIE_PREFIX}duplicate`, 'binding-2'],
         [`${BROWSER_BINDING_COOKIE_PREFIX}renamed`, 'binding-4'],
       ]),

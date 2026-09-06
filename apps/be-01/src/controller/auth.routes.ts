@@ -516,9 +516,11 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // the bodiless 400 the other dead-transaction answers give, because a
         // caller who is told "your state was wrong" while the record survives
         // has been handed the retry signal the old ordering was destroying the
-        // record to deny. The only observable difference is that no live
-        // binding is named: `settled` here is the dead names this request
-        // arrived carrying and nothing else, which is usually empty.
+        // record to deny. The only observable difference is that no login this
+        // browser could still finish is named: `settled` here is the surplus
+        // this request arrived carrying — dead records, misnamed or repeated
+        // cookies, and any live entry already past the bound and so unreachable
+        // — which is usually empty.
         //
         // Proof: `refuses a forged error callback without burning the login it
         // interrupts` fails with `Received: "__Host-wbs_oidc_<digest>=;

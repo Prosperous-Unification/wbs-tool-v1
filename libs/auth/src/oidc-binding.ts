@@ -63,10 +63,12 @@ export const BROWSER_BINDING_COOKIE_PREFIX = '__Host-wbs_oidc_';
  *
  * **Derived from the binding rather than drawn from `random()`,** so the name
  * and the value are one fact instead of two that a callback would have to keep
- * paired across a round trip. It makes the mapping a bijection anything can
- * recompute — the login route knows which names it may clear, the callback
- * knows which name held the binding it just spent — and it adds no new
- * randomness to reason about.
+ * paired across a round trip. Anything holding a binding can recompute its
+ * name — the login route knows which names it may clear, the callback knows
+ * which name held the binding it just spent — and it adds no new randomness to
+ * reason about. The mapping only runs that way: a name does not yield its
+ * binding, and two bindings are distinguished by it only in practice, for the
+ * reason below.
  *
  * **What it publishes, stated exactly.** The name is 64 bits of the binding's
  * SHA-256, so it is a fingerprint rather than nothing: an observer who saw it
@@ -76,7 +78,9 @@ export const BROWSER_BINDING_COOKIE_PREFIX = '__Host-wbs_oidc_';
  * anyway, so script can read neither. For the same reason the name/value
  * mapping is one-to-one **in practice** rather than by construction: two
  * distinct bindings collide with probability about 2^-64, and a collision would
- * cost one browser one login, not any confusion between browsers.
+ * cost one browser one login, not any confusion between browsers. So this is a
+ * one-way, practically-injective mapping rather than a bijection, and the word
+ * is avoided deliberately.
  */
 export function browserBindingCookieName(binding: string): string {
   if (binding === '') throw new Error('OIDC browser binding must not be empty');
@@ -129,7 +133,11 @@ export interface BrowserBindingSelection {
    * of them.
    */
   readonly offered: HeldBrowserBinding[];
-  /** The names that address nothing and can be cleared on the way past. */
+  /**
+   * The names this browser should stop holding: the ones addressing nothing,
+   * and the still-live ones past {@link MAX_BROWSER_BINDINGS} that `offered`
+   * has already made unreachable.
+   */
   readonly surplus: HeldBrowserBinding[];
 }
 
@@ -151,7 +159,7 @@ export interface BrowserBindingSelection {
  * - Its name is not the one {@link browserBindingCookieName} gives its value.
  *   Only this origin can write a `__Host-` cookie, so a mismatch is this app's
  *   own older shape rather than an attack — but reading it would break the
- *   bijection every clear below depends on.
+ *   one-name-per-login pairing every clear below depends on.
  * - It repeats a binding already held under another name, for the same reason.
  * - It is older than the newest {@link MAX_BROWSER_BINDINGS}. Order comes from
  *   the store's `expiresAt` and never from the name: a name carrying a

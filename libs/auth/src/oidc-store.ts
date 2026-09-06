@@ -181,8 +181,11 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
     const transaction = this.records.get(key);
     if (transaction === undefined) return null;
     // Proof: `reaps an expired transaction it is asked to order` fails with
-    // `Expected: 0 Received: 1` from `cleanupExpired()` when this returns the
-    // stale deadline instead of removing it.
+    // `Expected: 0 Received: 1` from `cleanupExpired()` when this answers `null`
+    // for an expired record **without** deleting it — the perturbation that
+    // isolates the delete. Returning the stale deadline instead reddens the same
+    // case one line earlier, at `expect(store.expiresAt('browser-1')).toBeNull()`
+    // with `Received: 6000`; both were run.
     if (transaction.expiresAt <= this.now()) {
       this.records.delete(key);
       return null;
