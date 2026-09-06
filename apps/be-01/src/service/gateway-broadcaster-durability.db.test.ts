@@ -7,9 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
 import { DrizzleEventLogRepo } from '../repository/event-log';
 import { runMigrations } from '../repository/migrate';
+import { systemTimers } from '../runtime/deadline';
+import { DeadlineClock } from '../testing/deadline-fixture';
 import { subscriptionFor } from './broadcast';
 import { GatewayBroadcaster } from './gateway-broadcaster';
-import type { PushClient } from './push-client';
+import { PushClient } from './push-client';
 import { ReplayBuffer } from './replay-buffer';
 import { WriteLock } from './write-lock';
 
@@ -199,5 +201,70 @@ describe('the durable record of a project event', () => {
 
     deliver();
     await published;
+  });
+  it('retains a durable edit and releases the lock when real push expires', async () => {
+    const timers = new DeadlineClock();
+    const eventLog = new DrizzleEventLogRepo(db);
+    const lock = new WriteLock();
+    const buffer = new ReplayBuffer({ maxPerSubscription: 100, maxAgeMs: 60000 });
+    const failures: unknown[] = [];
+    let aborted = false;
+    const push = new PushClient({
+      ...{ timers: systemTimers, fetchImpl: globalThis.fetch, attemptMs: 5000, overallMs: 15000 },
+      gwUrl: 'http://gw',
+      secret: 's',
+      timers,
+      attemptMs: 1000,
+      overallMs: 250,
+      maxRetries: 0,
+      fetchImpl: (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              aborted = true;
+              reject(new Error('transport aborted'));
+            },
+            { once: true },
+          );
+        }),
+    });
+    const broadcaster = new GatewayBroadcaster({
+      eventLog,
+      lock,
+      buffer,
+      push,
+      onPushFailed: (error) => {
+        failures.push(error);
+      },
+    });
+    let settled = false;
+    const published = broadcaster
+      .publish('deadline-project', { type: 'saved_plans_changed' })
+      .then(() => {
+        settled = true;
+      });
+    await timers.flush();
+    let entered = false;
+    const second = lock.run(() => {
+      entered = true;
+      return Promise.resolve();
+    });
+    await timers.flush();
+    expect(entered).toBe(true);
+    expect(settled).toBe(false);
+    expect(await eventLog.latestSeq(subscriptionFor('deadline-project'))).toBe(0);
+    await timers.advance(250);
+    expect(aborted).toBe(true);
+    expect(settled).toBe(true);
+    await published;
+    await second;
+    expect(failures).toHaveLength(1);
+    expect(
+      (await eventLog.rangeSince(subscriptionFor('deadline-project'), -1)).map(
+        (event) => event.message,
+      ),
+    ).toEqual([{ type: 'saved_plans_changed' }]);
+    expect(buffer.since(subscriptionFor('deadline-project'), -1)).toHaveLength(1);
   });
 });

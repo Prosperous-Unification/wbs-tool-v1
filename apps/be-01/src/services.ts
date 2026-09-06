@@ -18,6 +18,7 @@ import { StepMeasureRepository } from './repository/step-measure';
 import { StepProgressRepository } from './repository/step-progress';
 import { UserRepository } from './repository/user';
 import { SubtreeRepository, WorkItemRepository } from './repository/work-item';
+import { systemTimers } from './runtime/deadline';
 import { AuthService, type AuthServiceOptions } from './service/auth.service';
 import { DeferringBroadcaster } from './service/broadcast';
 import { CalendarMarkerService } from './service/calendar-marker.service';
@@ -154,7 +155,15 @@ export function buildServices(opts: ServicesOptions): BeServices {
     // outer transaction open on, so the durable record has to wait for that
     // transaction to close. See `GatewayBroadcasterOptions.lock`.
     lock: opts.lock,
-    push: new PushClient({ gwUrl: opts.gwUrl, secret: opts.internalAuthSecret }),
+    push: new PushClient({
+      gwUrl: opts.gwUrl,
+      secret: opts.internalAuthSecret,
+      fetchImpl: globalThis.fetch,
+      timers: systemTimers,
+      attemptMs: 5_000,
+      overallMs: 15_000,
+      maxRetries: 5,
+    }),
     // The event is already in the durable log and the mutation already
     // committed, so a client that reconnects still gets it on replay.
     // Failing the request here would tell the caller their edit did not

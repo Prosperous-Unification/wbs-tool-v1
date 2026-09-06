@@ -26,6 +26,7 @@ import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { systemTimers } from '../runtime/deadline';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { inMemoryCapacity } from '../testing/capacity-fixture';
 import { directoryWith, personAdded } from '../testing/directory-fixture';
@@ -602,7 +603,16 @@ describe('step events', () => {
         lock: new WriteLock(),
         // Nowhere to push, deliberately: the replay must come from what was
         // recorded, not from a delivery that happened to succeed.
-        push: new PushClient({ gwUrl: 'http://gw.invalid', secret: 's'.repeat(32) }),
+        push: new PushClient({
+          ...{
+            timers: systemTimers,
+            fetchImpl: globalThis.fetch,
+            attemptMs: 5000,
+            overallMs: 15000,
+          },
+          gwUrl: 'http://gw.invalid',
+          secret: 's'.repeat(32),
+        }),
         onPushFailed: () => undefined,
       }),
     });

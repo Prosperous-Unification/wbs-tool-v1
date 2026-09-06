@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
+import { systemTimers } from '../runtime/deadline';
 import { PushClient, PushFailed } from './push-client';
 
 describe('PushClient', () => {
   it('posts to /internal/push and returns response', async () => {
     let called = 0;
     const client = new PushClient({
+      ...{ timers: systemTimers, fetchImpl: globalThis.fetch, attemptMs: 5000, overallMs: 15000 },
       gwUrl: 'http://gw:3200',
       secret: 'sec',
       fetchImpl: (url, init) => {
@@ -28,6 +30,7 @@ describe('PushClient', () => {
   it('retries with exponential backoff on 5xx then succeeds', async () => {
     let attempts = 0;
     const client = new PushClient({
+      ...{ timers: systemTimers, fetchImpl: globalThis.fetch, attemptMs: 5000, overallMs: 15000 },
       gwUrl: 'http://gw',
       secret: 's',
       fetchImpl: () => {
@@ -47,6 +50,7 @@ describe('PushClient', () => {
 
   it('raises PushFailed after exceeding retries', async () => {
     const client = new PushClient({
+      ...{ timers: systemTimers, fetchImpl: globalThis.fetch, attemptMs: 5000, overallMs: 15000 },
       gwUrl: 'http://gw',
       secret: 's',
       fetchImpl: () => Promise.resolve(new Response('err', { status: 503 })),
@@ -65,6 +69,7 @@ describe('PushClient', () => {
   it('raises PushFailed immediately on 4xx (non-408/429)', async () => {
     let calls = 0;
     const client = new PushClient({
+      ...{ timers: systemTimers, fetchImpl: globalThis.fetch, attemptMs: 5000, overallMs: 15000 },
       gwUrl: 'http://gw',
       secret: 's',
       fetchImpl: () => {
