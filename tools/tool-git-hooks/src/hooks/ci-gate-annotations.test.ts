@@ -32,9 +32,7 @@ describe('CI gate annotations', () => {
 
   test('rejects embedded C0 controls and DEL from selected commands', () => {
     const controls = [
-      ...Array.from({ length: 32 }, (_, code) => code).filter(
-        (code) => code !== 10 && code !== 13,
-      ),
+      ...Array.from({ length: 32 }, (_, code) => code).filter((code) => code !== 10 && code !== 13),
       127,
     ];
     const lines = controls.map(
