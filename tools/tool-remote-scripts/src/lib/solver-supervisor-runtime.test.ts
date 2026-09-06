@@ -67,6 +67,7 @@ class FakeDriver implements SolverSupervisorDriver {
       stdout: output(),
       stderr: output(),
       write: () => Promise.resolve(),
+      closeInput: () => Promise.resolve(),
     });
   }
 

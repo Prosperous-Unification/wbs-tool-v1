@@ -72,6 +72,10 @@ class FakeDriver implements ManagedContainerDriver {
         this.events.push(`write:${text.trim()}`);
         return Promise.resolve();
       },
+      closeInput: (): Promise<void> => {
+        this.events.push('input-close');
+        return Promise.resolve();
+      },
     });
   }
 
@@ -165,6 +169,7 @@ describe('the managed solver lifecycle', () => {
       'send',
       'write',
       'write',
+      'input-close',
       'wait',
       'inspect2',
       'send',

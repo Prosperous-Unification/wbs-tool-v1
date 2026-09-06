@@ -23,6 +23,7 @@ export interface ManagedContainerAttachment {
   readonly stdout: AsyncIterable<Uint8Array>;
   readonly stderr: AsyncIterable<Uint8Array>;
   write(text: string): Promise<void>;
+  closeInput(): Promise<void>;
 }
 
 /** Evidence captured from Docker after a container has stopped. */
@@ -130,6 +131,7 @@ export async function runManagedSolverAttempt(
   if (control === 'bound') {
     await attachment.write('bound\n');
     await attachment.write(`${JSON.stringify(frame.request)}\n`);
+    await attachment.closeInput();
     const completion = await Promise.race([
       attachment.closed.then(() => 'closed' as const),
       channel.nextControl(),
