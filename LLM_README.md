@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; coordinator admission, restart-safe FIFO launch, generation reuse/eviction, slot fencing, atomic success/failure replay records with full budget identity, the four-way 6.9 negative matrix, empty-plan bypass, and the seven-state plan-read DTO are landed. Next reconcile the remaining 7.4 proof matrix; Retry and host-service installation remain deferred. Do not merge or install the host service.
+Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; its owned coordinator/cache/event scope is landed, including slot fencing, atomic success/failure replay records, negative admission proofs, empty-plan bypass, and the seven-state plan-read DTO. Next run the exact-head terminal gate and reviews; Retry and host-service installation remain deferred. Do not merge or install the host service.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),

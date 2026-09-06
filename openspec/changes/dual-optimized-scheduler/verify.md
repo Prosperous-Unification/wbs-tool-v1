@@ -185,6 +185,10 @@ attempt token. This closes 6.11.
   preflight overflows, variant isolation, no automatic retry, and cancellation
   reaching no outcome write.
 
-This closes 7.1 and 7.7. Slice 7.4 stays open for its remaining cross-feature
-proofs, including the deferred Retry/hash-change case; it is not inferred from
-the atomic-store unit alone.
+This closes 7.1 and 7.7. The remaining 7.4 clauses are covered across the
+coordinator/lifecycle matrix, the atomic result-event tests, and the project
+settings event test. Its Retry/hash-change clause cannot remain a prerequisite:
+TASK-220's scope boundary explicitly defers 7.11, the only route that could
+exercise it. At 2026-09-06T12:19:00Z the clause was therefore annotated as
+deferred with 7.11 and 7.4 was closed without claiming a nonexistent Retry
+proof.

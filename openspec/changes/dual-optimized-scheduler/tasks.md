@@ -3785,7 +3785,7 @@ inputHash, objective, contractVersion, budgetMs)` (7.7). **The cache row
       **overwritten by the replacement outcome, never deleted first**, so
       concurrent reads see `retrying` rather than `failed` or a cold miss that
       would auto-spawn.
-- [ ] 7.4 **Proven by** `optimization-failure.test.ts` and
+- [x] 7.4 **Proven by** `optimization-failure.test.ts` and
       `optimization-events.test.ts`: each of the seven failure kinds — including the two pre-spawn ones, `horizon-overflow` and `objective-overflow`, which write the marker and emit the failure event although no process ever started — keeps Fast
       and writes exactly one failed row; a **cancelled** run writes none; PRI
       failing leaves Time selectable; a stored result writes exactly one
@@ -3793,8 +3793,10 @@ inputHash, objective, contractVersion, budgetMs)` (7.7). **The cache row
       cache write and the event write leaves neither** (asserted on the
       `event_log` row, not on a broadcaster spy); a cache hit emits nothing; an
       Objective switch emits `project_settings_changed` and no
-      `schedule_optimized`; Retry after a hash change starts a fresh generation
-      rather than the stale variant.
+      `schedule_optimized`. The originally listed “Retry after a hash change
+      starts a fresh generation rather than the stale variant” case is deferred
+      with 7.11 by TASK-220's explicit scope boundary above; keeping it as a
+      prerequisite here would make that boundary impossible to satisfy.
 - [ ] 7.5 **Negative checks, watched red** — emit `schedule_optimized` on a
       cache hit and watch the "cache hit emits nothing" case fail; then split
       the cache write and the event write into two transactions and watch the
