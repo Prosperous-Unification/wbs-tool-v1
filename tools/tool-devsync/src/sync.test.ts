@@ -245,9 +245,7 @@ describe('dev supervisor', () => {
       currentSha: () => Promise.resolve(deployedSha),
       changedPaths: () => {
         changedPathReads += 1;
-        return Promise.resolve(
-          changedPathReads === 1 ? ['apps/be-01/Dockerfile'] : [],
-        );
+        return Promise.resolve(changedPathReads === 1 ? ['apps/be-01/Dockerfile'] : []);
       },
       readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
       requireHost: (image) => {
