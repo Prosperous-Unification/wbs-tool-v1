@@ -16,6 +16,12 @@ async function openOptimization(): Promise<void> {
 }
 
 describe('project optimization in the plan', () => {
+  /**
+   * Proof: replacing the latest plan-read value with one captured in local
+   * component state made this case and the collaborator-event case fail. The
+   * persisted API state alone could no longer move the checked controls.
+   * Watched on h2puni, 2026-09-06.
+   */
   itDom('persists a project-wide schedule choice across a remount', async () => {
     const api = fakeProjectApi();
     const setSettings = vi.spyOn(api, 'setOptimizationSettings');
