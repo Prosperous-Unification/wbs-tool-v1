@@ -217,10 +217,11 @@ describe('classifyOidcFailure', () => {
     });
 
     it('calls an alert the peer sent unavailable, including one it has never heard of', () => {
-      // A failed handshake is a real outage arm, and TLS alert names are an open
-      // family — so this row is matched by shape, not by a closed list. The last
-      // case is the point: an alert added tomorrow is still an alert, because an
-      // alert is by definition something the far end sent us.
+      // TLS alert names are an open family, so this row is matched by shape, not
+      // by a closed list. The second case is the point: an alert added tomorrow
+      // is still an alert, because an alert is by definition something the far
+      // end sent us, and an unrecognised one is evidence about the far end.
+      // `INTERNAL_ERROR` is the alert that says so outright.
       for (const code of [
         'ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR',
         'ERR_SSL_TLSV1_ALERT_SOMETHING_OPENSSL_ADDS_LATER',
@@ -273,8 +274,9 @@ describe('classifyOidcFailure', () => {
       // credential was refused and nothing is going to change on its own, so
       // waiting — the `unavailable` move — would be advice that never comes
       // true. An operator has to change one side's TLS configuration.
+      // Every member quotes something we sent, which is what keeps it out of the
+      // `indeterminate` arm below.
       for (const code of [
-        'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
         'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
         'ERR_SSL_TLSV13_ALERT_MISSING_EXTENSION',
@@ -286,6 +288,41 @@ describe('classifyOidcFailure', () => {
           reason: 'local_defect',
         });
       }
+    });
+
+    it('calls a handshake failure indeterminate, because the alert names no party', () => {
+      // RFC 5246 §7.2.2's alert 40 is "unable to negotiate an acceptable set of
+      // security parameters": an outcome, with no sentence about whose
+      // parameters. A provider node with the wrong chain and a cipher list of
+      // ours their new config stopped accepting both arrive here, and nothing
+      // in the evidence separates them. One case per version prefix, because the
+      // rule is written against the alert and not against the OpenSSL family.
+      for (const code of [
+        'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
+        'ERR_SSL_TLSV1_ALERT_HANDSHAKE_FAILURE',
+        'ERR_SSL_TLSV13_ALERT_HANDSHAKE_FAILURE',
+      ]) {
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'indeterminate',
+          reason: 'tls_negotiation_failed',
+        });
+      }
+    });
+
+    it('keeps the indeterminate arm out of both answers it refuses to give', () => {
+      // The two findings this arm settles, each written as the assertion that
+      // would have caught the other's fix. Calling it `unavailable` tells a
+      // dashboard a provider is down on evidence that does not say so; calling
+      // it `defect` throws away the outage signal when the far end really is the
+      // broken one. It is allowed to be neither, and the slug carries the rest.
+      const failure = classifyOidcFailure(
+        new TypeError('fetch failed', { cause: { code: 'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE' } }),
+      );
+
+      expect(failure.kind).not.toBe('unavailable');
+      expect(failure.kind).not.toBe('defect');
+      expect(failure.reason).not.toBe('provider_unreachable');
+      expect(failure.reason).not.toBe('local_defect');
     });
 
     it('does not call our own TLS configuration an outage', () => {

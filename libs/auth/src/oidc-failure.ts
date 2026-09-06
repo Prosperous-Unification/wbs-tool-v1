@@ -22,8 +22,13 @@
  * defect. That is why our own client credentials being rejected is a `defect`
  * and not a `refused`: nobody typed anything wrong, and filing it as a refusal
  * would put an operator's outage back into the bucket this task exists to empty.
+ *
+ * `indeterminate` is the fourth answer, and it is the honest one: some evidence
+ * we fully understand still does not say whose move it is. A taxonomy built on
+ * that question needs a value for "this does not answer it", or the row gets
+ * assigned by whoever argued last. See {@link UNATTRIBUTED_ALERT_SUFFIX}.
  */
-export type OidcFailureKind = 'refused' | 'unavailable' | 'defect';
+export type OidcFailureKind = 'refused' | 'unavailable' | 'defect' | 'indeterminate';
 
 /**
  * Every slug this module can produce, written by this project and closed on
@@ -40,6 +45,7 @@ export type OidcFailureReason =
   | 'client_authentication_failed'
   | 'request_rejected'
   | 'local_defect'
+  | 'tls_negotiation_failed'
   | 'unrecognised_failure'
   | 'unreadable_failure';
 
@@ -66,6 +72,13 @@ export interface OidcFailure {
    * `defect` — this deployment is wrong, or the failure is one this project does
    * not recognise. Deliberately not folded into `refused`: an unknown failure is
    * not evidence that a person typed something wrong.
+   *
+   * `indeterminate` — the failure is understood and it names an outcome without
+   * naming a party, so either end could be the one that has to change. The
+   * caller's move is an unavailability's — nothing was served and retrying later
+   * is all a person can do — but the alert is not an outage's, because there may
+   * be nothing on the far end to recover. Kept apart from `unavailable` so a
+   * dashboard is never told a provider is down on evidence that does not say so.
    */
   readonly kind: OidcFailureKind;
   /**
@@ -79,6 +92,10 @@ export interface OidcFailure {
 const REFUSED = (reason: OidcFailureReason): OidcFailure => ({ kind: 'refused', reason });
 const UNAVAILABLE = (reason: OidcFailureReason): OidcFailure => ({ kind: 'unavailable', reason });
 const DEFECT = (reason: OidcFailureReason): OidcFailure => ({ kind: 'defect', reason });
+const INDETERMINATE = (reason: OidcFailureReason): OidcFailure => ({
+  kind: 'indeterminate',
+  reason,
+});
 
 /**
  * RFC 6749 / OIDC error values, which arrive on `error.error` for both the
@@ -258,17 +275,51 @@ const CLIENT_CREDENTIAL_ALERT =
   /_ALERT_(BAD_CERTIFICATE|UNSUPPORTED_CERTIFICATE|CERTIFICATE_REVOKED|CERTIFICATE_EXPIRED|CERTIFICATE_UNKNOWN|UNKNOWN_CA|CERTIFICATE_REQUIRED|ACCESS_DENIED|UNKNOWN_PSK_IDENTITY)$/;
 
 /**
- * The alerts that say the two ends could not agree on how to talk at all.
+ * The alerts that say the two ends could not agree on how to talk at all, and
+ * that name our side's message as the thing they could not accept.
  *
- * `HANDSHAKE_FAILURE`, `PROTOCOL_VERSION`, `INSUFFICIENT_SECURITY`,
- * `MISSING_EXTENSION` and `NO_APPLICATION_PROTOCOL` are the peer objecting to *how we asked*, not
- * reporting that it is failing. The peer was reachable and answered; waiting
- * will not change either side's TLS configuration, so an operator has to. They
- * take `local_defect` rather than the credential slug because nothing about our
- * identity was refused — only our terms.
+ * `PROTOCOL_VERSION` is RFC 5246 §7.2.2's "the protocol version the client has
+ * attempted to negotiate is recognized but not supported", `INSUFFICIENT_SECURITY`
+ * is that section's "the server requires ciphers more secure than those
+ * supported by the client", and RFC 8446 §6.2 defines `MISSING_EXTENSION`,
+ * `UNSUPPORTED_EXTENSION` and `NO_APPLICATION_PROTOCOL` against what the
+ * received handshake message contained or omitted. Each one quotes something we
+ * sent. The peer was reachable and objected to our terms rather than to us;
+ * waiting will not change either side's configuration, so an operator has to.
+ * They take `local_defect` rather than the credential slug because nothing about
+ * our identity was refused — only our terms.
  */
 const NEGOTIATION_ALERT =
-  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|MISSING_EXTENSION|UNSUPPORTED_EXTENSION|NO_APPLICATION_PROTOCOL)$/;
+  /_ALERT_(PROTOCOL_VERSION|INSUFFICIENT_SECURITY|MISSING_EXTENSION|UNSUPPORTED_EXTENSION|NO_APPLICATION_PROTOCOL)$/;
+
+/**
+ * The alerts that name an outcome and no party, which is a fourth thing and not
+ * a harder instance of the other three.
+ *
+ * RFC 5246 §7.2.2 defines alert 40 as "unable to negotiate an acceptable set of
+ * security parameters". Unlike every member of {@link NEGOTIATION_ALERT} it
+ * quotes nothing we sent, and unlike {@link CLIENT_CREDENTIAL_ALERT} it refuses
+ * no credential of ours. A provider node brought up with the wrong certificate
+ * chain, or a half-finished TLS rollout across their fleet, emits exactly this
+ * and nothing else — before any HTTP exists to carry a status. So does a cipher
+ * or curve list of ours that their new configuration no longer accepts.
+ *
+ * Two reviews of this file reached opposite conclusions from that same fact, one
+ * calling the row a negotiation defect and one calling it a lost outage signal,
+ * and both were right about their half. The row is not what is wrong; the
+ * taxonomy was, because it offered only answers that name a party. `indeterminate`
+ * with its own slug says what the alert says and stops there: the sign-in did not
+ * happen, retrying later is the only move a person has, and which end has to
+ * change is not in the evidence. An operator greps `tls_negotiation_failed` and
+ * looks at both.
+ *
+ * A code this module does not recognise stays `defect`/`unrecognised_failure`
+ * and does not come here. The distinction is deliberate: `indeterminate` is for
+ * evidence we have read and that is silent by construction, while an
+ * unrecognised code is evidence we have not read at all — which is this module
+ * being behind, and an operator's move.
+ */
+const UNATTRIBUTED_ALERT_SUFFIX = '_ALERT_HANDSHAKE_FAILURE';
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
@@ -341,6 +392,8 @@ export function classifyOidcFailure(error: unknown): OidcFailure {
     if (transport !== undefined) {
       if (CLIENT_CREDENTIAL_ALERT.test(transport)) return DEFECT('client_authentication_failed');
       if (NEGOTIATION_ALERT.test(transport)) return DEFECT('local_defect');
+      if (transport.endsWith(UNATTRIBUTED_ALERT_SUFFIX))
+        return INDETERMINATE('tls_negotiation_failed');
       return UNAVAILABLE('provider_unreachable');
     }
 
