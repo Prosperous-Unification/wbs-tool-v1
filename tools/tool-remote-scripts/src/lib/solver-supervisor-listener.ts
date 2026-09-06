@@ -1,9 +1,9 @@
-import { SupervisorSocketInput } from './solver-supervisor-socket-input';
 import {
   serveSupervisorConnection,
   type SupervisorConnectionDependencies,
   type SupervisorConnectionOptions,
 } from './solver-supervisor-service';
+import { SupervisorSocketInput } from './solver-supervisor-socket-input';
 
 interface SupervisorSocketState {
   readonly input: SupervisorSocketInput;
