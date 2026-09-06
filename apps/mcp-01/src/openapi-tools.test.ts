@@ -246,7 +246,7 @@ describe('toolsFromDocument, on the committed document', () => {
    * project's gate can see is a count that drifts silently; the routes landed at
    * `2ad567c` in chunk 7 and were noticed at `e82b023` in chunk 14.
    */
-  it('is 28 tools, so a route that appears must be decided about', () => {
+  it('is 32 tools, so a route that appears must be decided about', () => {
     // **51 to 19 with `plan-commands`.** Every single-item plan and directory
     // write is excluded — a model gets one write tool, `commands`, and cannot
     // pick the slow path — and the batch route arrives. What stays: the reads,
@@ -309,7 +309,35 @@ describe('toolsFromDocument, on the committed document', () => {
     // `change/saved-plans-ui` and the first whole-repo run this branch ever had
     // — CI on PR 202, because h2puni was saturated — failed here on its first
     // attempt, which is the gate working as the comment above says it should.
-    expect(tools).toHaveLength(28);
+    //
+    // **28 to 32 with the calendar markers.** All four arrive —
+    // `getApiProjectsByIdCalendar-markers`, `postApiProjectsByIdCalendar-markers`,
+    // `patchApiProjectsByIdCalendar-markersByMarkerId` and
+    // `deleteApiProjectsByIdCalendar-markersByMarkerId` — and `EXCLUDED_PATHS`
+    // stays at five.
+    //
+    // The `plan-commands` exclusion is again the one that looks like it should
+    // apply to the three writes and again does not, for the saved-plan reason
+    // and more plainly: a marker **is not a plan edit at all**. The spec makes
+    // that structural — a marker is not a `work_item`, enters no dependency
+    // graph, capacity, levelling or critical path, and is not captured into a
+    // saved plan — and no command in the batch vocabulary creates, renames,
+    // recolours or deletes one. Excluding the writes would leave no way to
+    // annotate a date through MCP at all, which is a different decision from
+    // "use the batch instead".
+    //
+    // The list read belongs for the reason every other read here does: an agent
+    // asked to rename or delete a marker has to list the day's markers before it
+    // can name an id, and a date is not a unique key — two markers can share
+    // one, so there is nothing to guess from.
+    //
+    // This one is not drift at all. It arrived as the *second* red of the same
+    // change: `apps/be-01/openapi.json` regenerated with a create body naming
+    // `markerId`, which unblocked `claim()`, and this count then fired on the
+    // first run past it. That is the guard doing exactly what it is for — the
+    // routes could not reach a tool list until the collision was fixed, and the
+    // moment they could, the count demanded a decision.
+    expect(tools).toHaveLength(32);
     expect(EXCLUDED_PATHS).toHaveLength(5);
   });
 

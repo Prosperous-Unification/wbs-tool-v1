@@ -101,7 +101,7 @@ into it.
 - The tag facet matches the union, so a row is found by any word in force on it.
 - The export prints the source per name — `Ready; Risk (inherited from 010
 Compliance)`. Types have no analogue, because they have no provenance.
-- `MOST_TAGS_ON_ONE_ITEM` (50) is unaffected: `work-item.controller.ts` applies
+- `MOST_TAGS_ON_ONE_ITEM` (50) is unaffected: `work-item.routes.ts` applies
   it to the **stated** set on a write, so no legal plan becomes unwritable. What
   is now unbounded is a **reading** — a deep row's effective set grows with its
   depth — so the cell keeps its one clipped line however many it carries, and the

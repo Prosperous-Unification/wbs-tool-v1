@@ -3,24 +3,28 @@ import { observabilityPlugin } from '@wbs/observability/server';
 import { Elysia } from 'elysia';
 
 import {
-  authController,
+  authRoutes,
   hasInvalidCookieOrigin,
   type OidcRouteOptions,
-} from './controller/auth.controller';
-import { directoryController } from './controller/directory.controller';
-import { historyController } from './controller/history.controller';
-import { internalController } from './controller/internal.controller';
-import { projectController } from './controller/project.controller';
-import { savedPlanController } from './controller/saved-plan.controller';
-import { smokeController } from './controller/smoke.controller';
-import { solutionController } from './controller/solution.controller';
-import { stepController } from './controller/step.controller';
-import { workItemController } from './controller/work-item.controller';
+} from './controller/auth.routes';
+import { calendarMarkerRoutes } from './controller/calendar-marker.routes';
+import { directoryRoutes } from './controller/directory.routes';
+import { historyRoutes } from './controller/history.routes';
+import { internalRoutes } from './controller/internal.routes';
+import { projectRoutes } from './controller/project.routes';
+import { savedPlanRoutes } from './controller/saved-plan.routes';
+import { smokeRoutes } from './controller/smoke.routes';
+import { solutionRoutes } from './controller/solution.routes';
+import { stepRoutes } from './controller/step.routes';
+import { workItemRoutes } from './controller/work-item.routes';
+import { bindElysia } from './http/elysia/bind';
+import type { Route } from './http/route';
 import { userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
 import type { DeferringBroadcaster } from './service/broadcast';
+import type { CalendarMarkerService } from './service/calendar-marker.service';
 import type { CapacityService } from './service/capacity.service';
 import type { DirectoryService } from './service/directory.service';
 import type { HistoryService } from './service/history.service';
@@ -86,6 +90,14 @@ export interface AppOptions {
    */
   history: HistoryService;
   /**
+   * Required for the same reason as `history`, and for its exact failure mode: a
+   * process built without it answers 404 on every marker route, which a client
+   * cannot tell from a project that has no markers — and "none" is the answer
+   * for every project the day the table ships, so the mistake would be
+   * invisible for a week.
+   */
+  calendarMarkers: CalendarMarkerService;
+  /**
    * Shared secret gw-01 presents on /internal/*. Required — a default here
    * would silently diverge from the value gw-01 loads from the environment,
    * failing every forward with a 401 that only shows up in a real deployment.
@@ -143,8 +155,88 @@ export interface AppOptions {
   version?: string;
 }
 
+/**
+ * Every route list this app mounts, in mount order — the one place they are
+ * assembled.
+ *
+ * Exported so a test can read the same lists the app runs rather than rebuilding
+ * the wiring beside it. That distinction is the whole value: a check that
+ * assembles its own lists proves a property of the check's list, and the routes
+ * it forgot to include are exactly the ones it cannot speak for. `app.routes.test.ts`
+ * still asserts these cover every path Elysia ended up with, because a factory
+ * dropped from this array would otherwise be invisible here too.
+ *
+ * **Order is behaviour, not style.** Elysia matches in registration order, and
+ * two *relative* orders below are load-bearing rather than tidy — relative, not
+ * adjacent, which an earlier version of this note got wrong: `historyRoutes` is
+ * separated from `projectRoutes` by the step, work-item and directory lists and
+ * is still correct, because nothing between them declares a path that could
+ * shadow `/:id/history`. What must not move is the order itself.
+ */
+export function mountedRouteLists(
+  opts: AppOptions,
+  commands: PlanCommandRunner,
+): readonly (readonly Route[])[] {
+  return [
+    smokeRoutes(),
+    authRoutes(opts.auth, opts.oidc),
+    solutionRoutes(opts.auth, opts.projects),
+    projectRoutes(opts.auth, opts.projects, opts.workItems),
+    // After `projectRoutes`, whose `/api/projects` paths it extends: the
+    // saved-plan collection is one segment longer than anything that
+    // route list declares, so neither can shadow the other, and adjacency is
+    // what makes that checkable at a glance.
+    savedPlanRoutes(
+      opts.auth,
+      opts.savedPlans,
+      opts.projects,
+      // The shared wrapper, like every other publisher. TASK-255 handed
+      // this route the inner broadcaster instead, because a save
+      // committing while an unrelated batch held was queued into that
+      // batch and dropped when it refused; the hold was instance state on
+      // the one shared wrapper, so "no batch is open" was being read as
+      // "this route is not part of a batch". A hold is per-caller now
+      // (TASK-256) and those are the same question again, so the special
+      // case is gone rather than merely redundant — see
+      // `DeferringBroadcaster`.
+      opts.writes.announcements,
+    ),
+    stepRoutes(opts.auth, opts.steps),
+    workItemRoutes(opts.auth, opts.workItems, commands),
+    directoryRoutes(opts.auth, opts.directory),
+    // After `projectRoutes`, whose prefix it shares: Elysia matches in
+    // registration order, `/:id/history` cannot be shadowed by anything that
+    // route declares, and adjacency is what makes that checkable at a glance.
+    historyRoutes(opts.auth, opts.history),
+    // `savedPlanRoutes`'s reason, without its adjacency: every marker path is
+    // one segment longer than anything `projectRoutes` declares and carries a
+    // literal `calendar-markers` segment, so neither can shadow the other
+    // wherever it sits. Several lists intervene and that is fine — the
+    // separation here is structural, not positional, which is the difference
+    // from the two comments above (Sol's Minor, run 38).
+    calendarMarkerRoutes(opts.auth, opts.calendarMarkers),
+    internalRoutes({
+      secret: opts.internalAuthSecret,
+      // A deliberate pure ack, not a stub. Every mutation in this product is
+      // an HTTP call to be-01; a client message arriving over the socket is
+      // acknowledged and carried no further, because there is no message the
+      // socket is the authority for. The test asserting a forward records no
+      // event and pushes nothing is what keeps this honest.
+      onForward: () => Promise.resolve({ push_responses: [] }),
+      onResume: (points) => opts.replay.replay(points),
+    }),
+  ];
+}
+
 export function buildApp(opts: AppOptions) {
   const logger = createLogger({ service: 'be-01', version: opts.version });
+  // The OIDC callback is the one route list that reports anything, and it names
+  // no framework, so it cannot reach the decorated `logger` above and is handed
+  // it here instead of at every call site that builds `OidcRouteOptions`
+  // (TASK-273). A caller that supplied its own wins — that is how a test
+  // asserts on what a refused login writes down without a pino destination.
+  const routedOptions: AppOptions =
+    opts.oidc === undefined ? opts : { ...opts, oidc: { logger, ...opts.oidc } };
   const commands = new PlanCommandRunner({
     workItems: opts.workItems,
     directory: opts.directory,
@@ -190,48 +282,11 @@ export function buildApp(opts: AppOptions) {
         }
         return undefined;
       })
-      .use(smokeController)
-      .use(authController(opts.auth, opts.oidc))
-      .use(solutionController(opts.auth, opts.projects))
-      .use(projectController(opts.auth, opts.projects, opts.workItems))
-      // After `projectController`, whose `/api/projects` paths it extends: the
-      // saved-plan collection is one segment longer than anything that
-      // controller declares, so neither can shadow the other, and adjacency is
-      // what makes that checkable at a glance.
       .use(
-        savedPlanController(
-          opts.auth,
-          opts.savedPlans,
-          opts.projects,
-          // The shared wrapper, like every other publisher. TASK-255 handed
-          // this route the inner broadcaster instead, because a save committing
-          // while an unrelated batch held was queued into that batch and
-          // dropped when it refused; the hold was instance state on the one
-          // shared wrapper, so "no batch is open" was being read as "this route
-          // is not part of a batch". A hold is per-caller now (TASK-256) and
-          // those are the same question again, so the special case is gone
-          // rather than merely redundant — see `DeferringBroadcaster`.
-          opts.writes.announcements,
+        mountedRouteLists(routedOptions, commands).reduce(
+          (app, list) => app.use(bindElysia(list)),
+          new Elysia(),
         ),
-      )
-      .use(stepController(opts.auth, opts.steps))
-      .use(workItemController(opts.auth, opts.workItems, commands))
-      .use(directoryController(opts.auth, opts.directory))
-      // After `projectController`, whose prefix it shares: Elysia matches in
-      // registration order, `/:id/history` cannot be shadowed by anything that
-      // route declares, and adjacency is what makes that checkable at a glance.
-      .use(historyController(opts.auth, opts.history))
-      .use(
-        internalController({
-          secret: opts.internalAuthSecret,
-          // A deliberate pure ack, not a stub. Every mutation in this product is
-          // an HTTP call to be-01; a client message arriving over the socket is
-          // acknowledged and carried no further, because there is no message the
-          // socket is the authority for. The test asserting a forward records no
-          // event and pushes nothing is what keeps this honest.
-          onForward: () => Promise.resolve({ push_responses: [] }),
-          onResume: (points) => opts.replay.replay(points),
-        }),
       )
       .get('/health', ({ set }) => {
         // On every answer, including the unhealthy ones. "Which commit is this

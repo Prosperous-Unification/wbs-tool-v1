@@ -125,6 +125,11 @@ function silentApi(): SilentApi {
       listServices: () => Promise.resolve([]),
       addTeam: () => Promise.resolve({ id: 't', name: 'T' }),
       listPeople: () => Promise.resolve([]),
+      // The table reads the calendar markers on mount, alongside the plan, so a
+      // double that stands in for a project has to answer it: unstated, this api
+      // refuses on purpose and the refusal arrives as a toast over every case in
+      // this file. Empty is what these projects have.
+      listCalendarMarkers: () => Promise.resolve([]),
       addPerson: () => Promise.resolve(personView({ id: 'person' })),
       assignPerson: nothing,
       moveWorkItem: nothing,

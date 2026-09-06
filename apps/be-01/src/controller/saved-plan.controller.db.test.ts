@@ -14,6 +14,7 @@ import { ProjectService } from '../service/project.service';
 import { defaultSavedPlanName } from '../service/saved-plan-default-name';
 import { TEST_JWT_KEY } from '../testing/auth-fixture';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
+import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
@@ -99,6 +100,7 @@ describe('the saved-plan routes', () => {
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
       history: testHistoryService(),
+      calendarMarkers: testCalendarMarkerService(),
       replay: testReplay().replay,
       probeDatabase: () => 'ok',
       internalAuthSecret: 'x'.repeat(32),
@@ -194,6 +196,33 @@ describe('the saved-plan routes', () => {
       body: JSON.stringify({ name: '' }),
     });
     expect(res.status).toBe(422);
+  });
+
+  /**
+   * The regression `isFieldBag` exists for, asserted on the route that suffered
+   * it. `t.Object({ name: t.Optional(...) })` refused a JSON array; the
+   * hand-written `typeof body !== 'object' || body === null` that replaced it
+   * accepted one, because `typeof [] === 'object'` — and every field then read
+   * as absent, which on *this* route is A-1's normal path rather than an error.
+   * So an array body did not merely answer wrongly, it **wrote a plan**.
+   *
+   * The count is asserted after the refusal for that reason: a status-only
+   * assertion would still pass if the route answered 422 *and* saved, and the
+   * write is the half that reaches the database. `[]` and `[{"name":"x"}]`
+   * together separate the two readings a wrong fix could have — refusing empty
+   * arrays only, or refusing arrays only when they carry no usable field.
+   */
+  it('refuses a JSON array body without writing a plan', async () => {
+    for (const body of ['[]', '[{"name":"from an array"}]']) {
+      const res = await as(tokens['ada'], `/api/projects/${projectId}/saved-plans`, {
+        method: 'POST',
+        body,
+      });
+      expect(res.status).toBe(422);
+    }
+
+    const list = await as(tokens['ada'], `/api/projects/${projectId}/saved-plans`);
+    expect(((await list.json()) as { savedPlans: unknown[] }).savedPlans).toHaveLength(0);
   });
 
   it('lists a project’s plans to any authenticated account', async () => {

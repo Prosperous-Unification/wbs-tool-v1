@@ -10,6 +10,13 @@ import { rollbackTo } from './migrate-down';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const CREATED_BY_ID = '20260904020000_add_saved_plan_created_by_id';
+/**
+ * `calendar_marker`, one table and one index added whole. It sits directly
+ * under {@link READ_ORDER_INDEX} in every descending reversal list in this
+ * file, and it takes nothing with it. Its own cases live in
+ * `calendar-marker-migration.db.test.ts`.
+ */
+const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 const SAVED_PLAN = '20260903190000_add_saved_plan';
 // The two migrations the dual-scheduler branch adds after this one. `rollbackTo`
 // reverses everything applied after its target, newest first, so a rollback to
@@ -24,6 +31,13 @@ const PROJECT_SETTINGS = '20260904140000_add_project_settings';
  * was newest.
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
+/**
+ * The newest: `work_item.deadline`, the nullable date-only column slice 1 adds.
+ * Additive forward and `DROP COLUMN` on the way back, so it heads every
+ * descending reversal list here and tails every ascending one, exactly as
+ * {@link READ_ORDER_INDEX} did while it was newest.
+ */
+const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
 
 let dir: string;
 let path: string;
@@ -117,7 +131,9 @@ describe('saved_plan.created_by_id', () => {
     expect(nullable()).toBe(0);
 
     expect(rollbackTo(path, FOLDER, SAVED_PLAN)).toEqual([
+      WORK_ITEM_DEADLINE,
       READ_ORDER_INDEX,
+      CALENDAR_MARKER,
       PROJECT_SETTINGS,
       OPTIMIZER_TABLES,
       CREATED_BY_ID,
@@ -203,7 +219,9 @@ describe('saved_plan.created_by_id', () => {
    */
   it('leaves a row written before the column reading null', () => {
     expect(rollbackTo(path, FOLDER, SAVED_PLAN)).toEqual([
+      WORK_ITEM_DEADLINE,
       READ_ORDER_INDEX,
+      CALENDAR_MARKER,
       PROJECT_SETTINGS,
       OPTIMIZER_TABLES,
       CREATED_BY_ID,

@@ -1,7 +1,7 @@
 import type { Logger } from '@wbs/observability';
 
 import { buildApp } from './app';
-import type { OidcRouteOptions } from './controller/auth.controller';
+import type { OidcRouteOptions } from './controller/auth.routes';
 import { readDeployedCommit } from './deployed-commit';
 import { drizzleOuterTransaction, openConnection } from './repository/db';
 import { probeSchema } from './repository/health-probe';
@@ -98,6 +98,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     oidc: opts.oidc,
     projects: services.projects,
     steps: services.steps,
+    calendarMarkers: services.calendarMarkers,
     workItems: services.workItems,
     // Built here rather than in `buildServices`, and the reason is structural
     // rather than tidiness: that factory is defined over the one shared

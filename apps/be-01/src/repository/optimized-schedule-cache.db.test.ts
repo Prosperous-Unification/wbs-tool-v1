@@ -35,6 +35,7 @@ const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
  * below stay about *this* migration's position rather than about whichever
  * folder happens to be last.
  */
+const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
 /**
  * The newest: the `(project_id, id)` index that serves
@@ -44,6 +45,13 @@ const PROJECT_SETTINGS = '20260904140000_add_project_settings';
  * was newest.
  */
 const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
+/**
+ * The newest: `work_item.deadline`, the nullable date-only column slice 1 adds.
+ * Additive forward and `DROP COLUMN` on the way back, so it heads every
+ * descending reversal list here and tails every ascending one, exactly as
+ * {@link READ_ORDER_INDEX} did while it was newest.
+ */
+const WORK_ITEM_DEADLINE = '20260906090000_add_work_item_deadline';
 
 /** The one below it, which is where every rollback here stops. */
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
@@ -79,7 +87,10 @@ const ADDED_TABLES = [
  * BEFORE the target — these did not — so they are subtracted by name here
  * rather than by widening the predicate until it passes.
  */
-const ALSO_ROLLED_BACK = ['saved_plan', 'saved_plan_body'] as const;
+// Every table a rollback to LOOKUP_INDEXES takes that this migration did not
+// add: the two the saved-plan migrations above the target add, and
+// `calendar_marker`, which landed above all of them on 2026-09-05.
+const ALSO_ROLLED_BACK = ['saved_plan', 'saved_plan_body', 'calendar_marker'] as const;
 
 const ADDED_INDEX = 'solver_queue_dequeue_order';
 const ADDED_PROJECT_COLUMN = 'optimization_delete_pending_at';
@@ -194,8 +205,11 @@ describe('the optimizer migration', () => {
     // The adjacency itself, not `at(-1)`/`at(-2)`. Those were true while
     // project-settings was the newest folder, and they made every later
     // migration a failure of this file — which is not what it is about.
-    expect(names.indexOf(PROJECT_SETTINGS)).toBe(names.indexOf(OPTIMIZER_TABLES) + 1);
-    expect(names).toContain(OPTIMIZER_TABLES);
+    // Two folders have landed above it since: `calendar_marker` on 2026-09-05
+    // and the read-order index on 2026-09-06.
+    const settings = names.indexOf(PROJECT_SETTINGS);
+    expect(settings).toBeGreaterThan(0);
+    expect(names[settings - 1]).toBe(OPTIMIZER_TABLES);
   });
 
   it('is idempotent on an already-migrated file', () => {
@@ -229,7 +243,9 @@ describe('the optimizer migration', () => {
       // Newest first, so the settings columns come off before the tables they
       // steer — this migration is no longer the only thing above LOOKUP_INDEXES.
       expect(rollbackTo(db.path, FOLDER, LOOKUP_INDEXES)).toEqual([
+        WORK_ITEM_DEADLINE,
         READ_ORDER_INDEX,
+        CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
@@ -242,8 +258,8 @@ describe('the optimizer migration', () => {
       expect(projectColumns(db.path)).not.toContain(ADDED_PROJECT_COLUMN);
 
       // Everything else is untouched: the rollback took exactly the four tables
-      // this migration adds, plus the two the saved-plan migrations above the
-      // target add, and nothing that was there before any of them.
+      // this migration adds, plus the three the migrations above the target
+      // add, and nothing that was there before any of them.
       expect(rolledBack).toEqual(
         migrated.filter(
           (name) =>

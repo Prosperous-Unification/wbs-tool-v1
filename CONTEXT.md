@@ -472,6 +472,11 @@ by exactly the weekend between two workdays, which is what puts a gap between wo
 ended on the Friday and work that begins on the Monday.
 _Avoid_: converter, mapping, projection
 
+**Calendar marker**:
+A named annotation on an absolute calendar date, scoped to one project. Not a work item
+and not visible to the scheduler.
+_Avoid_: milestone, date tag, annotation
+
 **Workday axis**:
 The Gantt panel's horizontal scale on a plan with **no** start date: one unit per workday,
 printing the offset itself. Weekends are not on it — there is no calendar to have one on
