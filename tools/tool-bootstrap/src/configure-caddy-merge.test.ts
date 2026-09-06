@@ -17,6 +17,20 @@ import { describe, expect, it } from 'bun:test';
 const configureShPath = join(import.meta.dir, 'configure.sh');
 const configureSh = readFileSync(configureShPath, 'utf8');
 
+/**
+ * The eight-process host sweep took 25–33 seconds on macOS. Bun's default
+ * five-second test timeout killed a fixture child, turning its expected stop
+ * status into null. This bounds the test harness, not provisioning latency.
+ */
+const HOST_SWEEP_TIMEOUT_MS = 120_000;
+
+/**
+ * Each environment sweep runs 128 complete shell fixtures. The full gate
+ * measured 339–452 seconds on macOS against the former 60-second timeout;
+ * every scenario and injected-fault assertion remains in the sweep.
+ */
+const ENVIRONMENT_SWEEP_TIMEOUT_MS = 900_000;
+
 const sliceOrThrow = (start: string, end: string): string => {
   const a = configureSh.indexOf(start);
   if (a < 0) {
@@ -576,37 +590,41 @@ describe('configure.sh Caddyfile merge, executed', () => {
     importsOf(run.caddyfile ?? '').includes('import log-redact.caddy');
 
   for (const [label, wrap] of CONDITIONALS) {
-    it(`is caught somewhere in the product when disconnected by ${label}`, () => {
-      const runs = HOST_STATES.map((state) => ({
-        key: state.key,
-        run: runShippedScript({
-          ...state,
-          mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
-        }),
-      }));
+    it(
+      `is caught somewhere in the product when disconnected by ${label}`,
+      () => {
+        const runs = HOST_STATES.map((state) => ({
+          key: state.key,
+          run: runShippedScript({
+            ...state,
+            mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+          }),
+        }));
 
-      // No cell may BREAK. Every one reaches the same stop having seeded
-      // site.caddy, so the only thing that varies across the product is
-      // whether the block ran -- which is what makes the counts below a
-      // reachability result.
-      for (const { key, run } of runs) {
-        expect(`${key}: status ${String(run.status)}`).toBe(
-          `${key}: status ${String(STOP_STATUS)}`,
-        );
-        expect(`${key}: ${run.stderr}`).toBe(`${key}: `);
-        expect(run.siteCaddy).not.toBeNull();
-      }
+        // No cell may BREAK. Every one reaches the same stop having seeded
+        // site.caddy, so the only thing that varies across the product is
+        // whether the block ran -- which is what makes the counts below a
+        // reachability result.
+        for (const { key, run } of runs) {
+          expect(`${key}: status ${String(run.status)}`).toBe(
+            `${key}: status ${String(STOP_STATUS)}`,
+          );
+          expect(`${key}: ${run.stderr}`).toBe(`${key}: `);
+          expect(run.siteCaddy).not.toBeNull();
+        }
 
-      const killed = runs.filter(({ run }) => !wroteOwned(run)).map(({ key }) => key);
-      const hidden = runs.filter(({ run }) => wroteOwned(run)).map(({ key }) => key);
-      // Caught somewhere: the product sees it at all.
-      expect(killed.length).toBeGreaterThan(0);
-      // Hidden somewhere: it is a CONDITIONAL disconnect, not a blanket one,
-      // so a single hand-picked state would have missed it and the product is
-      // doing the work. This is also what stops a no-op mutation scoring as a
-      // kill -- a no-op writes the imports in every cell and empties `killed`.
-      expect(hidden.length).toBeGreaterThan(0);
-    });
+        const killed = runs.filter(({ run }) => !wroteOwned(run)).map(({ key }) => key);
+        const hidden = runs.filter(({ run }) => wroteOwned(run)).map(({ key }) => key);
+        // Caught somewhere: the product sees it at all.
+        expect(killed.length).toBeGreaterThan(0);
+        // Hidden somewhere: it is a CONDITIONAL disconnect, not a blanket one,
+        // so a single hand-picked state would have missed it and the product is
+        // doing the work. This is also what stops a no-op mutation scoring as a
+        // kill -- a no-op writes the imports in every cell and empties `killed`.
+        expect(hidden.length).toBeGreaterThan(0);
+      },
+      HOST_SWEEP_TIMEOUT_MS,
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -854,26 +872,30 @@ describe('configure.sh Caddyfile merge, executed', () => {
     expect(missing).toEqual([]);
   });
 
-  it('runs the merge block at every point of the environment product', () => {
-    const failures: string[] = [];
-    for (const cell of ENV_CELLS) {
-      const run = runShippedScript({ ...cell.host, env: cell.env });
-      const expected = cell.host.seedCaddyfile === undefined ? OWNED : [...OWNED, PRESERVED];
-      const actual = {
-        status: run.status,
-        stderr: run.stderr,
-        siteCaddy: run.siteCaddy === null ? 'missing' : 'seeded',
-        imports: importsOf(run.caddyfile ?? ''),
-      };
-      const want = { status: STOP_STATUS, stderr: '', siteCaddy: 'seeded', imports: expected };
-      if (JSON.stringify(actual) !== JSON.stringify(want)) {
-        failures.push(`${cell.key}: ${JSON.stringify(actual)} != ${JSON.stringify(want)}`);
+  it(
+    'runs the merge block at every point of the environment product',
+    () => {
+      const failures: string[] = [];
+      for (const cell of ENV_CELLS) {
+        const run = runShippedScript({ ...cell.host, env: cell.env });
+        const expected = cell.host.seedCaddyfile === undefined ? OWNED : [...OWNED, PRESERVED];
+        const actual = {
+          status: run.status,
+          stderr: run.stderr,
+          siteCaddy: run.siteCaddy === null ? 'missing' : 'seeded',
+          imports: importsOf(run.caddyfile ?? ''),
+        };
+        const want = { status: STOP_STATUS, stderr: '', siteCaddy: 'seeded', imports: expected };
+        if (JSON.stringify(actual) !== JSON.stringify(want)) {
+          failures.push(`${cell.key}: ${JSON.stringify(actual)} != ${JSON.stringify(want)}`);
+        }
       }
-    }
-    // The empty conjunction, as a result: no point of the product skips the
-    // block, so nothing in the environment is part of its guard.
-    expect(failures).toEqual([]);
-  }, 60_000);
+      // The empty conjunction, as a result: no point of the product skips the
+      // block, so nothing in the environment is part of its guard.
+      expect(failures).toEqual([]);
+    },
+    ENVIRONMENT_SWEEP_TIMEOUT_MS,
+  );
 
   // Round 7's own condition, kept as a permanent case. It is invisible to the
   // host-state sweep above -- SITE_ADDRESS is constant there, so `killed`
@@ -895,27 +917,31 @@ describe('configure.sh Caddyfile merge, executed', () => {
   ];
 
   for (const [label, wrap] of ENV_CONDITIONALS) {
-    it(`is caught somewhere in the environment product when disconnected by ${label}`, () => {
-      const broken: string[] = [];
-      const killed: string[] = [];
-      const hidden: string[] = [];
-      for (const cell of ENV_CELLS) {
-        const run = runShippedScript({
-          ...cell.host,
-          env: cell.env,
-          mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
-        });
-        if (run.status !== STOP_STATUS || run.stderr !== '' || run.siteCaddy === null) {
-          broken.push(`${cell.key}: status ${String(run.status)} stderr ${run.stderr}`);
-        } else if (wroteOwned(run)) hidden.push(cell.key);
-        else killed.push(cell.key);
-      }
-      // Same three signals as the host-state sweep: no cell may BREAK, so the
-      // only thing varying across the product is whether the block ran.
-      expect(broken).toEqual([]);
-      expect(killed.length).toBeGreaterThan(0);
-      expect(hidden.length).toBeGreaterThan(0);
-    }, 60_000);
+    it(
+      `is caught somewhere in the environment product when disconnected by ${label}`,
+      () => {
+        const broken: string[] = [];
+        const killed: string[] = [];
+        const hidden: string[] = [];
+        for (const cell of ENV_CELLS) {
+          const run = runShippedScript({
+            ...cell.host,
+            env: cell.env,
+            mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+          });
+          if (run.status !== STOP_STATUS || run.stderr !== '' || run.siteCaddy === null) {
+            broken.push(`${cell.key}: status ${String(run.status)} stderr ${run.stderr}`);
+          } else if (wroteOwned(run)) hidden.push(cell.key);
+          else killed.push(cell.key);
+        }
+        // Same three signals as the host-state sweep: no cell may BREAK, so the
+        // only thing varying across the product is whether the block ran.
+        expect(broken).toEqual([]);
+        expect(killed.length).toBeGreaterThan(0);
+        expect(hidden.length).toBeGreaterThan(0);
+      },
+      ENVIRONMENT_SWEEP_TIMEOUT_MS,
+    );
   }
 
   it('writes both owned imports, in order, when no Caddyfile exists', () => {
