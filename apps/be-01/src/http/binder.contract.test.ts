@@ -77,6 +77,17 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
      * was: both binders answering on `application/merge-patch+json`, one of them
      * having called the service first.
      */
+    {
+      method: 'POST',
+      path: '/probe/write',
+      handler: ({ body }) => {
+        const name = (body as { name?: unknown } | undefined)?.name;
+        if (typeof name !== 'string')
+          return Promise.resolve(respond(422, { error: 'invalid_body' }));
+        writes.push(name);
+        return Promise.resolve(ok({ created: name }));
+      },
+    },
     /**
      * `/probe/write`'s verb twin. A DELETE route that records, because the
      * mutation Elysia refuses before a handler and this binder used to run is a
@@ -89,17 +100,6 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
       handler: () => {
         writes.push('deleted');
         return Promise.resolve(noContent());
-      },
-    },
-    {
-      method: 'POST',
-      path: '/probe/write',
-      handler: ({ body }) => {
-        const name = (body as { name?: unknown } | undefined)?.name;
-        if (typeof name !== 'string')
-          return Promise.resolve(respond(422, { error: 'invalid_body' }));
-        writes.push(name);
-        return Promise.resolve(ok({ created: name }));
       },
     },
     {
