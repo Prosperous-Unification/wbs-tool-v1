@@ -604,11 +604,15 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
      * parent and the same date written on the leaf to the identical `{a: 3}`.
      * The engine cannot tell them apart, and the `toEqual` records that it does
      * not try to. Hashing the expansion would therefore hand both plans one
-     * cache key — and they are different plans: reparent `a` out from under `p`
-     * and the parent's date binds nothing while the leaf's still binds, which is
-     * exactly the edit `canonical-schedule-input.ts` says hashing the expansion
-     * would hide. Same schedule, different hash: the "deliberately stricter"
-     * category this file's header names.
+     * cache key — and they are different plans, because the next edit separates
+     * them: move `b` under `p` and the parent-authored date binds `b` as well,
+     * while the leaf-authored one still binds only `a`. That is the edit
+     * `canonical-schedule-input.ts` says hashing the expansion would hide, and
+     * it is the direction that works: reparenting `a` **out** would not
+     * separate them, because `indexTree` makes a childless `p` its own leaf
+     * (`schedule.ts:396`) and the date would bind `p` — corrected here from the
+     * chunk-2 peer seat's Minor. Same schedule, different hash: the
+     * "deliberately stricter" category this file's header names.
      */
     it('a deadline authored on the parent rather than on its only leaf — one expansion, two plans', () => {
       const onParent: ScheduleInput = { ...BASE, deadlines: new Map([['p', 3]]) };

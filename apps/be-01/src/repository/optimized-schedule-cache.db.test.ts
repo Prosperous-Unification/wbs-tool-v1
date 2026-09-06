@@ -783,14 +783,24 @@ describe('what the deadline change must not do to the cache key', () => {
    * actually go wrong: an unscoped bound would count the two versions' rows as
    * one budget set and evict across the seam.
    *
-   * **Three rows, not two, and that is what gives the case teeth.**
+   * **Four rows, and each of the two scopings needs its own of them.**
    * `MAX_LIVE_BUDGETS` is 2, so a two-row fixture is under the bound and no
    * `DELETE` runs at all — the scoping could be removed outright and a two-row
-   * assertion would stay green. Green's row is stored **first** and blue then
-   * takes both its budgets, so under an unscoped bound green's is the oldest of
-   * three and the surplus the last store evicts. Measured, not argued: dropping
-   * `contractVersion` from both the count and the delete in
-   * `enforceLiveBudgetBound` reds this case and nothing else in the file.
+   * assertion would stay green.
+   *
+   * Three rows catch an unscoped **count**: green stores first, so under a
+   * count that sees all three green's is the oldest and the surplus the last
+   * store evicts. They do **not** catch an unscoped **delete**, and the peer
+   * seat's Important at chunk 2 is why the fourth is here: with the count still
+   * scoped, blue and green each hold at most two rows, `live.slice(2)` never
+   * iterates, and the delete predicate is never reached to be wrong. Blue's
+   * third budget makes blue itself go over — the count then yields
+   * `BLUE/60000` as surplus, and a delete that has dropped `contractVersion`
+   * matches green's identically-budgeted row on the way past.
+   *
+   * Measured rather than argued, both arms separately, in the same file:
+   * dropping `contractVersion` from the count alone, from the delete alone, and
+   * from both, each reds this case and nothing else.
    */
   it('keeps both contract versions’ rows through a store on each side', () => {
     const db = tempDb();
@@ -804,8 +814,10 @@ describe('what the deadline change must not do to the cache key', () => {
         reserveSlot(db.path, contractVersion, 60000);
       }
       // Blue's second live budget, the one a swap has in flight beside the
-      // first. Its own seat, because the slot is keyed by budget too.
+      // first, and then a third that puts blue itself over the bound. Each
+      // needs its own seat, because the slot is keyed by budget too.
       reserveSlot(db.path, BLUE, 120000);
+      reserveSlot(db.path, BLUE, 180000);
 
       const store = (contractVersion: string, budgetMs: number, now: number): unknown =>
         storeOptimizedOutcome(handle, {
@@ -824,18 +836,27 @@ describe('what the deadline change must not do to the cache key', () => {
           now,
         });
 
-      expect(store(GREEN, 60000, 1_700)).toBe('stored');
-      expect(store(BLUE, 60000, 1_800)).toBe('stored');
-      expect(store(BLUE, 120000, 1_900)).toBe('stored');
-
-      expect(
+      const live = (): string[] =>
         handle
           .select()
           .from(optimizedScheduleCache)
           .all()
           .map((row) => `${row.contractVersion}/${String(row.budgetMs)}`)
-          .sort(),
-      ).toEqual([`${BLUE}/120000`, `${BLUE}/60000`, `${GREEN}/60000`]);
+          .sort();
+
+      expect(store(GREEN, 60000, 1_700)).toBe('stored');
+      expect(store(BLUE, 60000, 1_800)).toBe('stored');
+      expect(store(BLUE, 120000, 1_900)).toBe('stored');
+
+      // Three rows: nobody is over their own bound yet, so nothing has been
+      // counted as surplus and green is standing on the count's scoping alone.
+      expect(live()).toEqual([`${BLUE}/120000`, `${BLUE}/60000`, `${GREEN}/60000`]);
+
+      expect(store(BLUE, 180000, 2_000)).toBe('stored');
+
+      // Blue is now over and gives up its own oldest budget. Green's row has
+      // the same `budget_ms` as the one that went, and it stays.
+      expect(live()).toEqual([`${BLUE}/120000`, `${BLUE}/180000`, `${GREEN}/60000`]);
     } finally {
       db.cleanup();
     }
