@@ -585,7 +585,14 @@ what it is for, and not the cap — which the scenario below it owns.
 - **WHEN** three markers share one date and the plan is exported at the 12px
   rung, where `MARKER_BAND_MAX_PER_CELL` is 2
 - **THEN** the file draws two chips and the legend carries exactly those two
-  rows, and the capped-out marker's name appears nowhere in the markup
+  rows, and the capped-out marker has **no legend row**
+
+Scoped to the legend and not to the whole markup, deliberately (round-2 Sol
+review, TASK-287): "its name appears nowhere in the file" would be a stronger
+claim than the membership rule makes, and it would pre-empt the overflow
+affordance the paragraph above leaves open — a future `+N` list could name a
+capped marker without giving it a legend row, and this scenario must not forbid
+that in advance.
 
 #### Scenario: the export drops nothing the screen shows
 

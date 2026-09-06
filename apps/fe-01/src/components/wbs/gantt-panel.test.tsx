@@ -7222,10 +7222,12 @@ describe('downloading the chart as a standalone .svg', () => {
     itDom('joins two shares of one day squarely, inside a single rounded cell', async () => {
       // TASK-287 AC #3. Each share carried its own `rx="2"`, so at the seam the
       // left share's right corners and the right share's left corners were both
-      // rounded and the background showed through the notch between them — a
-      // gap the screen does not have, where a crowded cell is chips in a flex
-      // row rather than one rect split in two. `rx` has no per-corner spelling,
-      // so the rounding moved off the share and onto the cell.
+      // rounded and the background showed through the notch between them. The
+      // seam belongs to the split alone: the live band never splits a cell, its
+      // chips are absolutely positioned at the same `left: offset * dayPx` under
+      // the same `maxWidth: dayPx` and simply overlap, and the day card resolves
+      // them. `rx` has no per-corner spelling, so the rounding moved off the
+      // share and onto the cell.
       renderMarked([
         { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
         { id: 'm-freeze', date: dayAt(2), name: 'Freeze', color: CORAL },
