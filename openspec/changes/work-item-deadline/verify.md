@@ -100,7 +100,7 @@ The exercise imports the **outgoing release's own** `WorkItemRepository` and
 `WORK_ITEM_COLUMNS` names fourteen columns with `deadline` not among them.
 Three real rows are first given deadlines through raw SQL — the way the incoming
 release would have written them, through code the old checkout does not have —
-because a rollback over a database where the column is present *and empty*
+because a rollback over a database where the column is present _and empty_
 proves nothing about values sitting unread.
 
 ```
@@ -148,12 +148,12 @@ looks like a clean one.
 At the committed bytes of `dbe8d442`, on h2puni, worktree clean, `md5sum` equal
 on both hosts for `schema.ts` and both `.sql` files:
 
-| target                                     | result                                                        |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| be-01 unit                                 | **1589 pass / 0 fail**, rc 0 (1515 before; the new folder adds cases to the migration walks themselves) |
-| `nx run-many -t typecheck`                 | rc 0, 22 projects                                             |
-| be-01 lint                                 | rc 0                                                          |
-| `prettier --check`                         | rc 0                                                          |
+| target                     | result                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| be-01 unit                 | **1589 pass / 0 fail**, rc 0 (1515 before; the new folder adds cases to the migration walks themselves) |
+| `nx run-many -t typecheck` | rc 0, 22 projects                                                                                       |
+| be-01 lint                 | rc 0                                                                                                    |
+| `prettier --check`         | rc 0                                                                                                    |
 
 The column commit alone turned **39 be-01 cases red, none of them about the
 column**: a migration folder name is asserted by hand in eight test files —
