@@ -381,25 +381,29 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * A guarded route refuses a malformed query to a caller who **is** signed in,
    * under either binder. Both genuinely do this, so it is a contract.
    *
-   * **What is deliberately not asserted here, and why.** The unauthenticated
-   * case of the same route is a real divergence — Elysia answers **422** because
-   * its `documentation.query` hook validates before the handler runs, and the
-   * in-process binder answers **401** because the route module puts the guard
-   * outermost. Measured at this head against the fixture above. It is not
-   * written as a clause because chunk 8 settled that a contract recording two
-   * different answers is a record of a bug rather than a contract, and it is not
-   * written as a passing clause because no honest fix fits in a patch: making
-   * the two properties `t.Optional` so only the handler refuses was **measured**
-   * to flip the document's `"required": true` to `false` on both parameters, and
-   * `detail.parameters` was measured in chunk 12 to be replaced wholesale. The
-   * fix is route-level auth metadata both binders honour before validation —
-   * Elysia's `onRequest` runs ahead of its validator, `beforeHandle` does not.
-   * The task log carries the sizing.
+   * **This is also the negative control for the clause below it.** The
+   * unauthenticated case of this same route used to be a real divergence —
+   * Elysia answered **422**, because its `documentation.query` hook validates
+   * before the handler runs, and the in-process binder answered **401**, because
+   * the route module puts the guard outermost. `Route.preflight` closed that,
+   * and the clause asserting it is next.
    *
-   * The fixture is landed ahead of that fix on purpose: `/probe/sides` is
-   * unguarded, and an unguarded probe has no race between a schema refusal and a
-   * guard, which is structurally why this suite could not see the divergence
-   * until a human reviewer read the route module.
+   * What makes the pair evidence rather than two green tests: this one sends the
+   * identical malformed query **with** a valid token and still expects 422, so a
+   * preflight that refused everything, or a binder that stopped running the
+   * validator at all, fails here instead of passing both.
+   *
+   * Three patch-sized fixes were measured dead before the preflight seat was
+   * found, and they are recorded so they are not retried: `t.Optional` on both
+   * properties flips the document's `"required": true` to `false`;
+   * `detail.parameters` is replaced wholesale by Elysia; and the emitter has no
+   * `parameters` seam. `beforeHandle` runs after validation and cannot carry the
+   * check either.
+   *
+   * The fixture landed ahead of the fix on purpose: `/probe/sides` is unguarded,
+   * and an unguarded probe has no race between a schema refusal and a guard,
+   * which is structurally why this suite could not see the divergence until a
+   * human reviewer read the route module.
    */
   /**
    * A known path reached with the wrong verb is "no such route" under either
