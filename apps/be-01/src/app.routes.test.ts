@@ -1,7 +1,8 @@
+import { httpShapes } from '@wbs/contracts';
 import { describe, expect, it } from 'bun:test';
 
 import type { AppOptions } from './app';
-import { buildApp, mountedRouteLists } from './app';
+import { buildApp, mountedEndpoints, mountedRouteLists } from './app';
 import type { Route } from './http/route';
 import { PlanCommandRunner } from './service/plan-commands';
 import { inMemoryUsers, testAuthService } from './testing/auth-fixture';
@@ -122,6 +123,7 @@ describe('the mounted route list', () => {
       .sort();
     const declared = [
       ...assembled().map((route) => `${route.method} ${route.path}`),
+      ...mountedEndpoints().map(({ shape }) => `${shape.method} ${shape.path}`),
       'GET /health',
       'GET /metrics',
       'GET /api/openapi.json',
@@ -129,4 +131,13 @@ describe('the mounted route list', () => {
 
     expect(mounted).toEqual(declared);
   });
+});
+
+/** Complements actual wire requests: every migrated declaration owns exactly one binding. */
+it('binds each shared HTTP shape once and no unlisted shape', () => {
+  const endpoints = mountedEndpoints();
+  expect(endpoints).toHaveLength(httpShapes.length);
+  for (const shape of httpShapes) {
+    expect(endpoints.filter((endpoint) => endpoint.shape === shape)).toHaveLength(1);
+  }
 });

@@ -318,3 +318,121 @@ Post-foundation compiler timing uses the same macOS26.5 arm64 host, existing dep
 Incoming d08a6ad6 was reviewed from source and tests, without executing upstream proofs. Design, preflight and refusal inventory now name live mismatch retention and the distinct cookie behavior, with the same public invalid-transaction refusal envelope planned across consume outcomes. Its integration and regression run remain pending. No full workspace or isolated browser gate is claimed by this checkpoint.
 
 Documentation reconciliation checks: `bunx openspec validate http-endpoint-port --strict` reported the change valid and exited0; the CLI separately reported telemetry DNS failure for edge.openspec.dev. Prettier check passed for the five edited HTTP documents, and `git diff --check -- openspec/changes/http-endpoint-port` exited0. No source files were edited by this documentation pass.
+
+## Smoke migration in progress after feature integration
+
+Feature head bf69132d is integrated as034d5eb2. Parent evidence records2610 passing
+backend/auth/domain/solver tests,228 Gantt tests and forced BE/FE typechecks. The
+operation inventory was refreshed to40 baseline plus4 conditional OIDC operations;
+marker detail/color and scheduled-slice lateBy changes are preserved requirements.
+
+Before implementation, `bun test ./apps/be-01/src/controller/smoke.integration.test.ts`
+failed3 cases and passed1 (`/private/tmp/wbs-http-smoke-red.log`): missing text returned
+the legacy freeform Validation failed message instead of invalid_body; an unknown
+extra object returned200 rather than400; direct `.handle` was absent on the old
+route. Production smoke binding and mounting were written only after this RED.
+
+Intentional wire rewrites: malformed/schema-invalid text becomes a stable declared
+invalid_body envelope at400; extra body properties are refused rather than ignored;
+malformed JSON becomes invalid_json400; undeclared query fields become invalid_query400.
+Valid text remains200 `{ echoed }`. Cookie-origin403 still precedes parsing. Echo
+has no semantic refusal for a validated text, so literal-handler coverage is success;
+request refusals belong to the adapter and are exercised through actual app.handle.
+
+The rendering worker owns a six-minute quiet timing window while smoke/identity/client
+source is prepared. New smoke GREEN, new identity RED/GREEN, fault proofs and current
+source typechecks remain pending. No claim is made from source preparation alone.
+
+### Smoke observed faults and restoration
+
+Initial composed GREEN exposed only a document order mismatch (21pass1fail). The
+typed smoke mount now precedes legacy families, preserving the existing document
+order without rewriting the committed artifact. Expanded controls passed23 tests
+with100 assertions before mutations. Each fault below ran through actual app.handle
+or the production binding table; every source was restored in finally.
+
+| Fault                                               | Observed failure                                                 |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| Tolerant wrapper replaces strict smoke body         | Extra object returns200, expected400.                            |
+| echoed schema widened to unknown                    | Injected invalid service representation returns200, expected500. |
+| Remove smoke origin policy                          | Cookie + malformed JSON returns400, expected403.                 |
+| Mount empty typed table, retain binding/declaration | Valid smoke returns404, expected200.                             |
+| Remove smoke binding, retain declaration            | Binding parity receives length0, expected1.                      |
+
+Logs: `/private/tmp/wbs-http-smoke-fault-{extra,reply,origin,mount,binding}.log`.
+Proof comments were written from these inspected failures. The legacy app guard
+delegates migrated method/path pairs to their own policies, making the smoke
+origin policy observable rather than hidden behind a duplicate earlier guard.
+Final restoration checks, independent review and task closure remain pending.
+
+Smoke/identity combined restoration passed31 tests,0 failures,165 assertions across
+5 files in1.193s (`/private/tmp/wbs-http-smoke-restored.log`): smoke.integration,
+app.routes, openapi-document, origin.integration, http/elysia/identity. The first
+owned lint pass found only two import-sort errors, fixed with ESLint; latest owned
+lint pass is recorded below after review.
+
+# Production endpoint identity resolver evidence
+
+2026-09-06, bounded http-endpoint-port prerequisite. Owned production path:
+`apps/be-01/src/http/identity.ts`. Parent approved moving the new integration test
+from `http/identity.test.ts` to `http/elysia/identity.test.ts`: existing lint rules
+forbid Elysia and adapter imports in the framework-free http directory. No lint
+exception, app/controller edit, or shared verify edit belongs to this slice.
+
+API: `identityResolver(auth, internalAuthSecret): IdentityResolver`.
+User requirements delegate once to existing userFromHeaders/AuthService;
+signed-in accepts any authenticated account, read/write require their own scope.
+Internal requests compare only x-internal-auth to the explicitly supplied secret,
+matching legacy equality semantics, and never authenticate or invent a user.
+Unknown account/verifier failures reject unchanged. Origin remains the mounted
+shape's independent policy, not this resolver's responsibility.
+
+Tests use AuthService-issued password JWTs against actual fixture accounts and
+cryptographically signed/verified OIDC JWTs resolved through the actual account
+service. No authenticate stub returns fabricated principals. The one local-mode
+case explicitly supplies localIdentity, preserving that existing composition.
+Cookie separators are percent-encoded so decoding is observable; a valid cookie
+beats another account's Bearer token, malformed encoding permits Bearer fallback,
+a decoded but invalid cookie blocks Bearer fallback, and x-wbs-token is ignored.
+
+Initial RED: missing module, 0 pass / 1 failure / 1 module-load error. This was a
+scaffold failure, not behavioral proof. Minimal implementation then gave 8 pass /
+65 assertions. The behavioral proofs below were injected after that green run,
+independently and within a parent-coordinated mutation window. All were restored
+before comments and subsequent checks.
+
+| Fault                                                        | Mounted production-path case                | Observed                                                |
+| ------------------------------------------------------------ | ------------------------------------------- | ------------------------------------------------------- |
+| Disable read scope check                                     | scoped token matrix                         | expected403, received200                                |
+| Disable write scope check                                    | scoped token matrix                         | expected403, received200                                |
+| Bypass internal secret comparison                            | internal secret                             | expected401, received200                                |
+| Return fabricated principal when authentication returns null | absent/invalid/retired credentials          | expected401, received200                                |
+| Read Bearer directly instead of shared credential boundary   | cookie precedence                           | expected account ada, received grace (IDs differed too) |
+| Resolve credentials twice                                    | password requirement matrix                 | expected1 authenticate call, received2                  |
+| Catch account errors as null                                 | password lookup and OIDC account resolution | both expected500, received401                           |
+
+Logs: `/private/tmp/http-identity-fault-{read-scope,write-scope,internal-secret,principal-fallback,cookie-bypass,double-auth,catch-account}.log`.
+
+Verification at writing: identity+mount tests42 pass,245 assertions. Initial BE
+source/spec typecheck found two test-only HeadersInit inference errors; arrays
+were annotated, and final verification is pending the parent's brief smoke fault
+restoration. No full backend/workspace/browser gate claimed.
+
+Final restored verification completed:
+
+- `bun test ./apps/be-01/src/http/elysia/identity.test.ts ./apps/be-01/src/http/elysia/mount.test.ts`: **42 pass,0 fail,245 assertions** (`/private/tmp/http-identity-tests.log`).
+- `bunx nx typecheck be-01 --skip-nx-cache`: **passed**, source and spec references (`/private/tmp/http-identity-types.log`).
+- `bunx eslint apps/be-01/src/http/identity.ts apps/be-01/src/http/elysia/identity.test.ts`: passed.
+- Prettier check on both owned files: passed. `git diff --check`: passed.
+
+No production changes after the fault-restoration notice beyond observed Proof
+comments. Parent's combined smoke/app/origin/OpenAPI restoration checks and
+independent review remain outside this bounded result. No commits made.
+
+Smoke and identity independent review approved without findings. Complete backend
+restoration then passed1804 tests,0 failures,17057 assertions across138 files in
+106.46s: `env -u HEAVY_LOCK_WAIT_SECONDS bin/with-heavy-lock.sh -- bun test
+./apps/be-01/src` (`/private/tmp/wbs-http-smoke-backend-full.log`). Owned ESLint
+restoration emitted no errors (`/private/tmp/wbs-http-smoke-lint-restored.log`); strict
+OpenSpec validation passed. Full workspace/browser gates and remaining production
+endpoint migrations are still pending.

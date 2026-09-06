@@ -18,7 +18,7 @@ Foundation completion is limited to the reviewed declarations, adapter and MCP f
 
 Each checkbox includes RED → minimal implementation → focused GREEN → named fault → restoration → fresh GREEN, one direct endpoint.handle(literal) test for each modeled refusal path, and a named wire-assertion rewrite entry in verify.md. Reuse existing \*.routes.ts modules and existing test filenames.
 
-- [ ] 2.1 Migrate smoke.routes; test smoke.integration plus direct endpoint refusal; negative deep unknown body field/invalid text and envelope mapping. Record freeform validation-message replacement.
+- [x] 2.1 Migrate smoke.routes; test smoke.integration plus direct endpoint refusal; negative deep unknown body field/invalid text and envelope mapping. Record freeform validation-message replacement.
 - [ ] 2.2 Migrate step.routes; test step.controller.db including in-use/cascade, identity and name parsing; negative malformed/unknown body fields refused before mutation, preserve in_use detail/status.
 - [ ] 2.3 Migrate work-item.routes including plan/directory commands and undo/redo; test work-item.controller, undo.controller.db and directory.controller.db. Negatives: strip derived number, nested unknown command property, wrong union arm, bad command ref, lost batch at/kind/detail; preserve all existing domain parsing and undo negatives.
 - [ ] 2.4 Migrate history.routes; test history.controller and direct not_found; negative lost query declaration/unknown-key rejection. Preserve optional kind/workItemId and unknown-kind empty result.

@@ -1,79 +1,88 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 
-import { buildApp } from '../app';
-import { testAuthService } from '../testing/auth-fixture';
-import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
-import { testCapacityService } from '../testing/capacity-fixture';
-import { testDirectoryService } from '../testing/directory-fixture';
-import { testHistoryService } from '../testing/history-fixture';
-import { testPriorityBandService } from '../testing/priority-band-fixture';
-import { testProjectService } from '../testing/project-fixture';
-import { testReplay } from '../testing/replay-fixture';
-import { testSavedPlanService } from '../testing/saved-plan-fixture';
-import { testStepService } from '../testing/step-fixture';
-import { testWorkItemService } from '../testing/work-item-fixture';
-import { testWrites } from '../testing/writes-fixture';
+import { SmokeService } from '../service/smoke.service';
+import { testApp } from '../testing/app-fixture';
+import { smokeRoutes } from './smoke.routes';
 
-const TEST_SECRET = 'x'.repeat(32);
+function echoRequest(body: string, suffix = '', headers: Record<string, string> = {}): Request {
+  return new Request(`http://localhost/api/smoke/echo${suffix}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body,
+  });
+}
 
 describe('POST /api/smoke/echo', () => {
   it('returns the validated message', async () => {
-    const app = buildApp({
-      appOrigin: 'http://localhost',
-      directory: testDirectoryService(),
-      capacity: testCapacityService(),
-      priorityBands: testPriorityBandService(),
-      history: testHistoryService(),
-      calendarMarkers: testCalendarMarkerService(),
-      auth: testAuthService(),
-      projects: testProjectService(),
-      workItems: testWorkItemService(),
-      savedPlans: testSavedPlanService(),
-      steps: testStepService(),
-      replay: testReplay().replay,
-      probeDatabase: () => 'ok',
-      internalAuthSecret: TEST_SECRET,
-      writes: testWrites(),
-      migrationsApplied: true,
-    });
-    const res = await app.handle(
-      new Request('http://localhost/api/smoke/echo', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: 'hi' }),
-      }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { echoed: string };
-    expect(body.echoed).toBe('hi');
+    const response = await testApp().handle(echoRequest(JSON.stringify({ text: 'hi' })));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ echoed: 'hi' });
   });
 
-  it('rejects invalid body with 400', async () => {
-    const app = buildApp({
-      appOrigin: 'http://localhost',
-      directory: testDirectoryService(),
-      capacity: testCapacityService(),
-      priorityBands: testPriorityBandService(),
-      history: testHistoryService(),
-      calendarMarkers: testCalendarMarkerService(),
-      auth: testAuthService(),
-      projects: testProjectService(),
-      workItems: testWorkItemService(),
-      savedPlans: testSavedPlanService(),
-      steps: testStepService(),
-      replay: testReplay().replay,
-      probeDatabase: () => 'ok',
-      internalAuthSecret: TEST_SECRET,
-      writes: testWrites(),
-      migrationsApplied: true,
-    });
-    const res = await app.handle(
-      new Request('http://localhost/api/smoke/echo', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ wrong: true }),
+  it.each([{ wrong: true }, { text: 42 }, { text: null }])(
+    'rejects invalid body with the stable 400 envelope: %j',
+    async (body) => {
+      const response = await testApp().handle(echoRequest(JSON.stringify(body)));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'invalid_body' });
+    },
+  );
+
+  it('refuses undeclared smoke input instead of silently stripping it', async () => {
+    const response = await testApp().handle(
+      echoRequest(JSON.stringify({ text: 'hello', extra: { ignored: true } })),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_body' });
+  });
+
+  it('names malformed JSON independently from an invalid body', async () => {
+    const response = await testApp().handle(echoRequest('{broken'));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_json' });
+  });
+
+  it('refuses undeclared query fields', async () => {
+    const response = await testApp().handle(
+      echoRequest(JSON.stringify({ text: 'hello' }), '?extra=yes'),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_query' });
+  });
+
+  it('keeps cookie origin refusal ahead of malformed JSON', async () => {
+    const response = await testApp().handle(
+      echoRequest('{broken', '', {
+        cookie: '__Host-wbs_access=session',
+        origin: 'https://foreign.example',
       }),
     );
-    expect(res.status).toBe(400);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'invalid_origin' });
   });
+
+  it('executes the endpoint from an explicit typed request without an HTTP adapter', async () => {
+    const reply = await smokeRoutes()[0].handle({
+      params: {},
+      query: undefined,
+      body: { text: 'direct' },
+      request: {
+        url: new URL('http://localhost/api/smoke/echo'),
+        method: 'POST',
+        headers: new Headers(),
+      },
+    });
+    expect(reply).toEqual({ ok: true, status: 200, body: { echoed: 'direct' } });
+  });
+});
+
+it('refuses an invalid service representation at the actual smoke response boundary', async () => {
+  const echo = spyOn(SmokeService.prototype, 'echo').mockReturnValue(42 as unknown as string);
+  try {
+    const response = await testApp().handle(echoRequest(JSON.stringify({ text: 'hello' })));
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe('Internal Server Error');
+  } finally {
+    echo.mockRestore();
+  }
 });

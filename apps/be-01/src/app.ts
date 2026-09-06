@@ -18,6 +18,9 @@ import { solutionRoutes } from './controller/solution.routes';
 import { stepRoutes } from './controller/step.routes';
 import { workItemRoutes } from './controller/work-item.routes';
 import { bindElysia } from './http/elysia/bind';
+import { mountEndpoints } from './http/elysia/mount';
+import type { BoundEndpoint } from './http/endpoint';
+import { identityResolver } from './http/identity';
 import { matchPath, type Route } from './http/route';
 import { userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
@@ -161,8 +164,8 @@ export interface AppOptions {
 }
 
 /**
- * Every route list this app mounts, in mount order — the one place they are
- * assembled.
+ * Every legacy route list still mounted by this app, in mount order. Typed
+ * families move to {@link mountedEndpoints} as their shared contracts migrate.
  *
  * Exported so a test can read the same lists the app runs rather than rebuilding
  * the wiring beside it. That distinction is the whole value: a check that
@@ -187,7 +190,6 @@ export function mountedRouteLists(
   commands: PlanCommandRunner,
 ): readonly (readonly Route[])[] {
   return [
-    smokeRoutes(),
     authRoutes(
       opts.auth,
       opts.oidc,
@@ -246,7 +248,16 @@ export function mountedRouteLists(
   ];
 }
 
+/**
+ * Typed bindings migrated from {@link mountedRouteLists}, mounted by the same app.
+ * Proof: dropping smoke makes app.routes.test.ts's binding check see length0 instead of1.
+ */
+export function mountedEndpoints() {
+  return [...smokeRoutes()] as const;
+}
+
 export function buildApp(opts: AppOptions) {
+  const endpoints: readonly BoundEndpoint[] = mountedEndpoints();
   const logger = createLogger({ service: 'be-01', version: opts.version });
   // The OIDC callback is the one route list that reports anything, and it names
   // no framework, so it cannot reach the decorated `logger` above and is handed
@@ -278,6 +289,17 @@ export function buildApp(opts: AppOptions) {
       .use(openApiPlugin())
       .onRequest(async ({ request, set }) => {
         const path = new URL(request.url).pathname;
+        // Migrated routes own their policy order in mountEndpoints. Legacy
+        // routes keep the existing guard until their declarations migrate.
+        if (
+          endpoints.some(
+            ({ shape }) =>
+              (shape.method === request.method ||
+                (request.method === 'HEAD' && shape.method === 'GET')) &&
+              matchPath(shape.path, path) !== null,
+          )
+        )
+          return undefined;
         // Proof: reverting to exact paths invokes authentication once in both
         // trailing-slash origin.integration.test.ts cases instead of zero times.
         const passwordHandshake =
@@ -312,6 +334,14 @@ export function buildApp(opts: AppOptions) {
         }
         return undefined;
       })
+      .use(
+        // Proof: mounting an empty table makes smoke.integration.test.ts's valid
+        // request receive404 instead of200 while its declaration and binding remain.
+        mountEndpoints(endpoints, {
+          appOrigin: opts.appOrigin,
+          resolveIdentity: identityResolver(opts.auth, opts.internalAuthSecret),
+        }),
+      )
       .use(
         mountedRouteLists(routedOptions, commands).reduce(
           (app, list) => app.use(bindElysia(list)),
