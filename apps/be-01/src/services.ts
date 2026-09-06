@@ -200,6 +200,9 @@ export function buildServices(opts: ServicesOptions): BeServices {
           enabledOf: async (projectId) =>
             (await projectStore.findById(projectId))?.optimizationEnabled === true,
           spawn: opts.optimizer.spawn,
+          eventLog,
+          pushRecorded: (subscription, recorded, event) =>
+            broadcast.pushRecorded(subscription, recorded, event),
           onChildError: (err) => {
             opts.logger.error({ err }, 'optimizer child failed');
           },

@@ -25,7 +25,9 @@ import {
 } from './schema';
 
 /** The handle a caller's own transaction hands to the helpers below. */
-type Transaction = Parameters<Parameters<SQLiteBunDatabase['transaction']>[0]>[0];
+export type OptimizedOutcomeTransaction = Parameters<
+  Parameters<SQLiteBunDatabase['transaction']>[0]
+>[0];
 
 /**
  * A database handle or an open transaction on one.
@@ -36,7 +38,7 @@ type Transaction = Parameters<Parameters<SQLiteBunDatabase['transaction']>[0]>[0
  * the insert never sees, which is the entire failure the predicates exist to
  * prevent.
  */
-type Reader = SQLiteBunDatabase | Transaction;
+type Reader = SQLiteBunDatabase | OptimizedOutcomeTransaction;
 
 /**
  * Tasks.md 4.1, both halves: the stored outcome of both objectives for one full
@@ -629,58 +631,64 @@ export type OutcomeWriteResult = 'stored' | 'superseded' | 'already-recorded';
  * rows *other than this one* survive a commit, it is separately numbered, and
  * folding it in would make this function's contract two claims instead of one.
  */
+export function storeOptimizedOutcomeIn(
+  tx: OptimizedOutcomeTransaction,
+  write: OutcomeWrite,
+): OutcomeWriteResult {
+  const { claim, outcome } = write;
+  if (!writerStillHolds(tx, claim)) return 'superseded';
+  if (
+    !admissionStillCurrent(tx, {
+      projectId: claim.projectId,
+      contractVersion: claim.contractVersion,
+      generation: claim.generation,
+      admittedCancelEpoch: write.admittedCancelEpoch,
+    })
+  ) {
+    return 'superseded';
+  }
+  if (!optimizationStillEnabled(tx, claim.projectId)) return 'superseded';
+
+  const inserted = tx
+    .insert(optimizedScheduleCache)
+    .values({
+      projectId: claim.projectId,
+      inputHash: write.inputHash,
+      objective: claim.objective,
+      contractVersion: claim.contractVersion,
+      budgetMs: claim.budgetMs,
+      generation: claim.generation,
+      status: outcome.kind,
+      resultJson:
+        outcome.kind === 'ok'
+          ? JSON.stringify(encodeOptimizedResult(outcome.result))
+          : outcome.kind === 'plan-infeasible'
+            ? JSON.stringify(encodePlanInfeasible(outcome.certificate))
+            : null,
+      failureReason: outcome.kind === 'failed' ? outcome.reason : null,
+      createdAt: write.now,
+    })
+    .onConflictDoNothing()
+    .returning({ objective: optimizedScheduleCache.objective })
+    .all();
+
+  if (inserted.length !== 1) return 'already-recorded';
+
+  enforceLiveBudgetBound(tx, {
+    projectId: claim.projectId,
+    objective: claim.objective,
+    contractVersion: claim.contractVersion,
+    inputHash: write.inputHash,
+  });
+  return 'stored';
+}
+
+/** Compatibility wrapper for callers that own no wider transaction. */
 export function storeOptimizedOutcome(
   db: SQLiteBunDatabase,
   write: OutcomeWrite,
 ): OutcomeWriteResult {
-  const { claim, outcome } = write;
-  return db.transaction((tx) => {
-    if (!writerStillHolds(tx, claim)) return 'superseded';
-    if (
-      !admissionStillCurrent(tx, {
-        projectId: claim.projectId,
-        contractVersion: claim.contractVersion,
-        generation: claim.generation,
-        admittedCancelEpoch: write.admittedCancelEpoch,
-      })
-    ) {
-      return 'superseded';
-    }
-    if (!optimizationStillEnabled(tx, claim.projectId)) return 'superseded';
-
-    const inserted = tx
-      .insert(optimizedScheduleCache)
-      .values({
-        projectId: claim.projectId,
-        inputHash: write.inputHash,
-        objective: claim.objective,
-        contractVersion: claim.contractVersion,
-        budgetMs: claim.budgetMs,
-        generation: claim.generation,
-        status: outcome.kind,
-        resultJson:
-          outcome.kind === 'ok'
-            ? JSON.stringify(encodeOptimizedResult(outcome.result))
-            : outcome.kind === 'plan-infeasible'
-              ? JSON.stringify(encodePlanInfeasible(outcome.certificate))
-              : null,
-        failureReason: outcome.kind === 'failed' ? outcome.reason : null,
-        createdAt: write.now,
-      })
-      .onConflictDoNothing()
-      .returning({ objective: optimizedScheduleCache.objective })
-      .all();
-
-    if (inserted.length !== 1) return 'already-recorded';
-
-    enforceLiveBudgetBound(tx, {
-      projectId: claim.projectId,
-      objective: claim.objective,
-      contractVersion: claim.contractVersion,
-      inputHash: write.inputHash,
-    });
-    return 'stored';
-  });
+  return db.transaction((tx) => storeOptimizedOutcomeIn(tx, write));
 }
 
 /**
@@ -728,7 +736,7 @@ interface LiveBudgetKey {
  * Called only after an insert that actually landed. On the
  * `already-recorded` path nothing was added, so nothing can have gone over.
  */
-function enforceLiveBudgetBound(tx: Transaction, key: LiveBudgetKey): void {
+function enforceLiveBudgetBound(tx: OptimizedOutcomeTransaction, key: LiveBudgetKey): void {
   const live = tx
     .select({ budgetMs: optimizedScheduleCache.budgetMs })
     .from(optimizedScheduleCache)

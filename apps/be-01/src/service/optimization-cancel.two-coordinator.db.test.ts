@@ -7,6 +7,7 @@ import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
+import { DrizzleEventLogRepo } from '../repository/event-log';
 import { runMigrations } from '../repository/migrate';
 import { bindSolverSlot, reserveSolverSlot } from '../repository/optimization-admission';
 import { allocateGeneration } from '../repository/optimization-generation';
@@ -256,6 +257,8 @@ describe('cross-coordinator cancellation', () => {
         if (attempt === undefined) throw new Error('spawned child was not recorded');
         return runSolverChildLifecycle({ ...options, sleep: attempt.heartbeat.sleep });
       },
+      eventLog: new DrizzleEventLogRepo(blue),
+      pushRecorded: () => Promise.resolve(),
       onChildError: (error) => errors.push(error),
     });
 

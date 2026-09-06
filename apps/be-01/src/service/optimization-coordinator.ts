@@ -4,6 +4,7 @@ import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 
 import type { Drizzle } from '../repository/db';
+import type { EventLogRepo, RecordedEvent } from '../repository/event-log';
 import {
   bindSolverSlot,
   reserveSolverSlot,
@@ -17,11 +18,14 @@ import {
 import { allocateGeneration } from '../repository/optimization-generation';
 import { dequeueSolverRequest, enqueueSolverRequest } from '../repository/optimization-queue';
 import {
+  type OutcomeWrite,
+  type OutcomeWriteResult,
   readOptimizedPairAndSpawn,
   type SpawnRequest,
-  storeOptimizedOutcome,
+  storeOptimizedOutcomeIn,
 } from '../repository/optimized-schedule-cache';
 import type { SolverObjectiveName } from '../repository/schema';
+import { type ProjectEvent, subscriptionFor } from './broadcast';
 import type { OptimizedScheduleReader } from './optimized-schedule-reader';
 import {
   runSolverChildLifecycle,
@@ -54,6 +58,14 @@ export interface OptimizationCoordinatorOptions {
   readonly spawn: ReservedSpawner;
   readonly runChild?: (options: SolverChildLifecycleOptions) => Promise<SolverChildLifecycleResult>;
   readonly onChildError: (error: unknown) => void;
+  /** Durable half of a newly stored result's project event. */
+  readonly eventLog: Pick<EventLogRepo, 'recordEventIn'>;
+  /** Best-effort live half, invoked only after the outcome transaction commits. */
+  readonly pushRecorded: (
+    subscription: string,
+    recorded: RecordedEvent,
+    event: ScheduleOptimizedEvent,
+  ) => Promise<void>;
   readonly editDebounceMs?: number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly setInterval?: (callback: () => void, milliseconds: number) => unknown;
@@ -62,6 +74,38 @@ export interface OptimizationCoordinatorOptions {
 
 type ReservedAdmission = Extract<SolverSlotAdmission, { kind: 'reserved' }>;
 type SolverRequest = Extract<BuiltSolverRequest, { readonly ok: true }>['request'];
+export type ScheduleOptimizedEvent = Extract<ProjectEvent, { type: 'schedule_optimized' }>;
+
+export interface RecordedOptimizedOutcome {
+  readonly result: OutcomeWriteResult;
+  readonly subscription?: string;
+  readonly recorded?: RecordedEvent;
+  readonly event?: ScheduleOptimizedEvent;
+}
+
+/** Atomically store one validated result and its durable replay record. */
+export function storeOptimizedOutcomeAndRecord(
+  db: Drizzle,
+  eventLog: Pick<EventLogRepo, 'recordEventIn'>,
+  write: OutcomeWrite,
+): RecordedOptimizedOutcome {
+  return db.transaction((tx) => {
+    const result = storeOptimizedOutcomeIn(tx, write);
+    if (result !== 'stored' || write.outcome.kind !== 'ok') return { result };
+    const event: ScheduleOptimizedEvent = {
+      type: 'schedule_optimized',
+      projectId: write.claim.projectId,
+      generation: write.claim.generation,
+      inputHash: write.inputHash,
+      objective: write.claim.objective,
+      contractVersion: write.claim.contractVersion,
+      budgetMs: write.claim.budgetMs,
+    };
+    const subscription = subscriptionFor(write.claim.projectId);
+    const recorded = eventLog.recordEventIn(tx, subscription, event, write.now);
+    return { result, subscription, recorded, event };
+  });
+}
 
 /** Everything the launcher needs from the read and its successful reservation. */
 export interface ReservedSpawnRequest extends SpawnRequest {
@@ -183,13 +227,31 @@ export class OptimizationCoordinator {
   }
 
   private storeInternalFailure(request: ReservedSpawnRequest): void {
-    storeOptimizedOutcome(this.options.db, {
+    this.storeOutcome({
       claim: { ...this.slotOf(request), ownerId: this.options.ownerId },
       inputHash: request.key.inputHash,
       admittedCancelEpoch: request.admission.admittedCancelEpoch,
       outcome: { kind: 'failed', reason: 'internal-error' },
       now: this.options.now(),
     });
+  }
+
+  private storeOutcome(write: OutcomeWrite): OutcomeWriteResult {
+    const committed = storeOptimizedOutcomeAndRecord(this.options.db, this.options.eventLog, write);
+    if (
+      committed.subscription !== undefined &&
+      committed.recorded !== undefined &&
+      committed.event !== undefined
+    ) {
+      const tracked = this.options
+        .pushRecorded(committed.subscription, committed.recorded, committed.event)
+        .catch((error: unknown) => {
+          this.options.onChildError(error);
+        })
+        .finally(() => this.inFlight.delete(tracked));
+      this.inFlight.add(tracked);
+    }
+    return committed.result;
   }
 
   private async processOutcome(
@@ -253,7 +315,7 @@ export class OptimizationCoordinator {
         now: this.options.now,
         onExit: async (exit) => {
           const outcome = await this.processOutcome(child, exit);
-          storeOptimizedOutcome(this.options.db, {
+          this.storeOutcome({
             claim: { ...slot, ownerId: this.options.ownerId },
             inputHash: request.key.inputHash,
             admittedCancelEpoch: request.admission.admittedCancelEpoch,
@@ -334,7 +396,7 @@ export class OptimizationCoordinator {
       ];
       if (!built.ok) {
         try {
-          storeOptimizedOutcome(this.options.db, {
+          this.storeOutcome({
             claim: { ...slot, ownerId: this.options.ownerId },
             inputHash: next.inputHash,
             admittedCancelEpoch: next.admission.admittedCancelEpoch,
@@ -433,7 +495,7 @@ export class OptimizationCoordinator {
           };
           if (!built.ok) {
             try {
-              storeOptimizedOutcome(this.options.db, {
+              this.storeOutcome({
                 claim: { ...slot, ownerId: this.options.ownerId },
                 inputHash: request.key.inputHash,
                 admittedCancelEpoch: admission.admittedCancelEpoch,

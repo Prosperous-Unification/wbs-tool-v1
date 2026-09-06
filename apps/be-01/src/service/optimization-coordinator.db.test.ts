@@ -7,6 +7,7 @@ import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
+import { DrizzleEventLogRepo } from '../repository/event-log';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
 import { DRAIN_RECONCILE_INTERVAL_MS } from '../repository/optimization-drain';
@@ -163,6 +164,8 @@ function coordinator(
       return await childOf(request);
     },
     runChild,
+    eventLog: new DrizzleEventLogRepo(db),
+    pushRecorded: () => Promise.resolve(),
     onChildError,
   });
 }
@@ -205,6 +208,8 @@ describe('OptimizationCoordinator read', () => {
         spawned.push(request);
         throw new Error('a drain reconciliation must not resume a solve');
       },
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: () => Promise.resolve(),
       onChildError: (error) => errors.push(error),
       setInterval: (callback, milliseconds) => {
         tick = callback;
@@ -267,6 +272,8 @@ describe('OptimizationCoordinator read', () => {
         });
       },
       runChild: () => Promise.resolve({ kind: 'exited', code: 0 }),
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: () => Promise.resolve(),
       onChildError: (error) => {
         throw error;
       },
