@@ -19,7 +19,8 @@ import { DEFAULT_PERT_WEIGHTS_VIEW } from '@/lib/wbs-api';
 import { fakeProjectApi } from '@/testing/fake-project-api';
 import { recordCalls } from '@/testing/record-calls';
 
-import type { GanttPlan, GanttRow, GanttSlice } from './gantt-geometry';
+import { MONDAY_START, planOf, pointedAtRow, rowAt, sliceAt } from './gantt-fixtures';
+import type { GanttPlan } from './gantt-geometry';
 import { PERSON_BAR_COLORS, UNASSIGNED_BAR_COLOR } from './gantt-geometry';
 import {
   appliedGanttHeight,
@@ -49,24 +50,13 @@ import {
 } from './gantt-panel';
 import type * as InitialsModule from './initials';
 import { initialsOf } from './initials';
-import { createPointedRows, type PointedRows } from './pointed-row-store';
+import { createPointedRows } from './pointed-row-store';
 import type * as ShortDateModule from './short-date';
 import { type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
-
-/**
- * A {@link PointedRows} already answering `rowId` — the chart's pointer, which
- * needs no shown-row guard. What every render here hands the panel in place of
- * the resolved string the prop used to be.
- */
-const pointedAtRow = (rowId: string | null): PointedRows => {
-  const pointed = createPointedRows();
-  pointed.pointChart(rowId, 'pointer');
-  return pointed;
-};
 
 /**
  * How many times a bar has computed its assignee's initials — one
@@ -103,90 +93,6 @@ vi.mock('./short-date', async (importOriginal) => {
       return real.shortIsoDate(...args);
     },
   };
-});
-
-/** A shown row: a leaf over these workdays, unless `extras` says otherwise. */
-const rowAt = (
-  id: string,
-  earliestStart: number,
-  earliestFinish: number,
-  extras: Partial<GanttRow> = {},
-): GanttRow => ({
-  id,
-  number: id,
-  name: id,
-  depth: 0,
-  leaf: true,
-  schedule: { earliestStart, earliestFinish },
-  notBeforeOffset: null,
-  priority: null,
-  maxParallel: 1,
-  // The facts a row is enriched with before the chart is drawn. Absent by
-  // default and named by the tests that are about them, so a fixture never has
-  // to state a team it is not asking about.
-  team: { state: 'none' },
-  tags: { own: [], inherited: [] },
-  trioByStep: new Map(),
-  waitsFor: [],
-  ...extras,
-});
-
-/** A scheduled slice over these workdays, under the `dev` step. */
-const sliceAt = (
-  id: string,
-  workItemId: string,
-  earliestStart: number,
-  earliestFinish: number,
-  extras: Partial<GanttSlice> = {},
-): GanttSlice => ({
-  id,
-  workItemId,
-  stepId: 'dev',
-  personId: null,
-  duration: earliestFinish - earliestStart,
-  estimated: true,
-  earliestStart,
-  earliestFinish,
-  float: 0,
-  critical: false,
-  boundBy: 'projectStart',
-  resourcePredecessorId: null,
-  capacityTeamId: null,
-  width: 1,
-  effort: earliestFinish - earliestStart,
-  capacityPredecessorIds: [],
-  ...extras,
-});
-
-/**
- * The full tree a fixture's shown rows imply: each row's parent is the
- * nearest shallower row above it — enough for every plan in this file, whose
- * predecessors are all shown.
- */
-const treeFrom = (rows: readonly GanttRow[]): { id: string; parentId: string | null }[] => {
-  const above: { id: string; depth: number }[] = [];
-  return rows.map((row) => {
-    while (above.length > 0 && above[above.length - 1].depth >= row.depth) above.pop();
-    const parentId = above.length > 0 ? above[above.length - 1].id : null;
-    above.push({ id: row.id, depth: row.depth });
-    return { id: row.id, parentId };
-  });
-};
-
-const planOf = (parts: Partial<GanttPlan>): GanttPlan => ({
-  rows: [],
-  slices: [],
-  dependencies: [],
-  tree: treeFrom(parts.rows ?? []),
-  // Off unless a test is about the sentence a filter's dropped waits earn.
-  narrowedByFilter: false,
-  steps: [{ id: 'dev', name: 'Dev' }],
-  personNames: new Map(),
-  teamNames: new Map([['team-platform', 'Platform']]),
-  priorityBands: DEFAULT_PRIORITY_BANDS,
-  // The default a project takes unless it asks otherwise.
-  depReach: 'whole-item',
-  ...parts,
 });
 
 const barFor = (sliceId: string): Element | null =>
@@ -316,16 +222,6 @@ afterEach(() => {
   cleanup();
   widthIs(LAPTOP);
 });
-
-/**
- * The Monday every calendar fixture in this file begins on.
- *
- * Every coordinate asserted against it is taken at an offset **past the first
- * weekend**, where the calendar number and the workday number differ. An
- * assertion at workday 3 passes unchanged on the axis this change replaced and
- * so proves nothing.
- */
-const MONDAY_START = '2026-08-10';
 
 /**
  * One mark's box on the chart, refused when it has no area.
