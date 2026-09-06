@@ -213,6 +213,13 @@ export function mountedRouteLists(
 
 export function buildApp(opts: AppOptions) {
   const logger = createLogger({ service: 'be-01', version: opts.version });
+  // The OIDC callback is the one route list that reports anything, and it names
+  // no framework, so it cannot reach the decorated `logger` above and is handed
+  // it here instead of at every call site that builds `OidcRouteOptions`
+  // (TASK-273). A caller that supplied its own wins — that is how a test
+  // asserts on what a refused login writes down without a pino destination.
+  const routedOptions: AppOptions =
+    opts.oidc === undefined ? opts : { ...opts, oidc: { logger, ...opts.oidc } };
   const commands = new PlanCommandRunner({
     workItems: opts.workItems,
     directory: opts.directory,
@@ -259,7 +266,7 @@ export function buildApp(opts: AppOptions) {
         return undefined;
       })
       .use(
-        mountedRouteLists(opts, commands).reduce(
+        mountedRouteLists(routedOptions, commands).reduce(
           (app, list) => app.use(bindElysia(list)),
           new Elysia(),
         ),

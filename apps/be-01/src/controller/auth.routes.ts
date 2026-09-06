@@ -25,11 +25,37 @@ import { cookiesIn, cookieValue, userFromHeaders } from '../middleware/authentic
 import { type AuthService, TOKEN_TTL_SECONDS } from '../service/auth.service';
 import { LoginThrottle } from '../service/login-throttle';
 
+/**
+ * The one thing the OIDC callback says out loud, and the reason it is a field
+ * rather than an import.
+ *
+ * This module names no framework, so it cannot reach `buildApp`'s decorated
+ * logger and must be handed one; {@link buildApp} passes the app's own so
+ * production needs no wiring at the call site, and a test can pass a recorder
+ * and assert on it without a pino destination. Three levels and a
+ * `(fields, message)` shape, which is the subset of `@wbs/observability`'s
+ * `Logger` used here — a full `Logger` is assignable to it, and nothing in this
+ * file can reach for a pino method the port does not name.
+ *
+ * **This exists because a refusal that tells nobody anything is not a fix.**
+ * The first version of this change logged nothing at all and recorded that as a
+ * decision; both terminal review seats called it, on an authorization server
+ * whose sign-on policy can start refusing every login with a code and a reason
+ * that reached neither a screen nor a log file (TASK-273 round 1, Important).
+ */
+export interface AuthRouteLog {
+  info: (fields: Record<string, unknown>, message: string) => void;
+  warn: (fields: Record<string, unknown>, message: string) => void;
+  error: (fields: Record<string, unknown>, message: string) => void;
+}
+
 export interface OidcRouteOptions {
   appOrigin: string;
   client: ReturnType<typeof browserOidcClientFromEnv>;
   groupPrefix: string;
   groupsClaim: string;
+  /** Where a refused or failed callback is reported. See {@link AuthRouteLog}. */
+  logger?: AuthRouteLog;
   mode: 'oidc';
   now?: () => number;
   passwordLoginEnabled?: boolean;
@@ -405,15 +431,27 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // dead the moment the provider redirected; leaving it in the store
         // until its TTL keeps a live PKCE verifier and nonce for a login that
         // cannot finish. Reading `error` after the state check also means a
-        // forged navigation to `?error=access_denied&state=<guess>` is answered
-        // by the plain 400 above rather than by a redirect naming a reason —
-        // only a state matching this browser's binding reaches this line.
+        // forged navigation to `?error=access_denied&state=<guess>` cannot reach
+        // this line: only a state matching this browser's binding does.
+        //
+        // **That is not a claim that the forged navigation is harmless, and it
+        // must not be read as one.** `consume` deletes the binding's record
+        // *before* it compares the state (`libs/auth/src/oidc-store.ts`), so a
+        // hostile top-level navigation carrying the `SameSite=Lax` binding
+        // cookie still burns a live login on its way to the 400 — no state guess
+        // required. That is TASK-269's recorded decision and this branch neither
+        // introduces nor widens it: the mismatch path here is byte-identical to
+        // the one that shipped. Filed as its own task, because fixing it means
+        // giving the store a typed result so "expired" and "wrong state" stop
+        // being the same `null`, which is a change to a shared auth contract and
+        // not to this handler.
         //
         // **302 back to the app, where the other refusals here are bodiless
         // statuses.** This is the one refusal on this route a person chose, and
-        // the thing they want is the sign-in card they started from; 400, 401
-        // and 409 above describe a callback that is broken rather than a
-        // decision, and a browser cannot act on any of them.
+        // the thing they want is the sign-in card they started from; the 405
+        // and the two 400s above, and the 401s and 409 below, all describe a
+        // callback that is broken rather than a decision, and a browser cannot
+        // act on any of them.
         //
         // **The reason is a code from a fixed set and `error_description` is
         // never reflected.** Both strings arrive from the authorization server,
@@ -421,20 +459,34 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // may: a description is free text this app would be repeating on its
         // own origin. Any code outside {@link REPORTABLE_AUTH_ERRORS} collapses
         // to `provider_error`, so the provider cannot choose the string in this
-        // URL either. **Nothing is logged** — this handler writes no log line
-        // on any refusal, and giving the provider's text a first one is a new
-        // surface rather than part of this fix.
+        // URL either.
         //
-        // An empty `?error=` states no code, so it is not an error response: it
-        // falls through to `exchange` below, whose `catch` answers it 401. Same
-        // truthiness as `state` above, opposite reason — there the two paths
-        // were indistinguishable, here they differ and only a stated code buys
-        // the redirect.
+        // **Both strings do reach the server log, and the split is the whole
+        // point.** The reader is told a word this app chose; the operator is
+        // told what the provider actually said, because an authorization server
+        // that starts refusing every login with `okta_policy_evaluation_failure`
+        // and a policy name in `error_description` is a deployment fault, and
+        // with nothing written down it looks from the outside exactly like a
+        // building full of people who all decided to click Cancel. The level is
+        // the difference: the codes a **person** causes are `info`, and
+        // everything the app will not repeat is `warn`, so a routine flood of
+        // cancellations cannot bury the one line an operator is looking for.
+        // (Round 1 of this change logged nothing at all and said so on purpose;
+        // both terminal seats called it Important, and they were right.)
         //
-        // Proof, and it is **not** the 500 — read this before trusting the case
-        // names. Deleting this block reddens three cases, all of them on the
-        // destination: `answers a cancelled login with a redirect to the
-        // sign-in page instead of a 500` reads `Expected:
+        // **Presence, not truthiness.** `?error=` with nothing after it is a
+        // malformed callback, and the earlier version let it fall through to
+        // `exchange` — spending a real request on the provider to learn what
+        // this line already knows, and reaching a refusal through an exception
+        // handler rather than at the boundary. `has` refuses it here; the empty
+        // string is outside the reportable set, so it leaves as
+        // `provider_error` like any other code this app will not repeat. The
+        // repeated-key guard above already ran, so there is exactly one value.
+        //
+        // Proof, and it is **not** the 500 — which is why no case here is named
+        // after one. Deleting this block reddens six cases, and the first
+        // symptom is the destination: `answers a cancelled login by returning
+        // to the sign-in page without reaching the provider` reads `Expected:
         // "/?auth_error=access_denied" Received: "/"`. The fake provider client
         // in `oidc.integration.test.ts` resolves a token set for any query, so
         // without this block the handler *completes* the cancelled login rather
@@ -445,9 +497,38 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // `expect(f.calls.exchange).toHaveLength(0)`. The 500 itself belongs to
         // the real `authorizationCodeGrant`, and the case that reproduces a
         // throw is the `catch` below's.
-        const providerError = sent.get('error');
-        if (providerError) {
-          return empty(302, [clear('__Host-wbs_oidc')], `/?auth_error=${reasonOf(providerError)}`);
+        if (sent.has('error')) {
+          const providerError = sent.get('error') ?? '';
+          // A blank `?error=` names no reason, so there is nothing to report and
+          // nothing to send the reader back with: it is a malformed callback and
+          // takes the shape this route already gives one, the bodiless 400 with
+          // the binding cleared. Answering `provider_error` instead would have
+          // put words in the provider's mouth, and letting it fall through to
+          // `exchange` — what the first version did — spent a real request on the
+          // provider to learn what the empty value already said.
+          if (providerError === '') {
+            options.logger?.warn({}, 'oidc callback carried an empty error code');
+            return empty(400, [clear('__Host-wbs_oidc')]);
+          }
+          const reason = reasonOf(providerError);
+          // **The code, never the description.** `error` is a protocol token
+          // from a small vocabulary and is what tells an operator that a sign-on
+          // policy started refusing everyone; `error_description` is free prose
+          // the provider composes, has been observed carrying the name of the
+          // person it refused, and is not needed to answer "why can nobody log
+          // in". Its presence is recorded so a support thread quoting a message
+          // this app never stored can be recognised as coming from the provider.
+          const reported = {
+            error: providerError,
+            has_description: sent.has('error_description'),
+            auth_error: reason,
+          };
+          if (reason === UNPUBLISHED_AUTH_ERROR) {
+            options.logger?.warn(reported, 'oidc callback carried an error this app does not name');
+          } else {
+            options.logger?.info(reported, 'oidc callback was refused at the identity provider');
+          }
+          return empty(302, [clear('__Host-wbs_oidc')], `/?auth_error=${reason}`);
         }
 
         // The provider's client is handed a `Request` because that is its own
@@ -474,14 +555,25 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // **401 with the binding cleared, the same answer as the line below**,
         // because from a browser's side both are one fact: this login did not
         // complete and the next attempt starts over. Splitting a 502 or 503 out
-        // for the unreachable case was the alternative and is rejected for the
-        // reason already written above about the repeated-key rule — telling
-        // them apart means reading `oauth4webapi`'s error subclasses, which
-        // puts a dependency's internals in a controller and is wrong the day it
-        // adds one.
+        // for the unreachable case was the alternative and is **deferred, not
+        // dismissed**: the objection to doing it here is that telling the cases
+        // apart means reading `oauth4webapi`'s error subclasses, which puts a
+        // dependency's internals in a controller and is wrong the day it adds
+        // one — and the answer to that objection (classify in the `libs/auth`
+        // client adapter and hand this route a small owned union) is a new type
+        // on a shared contract with its own tests and its own review, filed as
+        // its own task. What made the silence a defect rather than a preference
+        // is closed here: the error is written down.
         //
-        // The caught value is deliberately unused: it carries the provider's
-        // own description, and nothing here logs or forwards it.
+        // **The caught value goes to the log and nowhere near the answer.** An
+        // expired token-endpoint certificate, a DNS failure and a `TypeError`
+        // in the client all arrive here, and a bodiless 401 that discarded the
+        // stack would turn every one of them into the same unexplained login
+        // failure with no server-side trace at all — the defect this route was
+        // just fixed for, one layer down. `err` is serialised by
+        // `@wbs/observability`'s `errSerializer`, the same shape `app.ts` logs
+        // a failed database probe with. It is still not forwarded: the caller
+        // gets the status and nothing else.
         //
         // Proof: `answers a failed exchange with a typed refusal rather than a
         // framework 500` fails with `Expected: 401 Received: 500` when this
@@ -493,7 +585,8 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
             state,
             verifier: transaction.verifier,
           });
-        } catch {
+        } catch (err) {
+          options.logger?.error({ err }, 'oidc token exchange failed');
           return empty(401, [clear('__Host-wbs_oidc')]);
         }
         if (tokenSet.idTokenClaims === undefined) {
@@ -572,18 +665,22 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
  * The authorization-server error codes this app is willing to repeat back on
  * its own origin, and nothing else reaches the URL a person is left looking at.
  *
- * These five are the ones that describe something a **person** did or can do
+ * These six are the ones that describe something a **person** did or can do
  * again: they cancelled or declined consent (`access_denied`,
- * `consent_required`), the provider wants them to sign in or answer something
- * interactively and could not do it silently (`login_required`,
- * `interaction_required`), or the provider is briefly down and the button is
- * worth pressing again (`temporarily_unavailable`).
+ * `consent_required`), the provider wants them to sign in or choose an account
+ * or answer something interactively and could not do it silently
+ * (`login_required`, `account_selection_required`, `interaction_required`), or
+ * the provider is briefly down and the button is worth pressing again
+ * (`temporarily_unavailable`).
  *
- * The RFC's remaining codes — `invalid_request`, `unauthorized_client`,
- * `unsupported_response_type`, `invalid_scope`, `server_error` and the OIDC
- * request-object family — all mean this deployment is misconfigured, which is
- * an operator's fact and not a reader's, so they collapse with everything
- * unrecognised into `provider_error`.
+ * The remaining codes are the ones a reader cannot act on, and they are not one
+ * kind: `invalid_request`, `unauthorized_client`, `unsupported_response_type`,
+ * `invalid_scope` and the OIDC request-object family say **this deployment is
+ * misconfigured**, while `server_error` says the **authorization server** hit an
+ * unexpected condition of its own. Both are an operator's fact rather than a
+ * reader's, so both collapse with everything unrecognised into `provider_error`
+ * on screen — and both arrive under their real name in the log, which is where
+ * that distinction is the one that matters.
  *
  * **An allowlist rather than a character rule**, because the whole point is
  * that the app decides what its own URL says. `error` is provider-supplied
@@ -592,15 +689,23 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
  */
 const REPORTABLE_AUTH_ERRORS: ReadonlySet<string> = new Set([
   'access_denied',
+  'account_selection_required',
   'consent_required',
   'interaction_required',
   'login_required',
   'temporarily_unavailable',
 ]);
 
-/** The provider's error code if this app publishes it, `provider_error` otherwise. */
+/**
+ * What the reader is told when the provider's code is not one this app names —
+ * and the value the handler branches its log level on, which is why it is a
+ * constant rather than a repeated string literal.
+ */
+const UNPUBLISHED_AUTH_ERROR = 'provider_error';
+
+/** The provider's error code if this app publishes it, {@link UNPUBLISHED_AUTH_ERROR} otherwise. */
 function reasonOf(code: string): string {
-  return REPORTABLE_AUTH_ERRORS.has(code) ? code : 'provider_error';
+  return REPORTABLE_AUTH_ERRORS.has(code) ? code : UNPUBLISHED_AUTH_ERROR;
 }
 
 function clientIpOf(headers: Record<string, string | undefined>): string | null {
