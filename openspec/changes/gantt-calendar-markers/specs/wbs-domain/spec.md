@@ -446,7 +446,8 @@ interval bounds.
 
 #### Scenario: the rule is an opaque 1px line at every rung of the zoom ladder
 
-- **WHEN** the same marker is rendered at 28px, at 12px and at 4px per day —
+- **WHEN** a plan whose only marker is that marker, on an in-horizon date, is
+  rendered at 28px, at 12px and at 4px per day —
   every rung, since a fault conditioned on one of them would otherwise reach no
   rasterized assertion, and the two ends are what make the mechanism visible,
   because one rung alone cannot tell a non-scaling stroke from a width that
@@ -497,7 +498,8 @@ interval bounds.
 
 #### Scenario: a marker on a weekend clears the weekend column
 
-- **WHEN** a marker is placed on a Saturday inside the horizon
+- **WHEN** a plan whose only marker is placed on a Saturday inside the horizon
+  is shown
 - **THEN** its rule element follows that day's `data-gantt-weekend` column in
   paint order, and the weekend column is unchanged from the same plan without
   the marker
@@ -795,8 +797,8 @@ caller overwrite a marker it cannot otherwise address.
 
 #### Scenario: the previewed colour is the created colour
 
-- **WHEN** the composer opens on a date, previews the automatic colour for its
-  generated id, and the marker is submitted
+- **WHEN** the composer opens on an **empty in-horizon date**, previews the
+  automatic colour for its generated id, and the marker is submitted
 - **THEN** the created marker's chip is that same colour
 
 #### Scenario: an omitted id is issued by the server
@@ -837,7 +839,8 @@ SHALL simply not be drawn; it SHALL reappear when the horizon covers it.
 
 #### Scenario: a marker reappears when the horizon grows back
 
-- **WHEN** the plan is lengthened again so its horizon covers that marker's date
+- **WHEN** that marker is the plan's only marker and the plan is lengthened
+  again so its horizon covers its date
 - **THEN** the chip is drawn at that date's axis offset
 
 #### Scenario: no timezone shift
@@ -989,7 +992,8 @@ stated. A marker of another project answers `not_found` rather than `forbidden`
 
 #### Scenario: a second client sees the change without reloading
 
-- **WHEN** two clients view one project and the first creates a marker
+- **WHEN** two clients view one project and the first creates a marker on an
+  **empty in-horizon date**
 - **THEN** the second re-reads on `calendar_markers_changed` and shows the new
   chip without a reload
 
