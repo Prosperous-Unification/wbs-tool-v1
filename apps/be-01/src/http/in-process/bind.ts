@@ -132,11 +132,58 @@ async function withoutBody(res: Response): Promise<Response> {
 }
 
 /**
+ * The framework's own body dispatch, reproduced.
+ *
+ * **It is not a media-type comparison, and assuming it was is what produced the
+ * first draft of this fix.** A route that registers no `parse` hook — which is
+ * every route in this app — takes the fast path Elysia compiles at
+ * `elysia/dist/compose.mjs:435-444`: a `switch` on **`contentType.charCodeAt(12)`
+ * alone**, with a `default` that checks whether the header starts with `t`.
+ * There is no `;` truncation on this path and no lower-casing. Character 12 is
+ * the one after `application/`.
+ *
+ * Measured on h2puni at elysia 1.4.30 rather than read off alone, because the
+ * consequences are not what a reader expects:
+ *
+ * ```
+ * content-type                   char 12   elysia hands the handler
+ * application/json               j         {"name":"Sand"}
+ * application/json; charset=…    j         {"name":"Sand"}   (no truncation needed)
+ * application/json-patch+json    j         {"name":"Sand"}   ← accepted
+ * application/merge-patch+json   m         undefined
+ * application/not-json           n         undefined
+ * APPLICATION/JSON               J         undefined         ← case-sensitive
+ * text/plain                     (none)    "{\"name\":\"Sand\"}"
+ * application/octet-stream       o         ArrayBuffer
+ * ```
+ *
+ * So `application/json-patch+json` is admitted and `application/merge-patch+json`
+ * is refused, and the difference is one character in a position nothing about
+ * either name makes special. Reproducing that exactly — rather than the tidier
+ * five-name set it looks like from `compose.mjs:500`, which is the *other* path,
+ * taken only when a route registers a parser — is the whole point of this
+ * binder: one that accepted a different set would let the contract suite pass
+ * requests production refuses, and refuse ones it serves.
+ */
+const enum ContentTypeChar {
+  /** `j`, at index 12 of `application/json…`. */
+  Json = 106,
+  /** `x`, at index 12 of `application/x-www-form-urlencoded`. */
+  Urlencoded = 120,
+  /** `o`, at index 12 of `application/octet-stream`. */
+  OctetStream = 111,
+  /** `r`, at index 12 of `multipart/form-data`. */
+  FormData = 114,
+  /** `t`, at index 0 of `text/plain`. */
+  Text = 116,
+}
+
+/**
  * `undefined` for a request that carries no body, the parsed value for JSON,
  * and a throw for JSON that will not parse — the binder turns that throw into
  * the 400 the framework would have answered.
  *
- * **The accepted set is the framework's five, matched exactly, and this is a
+ * **The dispatch is the framework's own, character for character, and this is a
  * closed defect rather than a style choice.** Until TASK-270 this function
  * dispatched on `contentType.includes('json')`, which admitted every media type
  * with `json` anywhere in it. Measured on h2puni at `39e53dda`:
@@ -144,10 +191,10 @@ async function withoutBody(res: Response): Promise<Response> {
  * `{"name":"Sand"}` answered **422 with no service call** under `bindElysia`
  * and **200, calling `projects.create("Sand", "u")`** here — the second binder
  * admitting a route-visible write the production binder refuses. The arbitrary
- * `application/not-json` diverged the same way. `mediaType` and the exact
- * comparisons below close it, and the contract clause in
- * `../binder.contract.test.ts` asserts the *service call* rather than only the
- * status, because two matching 422s would otherwise hide exactly this.
+ * `application/not-json` diverged the same way. {@link ContentTypeChar} closes
+ * it, and the contract clause in `../binder.contract.test.ts` asserts the
+ * *service call* rather than only the status, because two matching 422s would
+ * otherwise hide exactly this.
  *
  * **The two form media types are read, and that is a correction rather than a
  * feature.** The sentence that used to justify dropping them — "every route in
@@ -186,25 +233,6 @@ async function withoutBody(res: Response): Promise<Response> {
  * `apps/be-01/openapi.json` is the check that keeps them matching, diffed by
  * `openapi/openapi-document.test.ts`.
  */
-/**
- * The request's media type, normalised the way the framework normalises it, so
- * the two binders dispatch on the same string.
- *
- * Read out of `elysia/dist/compose.mjs:423-433` rather than guessed: the header
- * is truncated at the **first `;`** — so `application/json; charset=utf-8`
- * dispatches as `application/json` — and then compared **exactly**. No trimming
- * and no lower-casing, which means `Application/JSON` reaches no parser under
- * either binder. Reproducing the sloppiness rather than fixing it is the point:
- * a binder that accepted more than the shipped one would let this suite pass a
- * request production refuses.
- */
-function mediaType(request: Request): string {
-  const header = request.headers.get('content-type');
-  if (header === null) return '';
-  const separator = header.indexOf(';');
-  return separator === -1 ? header : header.substring(0, separator);
-}
-
 async function decodeBody(request: Request): Promise<unknown> {
   // HEAD is here for the same reason GET is, and explicitly rather than by
   // falling through the content-type checks below: it reaches this function
@@ -212,16 +240,15 @@ async function decodeBody(request: Request): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'DELETE' || request.method === 'HEAD') {
     return undefined;
   }
-  const contentType = mediaType(request);
-  if (contentType === 'application/json') {
+  const contentType = request.headers.get('content-type') ?? '';
+  if (contentType === '') return undefined;
+  const dispatch = contentType.charCodeAt(12);
+  if (dispatch === ContentTypeChar.Json) {
     const raw = await request.text();
     if (raw === '') return undefined;
     return JSON.parse(raw);
   }
-  if (contentType === 'text/plain') {
-    return request.text();
-  }
-  if (contentType === 'application/octet-stream') {
+  if (dispatch === ContentTypeChar.OctetStream) {
     return request.arrayBuffer();
   }
   // `formData()` reads both, and a file part stays a `File` rather than being
@@ -264,10 +291,7 @@ async function decodeBody(request: Request): Promise<unknown> {
   // It is one interlocking feature — file folding into a parsed object hangs
   // off the same code — and reproducing a third of it faithfully is worse than
   // recording it, so it belongs to whoever wants it, like the 405 above.
-  if (
-    contentType === 'application/x-www-form-urlencoded' ||
-    contentType === 'multipart/form-data'
-  ) {
+  if (dispatch === ContentTypeChar.Urlencoded || dispatch === ContentTypeChar.FormData) {
     const form = await request.formData();
     return Object.fromEntries(
       [...new Set(form.keys())].map((key) => {
@@ -275,6 +299,12 @@ async function decodeBody(request: Request): Promise<unknown> {
         return [key, values.length === 1 ? values[0] : values];
       }),
     );
+  }
+  // The framework's `default`, and the only arm that reads a character other
+  // than the thirteenth: any header beginning `t` is read as text, so
+  // `text/csv` and `text/html` are parsed here exactly as `text/plain` is.
+  if (contentType.charCodeAt(0) === ContentTypeChar.Text) {
+    return request.text();
   }
   return undefined;
 }

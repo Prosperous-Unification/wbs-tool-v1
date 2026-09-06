@@ -256,38 +256,51 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * application/not-json           422, no service call  200, create("Sand")
    * ```
    *
-   * Elysia's accepted set is five exact strings — `application/json`,
-   * `text/plain`, `application/x-www-form-urlencoded`,
-   * `application/octet-stream`, `multipart/form-data` — matched after the header
-   * is truncated at its first `;` (`elysia/dist/compose.mjs:423-433`, `:500`).
-   * Anything else parses nothing, the handler sees `undefined`, and its own
-   * check answers 422. The in-process binder now dispatches on the same
-   * normalisation, which is why `; charset=utf-8` still gets through.
+   * **What the framework actually dispatches on is one character**, and the
+   * first draft of this clause got it wrong by reading the tidy five-name
+   * `switch` at `elysia/dist/compose.mjs:500` — which is the path taken only
+   * when a route registers a `parse` hook. No route in this app does, so every
+   * request takes the fast path at `:435-444`: a `switch` on
+   * `contentType.charCodeAt(12)` alone, with a `default` that reads character 0
+   * and treats anything starting `t` as text. No `;` truncation, no
+   * lower-casing.
+   *
+   * Which makes the accepted set stranger than any list of media types:
+   * `application/json-patch+json` is **admitted** — character 12 is `j` — while
+   * `application/merge-patch+json` is refused, on `m`. That pair is in the
+   * clauses below deliberately: it is the one that would go unnoticed, and it is
+   * the reason this is a reproduction rather than a tidy-up.
    */
-  it.each([
-    ['application/merge-patch+json'],
-    ['application/not-json'],
-    ['application/json-patch+json'],
-  ])('reaches no service on a %s body, under either binder', async (contentType) => {
-    writes.length = 0;
-    const res = await app.handle(
-      new Request('http://localhost/probe/write', {
-        method: 'POST',
-        headers: { 'content-type': contentType },
-        body: JSON.stringify({ name: 'Sand' }),
-      }),
-    );
-    expect(res.status).toBe(422);
-    expect(await res.json()).toEqual({ error: 'invalid_body' });
-    expect(writes).toEqual([]);
-  });
+  it.each([['application/merge-patch+json'], ['application/not-json'], ['APPLICATION/JSON']])(
+    'reaches no service on a %s body, under either binder',
+    async (contentType) => {
+      writes.length = 0;
+      const res = await app.handle(
+        new Request('http://localhost/probe/write', {
+          method: 'POST',
+          headers: { 'content-type': contentType },
+          body: JSON.stringify({ name: 'Sand' }),
+        }),
+      );
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({ error: 'invalid_body' });
+      expect(writes).toEqual([]);
+    },
+  );
 
   /**
    * The control the clause above needs: the media types that *are* accepted
    * still reach the service, so "no service call" is a property of the refused
-   * set rather than of a route that stopped working.
+   * set rather than of a route that stopped working. `; charset=utf-8` is here
+   * because the fast path never truncates the header — it does not have to,
+   * since it only ever reads character 12 — and `json-patch+json` because it is
+   * the accepted one nobody would predict.
    */
-  it.each([['application/json'], ['application/json; charset=utf-8']])(
+  it.each([
+    ['application/json'],
+    ['application/json; charset=utf-8'],
+    ['application/json-patch+json'],
+  ])(
     'reaches the service on a %s body, under either binder',
     async (contentType) => {
       writes.length = 0;
