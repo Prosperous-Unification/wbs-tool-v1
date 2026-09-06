@@ -21,6 +21,8 @@ import { describe, expect, it } from 'bun:test';
 import { openDatabase, openDrizzle } from './db';
 import { runMigrations } from './migrate';
 import { readMigrationFolders, rollbackTo } from './migrate-down';
+import { allocateGeneration } from './optimization-generation';
+import { storeOptimizedOutcome } from './optimized-schedule-cache';
 import { toOptimizedScheduleCacheRow } from './optimizer-rows';
 import { optimizedScheduleCache } from './schema';
 
@@ -164,6 +166,31 @@ function seedProject(path: string, id: string): void {
       `INSERT INTO project (id, name, owner_id, restricted, revision, created_at)
        VALUES ('${id}', 'Rewire the shed', 'u-1', 0, 0, 1)`,
     );
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The seat a writer must hold, plus the project switch, per contract version.
+ *
+ * `storeOptimizedOutcome` re-reads all four of its fences inside the write
+ * transaction, and `optimization_enabled` defaults to `false`, so a fixture
+ * that skipped this would get `superseded` back and prove nothing about
+ * retention.
+ */
+function reserveSlot(path: string, contractVersion: string): void {
+  const db = openDatabase(path);
+  try {
+    db.run(
+      `INSERT INTO solver_slot
+         (project_id, contract_version, generation, objective, budget_ms,
+          owner_id, attempt_token, lifecycle, pid, started_at, heartbeat_at,
+          cancel_requested_at, admitted_deadline_at)
+       VALUES ('p-1', '${contractVersion}', 1, 'pri', 60000,
+               'coordinator-a', 'tok-${contractVersion}', 'running', 4242, 1, 1, NULL, 99)`,
+    );
+    db.run(`UPDATE project SET optimization_enabled = 1 WHERE id = 'p-1'`);
   } finally {
     db.close();
   }
@@ -675,6 +702,125 @@ describe('a plan through the column it is stored in', () => {
         .query(`SELECT length(result_json) AS n FROM optimized_schedule_cache`)
         .get() as { n: number } | null;
       expect(row?.n).toBe(whole.length - 20);
+    } finally {
+      db.cleanup();
+    }
+  });
+});
+
+/**
+ * `work-item-deadline` tasks.md 7.4 and 7.5, the cache half of the deadline
+ * change — and both are claims that something did **not** move.
+ *
+ * A deadline is a plan fact. It reaches this table only through `input_hash`,
+ * which the canonical input already carries it into as its seventh entry
+ * (`canonical-schedule-input.ts`, slice 7.1). Nothing about it is a deployment
+ * fact, so nothing about it belongs in the key beside `contract_version` and
+ * `budget_ms`. Adding it would key every project's cache on a column the plan
+ * read cannot supply.
+ */
+describe('what the deadline change must not do to the cache key', () => {
+  const BLUE = '7+1.0.0';
+  const GREEN = '8+1.0.0';
+
+  /** The key SQLite actually enforces, in its declared order. */
+  function primaryKeyColumns(path: string, table: string): string[] {
+    const db = openDatabase(path);
+    try {
+      return (
+        db.query(`PRAGMA table_info(${table})`).all() as { name: string; pk: number }[]
+      )
+        .filter((column) => column.pk > 0)
+        .sort((left, right) => left.pk - right.pk)
+        .map((column) => column.name);
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
+   * 7.4. Read off the migrated file rather than off `schema.ts`, because the
+   * drizzle table and the shipped DDL are two artifacts and the one that keys
+   * a running deployment is this one.
+   */
+  it('leaves the key columns exactly as they were, deadline included in none of them', () => {
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+
+      expect(primaryKeyColumns(db.path, 'optimized_schedule_cache')).toEqual([
+        'project_id',
+        'input_hash',
+        'objective',
+        'contract_version',
+        'budget_ms',
+      ]);
+
+      // Load-bearing: the assertion above is an equality, so it already fails
+      // on a sixth column — but naming the negative is what a later reader
+      // greps for when they are about to add one.
+      expect(primaryKeyColumns(db.path, 'optimized_schedule_cache')).not.toContain('deadline');
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  /**
+   * 7.5, a **regression** test and deliberately not a new rule.
+   *
+   * The retention requirement already reads "for that contract version" and
+   * `enforceLiveBudgetBound` already scopes its `DELETE` to one
+   * `(projectId, objective, contractVersion, inputHash)`. What this pins is
+   * that a store on **either** side of a blue/green swap leaves the other
+   * side's rows standing — the symmetric claim
+   * `optimization-generation.db.test.ts` does not make, since its two-release
+   * cases drive `allocateGeneration` from one side only and assert the mover's
+   * own rows are gone.
+   *
+   * Both sides store under the same `input_hash`, which is the case that can
+   * actually go wrong: an unscoped bound would count the two versions' rows as
+   * one budget set and evict across the seam.
+   */
+  it('keeps both contract versions’ rows through a store on each side', () => {
+    const db = tempDb();
+    try {
+      runMigrations(db.path, FOLDER);
+      seedProject(db.path, 'p-1');
+      const handle = openDrizzle(db.path);
+
+      for (const contractVersion of [BLUE, GREEN]) {
+        expect(allocateGeneration(handle, 'p-1', contractVersion, 'h1', 1)).toBe(1);
+        reserveSlot(db.path, contractVersion);
+      }
+
+      for (const contractVersion of [BLUE, GREEN]) {
+        expect(
+          storeOptimizedOutcome(handle, {
+            claim: {
+              projectId: 'p-1',
+              contractVersion,
+              generation: 1,
+              objective: 'pri',
+              budgetMs: 60000,
+              ownerId: 'coordinator-a',
+              attemptToken: `tok-${contractVersion}`,
+            },
+            inputHash: 'h1',
+            admittedCancelEpoch: 0,
+            outcome: { kind: 'failed', reason: 'timeout' },
+            now: 1_700,
+          }),
+        ).toBe('stored');
+      }
+
+      expect(
+        handle
+          .select()
+          .from(optimizedScheduleCache)
+          .all()
+          .map((row) => `${row.contractVersion}/${row.inputHash}/${row.objective}`)
+          .sort(),
+      ).toEqual([`${BLUE}/h1/pri`, `${GREEN}/h1/pri`]);
     } finally {
       db.cleanup();
     }
