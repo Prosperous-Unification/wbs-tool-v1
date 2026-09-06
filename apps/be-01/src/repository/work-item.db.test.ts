@@ -398,8 +398,11 @@ describe('the team set beside the column', () => {
     // back off the read projection, and `null` takes it off again.
     //
     // Both faces are asserted — `patch`'s own `returning()` and a later
-    // `listByProject` — because they are two different column lists and this
-    // slice had to add the column to `WORK_ITEM_COLUMNS` to make either true.
+    // `listByProject` — because they are two different **reads**, not two
+    // different column lists: both project `WORK_ITEM_COLUMNS`, which is why
+    // adding the column there made both true at once, and the second assertion
+    // is what says the value was stored rather than only echoed back off the
+    // statement that wrote it.
     const strip = row(null, 10, 'Strip');
     await repo.insert(strip, [], wrote());
 

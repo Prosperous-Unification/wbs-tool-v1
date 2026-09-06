@@ -173,12 +173,14 @@ describe('the plan read and stored deadlines', () => {
   });
 
   it('moves the ready set: the dated slice takes the person first', async () => {
-    // Two leaves, one person, one step: the queue Fast levels. Without a
-    // deadline `Strip` goes first because it is first on the plan; with one it
-    // has the tighter slack and wins the ready set. This is the case that says
-    // the offsets reached the **comparator** and not only the report — the
-    // lateness cases above stay green under a read that hands `schedule()` the
-    // map and never orders by it, because a late row is late wherever it sits.
+    // Two leaves, one person, one step: the queue Fast levels. The control is
+    // the plan's own order — `create` with no `afterId` puts the newer row
+    // first, so `Rewire` holds the person from day zero and `Strip` waits three
+    // days behind it. A date on `Strip` gives it the tighter slack and it takes
+    // the person instead. This is the case that says the offsets reached the
+    // **comparator** and not only the report — the lateness cases above stay
+    // green under a read that hands `schedule()` the map and never orders by
+    // it, because a late row is late wherever it sits.
     await directory.addPerson({ id: 'ada', name: 'Ada' }, [], WROTE);
     const strip = await leaf('Strip', 3);
     const rewire = await leaf('Rewire', 3);
@@ -188,17 +190,17 @@ describe('the plan read and stored deadlines', () => {
     }
     expect(await starts()).toEqual(
       new Map([
-        ['Strip', 0],
-        ['Rewire', 3],
+        ['Rewire', 0],
+        ['Strip', 3],
       ]),
     );
 
-    await setDeadline(rewire, '2026-03-06');
+    await setDeadline(strip, '2026-03-06');
 
     expect(await starts()).toEqual(
       new Map([
-        ['Rewire', 0],
-        ['Strip', 3],
+        ['Strip', 0],
+        ['Rewire', 3],
       ]),
     );
   });
