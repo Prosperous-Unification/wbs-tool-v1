@@ -4073,3 +4073,103 @@ test.describe('a calendar marker, made and unmade in a browser', () => {
     await expect(page.locator('[data-gantt-marker-rule]')).toHaveCount(0);
   });
 });
+
+/**
+ * Slice 9.2a — the visible focus ring on a dated axis cell.
+ *
+ * Its own case rather than an assertion inside 9.2, because 9.2's negative
+ * mutates the marker rule's stroke and a focus ring cannot observe that: two
+ * guarantees in one slice share whichever fault is injected, and the one that
+ * shares gets no proof.
+ *
+ * Section 6 gave these cells `role="button"` and `tabIndex={0}` so the calendar
+ * could be operated by keyboard. That is the whole reason this case exists: a
+ * row of tab stops that all look the same is worse than no tab stops, and jsdom
+ * computes no styles, so nothing in section 6 can tell whether the stop a
+ * reader is standing on says so.
+ */
+test.describe('a dated axis cell says where the keyboard is', () => {
+  /** The cell the keyboard walks to — the first one on the axis. */
+  const FOCUSED_OFFSET = 0;
+
+  /** What a focus indicator is made of, read off one cell in one state. */
+  interface Indicator {
+    outlineStyle: string;
+    outlineWidth: string;
+    boxShadow: string;
+  }
+
+  const indicatorOf = (cell: Locator): Promise<Indicator> =>
+    cell.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth,
+        boxShadow: style.boxShadow,
+      };
+    });
+
+  test('grows a focus indicator when the keyboard reaches it', async ({ page }) => {
+    await seedPlan(page, 'axis-focus-ring');
+    await openTheChart(page);
+
+    const cell = page.locator(`[data-axis-day="${String(FOCUSED_OFFSET)}"]`);
+    // Dated, and asserted rather than assumed: an undated cell is
+    // `aria-disabled` and is a different slice's contract (6.4a), so a fixture
+    // that lost its project start date would test the wrong cell silently.
+    await expect(cell).toHaveAttribute('data-axis-date', /^\d{4}-\d{2}-\d{2}$/);
+
+    // Read at rest **first**. The assertion below is a transition, and a
+    // resting reading cannot be taken after the cell already holds focus.
+    const resting = await indicatorOf(cell);
+
+    // **Arrived at by a keypress, and not by `.focus()`.** The ring is authored
+    // under `focus-visible`, which Chromium matches when focus moved by
+    // keyboard — a bare programmatic `focus()` reads the resting style straight
+    // back and would call the ring missing on a healthy build.
+    //
+    // The keypress is one `Shift+Tab` off the **next** cell rather than a walk
+    // from the top of the document: the tab order ahead of the axis is the
+    // whole WBS table, which is more than 200 stops deep on this fixture, so a
+    // walk fails on the fixture's row count instead of on the ring. The
+    // starting `focus()` is only a seek — Chromium's heuristic reads the input
+    // that *moved* focus, and that is the keypress below.
+    await page
+      .locator(`[data-axis-day="${String(FOCUSED_OFFSET + 1)}"]`)
+      .evaluate((node: HTMLElement) => {
+        node.focus();
+      });
+    await page.keyboard.press('Shift+Tab');
+    await expect(cell).toBeFocused();
+    // The precondition, asserted rather than assumed: if the keypress did not
+    // engage `:focus-visible` this case would read two resting styles and fail
+    // on a healthy build. It stays green under the fault below — the selector
+    // matches whether or not the classes it selects draw anything.
+    expect(
+      await cell.evaluate((node) => node.matches(':focus-visible')),
+      'the keypress did not make the cell focus-visible, so no ring could apply',
+    ).toBe(true);
+
+    const focused = await indicatorOf(cell);
+
+    // **The transition is the assertion, and a static reading is not.** "the
+    // focused outline is not none" passes against a global reset that outlines
+    // every element permanently, which indicates nothing about focus at all.
+    expect(
+      focused,
+      `the cell reads the same focused as at rest — ${JSON.stringify(resting)}`,
+    ).not.toEqual(resting);
+
+    // And what it changed into is something a person can see. Tailwind emits
+    // `outline-style: none` for `outline-none` and drives `ring-*` through
+    // `box-shadow`, so a cell carrying only the `outline-none` half reads
+    // `none`/`0px`/`none` in **both** states — which is exactly the fault this
+    // case is watched failing on.
+    const indicated =
+      (focused.outlineStyle !== 'none' && focused.outlineWidth !== '0px') ||
+      focused.boxShadow !== 'none';
+    expect(indicated, `the focused cell draws no indicator — ${JSON.stringify(focused)}`).toBe(
+      true,
+    );
+  });
+});

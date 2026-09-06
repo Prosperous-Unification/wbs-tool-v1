@@ -1881,7 +1881,7 @@ in both slices rather than implied by position.
       assertion in section 8 stays green — an element present at the right `x`
       with the wrong paint is precisely what only a browser catches, and this
       slice had no injected fault at all (round-4 Sol review).
-- [ ] 9.2a The **visible focus ring** on a dated axis cell — its own slice, in
+- [x] 9.2a The **visible focus ring** on a dated axis cell — its own slice, in
       the same file, because sharing 9.2's meant sharing 9.2's negative and the
       negative there mutates the marker rule's stroke, which the focus ring
       cannot observe: the ring had no injected fault of its own (round-5 Sol
@@ -3478,3 +3478,60 @@ order and one signature line; the seam suite was re-run at the final bytes,
 `20 passed`.
 
 **11 plan items remain open.**
+
+## Chunk 61 — 9.2a, and the ring the axis never had (TASK-235 run 31, 2026-09-06)
+
+**The slice was not a missing test, it was a missing ring.** §6 gave every axis
+cell `role="button"` and `tabIndex={0}`, and nothing else — no `focus-visible:*`
+class of any kind. So a reader walking the calendar by keyboard got Chromium's
+user-agent outline on a row of identical numbers, which is the outline this app
+replaces everywhere else (`button.tsx:34`, `input.tsx:29`). The cell now carries
+the house pattern: `focus-visible:ring-ring focus-visible:relative
+focus-visible:z-10 focus-visible:ring-2 focus-visible:outline-none`. No
+`ring-offset-*` — the cells are adjacent in a flex row and an offset ring would
+sit on its neighbours' numbers — and `relative` only while focused, because
+later siblings paint last and an unpositioned ring loses its right edge under
+the next cell.
+
+**The keyboard walk the slice asks for cannot be a walk.** Tabbing from the top
+of the document never reaches the axis: the tab order ahead of it is the whole
+WBS table, and the case failed on `the keyboard did not reach axis cell 0 in 200
+tabs`. It is now one `Shift+Tab` off cell 1, seeked to with `focus()` — Chromium
+reads the input that _moved_ focus, so the keypress is what engages
+`:focus-visible`, and the case asserts `matches(':focus-visible')` as a
+precondition so a heuristic change fails loudly instead of reading two resting
+styles and calling the ring missing.
+
+**Watched, and it is the fault the slice names rather than the obvious one.**
+Deleting every `focus-visible:*` class hands the cell the UA outline back and
+the case would _pass_; the fault is `focus-visible:outline-none` **kept** and
+only the ring classes removed. Under it the focused cell reads
+`{"outlineStyle":"none","outlineWidth":"1px","boxShadow":"none"}` and the case
+fails on `the focused cell draws no indicator`. Note which assertion caught it:
+the transition assertion **passed** under the fault — `outline-width` alone
+differs between the two states — so the slice's second requirement, that the
+focused reading is not `none`/`0px`, is the one doing the work here. Restored,
+`1 passed (7.3s)`.
+
+**Gates on h2puni** at the committed bytes. `fe-01:test` **88 files /
+2288 pass / 0 fail** — unchanged from chunk 60, which is the point: the axis
+cell's class list grew and no jsdom case noticed, because jsdom computes no
+styles. `fe-01:typecheck` rc 0, `fe-01:lint` rc 0 (the one warning is
+`wbs-table.tsx:4748`'s pre-existing `useMemo` notice, untouched here),
+`prettier --check` rc 0 over all three files, and cross-host md5 equal on all
+three. The e2e case ran green at the final bytes, `1 passed (7.6s)`.
+
+**One gate could not run and is not claimed green:** `openspec validate` has no
+executable on either host this run — `bunx openspec` answers `could not
+determine executable to run for package openspec` on h2puni and here, and
+there is no `node_modules/.bin/openspec` in either checkout. CI's own
+validation step is the reading that stands for this chunk.
+
+**Two lint findings this chunk, both from ESLint rather than from review.**
+`@typescript-eslint/consistent-type-definitions` refuses a `type` alias for an
+object shape, so the case's `Indicator` is an `interface`; and `prettier` had
+to reformat the new case on h2puni, since `prettier-plugin-tailwindcss` is not
+installed in this worktree. Both were caught before the commit rather than in
+CI, which is the standing correction this task carries.
+
+**10 plan items remain open.**

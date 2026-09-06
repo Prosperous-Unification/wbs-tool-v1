@@ -4682,6 +4682,24 @@ function GanttChart({
                   // like the column beneath it.
                   className={[
                     'shrink-0 text-center text-[10px] leading-7',
+                    // The house focus ring (`button.tsx:34`, `input.tsx:29`),
+                    // and it is owed here more than anywhere: §6 gave every
+                    // axis cell a tab stop, so a reader walking the calendar
+                    // by keyboard has a row of identical numbers and nothing
+                    // saying which one they are standing on.
+                    //
+                    // `outline-none` is half of the pattern and not decoration:
+                    // without the `ring-*` beside it the cell falls back to
+                    // Chromium's user-agent outline, which is a different
+                    // colour on every platform and is the thing this app
+                    // replaces rather than the thing it ships.
+                    //
+                    // No `ring-offset-*`: the cells are adjacent in a flex row
+                    // and an offset ring would sit on its neighbours' numbers.
+                    // `relative` only while focused, so the ring paints over
+                    // the next cell instead of under it — later siblings paint
+                    // last, and an unpositioned ring loses its right edge.
+                    'focus-visible:ring-ring focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:outline-none',
                     day.heavy ? 'text-foreground font-semibold' : 'text-muted-foreground',
                     day.weekend ? 'bg-muted-foreground/10' : '',
                     // Today's number, in the same ink as the rule under it, and
