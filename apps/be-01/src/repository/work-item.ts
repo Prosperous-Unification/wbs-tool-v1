@@ -166,13 +166,10 @@ export class WorkItemRepository implements WorkItemStore {
    * the defect was about. Why the tie is tolerated instead of constrained
    * unique, and what the one-time date movement cost: `docs/adr/0016-a-tied-sibling-position-is-legal-and-the-row-id-resolves-it.md`.
    *
-   * **Not yet index-served.** `work_item_siblings` opens on `project_id`, so the
-   * filter resolves; the sort does not, and SQLite spends a temp B-tree on it.
-   * `work_item_project_id_id` — `(project_id, id)` — is slice 2 of this change
-   * and is a separate migration on purpose: adding a folder here moves the
-   * enumerated migration lists that ~40 assertions across the be-01 suite pin,
-   * and that belongs to a commit whose subject is the index rather than to this
-   * one, whose subject is the order.
+   * Index-served rather than sorted: `work_item_project_id_id` —
+   * `(project_id, id)` — covers this `WHERE` and this `ORDER BY` as one read.
+   * `work_item_siblings` opens on `project_id` too, so the filter always
+   * resolved; what did not was the sort, which SQLite spent a temp B-tree on.
    *
    * The optimized cache key is unaffected either way: `canonical-schedule-input`
    * groups slices by work item rather than hashing the array it was handed, so

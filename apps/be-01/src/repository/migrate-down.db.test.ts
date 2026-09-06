@@ -240,6 +240,14 @@ const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
  * reverses.
  */
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
+/**
+ * The newest: the `(project_id, id)` index that serves
+ * `listByProject`'s stated `ORDER BY` (ADR 0016). Additive and
+ * index-only, so it heads every descending reversal list here and tails
+ * every ascending one, exactly as {@link PROJECT_SETTINGS} did while it
+ * was newest.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 function tempDb(): { path: string; cleanup: () => void } {
@@ -513,6 +521,7 @@ describe('readMigrationFolders', () => {
       CREATED_BY_ID,
       OPTIMIZER_TABLES,
       PROJECT_SETTINGS,
+      READ_ORDER_INDEX,
     ]);
     for (const f of folders) expect(f.downSql.trim()).not.toBe('');
   });
@@ -625,11 +634,13 @@ describe('rollbackTo, against a real database', () => {
         CREATED_BY_ID,
         OPTIMIZER_TABLES,
         PROJECT_SETTINGS,
+        READ_ORDER_INDEX,
       ]);
 
       const reversed = rollbackTo(db.path, FOLDER, INIT);
 
       expect(reversed).toEqual([
+        READ_ORDER_INDEX,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
@@ -730,6 +741,7 @@ describe('rollbackTo, against a real database', () => {
         CREATED_BY_ID,
         OPTIMIZER_TABLES,
         PROJECT_SETTINGS,
+        READ_ORDER_INDEX,
       ]);
     } finally {
       db.cleanup();
@@ -800,6 +812,7 @@ describe('rollbackTo, against a real database', () => {
       const reversed = rollbackTo(db.path, FOLDER, ROLLBACK_ALL);
 
       expect(reversed).toEqual([
+        READ_ORDER_INDEX,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
@@ -884,6 +897,7 @@ describe('rollbackTo, against a real database', () => {
       expect(newest).toBeDefined();
       expect(rollbackTo(db.path, FOLDER, newest ?? '')).toEqual([]);
       expect(rollbackTo(db.path, FOLDER, AUDIT_COLUMNS)).toEqual([
+        READ_ORDER_INDEX,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
@@ -953,6 +967,7 @@ describe('rollbackTo, against a real database', () => {
       // Descending — newest reversed first — so the audit columns come off
       // before the rename they were written against.
       expect(rollbackTo(db.path, FOLDER, WEIGHTS_AND_ROUNDING)).toEqual([
+        READ_ORDER_INDEX,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
         CREATED_BY_ID,
