@@ -573,6 +573,10 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * call under Elysia, and was a 200 that called `projects.create` under a
    * binder that kept the bytes. That is the same defect class as item 4's, one
    * media type further in.
+   *
+   * The shape clause is here and the **call** clause is below it, on the
+   * recorder, because those are two different claims and only the second one is
+   * the defect.
    */
   it('parses a multipart field whose whole value is JSON into an object', async () => {
     const form = new FormData();
@@ -581,6 +585,55 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
       new Request('http://localhost/probe/body', { method: 'POST', body: form }),
     );
     expect(await res.json()).toEqual({ received: { tag: { a: 1 } } });
+  });
+
+  /**
+   * The clause above, taken to the boundary it is actually about: `/probe/write`
+   * refuses a non-string `name` without recording, so a multipart `name` that is
+   * an object is a 422 with an empty recorder, and the binder that kept the
+   * bytes answered 200 and appended. The measured row said `projects.create`;
+   * this is that row with a recorder standing in for the service.
+   */
+  it('refuses a multipart name that arrives as an object, without writing', async () => {
+    writes.length = 0;
+    const form = new FormData();
+    form.append('name', '{"a":1}');
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', { method: 'POST', body: form }),
+    );
+    expect(res.status).toBe(422);
+    expect(writes).toEqual([]);
+  });
+
+  /**
+   * The control for both: the same route, the same media type, a `name` that is
+   * a plain string — which still reaches the recorder, so "coerce JSON-looking
+   * values" did not become "refuse multipart".
+   */
+  it('still writes a plain multipart name, under either binder', async () => {
+    writes.length = 0;
+    const form = new FormData();
+    form.append('name', 'Sand');
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', { method: 'POST', body: form }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['Sand']);
+  });
+
+  /**
+   * The other opener. `charCodeAt(0) === 91` is in the framework's condition
+   * beside `123` (`adapter/web-standard/index.mjs:57-58`), and a JSON array is
+   * an object to `typeof`, so it survives the acceptance test — which makes a
+   * lone `[1,2]` field an **array** in front of a handler, not a string.
+   */
+  it('parses a multipart field whose whole value is a JSON array', async () => {
+    const form = new FormData();
+    form.append('tag', '[1,2]');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: [1, 2] } });
   });
 
   /**
@@ -637,7 +690,7 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * The third rule, and the one with no visible parser in it: the multipart
    * body is accumulated onto a normally-parented object, so a field named
    * `__proto__` is skipped by the loop's own `if(c.body[key])` guard before it
-   * is assigned (`adapter/web-standard/index.mjs:47-48`). The field is simply
+   * is assigned (`adapter/web-standard/index.mjs:49`). The field is simply
    * not there, while its neighbour is — measured on h2puni as
    * `{"ok":"y"}` under Elysia against `{"__proto__":"x","ok":"y"}` under a
    * binder folding with `Object.fromEntries` onto a fresh object.

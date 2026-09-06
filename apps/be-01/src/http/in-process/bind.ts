@@ -397,11 +397,15 @@ function isDangerousKey(key: string): boolean {
  * nothing else: a lone value opening with `{` or `[` is JSON, if it parses to an
  * object (`adapter/web-standard/index.mjs:52-64`).
  *
- * `p && typeof p === 'object'` is the framework's own acceptance test, so
- * `tag=123` and `tag="text"` — valid JSON, not objects — keep their string
- * form, and a value that opens with `{` and does not parse keeps its bytes.
- * That last case is why the guard is a `try` rather than a shape check: a
- * half-typed body must reach a handler as the string it was, not as a 400.
+ * **The opener is what keeps a scalar a string**, not the acceptance test below
+ * it: `tag=123` and `tag="text"` are valid JSON, and they return on the
+ * character check without ever reaching `JSON.parse`. The framework's own
+ * `p && typeof p === 'object'` is kept anyway, because it is the framework's,
+ * and because a reader who removes the opener check would then be relying on it.
+ *
+ * The `try` is not decoration either: a value that opens with `{` and does not
+ * parse keeps its bytes, so a half-typed body reaches a handler as the string it
+ * was rather than as a 400.
  */
 function coerceSingle(value: FormDataEntryValue): unknown {
   if (typeof value !== 'string') return value;
@@ -464,11 +468,13 @@ function foldFilesIntoObject(values: unknown[]): unknown {
  * second and explicit guard, which the framework applies only on the
  * nested-path branch where a walk could otherwise reach `constructor.prototype`.
  *
- * The two spellings differ on a key already written with a falsy value: Elysia
- * re-processes it and this loop does not. It re-reads `getAll(key)` and
- * recomputes the same value, so the second pass writes what the first did —
- * same answer, one pass, and the iteration is over `new Set` for the same
- * reason.
+ * Iterating `new Set(form.keys())` rather than the raw keys costs nothing: a
+ * key repeated in the form yields `getAll(key).length >= 2`, so its value is an
+ * array and always truthy, and Elysia's guard skips the second visit for
+ * exactly that reason. The keys Elysia does re-enter are the nested ones —
+ * `a.b` writes `body.a.b` and never sets `body['a.b']`, so its guard cannot see
+ * them — and a re-entry there re-reads the same `getAll` and walks to the same
+ * slot, so it writes what the first pass wrote. Same answer, one pass.
  */
 function parseMultipart(form: FormData): Record<string, unknown> {
   const body: Record<string, unknown> = {};
@@ -524,9 +530,11 @@ function parseMultipart(form: FormData): Record<string, unknown> {
  *
  * A string that opens with `{` gets one more `JSON.parse` — the same coercion
  * {@link coerceSingle} does, at a different point in the walk — and anything
- * else, including an array or a `File`, is replaced outright. `parsed || {}` in
- * the framework means a parse to a falsy object is a fresh object too; there is
- * no such object, so the two spellings agree and this one says why.
+ * else, including an array or a `File`, is replaced outright. The framework
+ * spells this by setting `parsed=undefined` when the result is falsy, not an
+ * object, or an array, then writing `parsed||{}`
+ * (`adapter/web-standard/index.mjs:85-90`); the ternary here reaches the same
+ * two outcomes without the intermediate reset.
  */
 function reparentSlot(existing: unknown): Record<string, unknown> {
   if (typeof existing !== 'string' || existing.charCodeAt(0) !== 0x7b) return {};
