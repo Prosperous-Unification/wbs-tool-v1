@@ -143,10 +143,13 @@ describe('schedule comparison indicator', () => {
   itDom.each([
     { ...READY, comparison: undefined },
     { ...READY, displayed: 'fast' as const },
-  ])('degrades an inconsistent optional optimizer payload without taking down the plan', (value) => {
-    draw(value);
-    expect(screen.getByRole('status')).toHaveTextContent('Schedule comparison unavailable');
-  });
+  ])(
+    'degrades an inconsistent optional optimizer payload without taking down the plan',
+    (value) => {
+      draw(value);
+      expect(screen.getByRole('status')).toHaveTextContent('Schedule comparison unavailable');
+    },
+  );
 
   itDom('says nothing when Fast is the project selection', () => {
     draw({ ...READY, engine: 'fast', displayed: 'fast', comparison: undefined });
