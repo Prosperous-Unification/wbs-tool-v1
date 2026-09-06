@@ -404,8 +404,8 @@ export const workItem = sqliteTable(
      *
      * **Stored as authored and never rewritten by a later edit.** A project
      * start moved past a stored deadline resolves `before-project-start` at
-     * *read* time and the row is reported late by the whole span; the value is
-     * left alone and the request that moved the project is not rejected.
+     * **read** time and the row is reported late by the whole span; the value
+     * is left alone and the request that moved the project is not rejected.
      * Rewriting it would delete what the user typed on an unrelated edit.
      */
     deadline: text('deadline'),
