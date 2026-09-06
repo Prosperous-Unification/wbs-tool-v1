@@ -1073,6 +1073,12 @@ export interface CreatedProject {
 export type ScheduleEngineView = 'fast' | 'optimized';
 export type ScheduleObjectiveView = 'pri' | 'time';
 
+export interface ProjectOptimizationPatch {
+  readonly optimizationEnabled?: boolean;
+  readonly scheduleEngine?: ScheduleEngineView;
+  readonly scheduleObjective?: ScheduleObjectiveView;
+}
+
 export type OptimizationVariantView =
   | { readonly state: 'ready' }
   | { readonly state: 'pending' }
@@ -1324,6 +1330,8 @@ export interface ProjectApi {
    * in the plan may move on it, so the caller reads the tree again.
    */
   setDepReach(projectId: string, reach: DependencyReach): Promise<void>;
+  /** Changes the project-wide optimizer flag or the schedule every collaborator sees. */
+  setOptimizationSettings(projectId: string, patch: ProjectOptimizationPatch): Promise<void>;
   /** Puts the plan on a calendar, or `null` to take it off again. */
   setStartDate(projectId: string, startDate: string | null): Promise<void>;
   /**
@@ -2374,6 +2382,12 @@ export function httpProjectApi(token: string): ProjectApi {
       await send(`/api/projects/${projectId}`, token, {
         method: 'PATCH',
         body: JSON.stringify({ depReach: reach }),
+      });
+    },
+    async setOptimizationSettings(projectId, patch) {
+      await send(`/api/projects/${projectId}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
       });
     },
     async steps(projectId) {

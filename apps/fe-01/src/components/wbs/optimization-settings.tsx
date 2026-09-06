@@ -1,6 +1,10 @@
 import { useState } from 'react';
 
-import type { ScheduleEngineView, ScheduleObjectiveView } from '@/lib/wbs-api';
+import type {
+  ProjectOptimizationPatch,
+  ScheduleEngineView,
+  ScheduleObjectiveView,
+} from '@/lib/wbs-api';
 
 export interface OptimizationSettingsValue {
   readonly enabled: boolean;
@@ -8,15 +12,9 @@ export interface OptimizationSettingsValue {
   readonly objective: ScheduleObjectiveView;
 }
 
-export interface OptimizationSettingsPatch {
-  readonly optimizationEnabled?: boolean;
-  readonly scheduleEngine?: ScheduleEngineView;
-  readonly scheduleObjective?: ScheduleObjectiveView;
-}
-
 export interface OptimizationSettingsProps {
   readonly value: OptimizationSettingsValue;
-  readonly setSettings: (patch: OptimizationSettingsPatch) => Promise<void>;
+  readonly setSettings: (patch: ProjectOptimizationPatch) => Promise<void>;
   readonly onChanged: () => Promise<void>;
   readonly onDirtyChange: (dirty: boolean) => void;
 }
@@ -30,7 +28,7 @@ export function OptimizationSettingsPanel({
 }: OptimizationSettingsProps) {
   const [writing, setWriting] = useState(false);
 
-  async function write(patch: OptimizationSettingsPatch): Promise<void> {
+  async function write(patch: ProjectOptimizationPatch): Promise<void> {
     setWriting(true);
     onDirtyChange(true);
     try {

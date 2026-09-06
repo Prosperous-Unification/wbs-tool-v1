@@ -92,6 +92,9 @@ export function fakeProjectApi(): ProjectApi & {
   let estimateMethod: EstimateMethod = 'pert';
   let depReach: DependencyReach = 'whole-item';
   let startDate: string | null = null;
+  let optimizationEnabled = false;
+  let scheduleEngine: 'fast' | 'optimized' = 'fast';
+  let scheduleObjective: 'pri' | 'time' = 'pri';
   /**
    * The project's calendar markers, in creation order — which is the order
    * `listCalendarMarkers` answers in.
@@ -460,6 +463,20 @@ export function fakeProjectApi(): ProjectApi & {
         projectRevision: 0,
         undoable: stack.undoable,
         redoable: stack.redoable,
+        optimization: {
+          enabled: optimizationEnabled,
+          engine: scheduleEngine,
+          objective: scheduleObjective,
+          inputHash: `fake-input-${String(seq)}`,
+          generation: rows.length === 0 ? null : 1,
+          contractVersion: '1.5+fake',
+          budgetMs: 60_000,
+          displayed: 'fast' as const,
+          variants: {
+            pri: { state: 'idle' as const },
+            time: { state: 'idle' as const },
+          },
+        },
       }),
     setDepReach(_projectId, reach) {
       depReach = reach;
@@ -468,6 +485,15 @@ export function fakeProjectApi(): ProjectApi & {
     },
     setEstimateMethod(_projectId, method) {
       estimateMethod = method;
+      renumber();
+      return Promise.resolve();
+    },
+    setOptimizationSettings(_projectId, patch) {
+      if (patch.optimizationEnabled !== undefined) {
+        optimizationEnabled = patch.optimizationEnabled;
+      }
+      if (patch.scheduleEngine !== undefined) scheduleEngine = patch.scheduleEngine;
+      if (patch.scheduleObjective !== undefined) scheduleObjective = patch.scheduleObjective;
       renumber();
       return Promise.resolve();
     },
