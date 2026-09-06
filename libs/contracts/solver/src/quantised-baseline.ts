@@ -63,7 +63,7 @@ import type { SolverOffsetMap } from './wire-types';
  * Fast", which stopped being true at `work-item-deadline` slice 5: a deadline
  * reorders Fast's ready set by minimum slack. What still holds is the second
  * half — a plan whose quantised baseline misses a deadline is a plan whose
- * *real* baseline missed it too, which is 4.11b's comparison and 3.1's
+ * real-domain baseline missed it too, which is 4.11b's comparison and 3.1's
  * `plan-infeasible`, not this function's to decide.
  *
  * **Two things are now open here, and both belong to slice 8 rather than to
