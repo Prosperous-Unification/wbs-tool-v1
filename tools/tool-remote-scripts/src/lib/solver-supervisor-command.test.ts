@@ -4,6 +4,7 @@ import {
   buildManagedContainerArgs,
   buildPersistentDeadlineTimerCommands,
   exactManagedContainerArgs,
+  inspectBackendContainerArgs,
   listManagedContainersArgs,
 } from './solver-supervisor-command';
 import {
@@ -141,5 +142,16 @@ describe('the host-owned solver command builder', () => {
       CONTAINER_ID,
     ]);
     expect(() => exactManagedContainerArgs('rm', 'all')).toThrow(/container id/);
+  });
+
+  it('inspects only the peer-derived full backend id with a fixed narrow projection', () => {
+    expect(inspectBackendContainerArgs(CALLER_ID)).toEqual([
+      'docker',
+      'inspect',
+      '--format',
+      '{"id":{{json .Id}},"name":{{json .Name}},"running":{{json .State.Running}},"image":{{json .Config.Image}}}',
+      CALLER_ID,
+    ]);
+    expect(() => inspectBackendContainerArgs('wbs-dev-src')).toThrow(/container id/);
   });
 });

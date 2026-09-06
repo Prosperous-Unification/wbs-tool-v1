@@ -1,6 +1,14 @@
 import type { ManagedContainerEvidence } from './solver-supervisor-lifecycle';
 
 const CONTAINER_ID = /^[0-9a-f]{64}$/;
+const CONTAINER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+const BACKEND_IDENTITY_KEYS = ['id', 'name', 'running', 'image'] as const;
+
+export interface BackendContainerIdentity {
+  readonly id: string;
+  readonly name: string;
+  readonly image: string;
+}
 
 function defect(message: string): Error {
   return new Error(`solver supervisor Docker output: ${message}`);
@@ -37,6 +45,64 @@ function asRecord(value: unknown, name: string): Record<string, unknown> {
     throw defect(`${name} is not an object`);
   }
   return value as Record<string, unknown>;
+}
+
+function requireExactBackendKeys(value: Record<string, unknown>): void {
+  const unknown = Object.keys(value).filter((key) => !BACKEND_IDENTITY_KEYS.includes(key as never));
+  if (unknown.length > 0)
+    throw defect(`backend inspect has unknown key ${unknown.sort().join(', ')}`);
+  const missing = BACKEND_IDENTITY_KEYS.filter((key) => !Object.hasOwn(value, key));
+  if (missing.length > 0) throw defect(`backend inspect has missing key ${missing.join(', ')}`);
+}
+
+/** Authenticates one running Docker backend under host-configured exact name patterns. */
+export function parseBackendContainerIdentity(
+  raw: string,
+  expectedPeerId: string,
+  allowedNamePatterns: readonly RegExp[],
+): BackendContainerIdentity {
+  requireContainerId(expectedPeerId);
+  if (allowedNamePatterns.length === 0) throw defect('backend name pattern list is empty');
+  for (const pattern of allowedNamePatterns) {
+    if (!pattern.source.startsWith('^') || !pattern.source.endsWith('$') || pattern.flags !== '') {
+      throw defect('backend name patterns must be anchored and have no flags');
+    }
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(oneLine(raw));
+  } catch (error) {
+    if (error instanceof SyntaxError) throw defect('backend inspect output is malformed JSON');
+    throw error;
+  }
+  const identity = asRecord(decoded, 'backend inspect');
+  requireExactBackendKeys(identity);
+
+  const id = identity['id'];
+  if (typeof id !== 'string' || !CONTAINER_ID.test(id)) {
+    throw defect('backend inspect id is not a full container id');
+  }
+  // Proof: solver-supervisor-docker-output.test.ts substitutes another valid
+  // live id and requires rejection before the frame's claimed id is decoded.
+  if (id !== expectedPeerId) throw defect('backend inspect id does not equal expected peer id');
+
+  if (identity['running'] !== true) throw defect('backend container is not running');
+  const rawName = identity['name'];
+  if (typeof rawName !== 'string' || !rawName.startsWith('/')) {
+    throw defect('backend container name is malformed');
+  }
+  const name = rawName.slice(1);
+  if (!CONTAINER_NAME.test(name)) throw defect('backend container name is malformed');
+  if (!allowedNamePatterns.some((pattern) => pattern.test(name))) {
+    throw defect('backend container name is not allowed');
+  }
+
+  const image = identity['image'];
+  if (typeof image !== 'string' || image.length === 0 || image.length > 512 || /\s/.test(image)) {
+    throw defect('backend container image is malformed');
+  }
+  return { id, name, image };
 }
 
 /** Decodes the native exit evidence used to construct a terminal frame. */

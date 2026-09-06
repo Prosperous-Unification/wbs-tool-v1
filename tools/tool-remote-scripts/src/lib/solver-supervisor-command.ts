@@ -15,6 +15,8 @@ export interface PersistentDeadlineTimerCommands {
 
 const DIGEST_PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 const CONTAINER_ID = /^[0-9a-f]{64}$/;
+const BACKEND_INSPECT_FORMAT =
+  '{"id":{{json .Id}},"name":{{json .Name}},"running":{{json .State.Running}},"image":{{json .Config.Image}}}';
 
 function requireContainerId(containerId: string): void {
   if (!CONTAINER_ID.test(containerId)) {
@@ -125,6 +127,14 @@ export function listManagedContainersArgs(): string[] {
     '--format',
     '{{.ID}}',
   ];
+}
+
+/** Inspects one peer-derived backend id without exposing its environment or labels. */
+export function inspectBackendContainerArgs(containerId: string): string[] {
+  requireContainerId(containerId);
+  // Proof: solver-supervisor-command.test.ts injects a name in place of the
+  // full peer id and requires refusal before any Docker argv can be built.
+  return ['docker', 'inspect', '--format', BACKEND_INSPECT_FORMAT, containerId];
 }
 
 export function exactManagedContainerArgs(
