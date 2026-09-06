@@ -728,9 +728,7 @@ describe('what the deadline change must not do to the cache key', () => {
   function primaryKeyColumns(path: string, table: string): string[] {
     const db = openDatabase(path);
     try {
-      return (
-        db.query(`PRAGMA table_info(${table})`).all() as { name: string; pk: number }[]
-      )
+      return (db.query(`PRAGMA table_info(${table})`).all() as { name: string; pk: number }[])
         .filter((column) => column.pk > 0)
         .sort((left, right) => left.pk - right.pk)
         .map((column) => column.name);
