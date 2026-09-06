@@ -362,12 +362,18 @@ describe('the cache status vocabulary is the one design.md declares', () => {
    * The payload half, and the reason 3.1 insists the two CHECKs move together:
    * a status admitted by the first CHECK and absent from the second is a value
    * the table declares legal and then refuses on every insert.
+   *
+   * MEASURED (control E, first attempt): asserting that the Cache identity
+   * bullet merely *mentions* each status gave **18 pass / 0 fail** with the
+   * `plan-infeasible` disjunct deleted, because the surrounding prose names the
+   * status too. An assertion that cannot fail for the reason it claims is worse
+   * than no assertion, so the design text now writes the CHECK out per status
+   * as SQL — the same form `tasks.md` 3.1 uses — and this reads the disjuncts.
    */
-  it('gives every admitted status a payload disjunct in the same bullet', () => {
-    const bullet = /- \*\*Cache identity:\*\*[\s\S]*?\n(?=- \*\*)/.exec(DESIGN);
-    if (!bullet) throw new Error('design.md no longer carries a Cache identity bullet');
-    for (const status of OPTIMIZED_SCHEDULE_STATUSES) {
-      expect(bullet[0].includes(`\`${status}\``), `${status} has no payload rule`).toBe(true);
-    }
+  it('gives every admitted status its own payload disjunct', () => {
+    const payload = /CHECK \(\(status='[\s\S]*?\)\)/.exec(DESIGN);
+    if (!payload) throw new Error('design.md no longer declares a cache payload CHECK constraint');
+    const disjuncts = [...payload[0].matchAll(/status='([^']*)'/g)].map((m) => m[1]);
+    expect(disjuncts).toEqual(OPTIMIZED_SCHEDULE_STATUSES.map(String));
   });
 });
