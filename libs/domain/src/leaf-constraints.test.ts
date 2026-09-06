@@ -86,6 +86,23 @@ describe('leafDeadlinesOf', () => {
     expect(deadlines.get('L2')).toBe(20);
   });
 
+  it('lets an EARLIER parent tighten a later child, which is the other direction', () => {
+    // tasks.md 3.2, and the case the file was missing. Above, the parent is the
+    // looser of the two and `min` is indistinguishable from "the leaf's own
+    // date wins". Here the parent is the tighter, so a fold that simply
+    // preferred the leaf's own value would return 20 and pass every other case
+    // in this describe. One direction proves nothing about a fold's direction.
+    const deadlines = leafDeadlinesOf(
+      new Map([
+        ['P', 12],
+        ['L1', 20],
+      ]),
+      index,
+    );
+    expect(deadlines.get('L1')).toBe(12);
+    expect(deadlines.get('L2')).toBe(12);
+  });
+
   it('takes the tighter ancestor when two of them bind', () => {
     const deadlines = leafDeadlinesOf(
       new Map([
@@ -126,5 +143,33 @@ describe('leafDeadlinesOf', () => {
 
   it('ignores an id the tree does not carry rather than throwing', () => {
     expect([...leafDeadlinesOf(new Map([['gone', 7]]), index)]).toEqual([]);
+  });
+
+  it('keeps a dated parent’s own date when its subtree is deleted', () => {
+    // tasks.md 3.3, read as the shape a tree can actually take. "A parent with
+    // a deadline and no leaves" is not a state `PlannedRow[]` can hold — a row
+    // with no children **is** a leaf — so the case the product has is the one
+    // after the delete: `P`'s children are gone, `P` is now a leaf, and the
+    // date written on it binds `P` itself.
+    //
+    // No constraint is emitted for the children that no longer exist, nothing
+    // throws, and the stored date is not silently dropped on the way through.
+    // The alternative — treating a formerly-parent id as unresolvable and
+    // discarding it — would delete a date the user wrote by deleting rows
+    // underneath it, which is a data loss no undo would catch because nothing
+    // recorded it.
+    const pruned = indexTree([
+      { id: 'G', parentId: null, position: 0, frozenNumber: null, priority: null },
+      { id: 'P', parentId: 'G', position: 0, frozenNumber: null, priority: null },
+    ]);
+
+    expect([...leafDeadlinesOf(new Map([['P', 12]]), pruned)]).toEqual([['P', 12]]);
+  });
+
+  it('emits nothing at all for a subtree the fold is handed no dates for', () => {
+    // The empty-map arm of 3.3, separated from the case above because they fail
+    // differently: this one goes red on a fold that seeds every leaf, and the
+    // one above goes red on a fold that drops an id whose children left.
+    expect([...leafDeadlinesOf(new Map(), indexTree(rows))]).toEqual([]);
   });
 });

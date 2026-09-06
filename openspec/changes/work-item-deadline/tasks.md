@@ -65,18 +65,18 @@ here.
 
 ## 2. `deadlineOffsetOf` and `previousWorkday`
 
-- [ ] 2.1 `previousWorkday` exported from `libs/domain/src/workday.ts` beside the
+- [x] 2.1 `previousWorkday` exported from `libs/domain/src/workday.ts` beside the
       existing `nextWorkday`.
-- [ ] 2.2 `deadlineOffsetOf(projectStart, deadline)` returning
+- [x] 2.2 `deadlineOffsetOf(projectStart, deadline)` returning
       `{ kind: 'offset'; offset: number } | { kind: 'before-project-start' }`,
       rolling **backward** on a non-working date and returning the typed variant
       — never the number `0` — when the rolled date falls before day zero
       (`addWorkdays(projectStart, 0)`, which is `nextWorkday(projectStart)` and
       not `projectStart` itself).
-- [ ] 2.3 The mirror of the existing `addWorkdays`/`workdaysBetween` property
+- [x] 2.3 The mirror of the existing `addWorkdays`/`workdaysBetween` property
       test: for every workday `s` and offset `k`,
       `deadlineOffsetOf(s, addWorkdays(s, k))` is `{ kind: 'offset', offset: k }`.
-- [ ] 2.4 **WATCHED RED W3** — substitute `workdaysBetween` for
+- [x] 2.4 **WATCHED RED W3** — substitute `workdaysBetween` for
       `deadlineOffsetOf`. Two cases must go red together: a Saturday deadline
       must grant two extra calendar days (`nextWorkday` rolls it to Monday), and
       a pre-project-start deadline must silently become offset `0`, the
@@ -85,23 +85,50 @@ here.
 
 ## 3. The effective-deadline fold
 
-- [ ] 3.1 `effectiveDeadlines(rows, deadlines)` folding each leaf to the
+- [x] 3.1 `effectiveDeadlines(rows, deadlines)` folding each leaf to the
       **minimum** of its own deadline and every ancestor's, `null` where none
       exists. It is a separate walk from the floor's `latest` expansion and is
       **not** collapsed into one direction-parameterised function with it: the
       out-of-range clamps differ (§1.3) and are not shared.
-- [ ] 3.2 Both precedence directions asserted, not one: a parent dated earlier
+      **Deviation, recorded rather than silent:** it landed under
+      `dual-optimized-scheduler` as `leafDeadlinesOf(deadlines, index)` in
+      `libs/domain/src/leaf-constraints.ts`, not as `effectiveDeadlines(rows,
+      deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
+      rather than `null`-valued where no deadline exists, a separate walk sitting
+      beside `leafFloorsOf` and deliberately not parameterised by comparator, and
+      the file's own table spelling out why the floor, the deadline and
+      `priorityByLeaf` are three rules and not one. A second function under
+      3.1's literal name would be the second walk this slice exists to prevent.
+- [x] 3.2 Both precedence directions asserted, not one: a parent dated earlier
       tightens a later child, **and** a later parent does not loosen an earlier
-      child. One test proves nothing about the fold's direction; two do.
-- [ ] 3.3 Empty subtree — a parent with a deadline and no leaves emits no
+      child. One test proves nothing about the fold's direction; two do. The
+      second direction was the one missing: `keeps each leaf the EARLIEST …`
+      already had the loose parent, where `min` is indistinguishable from "the
+      leaf's own date wins". `lets an EARLIER parent tighten a later child` is
+      the new case, and a fold that simply preferred the leaf's own value passes
+      every other case in that describe and fails only this one.
+- [x] 3.3 Empty subtree — a parent with a deadline and no leaves emits no
       constraint, raises no error, and keeps its stored date when its subtree is
-      deleted.
+      deleted. **Read as the shape the tree can actually take:** "a parent with
+      no leaves" is not a state `PlannedRow[]` can hold, because a row with no
+      children *is* a leaf. So the case the product has is the one after the
+      delete — `P`'s children are gone, `P` is a leaf, and its date binds `P`
+      itself rather than being discarded as an unresolvable id, which would
+      delete a date the user wrote by deleting rows underneath it. Two cases,
+      because they fail differently: the pruned-subtree one goes red on a fold
+      that drops such an id, and the empty-map one goes red on a fold that seeds
+      every leaf.
 - [ ] 3.4 The two impossible kinds are distinguished at their own boundaries:
       `before-project-start` at write time (slice 6) is malformed input;
       unreachable-but-well-formed is legitimate input that Fast reports late
       (slice 5) and PRI/Time report infeasible (slice 8).
-- [ ] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
-      earlier than its parent must be loosened to the parent's date.
+- [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
+      earlier than its parent must be loosened to the parent's date. Measured on
+      h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
+      deadline and every ancestor's` (the clause the red names), `lets an EARLIER
+      parent tighten a later child`, `takes the tighter ancestor when two of them
+      bind`, and `keeps a day-zero deadline, which is a real and very tight
+      constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
 
 ## 4. `schedule()`'s seventh argument and the inclusive predicate
 
@@ -113,11 +140,17 @@ here.
       written **once** as `lastWorkdayOf(start, finish) <= deadlineOffset` and
       referenced by slices 5, 8 and 9 rather than re-derived in any of them.
       `finish <= deadline` does not appear in the implementation.
+      **Deliberately still open at 2026-09-06 even though `on-time.ts` landed in
+      run 1.** Its clause names slices 5, 8 **and** 9, and only slice 5
+      references it so far — `goesFirst`'s `slack` shares `lastWorkdayOf`, the
+      single arithmetic, rather than re-deriving a comparison. Ticking it now
+      would claim a referent for two slices that do not exist yet, and 8 is
+      TASK-219's. Close it when 9 reads the same number.
 - [x] 4.3 **The no-op proof.** Every case in the Fast golden corpus produces a
       **byte-identical** schedule under the seventh argument defaulted to an
       empty map. This is the one test that says the seam did not move; it is
       compared byte-for-byte against the recorded corpus, not field-by-field.
-- [ ] 4.4 **WATCHED RED W1** — drop the `max` term from `lastWorkdayOf` in the
+- [x] 4.4 **WATCHED RED W1** — drop the `max` term from `lastWorkdayOf` in the
       predicate (use `ceil(snapWorkdays(finish)) − 1` alone). A zero-duration
       milestone starting at exactly offset `D + 1.0` must be reported **on
       time**. A non-zero-duration fixture cannot produce this red; the test must
