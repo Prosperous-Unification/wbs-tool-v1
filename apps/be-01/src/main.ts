@@ -3,7 +3,8 @@ import { createLogger } from '@wbs/observability';
 import { bootBe01 } from './boot';
 import { loadConfig } from './config';
 import { oidcRouteOptionsFromEnv } from './controller/auth.routes';
-import { readInstalledSolverVersion, spawnSolverLauncher } from './service/solver-launcher-process';
+import { readInstalledSolverVersion } from './service/solver-launcher-process';
+import { solverSupervisorSpawner } from './service/solver-supervisor-spawner';
 
 const cfg = loadConfig();
 const logger = createLogger({ service: 'be-01', level: cfg.LOG_LEVEL });
@@ -19,6 +20,10 @@ const logger = createLogger({ service: 'be-01', level: cfg.LOG_LEVEL });
 let running;
 try {
   const solverVersion = readInstalledSolverVersion();
+  const callerId = process.env['HOSTNAME'];
+  if (callerId === undefined || callerId.length === 0) {
+    throw new Error('HOSTNAME is required for solver supervisor authentication');
+  }
   running = bootBe01({
     dbPath: cfg.DB_PATH,
     port: cfg.PORT,
@@ -36,16 +41,12 @@ try {
     optimizer: {
       solverVersion,
       budgetMs: cfg.SOLVER_BUDGET_MS,
-      spawn: (request) =>
-        Promise.resolve(
-          spawnSolverLauncher({
-            attemptToken: request.admission.attemptToken,
-            childDeadlineAt: request.admission.childDeadlineAt,
-            searchWorkers: cfg.SOLVER_SEARCH_WORKERS,
-            memoryLimitMb: cfg.SOLVER_MEMORY_LIMIT_MB,
-            request: request.request,
-          }),
-        ),
+      spawn: solverSupervisorSpawner({
+        unix: '/run/wbs-solver/supervisor.sock',
+        callerId,
+        searchWorkers: cfg.SOLVER_SEARCH_WORKERS,
+        memoryLimitMb: cfg.SOLVER_MEMORY_LIMIT_MB,
+      }),
     },
   });
 } catch (err) {
