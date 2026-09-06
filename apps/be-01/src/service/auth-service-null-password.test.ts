@@ -1,4 +1,5 @@
 import { expect, it } from 'bun:test';
+import { errors } from 'jose';
 
 import type { UserStore } from '../repository';
 import { AuthService } from './auth.service';
@@ -118,7 +119,7 @@ it('rejects legacy HS256 sessions after OIDC mode is configured', async () => {
     oidc: {
       groupPrefix: 'dev',
       groupsClaim: 'wbs_groups',
-      verifier: { verify: () => Promise.reject(new Error('not an OIDC token')) },
+      verifier: { verify: () => Promise.reject(new errors.JOSEAlgNotAllowed('not an OIDC token')) },
     },
   });
 

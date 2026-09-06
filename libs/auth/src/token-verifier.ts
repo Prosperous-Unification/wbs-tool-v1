@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, errors, jwtVerify } from 'jose';
 import { discovery } from 'openid-client';
 
 export interface JwtClaims {
@@ -9,7 +9,8 @@ export interface JwtClaims {
 /**
  * Turns a token into verified claims.
  *
- * @throws When the signature or registered claims do not verify.
+ * @throws JOSE credential errors when signature or claims do not verify.
+ * Unexpected discovery, network and key-store failures propagate separately.
  */
 export interface TokenVerifier {
   verify(token: string): Promise<JwtClaims>;
@@ -38,7 +39,12 @@ export class JwksTokenVerifier implements TokenVerifier {
       issuer: this.options.issuer,
     });
     if (typeof payload.sub !== 'string' || payload.sub === '') {
-      throw new Error('verified token has no subject');
+      throw new errors.JWTClaimValidationFailed(
+        'verified token has no subject',
+        payload,
+        'sub',
+        'missing',
+      );
     }
     return { ...payload, sub: payload.sub };
   }

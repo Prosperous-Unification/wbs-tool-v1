@@ -17,13 +17,13 @@ import { testWrites } from '../testing/writes-fixture';
 
 const TEST_SECRET = 'x'.repeat(32);
 
-function app() {
+function app(auth = testAuthService()) {
   return buildApp({
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
-    auth: testAuthService(),
+    auth,
     projects: testProjectService(),
     workItems: testWorkItemService(),
     savedPlans: testSavedPlanService(),
@@ -229,5 +229,36 @@ describe('GET /api/auth/me', () => {
   it('rejects a missing header', async () => {
     const res = await app().handle(new Request('http://localhost/api/auth/me'));
     expect(res.status).toBe(401);
+  });
+});
+
+describe('authentication failure boundaries', () => {
+  it('keeps password account lookup faults as server failures', async () => {
+    const users = inMemoryUsers();
+    const application = app(testAuthService(users));
+    const registered = await application.handle(
+      json('/api/auth/register', {
+        username: 'ada',
+        password: 'lovelace99',
+      }),
+    );
+    expect(registered.status).toBe(200);
+    const { token } = (await registered.json()) as { token: string };
+    const request = () =>
+      new Request('http://localhost/api/auth/me', {
+        headers: { authorization: `Bearer ${token}` },
+      });
+    expect((await application.handle(request())).status).toBe(200);
+    expect(
+      (
+        await application.handle(
+          new Request('http://localhost/api/auth/me', {
+            headers: { authorization: 'Bearer invalid-token' },
+          }),
+        )
+      ).status,
+    ).toBe(401);
+    users.findById = () => Promise.reject(new Error('account lookup unavailable'));
+    expect((await application.handle(request())).status).toBe(500);
   });
 });

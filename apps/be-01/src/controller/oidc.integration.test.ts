@@ -1,6 +1,7 @@
 import type { JwtClaims } from '@wbs/auth';
 import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
 import { describe, expect, it } from 'bun:test';
+import { errors } from 'jose';
 
 import { buildApp } from '../app';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
@@ -106,7 +107,7 @@ function fixture(
     verifier: {
       verify: (token: string) =>
         token.includes('.')
-          ? Promise.reject(new Error('HS256 is not an upstream OIDC token'))
+          ? Promise.reject(new errors.JOSEAlgNotAllowed('HS256 is not an upstream OIDC token'))
           : Promise.resolve(exchangeClaims ?? claims),
     },
     tokens,
@@ -131,7 +132,7 @@ function fixture(
     workItems: testWorkItemService(),
     savedPlans: testSavedPlanService(),
   });
-  return { app, calls, tokens, transactions, users };
+  return { app, calls, tokens, transactions, users, oidc };
 }
 
 describe('OIDC browser routes', () => {
@@ -743,5 +744,31 @@ describe('OIDC startup configuration', () => {
       groupsClaim: 'custom_groups',
       mode: 'oidc',
     });
+  });
+});
+
+describe('OIDC authentication failure boundaries', () => {
+  const request = () =>
+    new Request('https://dev.wbs.test/api/auth/me', {
+      headers: { authorization: 'Bearer access-1' },
+    });
+
+  it('keeps OIDC account resolution faults as server failures', async () => {
+    const f = fixture();
+    expect((await f.app.handle(request())).status).toBe(200);
+    f.users.resolveOidcIdentity = () => Promise.reject(new Error('identity store unavailable'));
+    expect((await f.app.handle(request())).status).toBe(500);
+  });
+
+  it('keeps unexpected verifier failures as server failures', async () => {
+    const f = fixture();
+    expect((await f.app.handle(request())).status).toBe(200);
+    f.oidc.verifier.verify = () => Promise.reject(new Error('discovery unavailable'));
+    expect((await f.app.handle(request())).status).toBe(500);
+  });
+
+  it('refuses malformed identity claims as credentials', async () => {
+    const f = fixture({ sub: 'subject-1' });
+    expect((await f.app.handle(request())).status).toBe(401);
   });
 });

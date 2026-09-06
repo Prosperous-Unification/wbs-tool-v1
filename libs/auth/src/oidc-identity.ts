@@ -1,3 +1,5 @@
+import { errors } from 'jose';
+
 export type WbsScope = 'read' | 'write' | 'editor';
 
 export interface OidcIdentity {
@@ -20,6 +22,7 @@ const SCOPES: readonly WbsScope[] = ['read', 'write', 'editor'];
  * Turns already-verified OIDC claims into the one identity shape every WBS
  * transport uses. The environment prefix is part of the match: a dev token
  * carrying a production group (or the reverse) grants nothing by accident.
+ * @throws {errors.JWTClaimValidationFailed} When issuer or subject is not a string.
  */
 export function oidcIdentityFromClaims(
   claims: Readonly<Record<string, unknown>>,
@@ -28,7 +31,7 @@ export function oidcIdentityFromClaims(
   const issuer = claims['iss'];
   const subject = claims['sub'];
   if (typeof issuer !== 'string' || typeof subject !== 'string') {
-    throw new Error('OIDC claims require string iss and sub');
+    throw new errors.JWTClaimValidationFailed('OIDC claims require string iss and sub', claims);
   }
 
   const rawEmail = claims['email'];
