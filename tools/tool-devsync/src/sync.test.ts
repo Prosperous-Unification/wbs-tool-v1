@@ -7,8 +7,11 @@ import { describe, expect, it } from 'bun:test';
 import {
   assertDevSolverSourceCompatible,
   assertMcpEnv,
+  devSyncFailureMessage,
   devSolverMappingOf,
+  LOCK_BUSY_EXIT_CODE,
   needsRestart,
+  preflightSolver,
   RECREATE_PATHS,
   RESTART_PATHS,
   SOLVER_COMPATIBILITY_PATHS,
@@ -145,6 +148,62 @@ describe('dev supervisor', () => {
     expect(fetchAt).toBeGreaterThan(-1);
     expect(preflightAt).toBeGreaterThan(fetchAt);
     expect(resetAt).toBeGreaterThan(preflightAt);
+  });
+
+  it('does not require supervisor host state for source-unrelated deploys', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    let configReads = 0;
+    let hostChecks = 0;
+
+    await preflightSolver(targetSha, {
+      currentSha: async () => deployedSha,
+      changedPaths: async (from, to) => {
+        expect(from).toBe(deployedSha);
+        expect(to).toBe(targetSha);
+        return [];
+      },
+      readConfig: async () => {
+        configReads += 1;
+        throw new Error('missing optional supervisor config');
+      },
+      requireHost: async () => {
+        hostChecks += 1;
+      },
+    });
+
+    expect(configReads).toBe(0);
+    expect(hostChecks).toBe(0);
+  });
+
+  it('still requires the solver mapping when compatibility sources changed', async () => {
+    let configReads = 0;
+
+    expect(
+      await rejection(
+        preflightSolver('c'.repeat(40), {
+          currentSha: async () => 'b'.repeat(40),
+          changedPaths: async () => ['libs/solver-py/src/wbs_solver/solve.py'],
+          readConfig: async () => {
+            configReads += 1;
+            throw new Error('missing required supervisor config');
+          },
+          requireHost: async () => {
+            throw new Error('host check must follow config validation');
+          },
+        }),
+      ),
+    ).toContain('missing required supervisor config');
+    expect(configReads).toBe(1);
+  });
+});
+
+describe('dev-sync lock diagnostics', () => {
+  it('identifies only flock lock contention as a held deploy lock', () => {
+    expect(devSyncFailureMessage(LOCK_BUSY_EXIT_CODE)).toBe(
+      '[dev-sync] skipped: another deploy holds the lock',
+    );
+    expect(devSyncFailureMessage(1)).toBe('[dev-sync] failed (exit 1); see the error above');
   });
 });
 
