@@ -435,8 +435,14 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // `Set-Cookie`.
         //
         // Proof: `refuses a forged error callback without burning the login it
-        // interrupts` fails on the honest callback with `Expected: 302
-        // Received: 400` when this clears the binding.
+        // interrupts` fails with `Received: "__Host-wbs_oidc=; HttpOnly;
+        // Secure; SameSite=Lax; Path=/; Max-Age=0"` against `toBeNull()` when
+        // this clears the binding. It is the *only* red that mutation causes,
+        // and deliberately so: the honest callback in that case is a fixture
+        // sending the cookie string again rather than a browser that was just
+        // told to drop it, so it still completes. The header is where the loss
+        // is observable, which is why it is asserted rather than inferred from
+        // the second request.
         if (transaction.outcome === 'state_mismatch') return empty(400, []);
         if (transaction.outcome !== 'consumed') return empty(400, [clear('__Host-wbs_oidc')]);
 
