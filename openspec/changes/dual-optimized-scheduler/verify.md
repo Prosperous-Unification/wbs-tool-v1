@@ -269,7 +269,7 @@ of presenting a worker attempt token.
 
 - Red head `e5d0e039` on h2puni: both the failed-marker and corrupt-row cases
   reached insert-only conflict and failed on `Expected: "stored" / Received:
-  "already-recorded"`; the focused file reported 63 pass / 2 fail.
+"already-recorded"`; the focused file reported 63 pass / 2 fail.
 - Exact green head `6e3beaee` on h2puni, worktree
   `/home/puni1/t268-r3-regate.4llPBj`: 65/65 tests and 242 assertions passed;
   scoped Prettier, be-01 fast lint, and be-01 typecheck were green. No build or
