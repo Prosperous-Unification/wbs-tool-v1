@@ -221,19 +221,28 @@ describe('buildServices', () => {
       name: 'Strip',
     });
 
+    // `tree` answers `null` for a project it cannot find. Narrowed here rather
+    // than asserted away, because a `null` slipping through would make every
+    // equality below hold vacuously — the one way this case could pass while
+    // reading nothing at all.
+    type Tree = NonNullable<Awaited<ReturnType<typeof services.workItems.tree>>>;
+    const treeOf = async (): Promise<Tree> => {
+      const tree = await services.workItems.tree(projectId);
+      expect(tree).not.toBeNull();
+      if (tree === null) throw new Error('the seeded project answered no tree');
+      return tree;
+    };
+
     // `delete` on a copy rather than a rest destructure, which lint reads as an
     // unused binding — and `delete` is what keeps the surviving keys in their
     // original order, which the `JSON.stringify` assertion below depends on.
-    const withoutSeq = (tree: Record<string, unknown>): Record<string, unknown> => {
-      const rest = { ...tree };
+    const withoutSeq = (tree: Tree): Record<string, unknown> => {
+      const rest: Record<string, unknown> = { ...tree };
       delete rest['seq'];
       return rest;
     };
 
-    const unchangedExceptSeq = (
-      after: Awaited<ReturnType<typeof services.workItems.tree>>,
-      before: Awaited<ReturnType<typeof services.workItems.tree>>,
-    ): void => {
+    const unchangedExceptSeq = (after: Tree, before: Tree): void => {
       expect(withoutSeq(after)).toEqual(withoutSeq(before));
       expect(JSON.stringify(withoutSeq(after))).toBe(JSON.stringify(withoutSeq(before)));
       // Exactly one, not "more than before": a write announced twice makes
@@ -245,7 +254,7 @@ describe('buildServices', () => {
     // the read before it rather than with the baseline — an equality that only
     // held across the whole run would pass for two mutations that cancelled.
     const markerId = crypto.randomUUID();
-    const baseline = await services.workItems.tree(projectId);
+    const baseline = await treeOf();
 
     expect(
       (
@@ -256,22 +265,22 @@ describe('buildServices', () => {
         })
       ).ok,
     ).toBe(true);
-    const created = await services.workItems.tree(projectId);
+    const created = await treeOf();
     unchangedExceptSeq(created, baseline);
 
     expect((await services.calendarMarkers.rename(projectId, markerId, ownerId, 'Thaw')).ok).toBe(
       true,
     );
-    const renamed = await services.workItems.tree(projectId);
+    const renamed = await treeOf();
     unchangedExceptSeq(renamed, created);
 
     expect(
       (await services.calendarMarkers.recolor(projectId, markerId, ownerId, '#3366cc')).ok,
     ).toBe(true);
-    const recoloured = await services.workItems.tree(projectId);
+    const recoloured = await treeOf();
     unchangedExceptSeq(recoloured, renamed);
 
     expect((await services.calendarMarkers.remove(projectId, markerId, ownerId)).ok).toBe(true);
-    unchangedExceptSeq(await services.workItems.tree(projectId), recoloured);
+    unchangedExceptSeq(await treeOf(), recoloured);
   });
 });
