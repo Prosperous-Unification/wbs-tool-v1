@@ -1360,6 +1360,76 @@ describe('the chart is drawn in calendar days', () => {
     expect(lines.filter((line) => line.startsWith('Float'))).toEqual([]);
   });
 
+  itDom('says how many workdays a bar finished past its deadline', () => {
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 3, { number: '010', name: 'Strip' })],
+          slices: [sliceAt('strip-dev', 'strip', 0, 3, { lateBy: 3 })],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+    expect(linesOf(surfaceOn('strip-dev'))).toContain('Late by 3 workdays');
+  });
+
+  itDom('says workday, not workdays, for a bar that missed by one', () => {
+    // The domain left this to the view on purpose — `workdaysLateBy` owns the
+    // count and this file owns the sentence — and `Late by 1 workdays` is a
+    // defect a reader sees on the commonest miss there is.
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 3, { number: '010', name: 'Strip' })],
+          slices: [sliceAt('strip-dev', 'strip', 0, 3, { lateBy: 1 })],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+    expect(linesOf(surfaceOn('strip-dev'))).toContain('Late by 1 workday');
+  });
+
+  itDom('says nothing about lateness on a bar that missed nothing', () => {
+    // The negative control for the line above: `null` is both "met it" and
+    // "nobody set a deadline", and a `Late by 0 workdays` on every bar of the
+    // plans that have no deadlines at all would be furniture rather than a
+    // fact. The float line is asserted beside it so a run where the whole
+    // surface went missing cannot pass this.
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 3, { number: '010', name: 'Strip' })],
+          slices: [sliceAt('strip-dev', 'strip', 0, 3, { float: 2 })],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+    const lines = linesOf(surfaceOn('strip-dev'));
+    expect(lines).toContain('Float 2 days');
+    expect(lines.filter((line) => line.startsWith('Late by'))).toEqual([]);
+  });
+
   itDom('leaves no line blank where a fact is missing', () => {
     // Every absence at once, on one chart: a slice under no step, nobody
     // assigned, no estimate for that step, and no team. Each says so in words —
@@ -2983,6 +3053,7 @@ const sliceOf = (workItemId: string, start: number, finish: number): SliceView =
   effort: finish - start,
   capacityTeamId: null,
   capacityPredecessorIds: [],
+  lateBy: null,
 });
 
 const SLICES: SliceView[] = [

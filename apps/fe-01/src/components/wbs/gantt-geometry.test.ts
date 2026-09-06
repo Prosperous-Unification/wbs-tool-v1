@@ -110,6 +110,7 @@ const sliceAt = (
   width: 1,
   effort: earliestFinish - earliestStart,
   capacityPredecessorIds: [],
+  lateBy: null,
   ...extras,
 });
 
@@ -217,6 +218,28 @@ describe('bars', () => {
     expect(chart.bars.map((bar) => [bar.critical, bar.estimated])).toEqual([
       [true, true],
       [false, false],
+    ]);
+  });
+
+  it('reads the lateness be-01 published and never works one out from the dates', () => {
+    // The deadline the number was measured against is on the work item and is
+    // nowhere on this chart, so nothing here could recompute it — which is the
+    // point. The two bars are the same span and the same everything else, and
+    // one of them is late: proof the figure travels rather than being derived
+    // from what the bar knows about itself.
+    const chart = layOutGantt(
+      planOf({
+        rows: [rowAt('strip', 0, 3), rowAt('sand', 0, 3)],
+        slices: [
+          sliceAt('strip-dev', 'strip', 0, 3, { lateBy: 4 }),
+          sliceAt('sand-dev', 'sand', 0, 3),
+        ],
+      }),
+    );
+
+    expect(chart.bars.map((bar) => [bar.sliceId, bar.lateBy])).toEqual([
+      ['strip-dev', 4],
+      ['sand-dev', null],
     ]);
   });
 

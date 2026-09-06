@@ -527,6 +527,7 @@ describe('the chart under a plan being edited', () => {
                 width: 1,
                 effort: 3,
                 capacityPredecessorIds: [],
+                lateBy: null,
                 ...scheduleNow(),
               }),
             ],

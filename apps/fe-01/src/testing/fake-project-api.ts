@@ -426,6 +426,7 @@ export function fakeProjectApi(): ProjectApi & {
             width: 1,
             effort: scheduleOf(r).duration,
             capacityPredecessorIds: [],
+            lateBy: null,
           })),
         // On the read that carried the slices, as be-01 sends them: the chart
         // reads its steps and its names from here and not from the separate

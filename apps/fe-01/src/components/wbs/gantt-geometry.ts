@@ -471,6 +471,18 @@ export interface GanttSlice {
    * than drawing a sentence with a hole in it.
    */
   capacityPredecessorIds: readonly string[];
+  /**
+   * How many whole workdays this slice finished past its effective deadline,
+   * or null where it met the deadline or had none.
+   *
+   * The engine's own count, carried the whole way to the words: this module
+   * knows a slice's dates and nothing about the deadline they were measured
+   * against, and a chart that subtracted its way to a miss would eventually
+   * disagree with the plan it is drawing. The union is declared here a second
+   * time for the reason {@link GanttSlice.boundBy}'s neighbours are — this
+   * module knows nothing about fetching.
+   */
+  lateBy: number | null;
 }
 
 /** A stored dependency between two work items, either end of which may be a parent. */
@@ -669,6 +681,16 @@ export interface GanttBar {
   waitsFor: readonly string[];
   /** The priority on the work item this slice is work for — see {@link GanttRow.priority}. */
   priority: number | null;
+  /**
+   * How many whole workdays this bar finished past its deadline, or null where
+   * it met it or had none — see {@link GanttSlice.lateBy}.
+   *
+   * Its own field and deliberately **not** a clause appended to
+   * {@link GanttBar.floorWords}: that sentence answers "what is holding this
+   * bar up", and a miss is an outcome rather than a floor. The same bargain
+   * `tags` is kept out of it by, one line further down in the bar's assembly.
+   */
+  lateBy: number | null;
 }
 
 /**
@@ -1968,6 +1990,12 @@ export function layOutGantt(plan: GanttPlan): GanttGeometry {
         trio: (slice.stepId === null ? undefined : row.trioByStep.get(slice.stepId)) ?? null,
         waitsFor: row.waitsFor,
         priority: row.priority,
+        // be-01's count, carried and never recomputed. The deadline it was
+        // measured against is on the work item and is not on this chart at
+        // all, which is the whole reason the number travels: a bar that
+        // subtracted its own finish from a date it fetched separately would be
+        // a second answer to the lateness the plan was built with.
+        lateBy: slice.lateBy,
       };
       bars.push(bar);
       barBySliceId.set(slice.id, bar);

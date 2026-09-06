@@ -81,6 +81,7 @@ export function sliceView(overrides: Partial<SliceView> = {}): SliceView {
     width: 1,
     effort: 0,
     capacityPredecessorIds: [],
+    lateBy: null,
     ...overrides,
   };
 }

@@ -202,6 +202,19 @@ export interface SliceView {
    * hole in it.
    */
   capacityPredecessorIds: string[];
+  /**
+   * How many whole workdays this slice finished past its effective deadline,
+   * or null where it met the deadline or had none.
+   *
+   * be-01's number, read and never recomputed. The client holds
+   * {@link WorkItemView.deadline} and the slice's own dates one column away
+   * from each other, and subtracting them here would be a second implementation
+   * of the arithmetic the plan was actually built with — see that field's own
+   * note. `null` and not `0`: met and missed-by-nothing are the same state, and
+   * the engine says so by publishing nothing rather than a zero the view would
+   * have to special-case into silence.
+   */
+  lateBy: number | null;
 }
 
 export interface WorkItemView {
