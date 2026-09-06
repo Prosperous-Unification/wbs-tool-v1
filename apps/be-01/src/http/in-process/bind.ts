@@ -264,10 +264,11 @@ async function decodeBody(request: Request): Promise<unknown> {
   if (dispatch === DISPATCH_OCTET_STREAM) {
     return request.arrayBuffer();
   }
-  // `formData()` reads both, and a file part stays a `File` rather than being
-  // coerced to its name — which is what Elysia hands a handler too, so the
-  // `typeof value !== 'string'` refusals in the controllers answer 422 for it
-  // under either binder instead of writing a filename into a column.
+  // `formData()` reads the multipart arm only, since the two split. A file part
+  // stays a `File` rather than being coerced to its name — which is what Elysia
+  // hands a handler too, so the `typeof value !== 'string'` refusals in the
+  // controllers answer 422 for it under either binder instead of writing a
+  // filename into a column.
   //
   // **A repeated field is every value, not the last one.** `Object.fromEntries`
   // over the entries collapses a duplicate key and Elysia does not, which was a
