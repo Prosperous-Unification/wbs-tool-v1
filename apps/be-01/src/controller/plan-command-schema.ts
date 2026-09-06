@@ -76,7 +76,7 @@ const VARIANTS: Schema[] = [
       patch: {
         type: 'object',
         description:
-          'Any of: name, notes, startNoEarlierThan (ISO date or null), startNoEarlierThanReason, priority (whole number ≥ 1 or null), teamIds, tagIds, serviceIds, typeIds (ids), teamRefs, tagRefs, serviceRefs, typeRefs (refs from this batch), maxParallel. Never number or frozenNumber — those are derived.',
+          'Any of: name, notes, startNoEarlierThan (ISO date or null), startNoEarlierThanReason, deadline (ISO date or null), priority (whole number ≥ 1 or null), teamIds, tagIds, serviceIds, typeIds (ids), teamRefs, tagRefs, serviceRefs, typeRefs (refs from this batch), maxParallel. Never number or frozenNumber — those are derived.',
       },
     },
     ['patch'],

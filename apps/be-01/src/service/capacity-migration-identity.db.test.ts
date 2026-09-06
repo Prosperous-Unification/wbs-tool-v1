@@ -318,6 +318,7 @@ describe('every plan schedules identically across the migration', () => {
             state,
             serviceId,
             startNoEarlierThanReason,
+            deadline,
             ...row
           }) => {
             // The arity claim, and the only place it is made: the set the join
@@ -412,6 +413,13 @@ describe('every plan schedules identically across the migration', () => {
             // bare lift would hide a read path that invented either.
             expect(serviceId).toBeNull();
             expect(startNoEarlierThanReason).toBeNull();
+            // The third of the same kind, and the newest: `work-item-deadline`
+            // slice 6 made `work_item.deadline` readable, so every row now
+            // carries a key the pinned document predates. `null` on all sixteen
+            // replayed plans is the claim — no row in this corpus has a deadline
+            // and none was invented by the read path that widened to carry one —
+            // and a bare lift would hide a projection that defaulted the column.
+            expect(deadline).toBeNull();
             return row;
           },
         ),
