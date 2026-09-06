@@ -37,6 +37,14 @@ const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
  */
 const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
+/**
+ * The newest: the `(project_id, id)` index that serves
+ * `listByProject`'s stated `ORDER BY` (ADR 0016). Additive and
+ * index-only, so it heads every descending reversal list here and tails
+ * every ascending one, exactly as {@link PROJECT_SETTINGS} did while it
+ * was newest.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 
 /** The one below it, which is where every rollback here stops. */
 const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
@@ -187,9 +195,11 @@ describe('the optimizer migration', () => {
   it('is applied immediately before the project-settings migration', () => {
     const names = readMigrationFolders(FOLDER).map((folder) => folder.name);
 
-    // Positional against each other rather than against the end of the list:
-    // `calendar_marker` landed above both on 2026-09-05, and "immediately
-    // before project-settings" is the relation this case is about.
+    // The adjacency itself, not `at(-1)`/`at(-2)`. Those were true while
+    // project-settings was the newest folder, and they made every later
+    // migration a failure of this file — which is not what it is about.
+    // Two folders have landed above it since: `calendar_marker` on 2026-09-05
+    // and the read-order index on 2026-09-06.
     const settings = names.indexOf(PROJECT_SETTINGS);
     expect(settings).toBeGreaterThan(0);
     expect(names[settings - 1]).toBe(OPTIMIZER_TABLES);
@@ -226,6 +236,7 @@ describe('the optimizer migration', () => {
       // Newest first, so the settings columns come off before the tables they
       // steer — this migration is no longer the only thing above LOOKUP_INDEXES.
       expect(rollbackTo(db.path, FOLDER, LOOKUP_INDEXES)).toEqual([
+        READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,

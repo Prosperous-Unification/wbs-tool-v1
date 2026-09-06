@@ -171,6 +171,11 @@ describe('20260905090000_add_calendar_marker', () => {
 
     expect(names).toContain(CALENDAR_MARKER);
     expect(duplicateMigrationStamps(names)).toEqual([]);
-    expect(names.at(-1)).toBe(CALENDAR_MARKER);
+    // Later than every folder that existed when this one was written, which is
+    // every folder up to and including `PREVIOUS`. Not `at(-1)`: that was true
+    // only while this was the newest folder on disk, and it would make every
+    // migration landing after it a failure of this file — `read_order_index`
+    // landed above it on 2026-09-06 and is the first to prove that.
+    expect(names.indexOf(CALENDAR_MARKER)).toBe(names.indexOf(PREVIOUS) + 1);
   });
 });

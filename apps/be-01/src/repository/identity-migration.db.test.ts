@@ -27,9 +27,9 @@ const RENAME_ROLE_TO_STEP = '20260831120000_rename_role_to_step';
 /** The newest: the audit columns, so it heads every descending reversal below. */
 const CREATED_BY_ID = '20260904020000_add_saved_plan_created_by_id';
 /**
- * The newest: `calendar_marker`, one table and one index added whole. It heads
- * every descending reversal list in this file because it was applied last, and
- * it takes nothing with it. Its own cases live in
+ * `calendar_marker`, one table and one index added whole. It sits directly
+ * under {@link READ_ORDER_INDEX} in every descending reversal list in this
+ * file, and it takes nothing with it. Its own cases live in
  * `calendar-marker-migration.db.test.ts`.
  */
 const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
@@ -53,6 +53,14 @@ const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
  * reverses.
  */
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
+/**
+ * The newest: the `(project_id, id)` index that serves
+ * `listByProject`'s stated `ORDER BY` (ADR 0016). Additive and
+ * index-only, so it heads every descending reversal list here and tails
+ * every ascending one, exactly as {@link PROJECT_SETTINGS} did while it
+ * was newest.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 const AUDIT_COLUMNS = '20260901120000_add_audit_columns';
 
 function tempDb(): { path: string; cleanup: () => void } {
@@ -68,6 +76,7 @@ function tempDb(): { path: string; cleanup: () => void } {
 function beforeIdentity(dbPath: string): void {
   runMigrations(dbPath, FOLDER);
   expect(rollbackTo(dbPath, FOLDER, PERSON_KIND)).toEqual([
+    READ_ORDER_INDEX,
     CALENDAR_MARKER,
     PROJECT_SETTINGS,
     OPTIMIZER_TABLES,
@@ -166,6 +175,7 @@ describe('the OIDC identity migration', () => {
       beforeIdentity(db.path);
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,
@@ -228,6 +238,7 @@ describe('the OIDC identity migration', () => {
       }
 
       expect(rollbackTo(db.path, FOLDER, PERSON_KIND)).toEqual([
+        READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
         OPTIMIZER_TABLES,

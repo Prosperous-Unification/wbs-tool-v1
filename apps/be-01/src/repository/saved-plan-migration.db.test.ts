@@ -13,9 +13,9 @@ const SAVED_PLAN = '20260903190000_add_saved_plan';
 /** Reversed ahead of {@link SAVED_PLAN}: it adds a column to the table below. */
 const CREATED_BY_ID = '20260904020000_add_saved_plan_created_by_id';
 /**
- * The newest: `calendar_marker`, one table and one index added whole. It heads
- * every descending reversal list in this file because it was applied last, and
- * it takes nothing with it. Its own cases live in
+ * `calendar_marker`, one table and one index added whole. It sits directly
+ * under {@link READ_ORDER_INDEX} in every descending reversal list in this
+ * file, and it takes nothing with it. Its own cases live in
  * `calendar-marker-migration.db.test.ts`.
  */
 const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
@@ -25,6 +25,14 @@ const LOOKUP_INDEXES = '20260902120000_add_lookup_indexes';
 // they lead the list even though this file never mentions them otherwise.
 const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
+/**
+ * The newest: the `(project_id, id)` index that serves
+ * `listByProject`'s stated `ORDER BY` (ADR 0016). Additive and
+ * index-only, so it heads every descending reversal list here and tails
+ * every ascending one, exactly as {@link PROJECT_SETTINGS} did while it
+ * was newest.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 
 let dir: string;
 let path: string;
@@ -105,6 +113,7 @@ describe('the saved-plan migration', () => {
     expect(columnsOf('saved_plan_body')).toContain('bytes');
 
     expect(rollbackTo(path, FOLDER, LOOKUP_INDEXES)).toEqual([
+      READ_ORDER_INDEX,
       CALENDAR_MARKER,
       PROJECT_SETTINGS,
       OPTIMIZER_TABLES,

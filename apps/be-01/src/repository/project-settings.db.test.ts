@@ -13,6 +13,11 @@ const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 /** The migration under test: slice 3b.1's three project settings columns. */
 const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 const PROJECT_SETTINGS = '20260904140000_add_project_settings';
+/**
+ * Newer than the settings columns, so a rollback aimed at the optimizer
+ * tables reverses it first — this file names it only to say so.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 
 /** The one below it, which is where every rollback here stops. */
 const OPTIMIZER_TABLES = '20260904100000_add_optimizer_tables';
@@ -141,6 +146,7 @@ describe('the project settings migration', () => {
       // cannot make: a migration that also dropped a column would still pass
       // every line above.
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
       ]);
@@ -174,6 +180,7 @@ describe('the project settings migration', () => {
     try {
       runMigrations(db.path, FOLDER);
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
       ]);
@@ -250,6 +257,7 @@ describe('the project settings migration', () => {
       const migratedDdl = projectDdl(db.path);
 
       expect(rollbackTo(db.path, FOLDER, OPTIMIZER_TABLES)).toEqual([
+        READ_ORDER_INDEX,
         CALENDAR_MARKER,
         PROJECT_SETTINGS,
       ]);

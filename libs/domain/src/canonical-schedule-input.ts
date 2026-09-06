@@ -108,10 +108,15 @@ const sortedPairs = <V>(map: ReadonlyMap<string, V>): [string, V][] =>
  * canonical form is deliberately *not* fully sorted, and the asymmetry is
  * load-bearing in both directions. Within a group the order IS the step
  * precedence the engine runs — `slicesOf` chains them — so sorting it would
- * make two different schedules hash the same. Across groups it is whatever SQL
- * returned, because `WorkItemRepo.listByProject` selects with no `ORDER BY`, so
- * hashing the global order made one unchanged project hash two ways between
- * reads and between blue and green.
+ * make two different schedules hash the same. Across groups the incoming order
+ * is not read at all, and that independence is the point rather than an
+ * accident of the caller: hashing the global order made one unchanged project
+ * hash two ways between reads and between blue and green.
+ *
+ * `WorkItemRepo.listByProject` does now guarantee ascending `work_item.id`
+ * (TASK-260, ADR 0016) — but do not rewrite this grouping to lean on that. The
+ * repository's order is a contract about *what the scheduler is handed*, and
+ * this key stays independent of it so that the two can never disagree.
  *
  * `poolIds` is a **set**, sorted: a slice labelled `['a','b']` and one labelled
  * `['b','a']` wait for the same two pools, and `jointWindowFor` reads them as a

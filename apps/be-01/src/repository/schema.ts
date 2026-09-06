@@ -559,7 +559,19 @@ export const workItem = sqliteTable(
     revision: integer('revision').notNull().default(0),
     ...auditColumns(),
   },
-  (t) => [index('work_item_siblings').on(t.projectId, t.parentId, t.position)],
+  (t) => [
+    index('work_item_siblings').on(t.projectId, t.parentId, t.position),
+    /**
+     * Serves an `ORDER BY`, not a `WHERE` — the only index here that does.
+     *
+     * `listByProject` filters on `project_id` and orders by `id`, and its order
+     * is a stated contract (see that method's JSDoc and ADR 0016). Without this,
+     * SQLite resolves the filter and then sorts every row of the project in a
+     * temp B-tree; with it, the filter and the order are one index read, because
+     * `id` is the second column of the same key the `WHERE` opens.
+     */
+    index('work_item_project_id_id').on(t.projectId, t.id),
+  ],
 );
 
 export type WorkItemRow = typeof workItem.$inferSelect;
