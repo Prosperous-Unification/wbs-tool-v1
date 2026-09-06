@@ -20,15 +20,15 @@ one:**
 | `dbe8d442` | registers `WORK_ITEM_DEADLINE` at the 32 sites that assert the newest migration by hand — **be-01 green again here**, which is what the gate table reports |
 | `42964565` | this file: 1.3's transcript, and 1.1/1.3 ticked                                                                                                            |
 | `c2f908f2` | Prettier's own formatting of this file                                                                                                                     |
-| `801b6804` | round 1's fold — **touches `schema.ts`, `migration.sql` and `down.sql`**, so the gate was re-run after it and the table below reports that run              |
+| `801b6804` | round 1's fold — **touches `schema.ts`, `migration.sql` and `down.sql`**, so the gate was re-run after it and the table below reports that run             |
 | `65fb9359` | Prettier's own formatting of the folded file                                                                                                               |
 
 A round-1 review read the gate table as claiming `dbe8d442` itself was never red
 and called it a contradiction; it was ambiguity rather than contradiction, and
 this table is the fix. A round-2 review then caught the second half of the same
-mistake — the table said the code gate "stands at `dbe8d442`" *after* the fold
-had changed three code files under it. The gate below is re-run at `65fb9359`,
-which is the only head whose numbers describe what this PR merges.
+mistake — the table said the code gate "stands at `dbe8d442`" _after_ the fold
+had changed three code files under it. The gate section below now states the
+rule instead of a SHA, so it cannot go stale a third time.
 
 ### 1.3 — forward, on a copy of a real migrated database
 
@@ -48,45 +48,41 @@ The reading is taken with `bun:sqlite` directly and **not** through the
 repository layer, deliberately: a before-picture produced by the same code the
 migration changes cannot say what the file held. `PRAGMA table_info`,
 `COUNT(*)`, and one digest — sha256 over one string per row, in `id` order, of
-every column except `deadline`. **The whole expression, not an excerpt**, because
-a digest whose encoding cannot be read is a digest that cannot be checked:
+every column except `deadline`. **The whole encoding, not an excerpt**, because
+a digest whose encoding cannot be read is a digest that cannot be checked.
+
+Each field is encoded by this template, and the seventeen encoded fields are
+joined by a literal `'|'` in the column order listed under the readings below —
+no ellipsis, and mechanically reconstructible from the two together:
 
 ```sql
-SELECT length(quote(`id`)) || ':' || quote(`id`) || '|' ||
-       length(quote(`project_id`)) || ':' || quote(`project_id`) || '|' ||
-       length(quote(`parent_id`)) || ':' || quote(`parent_id`) || '|' ||
-       length(quote(`position`)) || ':' || quote(`position`) || '|' ||
-       length(quote(`name`)) || ':' || quote(`name`) || '|' ||
-       length(quote(`notes`)) || ':' || quote(`notes`) || '|' ||
-       length(quote(`frozen_number`)) || ':' || quote(`frozen_number`) || '|' ||
-       length(quote(`start_no_earlier_than`)) || ':' || quote(`start_no_earlier_than`) || '|' ||
-       length(quote(`service_team_id`)) || ':' || quote(`service_team_id`) || '|' ||
-       length(quote(`revision`)) || ':' || quote(`revision`) || '|' ||
-       length(quote(`priority`)) || ':' || quote(`priority`) || '|' ||
-       length(quote(`max_parallel`)) || ':' || quote(`max_parallel`) || '|' ||
-       length(quote(`start_no_earlier_than_reason`)) || ':' || quote(`start_no_earlier_than_reason`) || '|' ||
-       length(quote(`service_id`)) || ':' || quote(`service_id`) || '|' ||
-       length(quote(`created_at`)) || ':' || quote(`created_at`) || '|' ||
-       length(quote(`updated_at`)) || ':' || quote(`updated_at`) || '|' ||
-       length(quote(`created_by`)) || ':' || quote(`created_by`) AS h
-FROM work_item ORDER BY id
+-- per column, in the order the readings list:
+typeof(`col`) || ':' || coalesce(length(cast(`col` as blob)), 0)
+              || ':' || coalesce(hex(cast(`col` as blob)), '')
+-- joined by:  || '|' ||
+-- over:       SELECT … AS h FROM work_item ORDER BY id
+-- then:       sha256 of each row's h, plus a newline, in that order
 ```
 
 That digest is what makes "existing rows are unchanged" a number rather than a
 claim: it covers all seventeen pre-migration columns of all 940 rows, and
 `ALTER TABLE ADD COLUMN` is exactly the statement that could rewrite them.
 
-**Round 1's encoding was weaker and was refused, correctly.** It read
-`COALESCE(CAST(col AS TEXT), char(0))` joined by `char(31)`, which is neither
-injective nor unambiguous: a column changing from `NULL` to a string containing
-a NUL byte serialises identically, and a separator byte inside `name` reads as
-the boundary between `name` and `notes`, so a value could move between two
-adjacent columns without the hash noticing. `quote()` renders `NULL` as the bare
-token `NULL`, text as a single-quoted literal with embedded quotes doubled,
-blobs as `X'…'` and numbers unquoted, so no value can collide with the null
-marker; the `length(...) || ':'` prefix is what makes the field boundaries
-unforgeable. Both readings below are from the stronger encoding, taken on a
-freshly re-copied file.
+**This is the third encoding, and the first two were refused for good reasons
+worth keeping.** Round 1 used `COALESCE(CAST(col AS TEXT), char(0))` joined by
+`char(31)`: a NULL and a NUL-bearing string serialise identically, and a
+separator byte inside `name` reads as the boundary between `name` and `notes`,
+so a value could move between adjacent columns unnoticed. Round 2 replaced it
+with `length(quote(col)) || ':' || quote(col)` — **and that is still not
+injective, because `quote()` truncates a text value at its first NUL byte.**
+Both `'ab\0x'` and `'ab\0y'` render `4:'ab'`, and the length prefix measures the
+already-truncated literal rather than restoring what was discarded; the round-2
+OpenAI seat found it and confirmed it with a direct SQLite probe returning
+`'ab'|'ab'|1|4|4`. `hex(cast(… as blob))` discards nothing, the `typeof` tag
+keeps NULL, integer, real, text and blob apart before any bytes are compared,
+and the byte length makes the field boundaries unforgeable. The readings below
+are from this encoding, taken on a file freshly re-copied from dev for the
+purpose.
 
 **Before** — a real database, mid-history, with the migration immediately
 before this one already applied:
@@ -100,7 +96,7 @@ project rows: 183
 untouched columns (17): id,project_id,parent_id,position,name,notes,frozen_number,
   start_no_earlier_than,service_team_id,revision,priority,max_parallel,
   start_no_earlier_than_reason,service_id,created_at,updated_at,created_by
-untouched-column digest: 6a95bece327ca51c20adb499c8d18c7a41810c3f909f6847f7b9f81a43ce28c7
+untouched-column digest: 2a9ec4dc307bea46d7ed3d99dc65df4e13d908f1027991b5930b8b1819ef846d
 newest applied: 20260906003000_add_work_item_read_order_index | 20260904140000_add_project_settings | …
 ```
 
@@ -125,7 +121,7 @@ work_item rows: 940
 project rows: 183
 deadline IS NULL: 940
 deadline IS NOT NULL: 0
-untouched-column digest: 6a95bece327ca51c20adb499c8d18c7a41810c3f909f6847f7b9f81a43ce28c7
+untouched-column digest: 2a9ec4dc307bea46d7ed3d99dc65df4e13d908f1027991b5930b8b1819ef846d
 newest applied: 20260906090000_add_work_item_deadline | 20260906003000_add_work_item_read_order_index | …
 ```
 
@@ -245,14 +241,14 @@ that changed a file outside `openspec/`, and every commit after that one is
 documentation.** On h2puni, worktree clean at that head, nothing built or run on
 the workspace box:
 
-| target                     | result                                                                                                 |
-| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| target                     | result                                                                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | be-01 unit                 | **1589 pass / 0 fail**, rc 0, 124 files (1515 before this slice; the new folder adds cases to the migration walks themselves) |
-| `nx run-many -t typecheck` | rc 0, 22 projects                                                                                      |
-| be-01 lint                 | rc 0, zero errors and zero warnings                                                                    |
-| `nx format:check --all`    | rc 0                                                                                                   |
-| `prettier --check`         | rc 0 on the three touched text files                                                                   |
-| `openspec validate --all`  | 39 items, 39 passed, 0 failed                                                                          |
+| `nx run-many -t typecheck` | rc 0, 22 projects                                                                                                             |
+| be-01 lint                 | rc 0, zero errors and zero warnings                                                                                           |
+| `nx format:check --all`    | rc 0                                                                                                                          |
+| `prettier --check`         | rc 0 on the three touched text files                                                                                          |
+| `openspec validate --all`  | 39 items, 39 passed, 0 failed                                                                                                 |
 
 **Prettier has no SQL parser.** Pointing it at the two `.sql` files exits 2 on
 `No parser could be inferred` — a caller error, not a formatting failure, and
@@ -323,3 +319,17 @@ Its two Importants were both true and both cost the same mistake twice:
   underneath it. **A stale gate claim on a prod-mode PR is the finding, not the
   wording**: the numbers were real but they described a different tree. The
   gate was re-run at `65fb9359` and the table now reports that run.
+
+The `openai/gpt-5.6-sol` seat reviewed the same head independently and also
+returned **BLOCK** — 0 Critical, 1 Important, 3 Minor;
+`queue/reviews/t267-slice1-r2-sol.txt`, 4876 bytes, verified. Its Important is
+the one recorded above under the digest: round 2's `quote()` encoding truncates
+text at the first NUL, so it was replaced a third time and both readings
+retaken. Two of its Minors were already fixed by the agy fold in the same
+round — the stale gate SHAs, and `tasks.md`'s over-broad "not tested". The
+third was new and correct: `down.sql` claimed a rollback returns every plan
+with the dates it had, which is false wherever a deadline had won a contention
+between two ready slices; that comment now says so and says why.
+
+**Round 3 is owed.** Both seats returned BLOCK at `65fb9359`, the fold is
+`f1ad1326` and later, and no seat has read the folded tree yet.

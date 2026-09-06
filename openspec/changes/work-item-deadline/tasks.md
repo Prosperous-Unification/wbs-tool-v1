@@ -60,8 +60,11 @@ here.
       migrated database file and every existing row reads `deadline: null`
       afterwards. Rolling the **application** back with the column present is
       exercised once — the old column list does not name `deadline`, so the
-      values sit unread. Rolling the **migration** back is not tested because it
-      is not supported; it drops user data. **Done — transcript in `verify.md`:**
+      values sit unread. Rolling the **migration** back over seeded deadline
+      data is not exercised because it is not supported; it drops user data.
+      (The down script itself is not uncovered — `migrate-down.db.test.ts`
+      executes it and covers its syntax and its ordering. The narrower true
+      statement, corrected here after round 2 rather than left standing.) **Done — transcript in `verify.md`:**
       a copy of dev's live `wbs.db` (940 work items, 183 projects, 17 columns,
       no `deadline`) migrated through the real `migrate-cli`, after which all
       940 rows read null, the counter-query `IS NOT NULL` reads 0, and a sha256

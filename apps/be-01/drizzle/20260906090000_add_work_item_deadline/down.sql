@@ -1,12 +1,17 @@
 -- Reverses `20260906090000_add_work_item_deadline`.
 --
--- **What is lost is dates somebody committed to, and nothing else.** Every
--- other column of `work_item` is untouched, so every floor still holds its row
--- on the same day and every plan comes back with the dates it had — because
--- the dates it had were never a function of this column. A deadline orders the
--- queue and labels a row late; it does not place work. So the rollback returns
--- a plan to the state it is in today: the same placement, without the ordering
--- among contended slices and without a row anywhere reading late.
+-- **What is lost is dates somebody committed to — and, where a deadline had
+-- won a contention, some placements move with them.** Every other column of
+-- `work_item` is untouched and every floor still holds its row on the same day,
+-- but "a deadline does not place work" is a statement about the *constraint*
+-- and not about the queue: minimum slack and earliest date sort contended ready
+-- slices ahead of priority, so two one-day slices sharing one person come back
+-- in the priority order once the deadlines are gone, and both their dates move.
+-- The rollback therefore returns a plan to the state it would be in had the
+-- deadlines never been entered — which is the state it is in today, but is not
+-- the same thing as "the same placement". An earlier draft of this comment said
+-- it was; a round-2 review measured the counter-example and it is written here
+-- instead of quietly left.
 --
 -- That is the one asymmetry worth stating plainly rather than implying a safety
 -- net: the placement is recoverable because it never depended on this column,
