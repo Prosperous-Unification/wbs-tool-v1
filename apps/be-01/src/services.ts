@@ -180,6 +180,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // while a service publishes through another. See {@link DeferringBroadcaster}.
   const announcements = new DeferringBroadcaster(broadcast);
 
+  const optimizerInput: { workItems: WorkItemService | undefined } = { workItems: undefined };
   const coordinator =
     opts.optimizer === undefined
       ? undefined
@@ -191,6 +192,12 @@ export function buildServices(opts: ServicesOptions): BeServices {
           ownerId: crypto.randomUUID(),
           now: Date.now,
           attemptToken: () => crypto.randomUUID(),
+          inputOf: async (projectId) => {
+            if (optimizerInput.workItems === undefined) {
+              throw new Error('optimizer input reader used before service composition completed');
+            }
+            return await optimizerInput.workItems.scheduleInput(projectId);
+          },
           spawn: opts.optimizer.spawn,
           onChildError: (err) => {
             opts.logger.error({ err }, 'optimizer child failed');
@@ -201,7 +208,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // and consume optimized rows.
   const optimizer = optimizerWiring(coordinator?.read);
 
-  return {
+  const services: BeServices = {
     announcements,
     gatewayBroadcaster: broadcast,
     optimizer: coordinator,
@@ -333,4 +340,7 @@ export function buildServices(opts: ServicesOptions): BeServices {
       },
     }),
   };
+  optimizerInput.workItems = services.workItems;
+  coordinator?.start();
+  return services;
 }

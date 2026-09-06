@@ -36,10 +36,12 @@ export interface SolverQueueDequeueRequest {
 }
 
 export type SolverQueueDequeue =
-  | { readonly kind: 'empty' | 'capacity-full' }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'capacity-full' }
   | {
       readonly kind: 'reserved';
       readonly entry: QueueEntry;
+      readonly inputHash: string;
       readonly admission: Extract<SolverSlotAdmission, { readonly kind: 'reserved' }>;
     };
 
@@ -51,12 +53,13 @@ const queueIdentity = (entry: SolverQueueRequest) =>
     eq(solverQueue.budgetMs, entry.budgetMs),
   );
 
-function isCurrent(tx: Transaction, entry: QueueEntry): boolean {
+function currentInputHash(tx: Transaction, entry: QueueEntry): string | null {
   const generation = readGeneration(tx, entry.projectId, entry.contractVersion);
-  return (
-    generation?.generation === entry.generation &&
+  return generation !== null &&
+    generation.generation === entry.generation &&
     generation.cancelEpoch === entry.admittedCancelEpoch
-  );
+    ? generation.inputHash
+    : null;
 }
 
 /** Persist one capacity-blocked solve under the generation and cancel epoch observed now. */
@@ -113,7 +116,8 @@ export function dequeueSolverRequest(
         .get();
       if (stored === undefined) return { kind: 'empty' };
       const entry = toSolverQueueRow(stored);
-      if (!isCurrent(tx, entry)) {
+      const inputHash = currentInputHash(tx, entry);
+      if (inputHash === null) {
         tx.delete(solverQueue).where(queueIdentity(entry)).run();
         continue;
       }
@@ -133,7 +137,9 @@ export function dequeueSolverRequest(
         return { kind: 'capacity-full' };
       }
       tx.delete(solverQueue).where(queueIdentity(entry)).run();
-      if (admission.kind === 'reserved') return { kind: 'reserved', entry, admission };
+      if (admission.kind === 'reserved') {
+        return { kind: 'reserved', entry, inputHash, admission };
+      }
     }
   });
 }

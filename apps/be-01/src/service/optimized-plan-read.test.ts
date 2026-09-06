@@ -235,6 +235,7 @@ describe('the plan read and the optimized cache', () => {
     if (seen.asks.length !== 1) throw new Error('the reader was not consulted exactly once');
     const asked = seen.asks[0];
     expect([asked.projectId, asked.objective]).toEqual([projectId, 'time']);
+    expect(await service.scheduleInput(projectId)).toEqual(asked.input);
     expect(asked.input.rows.map((row) => row.id)).toEqual([id]);
     expect(asked.input.slices.map((each) => sliceKey(each.workItemId, each.stepId))).toEqual([
       sliceKey(id, stepId),
@@ -243,6 +244,8 @@ describe('the plan read and the optimized cache', () => {
     // not exist yet, and an empty map is the true value for a plan with no
     // deadlines stated either side of that task.
     expect([...asked.input.deadlines]).toEqual([]);
+    // Proof: rebuilding the queued input with a different reach or without the
+    // start constraint makes the equality above fail before a stale solve can launch.
   });
 
   it('runs Fast for a deployment with no cache wired in', async () => {

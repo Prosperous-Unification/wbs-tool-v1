@@ -3490,7 +3490,7 @@ SLOT_RECLAIM_MARGIN_MS` **from the admitting coordinator's own budget**.
       lost the blue/green, cancellation and old-owner fences the design calls
       mandatory. No alternate key shape or reclaim rule is restated anywhere in
       this plan.
-- [ ] 6.3 `solver_queue` FIFO ordered by `enqueuedAt`, then `projectId`, then
+- [x] 6.3 `solver_queue` FIFO ordered by `enqueuedAt`, then `projectId`, then
       `contractVersion`, then `objective`, then `budgetMs` — the trailing terms
       are what make the order total, because a project's PRI and Time entries
       can share a timestamp and blue and green can enqueue the same project and

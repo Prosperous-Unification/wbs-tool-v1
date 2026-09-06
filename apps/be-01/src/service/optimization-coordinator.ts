@@ -11,7 +11,7 @@ import {
 } from '../repository/optimization-admission';
 import { releaseSolverSlot } from '../repository/optimization-drain';
 import { allocateGeneration } from '../repository/optimization-generation';
-import { enqueueSolverRequest } from '../repository/optimization-queue';
+import { dequeueSolverRequest, enqueueSolverRequest } from '../repository/optimization-queue';
 import {
   readOptimizedPairAndSpawn,
   type SpawnRequest,
@@ -39,6 +39,8 @@ export interface OptimizationCoordinatorOptions {
   readonly now: () => number;
   /** Fresh 128-bit token source; the production root supplies `randomUUID`. */
   readonly attemptToken: () => string;
+  /** Rebuild the current canonical input for a durable queue entry after restart. */
+  readonly inputOf: (projectId: string) => Promise<ScheduleInput | null>;
   /**
    * The launcher boundary, called only after SQLite returned this attempt's
    * counted `starting` row. Slice 6.2b binds that row to the launcher PID.
@@ -85,12 +87,19 @@ export type ReservedSpawner = (request: ReservedSpawnRequest) => Promise<Reserve
  */
 export class OptimizationCoordinator {
   private readonly inFlight = new Set<Promise<void>>();
+  private pumpInFlight: Promise<void> | undefined;
+  private pumpRequested = false;
 
   constructor(private readonly options: OptimizationCoordinatorOptions) {}
 
   /** Await children already launched by this coordinator; used by shutdown and deterministic tests. */
   async drain(): Promise<void> {
-    await Promise.all([...this.inFlight]);
+    while (this.inFlight.size > 0) await Promise.all([...this.inFlight]);
+  }
+
+  /** Start the restart reconciliation after the composition root has wired the input reader. */
+  start(): void {
+    this.requestPump();
   }
 
   private slotOf(request: ReservedSpawnRequest) {
@@ -198,8 +207,92 @@ export class OptimizationCoordinator {
       .catch((error: unknown) => {
         this.options.onChildError(error);
       })
-      .finally(() => this.inFlight.delete(tracked));
+      .finally(() => {
+        this.inFlight.delete(tracked);
+        this.requestPump();
+      });
     this.inFlight.add(tracked);
+  }
+
+  private requestPump(): void {
+    if (this.pumpInFlight !== undefined) {
+      this.pumpRequested = true;
+      return;
+    }
+    this.pumpRequested = false;
+    const tracked = this.pumpQueue()
+      .catch((error: unknown) => {
+        this.options.onChildError(error);
+      })
+      .finally(() => {
+        this.inFlight.delete(tracked);
+        this.pumpInFlight = undefined;
+        if (this.pumpRequested) this.requestPump();
+      });
+    this.pumpInFlight = tracked;
+    this.inFlight.add(tracked);
+  }
+
+  private async pumpQueue(): Promise<void> {
+    for (;;) {
+      const next = dequeueSolverRequest(this.options.db, {
+        ownerId: this.options.ownerId,
+        attemptToken: this.options.attemptToken(),
+        now: this.options.now(),
+      });
+      if (next.kind === 'empty' || next.kind === 'capacity-full') return;
+
+      const slot = {
+        projectId: next.entry.projectId,
+        contractVersion: next.entry.contractVersion,
+        generation: next.entry.generation,
+        objective: next.entry.objective,
+        budgetMs: next.entry.budgetMs,
+        attemptToken: next.admission.attemptToken,
+      };
+      const input = await this.options.inputOf(next.entry.projectId);
+      if (input === null) {
+        releaseSolverSlot(this.options.db, slot);
+        continue;
+      }
+      if (scheduleInputHash(input) !== next.inputHash) {
+        releaseSolverSlot(this.options.db, slot);
+        this.read({ projectId: next.entry.projectId, objective: next.entry.objective, input });
+        continue;
+      }
+
+      const built = buildSolverRequestPair(input, this.options.solverVersion, next.entry.budgetMs)[
+        next.entry.objective
+      ];
+      if (!built.ok) {
+        try {
+          storeOptimizedOutcome(this.options.db, {
+            claim: { ...slot, ownerId: this.options.ownerId },
+            inputHash: next.inputHash,
+            admittedCancelEpoch: next.admission.admittedCancelEpoch,
+            outcome: { kind: 'failed', reason: dispositionOfPreflightFailure(built.failure) },
+            now: this.options.now(),
+          });
+        } finally {
+          releaseSolverSlot(this.options.db, slot);
+        }
+        continue;
+      }
+
+      this.startReserved({
+        key: {
+          projectId: next.entry.projectId,
+          inputHash: next.inputHash,
+          contractVersion: next.entry.contractVersion,
+          budgetMs: next.entry.budgetMs,
+        },
+        objective: next.entry.objective,
+        generation: next.entry.generation,
+        admission: next.admission,
+        request: built.request,
+        input,
+      });
+    }
   }
 
   /**
@@ -284,6 +377,7 @@ export class OptimizationCoordinator {
               });
             } finally {
               releaseSolverSlot(this.options.db, slot);
+              this.requestPump();
             }
             return;
           }

@@ -39,6 +39,7 @@ import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 
 import type {
   ActualStore,
+  Assignment,
   CapacityStore,
   CommandJournalStore,
   DependencyStore,
@@ -55,6 +56,7 @@ import type {
   Step,
   StepProgressStore,
   StoredActual,
+  StoredDependency,
   StoredEstimate,
   StoredMeasure,
   StoredProgress,
@@ -353,6 +355,87 @@ export function slicesOf(
     }
   }
   return slices;
+}
+
+interface CanonicalScheduleParts {
+  readonly input: ScheduleInput;
+  readonly hasChildren: ReadonlySet<string>;
+  readonly assigneesOf: ReadonlyMap<string, Record<string, string>>;
+  readonly rule: EstimateRule;
+}
+
+/**
+ * Assemble the one canonical solver/Fast input from repository readings.
+ *
+ * Both the interactive tree read and the restart queue pump call this seam.
+ * Keeping the slicing, assignments, calendar offsets, capacity and reach here
+ * prevents a restarted solve from rebuilding a different hash than the plan
+ * read that enqueued it.
+ */
+function canonicalScheduleParts(
+  project: Project,
+  rows: readonly LabelledWorkItem[],
+  estimates: readonly StoredEstimate[],
+  edges: readonly StoredDependency[],
+  assignments: readonly Assignment[],
+  steps: readonly Step[],
+  poolSizes: ReadonlyMap<string, number>,
+): CanonicalScheduleParts {
+  const hasChildren = new Set(rows.map((row) => row.parentId).filter((id) => id !== null));
+  const assigneesOf = new Map<string, Record<string, string>>();
+  for (const assignment of assignments) {
+    assigneesOf.set(assignment.workItemId, {
+      ...(assigneesOf.get(assignment.workItemId) ?? {}),
+      [assignment.stepId]: assignment.personId,
+    });
+  }
+  const rule: EstimateRule = {
+    method: project.estimateMethod,
+    pertWeights: project.pertWeights,
+    rounding: project.estimateRounding,
+  };
+  const slices = slicesOf(
+    rows,
+    estimates,
+    hasChildren,
+    steps.map((step) => step.id),
+    rule,
+    assigneesOf,
+    effectiveTeamsOf(rows),
+    poolSizes,
+  );
+  const notBefore = new Map<string, number>();
+  if (project.startDate !== null) {
+    for (const row of rows) {
+      if (row.startNoEarlierThan === null) continue;
+      notBefore.set(row.id, workdaysBetween(project.startDate, row.startNoEarlierThan));
+    }
+  }
+  const deadlines =
+    project.startDate === null
+      ? NO_DEADLINES
+      : deadlineOffsetsOf(
+          project.startDate,
+          new Map(
+            rows
+              .filter((row): row is typeof row & { deadline: IsoDate } => row.deadline !== null)
+              .map((row) => [row.id, row.deadline]),
+          ),
+        );
+  return {
+    input: {
+      rows,
+      edges,
+      slices,
+      notBefore,
+      poolSizes,
+      reach: project.depReach,
+      deadlines,
+    },
+    hasChildren,
+    assigneesOf,
+    rule,
+  };
 }
 
 /**
@@ -1264,6 +1347,20 @@ export class WorkItemService {
     return project.scheduleEngine === 'optimized' ? optimized : null;
   }
 
+  /** Rebuild the canonical input a durable solver queue entry names. */
+  async scheduleInput(projectId: string): Promise<ScheduleInput | null> {
+    const project = await this.opts.projects.findById(projectId);
+    if (project === null) return null;
+    const rows = await this.opts.workItems.listByProject(projectId);
+    const estimates = await this.opts.estimates.listByProject(projectId);
+    const edges = await this.opts.dependencies.listByProject(projectId);
+    const assignments = await this.opts.directory.assignmentsOf(rows.map((row) => row.id));
+    const steps = await this.opts.projects.stepsOf(projectId);
+    const poolSizes = await this.opts.capacity.slotsFor(projectId);
+    return canonicalScheduleParts(project, rows, estimates, edges, assignments, steps, poolSizes)
+      .input;
+  }
+
   /**
    * Every work item in the project, each carrying the number derived for it,
    * ordered as the tree reads.
@@ -1448,27 +1545,8 @@ export class WorkItemService {
     const assignedPeople = (await this.opts.directory.listPeople())
       .filter((each) => assignedIds.has(each.id))
       .map(({ id, name }) => ({ id, name }));
-    const assigneesOf = new Map<string, Record<string, string>>();
-    for (const each of assigned) {
-      assigneesOf.set(each.workItemId, {
-        ...(assigneesOf.get(each.workItemId) ?? {}),
-        [each.stepId]: each.personId,
-      });
-    }
     const numbers = deriveNumbers(rows);
     const totals = rollUp(rows, stored);
-    // The project's whole estimate arithmetic, assembled once and handed to
-    // everything that needs a number of days: the slices the schedule runs and
-    // the figures the table prints. Two assemblies would be two arithmetics.
-    const rule: EstimateRule = {
-      method: project.estimateMethod,
-      pertWeights: project.pertWeights,
-      rounding: project.estimateRounding,
-    };
-    // What each row is **charged**, per step: a leaf's own estimate rounded, a
-    // parent's the sum of its descendants' rounded figures. Not `totals` put
-    // through the method — see `rollUpFinals`.
-    const charged = rollUpFinals(rows, stored, rule);
     const recordedTotals = rollUpActuals(rows, recorded);
     // Three folds over a tree already in memory, one per metric, because adding
     // a token to an hour is the thing `rollUpMeasures` exists to make
@@ -1478,7 +1556,6 @@ export class WorkItemService {
     const measuredTotals = new Map(
       MEASURE_METRICS.map((metric) => [metric, rollUpMeasures(rows, measured, metric)] as const),
     );
-    const hasChildren = new Set(rows.map((row) => row.parentId).filter((id) => id !== null));
     // Which steps have work on each leaf: the ones with an estimate, the ones
     // with a recorded day, and the ones somebody has already spoken about.
     //
@@ -1521,61 +1598,21 @@ export class WorkItemService {
     // nothing — not `slicesOf`, not `schedule` — and that is the change's whole
     // claim about itself: `git diff` on this file shows one read and one field.
     const priorityBands = await this.opts.priorityBands.listFor(projectId);
-    // One reading of the label, shared with the table, the cards, the Gantt and
-    // the export — a leaf's own team set, or the nearest ancestor's. No write
-    // ever copies a set down; see {@link effectiveTeamsOf}.
-    const teamOf = effectiveTeamsOf(rows);
-    const slices = slicesOf(
+    const canonical = canonicalScheduleParts(
+      project,
       rows,
       stored,
-      hasChildren,
-      steps.map((each) => each.id),
-      rule,
-      assigneesOf,
-      teamOf,
+      edges,
+      assigned,
+      steps,
       slotsOf,
     );
-    // A manual date becomes an offset before the pass, and offsets become dates
-    // after it: the schedule itself never sees a calendar, so weekends are
-    // counted in exactly one place. Without a project start date there is
-    // nothing to count from, so the constraints are simply not applied — a
-    // plan off the calendar is the state it has always been in.
-    const notBefore = new Map<string, number>();
-    if (project.startDate !== null) {
-      for (const row of rows) {
-        if (row.startNoEarlierThan === null) continue;
-        notBefore.set(row.id, workdaysBetween(project.startDate, row.startNoEarlierThan));
-      }
-    }
-    // The stored dates, read the same way and under the same rule as the floors
-    // above: a calendar date becomes a whole-workday offset here, and the
-    // schedule never sees a calendar. A project with no start date has no day
-    // zero to count from, so no deadline is applied — which is the state every
-    // plan off the calendar has always been in, and the same answer 6.1's write
-    // path gives when it asks such a project nothing.
-    //
-    // **Keyed as authored, parents included.** `leafDeadlinesOf` inside
-    // `schedule()` owns the fold down to leaves, and the canonical hash reads
-    // this same as-authored map (`canonical-schedule-input.ts` (g)); expanding
-    // here would do it twice and let the hash and the fold disagree about which
-    // day a leaf owes.
-    //
-    // `deadlineOffsetsOf` never drops an entry, so a date that now resolves
-    // before day zero arrives as `UNMEETABLE_DEADLINE_OFFSET` rather than as an
-    // absence — tasks.md 5.4's read-time resolution. The stored value is not
-    // rewritten and the read is not refused: the row is reported late by the
-    // whole span it stands on.
-    const deadlines =
-      project.startDate === null
-        ? NO_DEADLINES
-        : deadlineOffsetsOf(
-            project.startDate,
-            new Map(
-              rows
-                .filter((row): row is typeof row & { deadline: IsoDate } => row.deadline !== null)
-                .map((row) => [row.id, row.deadline]),
-            ),
-          );
+    const { assigneesOf, hasChildren, rule } = canonical;
+    const { slices, notBefore, deadlines } = canonical.input;
+    // What each row is **charged**, per step: a leaf's own estimate rounded, a
+    // parent's the sum of its descendants' rounded figures. Not `totals` put
+    // through the method — see `rollUpFinals`.
+    const charged = rollUpFinals(rows, stored, rule);
     // tasks.md 4.11's seam, and the reason `readOptimizedPair` finally has a
     // production caller. Asked **before** the `try` on purpose: everything the
     // cache models — a miss, a `failed` row, a superseded generation, a
@@ -1587,15 +1624,7 @@ export class WorkItemService {
     // through `schedule()` itself, which throws on a cycle before anything is
     // stored, so a plan that would raise `ScheduleCycleError` here has no row
     // to serve. The cycle banner is not lost by taking this branch.
-    const optimized = this.publishedOptimized(project, {
-      rows,
-      edges,
-      slices,
-      notBefore,
-      poolSizes: slotsOf,
-      reach: project.depReach,
-      deadlines,
-    });
+    const optimized = this.publishedOptimized(project, canonical.input);
     let timing = new Map<string, Scheduled>();
     let scheduleError: ScheduleError = null;
     /**

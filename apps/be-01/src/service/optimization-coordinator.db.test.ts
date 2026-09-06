@@ -10,6 +10,7 @@ import { openDatabase, openDrizzle } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
+import { enqueueSolverRequest } from '../repository/optimization-queue';
 import { readOptimizedPair } from '../repository/optimized-schedule-cache';
 import { solverQueue, solverSlot } from '../repository/schema';
 import {
@@ -90,6 +91,12 @@ function deferred<T>(): {
   };
 }
 
+async function untilCalls(calls: readonly ReservedSpawnRequest[], count: number): Promise<void> {
+  for (let turn = 0; turn < 50 && calls.length < count; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
+
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -102,17 +109,18 @@ function database(): { path: string; db: ReturnType<typeof openDrizzle> } {
   return { path, db: openDrizzle(path) };
 }
 
-function seedProject(path: string): void {
+function seedProject(path: string, projectId = 'p-1'): void {
   const db = openDatabase(path);
   try {
     db.run(
-      `INSERT INTO users (id, username, password_hash, created_at)
+      `INSERT OR IGNORE INTO users (id, username, password_hash, created_at)
        VALUES ('u-1', 'owner', 'hash', 1)`,
     );
     db.run(
       `INSERT INTO project (id, name, owner_id, restricted, revision, created_at,
                             optimization_enabled, schedule_engine, schedule_objective)
-       VALUES ('p-1', 'Plan', 'u-1', 0, 0, 1, 1, 'optimized', 'pri')`,
+       VALUES (?, ?, 'u-1', 0, 0, 1, 1, 'optimized', 'pri')`,
+      [projectId, `Plan ${projectId}`],
     );
   } finally {
     db.close();
@@ -147,6 +155,7 @@ function coordinator(
     ownerId,
     now: () => 10,
     attemptToken: () => `${ownerId}-token-${String(token++)}`,
+    inputOf: () => Promise.resolve(INPUT),
     spawn: async (request) => {
       calls.push(request);
       return await childOf(request);
@@ -264,6 +273,105 @@ describe('OptimizationCoordinator read', () => {
 
     // Proof: ignoring project-full/global-full leaves this FIFO empty; replacing
     // the full-key conflict policy changes the second read to four rows or throws.
+  });
+
+  it('launches two capacity-blocked projects in durable FIFO order as owned seats release', async () => {
+    const { path, db } = database();
+    for (const projectId of ['p-0', 'p-1', 'p-2', 'held-a', 'held-b', 'held-c', 'held-d']) {
+      seedProject(path, projectId);
+    }
+    for (const [projectIndex, projectId] of ['held-a', 'held-b', 'held-c', 'held-d'].entries()) {
+      const generation = allocateGeneration(db, projectId, CONTRACT, scheduleInputHash(INPUT), 1);
+      const seats = projectId === 'held-d' ? 2 : 4;
+      for (let seat = 0; seat < seats; seat += 1) {
+        expect(
+          reserveSolverSlot(db, {
+            projectId,
+            contractVersion: CONTRACT,
+            generation,
+            objective: seat % 2 === 0 ? 'pri' : 'time',
+            budgetMs: BUDGET + projectIndex * 10 + seat + 1,
+            ownerId: `held-${String(projectIndex)}-${String(seat)}`,
+            attemptToken: `held-token-${String(projectIndex)}-${String(seat)}`,
+            now: 1,
+          }),
+        ).toMatchObject({ kind: 'reserved' });
+      }
+    }
+    const queuedGeneration = allocateGeneration(db, 'p-0', CONTRACT, scheduleInputHash(INPUT), 2);
+    for (const objective of ['pri', 'time'] as const) {
+      expect(
+        enqueueSolverRequest(db, {
+          projectId: 'p-0',
+          contractVersion: CONTRACT,
+          generation: queuedGeneration,
+          objective,
+          budgetMs: BUDGET,
+          enqueuedAt: 2,
+        }),
+      ).toEqual({ kind: 'queued' });
+    }
+
+    const calls: ReservedSpawnRequest[] = [];
+    const exits: ReturnType<typeof deferred<number>>[] = [];
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => {
+        const exit = deferred<number>();
+        exits.push(exit);
+        return {
+          pid: 100 + calls.length,
+          stdout: stream(''),
+          stderr: stream(''),
+          exited: exit.promise,
+          verdict: () => undefined,
+          kill: () => undefined,
+        };
+      },
+      runSolverChildLifecycle,
+    );
+
+    instance.start();
+    await untilCalls(calls, 2);
+    instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT });
+    instance.read({ projectId: 'p-2', objective: 'pri', input: INPUT });
+    expect(calls.map(({ key, objective }) => `${key.projectId}:${objective}`)).toEqual([
+      'p-0:pri',
+      'p-0:time',
+    ]);
+    expect(db.select().from(solverQueue).all()).toHaveLength(4);
+
+    exits[0].resolve(1);
+    exits[1].resolve(1);
+    await untilCalls(calls, 4);
+    expect(calls.map(({ key, objective }) => `${key.projectId}:${objective}`)).toEqual([
+      'p-0:pri',
+      'p-0:time',
+      'p-1:pri',
+      'p-1:time',
+    ]);
+
+    exits[2].resolve(1);
+    exits[3].resolve(1);
+    await untilCalls(calls, 6);
+    expect(calls.map(({ key, objective }) => `${key.projectId}:${objective}`)).toEqual([
+      'p-0:pri',
+      'p-0:time',
+      'p-1:pri',
+      'p-1:time',
+      'p-2:pri',
+      'p-2:time',
+    ]);
+
+    exits[4].resolve(1);
+    exits[5].resolve(1);
+    await instance.drain();
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+
+    // Proof: removing start leaves p-0 queued with zero calls; removing the
+    // post-release pump leaves p-1 and p-2 queued after the p-0 children exit.
   });
 
   it('stores both preflight refusals without creating a launcher', () => {
