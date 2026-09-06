@@ -470,7 +470,6 @@ export class ProjectRepository implements ProjectStore {
             solutionUrl: solutionRef?.url ?? null,
           }),
       revision: bumpedProject,
-      ...auditOnUpdate(stamp),
     };
     return this.db.transaction((tx) => {
       // Claim the ON→OFF edge with a write, not a read followed by a write.
@@ -481,14 +480,20 @@ export class ProjectRepository implements ProjectStore {
         patch.optimizationEnabled === false
           ? tx
               .update(project)
-              .set(updates)
+              .set({ ...updates, ...auditOnUpdate(stamp) })
               .where(and(eq(project.id, id), eq(project.optimizationEnabled, true)))
               .returning()
               .all()
               .at(0)
           : undefined;
       const turnedOff = updated !== undefined;
-      updated ??= tx.update(project).set(updates).where(eq(project.id, id)).returning().all().at(0);
+      updated ??= tx
+        .update(project)
+        .set({ ...updates, ...auditOnUpdate(stamp) })
+        .where(eq(project.id, id))
+        .returning()
+        .all()
+        .at(0);
       if (updated === undefined) return null;
 
       if (turnedOff) {

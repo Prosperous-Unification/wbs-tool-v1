@@ -3530,7 +3530,7 @@ SLOT_RECLAIM_MARGIN_MS` **from the admitting coordinator's own budget**.
       local process handle cannot reach it and `PR_SET_PDEATHSIG` is irrelevant
       while that coordinator is alive. Both paths reject with a typed
       `cancelled` outcome and write no row. Idempotent and project-scoped.
-- [x] 6.4b **Proven by** `optimization-cancel.two-coordinator.test.ts`: blue
+- [x] 6.4b **Proven by** `optimization-cancel.two-coordinator.db.test.ts`: blue
       owns a live PRI child and a live Time child, green serves the settings
       PATCH turning optimization OFF. **Watched red** with the epoch condition
       removed: both real children exit within one heartbeat interval, and
