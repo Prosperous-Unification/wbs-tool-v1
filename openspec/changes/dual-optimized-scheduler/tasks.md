@@ -3634,7 +3634,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       remains counted until termination is proven. Separately restart the
       supervisor mid-attempt and prove its systemd timer still kills at
       `childDeadlineAt` and its pre-listen sweep clears the orphan.
-- [ ] 6.9 **Negative checks, watched red** — remove the dequeue generation
+- [x] 6.9 **Negative checks, watched red** — remove the dequeue generation
       re-check and watch 6.6's stale-entry case fail; remove the toggle
       re-check and watch the toggled-OFF case fail; move admission back into an
       in-memory counter and watch 6.7's two-instance case fail; drop the

@@ -119,7 +119,8 @@ describe('reserveSolverSlot cross-coordinator capacity', () => {
     expect(blue.select().from(solverSlot).all()).toHaveLength(1);
 
     // Proof: changing the global comparison from >= to > admits the seventeenth
-    // row. Counting only one connection admits the fifth p-1 row. Reclaiming
+    // row. Counting only one owner/connection — the observable result of an
+    // in-memory per-coordinator counter — admits the fifth p-1 row. Reclaiming
     // from heartbeat age makes the 20_000 ms request succeed; ignoring the
     // stored deadlines leaves the 80_014 ms replacement globally blocked.
   });

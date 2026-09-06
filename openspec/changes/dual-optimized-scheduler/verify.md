@@ -58,3 +58,24 @@ then make the best-effort socket push through `pushRecorded`; the convenience
 transaction only when a result is newly stored; the coordinator then invokes
 the already-recorded best-effort push. The deferred failure-event path will
 reuse the same transaction and push seam.
+
+## 2026-09-06T11:05:30Z — four independent queue/admission/supervisor reds
+
+- Head: `439b333b` for the added generation witness; the other three tests are
+  unchanged from the exact-head `f14c6d2b` gate above.
+- Removing only the dequeue generation comparison initially left the black-box
+  test green because admission independently rechecks the same generation.
+  A focused assertion now names the dequeue predicate itself; removing that
+  one comparison fails the queue suite 4/1, receiving `hash-p-a` for the stale
+  generation where `null` is required.
+- Removing the project-ON recheck fails the same queue suite 4/1 by reserving
+  the toggled-OFF entry instead of consuming it.
+- Replacing the shared SQLite count with an owner-local count, the observable
+  equivalent of an in-memory coordinator counter, fails the two-connection
+  admission suite 0/1 by admitting the seventeenth seat.
+- Dropping the post-bind disconnect kill fails the managed lifecycle suite 7/2:
+  both socket EOF and output overflow reach wait without a preceding kill.
+
+Every fault was reversed and each remote checkout was verified clean. These
+are four separate assertions and four separate `Proof:` comments: no one
+green case stands in for another fence.
