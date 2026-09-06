@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; its owned coordinator/cache/event scope is landed, including slot fencing, atomic success/failure replay records, negative admission proofs, empty-plan bypass, and the seven-state plan-read DTO. Next run the exact-head terminal gate and reviews; Retry and host-service installation remain deferred. Do not merge or install the host service.
+TASK-220 is ready for main-session review on `change/optimized-scheduler-coordinator`, PR 216. Its owned coordinator/cache/event scope is landed and terminal-gated; the nonblocking terminal findings and Retry/host-service installation are assigned to TASK-268. Do not merge or install the host service under TASK-220.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
