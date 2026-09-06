@@ -290,7 +290,7 @@ describe('the schedule identity guarantee', () => {
     const service = readFileSync(join(import.meta.dir, '../service/work-item.service.ts'), 'utf8');
 
     // (a) The single production call site, arguments parsed rather than matched.
-    const call = /schedule\(([^)]*)\)/.exec(service.slice(service.indexOf('optimized ??')));
+    const call = /const fast = schedule\(([^)]*)\);/.exec(service);
     expect(call).not.toBeNull();
     const args = (call?.[1] ?? '').split(',').map((each) => each.trim());
     expect(args).toEqual([
