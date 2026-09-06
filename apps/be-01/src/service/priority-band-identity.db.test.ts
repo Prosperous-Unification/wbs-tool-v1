@@ -481,9 +481,9 @@ describe('a priority ladder moves no date', () => {
         // convenience: no work item in these sixteen plans can carry a deadline
         // at all, so a replay reporting any slice late would mean the engine
         // had invented a date rather than read one. The column exists as of
-        // `b2bb095c` — what makes the claim true is that nothing reads or
-        // writes it, since `WORK_ITEM_COLUMNS` does not name `deadline` and the
-        // plan read passes the `NO_DEADLINES` placeholder.
+        // `b2bb095c` and is readable and writable as of slice 6 — what makes the
+        // claim true is that no replayed plan writes one and the plan read still
+        // passes the `NO_DEADLINES` placeholder.
         expect(lateBy).toBeNull();
         return slice;
       }),
@@ -500,8 +500,16 @@ describe('a priority ladder moves no date', () => {
           state,
           serviceId,
           startNoEarlierThanReason,
+          deadline,
           ...row
         }) => {
+          // Lifted by `work-item-deadline` 6.1, which made the column readable,
+          // and asserted **null** for `tagIds`' reason: the oracle predates the
+          // column, nothing in sixteen replayed plans sets one, and a null on
+          // every row is this slice's own claim — the read path widened by one
+          // column and invented no date on the way. A bare lift would let a
+          // projection that defaulted the column to today pass silently.
+          expect(deadline).toBeNull();
           expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
           // `tagIds` is lifted the same way by `tags` (R10-B) and asserted **empty**
           // for `actuals`' reason: the oracle predates the dimension, nothing in

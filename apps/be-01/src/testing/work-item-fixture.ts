@@ -33,6 +33,7 @@ export function workItemRow(overrides: Partial<WorkItem> = {}): WorkItem {
     frozenNumber: null,
     startNoEarlierThan: null,
     startNoEarlierThanReason: null,
+    deadline: null,
     priority: null,
     serviceTeamId: null,
     serviceId: null,
@@ -212,6 +213,7 @@ export function inMemoryWorkItems(
           patch.startNoEarlierThanReason === undefined
             ? existing.startNoEarlierThanReason
             : patch.startNoEarlierThanReason,
+        deadline: patch.deadline === undefined ? existing.deadline : patch.deadline,
         priority: patch.priority === undefined ? existing.priority : patch.priority,
         serviceTeamId:
           wantedTeamIds !== undefined

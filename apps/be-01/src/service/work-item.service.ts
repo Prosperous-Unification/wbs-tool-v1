@@ -939,6 +939,12 @@ function fieldsOf(patch: WorkItemPatch): (keyof WorkItemPatch)[] {
   // screen and the press is refused. The parallelism line's own red, one field
   // over. Watched 2026-08-18.
   if (patch.startNoEarlierThanReason !== undefined) named.push('startNoEarlierThanReason');
+  // Proof: this line deleted, so a patch naming only the deadline journals
+  // nothing, and `puts a cleared deadline back` failed at its `expectDone` on
+  // `refused: stale_undo`: the undo reached past the unjournalled write to an
+  // entry that write had already made stale. The reason line's own red, one
+  // column over.
+  if (patch.deadline !== undefined) named.push('deadline');
   // Proof: this line and the matching one in {@link revertTo} each deleted in
   // turn, and both `puts a replaced priority back, and leaves a priority a rename
   // did not name` and `takes a first priority away again, rather than leaving a
@@ -1016,6 +1022,12 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   if (patch.startNoEarlierThanReason !== undefined) {
     out.startNoEarlierThanReason = before.startNoEarlierThanReason;
   }
+  // No pair to reconstruct — the deadline has no reason column beside it — so
+  // this is the scalar rule the priority below it keeps: name the field the
+  // forward named, restore the value it had, and leave every other field alone.
+  // Redo of a clear puts `null` back and redo of a set puts the date back,
+  // because `before.deadline` is whichever of the two it actually was.
+  if (patch.deadline !== undefined) out.deadline = before.deadline;
   if (patch.priority !== undefined) out.priority = before.priority;
   if (patch.serviceTeamId !== undefined) out.serviceTeamId = before.serviceTeamId;
   if (patch.teamIds !== undefined) out.teamIds = before.teamIds;
@@ -1720,6 +1732,12 @@ export class WorkItemService {
       startNoEarlierThan: null,
       // No floor, so no words about one — the only pair a new row can be in.
       startNoEarlierThanReason: null,
+      // No ceiling either. A new row states nothing about when it must finish,
+      // and inheriting the parent's deadline would be the stored-versus-effective
+      // bug the service comment below names: the fold over the ancestors is what
+      // makes a parent's deadline bind its children, and it reads the stored
+      // nulls to do it.
+      deadline: null,
       priority,
       serviceTeamId: null,
       // Unlabelled, in the third dimension as in the other two: a new row states
