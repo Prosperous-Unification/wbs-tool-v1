@@ -40,6 +40,7 @@ import {
 import { type AnchorRect, HoverCard } from './hover-card';
 import { initialsOf } from './initials';
 import { InlineMarkdown } from './inline-markdown';
+import { markerRulesAreTooDense } from './marker-rule-density';
 import type { PointedRows } from './pointed-row-store';
 import { priorityBandStyleOf } from './priority-band-style';
 import { shortIsoDate } from './short-date';
@@ -2497,6 +2498,9 @@ function GanttChart({
    */
   const pointedRow = useSyncExternalStore(pointed.subscribe, pointed.pointedAt);
   const [chartSpanPx, setChartSpanPx] = useState<number | null>(null);
+  // The scrollport's own width in CSS pixels, for the marker-rule density
+  // measure. Zero until something is laid out — see {@link measureTheViewport}.
+  const [viewportPx, setViewportPx] = useState(0);
   /**
    * Whether anything is below the fold, off one laid-out scroll box.
    *
@@ -2514,6 +2518,30 @@ function GanttChart({
    */
   const measureTheFold = useCallback((port: HTMLElement): void => {
     setMoreBelow(chartBelowTheFold(port) > AT_THE_LAST_ROW_PX);
+  }, []);
+  /**
+   * How wide the scrollport is — the `100px` the marker-rule density is
+   * measured against (slice 8.3, {@link markerRulesAreTooDense}).
+   *
+   * On {@link measureTheFold}'s path and never on {@link measureTheSpan}'s,
+   * which is the opposite of where a width belongs at first reading. The rule
+   * is the one that file states: `clientWidth` is the box's own metric, like
+   * the `clientHeight` the fold already reads, so it rides the layout flush
+   * that read forces and adds none of its own. `measureTheSpan` measures the
+   * **content row** with a rect, which is the read a scroll must not make.
+   *
+   * And it has to be on the scroll path with the fold: a reader who scrolls
+   * into a denser fortnight is owed the suppression, and 8.3's fifth negative
+   * is exactly a density computed once at mount. `scrolledPx` is plain state
+   * so the measure re-runs on every scroll regardless; the width is here so
+   * that a scroll into a resized box cannot be measured against a stale one.
+   *
+   * jsdom lays nothing out and answers 0, which {@link markerRulesAreTooDense}
+   * reads as "no viewport, no suppression" — so the panel's own cases below
+   * define `clientWidth` on the box the way the browser would have.
+   */
+  const measureTheViewport = useCallback((port: HTMLElement): void => {
+    setViewportPx(port.clientWidth);
   }, []);
   /**
    * How wide the content row is, off the same box.
@@ -2557,10 +2585,12 @@ function GanttChart({
       throw new Error("the chart's scroll box holds no content row to watch");
     }
     measureTheFold(port);
+    measureTheViewport(port);
     measureTheSpan(port);
     if (typeof ResizeObserver === 'undefined') return;
     const watch = new ResizeObserver(() => {
       measureTheFold(port);
+      measureTheViewport(port);
       measureTheSpan(port);
     });
     watch.observe(port);
@@ -2568,7 +2598,7 @@ function GanttChart({
     return () => {
       watch.disconnect();
     };
-  }, [measureTheFold, measureTheSpan]);
+  }, [measureTheFold, measureTheSpan, measureTheViewport]);
   // Whether the chart's detail is drawn: the stored-dependency arrows, the
   // parent rows' summary brackets and the unestimated slices' assumed bars, all
   // three together. The key, the read, the state and the write are one file —
@@ -3311,6 +3341,40 @@ function GanttChart({
     Math.max(0, Math.floor((scrolledPx - CHART_PAD_PX) / dayPx)),
     Math.max(0, days - 1),
   );
+  /**
+   * Where every marker's rule would stand, one entry **per marker**.
+   *
+   * Per marker and not per date on purpose: {@link markerRulesAreTooDense}
+   * owns the de-duplication, because what the measure counts is rule positions
+   * and seven markers sharing a day are one line. Handing it
+   * {@link markersByDate}'s keys would de-duplicate here as well, and 8.3's
+   * second fault — density counted over markers — would then be uncatchable
+   * from this side.
+   *
+   * A marker off the drawn horizon contributes nothing, for the same reason
+   * its rule and its chip draw nothing: it has no position to be dense at.
+   */
+  const markerRuleOffsets = useMemo(
+    () =>
+      markers.flatMap((marker) => {
+        const offset = axisOffsetOf(axis, marker.date);
+        return offset === null ? [] : [offset];
+      }),
+    [axis, markers],
+  );
+  /**
+   * Whether the rules are a picket fence at this rung and this scroll, and so
+   * are not drawn — slice 8.3.
+   *
+   * Computed in render off {@link scrolledPx} and {@link viewportPx}, both
+   * plain state, so a scroll into a denser fortnight re-answers it. The chips
+   * are unaffected: suppression drops the lines and never the markers.
+   */
+  const rulesAreTooDense = markerRulesAreTooDense(markerRuleOffsets, {
+    firstVisibleDay: firstVisibleCell,
+    widthPx: viewportPx,
+    dayPx,
+  });
 
   /**
    * Opens a surface on one bar, against the rectangle the browser has that
@@ -3569,29 +3633,41 @@ function GanttChart({
                 A date off the drawn horizon draws nothing, for the chip's
                 reason — see the `null` arm in the band below and task 8.5.
               */}
-        {[...markersByDate].map(([date, standing]) => {
-          const offset = axisOffsetOf(axis, date);
-          if (offset === null) return null;
-          return (
-            <line
-              key={date}
-              x1={offset}
-              y1={0}
-              x2={offset}
-              y2={rowCount}
-              data-gantt-marker-rule={offset}
-              // The **first** marker's fill, through the one spelling of
-              // "what colour is this marker" the chart has: a second
-              // `?? automaticColor(id)` here is a rule free to disagree
-              // with the chip standing on it. See {@link markerFill}.
-              stroke={markerFill(standing[0])}
-              pointerEvents="none"
-              // The gridlines' reason: user space is one unit per day, so an
-              // unscaled stroke would be a day wide at every rung.
-              vectorEffect="non-scaling-stroke"
-            />
-          );
-        })}
+        {/*
+                Dropped whole when they would be a fence — {@link
+                rulesAreTooDense}, slice 8.3. The map itself is unchanged: what
+                the density decides is whether this block runs, never which of
+                its rules survive. **There is no viewport filter here and no
+                virtualization**: every unsuppressed marked date in the horizon
+                carries its line, most of them scrolled out of view, because
+                the export clones this chart and a rule filtered off screen is
+                a rule missing from the export.
+              */}
+        {rulesAreTooDense
+          ? null
+          : [...markersByDate].map(([date, standing]) => {
+              const offset = axisOffsetOf(axis, date);
+              if (offset === null) return null;
+              return (
+                <line
+                  key={date}
+                  x1={offset}
+                  y1={0}
+                  x2={offset}
+                  y2={rowCount}
+                  data-gantt-marker-rule={offset}
+                  // The **first** marker's fill, through the one spelling of
+                  // "what colour is this marker" the chart has: a second
+                  // `?? automaticColor(id)` here is a rule free to disagree
+                  // with the chip standing on it. See {@link markerFill}.
+                  stroke={markerFill(standing[0])}
+                  pointerEvents="none"
+                  // The gridlines' reason: user space is one unit per day, so an
+                  // unscaled stroke would be a day wide at every rung.
+                  vectorEffect="non-scaling-stroke"
+                />
+              );
+            })}
 
         {/*
                 Every row's own line, as a hit surface and nothing else.
@@ -4137,6 +4213,12 @@ function GanttChart({
       pointRow,
       rowCount,
       rowIdAt,
+      // Slice 8.3. Without it this memo keeps the JSX it built at mount, when
+      // jsdom's unlaid-out box made the density `false`, and the suppression is
+      // computed correctly and then thrown away — which is exactly the shape
+      // the panel case failed in: `rulesAreTooDense` true on the last two
+      // renders and all thirteen rules still in the document.
+      rulesAreTooDense,
       startDate,
       today,
       todayAt,
@@ -4329,6 +4411,10 @@ function GanttChart({
           // and changes nothing about how wide it is. This handler read a rect
           // per scroll event for it until 2026-09-02.
           measureTheFold(scrollEvent.currentTarget);
+          // On the same flush the fold's `clientHeight` already forced, so the
+          // marker-rule density is never measured against a box the reader has
+          // since resized. See {@link measureTheViewport}.
+          measureTheViewport(scrollEvent.currentTarget);
           // The surface is a fixed layer and is not in this scroll box, so the
           // bar moves out from under it and the card stays where it was put. A
           // surface pointing at the wrong bar is worse than none.

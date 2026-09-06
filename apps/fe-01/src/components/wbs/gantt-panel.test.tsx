@@ -5523,6 +5523,160 @@ describe('the marker rule takes its named slot in marksOverLight', () => {
   });
 });
 
+/**
+ * Slice 8.3's other half: the chart asking the density question at all, with
+ * the viewport it really has.
+ *
+ * The arithmetic lives in `marker-rule-density.test.ts` on the fast tier —
+ * the threshold, what is counted, and the rung it is scoped to are nine cases
+ * of a pure function there and cost no rendered chart. What only a rendered
+ * chart can say is what this suite holds: that the panel calls that function,
+ * that it hands it the **scrollport's** width and the day the scroll really
+ * starts at, that a scroll re-answers it, and that suppression drops the lines
+ * out of the DOM without taking the off-screen ones with them.
+ *
+ * **The viewport is supplied the way the browser would have supplied it.**
+ * jsdom lays nothing out, so `clientWidth` is 0 on every box and the panel
+ * would measure "no viewport" forever. Each case defines it on the scroll box
+ * and fires a scroll, which is the panel's own re-measure path — the same one
+ * a reader's wheel takes.
+ */
+describe('the marker rules are dropped when they would be a fence', () => {
+  /** The rung the suppression is scoped to. A day is four pixels wide here. */
+  const FENCE_RUNG_PX = 4;
+  /** The window the density is measured against — `100px` in 8.3's wording. */
+  const VIEWPORT_PX = 100;
+  /** A PALETTE entry, for the chip suite's reason — a fill be-01 would accept. */
+  const AZURE = '#5d6afe';
+
+  /** `MONDAY_START` plus `offset` **calendar** days, which is the axis's step. */
+  const dayAt = (offset: number): string => {
+    const day = new Date(`${MONDAY_START}T00:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + offset);
+    return day.toISOString().slice(0, 10);
+  };
+
+  const markerAt = (offset: number): CalendarMarkerView => ({
+    id: `m-${String(offset)}`,
+    date: dayAt(offset),
+    name: `Day ${String(offset)}`,
+    color: AZURE,
+  });
+
+  /**
+   * Six occupied dates inside the opening 100px window, and seven more packed
+   * into a fortnight far off its right edge.
+   *
+   * Both halves are load-bearing and neither is decoration. At 4px a 100px
+   * viewport spans 25 days, so the opening window holds offsets 0 to 24 and
+   * its six dates are `6 / 100 * 100 = 6`, which `>` does not suppress — the
+   * boundary. Offsets 30 to 36 are seven dates inside the 25-day window that
+   * opens at 30, which `7 > 6` does. So one fixture answers both halves of
+   * 8.3's sixth case, and the difference between them is nothing but where the
+   * reader has scrolled to.
+   *
+   * Forty workdays is eight calendar weeks, which reaches offset 36 with the
+   * horizon to spare that the unfiltered count below needs.
+   */
+  const VISIBLE_DATES = [0, 4, 8, 12, 16, 20];
+  const OFFSCREEN_DATES = [30, 31, 32, 33, 34, 35, 36];
+
+  const fencedChart = () =>
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('span', 0, 40)],
+          slices: [sliceAt('span-dev', 'span', 0, 40)],
+        })}
+        startDate={MONDAY_START}
+        dayPx={FENCE_RUNG_PX}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={[...VISIBLE_DATES, ...OFFSCREEN_DATES].map(markerAt)}
+      />,
+    );
+
+  /**
+   * Gives the scroll box the width and scroll position a browser would have,
+   * and takes the panel's re-measure path to read them.
+   *
+   * `clientWidth` is defined rather than assigned: jsdom's is a getter on the
+   * prototype answering 0, and an assignment to it is silently dropped.
+   */
+  const scrolledTo = (firstVisibleDay: number): void => {
+    const panel = document.querySelector('[data-gantt-panel]');
+    if (!(panel instanceof HTMLElement)) throw new Error('the panel is not on the page');
+    Object.defineProperty(panel, 'clientWidth', { value: VIEWPORT_PX, configurable: true });
+    panel.scrollLeft = firstVisibleDay * FENCE_RUNG_PX + CHART_PAD_PX;
+    fireEvent.scroll(panel);
+  };
+
+  /** The rules whose `x` lies in the 25 days the viewport can see from here. */
+  const visibleRules = (firstVisibleDay: number): Element[] =>
+    [...document.querySelectorAll('[data-gantt-marker-rule]')].filter((rule) => {
+      const offset = Number(rule.getAttribute('data-gantt-marker-rule'));
+      return offset >= firstVisibleDay && offset < firstVisibleDay + VIEWPORT_PX / FENCE_RUNG_PX;
+    });
+
+  itDom('draws the six at the boundary, because the comparison is > and not >=', () => {
+    // The half of 8.3's sixth case that says the measure is scoped to the
+    // viewport at all. Thirteen dates are occupied in this horizon and only six
+    // of them are on screen; an implementation that counted the horizon would
+    // read 13 per 100px and suppress every one of these.
+    fencedChart();
+    scrolledTo(0);
+
+    expect(visibleRules(0)).toHaveLength(VISIBLE_DATES.length);
+  });
+
+  itDom('leaves the off-screen rules in the document rather than virtualizing them', () => {
+    // The decision the count above cannot carry, and the reason it needs its
+    // own assertion: a renderer that drew rules only for the visible interval
+    // would pass every `x`-filtered count in this suite while dropping the
+    // other seven — and the standalone export clones this chart, so those seven
+    // would be missing from the export as well.
+    //
+    // Asserted as the exact horizon total, not merely "more than six": a
+    // renderer that virtualized to a wider-but-still-bounded interval would
+    // satisfy a `toBeGreaterThan` and still lose rules off the end.
+    fencedChart();
+    scrolledTo(0);
+
+    expect(document.querySelectorAll('[data-gantt-marker-rule]')).toHaveLength(
+      VISIBLE_DATES.length + OFFSCREEN_DATES.length,
+    );
+  });
+
+  itDom('drops them all when the reader scrolls into the fortnight that is packed', () => {
+    // The density is re-answered on scroll and not computed once at mount —
+    // 8.3's fifth negative. Nothing about the chart changed here except where
+    // the reader is looking: the same thirteen markers, the same rung, and the
+    // seven dates that were off screen a moment ago are now the seven inside
+    // the window.
+    fencedChart();
+    scrolledTo(30);
+
+    expect(visibleRules(30)).toHaveLength(0);
+  });
+
+  itDom('keeps every chip when the rules are dropped, because only the lines are the fence', () => {
+    // Suppression is about ink the reader cannot separate, and thirteen chips
+    // in the band are still thirteen markers the reader can find. A version
+    // that dropped the markers instead of their rules would pass the case
+    // above and lose the data.
+    fencedChart();
+    scrolledTo(30);
+
+    expect(document.querySelectorAll('[data-marker-chip]')).toHaveLength(
+      VISIBLE_DATES.length + OFFSCREEN_DATES.length,
+    );
+  });
+});
+
 describe('the dates a bar says are printed by shortIsoDate and nothing else', () => {
   itDom('prints a day in another year with that year on it', () => {
     // `shortIsoDate` drops the year only when it matches the reader's own, so a
