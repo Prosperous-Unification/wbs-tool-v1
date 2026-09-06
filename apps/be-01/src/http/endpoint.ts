@@ -129,7 +129,7 @@ export type RequestFailure = {
   request: RequestMetadata;
 } & (
   | { part: 'params'; code: 'invalid_params' }
-  | { part: 'query'; code: 'invalid_query' }
+  | { part: 'query'; code: 'invalid_query'; duplicate?: string }
   | { part: 'body'; code: 'invalid_body' | 'invalid_json' }
 );
 

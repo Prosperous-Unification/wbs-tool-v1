@@ -1,4 +1,11 @@
-import { httpShapes } from '@wbs/contracts';
+import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
+import {
+  completeOidcLogin,
+  httpShapes,
+  logoutOidcSession,
+  refreshOidcSession,
+  startOidcLogin,
+} from '@wbs/contracts';
 import { describe, expect, it } from 'bun:test';
 
 import type { AppOptions } from './app';
@@ -46,7 +53,28 @@ function options(): AppOptions {
 }
 
 function assembled(): readonly Route[] {
-  return mountedRouteLists(options()).flat();
+  return mountedRouteLists().flat();
+}
+
+function oidcOptions(): NonNullable<AppOptions['oidc']> {
+  return {
+    appOrigin: 'https://app.test',
+    client: {
+      authorizationUrl: () => Promise.resolve(new URL('https://provider.test')),
+      exchange: () => Promise.reject(new Error('OIDC exchange fixture was not expected')),
+      refresh: () => Promise.reject(new Error('OIDC refresh fixture was not expected')),
+      revoke: () => Promise.reject(new Error('OIDC revoke fixture was not expected')),
+    },
+    groupPrefix: 'test',
+    groupsClaim: 'groups',
+    mode: 'oidc',
+    redirectUri: 'https://app.test/api/auth/okta/callback',
+    tokens: new InMemoryTokenStore(),
+    transactions: new InMemoryOidcTransactionStore({ ttlMs: 300_000 }),
+    verifier: {
+      verify: () => Promise.reject(new Error('OIDC verifier fixture was not expected')),
+    },
+  };
 }
 
 describe('the mounted route list', () => {
@@ -87,11 +115,26 @@ describe('the mounted route list', () => {
   });
 });
 
-/** Complements actual wire requests: every migrated declaration owns exactly one binding. */
-it('binds each shared HTTP shape once and no unlisted shape', () => {
-  const endpoints = mountedEndpoints(options());
-  expect(endpoints).toHaveLength(httpShapes.length);
-  for (const shape of httpShapes) {
-    expect(endpoints.filter((endpoint) => endpoint.shape === shape)).toHaveLength(1);
+/** Complements actual wire requests: each composition binds its exact shared shape set once. */
+it('binds each shared HTTP shape once in every configuration that owns it', () => {
+  const oidcShapes = new Set<(typeof httpShapes)[number]>([
+    startOidcLogin,
+    completeOidcLogin,
+    refreshOidcSession,
+    logoutOidcSession,
+  ]);
+  const localShapes = httpShapes.filter((shape) => !oidcShapes.has(shape));
+  const compositions = [
+    { endpoints: mountedEndpoints(options()), shapes: localShapes },
+    {
+      endpoints: mountedEndpoints({ ...options(), oidc: oidcOptions() }),
+      shapes: httpShapes,
+    },
+  ];
+  for (const { endpoints, shapes } of compositions) {
+    expect(endpoints).toHaveLength(shapes.length);
+    for (const shape of shapes) {
+      expect(endpoints.filter((endpoint) => endpoint.shape === shape)).toHaveLength(1);
+    }
   }
 });

@@ -1,6 +1,6 @@
 import type { JsonSchema } from 'arktype';
 
-import { bodyMediaFor, type EndpointShape } from './endpoint-shape';
+import { bodyMediaFor, type EndpointShape, queryModeFor } from './endpoint-shape';
 import { assertInlineSchema } from './schema-shape';
 
 export interface DocumentParameter {
@@ -8,6 +8,8 @@ export interface DocumentParameter {
   in: 'path' | 'query';
   required: boolean;
   schema: JsonSchema;
+  style?: 'form';
+  explode?: true;
 }
 
 export interface DocumentResponse {
@@ -41,6 +43,9 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
   const names = new Set<string>();
   for (const shape of shapes) {
     const bodyMedia = bodyMediaFor(shape);
+    // Proof: omitting this erased-table check made a queryless
+    // arbitrary-singleton declaration emit an operation instead of throwing.
+    const queryMode = queryModeFor(shape);
     const bodySchema = shape.body?.jsonSchema;
     // Proof: bypassing these descriptor checks published a tool with unresolved
     // tree references instead of throwing in MCP's structural-descriptor test
@@ -79,14 +84,29 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
       parameters.push({ name, in: 'path', required: true, schema: schema ?? { type: 'string' } });
     }
     if (shape.query !== undefined) {
-      const query = objectSchema(shape.query.jsonSchema);
-      for (const [name, schema] of Object.entries(query.properties ?? {})) {
+      if (queryMode === 'arbitrary-singleton') {
+        // OpenAPI form+explode serializes an object as top-level `key=value`
+        // pairs; the required placeholder name `query` is not sent on the wire.
+        // Proof: flattening this descriptor through objectSchema made the open
+        // query document test throw `cannot flatten parameter schema`.
         parameters.push({
-          name,
+          name: 'query',
           in: 'query',
-          required: query.required?.includes(name) === true,
-          schema,
+          required: false,
+          style: 'form',
+          explode: true,
+          schema: shape.query.jsonSchema,
         });
+      } else {
+        const query = objectSchema(shape.query.jsonSchema);
+        for (const [name, schema] of Object.entries(query.properties ?? {})) {
+          parameters.push({
+            name,
+            in: 'query',
+            required: query.required?.includes(name) === true,
+            schema,
+          });
+        }
       }
     }
     const responses: DocumentOperation['responses'] = {};

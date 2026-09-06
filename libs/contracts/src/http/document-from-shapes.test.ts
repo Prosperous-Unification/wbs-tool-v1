@@ -180,6 +180,8 @@ test('refuses ambiguous repeated empty statuses', () => {
 
 test('refuses object-level query constraints that cannot become named parameters', () => {
   const indexed = requestSchema(type({ '[string]': 'string' }));
+  // Without the explicit mode, an indexed query is still refused rather than
+  // changing the meaning of every existing closed query declaration.
   expect(() => documentFromShapes([{ ...batch, query: indexed }])).toThrow(
     'cannot flatten parameter schema',
   );
@@ -194,6 +196,63 @@ test('refuses object-level query constraints that cannot become named parameters
     );
   }
 });
+
+test('documents arbitrary singleton query keys as one exploded form object', () => {
+  const openQuery = defineEndpointShape({
+    ...batch,
+    query: requestSchema(type({ '[string]': 'string' })),
+    queryMode: 'arbitrary-singleton',
+  });
+  const operation = documentFromShapes([openQuery]).paths['/api/projects/{id}/commands']?.['post'];
+  expect(operation?.parameters).toEqual([
+    { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+    {
+      name: 'query',
+      in: 'query',
+      required: false,
+      style: 'form',
+      explode: true,
+      schema: openQuery.query.jsonSchema,
+    },
+  ]);
+});
+
+test('refuses malformed arbitrary-singleton declarations before emitting them', () => {
+  const closed = { ...batch, queryMode: 'arbitrary-singleton' as const };
+  const namedAndOpen = {
+    ...batch,
+    query: requestSchema(type({ 'state?': 'string', '[string]': 'string' })),
+    queryMode: 'arbitrary-singleton' as const,
+  };
+  const constrainedValues = {
+    ...batch,
+    query: {
+      ...requestSchema(type({ '[string]': 'string' })),
+      jsonSchema: {
+        type: 'object' as const,
+        additionalProperties: { type: 'string' as const, minLength: 1 },
+      },
+    },
+    queryMode: 'arbitrary-singleton' as const,
+  };
+  const queryless = {
+    ...batch,
+    query: undefined,
+    queryMode: 'arbitrary-singleton' as const,
+  };
+  for (const shape of [closed, namedAndOpen, constrainedValues, queryless]) {
+    expect(() => defineEndpointShape(shape)).toThrow('arbitrary-singleton query');
+    expect(() => documentFromShapes([shape])).toThrow('arbitrary-singleton query');
+  }
+});
+
+function queryModeFixtures() {
+  const { query: omitted, ...queryless } = batch;
+  void omitted;
+  // @ts-expect-error An arbitrary-singleton mode requires a query validator.
+  defineEndpointShape({ ...queryless, queryMode: 'arbitrary-singleton' });
+}
+void queryModeFixtures;
 
 test('refuses references in every descriptor location without reading validators', () => {
   const schema = {

@@ -2,11 +2,9 @@ import { createLogger } from '@wbs/observability';
 import { observabilityPlugin } from '@wbs/observability/server';
 import { Elysia } from 'elysia';
 
-import {
-  authRoutes,
-  hasInvalidCookieOrigin,
-  type OidcRouteOptions,
-} from './controller/auth.routes';
+import { hasInvalidCookieOrigin, type OidcRouteOptions } from './controller/auth.routes';
+import { authOidcEndpoints } from './controller/auth-oidc-endpoints';
+import { authPasswordEndpoints } from './controller/auth-password-endpoints';
 import { calendarMarkerRoutes } from './controller/calendar-marker.routes';
 import { directoryRoutes } from './controller/directory.routes';
 import { historyRoutes } from './controller/history.routes';
@@ -164,8 +162,9 @@ export interface AppOptions {
 }
 
 /**
- * Every legacy route list still mounted by this app, in mount order. Typed
- * families move to {@link mountedEndpoints} as their shared contracts migrate.
+ * Legacy route-list compatibility seam, now empty after the auth migration.
+ * Task 3.3 removes the seam and its adapter after generated consumers stop
+ * importing the legacy route machinery.
  *
  * Exported so a test can read the same lists the app runs rather than rebuilding
  * the wiring beside it. That distinction is the whole value: a check that
@@ -179,17 +178,8 @@ export interface AppOptions {
  * red.
  *
  */
-export function mountedRouteLists(opts: AppOptions): readonly (readonly Route[])[] {
-  return [
-    authRoutes(
-      opts.auth,
-      opts.oidc,
-      new LoginThrottle({
-        now: opts.oidc?.now,
-        maxConcurrent: opts.maxConcurrentLogins ?? 8,
-      }),
-    ),
-  ];
+export function mountedRouteLists(): readonly (readonly Route[])[] {
+  return [];
 }
 
 /**
@@ -197,6 +187,10 @@ export function mountedRouteLists(opts: AppOptions): readonly (readonly Route[])
  * Proof: dropping smoke makes app.routes.test.ts's binding check see length0 instead of1.
  */
 export function mountedEndpoints(opts: AppOptions) {
+  const passwordThrottle = new LoginThrottle({
+    now: opts.oidc?.now,
+    maxConcurrent: opts.maxConcurrentLogins ?? 8,
+  });
   const commands = new PlanCommandRunner({
     workItems: opts.workItems,
     directory: opts.directory,
@@ -207,6 +201,10 @@ export function mountedEndpoints(opts: AppOptions) {
     announcements: opts.writes.announcements,
   });
   return [
+    ...authPasswordEndpoints(opts.auth, opts.oidc, passwordThrottle),
+    // Proof: removing this spread made app.routes.test.ts receive 38 bindings
+    // instead of the 42 required by the OIDC composition.
+    ...(opts.oidc === undefined ? [] : authOidcEndpoints(opts.auth, opts.oidc)),
     ...smokeRoutes(),
     ...stepRoutes(opts.steps),
     ...directoryRoutes(opts.directory),
@@ -226,15 +224,15 @@ export function mountedEndpoints(opts: AppOptions) {
 }
 
 export function buildApp(opts: AppOptions) {
-  const endpoints: readonly BoundEndpoint[] = mountedEndpoints(opts);
   const logger = createLogger({ service: 'be-01', version: opts.version });
-  // The OIDC callback is the one route list that reports anything, and it names
-  // no framework, so it cannot reach the decorated `logger` above and is handed
+  // The OIDC callback binding reports provider refusals, and it names no
+  // framework, so it cannot reach the decorated `logger` above and is handed
   // it here instead of at every call site that builds `OidcRouteOptions`
   // (TASK-273). A caller that supplied its own wins — that is how a test
   // asserts on what a refused login writes down without a pino destination.
   const routedOptions: AppOptions =
     opts.oidc === undefined ? opts : { ...opts, oidc: { logger, ...opts.oidc } };
+  const endpoints: readonly BoundEndpoint[] = mountedEndpoints(routedOptions);
 
   return (
     new Elysia()
@@ -249,8 +247,9 @@ export function buildApp(opts: AppOptions) {
       .use(openApiPlugin())
       .onRequest(async ({ request, set }) => {
         const path = new URL(request.url).pathname;
-        // Migrated routes own their policy order in mountEndpoints. Legacy
-        // routes keep the existing guard until their declarations migrate.
+        // Migrated routes own their policy order in mountEndpoints. This guard
+        // remains until Task 5.2 proves the complete production policy table
+        // before deleting the former legacy fallback.
         if (
           endpoints.some(
             ({ shape }) =>
@@ -302,12 +301,7 @@ export function buildApp(opts: AppOptions) {
           resolveIdentity: identityResolver(opts.auth, opts.internalAuthSecret),
         }),
       )
-      .use(
-        mountedRouteLists(routedOptions).reduce(
-          (app, list) => app.use(bindElysia(list)),
-          new Elysia(),
-        ),
-      )
+      .use(mountedRouteLists().reduce((app, list) => app.use(bindElysia(list)), new Elysia()))
       .get('/health', ({ set }) => {
         // On every answer, including the unhealthy ones. "Which commit is this
         // wedged process at" is the first question a failed deploy raises, and

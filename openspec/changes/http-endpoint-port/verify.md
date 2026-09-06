@@ -778,3 +778,44 @@ Nx typecheck passed for contracts, be-01, mcp-01 and fe-01; fresh Nx lint passed
 for contracts, be-01 and mcp-01. Generated OpenAPI parity, auth migration, the
 full workspace gate and isolated browser gate remain pending and are not
 claimed by this checkpoint.
+
+### Authentication checkpoint
+
+Password register, login and session reads now use three typed bindings in both
+local and OIDC compositions. OIDC adds four typed bindings only when provider
+options exist. The callback declares an open string query map while the adapter
+refuses every repeated raw key before query collapse, validation or transaction
+consumption. The production app supplies its logger before constructing the
+OIDC bindings. No auth route remains mounted through the legacy route-list
+adapter.
+
+The restored auth/config/app run passed **201 tests / 1039 assertions** across
+16 files. It covers local and OIDC boot, both direct binding families, mounted
+transport, origin ordering, password admission, callback recovery, repository
+identity linking and generated query representation. Independent review then
+passed **87 tests / 504 assertions** and approved the seven-route migration with
+no Important or Critical finding. `bunx nx run-many -t typecheck
+--projects=contracts,be-01 --skip-nx-cache` and the matching lint command passed.
+`env OPENSPEC_TELEMETRY=0 bunx openspec validate http-endpoint-port --strict
+--json` reported one valid change and zero issues.
+
+The intentional envelope revision is explicit. Callback invalid-transaction and
+blank-error 400 answers now carry `{ error: 'invalid_oidc_callback' }`; callback
+exchange, missing-claim and refresh 401 answers carry
+`{ error: 'invalid_oidc_session' }`; account conflict 409 carries
+`{ error: 'oidc_identity_conflict' }`. Missing binding, missing transaction,
+expired transaction and live state mismatch expose the same public 400 body;
+their cookie retention/clearing behavior remains distinct. Redirect 302 and
+session 204 answers remain bodyless through `EMPTY`, with ordered repeated
+`Set-Cookie` headers.
+
+Thirty-four production-path faults were observed and restored before this
+checkpoint: four open-query declaration/duplicate faults; eleven password
+origin, strict-body, mode, proxy, throttle, capacity-release, cookie and store
+failure faults; sixteen OIDC method, cardinality, transaction, provider,
+logging, catch-scope, cookie, rotation, callback-origin and logout-order faults;
+one omitted OIDC composition; and two same-status invalid-transaction body
+substitutions. The composition fault made `app.routes.test.ts` receive 38
+bindings instead of 42. The two envelope substitutions each returned
+`invalid_query` where the mounted test required `invalid_oidc_callback`, proving
+the absent-binding and missing/expired-transaction branches separately.

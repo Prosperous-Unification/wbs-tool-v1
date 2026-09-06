@@ -44,6 +44,8 @@ export type BodyMedia =
   | 'application/x-www-form-urlencoded'
   | 'multipart/form-data';
 
+export type QueryMode = 'arbitrary-singleton';
+
 export interface EndpointShape {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: `/${string}`;
@@ -51,6 +53,8 @@ export interface EndpointShape {
   policies: readonly RequestPolicy[];
   params?: SchemaShape<Record<string, string>>;
   query?: SchemaShape<unknown>;
+  /** Every arrived key is admitted once; repeated top-level keys are malformed. */
+  queryMode?: QueryMode;
   body?: SchemaShape<unknown>;
   // Proof: widening to string[] produced TS2578 for the empty/unknown-media actual declaration fixtures.
   bodyMedia?: readonly [BodyMedia, ...BodyMedia[]];
@@ -112,11 +116,60 @@ export function defineEndpointShape<const S extends EndpointShape>(
         ? unknown
         : never
       : unknown) &
+    (S extends { queryMode: unknown }
+      ? S extends { query: SchemaShape<unknown> }
+        ? unknown
+        : never
+      : unknown) &
     (IsLiteralPath<S['path']> extends true ? unknown : never),
 ): S {
   // Proof: omitting declaration validation made the malformed erased declaration test stop throwing.
   bodyMediaFor(shape);
+  queryModeFor(shape);
   return shape;
+}
+
+/**
+ * Resolves the closed-query default and proves that an open declaration validates
+ * every arbitrary value as a string before an adapter collapses the URL entries.
+ */
+export function queryModeFor(shape: EndpointShape): QueryMode | 'declared' {
+  const mode = erasedDeclaration(shape.queryMode);
+  if (mode === undefined) return 'declared';
+  const descriptor = erasedDeclaration(shape.query?.jsonSchema);
+  const objectKeywords = new Set([
+    '$schema',
+    'type',
+    'additionalProperties',
+    'title',
+    'description',
+  ]);
+  // Proof: removing these declaration checks made the malformed arbitrary-singleton
+  // test return the shape instead of throwing (document-from-shapes.test.ts).
+  if (
+    mode !== 'arbitrary-singleton' ||
+    typeof descriptor !== 'object' ||
+    descriptor === null ||
+    !('type' in descriptor) ||
+    descriptor.type !== 'object' ||
+    !('additionalProperties' in descriptor) ||
+    typeof descriptor.additionalProperties !== 'object' ||
+    descriptor.additionalProperties === null ||
+    !('type' in descriptor.additionalProperties) ||
+    descriptor.additionalProperties.type !== 'string' ||
+    // Proof: omitting this guard made an optional named property return the shape instead of throwing.
+    Object.keys(descriptor).some((key) => !objectKeywords.has(key)) ||
+    // Proof: omitting this guard made a minLength-constrained value return the shape instead of throwing.
+    Object.keys(descriptor.additionalProperties).some((key) => key !== 'type')
+  ) {
+    throw new Error(`Invalid arbitrary-singleton query declaration: ${shape.operationId}`);
+  }
+  return mode;
+}
+
+/** Reads an erased JavaScript declaration without trusting its TypeScript annotation. */
+function erasedDeclaration(value: unknown): unknown {
+  return value;
 }
 
 /** Resolves the JSON default and refuses malformed trusted declarations at every erased-table consumer. */

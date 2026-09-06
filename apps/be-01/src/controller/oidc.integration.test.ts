@@ -543,7 +543,8 @@ describe('OIDC browser routes', () => {
    * state, so that navigation destroyed a transaction that was about to
    * succeed — no state guess required, because any string reached the delete.
    *
-   * The refusal itself does not move: 400, no body, exchange untouched. The two
+   * The refusal keeps its public error and now carries the shared Refusal
+   * envelope: 400 invalid_oidc_callback, exchange untouched. The two
    * assertions that carry the fix are the **absent `Set-Cookie`** — clearing the
    * binding would lose the login from the other end, the honest callback
    * arriving to find no cookie — and the honest callback that still completes.
@@ -576,7 +577,7 @@ describe('OIDC browser routes', () => {
     );
 
     expect(forged.status).toBe(400);
-    expect(await forged.text()).toBe('');
+    expect(await forged.json()).toEqual({ error: 'invalid_oidc_callback' });
     expect(forged.headers.get('set-cookie')).toBeNull();
     expect(f.calls.exchange).toHaveLength(0);
 

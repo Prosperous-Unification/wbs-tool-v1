@@ -2,6 +2,7 @@ import {
   type BodyMedia,
   bodyMediaFor,
   type EndpointShape,
+  queryModeFor,
   type Refusal,
   type SchemaShape,
   validateSchema,
@@ -36,9 +37,9 @@ interface Admission {
 /**
  * Mounts policies before parsing and validates both sides of the endpoint boundary.
  * Metadata preserves the arrived method and the raw URL, including duplicate
- * query parameters. A declared query schema reads the legacy last-value record;
- * undeclared query fields and bodies are refused. A protocol requiring cardinality
- * checks before validation needs its own shape decision.
+ * query parameters. A closed query reads the legacy last-value record; an
+ * arbitrary-singleton query refuses repeated raw keys before validating the
+ * collapsed string record. Undeclared query fields and bodies are refused.
  * Proof: eager JSON decoding before policies makes the malformed read-token test
  * receive 400 instead of 403. Reversing policies makes the declared-order test
  * receive 401 instead of 403; deleting principal delivery makes it receive 500 instead of 200.
@@ -47,6 +48,8 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
   for (const { shape } of endpoints) {
     // Proof: omitting this call made the malformed erased media table mount without throwing.
     bodyMediaFor(shape);
+    // Proof: omitting this call made the malformed erased open-query table mount without throwing.
+    queryModeFor(shape);
     const internal = shape.policies.some(
       (policy) => policy.kind === 'identity' && policy.require === 'internal',
     );
@@ -147,16 +150,30 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
             request: admission.request,
           });
         }
-        const query = await validateRequest(
-          endpoint.shape.query,
-          Object.fromEntries(admission.request.url.searchParams),
-        );
+        const collapsedQuery = Object.fromEntries(admission.request.url.searchParams);
+        if (endpoint.shape.queryMode === 'arbitrary-singleton') {
+          const names = new Set<string>();
+          for (const name of admission.request.url.searchParams.keys()) {
+            // Proof: removing this raw-cardinality check made the open-query
+            // test receive 200 instead of 400 and invoked the handler twice.
+            if (names.has(name))
+              return classifyFailure(endpoint, {
+                part: 'query',
+                code: 'invalid_query',
+                duplicate: name,
+                rejected: collapsedQuery,
+                request: admission.request,
+              });
+            names.add(name);
+          }
+        }
+        const query = await validateRequest(endpoint.shape.query, collapsedQuery);
         // Proof: removing query refusal admits the metadata test's extra key (200 instead of 400).
         if (!query.ok)
           return classifyFailure(endpoint, {
             part: 'query',
             code: 'invalid_query',
-            rejected: Object.fromEntries(admission.request.url.searchParams),
+            rejected: collapsedQuery,
             issues: query.issues,
             request: admission.request,
           });

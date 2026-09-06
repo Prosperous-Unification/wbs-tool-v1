@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import { jwtVerify, SignJWT } from 'jose';
 
 import { buildApp } from '../app';
-import { bindInProcess } from '../http/in-process/bind';
 import { AuthService } from '../service/auth.service';
 import { LoginThrottle } from '../service/login-throttle';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
@@ -17,7 +16,7 @@ import { testSavedPlanService } from '../testing/saved-plan-fixture';
 import { testStepService } from '../testing/step-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
 import { testWrites } from '../testing/writes-fixture';
-import { authRoutes } from './auth.routes';
+import { authPasswordEndpoints } from './auth-password-endpoints';
 
 const TEST_SECRET = 'x'.repeat(32);
 
@@ -303,13 +302,11 @@ function heldLogins(maxConcurrentLogins?: number, now?: () => number) {
       }),
   });
   const throttle = new LoginThrottle({ now, maxConcurrent: maxConcurrentLogins ?? 8 });
-  const application =
-    now === undefined
-      ? app(auth, maxConcurrentLogins)
-      : bindInProcess(authRoutes(auth, undefined, throttle));
-  const requests: Promise<Response>[] = [];
+  const application = now === undefined ? app(auth, maxConcurrentLogins) : null;
+  const timedLogin = authPasswordEndpoints(auth, undefined, throttle)[1];
+  const requests: Promise<{ status: number }>[] = [];
   let refused = 0;
-  const login = (username: string, ip: string): Promise<Response> => {
+  const login = (username: string, ip: string): Promise<{ status: number }> => {
     const request = new Request('http://localhost/api/auth/login', {
       method: 'POST',
       headers: {
@@ -319,7 +316,20 @@ function heldLogins(maxConcurrentLogins?: number, now?: () => number) {
       },
       body: JSON.stringify({ username, password: 'long-enough-password' }),
     });
-    const response = application.handle(request).then((response) => {
+    const response = (
+      application === null
+        ? timedLogin.handle({
+            params: {},
+            query: undefined,
+            body: { username, password: 'long-enough-password' },
+            request: {
+              headers: request.headers,
+              method: request.method,
+              url: new URL(request.url),
+            },
+          })
+        : application.handle(request)
+    ).then((response) => {
       if (response.status === 429) refused += 1;
       return response;
     });

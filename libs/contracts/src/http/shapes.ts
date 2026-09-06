@@ -1,4 +1,11 @@
 import {
+  completeOidcLogin,
+  logoutOidcSession,
+  refreshOidcSession,
+  startOidcLogin,
+} from './auth-oidc-shapes';
+import { loginPassword, readPasswordSession, registerPassword } from './auth-password-shapes';
+import {
   createCalendarMarker,
   listCalendarMarkers,
   removeCalendarMarker,
@@ -43,6 +50,13 @@ import {
 
 /** Migrated HTTP declarations; legacy families join this table as their handlers migrate. */
 export const httpShapes = [
+  registerPassword,
+  loginPassword,
+  readPasswordSession,
+  startOidcLogin,
+  completeOidcLogin,
+  refreshOidcSession,
+  logoutOidcSession,
   smokeEcho,
   addStep,
   renameStep,

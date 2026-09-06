@@ -992,6 +992,72 @@ describe('bound request refusal hooks', () => {
     expect((await send('GET', '?state=x&code=a')).status).toBe(302);
     expect(consumed).toBe(1);
   });
+  test('accepts arbitrary singleton query keys and refuses a repeated key before the handler', async () => {
+    const shape = defineEndpointShape({
+      method: 'GET',
+      path: '/open-query',
+      operationId: 'openQuery',
+      policies: [],
+      query: requestSchema(type({ '[string]': 'string' })),
+      queryMode: 'arbitrary-singleton',
+      responses: [{ kind: 'json', status: 200, schema: responseSchema(type({ seen: 'string' })) }],
+      refusals: [
+        {
+          status: 400,
+          schema: responseSchema(type({ error: "'invalid_query' | 'duplicate_parameter'" })),
+        },
+      ],
+      document: { summary: 'Open query' },
+    });
+    const seen: Record<string, string>[] = [];
+    const failures: RequestFailure[] = [];
+    const app = appFor([
+      bind(
+        shape,
+        ({ query }) => {
+          seen.push(query);
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            body: { seen: query['provider_extra'] },
+          });
+        },
+        {
+          classifyRequestFailure: (failure) => {
+            failures.push(failure);
+            return Promise.resolve({
+              ok: false,
+              status: 400,
+              body: {
+                error:
+                  failure.part === 'query' && failure.duplicate !== undefined
+                    ? 'duplicate_parameter'
+                    : 'invalid_query',
+              },
+            });
+          },
+        },
+      ),
+    ]);
+    const accepted = await app.handle(
+      new Request('https://backend.example/open-query?provider_extra=a%20b&state=s'),
+    );
+    expect(accepted.status).toBe(200);
+    expect(seen).toEqual([{ provider_extra: 'a b', state: 's' }]);
+    const duplicate = await app.handle(
+      new Request('https://backend.example/open-query?state=first&provider_extra=x&state=last'),
+    );
+    expect(duplicate.status).toBe(400);
+    expect(await duplicate.json()).toEqual({ error: 'duplicate_parameter' });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      part: 'query',
+      code: 'invalid_query',
+      duplicate: 'state',
+      rejected: { state: 'last', provider_extra: 'x' },
+    });
+    expect(seen).toHaveLength(1);
+  });
   test('validates classifier status and body, rejects successful hook replies, and preserves hook failures', async () => {
     const boundaries = [
       {
@@ -1302,6 +1368,14 @@ test('rejects malformed erased media configuration when mounting', () => {
       ]),
     ).toThrow();
   }
+});
+
+test('rejects a malformed erased arbitrary-singleton query when mounting', () => {
+  const endpoint: BoundEndpoint = {
+    shape: { ...echoShape, queryMode: 'arbitrary-singleton' } as unknown as typeof echoShape,
+    handle: () => Promise.resolve({ ok: true, status: 200, body: { echoed: 'x' } }),
+  };
+  expect(() => appFor([endpoint])).toThrow('arbitrary-singleton query');
 });
 
 test('refuses an array masquerading as an optional-only object before invoking the mounted handler', async () => {
