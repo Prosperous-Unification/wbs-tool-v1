@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { DirectoryStore, ProjectStore, WriteStamp } from '../repository';
 import { inMemoryServices } from '../testing/harness';
-import { projectRow } from '../testing/project-fixture';
+import { projectRow, testProjectService } from '../testing/project-fixture';
 import type { OptimizedScheduleAsk } from './optimized-schedule-reader';
 import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
 
@@ -19,7 +19,7 @@ import { WorkItemService, type WorkItemServiceOptions } from './work-item.servic
  * about that last seam and nothing else — **whose dates reach the engine**, not
  * what the engine does with them, which is
  * `libs/domain/src/schedule-deadline-order.test.ts`'s and
- * `effective-deadlines.test.ts`'s.
+ * `libs/domain/src/leaf-constraints.test.ts`'s.
  *
  * **Every case that claims a deadline changed something reads the tree twice**,
  * once before the date exists and once after, and asserts the difference. A
@@ -28,9 +28,11 @@ import { WorkItemService, type WorkItemServiceOptions } from './work-item.servic
  * what makes the deadline the cause. The two that read once are the negative
  * controls, each labelled as one where it stands.
  *
- * Measured, not argued: with the read reverted to `NO_DEADLINES` on h2puni at
+ * Measured, not argued: with **both** newly threaded uses reverted to
+ * `NO_DEADLINES` — the cache ask and the `schedule()` call — on h2puni at
  * `9d4542f5`, **5 of the 7 go red** and the two that survive are exactly those
- * controls.
+ * controls. Reverting only the `schedule()` argument leaves a third green by
+ * design: the cache-key case watches the ask, which is the other seam.
  */
 
 const OWNER = 'owner-account';
@@ -257,10 +259,19 @@ describe('the plan read and stored deadlines', () => {
     await setDeadline(rewire, '2026-03-04');
     expect(await lateness()).toEqual(new Map([['Rewire', null]]));
 
-    // The project starts a week later than it did. Nothing about the work item
-    // is touched.
-    const moved = await projects.update(projectId, { startDate: '2026-03-09' }, WROTE);
-    if (moved === null) throw new Error('project vanished');
+    // The project starts a week later than it did, **through the layer that
+    // could refuse it**. `ProjectStore.update` is the repository and can only
+    // report a vanished row, so a move driven through it would stay green even
+    // if the request path rejected every start that passes a stored deadline —
+    // which is half of what this item claims. `ProjectService.update` is where
+    // a refusal would live: it is the layer that already refuses
+    // `bad_start_date` and `bad_pert_weights`, and it is asked nothing about
+    // deadlines. Found by the round-1 Sol seat, which read the assertion rather
+    // than the claim.
+    const moved = await testProjectService(projects).update(projectId, OWNER, {
+      startDate: '2026-03-09',
+    });
+    expect(moved.ok).toBe(true);
 
     // `UNMEETABLE_DEADLINE_OFFSET` is `-1`, so a two-day slice standing on
     // workday 1 is late by 2 — every workday it stands on plus the one it

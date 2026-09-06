@@ -438,11 +438,15 @@ export const workItem = sqliteTable(
      * `WORK_ITEM_COLUMNS` names it, so every row selected carries it and the
      * patch `SET` writes it (slice 6); the plan read resolves each stored date
      * against the project's start with `deadlineOffsetsOf` and hands the
-     * offsets to `schedule()` as its seventh argument. So the ordering, the
-     * fold and the `Late by N workdays` label described above are behaviour at
-     * this head rather than intent — **except where a sentence says otherwise
-     * in its own words**, which is now only the label's wording (slice 9.2) and
-     * the solver's infeasibility (slice 8, TASK-219's).
+     * offsets to `schedule()` as its seventh argument. So the ordering and the
+     * fold described above are behaviour at this head rather than intent.
+     *
+     * **The lateness is a number, not yet a label.** What ships at this head is
+     * a nullable `lateBy` per slice on the plan payload; the
+     * `Late by N workdays` sentence a reader sees is slice 9.2 and nothing in
+     * `apps/fe-01` consumes the number yet. Said plainly because the paragraph
+     * this replaced blurred the two, and the same blur is the third of three
+     * review Criticals this task has taken, all of them sentences.
      *
      * This paragraph has moved three times and each move deleted the sentence
      * it replaced rather than appending to it: it first said the scheduler had

@@ -333,9 +333,14 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       legally-written date and then reads both the plan and the row: `lateBy`
       **2** for a two-day slice standing on workday 1 — `-1` subtracted, the
       whole span — and the stored `2026-03-04` still on the work item. The
-      project update that moved it was not rejected; `projects.update` is asked
-      nothing about deadlines, which is what makes this read-time rather than
-      write-time. Its two reds are the ones recorded above, restated as this
+      project update that moved it was not rejected, and that half is asserted
+      at the layer that could reject it: the case drives the move through
+      `ProjectService.update` — where `bad_start_date` and `bad_pert_weights`
+      live — and asserts `ok`. Through `ProjectStore.update` it would have been
+      the check that cannot fail, since a repository can only report a vanished
+      row; found by the round-1 Sol seat and closed by moving the call, not by
+      narrowing the claim. That service is asked nothing about deadlines, which
+      is what makes this read-time rather than write-time. Its two reds are the ones recorded above, restated as this
       case sees them: drop the entry and it reads `null` (on time), clamp to `0`
       and it reads `1`.
       **The seam's own red, watched rather than argued:** the read reverted to
@@ -467,11 +472,19 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       deadline misses instead and is recomputed, which is 6.4. A version bump
       keys a cache; the thing that changed here is already in the key, so
       bumping would evict every correct row to no end.
-      **What it does not cover, and why that is not this task's:** the solver
-      does not read `deadlines` at this head, so a _published optimized_ row for
-      a deadlined plan is not stale — it is unreachable, by the same hash. The
-      hard finish constraint that would make the solver's answer depend on the
-      dates is TASK-241's, and the bump belongs with it. The bump's blast radius is also this
+      **The solver side, corrected here rather than left standing.** An earlier
+      revision of this paragraph said the solver does not read `deadlines` at
+      this head and that the hard finish constraint was TASK-241's. Both are
+      false and the round-1 Sol seat read the source: `build-solver-request.ts`
+      folds `plan.deadlines` through `leafDeadlinesOf` into `deadlineUnits` per
+      slice, and `wbs_solver/model.py` clause 6 enforces
+      `end <= deadlineUnits`. TASK-219 built that path against a legitimately
+      empty deadline source, which is exactly this task's own boundary note. It
+      does not change the answer above: an optimized row is keyed by the same
+      `inputHash`, so a row computed under `[]` is not served to a plan that now
+      states a date — it misses and is recomputed, this time through a solver
+      that has always been able to read the dates and until now never got any.
+      The bump's blast radius is also this
       slice's own: seven `libs/contracts/solver` request fixtures pinned by
       `wire-contract-version.test.ts`, `revalidate-solver-result.test.ts` and
       `libs/solver-py`, all of them slice 7/8 artifacts TASK-219 owns. Splitting
