@@ -79,7 +79,7 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
      * a path parameter, over a store that holds one ordinary key and one whose
      * name is a percent sequence no decoder accepts. The echo route above shows
      * what each binder *puts* in `params`; this one shows what that value can
-     * *reach*, which is the part TASK-270 item 2 was about.
+     * reach, which is the part TASK-270 item 2 was about.
      */
     {
       method: 'GET',
