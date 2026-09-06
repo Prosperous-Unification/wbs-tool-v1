@@ -2328,7 +2328,10 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     // single share is unchanged by construction — its share *is* the cell, so
     // the clip and the rect coincide and the file still carries the live
     // chip's `rounded-sm`.
-    const cellClipId = `gantt-marker-cell-clip-${day.offset}`;
+    // `String(...)` and not the bare number, for the same reason the
+    // `data-marker-offset` below spells it out: `restrict-template-expressions`
+    // rejects a number in a template literal under this repo's config.
+    const cellClipId = `gantt-marker-cell-clip-${String(day.offset)}`;
     const cellClip = document.createElementNS(SVG_NS, 'clipPath');
     cellClip.setAttribute('id', cellClipId);
     cellClip.setAttribute('clipPathUnits', 'userSpaceOnUse');
