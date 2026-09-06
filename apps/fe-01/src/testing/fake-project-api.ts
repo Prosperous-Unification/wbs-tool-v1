@@ -1,4 +1,5 @@
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
+import { automaticColor } from '@wbs/domain/marker-color';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 
 import type {
@@ -100,6 +101,10 @@ export function fakeProjectApi(): ProjectApi & {
    * rename and recolour back off what the fake now holds. A spy that recorded
    * arguments and kept nothing would let a composer writing to the wrong marker
    * pass both.
+   *
+   * **Every marker in here carries a resolved `color`**, the invariant
+   * `fake-project-api.test.ts` names and holds: this store is the *answer* side
+   * of the API, and be-01's answer side has no `null` in it.
    */
   const markers: CalendarMarkerView[] = [];
   /** Minted here when the caller names none, as be-01 mints one. */
@@ -559,14 +564,19 @@ export function fakeProjectApi(): ProjectApi & {
     },
     listCalendarMarkers: () => Promise.resolve(markers.map((marker) => ({ ...marker }))),
     createCalendarMarker(_projectId, marker) {
+      const id = marker.markerId ?? `marker-${String(nextMarkerId++)}`;
       const stored: CalendarMarkerView = {
-        id: marker.markerId ?? `marker-${String(nextMarkerId++)}`,
+        id,
         date: marker.date,
         name: marker.name,
-        // Absent and `null` are one answer — the automatic colour — because
-        // that is what the route stores for both, and a fake that kept
-        // `undefined` would hand `markerFill` something production never sees.
-        color: marker.color ?? null,
+        // Absent and `null` are one request — *automatic* — and the answer to
+        // both is the resolved colour, because that is what
+        // `calendar-marker.routes.ts` sends back from `answered()`. Answering
+        // `null` here would be a double laxer than the API it stands in for:
+        // it would hand the chart a wire shape be-01 cannot produce, and let a
+        // client-side fallback pass a test that production has no fallback to
+        // survive (task 284).
+        color: marker.color ?? automaticColor(id),
       };
       markers.push(stored);
       // No `renumber()`: a marker moves nothing in the plan, which is task 4's
@@ -581,7 +591,11 @@ export function fakeProjectApi(): ProjectApi & {
     },
     recolorCalendarMarker(_projectId, markerId, color) {
       const marker = markerAt(markerId);
-      marker.color = color;
+      // `null` is the reader handing the marker back to automatic, and the
+      // route answers that with the resolved colour rather than the `null` it
+      // stored — so the fake resolves here too, at the one edge where the
+      // request shape and the answer shape differ.
+      marker.color = color ?? automaticColor(markerId);
       return Promise.resolve({ ...marker });
     },
     deleteCalendarMarker(_projectId, markerId) {

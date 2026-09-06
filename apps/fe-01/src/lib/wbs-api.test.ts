@@ -1,3 +1,4 @@
+import { automaticColor } from '@wbs/domain/marker-color';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { sentenceForRefusal } from './refusal';
@@ -764,7 +765,14 @@ describe('reads asked for twice at once', () => {
 });
 
 describe('the calendar-marker client', () => {
-  const MARKER = { id: 'm1', date: '2026-08-19', name: 'Launch', color: null };
+  /**
+   * What the route *answers*, which is never the unresolved shape: `answered()`
+   * in `calendar-marker.routes.ts` resolves a stored `null` to the automatic
+   * colour before sending, so a fixture spelling `color: null` here would be a
+   * response be-01 cannot produce (task 284). The request bodies below keep
+   * their `null` — that is a client asking for automatic, and it is correct.
+   */
+  const MARKER = { id: 'm1', date: '2026-08-19', name: 'Launch', color: automaticColor('m1') };
 
   it('reads the markers off the project route the panel draws from', async () => {
     const fetched = stub(() => response(200, JSON.stringify({ markers: [MARKER] })));

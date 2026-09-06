@@ -1163,8 +1163,17 @@ export interface CalendarMarkerView {
   id: string;
   date: IsoDate;
   name: string;
-  /** The reader's chosen hex triple, or null for the automatic colour. */
-  color: string | null;
+  /**
+   * The hex triple the marker is drawn in — never null.
+   *
+   * `null` is what the *store* holds for a marker nobody has recoloured, and
+   * `calendar-marker.routes.ts` resolves it to the automatic colour in
+   * `answered()` on the way out, so it never reaches the wire. Nullable here
+   * would be a client free to invent a second automatic-colour rule for an
+   * answer that cannot arrive (task 284); {@link NewCalendarMarkerView} keeps
+   * the nullable field, because asking for automatic is a request, not a read.
+   */
+  color: string;
 }
 
 /**

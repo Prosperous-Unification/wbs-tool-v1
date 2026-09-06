@@ -1179,12 +1179,12 @@ export interface AxisDay {
  * so a column added to `calendar_marker` later reaches the panel only when
  * somebody names it here.
  *
- * **`color` is nullable and that is the stored value, not the drawn one.**
- * `null` means *automatic*, which {@link automaticColor} resolves from the
- * marker's own id (`schema.ts`: the auto colour is derived on the way out and
- * never materialised, so a marker that has never been recoloured has no fill in
- * the database at all). {@link markerFill} is the one place that resolution
- * happens on this side.
+ * **`color` is the drawn value and it always arrives.** The *store* is the
+ * nullable one — `schema.ts`: a marker nobody has recoloured has no fill in the
+ * database at all, and `null` there means *automatic* — but
+ * `calendar-marker.routes.ts` resolves it with {@link automaticColor} in
+ * `answered()` before the marker is sent, so this side never receives the
+ * unresolved shape and never resolves one (task 284).
  */
 /**
  * Re-exported, not declared: the shape is what be-01 sends, so it moved to
@@ -1195,16 +1195,20 @@ export interface AxisDay {
 export type { CalendarMarkerView };
 
 /**
- * The fill a marker is actually drawn in: its own colour, or the automatic one
- * its id decides.
+ * The fill a marker is actually drawn in: the colour be-01 sent.
  *
- * Named rather than inlined at the chip because two marks draw one marker —
- * the chip here and the rule down the body (task 8.2) — and a second spelling
- * of `?? automaticColor(id)` is a chart that can disagree with itself about
- * what colour one marker is.
+ * A read and no longer a resolution. `calendar-marker.routes.ts` resolves the
+ * automatic colour in `answered()` before the marker leaves the server, so
+ * `?? automaticColor(marker.id)` here was a second copy of a contract only one
+ * side is allowed to hold — dead against the real API and, worse, the thing a
+ * reader found first (task 284).
+ *
+ * Still named rather than inlined at the chip, because two marks draw one
+ * marker — the chip here and the rule down the body (task 8.2) — and two bare
+ * reads are two places free to start disagreeing about what the ink is.
  */
 export function markerFill(marker: CalendarMarkerView): string {
-  return marker.color ?? automaticColor(marker.id);
+  return marker.color;
 }
 
 /**
@@ -4210,9 +4214,10 @@ function GanttChart({
                   y2={rowCount}
                   data-gantt-marker-rule={offset}
                   // The **first** marker's fill, through the one spelling of
-                  // "what colour is this marker" the chart has: a second
-                  // `?? automaticColor(id)` here is a rule free to disagree
-                  // with the chip standing on it. See {@link markerFill}.
+                  // "what colour is this marker" the chart has: a second bare
+                  // `standing[0].color` here is a rule free to start
+                  // disagreeing with the chip standing on it. See
+                  // {@link markerFill}.
                   stroke={markerFill(standing[0])}
                   pointerEvents="none"
                   // One CSS pixel, declared rather than left to the SVG default
