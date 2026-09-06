@@ -534,6 +534,30 @@ describe('what a refused directory change says', () => {
   });
 });
 
+describe('setting project optimization', () => {
+  it('patches the shared flag, engine, and objective at the project route', async () => {
+    const fetched = stub(() => response(200, JSON.stringify({ project: { id: 'p1' } })));
+    const api = httpProjectApi('t');
+
+    await api.setOptimizationSettings('p1', {
+      optimizationEnabled: true,
+      scheduleEngine: 'optimized',
+      scheduleObjective: 'time',
+    });
+
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/projects/p1');
+    expect(fetched.mock.calls[0]?.[1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({
+        optimizationEnabled: true,
+        scheduleEngine: 'optimized',
+        scheduleObjective: 'time',
+      }),
+    });
+  });
+});
+
 /** The JSON a request carried, or an empty string — `RequestInit.body` is wider than string. */
 const bodyOf = (init: RequestInit | undefined): string =>
   typeof init?.body === 'string' ? init.body : '';
