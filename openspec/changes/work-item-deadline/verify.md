@@ -14,12 +14,12 @@ was built or tested on the workspace box.
 **Which commit is which, because the numbers below are not all from the same
 one:**
 
-| commit     | what it is                                        |
-| ---------- | ------------------------------------------------- |
-| `5f0ede1a` | the column and the migration folder — **this is the commit that turned 39 be-01 cases red**, and none of the 39 were about the column |
+| commit     | what it is                                                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `5f0ede1a` | the column and the migration folder — **this is the commit that turned 39 be-01 cases red**, and none of the 39 were about the column                      |
 | `dbe8d442` | registers `WORK_ITEM_DEADLINE` at the 32 sites that assert the newest migration by hand — **be-01 green again here**, which is what the gate table reports |
-| `42964565` | this file: 1.3's transcript, and 1.1/1.3 ticked   |
-| `c2f908f2` | Prettier's own formatting of this file            |
+| `42964565` | this file: 1.3's transcript, and 1.1/1.3 ticked                                                                                                            |
+| `c2f908f2` | Prettier's own formatting of this file                                                                                                                     |
 
 So the code gate stands at `dbe8d442` and the two commits after it are
 documentation. A round-1 review read the gate table as claiming `dbe8d442`
@@ -194,8 +194,8 @@ So under the outgoing release: **delete a work item that carries a deadline,
 then undo the delete, and the row comes back with `deadline` NULL** — the undo
 answers `ok`, the branch looks whole, and a date somebody typed is gone. Neither
 a patch nor a fresh insert shows it, which is why the transcript above stayed
-green: the round-trip is a *read through a narrow projection followed by a write
-of that projection*, and no single-path exercise reaches it.
+green: the round-trip is a _read through a narrow projection followed by a write
+of that projection_, and no single-path exercise reaches it.
 
 **Nothing is lost by merging this PR**, and that is a statement about this
 release rather than a defence of the claim: at this head no code writes
@@ -214,7 +214,7 @@ because the alternative is a rollback note that reads safer than the code is.
 
 **Not supported after the column holds data, and the narrower true statement is
 what belongs on the record.** `down.sql` drops the column, so reversing it once
-planners' dates are in it destroys them. What is *not* true is that the down
+planners' dates are in it destroys them. What is _not_ true is that the down
 script is unexercised: `migrate-down.db.test.ts` rolls back to older baselines
 and places `WORK_ITEM_DEADLINE` first in the returned list, so this `down.sql`
 does execute there, and the reapply case runs it again. Its **syntax and its
@@ -271,12 +271,12 @@ carries no domain, API or UI code.
 
 What changed as a result:
 
-| finding | seat | disposition |
-| --- | --- | --- |
-| delete-then-undo drops a stored deadline through `WORK_ITEM_COLUMNS` | sol (Important) | **confirmed at source**, claim narrowed above, obligation written into `tasks.md` 1.3 for the slice that makes the column writable |
-| the digest's encoding was not injective and was published as an ellipsis | sol (Important) | **re-measured** with `quote()` plus length prefixes, full query committed above, both readings retaken on a fresh copy |
-| schema and migration comments describe later slices as current behaviour | both (agy Important, sol Minor) | rewritten to say what this release does — nothing reads the column — and to mark the rest as later slices' |
-| `deadline` inserted between the floor and the floor's reason, whose doc says "the one above it" | agy (Important) | column moved below `startNoEarlierThanReason`; the reason for the placement is now in its doc |
-| `verify.md`'s head/gate SHAs were ambiguous | agy (Important) | the commit table at the top of this section |
-| `down.sql` cited `migrate.test.ts`, which does not exist | agy (Minor) | corrected to `migrate.db.test.ts` and `migrate-down.db.test.ts` |
-| "rolling the migration back is not tested" overstated the omission | sol (Minor) | narrowed above: syntax and order are covered, seeded-data rollback is the deliberate omission |
+| finding                                                                                         | seat                            | disposition                                                                                                                        |
+| ----------------------------------------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| delete-then-undo drops a stored deadline through `WORK_ITEM_COLUMNS`                            | sol (Important)                 | **confirmed at source**, claim narrowed above, obligation written into `tasks.md` 1.3 for the slice that makes the column writable |
+| the digest's encoding was not injective and was published as an ellipsis                        | sol (Important)                 | **re-measured** with `quote()` plus length prefixes, full query committed above, both readings retaken on a fresh copy             |
+| schema and migration comments describe later slices as current behaviour                        | both (agy Important, sol Minor) | rewritten to say what this release does — nothing reads the column — and to mark the rest as later slices'                         |
+| `deadline` inserted between the floor and the floor's reason, whose doc says "the one above it" | agy (Important)                 | column moved below `startNoEarlierThanReason`; the reason for the placement is now in its doc                                      |
+| `verify.md`'s head/gate SHAs were ambiguous                                                     | agy (Important)                 | the commit table at the top of this section                                                                                        |
+| `down.sql` cited `migrate.test.ts`, which does not exist                                        | agy (Minor)                     | corrected to `migrate.db.test.ts` and `migrate-down.db.test.ts`                                                                    |
+| "rolling the migration back is not tested" overstated the omission                              | sol (Minor)                     | narrowed above: syntax and order are covered, seeded-data rollback is the deliberate omission                                      |
