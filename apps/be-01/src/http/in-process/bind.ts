@@ -456,8 +456,7 @@ function parseMultipart(form: FormData): Record<string, unknown> {
   for (const key of new Set(form.keys())) {
     if (key in body) continue;
     const values = form.getAll(key);
-    const finalValue =
-      values.length === 1 ? coerceSingle(values[0]) : foldFilesIntoObject(values);
+    const finalValue = values.length === 1 ? coerceSingle(values[0]) : foldFilesIntoObject(values);
     if (!key.includes('.') && !key.includes('[')) {
       body[key] = finalValue;
       continue;
