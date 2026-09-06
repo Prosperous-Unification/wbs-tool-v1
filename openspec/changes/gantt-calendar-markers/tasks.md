@@ -1808,7 +1808,10 @@ in both slices rather than implied by position.
       a silently edited checklist would erase the round-8 and round-9 reasoning
       that is still correct.
       **Fourth case, because the chip-and-rule pairing is vacuous about rules**
-      (round-11 Sol review, Minor). It requires a chip per marker and relates
+      (round-11 Sol review, Minor). **The SUPERSEDED note above reaches this
+      paragraph too:** its "a chip per marker" is the same original wording, and
+      the population is the drawn band rather than the full marker list. Read
+      that way, it requires a chip per drawn marker and relates
       each _existing_ rule to a chip, so an export carrying chips, a legend and
       **zero** rules satisfies it — 8.6's other cases assert chips and legend,
       and 8.7 asserts rule absence only in the suppressed case, so nothing here

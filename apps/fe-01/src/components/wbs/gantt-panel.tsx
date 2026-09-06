@@ -2323,6 +2323,14 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     // nothing today, because the loop under it runs zero times, but it was an
     // `Infinity` computed once per empty day and waiting for the first
     // refactor that hoists the expression or logs it.
+    //
+    // Proof: `if (standing.length === 0) continue;` deleted, watched failing
+    // `leaves a day with no chips on it before the share arithmetic` — with the
+    // guard gone every axis day emits a cell clip, so the exported markup
+    // carries one `clipPath` per day of the horizon instead of the two that
+    // case asserts for a chart whose two chips are three cells apart.
+    // `GEMINI.md` R5 (TASK-288 Minor 2): a safety check on a production path
+    // and the negative that watched it are only findable together.
     if (standing.length === 0) continue;
     const sharePx = dayPx / standing.length;
     // **One rounded cell, square joins inside it** (TASK-287 AC #3). Each

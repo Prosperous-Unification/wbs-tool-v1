@@ -502,7 +502,8 @@ The standalone SVG export SHALL draw every marker chip the live axis shows, in
 the same colours and at the same day positions.
 
 `buildStandaloneGanttSvg` nests the live chart SVG but **rebuilds the axis
-band from pixel arithmetic** (`gantt-panel.tsx:1789`), so without this
+band from pixel arithmetic** (`gantt-panel.tsx`, `buildStandaloneGanttSvg`),
+so without this
 requirement the body rule would cross into the download — it lives inside the
 nested chart SVG — while the chip that names it would not. A coloured line
 with nothing saying what it marks is worse than no line: the reader sees a
@@ -548,16 +549,30 @@ built from the full marker list would have to invent both.
 The legend SHALL lie wholly inside the exported `viewBox`, which means the
 export SHALL grow its canvas to hold it. `buildStandaloneGanttSvg` fixes
 `totalHeight` and paints the background to it before anything else is appended
-(`gantt-panel.tsx:1755`, `:1762-1764`, `:1771`), so a legend added without that
-growth is text that serializes into the file and appears on no page — which is
-the same failure as no legend, wearing a passing test.
+(`gantt-panel.tsx`, the `totalHeight` binding in `buildStandaloneGanttSvg` and
+the `viewBox`/`height`/background-rect writes that read it), so a legend added
+without that growth is text that serializes into the file and appears on no
+page — which is the same failure as no legend, wearing a passing test.
+
+Cited by symbol rather than by line: these two citations have now drifted twice
+(they last pointed at `:1789` and `:1755`/`:1762-1764`/`:1771`, which today are
+`readGanttTheme` and the XML constants), and a spec that names a line number is
+a spec that goes quietly wrong every time the file above it grows.
 
 #### Scenario: a downloaded chart shows chip and rule together
 
-- **WHEN** a plan with two markers is exported below the density threshold
+- **WHEN** a plan with two markers **on distinct dates inside the drawn
+  horizon** is exported below the density threshold
 - **THEN** the SVG contains a chip for each at its day's x, in its colour, **one
   rule per occupied date** carrying that date and that colour, and each rule has
   a chip at the same date in the same colour
+
+The same constraint as the two scenarios below it, and for the same reason: "a
+chip for each" is a claim about the **drawn** population, so two markers sharing
+one date fail it wherever `MARKER_BAND_MAX_PER_CELL` is 1, and a marker off the
+horizon has no day x to be drawn at. Unconstrained, this was false for a valid
+plan (round-1 Gemini review, TASK-288). It predates TASK-287 and is the last of
+the four scenarios that carried the fault.
 
 #### Scenario: a downloaded chart names the markers it draws at every rung
 
@@ -582,8 +597,8 @@ what it is for, and not the cap — which the scenario below it owns.
 
 #### Scenario: the legend names what the file draws and nothing else
 
-- **WHEN** three markers share one date and the plan is exported at the 12px
-  rung, where `MARKER_BAND_MAX_PER_CELL` is 2
+- **WHEN** three markers share one date **inside the drawn horizon** and the
+  plan is exported at the 12px rung, where `MARKER_BAND_MAX_PER_CELL` is 2
 - **THEN** the file draws two chips and the legend carries exactly those two
   rows, and the capped-out marker has **no legend row**
 
