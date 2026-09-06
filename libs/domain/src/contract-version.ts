@@ -16,11 +16,11 @@
  * schedules, because a stale row is not a row in an old shape — it is an answer
  * to a question nobody asked any more.
  *
- * **`7` because this slice performs one such bump.** The seventh canonical
- * scheduling argument, the `deadlineUnits` wire field and the materialiser
- * change together, so every row computed before them describes a different
- * function. The number is also not free at this point: both request fixtures in
- * the golden corpus were checked in carrying `"7+0.1.0"`, and
+ * **`8` because the deadline publication baseline changed after cache writes
+ * became reachable.** The pre-fix guard omitted deadlines from its Fast pass,
+ * so it could store a differently ordered baseline with missing lateness under
+ * the same input hash the corrected guard reads. The number is also not free at
+ * this point: both request fixtures in the golden corpus carry `"8+0.1.1"`, and
  * `wire-contract-version.test.ts` in `libs/contracts` pins the constant to that
  * prefix — so a change here without a change there is a red test rather than a
  * cache that quietly keeps its old rows.
@@ -30,7 +30,7 @@
  * `ASSUMED_SLICE_WORKDAYS` moved. Stated so the next reader does not mistake the
  * fixture pin above for that proof.
  */
-export const SCHEDULER_CONTRACT_VERSION = 7;
+export const SCHEDULER_CONTRACT_VERSION = 8;
 
 /**
  * The composite the **wire** carries and the **cache key** stores, from one

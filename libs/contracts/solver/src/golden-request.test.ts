@@ -115,7 +115,7 @@ const requestOf = () => {
       plan.poolSizes,
       plan.reach,
     ),
-    solverVersion: '0.1.0',
+    solverVersion: '0.1.1',
     budgetMs: 30_000,
   });
   if (!built.ok) throw new Error(`expected a request, got ${built.failure}: ${built.detail}`);

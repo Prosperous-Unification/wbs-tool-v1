@@ -5,7 +5,8 @@ reads it from here (pyproject.toml `[tool.setuptools.dynamic]`), so the running
 interpreter and the installed metadata cannot drift apart, and the coordinator
 reads the installed metadata as the `solverVersion` half of `contractVersion`.
 
-It is `0.1.0` because the golden request corpus already spends that string.
+It is `0.1.1` because the milestone deadline predicate changed after 0.1.0 could
+write durable outcomes, and the golden request corpus spends the new string.
 See pyproject.toml's header for the full argument; `tests/test_version.py`
 asserts the pin against the corpus rather than restating it.
 
@@ -15,6 +16,6 @@ production first enters through the lightweight `wbs-solver-launcher` bind
 gate from the same version-locked distribution.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = ["__version__"]

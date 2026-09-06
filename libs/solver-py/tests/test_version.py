@@ -1,7 +1,7 @@
 """The two pins nobody can see from inside one file.
 
-1. `__version__` against the golden request corpus, which was checked in
-   spending `solverVersion: "0.1.0"` before this package existed. The
+1. `__version__` against the golden request corpus, which spends the current
+   package version. The
    TypeScript side has the mirror of this check in
    `libs/contracts/solver/src/wire-contract-version.test.ts`, which asserts the
    `contractVersion` **prefix** and deliberately leaves the suffix — this

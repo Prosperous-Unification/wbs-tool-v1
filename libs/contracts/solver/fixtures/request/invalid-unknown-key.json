@@ -4,7 +4,7 @@
     "wi-2\u0000": 10
   },
   "budgetMs": 30000,
-  "contractVersion": "7+0.1.0",
+  "contractVersion": "8+0.1.1",
   "edges": [
     {
       "predecessorKey": "wi-1\u0000step-a",
@@ -44,7 +44,7 @@
       "width": 1
     }
   ],
-  "solverVersion": "0.1.0",
+  "solverVersion": "0.1.1",
   "stageBudgetSplit": [0.6, 0.25, 0.15],
   "wireVersion": 1
 }

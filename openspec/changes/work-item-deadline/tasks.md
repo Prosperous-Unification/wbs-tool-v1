@@ -445,54 +445,20 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       what round 1 found and fixed. Rewriting it to seven makes it a false
       record. Amend normative text; never history. This is the one occurrence
       7.2's grep will surface that must be left alone.
-- [ ] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
+- [x] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
       corpus in the same commit and evicts every pre-existing cache row. There is
       **no** data migration of cached results.
-      **Still 7, deliberately, and the corpus was regenerated under it by 5.2.**
-      Recorded here because the next reader will find moved corpus bytes and no
-      bump and must not read that as the omission this slice exists to catch.
-      `fast-golden-corpus.test.ts` asserts in two directions — the stored bytes
-      reproduce, and the stored `contractVersion` equals the constant — and
-      regenerating at 7 satisfies both, so the guard is not being worked around.
-      What makes 7 still true is measurable rather than argued, and the
-      measurement has now moved twice. It first read "no work item can carry a
-      deadline yet", true until slice 1 landed the column at `b2bb095c`. It then
-      read "nothing reads or writes it", true until slice 6 landed the write path
-      — `WORK_ITEM_COLUMNS` names `deadline` as of that slice and a work item can
-      carry one. It then read "the plan read still passes `NO_DEADLINES`", true
-      until 3.4/4.2 threaded the stored dates through.
-      **That third reason has now expired, and this item was re-examined rather
-      than inherited — the answer is still 7, and the reason is now the input
-      hash.** `deadlines` is the seventh canonical-input entry, so a plan that
-      states one hashes differently from the same plan that states none: a
-      cached row written before this slice was necessarily computed under `[]`,
-      and the only inputs that still key to it are the ones that canonicalize to
-      `[]` today. For those, 4.3's byte-identical no-op proof says Fast's answer
-      did not move, so the row is still the right answer. A plan carrying a
-      deadline misses instead and is recomputed, which is 6.4. A version bump
-      keys a cache; the thing that changed here is already in the key, so
-      bumping would evict every correct row to no end.
-      **The solver side, corrected here rather than left standing.** An earlier
-      revision of this paragraph said the solver does not read `deadlines` at
-      this head and that the hard finish constraint was TASK-241's. Both are
-      false and the round-1 Sol seat read the source: `build-solver-request.ts`
-      folds `plan.deadlines` through `leafDeadlinesOf` into `deadlineUnits` per
-      slice, and `wbs_solver/model.py` clause 6 enforces
-      `end <= deadlineUnits`. TASK-219 built that path against a legitimately
-      empty deadline source, which is exactly this task's own boundary note. It
-      does not change the answer above: an optimized row is keyed by the same
-      `inputHash`, so a row computed under `[]` is not served to a plan that now
-      states a date — it misses and is recomputed, this time through a solver
-      that has always been able to read the dates and until now never got any.
-      The bump's blast radius is also this
-      slice's own: seven `libs/contracts/solver` request fixtures pinned by
-      `wire-contract-version.test.ts`, `revalidate-solver-result.test.ts` and
-      `libs/solver-py`, all of them slice 7/8 artifacts TASK-219 owns. Splitting
-      that across two tasks is how a half-bump lands.
-      **What did move is `SCHEDULE_ALGORITHM_ID` (5.2), and the two are not
-      substitutes**: that constant answers "did the engine that computed this
-      stored plan behave like the one running now", which this change does
-      alter; this one keys a cache of results that cannot exist yet.
+      The earlier decision to remain at 7 was sound only while no coordinator
+      could write a cache row. That premise expired when `39fa03f9` landed the
+      coordinator on `main`; an enabled project can persist an outcome under
+      `7+0.1.0`, including `failed/internal-error` when the host supervisor is
+      absent. `guardRealPublication` then changed its Fast baseline for the same
+      deadline-bearing input hash, so the domain half is now 8. The CP-SAT
+      milestone deadline predicate also changed for the same request, so the
+      Python package half is now 0.1.1. The live composite is `8+0.1.1`; old rows
+      remain in SQLite under a disjoint key and read as misses. The Fast corpus
+      was regenerated at 8 with every schedule byte unchanged, and the shared
+      request corpus was re-keyed to both new halves.
 - [ ] 7.4 `deadline` is **not** a new cache-key dimension. Assert the key columns
       are still `(projectId, inputHash, objective, contractVersion, budgetMs)`.
 - [ ] 7.5 A **regression test**, not a rule change: run two contract versions

@@ -2,15 +2,19 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { createLogger } from '@wbs/observability';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDrizzle } from './repository/db';
 import { DrizzleEventLogRepo } from './repository/event-log';
 import { runMigrations } from './repository/migrate';
+import { allocateGeneration } from './repository/optimization-generation';
 import { ProjectRepository } from './repository/project';
+import { optimizedScheduleCache } from './repository/schema';
 import { UserRepository } from './repository/user';
 import type { ReservedSpawner, ReservedSpawnRequest } from './service/optimization-coordinator';
+import { readRuntimeSolverVersion } from './service/solver-launcher-process';
 import { WriteLock } from './service/write-lock';
 import { buildServices } from './services';
 import { projectRow } from './testing/project-fixture';
@@ -321,7 +325,7 @@ describe('buildServices', () => {
     // launch arrives here.
     const spawned: ReservedSpawnRequest[] = [];
     const { db, services } = bootstrap({
-      solverVersion: '0.1.0',
+      solverVersion: '0.1.1',
       budgetMs: 60_000,
       spawn: (request) => {
         spawned.push(request);
@@ -365,8 +369,84 @@ describe('buildServices', () => {
         request.request.budgetMs,
       ]),
     ).toEqual([
-      ['0.1.0', '7+0.1.0', 60_000],
-      ['0.1.0', '7+0.1.0', 60_000],
+      ['0.1.1', '8+0.1.1', 60_000],
+      ['0.1.1', '8+0.1.1', 60_000],
     ]);
+  });
+
+  it('starts current solves instead of reading a pre-fix failed pair', async () => {
+    const legacyContract = '7+0.1.0';
+    const currentSolver = readRuntimeSolverVersion('development');
+    const spawned: ReservedSpawnRequest[] = [];
+    const { db, services } = bootstrap({
+      solverVersion: currentSolver,
+      budgetMs: 60_000,
+      spawn: (request) => {
+        spawned.push(request);
+        const empty = () =>
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          });
+        return Promise.resolve({
+          pid: 20_000 + spawned.length,
+          stdout: empty(),
+          stderr: empty(),
+          exited: Promise.resolve(1),
+          verdict: () => undefined,
+          kill: () => undefined,
+        });
+      },
+    });
+    const { projectId, ownerId } = await seedProject(db);
+    await services.workItems.create(projectId, ownerId, {
+      parentId: null,
+      afterId: null,
+      name: 'Rewire',
+    });
+    const input = await services.workItems.scheduleInput(projectId);
+    if (input === null) throw new Error('seeded project has no schedule input');
+    const inputHash = scheduleInputHash(input);
+    const generation = allocateGeneration(db, projectId, legacyContract, inputHash, 1);
+    db.insert(optimizedScheduleCache)
+      .values(
+        (['pri', 'time'] as const).map((objective) => ({
+          projectId,
+          inputHash,
+          objective,
+          contractVersion: legacyContract,
+          budgetMs: 60_000,
+          generation,
+          status: 'failed' as const,
+          resultJson: null,
+          failureReason: 'internal-error' as const,
+          createdAt: 1,
+        })),
+      )
+      .run();
+
+    expect(
+      await services.projects.update(projectId, ownerId, {
+        optimizationEnabled: true,
+        scheduleEngine: 'fast',
+      }),
+    ).toHaveProperty('ok', true);
+    await services.workItems.tree(projectId);
+    await services.optimizer?.drain();
+
+    expect(currentSolver).toBe('0.1.1');
+    // Proof: hard-coding `services.ts`'s coordinator key to `7+0.1.0` read the
+    // seeded failed pair and failed here with `Expected ["pri", "time"] /
+    // Received []`; watched 2026-09-07.
+    expect(spawned.map(({ objective }) => objective)).toEqual(['pri', 'time']);
+    expect(spawned.map(({ key }) => key.contractVersion)).toEqual(['8+0.1.1', '8+0.1.1']);
+    expect(
+      db
+        .select({ contractVersion: optimizedScheduleCache.contractVersion })
+        .from(optimizedScheduleCache)
+        .all()
+        .filter(({ contractVersion }) => contractVersion === legacyContract),
+    ).toHaveLength(2);
   });
 });

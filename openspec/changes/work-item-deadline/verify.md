@@ -463,3 +463,55 @@ run log of 2026-09-06T08:07Z calls the `materialise-optimized` seam red "W5";
 The seam red is the one worth keeping in view for slices 7–8: `deadlines` and
 `pinnedStarts` are both `ReadonlyMap<string, number>`, so **every wrong-slot call
 type-checks** and TypeScript cannot help at that boundary.
+
+## Post-merge cache identity correction — 2026-09-07
+
+The refactor branch merged `origin/main` at `db903f4d`; that merge contains
+`39fa03f9`, which made optimized cache writes reachable, and the later upstream
+fixes `12302b8d` and `53a92847`, which changed the Fast publication baseline and
+the CP-SAT milestone deadline predicate. A durable `7+0.1.0` row can therefore
+name an answer or failure from the old function while carrying the same input
+hash as the corrected function. The domain contract is now 8, the Python
+distribution is 0.1.1, and production composes `8+0.1.1`. Existing rows stay in
+SQLite under their old key and are cache misses for the current release.
+
+The Fast corpus was regenerated with
+`bun libs/domain/src/write-fast-golden-corpus.ts` and Prettier; its eight
+schedule cases are byte-identical and only `contractVersion` changed from 7 to 8. The request corpus has no writer command: all eight checked-in request
+fixtures were re-keyed to `solverVersion: "0.1.1"` and
+`contractVersion: "8+0.1.1"`, then exercised through the shared Bun and Python
+corpus readers.
+
+### R5 failure proof
+
+| production fault injected and restored                                                 | production-path negative                                                                | observed failure                                                                                                                                                      |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCHEDULER_CONTRACT_VERSION = 8` restored to 7                                         | domain contract pin plus the stored Fast corpus                                         | 7 pass / **3 fail**: literal prefix `Expected: true / Received: false`, empty composite `Expected: "8+" / Received: "7+"`, corpus version `Expected: 7 / Received: 8` |
+| `wbs_solver.__version__ = "0.1.1"` restored to `"0.1.0"`                               | launcher `--version` plus the Python corpus version pin                                 | 5 tests / **3 failures**: `b'0.1.0\n' != b'0.1.1\n'`, plus both valid fixtures reporting `"0.1.1" != "0.1.0"`                                                         |
+| the coordinator's production `contractVersionOf(...)` result replaced with `"7+0.1.0"` | `buildServices` → project optimization enable → work-item tree read → coordinator/cache | 0 pass / **1 fail**: the seeded legacy failed pair suppressed both launches, `Expected: ["pri", "time"] / Received: []`                                               |
+
+Each fault was reverted before the green runs. The exact observed symptom is
+recorded in an adjacent `Proof:` comment in
+`contract-version.test.ts`, `test_launcher.py`, and `services.db.test.ts`.
+
+### Focused green evidence
+
+| command                                                                                                            | result                                               |
+| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `bun test --coverage --coverage-reporter=lcov` in `libs/domain`                                                    | **570 pass / 0 fail**, 38,288 expectations, 47 files |
+| `bunx nx run contracts:test`                                                                                       | **360 pass / 0 fail**, 996 expectations, 41 files    |
+| `bun test src/services.db.test.ts` in `apps/be-01`                                                                 | **6 pass / 0 fail**, 48 expectations                 |
+| Linux Python 3.14 test image, current checkout mounted read-only: `python3 -m unittest discover -s tests -t tests` | **195 tests / 0 failures**, 49.171 s                 |
+| `bunx nx run-many -t typecheck,lint -p domain,contracts,be-01 --parallel=2`                                        | all six targets successful                           |
+| `bunx prettier --check` on every changed TypeScript, JSON and OpenSpec file; `git diff --check`                    | clean                                                |
+| `bunx openspec validate work-item-deadline --json`                                                                 | **1 passed / 0 failed**, no issues                   |
+
+The OpenSpec validator exited zero after producing the valid result above. Its
+optional PostHog flush could not resolve `edge.openspec.dev` in the
+network-restricted workspace.
+
+The host-only `bunx nx run solver-py:test` is not a supported substitute for
+the image run on this macOS host: it ran 26 tests with 10 import errors because
+`ortools` and `jsonschema` are not installed locally, two `RLIMIT_AS` failures
+because Darwin rejects the Linux lifecycle limit, and one platform skip. The
+same current files passed all 195 tests in the existing Linux Python 3.14 image.
