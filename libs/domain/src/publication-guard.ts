@@ -115,6 +115,17 @@ export function guardRealPublication(
   weightOf: (sliceKey: string) => number,
   baselineStartOf: (sliceKey: string) => number,
 ): PublicationDecision {
+  // Every field of `ScheduleInput`, in the argument tuple's own order. The
+  // interface and this signature are the same tuple by design
+  // (`canonical-schedule-input.ts`), so a field named there and absent here is
+  // a Baseline computed from a different input than the one that was hashed —
+  // and `input.deadlines` was exactly that until TASK-280. Nothing caught it:
+  // the seventh parameter defaults to `new Map()`, so six arguments type-check
+  // and quietly schedule an undeadlined plan. An eighth field cannot be made
+  // safe by spreading — `schedule()` is positional and `ScheduleInput` is an
+  // object, so `schedule(...input)` does not compile — which is the point: the
+  // two are kept in step by hand, and this call is the site where that has
+  // already failed once.
   const baseline = schedule(
     input.rows,
     input.edges,
@@ -122,6 +133,7 @@ export function guardRealPublication(
     input.notBefore,
     input.poolSizes,
     input.reach,
+    input.deadlines,
   );
 
   const optimizedValues = scoreReal(optimized, weightOf, baselineStartOf);

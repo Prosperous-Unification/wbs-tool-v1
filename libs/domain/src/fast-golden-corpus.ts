@@ -214,6 +214,13 @@ export const computeFastGoldenCorpus = (): {
 } => {
   const cases: Record<string, unknown> = {};
   for (const each of FAST_GOLDEN_CASES) {
+    // TASK-280's audit: the seventh argument is omitted here **and that is the
+    // correct value**, unlike the publication guard's omission this task fixed.
+    // A `FastGoldenCase` has no deadline field, so there is no deadline to pass
+    // — and the corpus is the fixture 1.6 and 4.3's no-op proof compares
+    // against, which requires every case to come out byte-identical whether the
+    // argument is supplied empty or left to its default. Adding `new Map()` here
+    // would change nothing and would read as if a source had been consulted.
     cases[each.name] = serializeSchedule(
       schedule(
         each.rows,
