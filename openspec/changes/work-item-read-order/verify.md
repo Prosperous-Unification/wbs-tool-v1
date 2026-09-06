@@ -25,17 +25,17 @@ the exercise is that a later reader can retake them.
       tests, which is what makes the intermediate failures below attributable
       rather than assumed.
 
-| run | head | result |
-| --- | --- | --- |
-| be-01 suite, baseline | `0187a818` (`origin/main`) | **1511 pass / 0 fail** |
-| tests only, no `ORDER BY` | `84716c40` | 31 / 3 in the file under test |
-| with the migration folder, lists not yet moved | `d5ef05d1` | 1473 pass / **41 fail** |
-| index split back out | `4a0a346a` | **1514 pass / 0 fail** |
-| index back in, 29 of 35 list sites moved | `b4a4d2d5` | 1508 pass / **6 fail** |
-| all list sites moved | `867be5eb` | **1514 pass / 0 fail** |
-| `typecheck` + `lint`, be-01 | `a4355e5c` | Successfully ran |
-| `nx format:check --base=0187a818` | `a4355e5c` | exit 0 |
-| `openspec validate --all --json` | `1c7a70c9` | 38 / 38 pass |
+| run                                            | head                       | result                        |
+| ---------------------------------------------- | -------------------------- | ----------------------------- |
+| be-01 suite, baseline                          | `0187a818` (`origin/main`) | **1511 pass / 0 fail**        |
+| tests only, no `ORDER BY`                      | `84716c40`                 | 31 / 3 in the file under test |
+| with the migration folder, lists not yet moved | `d5ef05d1`                 | 1473 pass / **41 fail**       |
+| index split back out                           | `4a0a346a`                 | **1514 pass / 0 fail**        |
+| index back in, 29 of 35 list sites moved       | `b4a4d2d5`                 | 1508 pass / **6 fail**        |
+| all list sites moved                           | `867be5eb`                 | **1514 pass / 0 fail**        |
+| `typecheck` + `lint`, be-01                    | `a4355e5c`                 | Successfully ran              |
+| `nx format:check --base=0187a818`              | `a4355e5c`                 | exit 0                        |
+| `openspec validate --all --json`               | `1c7a70c9`                 | 38 / 38 pass                  |
 
 The 41 and the 6 were all enumerated migration-folder lists, which a new folder
 legitimately moves. One of them was a bug in the assertion rather than in the
@@ -112,10 +112,10 @@ are one group per project rather than one per row, which is the grouping
 
 Taken 2026-09-06, against the two databases a deploy of this change would reach:
 
-| database | container | migrations | projects | work items | tied groups |
-| --- | --- | --- | --- | --- | --- |
-| `/home/puni1/wbs/data/wbs.db` | `be-01-green` (prod) | 1 | — | — | **no `work_item` table** |
-| `/home/puni1/wbs-dev/data/wbs.db` | `dev-be-01-blue` (dev) | 39 | 183 | 940 | **0** |
+| database                          | container              | migrations | projects | work items | tied groups              |
+| --------------------------------- | ---------------------- | ---------- | -------- | ---------- | ------------------------ |
+| `/home/puni1/wbs/data/wbs.db`     | `be-01-green` (prod)   | 1          | —        | —          | **no `work_item` table** |
+| `/home/puni1/wbs-dev/data/wbs.db` | `dev-be-01-blue` (dev) | 39         | 183      | 940        | **0**                    |
 
 **Prod holds no population to move.** Its schema is one migration deep —
 `__drizzle_migrations`, `event_log`, `event_sequencer`, `examples`,
@@ -138,7 +138,7 @@ something. Against a **copy** of the dev database — never the live file:
    `01dd0e69-8aca-46f0-92e0-5ce9a71f00ba`, `parent_id NULL`, 34 siblings) and
    `UPDATE work_item SET position = 10` on the row that sat at 20.
 3. Probe the copy again: one group, `(project_id 01dd0e69…, parent_id null,
-   position 10, n 2)`, and `affectedProjects` names that one project.
+position 10, n 2)`, and `affectedProjects` names that one project.
 
 The copy reads 181 projects / 939 items / 37 migrations against the live 183 /
 940 / 39, because `cp` takes the main file without the `-wal` and dev is being
