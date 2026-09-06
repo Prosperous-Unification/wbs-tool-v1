@@ -198,7 +198,7 @@ constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
       with `deadlines: ReadonlyMap<string, number>` **defaulted to an empty map**,
       so every existing caller compiles unchanged and the no-op proof in 4.3 is
       about behaviour rather than about call sites.
-- [ ] 4.2 The predicate, applied per slice against its effective deadline offset,
+- [x] 4.2 The predicate, applied per slice against its effective deadline offset,
       written **once** as `lastWorkdayOf(start, finish) <= deadlineOffset` and
       referenced by slices 5, 8 and 9 rather than re-derived in any of them.
       `finish <= deadline` does not appear in the implementation.
@@ -521,10 +521,10 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       enumeration check compares the tagged lists against the schema's own
       `required` sets and fails on the symmetric difference — a partial edit is a
       red gate by design, so land them together or watch the gate go red.
-- [ ] 8.3 The CP-SAT constraint `startUnits(s) + max(durationUnits(s), 1) <=
+- [x] 8.3 The CP-SAT constraint `startUnits(s) + max(durationUnits(s), 1) <=
 (D + 1) × quantum`, added **before** the objective terms and independent of
       them — not a penalty, not a soft term, not a lexicographic stage.
-- [ ] 8.4 **WATCHED RED W2** — substitute `finishUnits <= (D + 1) × quantum`. A
+- [x] 8.4 **WATCHED RED W2** — substitute `finishUnits <= (D + 1) × quantum`. A
       zero-duration milestone one day late must be admitted as feasible. Every
       non-zero-duration fixture stays green under the substitution, so the test
       must be the milestone.
@@ -595,7 +595,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       `plan-infeasible` takes that path. The UI hiding the affordance is not
       sufficient — the route is reachable without the UI, which is exactly the
       hole the `corrupt`-promised-a-Retry Critical named.
-- [ ] 8.8 Revalidator clause `lastWorkdayOf(start, finish) <=
+- [x] 8.8 Revalidator clause `lastWorkdayOf(start, finish) <=
 effectiveDeadlineOffset`, evaluated on the materialised schedule in the
       **real fractional domain**, not in quantised units. A violation is
       `invalid-output` — a deadline-violating solver result is a broken engine,

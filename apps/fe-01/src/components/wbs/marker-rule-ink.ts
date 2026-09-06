@@ -31,6 +31,63 @@ export interface ClipPixels {
   readonly data: ArrayLike<number>;
 }
 
+/** The compact facts one comparison needs outside the decoded image buffers. */
+export interface PixelDifference {
+  readonly width: number;
+  readonly height: number;
+  readonly differingColumns: number[];
+  readonly greatestChannelDelta: number;
+  readonly changedPixels: number;
+}
+
+/**
+ * Reduces two same-sized RGBA clips without retaining or copying their pixels.
+ *
+ * The tuple-shaped argument lets Playwright serialize this self-contained
+ * reducer into the page and pass it a handle to decoded pixels. Only this
+ * compact result then crosses CDP; the multi-megabyte buffers stay in Chromium.
+ *
+ * @throws If the clips are not the same size. A mismatch means either the page
+ * reflowed between photographs or a decode canvas kept its default dimensions.
+ */
+export function pixelDifference([baseline, after]: readonly [
+  ClipPixels,
+  ClipPixels,
+]): PixelDifference {
+  if (baseline.width !== after.width || baseline.height !== after.height) {
+    throw new Error(
+      `clips are ${String(baseline.width)}×${String(baseline.height)} and ` +
+        `${String(after.width)}×${String(after.height)}; ` +
+        'the clips cannot change size; the page reflowed or a decode canvas has the wrong size',
+    );
+  }
+  const changedColumns = new Array<boolean>(baseline.width).fill(false);
+  let greatestChannelDelta = 0;
+  let changedPixels = 0;
+  for (let y = 0; y < baseline.height; y += 1) {
+    for (let x = 0; x < baseline.width; x += 1) {
+      const pixel = (y * baseline.width + x) * 4;
+      let pixelChanged = false;
+      for (let channel = 0; channel < 4; channel += 1) {
+        const delta = Math.abs(baseline.data[pixel + channel] - after.data[pixel + channel]);
+        greatestChannelDelta = Math.max(greatestChannelDelta, delta);
+        pixelChanged ||= delta !== 0;
+      }
+      if (pixelChanged) {
+        changedPixels += 1;
+        changedColumns[x] = true;
+      }
+    }
+  }
+  return {
+    width: baseline.width,
+    height: baseline.height,
+    differingColumns: changedColumns.flatMap((changed, x) => (changed ? [x] : [])),
+    greatestChannelDelta,
+    changedPixels,
+  };
+}
+
 /**
  * The columns in which two clips of the same strip differ.
  *
@@ -46,29 +103,7 @@ export interface ClipPixels {
  * measurement that did not happen must never read as an empty difference.
  */
 export function differingColumns(baseline: ClipPixels, after: ClipPixels): number[] {
-  if (baseline.width !== after.width || baseline.height !== after.height) {
-    throw new Error(
-      `clips are ${String(baseline.width)}×${String(baseline.height)} and ` +
-        `${String(after.width)}×${String(after.height)}; ` +
-        'the same strip decoded twice cannot change size',
-    );
-  }
-  const columns: number[] = [];
-  for (let x = 0; x < baseline.width; x += 1) {
-    for (let y = 0; y < baseline.height; y += 1) {
-      const at = (y * baseline.width + x) * 4;
-      if (
-        baseline.data[at] !== after.data[at] ||
-        baseline.data[at + 1] !== after.data[at + 1] ||
-        baseline.data[at + 2] !== after.data[at + 2] ||
-        baseline.data[at + 3] !== after.data[at + 3]
-      ) {
-        columns.push(x);
-        break;
-      }
-    }
-  }
-  return columns;
+  return pixelDifference([baseline, after]).differingColumns;
 }
 
 /**
@@ -79,21 +114,12 @@ export function differingColumns(baseline: ClipPixels, after: ClipPixels): numbe
  * the chart moves at least one channel by far more. Keeping this arithmetic
  * here lets the browser test state that discrimination explicitly instead of
  * turning a three-pixel anti-alias wobble into a whole-test retry.
+ *
+ * @throws If the clips are not the same size. A mismatch means either the page
+ * reflowed between photographs or a decode canvas kept its default dimensions.
  */
 export function greatestChannelDelta(baseline: ClipPixels, after: ClipPixels): number {
-  if (baseline.width !== after.width || baseline.height !== after.height) {
-    throw new Error(
-      `clips are ${String(baseline.width)}×${String(baseline.height)} and ` +
-        `${String(after.width)}×${String(after.height)}; ` +
-        'the same pixels decoded twice cannot change size',
-    );
-  }
-  let greatest = 0;
-  const channels = baseline.width * baseline.height * 4;
-  for (let at = 0; at < channels; at += 1) {
-    greatest = Math.max(greatest, Math.abs(baseline.data[at] - after.data[at]));
-  }
-  return greatest;
+  return pixelDifference([baseline, after]).greatestChannelDelta;
 }
 
 /**

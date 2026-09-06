@@ -4,6 +4,7 @@ import {
   differingColumns,
   greatestChannelDelta,
   isContiguousRun,
+  pixelDifference,
   sameColumns,
 } from './marker-rule-ink';
 
@@ -22,25 +23,6 @@ const blankStrip = (width: number, height: number) => ({
   width,
   height,
   data: new Array<number>(width * height * 4).fill(255),
-});
-
-describe('how far a raster channel moved', () => {
-  it('measures a tiny anti-alias wobble without calling it opaque ink', () => {
-    expect(greatestChannelDelta(blankStrip(5, 3), painted(5, 3, [2], { value: 249 }))).toBe(6);
-  });
-
-  it('keeps an opaque auxiliary mark far outside the raster-jitter allowance', () => {
-    // This is the controlled fault for the whole-body browser oracle: changing
-    // a white channel to black is 255, so an 8-value allowance cannot hide an
-    // extra rule even if it is only one pixel.
-    expect(greatestChannelDelta(blankStrip(5, 3), painted(5, 3, [2]))).toBe(255);
-  });
-
-  it('refuses differently sized clips rather than measuring their shared prefix', () => {
-    expect(() => greatestChannelDelta(blankStrip(5, 3), blankStrip(5, 4))).toThrow(
-      /cannot change size/,
-    );
-  });
 });
 
 /**
@@ -64,6 +46,68 @@ const painted = (
   }
   return strip;
 };
+
+describe('how far a raster channel moved', () => {
+  it('measures a tiny anti-alias wobble without calling it opaque ink', () => {
+    expect(greatestChannelDelta(blankStrip(5, 3), painted(5, 3, [2], { value: 249 }))).toBe(6);
+  });
+
+  it('keeps an opaque auxiliary mark far outside the raster-jitter allowance', () => {
+    // The browser's controlled auxiliary line measured 79 against the bound of
+    // 8. White-to-black is the stricter arithmetic endpoint at 255.
+    expect(greatestChannelDelta(blankStrip(5, 3), painted(5, 3, [2]))).toBe(255);
+  });
+
+  it('reaches a changed channel in the final row', () => {
+    const after = blankStrip(5, 3);
+    after.data[((3 - 1) * 5 + 4) * 4 + 1] = 244;
+
+    expect(greatestChannelDelta(blankStrip(5, 3), after)).toBe(11);
+  });
+
+  it('measures alpha when every colour channel is unchanged', () => {
+    const after = blankStrip(5, 3);
+    after.data[(1 * 5 + 2) * 4 + 3] = 128;
+
+    expect(greatestChannelDelta(blankStrip(5, 3), after)).toBe(127);
+  });
+
+  it('refuses differently sized clips rather than measuring their shared prefix', () => {
+    expect(() => greatestChannelDelta(blankStrip(5, 3), blankStrip(5, 4))).toThrow(
+      /cannot change size/,
+    );
+  });
+});
+
+describe('one compact raster comparison', () => {
+  it('counts changed pixels once even when several channels move', () => {
+    const after = blankStrip(3, 2);
+    const lastPixel = (2 * 3 - 1) * 4;
+    after.data[lastPixel] = 249;
+    after.data[lastPixel + 1] = 240;
+    after.data[lastPixel + 3] = 128;
+
+    expect(pixelDifference([blankStrip(3, 2), after])).toEqual({
+      width: 3,
+      height: 2,
+      differingColumns: [2],
+      greatestChannelDelta: 127,
+      changedPixels: 1,
+    });
+  });
+
+  it('keeps a broad low-contrast change visible on the area axis', () => {
+    const after = painted(5, 4, [0, 1, 2, 3, 4], { value: 250 });
+
+    expect(pixelDifference([blankStrip(5, 4), after])).toEqual({
+      width: 5,
+      height: 4,
+      differingColumns: [0, 1, 2, 3, 4],
+      greatestChannelDelta: 5,
+      changedPixels: 20,
+    });
+  });
+});
 
 describe('what two clips of one strip disagree about', () => {
   it('names the columns a hairline painted, and nothing either side of them', () => {

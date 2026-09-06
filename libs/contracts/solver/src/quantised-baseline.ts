@@ -58,11 +58,24 @@ import type { SolverOffsetMap } from './wire-types';
  * fold and scaling the fold's answer are the same number. One walk, still the
  * domain's.
  *
- * Deadlines are deliberately absent: they constrain the solver, not Fast, and
- * this is Fast's schedule. A plan whose quantised baseline misses a deadline is
- * a plan whose *real* baseline missed it too — that is 4.11b's comparison and
- * 3.1's `plan-infeasible`, and pretending otherwise here would make the
- * baseline a different schedule from the one the guard measures against.
+ * Deadlines are deliberately absent, and TASK-280 amended the reason rather
+ * than the decision. The old wording said they "constrain the solver, not
+ * Fast", which stopped being true at `work-item-deadline` slice 5: a deadline
+ * reorders Fast's ready set by minimum slack. What still holds is the second
+ * half — a plan whose quantised baseline misses a deadline is a plan whose
+ * real-domain baseline missed it too, which is 4.11b's comparison and 3.1's
+ * `plan-infeasible`, not this function's to decide.
+ *
+ * **Two things are now open here, and both belong to slice 8 rather than to
+ * this file.** TASK-280 made `guardRealPublication` pass `input.deadlines`, so
+ * the guard's real-domain baseline is deadline-ordered while this one is not:
+ * the movement reference is measured against a different order than the
+ * schedule it is compared with. That decides nothing — movement is never the
+ * primary term — but it is the divergence the sentence above warns about,
+ * reached from the other side. And CONTEXT.md allows this map to bound stage 1
+ * "because it is feasible in the model the solver actually gets"; whether an
+ * undeadlined placement is still feasible in a model carrying hard deadline
+ * constraints is exactly what slice 8 answers.
  *
  * ## What the caller gets
  *

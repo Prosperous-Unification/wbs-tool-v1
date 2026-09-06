@@ -9,12 +9,12 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(async (server) => server.stop(true)));
 });
 
-function authServer(body: unknown): Bun.Server<undefined> {
+function authServer(body: unknown, status = 200): Bun.Server<undefined> {
   const server = Bun.serve({
     port: 0,
     fetch(request) {
       if (new URL(request.url).pathname === '/api/auth/me') {
-        return Response.json(body, { status: 401 });
+        return Response.json(body, { status });
       }
       return new Response('not found', { status: 404 });
     },
@@ -38,7 +38,7 @@ async function runProbe(origin: string): Promise<{ exitCode: number; output: str
 
 describe('dev be deployment probe', () => {
   it('accepts the canonical anonymous auth response', async () => {
-    const server = authServer({ error: 'invalid_token' });
+    const server = authServer({ user: null });
 
     const result = await runProbe(`http://127.0.0.1:${String(server.port)}`);
 
@@ -47,7 +47,7 @@ describe('dev be deployment probe', () => {
   });
 
   it('rejects a response that does not match the auth controller contract', async () => {
-    const server = authServer({ error: 'missing_token' });
+    const server = authServer({ error: 'missing_token' }, 401);
 
     const result = await runProbe(`http://127.0.0.1:${String(server.port)}`);
 

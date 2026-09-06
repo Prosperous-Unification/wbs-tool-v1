@@ -229,8 +229,11 @@ describe('GET /api/auth/me', () => {
     expect(res.status).toBe(401);
   });
 
-  it('rejects a missing header', async () => {
+  it('returns an explicit signed-out state when no token is sent', async () => {
+    // Proof: restoring a 401 here makes Chromium emit a failed-resource console
+    // error on every signed-out page; TASK-299 observed it twice under StrictMode.
     const res = await app().handle(new Request('http://localhost/api/auth/me'));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ user: null });
   });
 });
