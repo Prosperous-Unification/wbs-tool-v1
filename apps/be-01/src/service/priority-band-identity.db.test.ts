@@ -465,7 +465,7 @@ describe('a priority ladder moves no date', () => {
       // The capture predates the pool named on each slice. Assert the new field
       // against the replayed plan, then lift it so the old scheduling oracle
       // continues to compare only fields that existed when it was recorded.
-      slices: tree.slices.map(({ capacityTeamId, ...slice }) => {
+      slices: tree.slices.map(({ capacityTeamId, lateBy, ...slice }) => {
         if (slice.boundBy === 'capacity') {
           const owed = effectiveTeamOf(slice.workItemId);
           expect(owed).not.toBeNull();
@@ -473,6 +473,16 @@ describe('a priority ladder moves no date', () => {
         } else {
           expect(capacityTeamId).toBeNull();
         }
+        // **`lateBy` is lifted by `work-item-deadline` 5.2**, for
+        // `capacityTeamId`'s reason and asserted null rather than dropped. The
+        // oracle predates the field, so every slice now carries a key the
+        // capture cannot have — a payload that gained a field, which is not a
+        // payload that moved a date. Null is the assertion and not a
+        // convenience: no work item in these sixteen plans can carry a deadline
+        // at all, because the column does not exist yet, so a replay reporting
+        // any slice late would mean the engine had invented a date rather than
+        // read one.
+        expect(lateBy).toBeNull();
         return slice;
       }),
       workItems: tree.workItems.map(

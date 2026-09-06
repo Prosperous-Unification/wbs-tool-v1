@@ -2,6 +2,7 @@ import { ASSUMED_SLICE_WORKDAYS } from './assumed-duration';
 import type { DependencyReach } from './dependency-reach';
 import { deriveNumbers, type PlannedRow } from './derive-numbers';
 import { leafDeadlinesOf, leafFloorsOf } from './leaf-constraints';
+import { workdaysLateBy } from './on-time';
 import { sliceGraphEdges } from './slice-edges';
 import { groupSlicesByLeaf } from './slice-groups';
 import { lastWorkdayOf, snapWorkdays, withinDrift } from './workday';
@@ -254,6 +255,32 @@ export interface ScheduledSlice extends Scheduled {
    * neither capacity field.
    */
   effort: number;
+  /**
+   * How many whole **workdays** past its effective deadline this slice runs, or
+   * `null` where it is not late — tasks.md 5.2, and the number the
+   * `Late by N workdays` label prints.
+   *
+   * **`null` rather than `0`, and that is a type-level claim about the copy.**
+   * The spec says `N >= 1` when late; a nullable number says it once, where a
+   * plain number leaves every label layer to re-decide whether 0 means "on
+   * time" or "late by nothing", and one of them will render `Late by 0
+   * workdays`. A slice with no effective deadline and a slice that met one are
+   * both `null` on purpose: they are the same answer to "how late is this", and
+   * whether the work item *has* a deadline is the work item's own field.
+   *
+   * **The effective deadline, not the authored one** — the leaf's own date
+   * folded against every ancestor's by `leafDeadlinesOf`, where the earliest
+   * binds. Published here rather than left to callers because a caller that
+   * re-folds is a second answer to the fold, and one that skips the fold
+   * reports a leaf on time against a parent's date it never read.
+   *
+   * From {@link workdaysLateBy} and therefore from `lastWorkdayOf`, the same
+   * arithmetic that decided lateness at all: the day the slice is still on
+   * minus the day it owed. `finish <= deadline` is nowhere in this file, and is
+   * the wrong question — a deadline names a day, and work occupies the day it
+   * finishes on.
+   */
+  lateBy: number | null;
 }
 
 /**
@@ -1962,8 +1989,8 @@ function slackOf(latestStart: number, earliestStart: number): number {
  * Without that rule the column is a constant and the feature it exists for
  * fails silently. `saved_plan.scheduler_algorithm_id` is how a stored plan
  * answers "were these dates computed by the engine running now?"; a snapshot
- * taken before a semantics change and one taken after both read
- * `slice-leveling-v1`, a reader concludes "same algorithm, same input, so these
+ * taken before a semantics change and one taken after both read the **same**
+ * id — whichever it is — a reader concludes "same algorithm, same input, so these
  * dates still hold", and the silent restatement this feature exists to prevent
  * happens anyway — now with a stored provenance field asserting it did not.
  *
@@ -1976,8 +2003,16 @@ function slackOf(latestStart: number, earliestStart: number): number {
  *
  * Format is `<engine>-v<n>` with `n` a monotonically increasing integer. The
  * value is stored, so it is never reused for a different meaning.
+ *
+ * **`v2` because the deadline named above arrived** (tasks.md 5.1 and 5.2). Two
+ * edits, one identity: ready slices are now ordered by minimum slack and
+ * earliest deadline in front of the four priority tie-breaks, and every slice
+ * publishes {@link ScheduledSlice.lateBy}. A plan stamped `v1` was computed by
+ * an engine that could not have ordered a deadlined project the way this one
+ * does and could not have reported a missed date at all, so re-reading its
+ * dates as current is exactly the restatement this constant exists to refuse.
  */
-export const SCHEDULE_ALGORITHM_ID = 'slice-leveling-v1';
+export const SCHEDULE_ALGORITHM_ID = 'slice-leveling-v2';
 
 /**
  * The schedule for a project: computed in slices, and levelled so that one
@@ -2467,6 +2502,18 @@ export function schedule(
     const placed = leveled.placed[at];
     const { latestStart, latestFinish } = late[at];
     const slack = slackOf(latestStart, placed.start);
+    // The same folded map the ordering read, so the row's place in the queue
+    // and the number printed beside it answer to one date. Read against the
+    // *leveled* placement — where the slice actually landed — rather than
+    // against the deadline-free pass `slack` is measured on: slack asks how
+    // much room the work had, and this asks what day it will really be done.
+    const deadlineOffset = leafDeadlines.get(slice.workItemId);
+    // `workdaysLateBy` answers 0 for "met it", and the field says `null` — one
+    // narrowing here rather than a truthiness check in every reader.
+    const missed =
+      deadlineOffset === undefined
+        ? 0
+        : workdaysLateBy(placed.start, placed.finish, deadlineOffset);
     if (placed.boundBy === 'person') waiting.add(slice.workItemId);
     // Beside the person's count, never folded into it: "waiting for a person"
     // and "waiting for a slot" are different sentences, and `boundBy` names
@@ -2498,6 +2545,7 @@ export function schedule(
         placed.resourcePredecessor === NOBODY ? null : nodes[placed.resourcePredecessor].key,
       capacityPredecessorIds: placed.capacityPredecessors.map((blocker) => nodes[blocker].key),
       capacityTeamId: placed.capacityTeamId,
+      lateBy: missed === 0 ? null : missed,
     });
   });
 

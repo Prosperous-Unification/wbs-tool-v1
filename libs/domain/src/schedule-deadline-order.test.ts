@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { PlannedRow } from './derive-numbers';
-import { workdaysLateBy } from './on-time';
 import type { Schedule, ScheduledSlice, Slice } from './schedule';
 import { schedule, sliceKey } from './schedule';
 
@@ -212,7 +211,11 @@ describe('a deadline never moves work earlier and never overrides a floor', () =
     const only = planned(found, 'a', DEV);
 
     expect(only).toMatchObject({ earliestStart: 6, earliestFinish: 8, boundBy: 'notBefore' });
-    expect(workdaysLateBy(only.earliestStart, only.earliestFinish, 2)).toBe(5);
+    // Read off the slice rather than recomputed here (5.2). The earlier form
+    // called `workdaysLateBy` with the deadline offset the test itself supplied,
+    // which proves the arithmetic and says nothing about what the engine
+    // published — the same fixture would have passed with the field absent.
+    expect(only.lateBy).toBe(5);
   });
 
   it('costs the queue what going first is worth, and buys nothing with it', () => {

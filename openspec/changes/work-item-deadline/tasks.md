@@ -93,7 +93,7 @@ here.
       **Deviation, recorded rather than silent:** it landed under
       `dual-optimized-scheduler` as `leafDeadlinesOf(deadlines, index)` in
       `libs/domain/src/leaf-constraints.ts`, not as `effectiveDeadlines(rows,
-      deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
+    deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       rather than `null`-valued where no deadline exists, a separate walk sitting
       beside `leafFloorsOf` and deliberately not parameterised by comparator, and
       the file's own table spelling out why the floor, the deadline and
@@ -111,7 +111,7 @@ here.
       constraint, raises no error, and keeps its stored date when its subtree is
       deleted. **Read as the shape the tree can actually take:** "a parent with
       no leaves" is not a state `PlannedRow[]` can hold, because a row with no
-      children *is* a leaf. So the case the product has is the one after the
+      children _is_ a leaf. So the case the product has is the one after the
       delete — `P`'s children are gone, `P` is a leaf, and its date binds `P`
       itself rather than being discarded as an unresolvable id, which would
       delete a date the user wrote by deleting rows underneath it. Two cases,
@@ -125,10 +125,10 @@ here.
 - [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
       earlier than its parent must be loosened to the parent's date. Measured on
       h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
-      deadline and every ancestor's` (the clause the red names), `lets an EARLIER
-      parent tighten a later child`, `takes the tighter ancestor when two of them
-      bind`, and `keeps a day-zero deadline, which is a real and very tight
-      constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
+    deadline and every ancestor's` (the clause the red names), `lets an EARLIER
+    parent tighten a later child`, `takes the tighter ancestor when two of them
+    bind`, and `keeps a day-zero deadline, which is a real and very tight
+    constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
 
 ## 4. `schedule()`'s seventh argument and the inclusive predicate
 
@@ -175,10 +175,31 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       leveled placement would be circular. Absence is `Infinity` for both, by
       the arithmetic that already gives `priority` its `Infinity`, so the
       undeadlined ordering is the old one unchanged rather than a special case.
-- [ ] 5.2 `Late by N workdays` per missed slice, with
+- [x] 5.2 `Late by N workdays` per missed slice, with
       `N = lastWorkdayOf(start, finish) − deadlineOffset`, `N >= 1`, computed
       from 4.2's single predicate so the label and the lateness verdict cannot
-      disagree. The copy says **workdays**.
+      disagree. The copy says **workdays**. Landed as `lateBy: number | null` on
+      `ScheduledSlice`, from `workdaysLateBy` over the **leveled** placement and
+      the **folded** deadline — the two choices the watched reds below are
+      about. `N >= 1` is expressed in the type rather than trusted to readers:
+      `null` is "not late" and covers both the undeadlined slice and the one
+      that met its date, so no label layer can print `Late by 0 workdays`.
+      `schedule-deadline-order.test.ts`'s 4.5 case stopped calling
+      `workdaysLateBy` with a deadline offset it supplied itself and reads
+      `only.lateBy` instead — the earlier form would have passed with the field
+      absent.
+      **WATCHED RED W-5.2a** — the wrong question, `finish > deadlineOffset`
+      in place of the shared predicate: **5 fail** of 8, including the
+      zero-duration milestone and the inclusive boundary.
+      **WATCHED RED W-5.2b** — the authored map (`deadlines`) in place of the
+      folded one (`leafDeadlines`): **2 fail**, exactly the two ancestor cases,
+      so neither red subsumes the other and each names its own choice.
+      **`SCHEDULE_ALGORITHM_ID` bumped `slice-leveling-v1` → `v2` and the
+      behaviour digest re-pinned `5f5d507bdf199577` → `18b55455829f4eb1` in the
+      same commit**, which is that constant's own stated rule and names this
+      change: "TASK-240's deadline" qualifies by the doc on the constant. The
+      corpus that digest runs over passes no deadlines, so 5.1's reordering
+      moved nothing in it — the digest moved on this slice's field alone.
 - [x] 5.3 Fast still never backtracks and never moves work earlier than its
       floor: the existing invariant tests run unchanged against a corpus that now
       carries deadlines. `deadline` is the **sixth generated fact** in
@@ -247,6 +268,26 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
 - [ ] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
       corpus in the same commit and evicts every pre-existing cache row. There is
       **no** data migration of cached results.
+      **Still 7, deliberately, and the corpus was regenerated under it by 5.2.**
+      Recorded here because the next reader will find moved corpus bytes and no
+      bump and must not read that as the omission this slice exists to catch.
+      `fast-golden-corpus.test.ts` asserts in two directions — the stored bytes
+      reproduce, and the stored `contractVersion` equals the constant — and
+      regenerating at 7 satisfies both, so the guard is not being worked around.
+      What makes 7 still true is measurable rather than argued: **no work item
+      can carry a deadline yet.** Slice 1's migration is unstarted and
+      `grep deadline apps/be-01/src/repository/schema.ts` finds only the
+      unrelated `admitted_deadline_at`, so `deadlines` is empty for every real
+      plan, every new comparison ties, and no cached row can have been computed
+      from a date that could not be stored. The bump's blast radius is also this
+      slice's own: seven `libs/contracts/solver` request fixtures pinned by
+      `wire-contract-version.test.ts`, `revalidate-solver-result.test.ts` and
+      `libs/solver-py`, all of them slice 7/8 artifacts TASK-219 owns. Splitting
+      that across two tasks is how a half-bump lands.
+      **What did move is `SCHEDULE_ALGORITHM_ID` (5.2), and the two are not
+      substitutes**: that constant answers "did the engine that computed this
+      stored plan behave like the one running now", which this change does
+      alter; this one keys a cache of results that cannot exist yet.
 - [ ] 7.4 `deadline` is **not** a new cache-key dimension. Assert the key columns
       are still `(projectId, inputHash, objective, contractVersion, budgetMs)`.
 - [ ] 7.5 A **regression test**, not a rule change: run two contract versions
