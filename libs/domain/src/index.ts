@@ -30,6 +30,7 @@ export * from './label-mismatch';
 // wire. The floor half was already wrong once for a month (2026-08-10).
 export * from './leaf-constraints';
 export * from './not-before';
+export * from './on-time';
 export * from './place-sibling';
 export * from './priority-band';
 // The dense rank the solver objective multiplies. Separate from
