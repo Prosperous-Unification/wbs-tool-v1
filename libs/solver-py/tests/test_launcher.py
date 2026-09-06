@@ -87,6 +87,26 @@ class LauncherProcess(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout, request)
 
+    def test_bound_passes_the_absolute_deadline_to_the_solver(self) -> None:
+        deadline = int(time.time() * 1_000) + 30_000
+        self.replace_solver(
+            "import json, sys\n"
+            "sys.stdout.write(json.dumps(sys.argv[1:]))\n"
+        )
+        done = subprocess.run(
+            self.command(deadline),
+            input=b"bound\n{}\n",
+            capture_output=True,
+            env=self.env,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            done.stdout,
+            f'["--search-workers", "2", "--child-deadline-epoch-ms", "{deadline}"]'.encode(),
+        )
+
     def test_memory_limit_is_converted_to_a_hard_address_space_backstop(self) -> None:
         with mock.patch.object(launcher.resource, "setrlimit") as setrlimit:
             launcher._apply_address_space_limit(512)

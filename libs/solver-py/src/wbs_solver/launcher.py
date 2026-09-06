@@ -126,7 +126,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     # SIGALRM alone cannot bound a native CP-SAT call that holds the GIL.
     signal.setitimer(signal.ITIMER_REAL, remaining / 1_000)
     _apply_address_space_limit(memory_limit_mb)
-    os.execvp("wbs-solver", ["wbs-solver", "--search-workers", str(search_workers)])
+    os.execvp(
+        "wbs-solver",
+        [
+            "wbs-solver",
+            "--search-workers",
+            str(search_workers),
+            "--child-deadline-epoch-ms",
+            str(child_deadline_at),
+        ],
+    )
     raise AssertionError("os.execvp returned")
 
 

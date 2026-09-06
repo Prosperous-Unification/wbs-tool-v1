@@ -56,13 +56,31 @@ def read_request(stream: BinaryIO) -> bytes:
 def _solver_config(argv: Sequence[str]) -> SolverConfig | None:
     if not argv:
         return SolverConfig()
-    if len(argv) != 2 or argv[0] != "--search-workers":
+    if len(argv) not in (2, 4):
+        return None
+    values: dict[str, str] = {}
+    for index in range(0, len(argv), 2):
+        flag, value = argv[index], argv[index + 1]
+        if flag not in {"--search-workers", "--child-deadline-epoch-ms"} or flag in values:
+            return None
+        values[flag] = value
+    if "--search-workers" not in values:
         return None
     try:
-        workers = int(argv[1])
+        workers = int(values["--search-workers"])
+        deadline = (
+            int(values["--child-deadline-epoch-ms"])
+            if "--child-deadline-epoch-ms" in values
+            else None
+        )
     except ValueError:
         return None
-    return SolverConfig(num_search_workers=workers) if workers > 0 else None
+    if workers <= 0 or (deadline is not None and deadline <= 0):
+        return None
+    return SolverConfig(
+        num_search_workers=workers,
+        child_deadline_epoch_ms=deadline,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -85,7 +103,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if config is None:
         print(
             "wbs-solver: unexpected arguments "
-            f"{argv!r}; usage: wbs-solver [--version | --search-workers COUNT]",
+            f"{argv!r}; usage: wbs-solver [--version | --search-workers COUNT "
+            "[--child-deadline-epoch-ms EPOCH_MS]]",
             file=stderr,
         )
         return EXIT_BAD_REQUEST
