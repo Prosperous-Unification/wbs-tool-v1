@@ -382,13 +382,15 @@ export function noContent(): RouteResponse {
  * catch, so it is closed rather than described.
  *
  * `null` is a lie against the declared type, and it is **Elysia's own lie**:
- * that framework also declares path parameters as strings and also puts `null`
- * here. Reproducing it keeps one meaning per URL across binders. The honest
- * alternative — widening {@link RouteRequest.params} to `Record<string, string
- * | null>` — was rejected for now because it puts a case no client sends in
- * front of all 28 parameter reads in the app while changing no answer any of
- * them gives; whoever wants the compiler to enforce it should widen the type
- * and keep these clauses, which assert values and not just statuses.
+ * that framework declares a path parameter as `string` too —
+ * `Record<GetPathParameter<Path>, string>`, `elysia/dist/types.d.ts:342` at
+ * 1.4.28 — and puts `null` there anyway. Reproducing it keeps one meaning per
+ * URL across binders. The honest alternative — widening {@link
+ * RouteRequest.params} to `Record<string, string | null>` — is deferred, not
+ * rejected: it puts a case no client sends in front of the 27 parameter reads
+ * in the seven controller modules while changing no answer any of them gives.
+ * Whoever wants the compiler to enforce it should widen the type and keep these
+ * clauses, which assert values and not just statuses.
  *
  * Same accept set, measured rather than assumed: across `%ZZ`, `%`, `%%`,
  * `%E0%A4%A`, `%C0%80`, `%20`, `%F0%9F%98%80`, `a%2Fb` and `ok`, this decoder
