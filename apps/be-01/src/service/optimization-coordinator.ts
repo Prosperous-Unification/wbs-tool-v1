@@ -36,9 +36,9 @@ import {
 import type { SolverObjectiveName } from '../repository/schema';
 import { type ProjectEvent, subscriptionFor } from './broadcast';
 import {
+  type OptimizationVariantState,
   optimizationVariantState,
   type OptimizedScheduleReader,
-  type OptimizationVariantState,
 } from './optimized-schedule-reader';
 import {
   runSolverChildLifecycle,
@@ -165,6 +165,14 @@ export type OptimizationRetryResult =
       readonly state: 'retrying';
       readonly generation: number;
       readonly inputHash: string;
+    };
+
+type OptimizationRetryDecision =
+  | Extract<OptimizationRetryResult, { readonly kind: 'not-retryable' | 'already-running' }>
+  | {
+      readonly kind: 'accepted';
+      readonly generation: number;
+      readonly admission: ReservedAdmission | null;
     };
 
 export const OPTIMIZATION_EDIT_DEBOUNCE_MS = 250;
@@ -490,9 +498,9 @@ export class OptimizationCoordinator {
       budgetMs: this.options.budgetMs,
     };
     const now = this.options.now();
-    const decision = this.options.db.transaction((tx) => {
+    const decision: OptimizationRetryDecision = this.options.db.transaction((tx) => {
       const current = readGeneration(tx, ask.projectId, this.options.contractVersion);
-      if (current === null || current.inputHash !== currentInputHash) {
+      if (current?.inputHash !== currentInputHash) {
         return { kind: 'not-retryable', state: 'idle' } as const;
       }
 
