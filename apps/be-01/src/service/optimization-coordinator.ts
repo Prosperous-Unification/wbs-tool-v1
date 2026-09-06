@@ -532,6 +532,9 @@ export class OptimizationCoordinator {
       if (admission.kind === 'closed') {
         return { kind: 'not-retryable', state: outcome.kind } as const;
       }
+      if (admission.kind === 'reserved') {
+        return { kind: 'accepted', generation: current.generation, admission } as const;
+      }
       if (admission.kind === 'project-full' || admission.kind === 'global-full') {
         const queued = enqueueSolverRequestIn(tx, {
           projectId: ask.projectId,
@@ -547,7 +550,7 @@ export class OptimizationCoordinator {
         if (queued.kind === 'already-present') return { kind: 'already-running' } as const;
         return { kind: 'accepted', generation: current.generation, admission: null } as const;
       }
-      return { kind: 'accepted', generation: current.generation, admission } as const;
+      throw new Error('unhandled solver admission');
     });
 
     if (decision.kind !== 'accepted') return decision;
