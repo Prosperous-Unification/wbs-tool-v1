@@ -1,4 +1,5 @@
 # LLM_README — read this, then only the doc your task needs
+Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216 at `951b3156`; next exact-head h2puni gate, peer + Gemini, green CI. Do not merge or install the host service.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
