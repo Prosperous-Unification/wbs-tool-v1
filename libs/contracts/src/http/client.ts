@@ -139,12 +139,39 @@ function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
   return typeof value === 'object' && value !== null && 'then' in value;
 }
 
-async function invoke(
+/** Keeps unexpected synchronous preflight faults on the Promise-returning client contract. */
+function rejectInvoke(cause: unknown): Promise<never> {
+  return Promise.resolve().then(() => {
+    throw cause;
+  });
+}
+
+function invoke(
   shape: EndpointShape,
   supplied: Partial<TransportInput>,
   transport: ClientTransport,
 ): Promise<ClientReply<EndpointShape>> {
-  const preflight = await preflightRequest(shape, supplied);
+  let preflight: RequestPreflight<EndpointShape> | Promise<RequestPreflight<EndpointShape>>;
+  try {
+    preflight = preflightRequest(shape, supplied);
+  } catch (cause) {
+    return rejectInvoke(cause);
+  }
+  if (isPromiseLike(preflight))
+    return Promise.resolve(preflight).then((completed) =>
+      invokeAfterPreflight(shape, supplied, transport, completed),
+    );
+  // Proof: unconditionally awaiting this synchronous value made the production
+  // WBS client test expect two fetch calls and receive zero in the calling stack.
+  return invokeAfterPreflight(shape, supplied, transport, preflight);
+}
+
+async function invokeAfterPreflight(
+  shape: EndpointShape,
+  supplied: Partial<TransportInput>,
+  transport: ClientTransport,
+  preflight: RequestPreflight<EndpointShape>,
+): Promise<ClientReply<EndpointShape>> {
   if (preflight.kind === 'failure') return preflight;
   const { input } = preflight;
   let response: Response | TransportReply;

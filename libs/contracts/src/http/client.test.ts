@@ -487,6 +487,25 @@ test('preflights synchronous request shapes without yielding and returns their w
   ).toMatchObject({ kind: 'failure', failure: { code: 'invalid_request', part: 'params' } });
 });
 
+test('starts transport in the calling stack after synchronous request validation', async () => {
+  const reply = Promise.withResolvers<TransportReply>();
+  let calls = 0;
+  const client = clientFromShapes([write], () => {
+    calls += 1;
+    return reply.promise;
+  });
+
+  const first = client.writeProject({ ...input, body: { name: 'One' } });
+  const second = client.writeProject({ ...input, body: { name: 'Two' } });
+
+  expect(calls).toBe(2);
+  reply.resolve({ kind: 'empty', status: 204 });
+  expect(await Promise.all([first, second])).toMatchObject([
+    { kind: 'success' },
+    { kind: 'success' },
+  ]);
+});
+
 test('keeps preflight asynchronous when a request schema validates asynchronously', async () => {
   const shape = defineEndpointShape({ ...write, body: asynchronous(write.body) });
   const preflight = preflightRequest(shape, { ...input, body: { name: 'Plan' } });
