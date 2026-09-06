@@ -6787,42 +6787,47 @@ describe('downloading the chart as a standalone .svg', () => {
       return doc;
     };
 
-    itDom('draws a chip per marker day in the rebuilt axis, in the axis cell it stands on', async () => {
-      // Slice 8.6's first half. The `x` is asserted **against the day number
-      // the same loop prints**, not against a gutter width this test would have
-      // to re-derive: the claim is that the chip is in the axis rebuild's own
-      // coordinate space, and a chip placed by a second arithmetic that happened
-      // to agree at the default rung is exactly the drift `dayPx` was threaded
-      // through this function to stop.
-      renderMarked([
-        { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
-        { id: 'm-freeze', date: dayAt(5), name: 'Freeze', color: CORAL },
-      ]);
-      const doc = await downloadedDoc();
+    itDom(
+      'draws a chip per marker day in the rebuilt axis, in the axis cell it stands on',
+      async () => {
+        // Slice 8.6's first half. The `x` is asserted **against the day number
+        // the same loop prints**, not against a gutter width this test would have
+        // to re-derive: the claim is that the chip is in the axis rebuild's own
+        // coordinate space, and a chip placed by a second arithmetic that happened
+        // to agree at the default rung is exactly the drift `dayPx` was threaded
+        // through this function to stop.
+        renderMarked([
+          { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
+          { id: 'm-freeze', date: dayAt(5), name: 'Freeze', color: CORAL },
+        ]);
+        const doc = await downloadedDoc();
 
-      const chips = [...doc.querySelectorAll('[data-marker-chip]')];
-      expect(chips.map((chip) => chip.getAttribute('data-marker-chip'))).toEqual([
-        'm-cut',
-        'm-freeze',
-      ]);
-      expect(chips.map((chip) => chip.getAttribute('fill'))).toEqual([AZURE, CORAL]);
+        const chips = [...doc.querySelectorAll('[data-marker-chip]')];
+        expect(chips.map((chip) => chip.getAttribute('data-marker-chip'))).toEqual([
+          'm-cut',
+          'm-freeze',
+        ]);
+        expect(chips.map((chip) => chip.getAttribute('fill'))).toEqual([AZURE, CORAL]);
 
-      // The day number for the same offset is anchored at the middle of its
-      // cell, so the cell's left edge is its `x` less half a day. Read off the
-      // root's own children rather than the whole document: the nested live
-      // `<svg>` is in here too, and a `text` of its own would shift the index.
-      const dayNumbers = [...doc.documentElement.children].filter(
-        (node) => node.tagName === 'text' && node.getAttribute('text-anchor') === 'middle',
-      );
-      for (const chip of chips) {
-        const offset = Number(chip.getAttribute('data-marker-offset'));
-        const width = Number(chip.getAttribute('width'));
-        expect(width).toBe(DAY_PX);
-        const numberAt = dayNumbers[offset];
-        expect(numberAt).toBeDefined();
-        expect(Number(chip.getAttribute('x'))).toBe(Number(numberAt.getAttribute('x')) - width / 2);
-      }
-    });
+        // The day number for the same offset is anchored at the middle of its
+        // cell, so the cell's left edge is its `x` less half a day. Read off the
+        // root's own children rather than the whole document: the nested live
+        // `<svg>` is in here too, and a `text` of its own would shift the index.
+        const dayNumbers = [...doc.documentElement.children].filter(
+          (node) => node.tagName === 'text' && node.getAttribute('text-anchor') === 'middle',
+        );
+        for (const chip of chips) {
+          const offset = Number(chip.getAttribute('data-marker-offset'));
+          const width = Number(chip.getAttribute('width'));
+          expect(width).toBe(DAY_PX);
+          const numberAt = dayNumbers[offset];
+          expect(numberAt).toBeDefined();
+          expect(Number(chip.getAttribute('x'))).toBe(
+            Number(numberAt.getAttribute('x')) - width / 2,
+          );
+        }
+      },
+    );
 
     itDom('names every chip it draws, because a downloaded file has no pointer', async () => {
       // Slice 8.6's second half and its whole point. On screen the answer to
@@ -6847,67 +6852,76 @@ describe('downloading the chart as a standalone .svg', () => {
       ]);
     });
 
-    itDom('grows the document before it writes the viewBox, so the legend is inside the file', async () => {
-      // Slice 8.6's real cost. `totalHeight` is written into the `viewBox`, the
-      // `width`, the `height` and the background rect within ten lines of being
-      // computed, and the legend is a block **below** the chart: a legend
-      // appended after those writes draws into air the file never declared, and
-      // every renderer clips it away while every count assertion above stays
-      // green.
-      renderMarked([{ id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE }]);
-      const doc = await downloadedDoc();
+    itDom(
+      'grows the document before it writes the viewBox, so the legend is inside the file',
+      async () => {
+        // Slice 8.6's real cost. `totalHeight` is written into the `viewBox`, the
+        // `width`, the `height` and the background rect within ten lines of being
+        // computed, and the legend is a block **below** the chart: a legend
+        // appended after those writes draws into air the file never declared, and
+        // every renderer clips it away while every count assertion above stays
+        // green.
+        renderMarked([{ id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE }]);
+        const doc = await downloadedDoc();
 
-      const root = doc.documentElement;
-      const declared = Number(root.getAttribute('height'));
-      expect(root.getAttribute('viewBox')).toBe(
-        `0 0 ${root.getAttribute('width') ?? ''} ${String(declared)}`,
-      );
-      // The background rect is written from the same number, so a legend the
-      // viewBox holds but the background does not would be words on nothing.
-      const background = doc.querySelector('rect');
-      expect(Number(background?.getAttribute('height'))).toBe(declared);
+        const root = doc.documentElement;
+        const declared = Number(root.getAttribute('height'));
+        expect(root.getAttribute('viewBox')).toBe(
+          `0 0 ${root.getAttribute('width') ?? ''} ${String(declared)}`,
+        );
+        // The background rect is written from the same number, so a legend the
+        // viewBox holds but the background does not would be words on nothing.
+        const background = doc.querySelector('rect');
+        expect(Number(background?.getAttribute('height'))).toBe(declared);
 
-      const legend = doc.querySelector('[data-marker-legend]');
-      expect(legend).not.toBeNull();
-      expect(Number(legend?.getAttribute('y'))).toBeLessThan(declared);
-      // And below the chart, not over it: the nested live `<svg>` is the
-      // picture, and a legend inside its box is a legend across the bars.
-      const nested = doc.querySelector('svg svg');
-      const chartBottom = Number(nested?.getAttribute('y')) + Number(nested?.getAttribute('height'));
-      expect(Number(legend?.getAttribute('y'))).toBeGreaterThan(chartBottom);
-    });
+        const legend = doc.querySelector('[data-marker-legend]');
+        expect(legend).not.toBeNull();
+        expect(Number(legend?.getAttribute('y'))).toBeLessThan(declared);
+        // And below the chart, not over it: the nested live `<svg>` is the
+        // picture, and a legend inside its box is a legend across the bars.
+        const nested = doc.querySelector('svg svg');
+        const chartBottom =
+          Number(nested?.getAttribute('y')) + Number(nested?.getAttribute('height'));
+        expect(Number(legend?.getAttribute('y'))).toBeGreaterThan(chartBottom);
+      },
+    );
 
-    itDom('wraps the legend on measured widths, and grows the file by the row it wrapped to', async () => {
-      // What makes the measurement load-bearing rather than decorative: the
-      // wrap decides how many rows there are, and the row count is what the
-      // document grew by. A width guessed per name gives a legend that either
-      // runs off the right edge or reserves height for a row it never draws —
-      // and both are invisible to a case that only counts the names.
-      //
-      // The ruler in `vitest.setup.ts` answers half an em per character, so
-      // these three names are 90px of legend entry each against a file whose
-      // whole width is the label gutter plus a 40-day chart at 28px.
-      const long = 'A'.repeat(400);
-      renderMarked([{ id: 'm-one', date: dayAt(2), name: 'Short', color: AZURE }]);
-      const oneRow = await downloadedDoc();
-      const oneRowHeight = Number(oneRow.documentElement.getAttribute('height'));
-      cleanup();
+    itDom(
+      'wraps the legend on measured widths, and grows the file by the row it wrapped to',
+      async () => {
+        // What makes the measurement load-bearing rather than decorative: the
+        // wrap decides how many rows there are, and the row count is what the
+        // document grew by. A width guessed per name gives a legend that either
+        // runs off the right edge or reserves height for a row it never draws —
+        // and both are invisible to a case that only counts the names.
+        //
+        // The ruler in `vitest.setup.ts` answers half an em per character, so
+        // these three names are 90px of legend entry each against a file whose
+        // whole width is the label gutter plus a 40-day chart at 28px.
+        const long = 'A'.repeat(400);
+        renderMarked([{ id: 'm-one', date: dayAt(2), name: 'Short', color: AZURE }]);
+        const oneRow = await downloadedDoc();
+        const oneRowHeight = Number(oneRow.documentElement.getAttribute('height'));
+        cleanup();
 
-      renderMarked([
-        { id: 'm-one', date: dayAt(2), name: long, color: AZURE },
-        { id: 'm-two', date: dayAt(5), name: long, color: CORAL },
-        { id: 'm-three', date: dayAt(9), name: long, color: AZURE },
-      ]);
-      const wrapped = await downloadedDoc();
+        renderMarked([
+          { id: 'm-one', date: dayAt(2), name: long, color: AZURE },
+          { id: 'm-two', date: dayAt(5), name: long, color: CORAL },
+          { id: 'm-three', date: dayAt(9), name: long, color: AZURE },
+        ]);
+        const wrapped = await downloadedDoc();
 
-      const rows = new Set(
-        [...wrapped.querySelectorAll('[data-marker-legend]')].map((entry) =>
-          entry.getAttribute('y'),
-        ),
-      );
-      expect(rows.size).toBeGreaterThan(1);
-      expect(Number(wrapped.documentElement.getAttribute('height'))).toBeGreaterThan(oneRowHeight);
-    });
+        const rows = new Set(
+          [...wrapped.querySelectorAll('[data-marker-legend]')].map((entry) =>
+            entry.getAttribute('y'),
+          ),
+        );
+        expect(rows.size).toBeGreaterThan(1);
+        expect(Number(wrapped.documentElement.getAttribute('height'))).toBeGreaterThan(
+          oneRowHeight,
+        );
+      },
+    );
 
     itDom('at the fence rung the file is the screen: chips drawn, rules suppressed', async () => {
       // Slice 8.7. Seven occupied dates inside the 25-day window that opens at

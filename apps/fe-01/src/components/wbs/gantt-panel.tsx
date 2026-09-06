@@ -2211,7 +2211,13 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     // `bottom-0`, read into the axis row's own pixels.
     for (const marker of chipsByOffset.get(day.offset) ?? []) {
       const fill = markerFill(marker);
-      const chip = svgRect(cellX, ROW_PX - MARKER_CHIP_HEIGHT_PX, dayPx, MARKER_CHIP_HEIGHT_PX, fill);
+      const chip = svgRect(
+        cellX,
+        ROW_PX - MARKER_CHIP_HEIGHT_PX,
+        dayPx,
+        MARKER_CHIP_HEIGHT_PX,
+        fill,
+      );
       // The live band's own two hooks, on the file's copy of the same chip:
       // "the export matches the screen" is a claim about two documents, and it
       // is only checkable if the same question can be asked of both.
