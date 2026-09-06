@@ -26,10 +26,20 @@ export const WsFrame = type({
 });
 export type WsFrame = typeof WsFrame.infer;
 
+/**
+ * Resume cursors address durable sequence numbers, including zero before the first event.
+ * Proof: replacing the value constraint with number makes the negative/fractional/infinite/unsafe
+ * controller cases receive resume_ack instead of invalid_payload. Removing the array refinement
+ * does the same for both array cases and the real-socket malformed-frame regression.
+ */
+const ResumePoints = type({
+  '[string]': '0 <= number.integer <= 9007199254740991',
+}).narrow((points) => !Array.isArray(points));
+
 /** A client asking for everything it missed, per subscription. */
 const ResumeFrame = type({
   type: "'resume'",
-  resume_points: { '[string]': 'number' },
+  resume_points: ResumePoints,
 });
 
 /**
@@ -110,6 +120,31 @@ export const WsControlFrame = ResumeFrame.or(ResumeAckFrame)
   .or(WhoFrame)
   .or(ErrorFrame);
 export type WsControlFrame = typeof WsControlFrame.infer;
+
+/**
+ * Client input only, validated and classified before the gateway dispatches it.
+ *
+ * The forward tag excludes recognized controls, so an invalid control cannot
+ * become a backend message merely by carrying subscription and message fields.
+ * Proof: putting generic forwarding before validation makes the malformed subscribe,
+ * unsubscribe and resume controller cases receive no refusal; the socket case sees only pong.
+ * Its regex still infers string in TypeScript; the output's kind discriminant
+ * preserves precise control types without a cast after validation. The original
+ * frame, including extension fields, is retained unchanged inside that envelope.
+ */
+export const WsClientFrame = PingFrame.or(WhoFrame)
+  .or(SubscribeFrame)
+  .or(UnsubscribeFrame)
+  .or(ResumeFrame)
+  .pipe((frame) => ({ kind: 'control' as const, frame }))
+  .or(
+    type({
+      'type?': type.string.matching(/^(?!(?:ping|who|subscribe|unsubscribe|resume)$)/),
+      subscription: 'string',
+      message: 'unknown',
+    }).pipe((frame) => ({ kind: 'forward' as const, frame })),
+  );
+export type WsClientFrame = typeof WsClientFrame.infer;
 
 // The builders live in `ws-frames.ts`, which imports nothing: fe-01 takes them
 // as `@wbs/contracts/ws-frames`, because this barrel's arktype validators are

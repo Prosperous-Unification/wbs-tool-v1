@@ -1,4 +1,13 @@
-import { wsData, wsError, wsPong, wsPresence, wsResumeAck, wsResumeDenied } from '@wbs/contracts';
+import {
+  WsClientFrame,
+  wsData,
+  wsError,
+  wsPong,
+  wsPresence,
+  wsResumeAck,
+  wsResumeDenied,
+} from '@wbs/contracts';
+import { type } from '@wbs/validation';
 
 import type { SubscriptionMap } from '../service/subscription-map';
 
@@ -11,7 +20,8 @@ export interface WsSocket {
 }
 
 export interface HandleWsMessageArgs {
-  data: string;
+  /** The wire adapter has already decoded the JSON value; strings are values, never JSON to parse again. */
+  frame: unknown;
   socket: WsSocket;
   subs: SubscriptionMap<WsSocket>;
   connectionId: string;
@@ -67,30 +77,42 @@ export function isKnownSubscription(subscription: string): boolean {
   return subscription === 'presence' || projectIdOf(subscription) !== null;
 }
 
+/** Validates the decoded client frame before any indexing, callback or dispatch. */
 export async function handleWsMessage(args: HandleWsMessageArgs): Promise<void> {
-  let msg: Record<string, unknown>;
-  try {
-    msg = JSON.parse(args.data) as Record<string, unknown>;
-  } catch {
+  // Proof: bypassing this schema with the unchecked cast makes "refuses null before dispatch"
+  // throw TypeError; the real-socket malformed-frame test receives only pong, without the refusal.
+  const inbound = WsClientFrame(args.frame);
+  if (inbound instanceof type.errors) {
     args.socket.send(wsError('invalid_payload'));
     return;
   }
+  if (inbound.kind === 'forward') {
+    args.onInbound?.();
+    try {
+      await args.forward(inbound.frame);
+    } catch {
+      args.onBackendUnavailable?.();
+      args.socket.send(wsError('backend_unavailable', { retry_after: 5 }));
+    }
+    return;
+  }
+  const msg = inbound.frame;
 
-  if (msg['type'] === 'ping') {
+  if (msg.type === 'ping') {
     args.socket.send(wsPong());
     return;
   }
 
   // A client that reconnects has missed every broadcast sent while it was
   // away, so it must be able to ask rather than wait for the next join.
-  if (msg['type'] === 'who') {
+  if (msg.type === 'who') {
     args.socket.send(wsPresence(args.roster?.() ?? []));
     return;
   }
 
-  if (msg['type'] === 'resume') {
+  if (msg.type === 'resume') {
     args.onReconnect?.();
-    const points = (msg['resume_points'] as Record<string, number> | undefined) ?? {};
+    const points = msg.resume_points;
     let result: Record<string, ResumeStatus>;
     try {
       result = await args.resume(points);
@@ -130,35 +152,19 @@ export async function handleWsMessage(args: HandleWsMessageArgs): Promise<void> 
     return;
   }
 
-  if (msg['type'] === 'subscribe' && typeof msg['subscription'] === 'string') {
-    if (!isKnownSubscription(msg['subscription'])) {
-      args.socket.send(wsError('unknown_subscription', { subscription: msg['subscription'] }));
+  if (msg.type === 'subscribe') {
+    if (!isKnownSubscription(msg.subscription)) {
+      args.socket.send(wsError('unknown_subscription', { subscription: msg.subscription }));
       return;
     }
-    args.subs.subscribe(msg['subscription'], args.socket);
+    args.subs.subscribe(msg.subscription, args.socket);
     // After the map accepted it, and never for a refused name: presence is
     // scoped by the subscription, so telling it about one the fan-out does not
     // hold would put a socket in a roster for a project it receives nothing on.
-    args.onSubscribed?.(msg['subscription']);
+    args.onSubscribed?.(msg.subscription);
     return;
   }
 
-  if (msg['type'] === 'unsubscribe' && typeof msg['subscription'] === 'string') {
-    args.subs.unsubscribe(msg['subscription'], args.socket);
-    args.onUnsubscribed?.(msg['subscription']);
-    return;
-  }
-
-  if ('subscription' in msg && 'message' in msg) {
-    args.onInbound?.();
-    try {
-      await args.forward(msg);
-    } catch {
-      args.onBackendUnavailable?.();
-      args.socket.send(wsError('backend_unavailable', { retry_after: 5 }));
-    }
-    return;
-  }
-
-  args.socket.send(wsError('invalid_payload'));
+  args.subs.unsubscribe(msg.subscription, args.socket);
+  args.onUnsubscribed?.(msg.subscription);
 }

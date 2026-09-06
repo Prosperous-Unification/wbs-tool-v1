@@ -12,6 +12,7 @@ import { JwtVerifier, type TokenVerifier } from './service/jwt-auth';
 import { Presence } from './service/presence';
 import { socketWriter } from './service/socket-writer';
 import { SubscriptionMap } from './service/subscription-map';
+import { decodeWireFrame, gatewayAdapter } from './ws-wire';
 
 /** Short: `/health` is polled, and a slow answer is as useless as no answer. */
 const HEALTH_PROBE_TIMEOUT_MS = 2_000;
@@ -112,7 +113,7 @@ export function buildApp(opts: AppOptions) {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
 
   return (
-    new Elysia()
+    new Elysia({ adapter: gatewayAdapter })
       .use(observabilityPlugin({ service: 'gw-01' }))
       .decorate('logger', logger)
       .decorate('subs', subs)
@@ -156,6 +157,7 @@ export function buildApp(opts: AppOptions) {
       // and the drain has to read a number here and now.
       .get('/metrics/snapshot', () => metrics.counters)
       .ws('/ws', {
+        parse: (_socket, frame) => decodeWireFrame(frame),
         async beforeHandle({ query, request, set }) {
           const auth = query as WsAuthCarrier;
           if (opts.localIdentity !== undefined) {
@@ -243,7 +245,7 @@ export function buildApp(opts: AppOptions) {
             ws.close(1008, 'unauthenticated');
           }
         },
-        async message(ws, data) {
+        async message(ws, frame) {
           const conn = ws.data as unknown as WsConnection;
           // Before anything reads presence: a `subscribe` that overtook the
           // join found no connection to move and was silently dropped.
@@ -257,7 +259,9 @@ export function buildApp(opts: AppOptions) {
           }
           const socket = conn.socket;
           await handleWsMessage({
-            data: typeof data === 'string' ? data : JSON.stringify(data),
+            // Proof: parsing string values again makes the real-socket malformed-frame test
+            // receive two pongs for a quoted JSON string containing a ping object.
+            frame,
             socket,
             subs,
             connectionId: conn.connectionId,
