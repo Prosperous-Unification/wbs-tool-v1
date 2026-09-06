@@ -9,7 +9,13 @@ import {
 } from './optimization-admission';
 import { readGeneration } from './optimization-generation';
 import { toSolverQueueRow } from './optimizer-rows';
-import { project, type SolverObjectiveName, solverQueue, type SolverQueueRow } from './schema';
+import {
+  type OptimizationGenerationRow,
+  project,
+  type SolverObjectiveName,
+  solverQueue,
+  type SolverQueueRow,
+} from './schema';
 
 type Transaction = Parameters<Parameters<SQLiteBunDatabase['transaction']>[0]>[0];
 interface QueueEntry extends Omit<SolverQueueRow, 'objective'> {
@@ -53,13 +59,19 @@ const queueIdentity = (entry: SolverQueueRequest) =>
     eq(solverQueue.budgetMs, entry.budgetMs),
   );
 
-function currentInputHash(tx: Transaction, entry: QueueEntry): string | null {
-  const generation = readGeneration(tx, entry.projectId, entry.contractVersion);
+export function currentQueueInputHash(
+  generation: OptimizationGenerationRow | null,
+  entry: Pick<QueueEntry, 'generation' | 'admittedCancelEpoch'>,
+): string | null {
   return generation !== null &&
     generation.generation === entry.generation &&
     generation.cancelEpoch === entry.admittedCancelEpoch
     ? generation.inputHash
     : null;
+}
+
+function currentInputHash(tx: Transaction, entry: QueueEntry): string | null {
+  return currentQueueInputHash(readGeneration(tx, entry.projectId, entry.contractVersion), entry);
 }
 
 /** Persist one capacity-blocked solve under the generation and cancel epoch observed now. */

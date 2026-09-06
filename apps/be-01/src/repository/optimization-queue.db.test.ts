@@ -8,8 +8,12 @@ import { openDatabase, openDrizzle } from './db';
 import { runMigrations } from './migrate';
 import { reserveSolverSlot } from './optimization-admission';
 import { releaseSolverSlot } from './optimization-drain';
-import { allocateGeneration } from './optimization-generation';
-import { dequeueSolverRequest, enqueueSolverRequest } from './optimization-queue';
+import { allocateGeneration, readGeneration } from './optimization-generation';
+import {
+  currentQueueInputHash,
+  dequeueSolverRequest,
+  enqueueSolverRequest,
+} from './optimization-queue';
 import { solverQueue, solverSlot } from './schema';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -223,6 +227,11 @@ describe('the durable solver FIFO', () => {
       } finally {
         raw.close();
       }
+      if (mutation.includes('generation = 2')) {
+        const entry = db.select().from(solverQueue).get();
+        if (entry === undefined) throw new Error('stale queue fixture disappeared');
+        expect(currentQueueInputHash(readGeneration(db, 'p-a', BLUE), entry)).toBeNull();
+      }
       expect(
         dequeueSolverRequest(db, {
           ownerId: 'blue',
@@ -236,7 +245,9 @@ describe('the durable solver FIFO', () => {
       expect(db.select().from(solverSlot).all()).toEqual([]);
     }
 
-    // Proof: the epoch mutation leaves the generation current, open and ON;
+    // Proof: removing the generation comparison makes the focused assertion
+    // accept the old entry's hash even though generation 2 is current.
+    // The epoch mutation leaves the generation current, open and ON;
     // omitting admittedCancelEpoch alone turns that case into a reservation.
     // Removing the project-toggle condition from reserveSolverSlotIn turns the
     // direct OFF mutation into a reservation through this dequeue path.
