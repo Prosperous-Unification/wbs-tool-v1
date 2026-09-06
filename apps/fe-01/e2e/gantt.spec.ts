@@ -3704,7 +3704,7 @@ test.describe('the marker rule, measured in the columns it paints', () => {
   }
 
   /**
-   * Decodes two clips **in the page** so their pixels can be compared.
+   * Decodes and compares two clips **in the page**.
    *
    * `page.screenshot` hands back a Node `Buffer` and there is no PNG decoder in
    * this workspace, so the bytes are carried in as a data URL and drawn into a
@@ -3712,6 +3712,8 @@ test.describe('the marker rule, measured in the columns it paints', () => {
    * spelled out because two of its steps throw or truncate when left implicit:
    * `img.decode()` before drawing, and the canvas sized from the image before
    * that, since a fresh `<canvas>` is 300×150 and would crop a wider clip.
+   * The decoded `Uint8ClampedArray`s stay behind one `JSHandle`; only the
+   * compact reducer result crosses CDP.
    */
   async function differenceOf(page: Page, before: string, after: string): Promise<PixelDifference> {
     const decoded = await page.evaluateHandle(
@@ -3740,34 +3742,6 @@ test.describe('the marker rule, measured in the columns it paints', () => {
     } finally {
       await decoded.dispose();
     }
-  }
-
-  /** TASK-295 measurement-only legacy path; removed after its h2puni sample. */
-  async function legacyDifferenceOf(
-    page: Page,
-    before: string,
-    after: string,
-  ): Promise<PixelDifference> {
-    const pixels = await page.evaluate(
-      async ([first, second]): Promise<readonly [ClipPixels, ClipPixels]> => {
-        const read = async (encoded: string): Promise<ClipPixels> => {
-          const image = new Image();
-          image.src = `data:image/png;base64,${encoded}`;
-          await image.decode();
-          const canvas = document.createElement('canvas');
-          canvas.width = image.naturalWidth;
-          canvas.height = image.naturalHeight;
-          const ctx = canvas.getContext('2d');
-          if (ctx === null) throw new Error('this browser gave no 2d context');
-          ctx.drawImage(image, 0, 0);
-          const got = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          return { width: got.width, height: got.height, data: [...got.data] };
-        };
-        return [await read(first), await read(second)] as const;
-      },
-      [before, after] as const,
-    );
-    return pixelDifference(pixels);
   }
 
   /** Moves the ladder, and waits for the day columns to have really moved. */
@@ -3940,22 +3914,15 @@ test.describe('the marker rule, measured in the columns it paints', () => {
       // arithmetic's controlled fault pins that distinction. Proof: a
       // temporary untagged marker line eight days outside the strip failed
       // this assertion at delta 79 against the allowed 8 on h2puni.
-      const compactStarted = Date.now();
       const bodyDifference = await differenceOf(page, before.body, hidden.body);
-      const compactMs = Date.now() - compactStarted;
-      if (process.env['TASK_295_MEASURE'] === '1') {
-        const legacyStarted = Date.now();
-        const legacyDifference = await legacyDifferenceOf(page, before.body, hidden.body);
-        console.log(
-          'TASK-295 body comparison',
-          JSON.stringify({ rung, compactMs, legacyMs: Date.now() - legacyStarted, bodyDifference }),
-        );
-        expect(legacyDifference).toEqual(bodyDifference);
-      }
       expect(
         bodyDifference.greatestChannelDelta,
         `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,
       ).toBeLessThanOrEqual(8);
+      // Measured on h2puni across three complete cases (nine body pairs): eight
+      // pairs were identical and one changed three pixels at delta 5. Sixteen
+      // leaves more than five times that observed area while a broad band at
+      // the same low contrast fails on its area instead of hiding under delta 8.
       expect(
         bodyDifference.changedPixels,
         `at ${String(rung)}px the low-contrast body difference covers too much area`,

@@ -95,6 +95,18 @@ describe('one compact raster comparison', () => {
       changedPixels: 1,
     });
   });
+
+  it('keeps a broad low-contrast change visible on the area axis', () => {
+    const after = painted(5, 4, [0, 1, 2, 3, 4], { value: 250 });
+
+    expect(pixelDifference([blankStrip(5, 4), after])).toEqual({
+      width: 5,
+      height: 4,
+      differingColumns: [0, 1, 2, 3, 4],
+      greatestChannelDelta: 5,
+      changedPixels: 20,
+    });
+  });
 });
 
 describe('what two clips of one strip disagree about', () => {

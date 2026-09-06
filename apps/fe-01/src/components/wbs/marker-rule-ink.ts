@@ -61,12 +61,11 @@ export function pixelDifference([baseline, after]: readonly [
         'the clips cannot change size; the page reflowed or a decode canvas has the wrong size',
     );
   }
-  const differingColumns: number[] = [];
+  const changedColumns = new Array<boolean>(baseline.width).fill(false);
   let greatestChannelDelta = 0;
   let changedPixels = 0;
-  for (let x = 0; x < baseline.width; x += 1) {
-    let columnChanged = false;
-    for (let y = 0; y < baseline.height; y += 1) {
+  for (let y = 0; y < baseline.height; y += 1) {
+    for (let x = 0; x < baseline.width; x += 1) {
       const pixel = (y * baseline.width + x) * 4;
       let pixelChanged = false;
       for (let channel = 0; channel < 4; channel += 1) {
@@ -76,15 +75,14 @@ export function pixelDifference([baseline, after]: readonly [
       }
       if (pixelChanged) {
         changedPixels += 1;
-        columnChanged = true;
+        changedColumns[x] = true;
       }
     }
-    if (columnChanged) differingColumns.push(x);
   }
   return {
     width: baseline.width,
     height: baseline.height,
-    differingColumns,
+    differingColumns: changedColumns.flatMap((changed, x) => (changed ? [x] : [])),
     greatestChannelDelta,
     changedPixels,
   };
