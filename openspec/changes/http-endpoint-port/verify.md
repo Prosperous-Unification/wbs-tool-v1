@@ -740,3 +740,41 @@ preflight assertion was removed rather than replaced with an empty check.
 Generated committed OpenAPI parity, the full workspace gate and browser gate are
 still pending. The existing OpenAPI failure remains the declared task3.2
 transition and is not counted as green here.
+
+### Project, work-item and calendar-marker checkpoint
+
+Tasks 2.3, 2.7 and 2.7a are frozen after feature-first integration at merge
+commit `4dec2ab8`. Work-item has five typed endpoints, project has six, and
+calendar markers have four. The app/shape registry binds each family once.
+
+Work-item's final owned run passed **262 tests / 1079 assertions** across 13
+files. Its bounded source/spec compiler, 16-file lint and format checks passed.
+The independent review found that create/duplicate producers could erase their
+kind before proving a required minted id. All seven minting kinds now require
+and validate that id; removing the runtime guard returned 200 instead of the
+expected 500, and widening the internal variants produced two TS2578 failures.
+The exact parser, producer, deadline, transaction and undo fault table is in
+`.superpowers/sdd/2026-09-02-refactoring-plan/work-item-http-evidence.md`.
+
+Calendar-marker's restored run passed **79 tests / 383 assertions**; the final
+shape/MCP/Elysia consumer run passed **5 tests / 54 assertions**. FE API and
+Gantt passed **275** cases plus the Auckland zoned case. Contracts, backend and
+MCP bounded compilers, scoped lint and formatting passed. Twelve fault variants
+were observed and restored. Independent review found tolerant bare 404/409
+schemas accepting malformed known `field` values; the corrected single
+optional-`markerId` variants fail malformed replies at the response boundary.
+
+Project plus its shared Elysia adapter passed **95 tests / 499 assertions**.
+The related settings/optimizer/capacity/priority run passed **23 tests / 82
+assertions**. Nineteen owner faults were restored. Independent review then
+measured one deliberate strict-boundary correction: legacy
+`application/octet-stream` PATCH bytes became an empty object, returned 200 and
+called `update({})`; the typed boundary returns 422 and makes no call. The new
+production regression failed with expected 422/received 200 when the adapter
+was faulted to recreate that empty object, then passed after restoration.
+
+The frozen combined 26-file run passed **395 tests / 1709 assertions**. Fresh
+Nx typecheck passed for contracts, be-01, mcp-01 and fe-01; fresh Nx lint passed
+for contracts, be-01 and mcp-01. Generated OpenAPI parity, auth migration, the
+full workspace gate and isolated browser gate remain pending and are not
+claimed by this checkpoint.

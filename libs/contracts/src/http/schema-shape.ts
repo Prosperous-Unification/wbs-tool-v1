@@ -71,7 +71,68 @@ function declareSchema<S extends Type>(declaration: S): SchemaShape<S['infer']> 
   if (JSON.stringify(input) !== JSON.stringify(output)) {
     throw new Error('HTTP wire schemas must have identical input and output contracts');
   }
-  return { validator: declaration, jsonSchema };
+  return { validator: declaration, jsonSchema: normalizeNever(jsonSchema) };
+}
+
+/**
+ * Ark emits optional never fields as enum:[], which JSON Schema forbids. The
+ * equivalent not:{} remains an object schema in Ark's public descriptor type.
+ * Proof: bypassing normalization threw enum must have non-empty array in the
+ * focused never-descriptor test. Normalizing nonempty enums changed its
+ * neighboring state enum and failed the descriptor assertion.
+ * Only schema-valued positions are visited; annotations and literal values are
+ * untouched, and only the exact empty-enum object is rewritten.
+ */
+function normalizeNever(schema: JsonSchema): JsonSchema {
+  if ('enum' in schema && schema.enum.length === 0 && Object.keys(schema).length === 1)
+    return { not: {} };
+  const normalized = { ...schema };
+  if ('properties' in normalized && normalized.properties !== undefined)
+    normalized.properties = normalizeProperties(normalized.properties);
+  if ('patternProperties' in normalized && normalized.patternProperties !== undefined)
+    normalized.patternProperties = normalizeProperties(normalized.patternProperties);
+  if ('anyOf' in normalized) normalized.anyOf = normalized.anyOf.map(normalizeNever);
+  if ('oneOf' in normalized) normalized.oneOf = normalized.oneOf.map(normalizeNever);
+  if ('allOf' in normalized) normalized.allOf = normalized.allOf.map(normalizeNever);
+  if ('not' in normalized) normalized.not = normalizeNever(normalized.not);
+  if ('items' in normalized && normalized.items !== undefined)
+    normalized.items = normalizeBranches(normalized.items);
+  if ('prefixItems' in normalized && normalized.prefixItems !== undefined)
+    normalized.prefixItems = normalized.prefixItems.map(normalizeBranch);
+  if ('contains' in normalized && normalized.contains !== undefined)
+    normalized.contains = normalizeBranches(normalized.contains);
+  if ('additionalItems' in normalized && normalized.additionalItems !== undefined)
+    normalized.additionalItems = normalizeBranches(normalized.additionalItems);
+  if ('additionalProperties' in normalized && normalized.additionalProperties !== undefined)
+    normalized.additionalProperties = normalizeBranches(normalized.additionalProperties);
+  return normalized;
+}
+
+/** Preserves property names while normalizing only their schema values. */
+function normalizeProperties(properties: Record<string, JsonSchema>): Record<string, JsonSchema> {
+  return Object.fromEntries(
+    Object.entries(properties).map(([key, schema]) => [key, normalizeNever(schema)]),
+  );
+}
+
+/** Array keywords may hold one branch, a tuple, or a boolean schema. */
+function normalizeBranches(
+  branches: JsonSchema.Branch | readonly JsonSchema.Branch[],
+): JsonSchema.Branch | JsonSchema.Branch[] {
+  if (isBranchList(branches)) return branches.map(normalizeBranch);
+  return normalizeBranch(branches);
+}
+
+/** Narrows the descriptor's readonly tuple using the runtime array identity. */
+function isBranchList(
+  branches: JsonSchema.Branch | readonly JsonSchema.Branch[],
+): branches is readonly JsonSchema.Branch[] {
+  return Array.isArray(branches);
+}
+
+/** Boolean schemas already express their intended truth value. */
+function normalizeBranch(branch: JsonSchema.Branch): JsonSchema.Branch {
+  return typeof branch === 'boolean' ? branch : normalizeNever(branch);
 }
 
 /**

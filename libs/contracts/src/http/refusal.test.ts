@@ -167,3 +167,37 @@ test('the compiler enforces closed refusal codes, detail variants and command co
   );
   expect(checked.exitCode).toBe(0);
 });
+
+function deadlineRefusalTypes() {
+  const valid = {
+    error: 'deadline_before_project_start' as const,
+    at: 0,
+    kind: 'patchWorkItem' as const,
+    workItemId: 'w',
+    projectDayZero: '2026-09-07',
+  };
+  void (valid satisfies Refusal);
+  const { projectDayZero, ...missingDayZero } = valid;
+  void projectDayZero;
+  // @ts-expect-error The deadline refusal identifies both the row and project day zero.
+  void (missingDayZero satisfies Refusal);
+  const missingContext = {
+    error: 'deadline_before_project_start' as const,
+    workItemId: 'w',
+    projectDayZero: '2026-09-07',
+  };
+  // @ts-expect-error A runtime deadline refusal cannot lose its recognized command context.
+  void (missingContext satisfies Refusal);
+  void ({ error: 'deadline_must_be_a_date', at: 0, kind: 'patchWorkItem' } satisfies Refusal);
+}
+void deadlineRefusalTypes;
+
+function markerOptionalFieldTypes(field?: 'markerId') {
+  void ({ error: 'not_found', field } satisfies Refusal);
+  void ({ error: 'taken', field } satisfies Refusal);
+  // @ts-expect-error Optional marker detail still cannot mix with saved-plan detail.
+  void ({ error: 'not_found', field: 'markerId', savedPlanId: 's' } satisfies Refusal);
+  // @ts-expect-error Optional marker detail still cannot mix with command context.
+  void ({ error: 'taken', field: 'markerId', at: 0, kind: 'createTeam' } satisfies Refusal);
+}
+void markerOptionalFieldTypes;

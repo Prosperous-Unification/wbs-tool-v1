@@ -1,4 +1,10 @@
 import {
+  createCalendarMarker,
+  listCalendarMarkers,
+  removeCalendarMarker,
+  updateCalendarMarker,
+} from '@wbs/contracts';
+import {
   automaticColor,
   isHexTriple,
   isIsoDate,
@@ -6,96 +12,14 @@ import {
   validateCustomColor,
 } from '@wbs/domain';
 
-import { tableRefusedBody } from '../http/body-doc';
-import { callerGuard } from '../http/caller';
-import { isFieldBag, noContent, ok, respond, type Route, type RouteResponse } from '../http/route';
+import { bind, EMPTY, type RequestFailure } from '../http/endpoint';
+import { isFieldBag } from '../http/route';
 import type { CalendarMarker } from '../repository';
-import type { AuthService } from '../service/auth.service';
 import type {
   CalendarMarkerRefusal,
   CalendarMarkerRefused,
   CalendarMarkerService,
 } from '../service/calendar-marker.service';
-import { statusForRefusal } from './refusal-status';
-
-/**
- * What the document says about the create body, now that the handler checks it
- * instead of the framework.
- *
- * This route declared `t.Object({ markerId?, date, name, color? })` to Elysia,
- * which both validated the body and put a `requestBody` in the committed
- * document. The route shape carries no validator (`http/route.ts` says why), so
- * the check moved into {@link fieldsFrom} and {@link createProblem}, and the
- * schema stays here as
- * documentation — the mechanism `step.routes.ts` and `project.routes.ts`
- * already use for a body they parse themselves.
- *
- * **The client-supplied marker id is `markerId` on the wire, not `id`**, and the
- * name is forced rather than chosen. This route's path is
- * `/api/projects/:id/calendar-markers`, so `id` on this API already means the
- * project. `openapi-tools.ts` derives one MCP tool per operation from
- * `apps/be-01/openapi.json` and flattens path and body inputs into a single
- * argument object, and its `claim()` throws rather than ship a tool where one
- * input silently overwrites the other. Renaming the *path* parameter instead is
- * not available: memoirist refuses two different parameter names in the same
- * position, so `:projectId` here would mean renaming `:id` across every
- * `/api/projects/:id/...` route in be-01. `markerId` is also what the `PATCH`
- * and `DELETE` paths already call this same value, so the create is now the
- * only route that ever called it anything else.
- *
- * The **domain** field stays `id` (`NewCalendarMarker.id`, `CalendarMarker.id`):
- * inside the service there is no project id to collide with, and the seam is the
- * one mapping in the `POST` handler.
- */
-const CREATE_BODY = tableRefusedBody('A new calendar marker on an absolute project date.', {
-  type: 'object',
-  required: ['date', 'name'],
-  properties: {
-    markerId: { type: 'string' },
-    date: { type: 'string' },
-    name: { type: 'string' },
-    color: { type: 'string', nullable: true },
-  },
-});
-
-/**
- * One `PATCH` for both edits, with the body deciding which.
- *
- * Rename and recolour are one route because they are one resource's two
- * columns, and separating them would give the axis chip two URLs for "change
- * this marker". They still take body-specific branches inside it — which is
- * exactly why task 4.6's structural negative is injected on the **recolour**
- * branch specifically.
- */
-const PATCH_BODY = tableRefusedBody('Exactly one of the marker’s two writable columns.', {
-  type: 'object',
-  properties: {
-    name: { type: 'string' },
-    color: { type: 'string', nullable: true },
-  },
-});
-
-/**
- * The marker routes' own default is **422**, and it is stated here because
- * `statusForRefusal(reason, otherwise)` takes each route's default as an
- * argument: `forbidden` is 403, `not_found` 404 and `taken` 409 through the
- * shared arms, and everything a marker route refuses on its own — a malformed
- * body, a date that is not an `IsoDate`, a fill under the contrast bar — is the
- * request itself being wrong rather than a conflict with the project as it
- * stands (spec.md's refusal table; task 4.5 tests it row by row).
- */
-const MARKER_ROUTE_DEFAULT = 422;
-
-/**
- * Every refusal these routes answer goes through here, the body ones included.
- *
- * Not two ladders — a hard-coded 422 beside the shared one would make the
- * default unfalsifiable: `taken`, `not_found` and `forbidden` all leave through
- * their own arms, so changing {@link MARKER_ROUTE_DEFAULT} would move no status
- * at all and task 4.5's first negative could not be watched failing anything.
- */
-const statusFor = (reason: CalendarMarkerRefusal | BodyProblem['reason']): number =>
-  statusForRefusal(reason, MARKER_ROUTE_DEFAULT);
 
 /**
  * A v4 UUID and nothing else (task 4.6a).
@@ -113,13 +37,16 @@ const statusFor = (reason: CalendarMarkerRefusal | BodyProblem['reason']): numbe
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** One row of the spec's refusal table: the code it answers with, and the field it blames. */
-interface BodyProblem {
-  reason: 'malformed' | 'contrast';
-  field: 'body' | 'markerId' | 'date' | 'name' | 'color';
-}
+type BodyProblem =
+  | { reason: 'malformed'; field: 'body' | 'markerId' | 'date' | 'name' | 'color' }
+  | { reason: 'contrast'; field: 'color' };
 
-const refuse = (problem: BodyProblem): RouteResponse =>
-  respond(statusFor(problem.reason), { error: problem.reason, field: problem.field });
+function refuse(problem: BodyProblem) {
+  // Proof: omitting color from this detail made the mounted contrast test return 500, expected 422.
+  if (problem.reason === 'contrast')
+    return { ok: false, status: 422, body: { error: 'contrast', field: 'color' } } as const;
+  return { ok: false, status: 422, body: { error: 'malformed', field: problem.field } } as const;
+}
 
 /**
  * The `name` rows of the table, which are one row: empty and over
@@ -151,6 +78,7 @@ function nameProblem(name: string): BodyProblem | null {
 function colorProblem(color: string | null | undefined): BodyProblem | null {
   if (color === undefined || color === null) return null;
   if (!isHexTriple(color)) return { reason: 'malformed', field: 'color' };
+  // Proof: bypassing contrast validation made the mounted dark-fill test return 201, expected 422.
   if (!validateCustomColor(color).ok) return { reason: 'contrast', field: 'color' };
   return null;
 }
@@ -177,38 +105,14 @@ interface MarkerFields {
   color?: string | null;
 }
 
-/** The members a route reads; anything else in the body is ignored. */
+/** The members whose types can receive a field-specific refusal. */
 type MarkerField = 'markerId' | 'date' | 'name' | 'color';
 
 /**
- * Each member's **type**, before any of them means anything.
- *
- * Elysia refused these against `t.Object` before the handler ran, and the
- * document's own note said so: `date: t.String()` is why the JSON number `7`
- * was a schema refusal rather than a date this file judged. The check has to
- * live here now, and it is deliberately the *same* refusal the field's own row
- * of the table gives — a `date` that is a number and a `date` that is `'7'` are
- * both `malformed`/`date`, which is what a client can act on. A generic
- * `invalid_body` for the first would answer one mistake in two spellings
- * depending on which of them the client made.
- *
- * A body that is not a field bag has no member to blame, so that one row blames
- * `body` — the spelling the `PATCH` already used for a body naming neither
- * column. `isFieldBag` rather than `typeof body === 'object'` because
- * `typeof [] === 'object'`: TypeBox refused a JSON array here and the
- * hand-written spelling it replaced across this app accepted one
- * (`http/route.ts` records where that reached a caller).
- *
- * **`reads` is the schema's property list, and passing it is what keeps
- * "everything else is ignored" true.** Elysia refused a member's type only
- * where the route's own `t.Object` named it, and stripped every other property
- * before the handler ran — so on the `PATCH`, whose schema names `name` and
- * `color` alone, `{"name":"x","date":123}` renamed the marker and answered 200.
- * A `fieldsFrom` that always read all four turned that into a 422 blaming
- * `date`, which is both a behaviour change and a contradiction of the
- * description `tableRefusedBody` publishes for that very route (Gemini's
- * Important, run 38). Each route now passes the members its schema declares,
- * and the two lists are the two schemas.
+ * Classifies a rejected structural body using only the route's declared fields.
+ * Wrong member types retain the existing field-specific refusal; an otherwise
+ * valid body rejected for undeclared properties blames body in {@link classify}.
+ * This does not admit or strip input: the strict request schema runs first.
  */
 function fieldsFrom(body: unknown, reads: readonly MarkerField[]): MarkerFields | BodyProblem {
   if (!isFieldBag(body)) return { reason: 'malformed', field: 'body' };
@@ -232,10 +136,10 @@ function fieldsFrom(body: unknown, reads: readonly MarkerField[]): MarkerFields 
   return fields;
 }
 
-/** What `POST` reads — {@link CREATE_BODY}'s properties, and nothing else. */
+/** What `POST` reads — {@link createCalendarMarker}'s properties, and nothing else. */
 const CREATE_FIELDS: readonly MarkerField[] = ['markerId', 'date', 'name', 'color'];
 
-/** What `PATCH` reads — {@link PATCH_BODY}'s two writable columns. */
+/** What `PATCH` reads — {@link updateCalendarMarker}'s two writable columns. */
 const PATCH_FIELDS: readonly MarkerField[] = ['name', 'color'];
 
 const isProblem = (parsed: MarkerFields | BodyProblem): parsed is BodyProblem => 'reason' in parsed;
@@ -261,11 +165,8 @@ interface NewMarkerBody {
  * nothing — "refused" and "unchanged" are two claims, and the second is the one
  * a validate-after-write breaks.
  *
- * The narrowed object is **built member by member rather than spread**, and
- * that is a rule the framework used to keep: Elysia stripped every property its
- * schema did not name before the handler saw the body. Nothing strips them now,
- * so a spread would carry whatever else a caller sent straight into
- * `NewCalendarMarker` and on to the store.
+ * The narrowed object retains only declared create fields. The request schema
+ * rejects undeclared properties before this semantic parser runs.
  */
 function createProblem(fields: MarkerFields): NewMarkerBody | BodyProblem {
   if (fields.markerId !== undefined && !UUID_V4.test(fields.markerId))
@@ -291,190 +192,115 @@ function createProblem(fields: MarkerFields): NewMarkerBody | BodyProblem {
 const isCreateProblem = (parsed: NewMarkerBody | BodyProblem): parsed is BodyProblem =>
   'reason' in parsed;
 
-/**
- * The refusal body for a state the **service** decided, with the field its row
- * of the table names.
- *
- * `markerId` is blamed on exactly the refusals that are **about a marker** and
- * reached a route the caller named one on. Both halves are load-bearing and
- * each was a defect on its own (TASK-279 AC #7):
- *
- * - `CalendarMarkerRefused.about` is the service's answer to *which check
- *   failed*. `not_found` is one reason for "no such project" and "no such
- *   marker" on purpose — a caller must not learn a marker it may not see
- *   exists — so the reason alone cannot say, and a route reading only the
- *   reason blamed `markerId` for a project it could not find. That is still
- *   what `PATCH /…/:markerId` and `DELETE /…/:markerId` answered after the
- *   collection routes were fixed: the marker id on the path was real and
- *   entirely innocent.
- * - `requestCarriedMarkerId` is the route's answer to *what the caller sent*.
- *   The `PATCH` and `DELETE` paths always carry one; the `GET` collection never
- *   does; the `POST` collection does only when the body named its own id.
- *
- * `forbidden` needs no arm of its own and does not get one. It is minted in
- * exactly one place, `CalendarMarkerService.gate`, which tags it
- * `about: 'project'`; the store never answers it. A `reason !== 'forbidden'`
- * guard beside the `about` test would therefore be unfalsifiable — struck, no
- * request changes and no test moves — and this file does not keep guards whose
- * removal cannot be watched (round-3 Gemini review).
- *
- * `markerId` rather than `id` because that is what every marker request calls
- * this value: the path parameter on `PATCH` and `DELETE`, and the create body
- * property (see {@link CREATE_BODY}). `id` on this API means the project.
- */
-const refusalBody = (refused: CalendarMarkerRefused, requestCarriedMarkerId: boolean) =>
-  refused.about === 'marker' && requestCarriedMarkerId
-    ? { error: refused.reason, field: 'markerId' }
-    : { error: refused.reason };
+/** Keeps each modeled state paired with its existing HTTP status. */
+function bareState(reason: CalendarMarkerRefusal) {
+  switch (reason) {
+    case 'forbidden':
+      return { ok: false, status: 403, body: { error: reason } } as const;
+    case 'not_found':
+      return { ok: false, status: 404, body: { error: reason } } as const;
+    case 'taken':
+      return { ok: false, status: 409, body: { error: reason } } as const;
+  }
+}
 
-/**
- * The marker as the API answers it, with an **automatic colour resolved**.
- *
- * `color` is nullable in storage and `null` there means automatic
- * (`design.md`: materialising it would freeze today's palette into rows). The
- * nullability stops here — `spec.md`: "Storage MAY hold no colour, meaning
- * automatic, but the API SHALL NOT return one: every marker in every response
- * SHALL carry a resolved colour". Every route below sends markers through this
- * function, so no client needs a second copy of `palette[hash(id) mod 8]` to
- * know what a marker is drawn in, and `automaticColor` stays the single
- * definition of it (`libs/domain/src/marker-color.ts`).
- *
- * Deliberately **not** applied in the service or the repository: the store's
- * `null` is what makes "never recoloured" distinguishable from "recoloured to
- * the colour it would have had anyway", and a resolution one layer lower would
- * erase that distinction before the column is written back.
- */
+/** A field is blamed only when the service says marker and the request named one. */
+function stateRefused(outcome: CalendarMarkerRefused, named: boolean) {
+  // Proof: removing the project subject branch added field: markerId to the direct missing-project reply.
+  if (!named || outcome.about === 'project' || outcome.reason === 'forbidden')
+    return bareState(outcome.reason);
+  return outcome.reason === 'not_found'
+    ? ({ ok: false, status: 404, body: { error: 'not_found', field: 'markerId' } } as const)
+    : ({ ok: false, status: 409, body: { error: 'taken', field: 'markerId' } } as const);
+}
+
+/** Automatic color resolves at the wire boundary; storage retains null. */
 const answered = (marker: CalendarMarker) => ({
   ...marker,
+  // Proof: returning stored null made the mounted automatic-color create return 500, expected 201.
   color: marker.color ?? automaticColor(marker.id),
 });
 
-/**
- * A project's calendar markers.
- *
- * Its own route list rather than more routes on `projectRoutes`, for
- * `stepRoutes`'s reason: these write a list that belongs to a project and the
- * project routes write the project's own columns. The prefix is the same
- * because the resource is — a marker belongs to one project and is addressed
- * through it.
- *
- * Unlike the steps, the list has a **route of its own**: `GET
- * /api/projects/:id` answers with the plan a client schedules from, and markers
- * are drawn on the axis rather than scheduled. Slice 5 is the assertion that
- * they never enter that response at all, so reading them through it would be
- * the thing that slice refuses.
- *
- * **`:id` and not the `:projectId` that would read better**, for
- * `savedPlanRoutes`'s reason: memoirist keys a parameter by position,
- * `projectRoutes` already registered `/api/projects/:id`, and a second name at
- * that position throws at `composeGeneralHandler` — a startup failure rather
- * than a 404.
- */
-export function calendarMarkerRoutes(auth: AuthService, markers: CalendarMarkerService): Route[] {
-  const guard = callerGuard(auth);
-  return [
-    {
-      method: 'GET',
-      path: '/api/projects/:id/calendar-markers',
-      handler: guard('signed-in', async ({ params }) => {
-        const outcome = await markers.list(params['id']);
-        // No `markerId` blamed: this request carries none. The only state this
-        // route refuses is a project it cannot find, and a body that answered
-        // `field: 'markerId'` would name a value the caller never sent (#279).
-        return outcome.ok
-          ? ok({ markers: outcome.value.map(answered) })
-          : respond(statusFor(outcome.reason), refusalBody(outcome, false));
-      }),
-    },
-    {
-      method: 'POST',
-      path: '/api/projects/:id/calendar-markers',
-      handler: guard('signed-in', async ({ params, body }, user) => {
-        const fields = fieldsFrom(body, CREATE_FIELDS);
-        if (isProblem(fields)) return refuse(fields);
+/** Shared pure semantic validation for PATCH and its structural-failure classifier. */
+function patchProblem(
+  fields: MarkerFields,
+): { kind: 'name'; name: string } | { kind: 'color'; color: string | null } | BodyProblem {
+  // Proof: allowing name with color returned 200 instead of 422 in the mounted undeclared-input test.
+  if (fields.name !== undefined && fields.color === undefined)
+    return nameProblem(fields.name) ?? { kind: 'name', name: fields.name };
+  if (fields.color !== undefined && fields.name === undefined)
+    return colorProblem(fields.color) ?? { kind: 'color', color: fields.color };
+  return { reason: 'malformed', field: 'body' };
+}
+
+/** Retains field-specific body refusals; new undeclared fields blame the body. */
+function classify(failure: RequestFailure, creating: boolean) {
+  switch (failure.code) {
+    case 'invalid_json':
+      return { ok: false, status: 400, body: { error: 'invalid_json' } } as const;
+    case 'invalid_params':
+      return { ok: false, status: 400, body: { error: 'invalid_params' } } as const;
+    case 'invalid_query':
+      return { ok: false, status: 400, body: { error: 'invalid_query' } } as const;
+    case 'invalid_body': {
+      const fields = fieldsFrom(failure.rejected, creating ? CREATE_FIELDS : PATCH_FIELDS);
+      if (isProblem(fields)) return refuse(fields);
+      if (creating) {
         const created = createProblem(fields);
         if (isCreateProblem(created)) return refuse(created);
-        // The one place the wire name and the domain name meet: `markerId` in,
-        // `id` out.
-        // Built with the absent members left **out**, not present as
-        // `undefined`. `NewCalendarMarker` normalises both with `??` so the row
-        // written is the same either way, but the old controller's spread over
-        // a stripped body carried no `color` key when the client sent none, and
-        // an argument that differs from the one it replaces is a difference
-        // somebody has to re-derive (Gemini's Minor, run 38).
-        const outcome = await markers.create(params['id'], user.id, {
+      } else {
+        const problem = patchProblem(fields);
+        if (isProblem(problem)) return refuse(problem);
+      }
+      return refuse({ reason: 'malformed', field: 'body' });
+    }
+  }
+}
+
+/** Binds axis annotations without entering work-item, revision or journal paths. */
+export function calendarMarkerRoutes(markers: CalendarMarkerService) {
+  return [
+    bind(listCalendarMarkers, async ({ params }) => {
+      const outcome = await markers.list(params.id);
+      return outcome.ok
+        ? { ok: true, status: 200, body: { markers: outcome.value.map(answered) } }
+        : bareState(outcome.reason);
+    }),
+    bind(
+      createCalendarMarker,
+      async ({ params, body, principal }) => {
+        const created = createProblem(body);
+        if (isCreateProblem(created)) return refuse(created);
+        const outcome = await markers.create(params.id, principal.id, {
           date: created.date,
           name: created.name,
           ...(created.markerId === undefined ? {} : { id: created.markerId }),
           ...(created.color === undefined ? {} : { color: created.color }),
         });
-        // `taken` is the one refusal here the store decided about a marker, and
-        // only a create that carried an id can be answered about it: the spec's
-        // row blames `markerId` for a repeated id, while `not_found` on this
-        // collection route is about the **project** and blames nothing. A
-        // create that let the service mint its id blames nothing either — the
-        // colliding id was never on the request.
         return outcome.ok
-          ? respond(201, { marker: answered(outcome.value) })
-          : respond(
-              statusFor(outcome.reason),
-              refusalBody(outcome, created.markerId !== undefined),
-            );
-      }),
-      documentation: { detail: { requestBody: CREATE_BODY } },
-    },
-    {
-      method: 'PATCH',
-      path: '/api/projects/:id/calendar-markers/:markerId',
-      handler: guard('signed-in', async ({ params, body }, user) => {
-        const fields = fieldsFrom(body, PATCH_FIELDS);
-        if (isProblem(fields)) return refuse(fields);
-        // Exactly one of the two, and the refusal is the routes' own: a body
-        // naming neither asks for no change, and a body naming both asks for
-        // two writes the store applies one at a time — which is a partial
-        // apply the moment the second refuses. Both are the request being
-        // wrong, so both take the routes' 422 default.
-        // Narrowed by two explicit arms rather than one flag apiece: a flag
-        // pair leaves the compiler unable to see that the second branch has a
-        // colour, and the assertion that papers over it is exactly what would
-        // survive a body shape changing underneath.
-        const { name, color } = fields;
-        let outcome;
-        if (name !== undefined && color === undefined) {
-          // Validated **before** the write, not after it. The spec's
-          // "SHALL NOT partially apply" is about exactly this: a rename that
-          // stores the new name and then refuses it has answered 422 and left
-          // the name behind, and "refused" and "unchanged" are two claims.
-          const problem = nameProblem(name);
-          if (problem !== null) return refuse(problem);
-          outcome = await markers.rename(params['id'], params['markerId'], user.id, name);
-        } else if (color !== undefined && name === undefined) {
-          const problem = colorProblem(color);
-          if (problem !== null) return refuse(problem);
-          outcome = await markers.recolor(params['id'], params['markerId'], user.id, color);
-        } else {
-          return refuse({ reason: 'malformed', field: 'body' });
-        }
-        // Addressed **at** a marker, so the caller did send a `markerId` — but
-        // it is blamed only when the service says the refusal was about the
-        // marker. An absent **project** refuses here too, through the same
-        // `not_found`, and the path's marker id had nothing to do with it.
+          ? { ok: true, status: 201, body: { marker: answered(outcome.value) } }
+          : stateRefused(outcome, created.markerId !== undefined);
+      },
+      { classifyRequestFailure: (failure) => classify(failure, true) },
+    ),
+    bind(
+      updateCalendarMarker,
+      async ({ params, body, principal }) => {
+        const change = patchProblem(body);
+        if (isProblem(change)) return refuse(change);
+        const outcome =
+          change.kind === 'name'
+            ? await markers.rename(params.id, params.markerId, principal.id, change.name)
+            : await markers.recolor(params.id, params.markerId, principal.id, change.color);
         return outcome.ok
-          ? ok({ marker: answered(outcome.value) })
-          : respond(statusFor(outcome.reason), refusalBody(outcome, true));
-      }),
-      documentation: { detail: { requestBody: PATCH_BODY } },
-    },
-    {
-      method: 'DELETE',
-      path: '/api/projects/:id/calendar-markers/:markerId',
-      handler: guard('signed-in', async ({ params }, user) => {
-        const outcome = await markers.remove(params['id'], params['markerId'], user.id);
-        // Addressed at a marker, like the `PATCH` above.
-        return outcome.ok
-          ? noContent()
-          : respond(statusFor(outcome.reason), refusalBody(outcome, true));
-      }),
-    },
-  ];
+          ? { ok: true, status: 200, body: { marker: answered(outcome.value) } }
+          : stateRefused(outcome, true);
+      },
+      { classifyRequestFailure: (failure) => classify(failure, false) },
+    ),
+    bind(removeCalendarMarker, async ({ params, principal }) => {
+      const outcome = await markers.remove(params.id, params.markerId, principal.id);
+      return outcome.ok ? { ok: true, status: 204, body: EMPTY } : stateRefused(outcome, true);
+    }),
+  ] as const;
 }

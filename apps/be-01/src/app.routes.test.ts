@@ -4,7 +4,6 @@ import { describe, expect, it } from 'bun:test';
 import type { AppOptions } from './app';
 import { buildApp, mountedEndpoints, mountedRouteLists } from './app';
 import type { Route } from './http/route';
-import { PlanCommandRunner } from './service/plan-commands';
 import { inMemoryUsers, testAuthService } from './testing/auth-fixture';
 import { testCalendarMarkerService } from './testing/calendar-marker-fixture';
 import { testCapacityService } from './testing/capacity-fixture';
@@ -47,19 +46,7 @@ function options(): AppOptions {
 }
 
 function assembled(): readonly Route[] {
-  const opts = options();
-  return mountedRouteLists(
-    opts,
-    new PlanCommandRunner({
-      workItems: opts.workItems,
-      directory: opts.directory,
-      capacity: opts.capacity,
-      priorityBands: opts.priorityBands,
-      transactions: opts.writes.transactions,
-      lock: opts.writes.lock,
-      announcements: opts.writes.announcements,
-    }),
-  ).flat();
+  return mountedRouteLists(options()).flat();
 }
 
 describe('the mounted route list', () => {

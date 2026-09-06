@@ -23,6 +23,7 @@ const workItemPatch = type({
   'name?': 'string',
   'notes?': 'string',
   'startNoEarlierThan?': 'string | null',
+  'deadline?': 'string | null',
   'startNoEarlierThanReason?': 'string | null',
   'priority?': 'number | null',
   'serviceTeamId?': 'string | null',
@@ -105,6 +106,7 @@ export const planCommandSchema = requestSchema(command);
 /** The batch cap belongs after semantic parsing; this declaration neither caps nor normalizes commands. */
 // Proof: adding maxLength200 failed the 201-command structural control; the parser owns precedence.
 const commandsBody = type({ commands: command.array() });
+// Proof: bypassing deep strict validation lost invalid_body in the mounted structural-extra case.
 export const planCommandsBody = requestSchema(commandsBody);
 
 /** A command exactly as it appeared on the wire, including optional fields absent before normalization. */

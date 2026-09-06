@@ -193,3 +193,25 @@ test('refuses array-valued optional-only response objects while retaining additi
   const reply = { project: { name: 'Known', added: { anything: [] } }, future: true };
   expect(await validateSchema(shape, reply)).toEqual({ value: reply });
 });
+
+test('normalizes exact never descriptors without changing neighboring enum constraints', async () => {
+  const declaration = type({
+    error: "'expected_object'",
+    'at?': 'never',
+    'kind?': 'never',
+    state: "'one' | 'two'",
+  });
+  const shape = responseSchema(declaration);
+  expect(shape.jsonSchema).toMatchObject({
+    properties: { at: { not: {} }, kind: { not: {} }, state: { enum: ['one', 'two'] } },
+  });
+  expect(
+    (await validateSchema(shape, { error: 'expected_object', state: 'one', future: true })).issues,
+  ).toBeUndefined();
+  for (const value of [
+    { error: 'expected_object', state: 'one', at: 0 },
+    { error: 'expected_object', state: 'one', kind: 'invented' },
+    { error: 'expected_object', state: 'three' },
+  ])
+    expect((await validateSchema(shape, value)).issues).toBeDefined();
+});

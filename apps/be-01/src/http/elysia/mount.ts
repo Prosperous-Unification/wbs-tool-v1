@@ -1,4 +1,5 @@
 import {
+  type BodyMedia,
   bodyMediaFor,
   type EndpointShape,
   type Refusal,
@@ -185,7 +186,12 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
         }
         if (endpoint.shape.body !== undefined) {
           const contentType = request.headers.get('content-type') ?? '';
-          const mediaType = contentType.split(';', 1)[0]?.trim().toLowerCase();
+          const mediaType = parserMedia(contentType);
+          // Proof: replacing parserMedia with normalized exact matching made the
+          // migrated project media cases return422 instead of200 for both
+          // application/json-patch+json and application/xml.
+          // Proof: admitting octet-stream bytes as an empty object made the binary
+          // project patch test receive200 instead of422.
           // Proof: removing media selection admitted valid JSON under missing/unsupported media (200 instead of 400).
           if (!bodyMediaFor(endpoint.shape).some((media) => media === mediaType))
             return classifyFailure(endpoint, {
@@ -199,7 +205,7 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
             mediaType === 'application/x-www-form-urlencoded' ||
             mediaType === 'multipart/form-data'
           ) {
-            const form = await decodeForm(bytes, contentType);
+            const form = await decodeForm(bytes, contentType, mediaType);
             if (!form.ok)
               return classifyFailure(endpoint, {
                 part: 'body',
@@ -250,6 +256,26 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
     );
   }
   return app;
+}
+
+/**
+ * Maps Elysia's body dispatch onto the canonical media families a shape declares.
+ * The framework's route parser reads character12 for application media: `j`
+ * parses JSON, `x` parses URL encoding and `r` parses multipart. This preserves
+ * its existing JSON Patch and XML-form admission without advertising either
+ * accidental spelling as a separate OpenAPI representation.
+ */
+function parserMedia(contentType: string): BodyMedia | undefined {
+  switch (contentType.charCodeAt(12)) {
+    case 106:
+      return 'application/json';
+    case 120:
+      return 'application/x-www-form-urlencoded';
+    case 114:
+      return 'multipart/form-data';
+    default:
+      return undefined;
+  }
 }
 
 /**

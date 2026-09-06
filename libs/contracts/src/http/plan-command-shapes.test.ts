@@ -186,3 +186,10 @@ function commandTypes(command: PlanCommandWire) {
   void batch;
 }
 void commandTypes;
+
+test('retains the nullable deadline wire field without taking over date semantics', async () => {
+  for (const deadline of [null, '2026-09-07', 'not-a-date']) {
+    const command = { kind: 'patchWorkItem', patch: { deadline } } as const;
+    expect(await validateSchema(planCommandSchema, command)).toEqual({ value: command });
+  }
+});

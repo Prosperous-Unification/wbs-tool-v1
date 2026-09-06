@@ -179,10 +179,7 @@ export interface AppOptions {
  * red.
  *
  */
-export function mountedRouteLists(
-  opts: AppOptions,
-  commands: PlanCommandRunner,
-): readonly (readonly Route[])[] {
+export function mountedRouteLists(opts: AppOptions): readonly (readonly Route[])[] {
   return [
     authRoutes(
       opts.auth,
@@ -192,9 +189,6 @@ export function mountedRouteLists(
         maxConcurrent: opts.maxConcurrentLogins ?? 8,
       }),
     ),
-    projectRoutes(opts.auth, opts.projects, opts.workItems),
-    workItemRoutes(opts.auth, opts.workItems, commands),
-    calendarMarkerRoutes(opts.auth, opts.calendarMarkers),
   ];
 }
 
@@ -203,12 +197,24 @@ export function mountedRouteLists(
  * Proof: dropping smoke makes app.routes.test.ts's binding check see length0 instead of1.
  */
 export function mountedEndpoints(opts: AppOptions) {
+  const commands = new PlanCommandRunner({
+    workItems: opts.workItems,
+    directory: opts.directory,
+    capacity: opts.capacity,
+    priorityBands: opts.priorityBands,
+    transactions: opts.writes.transactions,
+    lock: opts.writes.lock,
+    announcements: opts.writes.announcements,
+  });
   return [
     ...smokeRoutes(),
     ...stepRoutes(opts.steps),
     ...directoryRoutes(opts.directory),
     ...historyRoutes(opts.history),
     ...solutionRoutes(opts.projects),
+    ...projectRoutes(opts.projects, opts.workItems),
+    ...workItemRoutes(opts.workItems, commands),
+    ...calendarMarkerRoutes(opts.calendarMarkers),
     ...savedPlanRoutes(opts.savedPlans, opts.projects, opts.writes.announcements),
     ...internalRoutes({
       // A deliberate pure ack: every mutation is an HTTP call to be-01, so a
@@ -229,15 +235,6 @@ export function buildApp(opts: AppOptions) {
   // asserts on what a refused login writes down without a pino destination.
   const routedOptions: AppOptions =
     opts.oidc === undefined ? opts : { ...opts, oidc: { logger, ...opts.oidc } };
-  const commands = new PlanCommandRunner({
-    workItems: opts.workItems,
-    directory: opts.directory,
-    capacity: opts.capacity,
-    priorityBands: opts.priorityBands,
-    transactions: opts.writes.transactions,
-    lock: opts.writes.lock,
-    announcements: opts.writes.announcements,
-  });
 
   return (
     new Elysia()
@@ -306,7 +303,7 @@ export function buildApp(opts: AppOptions) {
         }),
       )
       .use(
-        mountedRouteLists(routedOptions, commands).reduce(
+        mountedRouteLists(routedOptions).reduce(
           (app, list) => app.use(bindElysia(list)),
           new Elysia(),
         ),

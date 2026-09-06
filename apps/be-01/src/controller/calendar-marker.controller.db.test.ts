@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { automaticColor, MARKER_NAME_MAX } from '@wbs/domain';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { buildApp } from '../app';
 import type { WorkItem, WriteStamp } from '../repository';
@@ -87,7 +87,7 @@ const NAME_OVER_CAP = ASTRAL.repeat(MARKER_NAME_MAX + 1);
 const CUSTOM_FILL = '#5d6afe';
 
 /**
- * The five marker routes, over HTTP and against real SQLite (task 4.1's HTTP
+ * The four marker routes, over HTTP and against real SQLite (task 4.1's HTTP
  * half).
  *
  * Real SQLite rather than this folder's usual in-memory doubles, and not by
@@ -108,6 +108,7 @@ describe('the calendar-marker routes', () => {
   let db: Drizzle;
   let tokens: Record<string, string>;
   let projectId: string;
+  let auth: AuthService;
 
   /**
    * Every SQL statement the app's one connection has issued, in order — the
@@ -149,9 +150,10 @@ describe('the calendar-marker routes', () => {
     });
     const projects = new ProjectRepository(db);
 
+    auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
     app = buildApp({
       appOrigin: 'http://localhost',
-      auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
+      auth,
       projects: new ProjectService({ projects, broadcast }),
       // A clock held still, because `createdAt` is an ordering key here rather
       // than a stamp: every marker this file creates ties on `(date,
@@ -241,8 +243,111 @@ describe('the calendar-marker routes', () => {
 
   const list = (who: string) => listIn(projectId, who);
 
+  it('requires cookie origin and write scope before accepting marker writes', async () => {
+    const path = `/api/projects/${projectId}/calendar-markers`;
+    const body = JSON.stringify({ markerId: MINTED, date: '2026-09-01', name: 'Guarded' });
+    const refused = await app.handle(
+      new Request(`http://localhost${path}`, {
+        method: 'POST',
+        headers: {
+          cookie: `__Host-wbs_access=${tokens['owner']}`,
+          'content-type': 'application/json',
+        },
+        body,
+      }),
+    );
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'invalid_origin' });
+    expect(await list('owner')).toEqual([]);
+    const authenticate = auth.authenticate.bind(auth);
+    const scoped = spyOn(auth, 'authenticate').mockImplementation(async (token) => {
+      const account = await authenticate(token);
+      return account === null ? null : { ...account, scopes: ['read'] };
+    });
+    try {
+      const denied = await as(tokens['owner'], path, { method: 'POST', body });
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ error: 'insufficient_scope' });
+      expect(await list('owner')).toEqual([]);
+    } finally {
+      scoped.mockRestore();
+    }
+  });
+
+  it('preserves marker form media and refuses duplicate writable fields', async () => {
+    const path = `/api/projects/${projectId}/calendar-markers`;
+    for (const multipart of [false, true]) {
+      const encode = (fields: readonly (readonly [string, string])[]) => {
+        const body = multipart ? new FormData() : new URLSearchParams();
+        for (const [key, value] of fields) body.append(key, value);
+        return body;
+      };
+      const send = (
+        suffix: string,
+        method: string,
+        fields: readonly (readonly [string, string])[],
+      ) =>
+        app.handle(
+          new Request(`http://localhost${path}${suffix}`, {
+            method,
+            headers: { authorization: `Bearer ${tokens['owner']}` },
+            body: encode(fields),
+          }),
+        );
+      const created = await send('', 'POST', [
+        ['markerId', MINTED],
+        ['date', '2026-09-01'],
+        ['name', 'Form'],
+      ]);
+      expect(created.status).toBe(201);
+      const renamed = await send(`/${MINTED}`, 'PATCH', [['name', 'Renamed']]);
+      expect(renamed.status).toBe(200);
+      const duplicate = await send(`/${MINTED}`, 'PATCH', [
+        ['name', 'First'],
+        ['name', 'Second'],
+      ]);
+      expect(duplicate.status).toBe(422);
+      expect(await duplicate.json()).toEqual({ error: 'malformed', field: 'name' });
+      expect(await list('owner')).toMatchObject([{ name: 'Renamed' }]);
+      expect((await removeIn(projectId, 'owner', MINTED)).status).toBe(204);
+    }
+  });
+
+  it('rejects undeclared marker inputs without changing a stored marker', async () => {
+    const path = `/api/projects/${projectId}/calendar-markers`;
+    const created = await as(tokens['owner'], path, {
+      method: 'POST',
+      body: JSON.stringify({ markerId: MINTED, date: '2026-09-01', name: 'Before' }),
+    });
+    expect(created.status).toBe(201);
+    for (const patch of [
+      {},
+      { name: 'After', date: '2026-09-02' },
+      { color: CUSTOM_FILL, markerId: MINTED },
+      { name: 'After', color: CUSTOM_FILL },
+    ]) {
+      const response = await as(tokens['owner'], `${path}/${MINTED}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ error: 'malformed', field: 'body' });
+      const listed = await as(tokens['owner'], path);
+      expect(
+        ((await listed.json()) as { markers: { name: string; color: string }[] }).markers,
+      ).toMatchObject([{ name: 'Before', color: automaticColor(MINTED) }]);
+    }
+    const extra = await as(tokens['owner'], path, {
+      method: 'POST',
+      body: JSON.stringify({ date: '2026-09-01', name: 'Extra', id: MINTED }),
+    });
+    expect(extra.status).toBe(422);
+    expect(await extra.json()).toEqual({ error: 'malformed', field: 'body' });
+    expect((await as(tokens['owner'], `${path}?extra=1`)).status).toBe(400);
+  });
+
   /**
-   * The round trip: all five verbs through the routes, in the order a composer
+   * The round trip: all five service operations through the routes, in the order a composer
    * makes them.
    *
    * The colour is asserted at each step because rename and recolour share one
@@ -1093,6 +1198,8 @@ describe('the calendar-marker routes', () => {
    *
    * Both watched 2026-09-05.
    */
+  // Proof: querying work_item by marker.id in repository create produced a logged
+  // SELECT where this mounted test requires an empty work_item statement list.
   it('creates, renames, recolours and deletes without naming the work_item table', async () => {
     const owner = await new ProjectRepository(db).findById(projectId);
     expect(owner).not.toBeNull();

@@ -83,6 +83,7 @@ export type ParserRefusalCode =
   | `${'teamIds' | 'teamRefs' | 'serviceIds' | 'serviceRefs' | 'typeIds' | 'typeRefs'}_must_be_at_most_10`
   | `${'tagIds' | 'tagRefs'}_must_be_at_most_50`
   | 'startNoEarlierThan_must_be_a_date'
+  | 'deadline_must_be_a_date'
   | `${'priority' | 'maxParallel' | 'size'}_must_be_a_whole_number_from_1`
   | `${'maxParallel' | 'size'}_must_be_at_most_1000`
   | 'cascade_must_be_true_or_false'
@@ -114,6 +115,7 @@ export type CommandRefusalCode =
   | 'unknown_type'
   | 'unknown_system'
   | 'not_before_reason_needs_a_date'
+  | 'deadline_before_project_start'
   | 'invalid_kind'
   | 'nothing_to_change'
   | 'taken'
@@ -198,11 +200,14 @@ export type Integrity = { savedPlanId: string } & (
 /** Command-specific fields are finite; at/kind are required independently of the refusal code. */
 export type CommandRefusalDetail = {
   [C in CommandRefusalCode]: CommandContext &
-    (C extends 'in_use'
-      ? { usage: DirectoryUsage }
-      : C extends 'taken'
-        ? { name?: string }
-        : Record<never, never>);
+    // Proof: making projectDayZero optional caused TS2578 in the deadline refusal type fixture.
+    (C extends 'deadline_before_project_start'
+      ? { workItemId: string; projectDayZero: string }
+      : C extends 'in_use'
+        ? { usage: DirectoryUsage }
+        : C extends 'taken'
+          ? { name?: string }
+          : Record<never, never>);
 };
 
 type BareRefusalCode =
@@ -249,10 +254,10 @@ export type RefusalDetail = Record<BareRefusalCode, undefined> &
   Record<ParserRefusalCode, ParserContext> & {
     [C in Exclude<CommandRefusalCode, SharedCommandCode>]: CommandRefusalDetail[C];
   } & {
-    not_found: { savedPlanId?: string } | { field: 'markerId' } | CommandContext;
+    not_found: { savedPlanId?: string } | { field?: 'markerId' } | CommandContext;
     forbidden: undefined | CommandContext;
     name_required: undefined | CommandContext;
-    taken: undefined | { field: 'markerId' } | CommandRefusalDetail['taken'];
+    taken: undefined | { field?: 'markerId' } | CommandRefusalDetail['taken'];
     in_use: { inUse: StepInUse } | CommandRefusalDetail['in_use'];
     nothing_to_undo: { detail: string | null };
     stale_undo: { detail: string | null };

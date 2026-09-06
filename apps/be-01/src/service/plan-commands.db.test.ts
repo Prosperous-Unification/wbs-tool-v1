@@ -8,7 +8,7 @@ import {
   type PriorityBand,
   priorityBandRankOf,
 } from '@wbs/domain';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import type { Step } from '../repository';
 import { ActualRepository } from '../repository/actual';
@@ -35,7 +35,9 @@ import { CapacityService } from './capacity.service';
 import { DirectoryService } from './directory.service';
 import type { PlanCommand } from './plan-command';
 import {
+  type AppliedCommand,
   type BatchOutcome,
+  type BatchRefusal,
   PlanCommandRunner,
   type PlanCommandRunnerOptions,
 } from './plan-commands';
@@ -682,3 +684,86 @@ describe('the priority a create writes', () => {
     expect(await priorityOf(plain.get('w'))).toBe(50);
   });
 });
+
+it('retains producer kinds and create-versus-patch entity requirements internally', async () => {
+  const outcome = await runner.runDirectory(ownerId, [
+    { kind: 'createTeam', ref: 'team', name: 'Build' },
+    { kind: 'patchTeam', teamRef: 'team', patch: { name: 'Ship' } },
+    { kind: 'createPerson', ref: 'person', name: 'Ada' },
+    { kind: 'patchPerson', personRef: 'person', patch: { teamIds: [] } },
+  ]);
+  if (!outcome.ok) throw new Error(outcome.reason);
+  expect(outcome.results.map((entry) => entry.kind)).toEqual([
+    'createTeam',
+    'patchTeam',
+    'createPerson',
+    'patchPerson',
+  ]);
+  expect(outcome.results[1]?.entity).toHaveProperty('serviceIds', []);
+  expect(outcome.results[2]?.entity).toHaveProperty('kind', 'person');
+  expect(outcome.results[3]?.entity).toHaveProperty('teamIds', []);
+});
+
+it('throws on malformed trusted deadline detail before creating a modeled batch refusal', async () => {
+  const patch = spyOn(workItems, 'patch');
+  try {
+    for (const missing of [
+      { ok: false, reason: 'deadline_before_project_start', workItemId: 'w' },
+      { ok: false, reason: 'deadline_before_project_start', projectDayZero: '2026-09-07' },
+    ]) {
+      patch.mockResolvedValueOnce(missing as never);
+      await runner
+        .run(projectId, ownerId, [{ kind: 'patchWorkItem', workItemId: 'w', patch: {} }])
+        .then(
+          () => {
+            throw new Error('Malformed deadline refusal resolved');
+          },
+          (cause: unknown) => {
+            expect(cause).toEqual(
+              new Error('Deadline refusal requires work item and project day zero'),
+            );
+          },
+        );
+    }
+  } finally {
+    patch.mockRestore();
+  }
+});
+
+function appliedProducerTypes() {
+  const missingMintedId = { index: 0, kind: 'createWorkItem' as const };
+  const missingDirectoryId = {
+    index: 0,
+    kind: 'createTeam' as const,
+    entity: { id: 't', name: 'Team' },
+  };
+  const missingServices = {
+    index: 0,
+    kind: 'patchTeam' as const,
+    entity: { id: 't', name: 'Team' },
+  };
+  const missingPersonKind = {
+    index: 0,
+    kind: 'createPerson' as const,
+    id: 'p',
+    entity: { id: 'p', name: 'Person' },
+  };
+  const missingDayZero = {
+    ok: false as const,
+    reason: 'deadline_before_project_start' as const,
+    at: 0,
+    kind: 'patchWorkItem' as const,
+    detail: { workItemId: 'w' },
+  };
+  // @ts-expect-error Every created result preserves its minted top-level id.
+  void (missingMintedId satisfies AppliedCommand);
+  // @ts-expect-error A directory entity id cannot replace the minted top-level id.
+  void (missingDirectoryId satisfies AppliedCommand);
+  // @ts-expect-error Patch teams require their membership field.
+  void (missingServices satisfies AppliedCommand);
+  // @ts-expect-error Create-person output carries its known person kind.
+  void (missingPersonKind satisfies AppliedCommand);
+  // @ts-expect-error Deadline output requires both correlated detail fields.
+  void (missingDayZero satisfies BatchRefusal);
+}
+void appliedProducerTypes;

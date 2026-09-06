@@ -3,15 +3,21 @@ export type DecodedForm =
   | { ok: true; fields: Record<string, FormDataEntryValue | FormDataEntryValue[]> }
   | { ok: false };
 
+type FormMedia = 'application/x-www-form-urlencoded' | 'multipart/form-data';
+
 /**
  * Decodes buffered form bytes without coercion: repeated fields remain arrays and
  * files remain Files. Reading the request happens outside this parser's catch.
  * Bun reports malformed multipart syntax as TypeError with these parser messages;
  * unrelated TypeErrors still propagate rather than disguising an infrastructure fault.
  */
-export async function decodeForm(bytes: ArrayBuffer, contentType: string): Promise<DecodedForm> {
+export async function decodeForm(
+  bytes: ArrayBuffer,
+  contentType: string,
+  media: FormMedia,
+): Promise<DecodedForm> {
   let entries: Iterable<[string, FormDataEntryValue]>;
-  if (contentType.split(';', 1)[0]?.trim().toLowerCase() === 'application/x-www-form-urlencoded') {
+  if (media === 'application/x-www-form-urlencoded') {
     entries = new URLSearchParams(new TextDecoder().decode(bytes));
   } else {
     try {

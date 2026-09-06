@@ -1,3 +1,12 @@
+import { responseSchema, type SchemaShape, validateSchema } from '@wbs/contracts';
+import {
+  applyDirectoryCommands,
+  applyProjectCommands,
+  commandParserRefusal,
+  getWorkItems,
+  redoProject,
+  undoProject,
+} from '@wbs/contracts';
 import {
   isIsoDate,
   type IsoDate,
@@ -8,24 +17,16 @@ import {
   ThreePointEstimate,
 } from '@wbs/domain';
 import { parseOrThrow, ValidationError } from '@wbs/validation';
+import { type } from 'arktype';
 
-import { handParsedBody } from '../http/body-doc';
-import { callerGuard } from '../http/caller';
-import {
-  isFieldBag,
-  ok,
-  respond,
-  type Route,
-  type RouteHandler,
-  type RouteResponse,
-} from '../http/route';
-import type { AuthService } from '../service/auth.service';
+import { bind, type HttpReply, type RequestFailure } from '../http/endpoint';
+import { isFieldBag } from '../http/route';
 import {
   PLAN_COMMAND_KINDS,
   type PlanCommand,
   type PlanCommandKind,
 } from '../service/plan-command';
-import type { PlanCommandRunner } from '../service/plan-commands';
+import type { AppliedCommand, BatchRefusal, PlanCommandRunner } from '../service/plan-commands';
 import type {
   CreateWorkItem,
   DeleteStrategy,
@@ -34,26 +35,12 @@ import type {
   WorkItemService,
 } from '../service/work-item.service';
 import { BadCapacity, capacityOf } from './capacity-body';
-import { PLAN_COMMANDS_BODY } from './plan-command-schema';
 import { BadLadder, ladderOf } from './priority-ladder-body';
-import { statusForRefusal } from './refusal-status';
 
 /**
- * These routes validate their bodies by hand, and did so while the framework
- * was still here.
- *
- * The reason is a rule an Elysia schema could not express: a request that
- * carries a `number` must be *refused*, and Elysia strips unknown properties
- * before the handler runs — so the same check written after
- * `{ body: t.Object(...) }` never fires and reads as though it works. Numbers
- * are derived, and a client sending one is working from an assumption this API
- * does not hold; accepting and ignoring it would let that assumption survive
- * until the number silently moved.
- *
- * That is why this file was the cheapest of the four remaining controllers to
- * move onto the framework-free shape and was moved first: it declared no body
- * hook at all, so nothing had to be re-implemented by hand on the way across —
- * only the `.onError` boundary these parsers throw into became {@link refusing}.
+ * Semantic interpretation preserves date/range/name refusals and command order.
+ * The shared request declaration owns structural validation; this parser also
+ * classifies rejected bodies without ever admitting them to a service call.
  */
 class BadRequest extends Error {
   constructor(
@@ -232,8 +219,7 @@ function asOptionalText(value: unknown, field: string): string | undefined {
 }
 
 /**
- * The one number a recorded actual is, checked by hand for the reason at the top
- * of this file and for one of its own.
+ * Interprets recorded days without replacing the existing invalid_actual refusal.
  *
  * **`0` is accepted and is not the same as absence.** A person typing zero is
  * saying the work took no days, which is a statement they made; the absence of a
@@ -256,8 +242,7 @@ function parseActual(body: unknown): number {
 }
 
 /**
- * The one number a figure in a unit other than days is, checked by hand for the
- * reason at the top of this file and for {@link parseActual}'s.
+ * Interprets a reported measure with the same numeric rules as {@link parseActual}.
  *
  * **The body key is `value`, not `tokens` or `hours`.** The unit is in the
  * path — `/measures/token_actual/:stepId` — so a key naming one would be the
@@ -529,15 +514,23 @@ function parsePatch(body: unknown): {
  * reason is a dead end for the person reading it — the whole point of this
  * change is that a refusal says why out loud.
  */
-function answerUndo(outcome: UndoOutcome): RouteResponse {
-  if (outcome.ok) return ok({ done: outcome.value.done, detail: outcome.value.detail });
-  // 409 is the default here, which is the sentence above made an argument:
-  // `nothing_to_undo` and `stale_undo` are both states of the plan.
-  const status = statusForRefusal(outcome.reason, 409);
-  if (outcome.reason === 'forbidden' || outcome.reason === 'not_found') {
-    return respond(status, { error: outcome.reason });
+// Proof: returning the whole value exposed private entryId in the direct undo/redo case.
+function answerUndo(outcome: UndoOutcome): HttpReply<typeof undoProject> {
+  if (outcome.ok)
+    return {
+      ok: true,
+      status: 200,
+      body: { done: outcome.value.done, detail: outcome.value.detail },
+    };
+  switch (outcome.reason) {
+    case 'forbidden':
+      return { ok: false, status: 403, body: { error: outcome.reason } };
+    case 'not_found':
+      return { ok: false, status: 404, body: { error: outcome.reason } };
+    case 'nothing_to_undo':
+    case 'stale_undo':
+      return { ok: false, status: 409, body: { error: outcome.reason, detail: outcome.detail } };
   }
-  return respond(status, { error: outcome.reason, detail: outcome.detail });
 }
 
 const isStrategy = (value: string | null): value is DeleteStrategy =>
@@ -826,188 +819,250 @@ function parseBatch(body: unknown): PlanCommand[] {
   return list.map((step, at) => parseCommand(step, at));
 }
 
-/**
- * {@link statusForRefusal} with a batch's own default: **400**.
- *
- * The runner's own refusals are what land there —
- * `duplicate_ref`, `too_many_commands`, `missing_id`, `name_required`,
- * `project_required` — and every one of them is a fault in the list the caller
- * wrote rather than a state of the plan.
- */
-const statusForBatch = (reason: string): number => statusForRefusal(reason, 400);
-
-/**
- * The `onError` boundary these routes carried, as a value the handler returns.
- *
- * Every parser above throws — `BadRequest` for a field this API judges itself,
- * `ValidationError` for the one body the shared arktype schema judges — and
- * Elysia turned both into a 400 through a plugin-local `.onError`. A route
- * module cannot register a lifecycle hook with a framework it does not import,
- * so the boundary becomes {@link refusing}, which wraps each handler.
- *
- * A wrapper and not a `try` inside each handler: five handlers each opening
- * with the same catch is the copied-guard shape `http/caller.ts` was written to
- * end, and one of the five quietly answering a 500 where the others answer 400
- * would read exactly like the rest.
- *
- * Anything else rethrows. `onError` returned `undefined` for an unrecognised
- * error, which is how Elysia is told to carry on to its own 500 handler; a
- * rethrow is that same decision spelled in the language the route shape has.
- */
-function refusalFor(error: unknown): RouteResponse | null {
-  if (error instanceof BadRequest) {
-    if (error.at === undefined) return respond(400, { error: error.reason });
-    return respond(
-      400,
-      error.kind === undefined
-        ? { error: error.reason, at: error.at }
-        : { error: error.reason, at: error.at, kind: error.kind },
+/** Unknown parser codes are malformed trusted translations, never invented wire refusals. */
+async function requireShape<T>(schema: SchemaShape<T>, value: unknown): Promise<T> {
+  const checked = await validateSchema(schema, value);
+  if (checked.issues !== undefined)
+    throw new Error(
+      `Invalid command producer: ${checked.issues.map((issue) => issue.message).join('; ')}`,
     );
+  return checked.value;
+}
+
+// Proof: omitting recognized kind returned500 instead of400 in the mounted classification case.
+async function parserRefusal(
+  error: unknown,
+): Promise<Extract<HttpReply<typeof applyProjectCommands>, { ok: false }> | null> {
+  if (error instanceof BadRequest) {
+    const body =
+      error.at === undefined
+        ? { error: error.reason }
+        : error.kind === undefined
+          ? { error: error.reason, at: error.at }
+          : { error: error.reason, at: error.at, kind: error.kind };
+    return { ok: false, status: 400, body: await requireShape(commandParserRefusal, body) };
   }
-  // The shared schema's refusal is a 400 here rather than a 500: the two
-  // tiers validate with the same arktype schema, so this is a client that
-  // bypassed fe-01 rather than a fault in either.
-  if (error instanceof ValidationError) return respond(400, { error: 'invalid_estimate' });
+  if (error instanceof ValidationError)
+    return { ok: false, status: 400, body: { error: 'invalid_estimate' } };
   return null;
 }
 
-/** {@link refusalFor} applied to one handler. */
-function refusing(handler: RouteHandler): RouteHandler {
-  return async (req) => {
+/**
+ * Schema failure classification reuses semantic parsing but cannot admit a body.
+ * Proof: bypassing classification returned invalid_body instead of the indexed
+ * number_is_derived refusal in the mounted classification case.
+ */
+async function classifyCommand(
+  failure: RequestFailure,
+): Promise<Extract<HttpReply<typeof applyProjectCommands>, { ok: false }>> {
+  if (failure.code === 'invalid_body') {
     try {
-      return await handler(req);
+      parseBatch(failure.rejected);
     } catch (error) {
-      const refusal = refusalFor(error);
-      if (refusal === null) throw error;
-      return refusal;
+      const refusal = await parserRefusal(error);
+      if (refusal !== null) return refusal;
+      throw error;
     }
-  };
+  }
+  return { ok: false, status: 400, body: { error: failure.code } };
 }
 
-export function workItemRoutes(
-  auth: AuthService,
-  workItems: WorkItemService,
-  commands: PlanCommandRunner,
-): Route[] {
-  const guard = callerGuard(auth);
+/** Parsing stays before runner admission, so a later invalid command outranks the batch cap. */
+async function parsedBatch(body: unknown) {
+  try {
+    return { ok: true, commands: parseBatch(body) } as const;
+  } catch (error) {
+    const refusal = await parserRefusal(error);
+    if (refusal === null) throw error;
+    return refusal;
+  }
+}
+
+/** A finite status switch retains command detail; an unmodeled producer reason cannot acquire a default. */
+function answerBatch(
+  outcome: BatchRefusal,
+): Extract<HttpReply<typeof applyProjectCommands>, { ok: false }> {
+  const context = { at: outcome.at, kind: outcome.kind };
+  switch (outcome.reason) {
+    // Proof: dropping deadline detail returned500 instead of422 in the mounted runtime-refusal case.
+    case 'deadline_before_project_start':
+      return {
+        ok: false,
+        status: 422,
+        body: { ...context, error: outcome.reason, ...outcome.detail },
+      };
+    case 'taken':
+      return {
+        ok: false,
+        status: 409,
+        body: { ...context, error: outcome.reason, ...outcome.detail },
+      };
+    case 'in_use':
+      return {
+        ok: false,
+        status: 409,
+        body: { ...context, error: outcome.reason, ...outcome.detail },
+      };
+    case 'forbidden':
+      return { ok: false, status: 403, body: { ...context, error: outcome.reason } };
+    case 'not_found':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_step':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_metric':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_person':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_team':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_tag':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_service':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_type':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'unknown_system':
+      return { ok: false, status: 404, body: { ...context, error: outcome.reason } };
+    case 'cycle':
+      return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
+    case 'frozen':
+      return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
+    case 'rolled_up':
+      return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
+    case 'ancestor':
+      return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
+    case 'too_large':
+      return { ok: false, status: 409, body: { ...context, error: outcome.reason } };
+    case 'too_many_commands':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'project_required':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'unknown_ref':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'missing_id':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'duplicate_ref':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'name_required':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'strategy_required':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'has_children':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'not_before_reason_needs_a_date':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'invalid_kind':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+    case 'nothing_to_change':
+      return { ok: false, status: 400, body: { ...context, error: outcome.reason } };
+  }
+}
+const namedEntity = responseSchema(type({ id: 'string', name: 'string' }));
+// Proof: optional serviceIds admitted a patchTeam without memberships,200 instead of500 in the mounted results case.
+const teamEntity = responseSchema(type({ id: 'string', name: 'string', serviceIds: 'string[]' }));
+// Proof: optional person kind admitted its omission,200 instead of500 in the mounted results case.
+const personEntity = responseSchema(
+  type({ id: 'string', name: 'string', kind: "'person' | 'agent'" }),
+);
+// Proof: optional teamIds admitted a patchPerson without memberships,200 instead of500 in the mounted results case.
+const personWithTeamsEntity = responseSchema(
+  type({ id: 'string', name: 'string', kind: "'person' | 'agent'", teamIds: 'string[]' }),
+);
+
+/**
+ * Checks required fields while the producer kind exists, then returns the
+ * unchanged untagged wire. Absent refs are omitted as JSON serialization did.
+ * Proof: keeping kind added createTeam to the mounted result's exact wire
+ * assertion. Keeping ref:undefined made the existing create/read case return500.
+ */
+async function appliedWire(applied: AppliedCommand) {
+  const { kind, ref, ...wire } = applied;
+  switch (kind) {
+    case 'createWorkItem':
+    case 'duplicateWorkItem':
+    case 'createTeam':
+    case 'createPerson':
+    case 'createTag':
+    case 'createService':
+    case 'createWorkItemType':
+      // Proof: removing this check admitted each missing minted id,200 instead of500 in the mounted minted-id case.
+      if (typeof applied.id !== 'string')
+        throw new Error('Created command producer requires its minted id');
+  }
+  switch (kind) {
+    case 'patchTeam':
+      await requireShape(teamEntity, applied.entity);
+      break;
+    case 'createPerson':
+      await requireShape(personEntity, applied.entity);
+      break;
+    case 'patchPerson':
+      await requireShape(personWithTeamsEntity, applied.entity);
+      break;
+    case 'createTeam':
+    case 'createTag':
+    case 'patchTag':
+    case 'createService':
+    case 'patchService':
+    case 'createWorkItemType':
+    case 'patchWorkItemType':
+      await requireShape(namedEntity, applied.entity);
+      break;
+  }
+  return { ...wire, ...(ref === undefined ? {} : { ref }) };
+}
+
+/** Five typed work-item endpoints; services retain transactions, access, sequencing and announcements. */
+export function workItemRoutes(workItems: WorkItemService, commands: PlanCommandRunner) {
   return [
-    {
-      method: 'GET',
-      path: '/api/projects/:id/work-items',
-      handler: refusing(
-        guard('signed-in', async ({ params }, user) => {
-          const tree = await workItems.tree(params['id']);
-          if (tree === null) return respond(404, { error: 'not_found' });
-          // Carried on the tree rather than fetched from a route of its own. The
-          // tree is already read after every change this client makes and after
-          // every event from anybody else, which is exactly when the answer can
-          // have changed — a second endpoint would be a second round trip asking
-          // the same question at the same moments. It is per **account**, which is
-          // why it is added here and not inside `tree`: the broadcast reuses that
-          // read and has nobody to answer for.
-          return ok({ ...tree, ...(await workItems.undoState(params['id'], user.id)) });
-        }),
-      ),
-    },
-    {
-      method: 'POST',
-      path: '/api/projects/:id/commands',
-      handler: refusing(
-        guard('signed-in', async ({ params, body }, user) => {
-          const outcome = await commands.run(params['id'], user.id, parseBatch(body));
-          if (!outcome.ok) {
-            // The refusal's own fields beside the code, as the single route
-            // carried them: `taken`'s `name`, `in_use`'s `usage`.
-            return respond(statusForBatch(outcome.reason), {
-              ...outcome.detail,
-              error: outcome.reason,
-              at: outcome.at,
-              kind: outcome.kind,
-            });
-          }
-          return ok({
-            results: outcome.results,
+    bind(getWorkItems, async ({ params, principal }): Promise<HttpReply<typeof getWorkItems>> => {
+      const tree = await workItems.tree(params.id);
+      if (tree === null) return { ok: false, status: 404, body: { error: 'not_found' } };
+      return {
+        ok: true,
+        status: 200,
+        body: { ...tree, ...(await workItems.undoState(params.id, principal.id)) },
+      };
+    }),
+    bind(
+      applyProjectCommands,
+      async ({ params, body, principal }): Promise<HttpReply<typeof applyProjectCommands>> => {
+        const parsed = await parsedBatch(body);
+        if (!parsed.ok) return parsed;
+        const outcome = await commands.run(params.id, principal.id, parsed.commands);
+        if (!outcome.ok) return answerBatch(outcome);
+        return {
+          ok: true,
+          status: 200,
+          body: {
+            results: await Promise.all(outcome.results.map(appliedWire)),
             undoable: outcome.undoable,
             redoable: outcome.redoable,
-          });
-        }),
-      ),
-      documentation: {
-        detail: {
-          summary: 'Apply a batch of commands to a project, all or none',
-          description: `**The one way to write to a plan.** An ordered list of up to 200 commands — every
-plan edit and every directory edit — applied in one transaction and recorded as one undo.
-A later command may name what an earlier one created by its \`ref\` (\`parentRef\`,
-\`workItemRef\`, \`teamRefs\`…). Directory commands are applied with the batch but are not
-undoable.
-
-A refused command refuses the whole batch and nothing is applied: the answer carries
-\`{ "error": "<code>", "at": <index>, "kind": "<kind>" }\` with the status the code has on its
-own — 400 for a malformed step, \`unknown_ref\`, \`duplicate_ref\`, \`too_many_commands\`;
-403 \`forbidden\`; 404 \`not_found\` and the \`unknown_*\` ids; 409 \`cycle\`, \`frozen\`,
-\`rolled_up\`, \`ancestor\`, \`too_large\`, \`taken\`, \`in_use\`.
-
-Applied, it answers \`{ results: [{ index, ref?, id?, entity? }], undoable, redoable }\`: the
-id of everything a command created, the entry a directory create or patch produced, and the
-undo state as the tree read carries it. Read the tree afterwards for the plan as the batch
-left it — numbers and dates are derived. A refused directory command carries its own fields
-beside the code, as its route did: \`taken\` the surviving \`name\`, \`in_use\` the \`usage\`.`,
-          requestBody: handParsedBody(
-            'The commands, in order. Each names its `kind`; the fields are those of the write it stands for.',
-            PLAN_COMMANDS_BODY,
-          ),
-        },
+          },
+        };
       },
-    },
-    {
-      method: 'POST',
-      path: '/api/directory/commands',
-      handler: refusing(
-        guard('signed-in', async ({ body }, user) => {
-          const outcome = await commands.runDirectory(user.id, parseBatch(body));
-          if (!outcome.ok) {
-            return respond(statusForBatch(outcome.reason), {
-              ...outcome.detail,
-              error: outcome.reason,
-              at: outcome.at,
-              kind: outcome.kind,
-            });
-          }
-          return ok({ results: outcome.results });
-        }),
-      ),
-      documentation: {
-        detail: {
-          summary: 'Apply a batch of directory commands, all or none',
-          description: `The directory — teams, people, tags, services — has no project, so its batches
-have their own route: the same commands, the same all-or-none transaction, the same
-\`{ "error", "at", "kind" }\` refusal, and no undo, because the directory has none. A plan
-command (anything but the twelve directory kinds) is refused as \`project_required\` at its
-index. Answers \`{ results: [{ index, ref?, id?, entity? }] }\`.`,
-          requestBody: handParsedBody(
-            'The directory commands, in order. Each names its `kind`.',
-            PLAN_COMMANDS_BODY,
-          ),
-        },
+      { classifyRequestFailure: classifyCommand },
+    ),
+    bind(
+      applyDirectoryCommands,
+      async ({ body, principal }): Promise<HttpReply<typeof applyDirectoryCommands>> => {
+        const parsed = await parsedBatch(body);
+        if (!parsed.ok) return parsed;
+        const outcome = await commands.runDirectory(principal.id, parsed.commands);
+        if (!outcome.ok) return answerBatch(outcome);
+        return {
+          ok: true,
+          status: 200,
+          body: { results: await Promise.all(outcome.results.map(appliedWire)) },
+        };
       },
-    },
-    {
-      method: 'POST',
-      path: '/api/projects/:id/undo',
-      handler: refusing(
-        guard('signed-in', async ({ params }, user) =>
-          answerUndo(await commands.undo(params['id'], user.id)),
-        ),
-      ),
-    },
-    {
-      method: 'POST',
-      path: '/api/projects/:id/redo',
-      handler: refusing(
-        guard('signed-in', async ({ params }, user) =>
-          answerUndo(await commands.redo(params['id'], user.id)),
-        ),
-      ),
-    },
-  ];
+      { classifyRequestFailure: classifyCommand },
+    ),
+    bind(undoProject, async ({ params, principal }) =>
+      answerUndo(await commands.undo(params.id, principal.id)),
+    ),
+    bind(redoProject, async ({ params, principal }) =>
+      answerUndo(await commands.redo(params.id, principal.id)),
+    ),
+  ] as const;
 }

@@ -2,6 +2,25 @@ import { type } from 'arktype';
 
 import { responseSchema } from './schema-shape';
 
+/** Complete stored project settings, shared by project reads, lists, writes and exports. */
+export const project = type({
+  id: 'string',
+  name: 'string',
+  ownerId: 'string',
+  restricted: 'boolean',
+  estimateMethod: "'pert' | 'optimistic' | 'realistic' | 'pessimistic'",
+  depReach: "'whole-item' | 'anchor-slice'",
+  pertWeights: { optimistic: 'number', realistic: 'number', pessimistic: 'number' },
+  estimateRounding: "'exact' | 'floor' | 'round' | 'ceil'",
+  startDate: 'string | null',
+  solutionRef: type({ slug: 'string', url: 'string' }).or('null'),
+  revision: 'number',
+  createdAt: 'number',
+  optimizationEnabled: 'boolean',
+  scheduleEngine: "'fast' | 'optimized'",
+  scheduleObjective: "'pri' | 'time'",
+});
+
 /**
  * A project's complete stored settings with its ordered steps, as read and
  * creation return them. Additive fields survive this wire boundary; internal
@@ -12,23 +31,7 @@ import { responseSchema } from './schema-shape';
  */
 export const projectWithSteps = responseSchema(
   type({
-    project: {
-      id: 'string',
-      name: 'string',
-      ownerId: 'string',
-      restricted: 'boolean',
-      estimateMethod: "'pert' | 'optimistic' | 'realistic' | 'pessimistic'",
-      depReach: "'whole-item' | 'anchor-slice'",
-      pertWeights: { optimistic: 'number', realistic: 'number', pessimistic: 'number' },
-      estimateRounding: "'exact' | 'floor' | 'round' | 'ceil'",
-      startDate: 'string | null',
-      solutionRef: type({ slug: 'string', url: 'string' }).or('null'),
-      revision: 'number',
-      createdAt: 'number',
-      optimizationEnabled: 'boolean',
-      scheduleEngine: "'fast' | 'optimized'",
-      scheduleObjective: "'pri' | 'time'",
-    },
+    project,
     steps: type({ id: 'string', projectId: 'string', name: 'string', position: 'number' }).array(),
   }),
 );

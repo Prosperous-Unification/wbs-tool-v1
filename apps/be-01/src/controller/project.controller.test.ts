@@ -64,6 +64,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
       },
     }),
   });
+  const workItems = buildWorkItemService(projectStore);
   const app = buildApp({
     appOrigin: 'http://localhost',
     directory: testDirectoryService(),
@@ -73,7 +74,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
     calendarMarkers: testCalendarMarkerService(),
     auth,
     projects,
-    workItems: buildWorkItemService(projectStore),
+    workItems,
     savedPlans: testSavedPlanService(),
     steps: testStepService(projectStore),
     replay: testReplay().replay,
@@ -108,7 +109,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
     );
   }
 
-  return { app, register, send, broadcast, projectStore };
+  return { app, register, send, broadcast, projectStore, projects, workItems, auth };
 }
 
 const created = (name: string) => ({ method: 'POST', body: JSON.stringify({ name }) });
@@ -951,3 +952,367 @@ it('validates solution project settings and retains additive response fields', a
     lookup.mockRestore();
   }
 });
+
+it('rejects undeclared project creation fields before creating a project', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  const create = spyOn(h.projects, 'create');
+  try {
+    const response = await h.send('/api/projects', token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Project', extra: true }),
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'invalid_body' });
+    expect(create).not.toHaveBeenCalled();
+  } finally {
+    create.mockRestore();
+  }
+});
+
+it('rejects undeclared project patches at every nested boundary before calling the service', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  const made = await h.send('/api/projects', token, created('Project'));
+  const { project } = (await made.json()) as { project: { id: string } };
+  const update = spyOn(h.projects, 'update');
+  try {
+    for (const body of [
+      { extra: true },
+      { name: 'Changed', extra: true },
+      { pertWeights: { optimistic: 1, realistic: 4, pessimistic: 1, extra: 2 } },
+      { solutionRef: { slug: 'solution', url: 'not-a-url', extra: true } },
+    ]) {
+      const response = await h.send(`/api/projects/${project.id}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ error: 'invalid_body' });
+    }
+    expect(update).not.toHaveBeenCalled();
+  } finally {
+    update.mockRestore();
+  }
+});
+
+it('keeps opened write scope and write origin before malformed input', async () => {
+  const h = buildHarness();
+  const identity = spyOn(h.auth, 'authenticate').mockResolvedValue({
+    id: 'reader',
+    username: 'reader',
+    scopes: ['read'],
+  });
+  const opened = spyOn(h.projects, 'open');
+  try {
+    const denied = await h.send('/api/projects/p/opened', 'reader', { method: 'POST' });
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ error: 'insufficient_scope' });
+    for (const [path, method] of [
+      ['/api/projects', 'POST'],
+      ['/api/projects/p', 'PATCH'],
+    ] as const) {
+      const scoped = await h.send(path, 'reader', { method, body: '{' });
+      expect(scoped.status).toBe(403);
+      expect(await scoped.json()).toEqual({ error: 'insufficient_scope' });
+      const origin = await h.app.handle(
+        new Request(`http://localhost${path}`, {
+          method,
+          headers: {
+            cookie: '__Host-wbs_session=x',
+            origin: 'https://foreign.example',
+            'content-type': 'application/json',
+          },
+          body: '{',
+        }),
+      );
+      expect(origin.status).toBe(403);
+      expect(await origin.json()).toEqual({ error: 'invalid_origin' });
+    }
+    expect(opened).not.toHaveBeenCalled();
+  } finally {
+    identity.mockRestore();
+    opened.mockRestore();
+  }
+});
+
+it('refuses structural settings before the service but preserves its semantic refusal codes', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  const response = await h.send('/api/projects', token, created(''));
+  expect(response.status).toBe(200);
+  const { project } = (await response.json()) as { project: { id: string; name: string } };
+  expect(project.name).toBe('');
+  const update = spyOn(h.projects, 'update');
+  try {
+    for (const body of [
+      '{"pertWeights":{"optimistic":1e999,"realistic":4,"pessimistic":1}}',
+      '{"pertWeights":{"optimistic":-1,"realistic":4,"pessimistic":1}}',
+      '{"startDate":"notaday"}',
+      '{"scheduleEngine":"future"}',
+      '{"scheduleObjective":"future"}',
+    ]) {
+      const refused = await h.send(`/api/projects/${project.id}`, token, { method: 'PATCH', body });
+      expect(refused.status).toBe(422);
+      expect(await refused.json()).toEqual({ error: 'invalid_body' });
+    }
+    expect(update).not.toHaveBeenCalled();
+    for (const [body, error] of [
+      [{ startDate: '2026-02-31' }, 'bad_start_date'],
+      [{ pertWeights: { optimistic: 0, realistic: 0, pessimistic: 0 } }, 'bad_pert_weights'],
+    ] as const) {
+      const refused = await h.send(`/api/projects/${project.id}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      expect(refused.status).toBe(422);
+      expect(await refused.json()).toEqual({ error });
+    }
+    expect(update).toHaveBeenCalledTimes(2);
+    const unchanged = await h.send(`/api/projects/${project.id}`, token, {
+      method: 'PATCH',
+      body: '{}',
+    });
+    expect(unchanged.status).toBe(200);
+  } finally {
+    update.mockRestore();
+  }
+});
+
+it('distinguishes absent project bodies from empty form patches without coercing form booleans', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  const made = await h.send('/api/projects', token, created('Project'));
+  const { project } = (await made.json()) as { project: { id: string } };
+  const request = (method: string, path: string, body: BodyInit | undefined, media?: string) =>
+    h.app.handle(
+      new Request(`http://localhost${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(media === undefined ? {} : { 'content-type': media }),
+        },
+        ...(body === undefined ? {} : { body }),
+      }),
+    );
+  for (const [path, method] of [
+    ['/api/projects', 'POST'],
+    [`/api/projects/${project.id}`, 'PATCH'],
+  ] as const) {
+    expect((await request(method, path, undefined, 'application/json')).status).toBe(422);
+    expect((await request(method, path, '', 'application/json')).status).toBe(400);
+    expect((await request(method, path, '{"name":"New"}', 'text/plain')).status).toBe(422);
+    expect(
+      (await request(method, path, undefined, 'application/x-www-form-urlencoded')).status,
+    ).toBe(422);
+    expect((await request(method, path, 'name=', 'application/x-www-form-urlencoded')).status).toBe(
+      200,
+    );
+  }
+  expect(
+    (await request('PATCH', `/api/projects/${project.id}`, '', 'application/x-www-form-urlencoded'))
+      .status,
+  ).toBe(200);
+  expect(
+    (await request('POST', '/api/projects', '', 'application/x-www-form-urlencoded')).status,
+  ).toBe(422);
+  const form = new FormData();
+  form.set('name', 'Multipart');
+  expect((await request('PATCH', `/api/projects/${project.id}`, form)).status).toBe(200);
+  expect(
+    (
+      await request(
+        'PATCH',
+        `/api/projects/${project.id}`,
+        'restricted=true',
+        'application/x-www-form-urlencoded',
+      )
+    ).status,
+  ).toBe(422);
+});
+
+it('refuses binary patch bytes instead of treating them as an empty settings patch', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  const made = await h.send('/api/projects', token, created('Project'));
+  const { project } = (await made.json()) as { project: { id: string } };
+  const update = spyOn(h.projects, 'update');
+  try {
+    const response = await h.app.handle(
+      new Request(`http://localhost/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/octet-stream; charset=binary',
+        },
+        body: 'binary bytes',
+      }),
+    );
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'invalid_body' });
+    expect(update).not.toHaveBeenCalled();
+  } finally {
+    update.mockRestore();
+  }
+});
+
+it('keeps export format precedence, duplicate last values and tree disappearance', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  const made = await h.send('/api/projects', token, created('Export'));
+  const { project } = (await made.json()) as { project: { id: string } };
+  const read = spyOn(h.projects, 'read');
+  const tree = spyOn(h.workItems, 'tree');
+  try {
+    for (const query of ['', '?format=', '?format=bad&extra=1']) {
+      const response = await h.send(`/api/projects/${project.id}/export${query}`, token);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'unsupported_format' });
+    }
+    const extra = await h.send(`/api/projects/${project.id}/export?format=json&extra=1`, token);
+    expect(extra.status).toBe(400);
+    expect(await extra.json()).toEqual({ error: 'invalid_query' });
+    expect(read).not.toHaveBeenCalled();
+    expect(tree).not.toHaveBeenCalled();
+    const markdown = await h.send(
+      `/api/projects/${project.id}/export?format=json&format=markdown`,
+      token,
+    );
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect((await markdown.text()).startsWith('# Export\n')).toBe(true);
+    tree.mockResolvedValueOnce(null);
+    const gone = await h.send(`/api/projects/${project.id}/export?format=json`, token);
+    expect(gone.status).toBe(404);
+    expect(await gone.json()).toEqual({ error: 'not_found' });
+  } finally {
+    read.mockRestore();
+    tree.mockRestore();
+  }
+});
+
+for (const [media, body, name, patch] of [
+  [
+    'application/json-patch+json',
+    '{"name":"Structured JSON"}',
+    'Structured JSON',
+    '{"name":"Structured JSON patched"}',
+  ],
+  ['application/xml', 'name=XML+form', 'XML form', 'name=XML+form+patched'],
+] as const)
+  it(`preserves ${media} on migrated project writes`, async () => {
+    const h = buildHarness();
+    const token = await h.register('owner');
+    const response = await h.app.handle(
+      new Request('http://localhost/api/projects', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': media },
+        body,
+      }),
+    );
+    expect(response.status).toBe(200);
+    const created = (await response.json()) as { project: { id: string; name: string } };
+    expect(created.project.name).toBe(name);
+    const renamed = await h.app.handle(
+      new Request(`http://localhost/api/projects/${created.project.id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${token}`, 'content-type': media },
+        body: patch,
+      }),
+    );
+    expect(renamed.status).toBe(200);
+    expect(((await renamed.json()) as { project: { name: string } }).project.name).toBe(
+      `${name} patched`,
+    );
+  });
+
+it('validates list owner metadata while retaining additive project response fields', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  await h.send('/api/projects', token, created('Project'));
+  const user = await h.auth.authenticate(token);
+  if (user === null) throw new Error('fixture identity missing');
+  const rows = await h.projects.list(user.id);
+  const list = spyOn(h.projects, 'list');
+  try {
+    for (const field of ['ownerName', 'lastOpenedAt'] as const) {
+      const damaged = structuredClone(rows);
+      const row = damaged.at(0);
+      if (row === undefined) throw new Error('fixture project missing');
+      Reflect.deleteProperty(row, field);
+      list.mockResolvedValueOnce(damaged);
+      expect((await h.send('/api/projects', token)).status).toBe(500);
+    }
+    const enriched = rows.map((row) => ({ ...row, audit: { future: 'kept' } }));
+    list.mockResolvedValueOnce(enriched);
+    const response = await h.send('/api/projects', token);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ projects: enriched });
+  } finally {
+    list.mockRestore();
+  }
+});
+
+it('exports complete deadline tree fields without undo flags and rejects malformed core fields', async () => {
+  const h = buildHarness();
+  const token = await h.register('owner');
+  const made = await h.send('/api/projects', token, created('Project'));
+  const { project } = (await made.json()) as { project: { id: string } };
+  const command = await h.send(`/api/projects/${project.id}/commands`, token, {
+    method: 'POST',
+    body: JSON.stringify({ commands: [{ kind: 'createWorkItem', name: 'Scheduled row' }] }),
+  });
+  expect(command.status).toBe(200);
+  const core = await h.workItems.tree(project.id);
+  if (core === null) throw new Error('fixture tree missing');
+  expect(core.workItems.length).toBeGreaterThan(0);
+  expect(core.slices.length).toBeGreaterThan(0);
+  const response = await h.send(`/api/projects/${project.id}/export?format=json`, token);
+  expect(response.status).toBe(200);
+  const exported = (await response.json()) as Record<string, unknown>;
+  expect(exported).not.toHaveProperty('undoable');
+  expect(exported).not.toHaveProperty('redoable');
+  expect(exported).toMatchObject(core);
+  const tree = spyOn(h.workItems, 'tree');
+  try {
+    const missingDeadline = structuredClone(core);
+    const row = missingDeadline.workItems.at(0);
+    if (row === undefined) throw new Error('fixture row missing');
+    Reflect.deleteProperty(row, 'deadline');
+    tree.mockResolvedValueOnce(missingDeadline);
+    expect((await h.send(`/api/projects/${project.id}/export?format=json`, token)).status).toBe(
+      500,
+    );
+    const missingLateness = structuredClone(core);
+    const slice = missingLateness.slices.at(0);
+    if (slice === undefined) throw new Error('fixture slice missing');
+    Reflect.deleteProperty(slice, 'lateBy');
+    tree.mockResolvedValueOnce(missingLateness);
+    expect((await h.send(`/api/projects/${project.id}/export?format=json`, token)).status).toBe(
+      500,
+    );
+  } finally {
+    tree.mockRestore();
+  }
+});
+
+for (const media of ['application/merge-patch+json', 'application/not-json', 'APPLICATION/JSON'])
+  it(`refuses ${media} before project creation`, async () => {
+    const h = buildHarness();
+    const token = await h.register('owner');
+    const create = spyOn(h.projects, 'create');
+    try {
+      const response = await h.app.handle(
+        new Request('http://localhost/api/projects', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': media },
+          body: '{"name":"Must not create"}',
+        }),
+      );
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ error: 'invalid_body' });
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      create.mockRestore();
+    }
+  });

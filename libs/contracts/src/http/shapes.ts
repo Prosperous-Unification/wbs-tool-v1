@@ -1,4 +1,10 @@
 import {
+  createCalendarMarker,
+  listCalendarMarkers,
+  removeCalendarMarker,
+  updateCalendarMarker,
+} from './calendar-marker-shapes';
+import {
   listExternalSystems,
   listPeople,
   listServices,
@@ -8,6 +14,14 @@ import {
 } from './directory-shapes';
 import { readHistory } from './history-shapes';
 import { forwardInternal, resumeInternal } from './internal-http-shapes';
+import {
+  createProject,
+  exportProject,
+  listProjects,
+  patchProject,
+  readProject,
+  recordProjectOpen,
+} from './project-shapes';
 import {
   compareSavedPlans,
   deleteSavedPlan,
@@ -19,6 +33,13 @@ import {
 import { smokeEcho } from './smoke-shapes';
 import { readSolution } from './solution-shapes';
 import { addStep, removeStep, renameStep } from './step-shapes';
+import {
+  applyDirectoryCommands,
+  applyProjectCommands,
+  getWorkItems,
+  redoProject,
+  undoProject,
+} from './work-item-shapes';
 
 /** Migrated HTTP declarations; legacy families join this table as their handlers migrate. */
 export const httpShapes = [
@@ -34,6 +55,21 @@ export const httpShapes = [
   listExternalSystems,
   readHistory,
   readSolution,
+  createProject,
+  listProjects,
+  recordProjectOpen,
+  exportProject,
+  readProject,
+  patchProject,
+  getWorkItems,
+  applyProjectCommands,
+  applyDirectoryCommands,
+  undoProject,
+  redoProject,
+  listCalendarMarkers,
+  createCalendarMarker,
+  updateCalendarMarker,
+  removeCalendarMarker,
   savePlan,
   listSavedPlans,
   compareSavedPlans,
