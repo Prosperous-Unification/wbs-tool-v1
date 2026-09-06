@@ -148,8 +148,13 @@ function colorProblem(color: string | null | undefined): BodyProblem | null {
 }
 
 /**
- * The members these two bodies share, read off an untyped body and typed as
+ * The members a marker body may carry, read off an untyped body and typed as
  * what the handlers may use.
+ *
+ * **The two bodies do not carry the same set, and each route says which it
+ * reads.** `markerId` and `date` are the create's alone; the `PATCH` writes two
+ * columns and its path already names the marker. That is why {@link fieldsFrom}
+ * takes the member names rather than reading all four — see the note there.
  *
  * `undefined` is "absent" and `null` is a value the wire may carry, so `color`
  * needs all three states — folding them would make `{"color": null}`, which
@@ -163,6 +168,9 @@ interface MarkerFields {
   name?: string;
   color?: string | null;
 }
+
+/** The members a route reads; anything else in the body is ignored. */
+type MarkerField = 'markerId' | 'date' | 'name' | 'color';
 
 /**
  * Each member's **type**, before any of them means anything.
@@ -182,39 +190,45 @@ interface MarkerFields {
  * `typeof [] === 'object'`: TypeBox refused a JSON array here and the
  * hand-written spelling it replaced across this app accepted one
  * (`http/route.ts` records where that reached a caller).
+ *
+ * **`reads` is the schema's property list, and passing it is what keeps
+ * "everything else is ignored" true.** Elysia refused a member's type only
+ * where the route's own `t.Object` named it, and stripped every other property
+ * before the handler ran — so on the `PATCH`, whose schema names `name` and
+ * `color` alone, `{"name":"x","date":123}` renamed the marker and answered 200.
+ * A `fieldsFrom` that always read all four turned that into a 422 blaming
+ * `date`, which is both a behaviour change and a contradiction of the
+ * description `tableRefusedBody` publishes for that very route (Gemini's
+ * Important, run 38). Each route now passes the members its schema declares,
+ * and the two lists are the two schemas.
  */
-function fieldsFrom(body: unknown): MarkerFields | BodyProblem {
+function fieldsFrom(body: unknown, reads: readonly MarkerField[]): MarkerFields | BodyProblem {
   if (!isFieldBag(body)) return { reason: 'malformed', field: 'body' };
   const fields: MarkerFields = {};
-  const markerId = body['markerId'];
-  if (markerId !== undefined) {
-    if (typeof markerId !== 'string') return { reason: 'malformed', field: 'markerId' };
-    fields.markerId = markerId;
-  }
-  const date = body['date'];
-  if (date !== undefined) {
-    if (typeof date !== 'string') return { reason: 'malformed', field: 'date' };
-    fields.date = date;
-  }
-  const name = body['name'];
-  if (name !== undefined) {
-    if (typeof name !== 'string') return { reason: 'malformed', field: 'name' };
-    fields.name = name;
-  }
-  const color = body['color'];
-  if (color !== undefined) {
-    // Spelled as the positive case rather than an early return on the negative,
-    // because the negative is a compound over `unknown` — `!== null && typeof
-    // !== 'string'` — and the branch that follows it would be narrowed by the
-    // complement rather than by a check anybody can read.
-    if (color === null || typeof color === 'string') {
-      fields.color = color;
-    } else {
-      return { reason: 'malformed', field: 'color' };
+  for (const field of reads) {
+    const value = body[field];
+    if (value === undefined) continue;
+    if (field === 'color') {
+      // Spelled as the positive case rather than an early return on the
+      // negative, because the negative is a compound over `unknown` —
+      // `!== null && typeof !== 'string'` — and the branch that follows it
+      // would be narrowed by the complement rather than by a check anybody can
+      // read. `color` is also the one member `null` is a value for.
+      if (value === null || typeof value === 'string') fields.color = value;
+      else return { reason: 'malformed', field };
+      continue;
     }
+    if (typeof value !== 'string') return { reason: 'malformed', field };
+    fields[field] = value;
   }
   return fields;
 }
+
+/** What `POST` reads — {@link CREATE_BODY}'s properties, and nothing else. */
+const CREATE_FIELDS: readonly MarkerField[] = ['markerId', 'date', 'name', 'color'];
+
+/** What `PATCH` reads — {@link PATCH_BODY}'s two writable columns. */
+const PATCH_FIELDS: readonly MarkerField[] = ['name', 'color'];
 
 const isProblem = (parsed: MarkerFields | BodyProblem): parsed is BodyProblem => 'reason' in parsed;
 
@@ -322,17 +336,23 @@ export function calendarMarkerRoutes(auth: AuthService, markers: CalendarMarkerS
       method: 'POST',
       path: '/api/projects/:id/calendar-markers',
       handler: guard('signed-in', async ({ params, body }, user) => {
-        const fields = fieldsFrom(body);
+        const fields = fieldsFrom(body, CREATE_FIELDS);
         if (isProblem(fields)) return refuse(fields);
         const created = createProblem(fields);
         if (isCreateProblem(created)) return refuse(created);
         // The one place the wire name and the domain name meet: `markerId` in,
         // `id` out.
+        // Built with the absent members left **out**, not present as
+        // `undefined`. `NewCalendarMarker` normalises both with `??` so the row
+        // written is the same either way, but the old controller's spread over
+        // a stripped body carried no `color` key when the client sent none, and
+        // an argument that differs from the one it replaces is a difference
+        // somebody has to re-derive (Gemini's Minor, run 38).
         const outcome = await markers.create(params['id'], user.id, {
-          id: created.markerId,
           date: created.date,
           name: created.name,
-          color: created.color,
+          ...(created.markerId === undefined ? {} : { id: created.markerId }),
+          ...(created.color === undefined ? {} : { color: created.color }),
         });
         return outcome.ok
           ? respond(201, { marker: outcome.value })
@@ -344,7 +364,7 @@ export function calendarMarkerRoutes(auth: AuthService, markers: CalendarMarkerS
       method: 'PATCH',
       path: '/api/projects/:id/calendar-markers/:markerId',
       handler: guard('signed-in', async ({ params, body }, user) => {
-        const fields = fieldsFrom(body);
+        const fields = fieldsFrom(body, PATCH_FIELDS);
         if (isProblem(fields)) return refuse(fields);
         // Exactly one of the two, and the refusal is the routes' own: a body
         // naming neither asks for no change, and a body naming both asks for
