@@ -9,8 +9,10 @@
 -- untouched — and where the plan cannot meet it the plan is reported *late*
 -- rather than rewritten. A leaf whose floor stands after its deadline still
 -- starts at its floor and is reported late; that is the whole relationship
--- between the two columns, and it is asserted in
--- `libs/domain/src/schedule-deadline-order.test.ts` rather than left here.
+-- between the two columns. **None of it is code at this commit** — see the
+-- paragraph on what this release actually does, below — and when it arrives it
+-- is asserted in `libs/domain/src/schedule-deadline-order.test.ts` rather than
+-- restated here.
 --
 -- **No reason column.** `start_no_earlier_than_reason` gets no counterpart.
 -- The floor's words exist because a floor is somebody's decision to hold work
@@ -27,19 +29,31 @@
 -- could be seeded: a deadline is somebody's commitment, and inventing one would
 -- be the tool making a promise on a planner's behalf.
 --
--- **No date moves.** The engine's `deadlines` argument is defaulted to an empty
--- map, an empty map ties on both of the new comparisons, and every case in the
--- Fast golden corpus produces a byte-identical schedule under it — which is
--- `fast-golden-corpus.test.ts`'s no-op proof, run as a real byte comparison and
--- not as a structural one. So the release that carries this column schedules
--- every existing plan exactly as the release before it did, and it does so
--- because the map is empty rather than because nothing reads it.
+-- **No date moves, and in THIS release that is because nothing reads the
+-- column.** Say it plainly rather than dressing it as a proof: at this commit
+-- the scheduler has no `deadlines` argument, no repository read names this
+-- column, and no API accepts a value for it. `tasks.md` 1.2 requires this
+-- migration to ship on its own PR carrying nothing else, so the column arrives
+-- empty and unread, and every existing plan schedules exactly as it did for the
+-- one reason that no code can see the column. That is the weakest claim
+-- available here and it is the true one; a column nothing reads is also the
+-- safest thing to put in front of a blue/green swap.
+--
+-- The *later* slices are the ones that owe the harder version of this — that
+-- with a reader attached, an empty `deadlines` map still ties on both new
+-- comparisons and every case in the Fast golden corpus produces a
+-- byte-identical schedule, as a real byte comparison in
+-- `fast-golden-corpus.test.ts` and not a structural one. That proof belongs to
+-- the release that adds the reader, and citing it here would be this migration
+-- taking credit for a case it does not contain.
 --
 -- **Date-only text, in the format every other date in this table uses.** No
 -- time, no zone, no instant: a deadline names a calendar day, and storing an
 -- instant would make the day the row is owed by depend on where the reader is
--- standing. The resolution from that day to the whole-workday offset the
--- scheduler reads is `deadlineOffsetOf`, which rolls a weekend deadline
--- **backward** — no work happens on Saturday, so "by Saturday the 13th" means
--- the last day work may happen is Friday the 12th.
+-- standing. The resolution from that day to the whole-workday offset a
+-- scheduler would read is `deadlineOffsetOf` — again, a later slice's function
+-- and not one that exists at this commit — which rolls a weekend deadline
+-- **backward**: no work happens on Saturday, so "by Saturday the 13th" means
+-- the last day work may happen is Friday the 12th. The format is fixed here
+-- because the column is written here; what reads it is somebody else's PR.
 ALTER TABLE `work_item` ADD `deadline` text;

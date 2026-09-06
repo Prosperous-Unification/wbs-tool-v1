@@ -24,7 +24,9 @@
 -- Reversed **before** `20260906003000_add_work_item_read_order_index`: rollback
 -- order is the reverse of application order, which is what
 -- `migrate-down-cli.ts --to=<name>` does with the applied set, and
--- `migrate.test.ts` walks it rather than trusting the CLI's exit code.
+-- `migrate.db.test.ts` and `migrate-down.db.test.ts` walk it rather than
+-- trusting the CLI's exit code. (There is no `migrate.test.ts`; the earlier
+-- spelling here named a file that does not exist.)
 --
 -- `DROP COLUMN` and not a table rebuild: SQLite has supported it since 3.35 and
 -- `20260818090000_add_not_before_reason`'s down script is the precedent one

@@ -71,7 +71,14 @@ here.
       release's own `WorkItemRepository` against that file with three rows
       seeded by raw SQL: `findById` returns fourteen fields and no `deadline`,
       the patched row keeps `2026-10-01`, and the row the old release inserted
-      reads null.
+      reads null. **Round 1 review found the limit of that claim and it is
+      binding on a later slice:** the delete journal's inverse is built from
+      `WORK_ITEM_COLUMNS`, which does not name `deadline`, and
+      `insertSubtree` writes that projection back — so delete-then-undo returns
+      the row with `deadline` NULL. Harmless while the column is unwritable,
+      which is this release. **Whichever slice first makes `deadline` writable
+      must add it to `WORK_ITEM_COLUMNS` and to the delete journal's restored
+      row, and must carry a case that deletes a deadlined item and undoes it.**
 
 ## 2. `deadlineOffsetOf` and `previousWorkday`
 
