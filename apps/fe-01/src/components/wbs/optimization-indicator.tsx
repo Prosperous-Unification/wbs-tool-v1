@@ -59,8 +59,10 @@ export function OptimizationIndicator({
     const count = variant.items.length;
     return (
       <details className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
-        <summary role="status">
-          Plan infeasible · {String(count)} Work item deadline{count === 1 ? '' : 's'}
+        <summary>
+          <span role="status">
+            Plan infeasible · {String(count)} Work item deadline{count === 1 ? '' : 's'}
+          </span>
           <span className="text-muted-foreground ml-2">Show affected work items</span>
         </summary>
         <ul className="mt-2 list-disc pl-5">

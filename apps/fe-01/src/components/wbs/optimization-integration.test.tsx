@@ -63,7 +63,9 @@ describe('project optimization in the plan', () => {
       scheduleEngine: 'optimized',
       scheduleObjective: 'time',
     });
-    act(() => notify('project_settings_changed'));
+    act(() => {
+      notify('project_settings_changed');
+    });
 
     await waitFor(() => {
       expect(screen.getByRole('checkbox', { name: 'Optimize schedules' })).toBeChecked();
