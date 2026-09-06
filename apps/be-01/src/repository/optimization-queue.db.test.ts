@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from './db';
 import { runMigrations } from './migrate';
+import { reserveSolverSlot } from './optimization-admission';
+import { releaseSolverSlot } from './optimization-drain';
 import { allocateGeneration } from './optimization-generation';
 import { dequeueSolverRequest, enqueueSolverRequest } from './optimization-queue';
 import { solverQueue, solverSlot } from './schema';
@@ -135,6 +137,65 @@ describe('the durable solver FIFO', () => {
         .from(solverQueue)
         .all(),
     ).toEqual([{ epoch: 0, enqueuedAt: 10 }]);
+  });
+
+  it('keeps a capacity-blocked head until a slot can be reserved', () => {
+    const { db } = prepared();
+    for (let index = 0; index < 4; index += 1) {
+      expect(
+        reserveSolverSlot(db, {
+          projectId: 'p-a',
+          contractVersion: BLUE,
+          generation: 1,
+          objective: index % 2 === 0 ? 'pri' : 'time',
+          budgetMs: 60_000 + index,
+          ownerId: `owner-${String(index)}`,
+          attemptToken: `token-${String(index)}`,
+          now: 10,
+        }),
+      ).toMatchObject({ kind: 'reserved' });
+    }
+    expect(
+      enqueue(db, {
+        projectId: 'p-a',
+        contractVersion: GREEN,
+        objective: 'pri',
+      }),
+    ).toEqual({ kind: 'queued' });
+
+    expect(
+      dequeueSolverRequest(db, {
+        ownerId: 'queued-owner',
+        attemptToken: 'queued-token',
+        now: 20,
+      }),
+    ).toEqual({ kind: 'capacity-full' });
+    expect(db.select().from(solverQueue).all()).toHaveLength(1);
+
+    expect(
+      releaseSolverSlot(db, {
+        projectId: 'p-a',
+        contractVersion: BLUE,
+        generation: 1,
+        objective: 'pri',
+        budgetMs: 60_000,
+        attemptToken: 'token-0',
+      }).released,
+    ).toBe(true);
+    expect(
+      dequeueSolverRequest(db, {
+        ownerId: 'queued-owner',
+        attemptToken: 'queued-token',
+        now: 20,
+      }),
+    ).toMatchObject({
+      kind: 'reserved',
+      entry: { projectId: 'p-a', contractVersion: GREEN, objective: 'pri' },
+    });
+    expect(db.select().from(solverQueue).all()).toEqual([]);
+
+    // Proof: deleting a capacity-blocked head in dequeueSolverRequest makes
+    // the second dequeue empty after the slot is released.
   });
 
   it('discards each stale or closed front entry without spending a slot', () => {
