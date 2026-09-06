@@ -872,6 +872,7 @@ SHALL be **422**, the malformed-body answer:
 | `color` fails the 3:1 contrast bar         | `contrast`  | 422    | `color`    |
 | `markerId` already exists                  | `taken`     | 409    | `markerId` |
 | the marker is absent, or another project's | `not_found` | 404    | `markerId` |
+| the **project** is absent                  | `not_found` | 404    | —          |
 | the caller may not write the project       | `forbidden` | 403    | —          |
 
 `MARKER_NAME_MAX` SHALL be **120** characters, counted in Unicode code points
@@ -881,9 +882,20 @@ paragraph — it is a label, and a cap that admits a sentence invites one. Empty
 is refused by the same row: the minimum is 1.
 
 Every row SHALL answer with **exactly** the code, status and field its row
-gives. `forbidden` is the one row whose `field` is absent, and that absence is
-part of the contract rather than an omission: the refusal is about the caller,
-not about a field of the body.
+gives. `forbidden` is not the only row whose `field` is absent: an **absent
+project** answers the same `not_found` as an absent marker and SHALL blame
+nothing, on every route including the two addressed at a marker. The marker id
+on `PATCH /…/:markerId` and `DELETE /…/:markerId` is real and well-formed when
+the project is the thing that is missing, and a body naming it would send a
+client to correct the one value that was already right. In both cases the
+absence is part of the contract rather than an omission: the refusal is about
+the caller or the project, not about a field of the request.
+
+A route SHALL NOT read the `field` off the reason, because `not_found` is
+deliberately one reason for two states (below). It SHALL read it off what the
+service says the refusal was **about** — the project, or the marker — and the
+service is the only layer that knows, since the project check and the marker
+check happen in different places.
 
 `taken` reaches 409 through the shared `CONFLICTS` set, `not_found` through the
 shared 404 arm and `forbidden` through the shared 403 arm; only `malformed` and

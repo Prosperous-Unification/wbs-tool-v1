@@ -345,10 +345,16 @@ describe('a plan that priorities nothing is scheduled exactly as it was', () => 
     // plan predates that field and owes null on every slice. `personId`,
     // `duration` and `estimated` are here for the same reason: what is not
     // asserted is not pinned.
+    //
+    // `lateBy` is hoisted out on the same grounds and asserted the same way:
+    // this plan carries no deadlines, so every slice owes null, and eight
+    // repetitions of `lateBy: null` in the literal below would say it eight
+    // times less clearly than one assertion that it holds for all of them.
     const saidOfSlices = [...found.slices]
       .map(([key, placed]): [string, unknown] => {
-        const { capacityTeamId, ...preCapacitySlice } = placed;
+        const { capacityTeamId, lateBy, ...preCapacitySlice } = placed;
         expect(capacityTeamId).toBeNull();
+        expect(lateBy).toBeNull();
         return [
           readable(key),
           {

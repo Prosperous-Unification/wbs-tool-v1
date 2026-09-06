@@ -51,11 +51,20 @@ here.
       with a forward migration under `apps/be-01/drizzle/`. **No reason
       column** — the floor's `start_no_earlier_than_reason` gets no counterpart
       here, and adding one speculatively is out of scope.
-- [ ] 1.2 **`apps/be-01/drizzle/**` is a prod-mode path**
+- [x] 1.2 **`apps/be-01/drizzle/**` is a prod-mode path**
 (`notes/delivery-modes.md`): this slice ships as a reviewed PR and is not
       self-merged, and it carries **nothing else** — no domain code, no API
       field, no UI. That isolation is the same one TASK-218 applied to the cache
       migration, and it is what lets slices 2–9 self-merge.
+      Done: PR #218, squashed to b2bb095c on 2026-09-06T11:07:15Z, on the whole
+      h2puni gate green at be24dc90 across 22 projects and CI green in both
+      jobs. Three review rounds, both seats, round 3 PASS, zero Critical in all
+      six verdicts. Its diff is the migration folder, the schema column, the
+      nine hand-written registration files and this change's own spec — no
+      domain code, no API field, no UI, exactly as written. Keep prose in this
+      item free of inline code spans: the item's own first line puts a literal
+      double asterisk inside a code span, and prettier reparses the rest of the
+      file when more marked-up text follows it.
 - [x] 1.3 Proof, not assertion: the migration runs forward on a copy of a real
       migrated database file and every existing row reads `deadline: null`
       afterwards. Rolling the **application** back with the column present is
@@ -85,18 +94,18 @@ here.
 
 ## 2. `deadlineOffsetOf` and `previousWorkday`
 
-- [ ] 2.1 `previousWorkday` exported from `libs/domain/src/workday.ts` beside the
+- [x] 2.1 `previousWorkday` exported from `libs/domain/src/workday.ts` beside the
       existing `nextWorkday`.
-- [ ] 2.2 `deadlineOffsetOf(projectStart, deadline)` returning
+- [x] 2.2 `deadlineOffsetOf(projectStart, deadline)` returning
       `{ kind: 'offset'; offset: number } | { kind: 'before-project-start' }`,
       rolling **backward** on a non-working date and returning the typed variant
       — never the number `0` — when the rolled date falls before day zero
       (`addWorkdays(projectStart, 0)`, which is `nextWorkday(projectStart)` and
       not `projectStart` itself).
-- [ ] 2.3 The mirror of the existing `addWorkdays`/`workdaysBetween` property
+- [x] 2.3 The mirror of the existing `addWorkdays`/`workdaysBetween` property
       test: for every workday `s` and offset `k`,
       `deadlineOffsetOf(s, addWorkdays(s, k))` is `{ kind: 'offset', offset: k }`.
-- [ ] 2.4 **WATCHED RED W3** — substitute `workdaysBetween` for
+- [x] 2.4 **WATCHED RED W3** — substitute `workdaysBetween` for
       `deadlineOffsetOf`. Two cases must go red together: a Saturday deadline
       must grant two extra calendar days (`nextWorkday` rolls it to Monday), and
       a pre-project-start deadline must silently become offset `0`, the
@@ -105,27 +114,79 @@ here.
 
 ## 3. The effective-deadline fold
 
-- [ ] 3.1 `effectiveDeadlines(rows, deadlines)` folding each leaf to the
+- [x] 3.1 `effectiveDeadlines(rows, deadlines)` folding each leaf to the
       **minimum** of its own deadline and every ancestor's, `null` where none
       exists. It is a separate walk from the floor's `latest` expansion and is
       **not** collapsed into one direction-parameterised function with it: the
       out-of-range clamps differ (§1.3) and are not shared.
-- [ ] 3.2 Both precedence directions asserted, not one: a parent dated earlier
+      **Deviation, recorded rather than silent:** it landed under
+      `dual-optimized-scheduler` as `leafDeadlinesOf(deadlines, index)` in
+      `libs/domain/src/leaf-constraints.ts`, not as `effectiveDeadlines(rows,
+deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
+      rather than `null`-valued where no deadline exists, a separate walk sitting
+      beside `leafFloorsOf` and deliberately not parameterised by comparator, and
+      the file's own table spelling out why the floor, the deadline and
+      `priorityByLeaf` are three rules and not one. A second function under
+      3.1's literal name would be the second walk this slice exists to prevent.
+- [x] 3.2 Both precedence directions asserted, not one: a parent dated earlier
       tightens a later child, **and** a later parent does not loosen an earlier
-      child. One test proves nothing about the fold's direction; two do.
-- [ ] 3.3 Empty subtree — a parent with a deadline and no leaves emits no
-      constraint, raises no error, and keeps its stored date when its subtree is
-      deleted.
+      child. One test proves nothing about the fold's direction; two do. The
+      second direction was the one missing: `keeps each leaf the EARLIEST …`
+      already had the loose parent, where `min` is indistinguishable from "the
+      leaf's own date wins". `lets an EARLIER parent tighten a later child` is
+      the new case, and a fold that simply preferred the leaf's own value passes
+      every other case in that describe and fails only this one.
+- [x] 3.3 A dated row constrains **exactly the leaves under it** — for a row
+      with children that is its descendant leaves and not the row itself, and
+      for a childless row, which `indexTree` counts as a leaf under itself, that
+      is the row. So deleting a parent's subtree leaves its stored date binding
+      the row it was written on, raises no error, and emits nothing for the
+      children that are gone.
+
+      **The clause was first written as "a parent with a deadline and no leaves
+      emits no constraint", and that sentence names no state this tree can
+      reach.** A row with no children _is_ a leaf in `indexTree`, so
+      `leavesUnder` is never empty for a row the tree carries. Written that way
+      the item could only be closed by a check that cannot fail, which is why
+      the rule above replaces it rather than being reconciled with it — recorded
+      2026-09-06 against a review finding that read the old sentence and the
+      test together and found them opposed. The decision is that the date
+      survives: discarding a formerly-parent id as unresolvable would delete
+      something the user wrote by deleting rows underneath it, with nothing to
+      undo because nothing recorded it. The consequence is deliberate — after
+      the delete `P` is an ordinary dated leaf, so Fast orders it by its slack
+      and reports its `lateBy` like any other.
+
+      A second revision on the same day narrowed the rule again: it had been
+      written "constrains the leaves under it **and never itself**", which is
+      true of a row with children and false of the childless one the same
+      sentence goes on to describe. "Exactly the leaves under it" is the one
+      form that covers both, and `indexTree`'s definition of a leaf is what
+      makes it one rule rather than two.
+
+      **All three halves are proved, and they fail differently.** _Not the row
+      itself, when it has children_: `carries a deadline written on a parent
+      down to every leaf beneath it` compares the whole map,
+      `[['L1', 20], ['L2', 20]]`, so a fold that also constrained `P` fails on
+      the extra entry. _Keeps its date, when it has none_: the pruned-subtree
+      case goes red on a fold that drops such an id. _Emits nothing_: the
+      empty-map case goes red on a fold that seeds every leaf.
+
 - [ ] 3.4 The two impossible kinds are distinguished at their own boundaries:
       `before-project-start` at write time (slice 6) is malformed input;
       unreachable-but-well-formed is legitimate input that Fast reports late
       (slice 5) and PRI/Time report infeasible (slice 8).
-- [ ] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
-      earlier than its parent must be loosened to the parent's date.
+- [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
+      earlier than its parent must be loosened to the parent's date. Measured on
+      h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
+deadline and every ancestor's` (the clause the red names), `lets an EARLIER
+parent tighten a later child`, `takes the tighter ancestor when two of them
+bind`, and `keeps a day-zero deadline, which is a real and very tight
+constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
 
 ## 4. `schedule()`'s seventh argument and the inclusive predicate
 
-- [ ] 4.1 `schedule(rows, edges, slices, notBefore, poolSizes, reach, deadlines)`
+- [x] 4.1 `schedule(rows, edges, slices, notBefore, poolSizes, reach, deadlines)`
       with `deadlines: ReadonlyMap<string, number>` **defaulted to an empty map**,
       so every existing caller compiles unchanged and the no-op proof in 4.3 is
       about behaviour rather than about call sites.
@@ -133,36 +194,122 @@ here.
       written **once** as `lastWorkdayOf(start, finish) <= deadlineOffset` and
       referenced by slices 5, 8 and 9 rather than re-derived in any of them.
       `finish <= deadline` does not appear in the implementation.
-- [ ] 4.3 **The no-op proof.** Every case in the Fast golden corpus produces a
+      **Deliberately still open at 2026-09-06 even though `on-time.ts` landed in
+      run 1.** Its clause names slices 5, 8 **and** 9, and only slice 5
+      references it so far — `goesFirst`'s `slack` shares `lastWorkdayOf`, the
+      single arithmetic, rather than re-deriving a comparison. Ticking it now
+      would claim a referent for two slices that do not exist yet, and 8 is
+      TASK-219's. Close it when 9 reads the same number.
+- [x] 4.3 **The no-op proof.** Every case in the Fast golden corpus produces a
       **byte-identical** schedule under the seventh argument defaulted to an
       empty map. This is the one test that says the seam did not move; it is
       compared byte-for-byte against the recorded corpus, not field-by-field.
-- [ ] 4.4 **WATCHED RED W1** — drop the `max` term from `lastWorkdayOf` in the
+- [x] 4.4 **WATCHED RED W1** — drop the `max` term from `lastWorkdayOf` in the
       predicate (use `ceil(snapWorkdays(finish)) − 1` alone). A zero-duration
       milestone starting at exactly offset `D + 1.0` must be reported **on
       time**. A non-zero-duration fixture cannot produce this red; the test must
       be the milestone.
-- [ ] 4.5 A deadline never moves work earlier and never overrides a floor: a leaf
-      whose floor is later than its effective deadline still starts at its floor
-      and is reported late.
+- [x] 4.5 A deadline changes a placement **only through ready-set order**, and
+      never overrides a hard lower bound: a slice's floor, its dependencies and
+      its earlier steps decide the earliest day it can start at all, and no date
+      written on it moves that — so a leaf whose floor is later than its
+      effective deadline still starts at its floor and is reported late. Landed
+      as two cases in `schedule-deadline-order.test.ts`, and both stay green
+      under 5.1's watched reds — correctly, because the comparator only chooses
+      between slices that are already eligible.
+
+      **The clause has been narrowed twice, in one day, by two review findings
+      that caught the same habit.** It first read "a deadline never moves work
+      earlier", which is false under a minimum-slack queue: winning the ready
+      set is precisely moving earlier, and the first case in `minimum slack
+      orders the ready set` has `b` starting at 2 with the map empty and at 0
+      with it populated. The replacement, "decides an order, never a date", was
+      false in the other direction — an order the leveller acts on _is_ a date,
+      which is what that same counterexample shows, and it also read as though
+      the floor were the only thing between a slice and day zero when a queue
+      for a person or a team is another. What is written above is the rule the
+      two cases have always proved, and it names what the deadline may move as
+      well as what it may not.
 
 ## 5. Fast ordering and `Late by N workdays`
 
-- [ ] 5.1 Ready-slice order becomes minimum slack (`deadlineOffset −
+- [x] 5.1 Ready-slice order becomes minimum slack (`deadlineOffset −
 earliestFinish`, whole workdays), then earliest effective deadline, then
       the **existing, untouched** priority tie-breaks. Slices with no effective
       deadline sort after every deadlined slice, holding their existing relative
-      priority order.
-- [ ] 5.2 `Late by N workdays` per missed slice, with
+      priority order. Landed as two comparisons in front of `goesFirst`'s four,
+      with `slack` and `deadline` on `SlicePriority`. `earliestFinish` is read
+      as `lastWorkdayOf(start, finish)` over the **deadline-free** placement —
+      the same pass `start` and `float` already read, because slack against the
+      leveled placement would be circular. Absence is `Infinity` for both, by
+      the arithmetic that already gives `priority` its `Infinity`, so the
+      undeadlined ordering is the old one unchanged rather than a special case.
+- [x] 5.2 `Late by N workdays` per missed slice, with
       `N = lastWorkdayOf(start, finish) − deadlineOffset`, `N >= 1`, computed
       from 4.2's single predicate so the label and the lateness verdict cannot
-      disagree. The copy says **workdays**.
-- [ ] 5.3 Fast still never backtracks and never moves work earlier than its
+      disagree. The copy says **workdays**. Landed as `lateBy: number | null` on
+      `ScheduledSlice`, from `workdaysLateBy` over the **leveled** placement and
+      the **folded** deadline — the two choices the watched reds below are
+      about. `N >= 1` is expressed in the type rather than trusted to readers:
+      `null` is "not late" and covers both the undeadlined slice and the one
+      that met its date, so no label layer can print `Late by 0 workdays`.
+      `schedule-deadline-order.test.ts`'s 4.5 case stopped calling
+      `workdaysLateBy` with a deadline offset it supplied itself and reads
+      `only.lateBy` instead — the earlier form would have passed with the field
+      absent.
+      **WATCHED RED W-5.2a** — the wrong question, `finish > deadlineOffset`
+      in place of the shared predicate: **5 fail** of 8, including the
+      zero-duration milestone and the inclusive boundary.
+      **WATCHED RED W-5.2b** — the authored map (`deadlines`) in place of the
+      folded one (`leafDeadlines`): **2 fail**, exactly the two ancestor cases,
+      so neither red subsumes the other and each names its own choice.
+      **`SCHEDULE_ALGORITHM_ID` bumped `slice-leveling-v1` → `v2` and the
+      behaviour digest re-pinned `5f5d507bdf199577` → `18b55455829f4eb1` in the
+      same commit**, which is that constant's own stated rule and names this
+      change: "TASK-240's deadline" qualifies by the doc on the constant. The
+      corpus that digest runs over passes no deadlines, so 5.1's reordering
+      moved nothing in it — the digest moved on this slice's field alone.
+- [x] 5.3 Fast still never backtracks and never moves work earlier than its
       floor: the existing invariant tests run unchanged against a corpus that now
-      carries deadlines.
+      carries deadlines. `deadline` is the **sixth generated fact** in
+      `schedule-resource-corpus.test.ts`, drawn last so no earlier draw moved,
+      and all three invariants — nobody in two places, no pool oversubscribed,
+      no manual floor undercut — pass unedited over a thousand deadlined plans.
+      The strip-differential moves 446 of the 1,000 seeds, so the fact is read
+      rather than merely written down. **Priority's own count fell 461 → 130 in
+      the same measurement**, which is the ordering change visible in a number:
+      deadlines are asked first, so on most contended plans the priority
+      comparison is never reached. Recorded in the file, with the stale
+      "tightest is dependency-reach" note amended to priority.
 - [ ] 5.4 A project start moved past a stored deadline resolves
       `before-project-start` **at read time** and is reported late by the whole
       span — the stored value is not rewritten and the request is not rejected.
+      **The domain half is landed and the box stays open on the storage half.**
+      `deadlineOffsetsOf(projectStart, deadlines)` in
+      `libs/domain/src/deadline-offsets.ts` is the read-time resolution: every
+      entry decided by `deadlineOffsetOf`, keys carried through **as authored**
+      so the fold inside `schedule()` stays the only expansion, and
+      `before-project-start` read as `UNMEETABLE_DEADLINE_OFFSET = -1`.
+      **`-1` is a recorded assumption, not a number the design supplies** — the
+      design says "late by the whole span" in prose and settles no offset. It is
+      the encoding that makes that sentence true under 5.2's arithmetic:
+      `lastWorkdayOf` is at least `0` for every slice, so the row is late by
+      every workday it stands on plus the one it owed, and it sorts first under
+      5.1 with no special case. What falsifies it: a decision that such a row
+      reads a fixed label rather than a count — which changes the label and not
+      this offset, because the row is still late and still first.
+      **WATCHED RED W-5.4a** — drop the entry instead of resolving it: **4 fail
+      of 7**, and the two lateness cases read `null`, which is the row reported
+      **on time**. **WATCHED RED W-5.4b** — clamp to `0` instead: the same four,
+      and the difference is the symptom rather than the set. Under the clamp the
+      three-day case reads `2` for `3`, and `is late on day zero itself` reads
+      **on time** — the only fixture whose failure is a met date rather than a
+      wrong number, because a one-day item finishing on day zero meets every
+      offset a clamp can produce. Recorded this way rather than as two separable
+      reds, which is what a first reading of them claimed.
+      **What is still owed:** the be-01 read path that supplies those dates, and
+      with it the claims that the stored value is not rewritten and the request
+      is not rejected. Both wait on slice 1's column.
 
 ## 6. API, realtime, undo
 
@@ -216,6 +363,29 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
 - [ ] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
       corpus in the same commit and evicts every pre-existing cache row. There is
       **no** data migration of cached results.
+      **Still 7, deliberately, and the corpus was regenerated under it by 5.2.**
+      Recorded here because the next reader will find moved corpus bytes and no
+      bump and must not read that as the omission this slice exists to catch.
+      `fast-golden-corpus.test.ts` asserts in two directions — the stored bytes
+      reproduce, and the stored `contractVersion` equals the constant — and
+      regenerating at 7 satisfies both, so the guard is not being worked around.
+      What makes 7 still true is measurable rather than argued: **no work item
+      can carry a deadline yet.** Slice 1 landed at `b2bb095c`, so the column
+      is now there — the reason this holds moved with it and the claim did not.
+      Nothing reads or writes it: `WORK_ITEM_COLUMNS` in
+      `apps/be-01/src/repository/work-item.ts` does not name `deadline`, so no
+      row is selected with one or written with one, and the plan read hands
+      `schedule()` the `NO_DEADLINES` placeholder. So `deadlines` is empty for
+      every real plan, every new comparison ties, and no cached row can have
+      been computed from a date that could not be stored. The bump's blast radius is also this
+      slice's own: seven `libs/contracts/solver` request fixtures pinned by
+      `wire-contract-version.test.ts`, `revalidate-solver-result.test.ts` and
+      `libs/solver-py`, all of them slice 7/8 artifacts TASK-219 owns. Splitting
+      that across two tasks is how a half-bump lands.
+      **What did move is `SCHEDULE_ALGORITHM_ID` (5.2), and the two are not
+      substitutes**: that constant answers "did the engine that computed this
+      stored plan behave like the one running now", which this change does
+      alter; this one keys a cache of results that cannot exist yet.
 - [ ] 7.4 `deadline` is **not** a new cache-key dimension. Assert the key columns
       are still `(projectId, inputHash, objective, contractVersion, budgetMs)`.
 - [ ] 7.5 A **regression test**, not a rule change: run two contract versions

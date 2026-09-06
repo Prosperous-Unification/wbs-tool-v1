@@ -51,12 +51,16 @@ import { groupSlicesByLeaf } from './slice-groups';
  * hash that means two things, so the caller states the empty map rather than
  * omitting it.
  *
- * `deadlines` is the **seventh** argument, and `schedule()` does not take it
- * yet. TASK-219 owns the plumbing and TASK-241 owns the field and its source
- * (`tasks.md` §1, "whose seventh argument this is"), so today every caller
- * passes an empty map and the entry canonicalizes to `[]`. That empty state is
- * the *proved* state rather than a placeholder: 1.6's no-op proof requires the
- * seventh argument to leave every golden corpus case byte-identical.
+ * `deadlines` is the **seventh** argument, and since TASK-267's `tasks.md` 4.1
+ * `schedule()` takes it there — this interface and that signature are now the
+ * same tuple, which is the point of the interface. TASK-219 owned the plumbing
+ * and TASK-267 owns the field and its source (`tasks.md` §1, "whose seventh
+ * argument this is"), so until the column lands every caller still passes an
+ * empty map and the entry canonicalizes to `[]`. That empty state is proved
+ * rather than assumed: 1.6's and 4.3's no-op proof requires the seventh
+ * argument to leave every golden corpus case byte-identical, and
+ * `fast-golden-corpus.test.ts` now runs that comparison on the real argument
+ * rather than on the one that happened to occupy the slot.
  */
 export interface ScheduleInput {
   readonly rows: readonly PlannedRow[];

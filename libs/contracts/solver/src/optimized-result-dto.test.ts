@@ -1,4 +1,5 @@
 import {
+  CACHE_DTO_VERSION,
   encodeSchedule,
   type PlannedRow,
   type PoolSizes,
@@ -259,17 +260,38 @@ describe('the ways a stored result is refused', () => {
    * first envelope field it lacks is `publication` — which is also the more
    * useful message, since it names what the row was supposed to be.
    *
-   * The first assertion is the correction's own falsifier, made executable:
-   * the case only reaches the `publication` check while the two stamps happen
-   * to be equal. Bump either version without the other and this line goes red,
-   * which is the moment to re-read the paragraph above rather than to retune
-   * the regex.
+   * **The falsifier fired, on 2026-09-06, and this is the re-read it asked
+   * for.** The case used to open `expect(bare.dtoVersion).toBe(
+   * RESULT_DTO_VERSION)` and reach the `publication` check only while the two
+   * stamps happened to be equal. `work-item-deadline` 5.2 made
+   * `ScheduledSlice.lateBy` required, `CACHE_DTO_VERSION` moved to 2 and
+   * `RESULT_DTO_VERSION` did not, and that line went red — exactly as its own
+   * comment predicted, and not by being retuned.
+   *
+   * What the re-read finds is that the coincidence was load-bearing and the
+   * subject was not. A bare schedule now arrives stamped 2 and the envelope's
+   * version fence refuses it first, which is a *correct* refusal of a wrong
+   * payload for an accidental reason: the row is not the wrong version of a
+   * result, it is not a result at all. `refuses an envelope version it does
+   * not read` already owns the fence. So the stamp is corrected on the way in
+   * — this case asks what happens to a schedule stored where a result belongs
+   * once the version is no longer the thing that stops it — and the first
+   * assertion becomes the direct one: the two constants are now different, so
+   * nothing here rests on them being equal again.
    */
   it('refuses a bare encodeSchedule output stored where a result belongs', () => {
-    const bare = JSON.parse(JSON.stringify(encodeSchedule(realPlan()))) as StoredSchedule;
-    expect(bare.dtoVersion).toBe(RESULT_DTO_VERSION);
+    expect(CACHE_DTO_VERSION).not.toBe(RESULT_DTO_VERSION);
 
-    expect(() => decodeOptimizedResult(bare)).toThrow(/publication is undefined/);
+    const bare = JSON.parse(JSON.stringify(encodeSchedule(realPlan()))) as StoredSchedule;
+    expect(bare.dtoVersion).toBe(CACHE_DTO_VERSION);
+
+    // Past the fence deliberately, so the answer is about the shape and not
+    // about the number. Everything else is the schedule exactly as it was
+    // encoded, and `publication` is the first envelope field it has no answer
+    // for — which is also the message that names what the row should have been.
+    const stampedAsAResult = { ...bare, dtoVersion: RESULT_DTO_VERSION };
+
+    expect(() => decodeOptimizedResult(stampedAsAResult)).toThrow(/publication is undefined/);
   });
 
   it('refuses a row that is missing a term outright', () => {

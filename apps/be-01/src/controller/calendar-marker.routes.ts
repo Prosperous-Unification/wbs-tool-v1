@@ -1,11 +1,19 @@
-import { isHexTriple, isIsoDate, isMarkerName, validateCustomColor } from '@wbs/domain';
+import {
+  automaticColor,
+  isHexTriple,
+  isIsoDate,
+  isMarkerName,
+  validateCustomColor,
+} from '@wbs/domain';
 
 import { tableRefusedBody } from '../http/body-doc';
 import { callerGuard } from '../http/caller';
 import { isFieldBag, noContent, ok, respond, type Route, type RouteResponse } from '../http/route';
+import type { CalendarMarker } from '../repository';
 import type { AuthService } from '../service/auth.service';
 import type {
   CalendarMarkerRefusal,
+  CalendarMarkerRefused,
   CalendarMarkerService,
 } from '../service/calendar-marker.service';
 import { statusForRefusal } from './refusal-status';
@@ -287,16 +295,59 @@ const isCreateProblem = (parsed: NewMarkerBody | BodyProblem): parsed is BodyPro
  * The refusal body for a state the **service** decided, with the field its row
  * of the table names.
  *
- * `forbidden` is the one row whose field is absent, and that absence is part of
- * the contract rather than an omission: the refusal is about the caller, not
- * about a member of the body. `taken` and `not_found` both blame the `markerId`
- * — the one already stored, or the one that resolves to nothing this project
- * owns. `markerId` rather than `id` because that is what every marker request
- * calls this value: the path parameter on `PATCH` and `DELETE`, and the create
- * body property (see {@link CREATE_BODY}). `id` on this API means the project.
+ * `markerId` is blamed on exactly the refusals that are **about a marker** and
+ * reached a route the caller named one on. Both halves are load-bearing and
+ * each was a defect on its own (TASK-279 AC #7):
+ *
+ * - `CalendarMarkerRefused.about` is the service's answer to *which check
+ *   failed*. `not_found` is one reason for "no such project" and "no such
+ *   marker" on purpose — a caller must not learn a marker it may not see
+ *   exists — so the reason alone cannot say, and a route reading only the
+ *   reason blamed `markerId` for a project it could not find. That is still
+ *   what `PATCH /…/:markerId` and `DELETE /…/:markerId` answered after the
+ *   collection routes were fixed: the marker id on the path was real and
+ *   entirely innocent.
+ * - `requestCarriedMarkerId` is the route's answer to *what the caller sent*.
+ *   The `PATCH` and `DELETE` paths always carry one; the `GET` collection never
+ *   does; the `POST` collection does only when the body named its own id.
+ *
+ * `forbidden` needs no arm of its own and does not get one. It is minted in
+ * exactly one place, `CalendarMarkerService.gate`, which tags it
+ * `about: 'project'`; the store never answers it. A `reason !== 'forbidden'`
+ * guard beside the `about` test would therefore be unfalsifiable — struck, no
+ * request changes and no test moves — and this file does not keep guards whose
+ * removal cannot be watched (round-3 Gemini review).
+ *
+ * `markerId` rather than `id` because that is what every marker request calls
+ * this value: the path parameter on `PATCH` and `DELETE`, and the create body
+ * property (see {@link CREATE_BODY}). `id` on this API means the project.
  */
-const refusalBody = (reason: CalendarMarkerRefusal) =>
-  reason === 'forbidden' ? { error: reason } : { error: reason, field: 'markerId' as const };
+const refusalBody = (refused: CalendarMarkerRefused, requestCarriedMarkerId: boolean) =>
+  refused.about === 'marker' && requestCarriedMarkerId
+    ? { error: refused.reason, field: 'markerId' }
+    : { error: refused.reason };
+
+/**
+ * The marker as the API answers it, with an **automatic colour resolved**.
+ *
+ * `color` is nullable in storage and `null` there means automatic
+ * (`design.md`: materialising it would freeze today's palette into rows). The
+ * nullability stops here — `spec.md`: "Storage MAY hold no colour, meaning
+ * automatic, but the API SHALL NOT return one: every marker in every response
+ * SHALL carry a resolved colour". Every route below sends markers through this
+ * function, so no client needs a second copy of `palette[hash(id) mod 8]` to
+ * know what a marker is drawn in, and `automaticColor` stays the single
+ * definition of it (`libs/domain/src/marker-color.ts`).
+ *
+ * Deliberately **not** applied in the service or the repository: the store's
+ * `null` is what makes "never recoloured" distinguishable from "recoloured to
+ * the colour it would have had anyway", and a resolution one layer lower would
+ * erase that distinction before the column is written back.
+ */
+const answered = (marker: CalendarMarker) => ({
+  ...marker,
+  color: marker.color ?? automaticColor(marker.id),
+});
 
 /**
  * A project's calendar markers.
@@ -327,9 +378,12 @@ export function calendarMarkerRoutes(auth: AuthService, markers: CalendarMarkerS
       path: '/api/projects/:id/calendar-markers',
       handler: guard('signed-in', async ({ params }) => {
         const outcome = await markers.list(params['id']);
+        // No `markerId` blamed: this request carries none. The only state this
+        // route refuses is a project it cannot find, and a body that answered
+        // `field: 'markerId'` would name a value the caller never sent (#279).
         return outcome.ok
-          ? ok({ markers: outcome.value })
-          : respond(statusFor(outcome.reason), refusalBody(outcome.reason));
+          ? ok({ markers: outcome.value.map(answered) })
+          : respond(statusFor(outcome.reason), refusalBody(outcome, false));
       }),
     },
     {
@@ -354,9 +408,18 @@ export function calendarMarkerRoutes(auth: AuthService, markers: CalendarMarkerS
           ...(created.markerId === undefined ? {} : { id: created.markerId }),
           ...(created.color === undefined ? {} : { color: created.color }),
         });
+        // `taken` is the one refusal here the store decided about a marker, and
+        // only a create that carried an id can be answered about it: the spec's
+        // row blames `markerId` for a repeated id, while `not_found` on this
+        // collection route is about the **project** and blames nothing. A
+        // create that let the service mint its id blames nothing either — the
+        // colliding id was never on the request.
         return outcome.ok
-          ? respond(201, { marker: outcome.value })
-          : respond(statusFor(outcome.reason), refusalBody(outcome.reason));
+          ? respond(201, { marker: answered(outcome.value) })
+          : respond(
+              statusFor(outcome.reason),
+              refusalBody(outcome, created.markerId !== undefined),
+            );
       }),
       documentation: { detail: { requestBody: CREATE_BODY } },
     },
@@ -392,9 +455,13 @@ export function calendarMarkerRoutes(auth: AuthService, markers: CalendarMarkerS
         } else {
           return refuse({ reason: 'malformed', field: 'body' });
         }
+        // Addressed **at** a marker, so the caller did send a `markerId` — but
+        // it is blamed only when the service says the refusal was about the
+        // marker. An absent **project** refuses here too, through the same
+        // `not_found`, and the path's marker id had nothing to do with it.
         return outcome.ok
-          ? ok({ marker: outcome.value })
-          : respond(statusFor(outcome.reason), refusalBody(outcome.reason));
+          ? ok({ marker: answered(outcome.value) })
+          : respond(statusFor(outcome.reason), refusalBody(outcome, true));
       }),
       documentation: { detail: { requestBody: PATCH_BODY } },
     },
@@ -403,9 +470,10 @@ export function calendarMarkerRoutes(auth: AuthService, markers: CalendarMarkerS
       path: '/api/projects/:id/calendar-markers/:markerId',
       handler: guard('signed-in', async ({ params }, user) => {
         const outcome = await markers.remove(params['id'], params['markerId'], user.id);
+        // Addressed at a marker, like the `PATCH` above.
         return outcome.ok
           ? noContent()
-          : respond(statusFor(outcome.reason), refusalBody(outcome.reason));
+          : respond(statusFor(outcome.reason), refusalBody(outcome, true));
       }),
     },
   ];

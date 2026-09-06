@@ -124,6 +124,7 @@ describe('CalendarMarkerService announcements', () => {
       expect(await write.succeeds(service, 'no-such-project', OWNER)).toEqual({
         ok: false,
         reason: 'not_found',
+        about: 'project',
       });
       expect(broadcast.published).toEqual([]);
     });
@@ -133,6 +134,7 @@ describe('CalendarMarkerService announcements', () => {
       expect(await write.succeeds(service, PROJECT, STRANGER)).toEqual({
         ok: false,
         reason: 'forbidden',
+        about: 'project',
       });
       expect(broadcast.published).toEqual([]);
     });
@@ -142,6 +144,7 @@ describe('CalendarMarkerService announcements', () => {
       expect(await write.refusedByStore(service, PROJECT, OWNER)).toEqual({
         ok: false,
         reason: write.storeReason,
+        about: 'marker',
       });
       expect(broadcast.published).toEqual([]);
     });

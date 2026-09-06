@@ -22,19 +22,48 @@ export interface CalendarMarkerServiceOptions {
  * Why a marker could not be listed, stored or changed. All four are states.
  *
  * `not_found` covers **both** "no such project" and "no such marker of this
- * project" — the store merges them for the spec's reason, and merging them
- * again here keeps the service from being able to tell a caller that a marker
- * it may not see exists.
+ * project", and it stays one reason on the wire: a caller who could tell the
+ * two apart by the reason would learn that a marker it may not see exists
+ * (spec.md, "a marker of another project answers `not_found` rather than
+ * `forbidden`"). Which of the two it was is carried beside the reason instead,
+ * as {@link CalendarMarkerSubject}.
  */
 export type CalendarMarkerRefusal = 'not_found' | 'forbidden' | 'taken';
 
-export type CalendarMarkerOutcome =
-  | { ok: true; value: CalendarMarker }
-  | { ok: false; reason: CalendarMarkerRefusal };
+/**
+ * What a refusal is **about** — the project the request addressed, or the
+ * marker inside it.
+ *
+ * This is not a second reason and never reaches a client as one. It exists so a
+ * route can answer the spec's `field` honestly: the refusal table blames
+ * `markerId` for a marker that is absent or another project's, and the routes
+ * used to blame it for an **absent project** too, naming a value that had
+ * nothing to do with the refusal (TASK-279 AC #7). Only the service knows
+ * which check failed — `gate` reads the project, the store reads the marker
+ * inside its own transaction — so only the service can say.
+ *
+ * It leaks nothing the reason did not already: an existing project the caller
+ * may not write answers `forbidden` and an absent one answers `not_found`, so
+ * project existence is already distinguishable from outside. Marker existence
+ * is not, and stays that way — `about` never reaches the wire, and the routes
+ * turn it into a `field` only for a request that named a marker id itself. A
+ * create that let this service mint one can still be refused `about: 'marker'`
+ * (the minted id collided), and the route blames nothing for it, because the
+ * two questions are separate and both are asked.
+ */
+export type CalendarMarkerSubject = 'project' | 'marker';
+
+export interface CalendarMarkerRefused {
+  ok: false;
+  reason: CalendarMarkerRefusal;
+  about: CalendarMarkerSubject;
+}
+
+export type CalendarMarkerOutcome = { ok: true; value: CalendarMarker } | CalendarMarkerRefused;
 
 export type CalendarMarkerListOutcome =
   | { ok: true; value: CalendarMarker[] }
-  | { ok: false; reason: CalendarMarkerRefusal };
+  | CalendarMarkerRefused;
 
 /** What a create carries that is not the project or the actor. */
 export interface NewCalendarMarker {
@@ -73,7 +102,7 @@ export class CalendarMarkerService {
 
   async list(projectId: string): Promise<CalendarMarkerListOutcome> {
     const project = await this.opts.projects.findById(projectId);
-    if (project === null) return { ok: false, reason: 'not_found' };
+    if (project === null) return { ok: false, reason: 'not_found', about: 'project' };
     return { ok: true, value: await this.opts.markers.listFor(projectId) };
   }
 
@@ -102,7 +131,19 @@ export class CalendarMarkerService {
       createdAt: this.clock.now(),
     };
     const written = await this.opts.markers.create(row);
-    if (!written.ok) return { ok: false, reason: written.reason };
+    // **The one store call whose `not_found` is not about a marker.**
+    // `CalendarMarkerRepository.create` reads the project first and refuses
+    // `not_found` when nothing holds it, then reads the id and refuses `taken`
+    // (`repository/calendar-marker.ts:94,103`); it never reads a marker to
+    // decide the row is missing, because the row it is about does not exist
+    // yet. The other three go through `one(tx, projectId, id)` after `gate`
+    // already proved the project, so their `not_found` is the marker.
+    if (!written.ok)
+      return {
+        ok: false,
+        reason: written.reason,
+        about: written.reason === 'taken' ? 'marker' : 'project',
+      };
     await this.announce(projectId);
     return { ok: true, value: written.marker };
   }
@@ -117,7 +158,7 @@ export class CalendarMarkerService {
     if (!gate.ok) return gate;
 
     const written = await this.opts.markers.rename(projectId, id, name);
-    if (!written.ok) return { ok: false, reason: written.reason };
+    if (!written.ok) return { ok: false, reason: written.reason, about: 'marker' };
     await this.announce(projectId);
     return { ok: true, value: written.marker };
   }
@@ -132,7 +173,7 @@ export class CalendarMarkerService {
     if (!gate.ok) return gate;
 
     const written = await this.opts.markers.recolor(projectId, id, color);
-    if (!written.ok) return { ok: false, reason: written.reason };
+    if (!written.ok) return { ok: false, reason: written.reason, about: 'marker' };
     await this.announce(projectId);
     return { ok: true, value: written.marker };
   }
@@ -142,7 +183,7 @@ export class CalendarMarkerService {
     if (!gate.ok) return gate;
 
     const written = await this.opts.markers.remove(projectId, id);
-    if (!written.ok) return { ok: false, reason: written.reason };
+    if (!written.ok) return { ok: false, reason: written.reason, about: 'marker' };
     await this.announce(projectId);
     return { ok: true, value: written.marker };
   }
@@ -169,10 +210,10 @@ export class CalendarMarkerService {
   private async gate(
     projectId: string,
     actorId: string,
-  ): Promise<{ ok: true } | { ok: false; reason: CalendarMarkerRefusal }> {
+  ): Promise<{ ok: true } | CalendarMarkerRefused> {
     const project = await this.opts.projects.findById(projectId);
-    if (project === null) return { ok: false, reason: 'not_found' };
-    if (!canEdit(project, actorId)) return { ok: false, reason: 'forbidden' };
+    if (project === null) return { ok: false, reason: 'not_found', about: 'project' };
+    if (!canEdit(project, actorId)) return { ok: false, reason: 'forbidden', about: 'project' };
     return { ok: true };
   }
 }

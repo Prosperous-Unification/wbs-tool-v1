@@ -263,9 +263,27 @@ export const scheduleBehaviourDigest = (run: ScheduleFn): string =>
  * `SCHEDULE_ALGORITHM_ID` is stale as of the same commit.
  */
 const PINNED = {
-  id: 'slice-leveling-v1',
-  digest: '5f5d507bdf199577',
+  id: 'slice-leveling-v2',
+  digest: '18b55455829f4eb1',
 } as const;
+
+/**
+ * `v1` was `5f5d507bdf199577`, and this is what moved it: tasks.md 5.1 and 5.2.
+ *
+ * **Recorded because the digest cannot say what changed and this file's whole
+ * value is that somebody had to look.** The corpus above passes no deadlines,
+ * so 5.1's reordering ties on both new comparisons and moved not one date in
+ * it — the digest moved on 5.2 alone, the `lateBy` field now published on every
+ * slice, which reads `null` throughout this deadline-free corpus. That is a
+ * shape change rather than a placement change, and it is still an identity
+ * change: a `v1` plan carries no `lateBy` at all, so a reader that found the
+ * field absent could not tell "computed before the field existed" from
+ * "computed and on time".
+ *
+ * The measurement was on h2puni at the committed bytes, not on the workspace
+ * box, and both values are in this comment so a future re-pin can be checked
+ * against the one it replaced.
+ */
 
 /** One perturbed value of the same shape — the smallest change a real edit makes. */
 const perturbed = (value: unknown): unknown => {

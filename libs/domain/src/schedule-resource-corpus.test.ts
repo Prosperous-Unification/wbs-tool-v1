@@ -21,7 +21,7 @@ import {
  * `personId: null`, no pool, no priority and the default reach
  * (`schedule-identity.test.ts:290-300`). That is not an oversight there — a
  * differential against an engine without resources has to hand both arms a plan
- * without resources. It does mean the five facts the leveller exists for have
+ * without resources. It does mean the six facts the leveller exists for have
  * no generated coverage at all, only the hand-written cases in
  * `schedule-capacity`, `schedule-leveling`, `schedule-priority` and the eight
  * in `fast-golden-corpus.ts`.
@@ -33,7 +33,7 @@ import {
  *    oversubscribed, and no manual floor is undercut. These hold for any
  *    correct schedule and need no oracle.
  * 2. **That each fact is actually reached** — for each of people, capacity,
- *    priority, dependency-reach and manual-floor, the same plan is scheduled
+ *    priority, dependency-reach, manual-floor and deadline, the same plan is scheduled
  *    twice, once as generated and once with that one fact stripped out, and the
  *    two schedules must disagree on a stated number of seeds. This is the shape
  *    task 9.1 asks for: if the generator stopped emitting the fact, stripping it
@@ -42,14 +42,32 @@ import {
  *    would only prove the generator wrote the field down, not that the engine
  *    ever read it.
  *
- * Measured on h2puni at `90408467`, seeds 1..1000 — the seeds each fact moves:
+ * Measured on h2puni at `90408467`, seeds 1..1000, before deadlines existed:
  * people 554, capacity 255, priority 461, dependency-reach 239,
  * manual-floor 699.
  *
- * Watched red for all five together, by shadowing `strip` with `undefined`
+ * **Re-measured 2026-09-06 with the sixth fact generated** (TASK-267 5.3),
+ * same seeds: people 559, capacity 253, priority **130**, dependency-reach 237,
+ * manual-floor 691, deadline 446. Every draw is unchanged — the deadline is
+ * drawn last — so the five that moved moved because the *engine* changed, and
+ * one of them moved a long way.
+ *
+ * **Priority fell from 461 to 130, and that number is the ordering change made
+ * visible.** Deadlines are asked before priority (`schedule.ts`'s `goesFirst`),
+ * so on the plans where the contending slices carry dates the priority
+ * comparison is never reached and stripping it changes nothing. 130 is what is
+ * left: the plans whose contention is between slices the dates could not
+ * separate. Two consequences a reader needs. It is **not** a coverage
+ * regression — the fact still reaches the schedule on 130 plans and the floor
+ * is 50 — and priority is now **the tightest fact of the six**, so the note
+ * below naming dependency-reach as the tightest is amended here rather than
+ * left to rot.
+ *
+ * Watched red for all six together, by shadowing `strip` with `undefined`
  * inside `generateResourcePlan` so the stripped plan IS the generated plan and
- * every difference vanishes: 6 pass / 5 fail, the five coverage cases red and
- * the three invariants and the three 9.3 cases still green.
+ * every difference vanishes: 6 pass / 5 fail measured before the sixth fact;
+ * the coverage cases go red and the three invariants and the three 9.3 cases
+ * stay green.
  *
  * Each invariant carries its own observed fault at the assertion it guards, and
  * each of those faults also reddened the 9.3 cases or a coverage case, so no
@@ -64,8 +82,10 @@ const SEEDS = 1000;
  *
  * A floor rather than `> 0`: one surviving plan out of a thousand is a corpus
  * that has stopped generating the fact and kept a single accident, which is the
- * state 9.1 exists to prevent. Set well under every measured figure (the
- * tightest is dependency-reach) so ordinary generator drift does not redden it.
+ * state 9.1 exists to prevent. Set well under every measured figure — the
+ * tightest is **priority at 130**, since deadlines are asked ahead of it and
+ * answer most of the contention first — so ordinary generator drift does not
+ * redden it.
  */
 const COVERAGE_FLOOR = 50;
 
@@ -86,16 +106,17 @@ interface ResourcePlan {
   edges: DependencyEdge[];
   slices: Slice[];
   notBefore: Map<string, number>;
+  deadlines: Map<string, number>;
   poolSizes: Map<string, number>;
   reach: DependencyReach;
 }
 
-/** The five facts this corpus is about, and the one it is `strip`ped of. */
-type Fact = 'people' | 'capacity' | 'priority' | 'dependency-reach' | 'manual-floor';
+/** The six facts this corpus is about, and the one it is `strip`ped of. */
+type Fact = 'people' | 'capacity' | 'priority' | 'dependency-reach' | 'manual-floor' | 'deadline';
 
 /**
  * One random resource-constrained plan: a two-level tree, up to two steps a
- * leaf, and every one of the five facts sprinkled over it.
+ * leaf, and every one of the six facts sprinkled over it.
  *
  * Whole-day estimates, unlike `schedule-identity.test.ts`'s PERT thirds. That
  * file's sixths exist to make two arithmetics disagree in the last bits; here
@@ -202,7 +223,7 @@ function generateResourcePlan(seed: number, strip?: Fact): ResourcePlan {
         personId: person,
         // Width 1 throughout: the caller drops it to 1 for a named assignee and
         // clamps it to the pool anyway (`schedule.ts:31`), and width is not one
-        // of the five facts 9.1 names. Holding it fixed keeps the capacity
+        // of the five facts 9.1 names nor TASK-267's sixth. Holding it fixed keeps the capacity
         // difference below attributable to the pool rather than to the tiling.
         width: 1,
         poolIds: pool === null ? [] : [pool],
@@ -217,16 +238,47 @@ function generateResourcePlan(seed: number, strip?: Fact): ResourcePlan {
     if (floored && strip !== 'manual-floor') notBefore.set(leaf.id, floor);
   }
 
+  // TASK-267 5.3. Drawn **last**, so every value above is the value it was
+  // before this fact existed and the five counts below moved only because the
+  // engine reads the sixth — not because the LCG stream slid under them.
+  //
+  // Leaf-keyed, like the floor two lines up and unlike what the fold allows: a
+  // date on a parent is `leaf-constraints.test.ts`'s subject and
+  // `schedule-deadline-order.test.ts` has the case that proves `schedule()`
+  // goes through the fold. What this corpus is for is the *invariants* holding
+  // over a thousand plans that carry deadlines at all, and a leaf key reaches
+  // the comparator by the shortest route that can.
+  //
+  // Days 2..11 against plans whose spans are the same order of magnitude, so
+  // the draw lands on both sides of the finish and the slack it produces is
+  // sometimes negative. A window safely past every finish would generate the
+  // fact and never bind, which is coverage the count would report and the
+  // schedule would not have.
+  const deadlines = new Map<string, number>();
+  for (const leaf of leaves) {
+    const dated = random() > 0.4;
+    const noLaterThan = 2 + Math.floor(random() * 10);
+    if (dated && strip !== 'deadline') deadlines.set(leaf.id, noLaterThan);
+  }
+
   // `whole-item` is the column's default and therefore what a generator blind to
   // reach produces; stripping the fact is pinning every plan back to it.
   const reach: DependencyReach =
     strip === 'dependency-reach' ? 'whole-item' : seed % 2 === 0 ? 'anchor-slice' : 'whole-item';
 
-  return { rows, edges, slices, notBefore, poolSizes, reach };
+  return { rows, edges, slices, notBefore, deadlines, poolSizes, reach };
 }
 
 const scheduleOf = (plan: ResourcePlan): Schedule =>
-  schedule(plan.rows, plan.edges, plan.slices, plan.notBefore, plan.poolSizes, plan.reach);
+  schedule(
+    plan.rows,
+    plan.edges,
+    plan.slices,
+    plan.notBefore,
+    plan.poolSizes,
+    plan.reach,
+    plan.deadlines,
+  );
 
 /**
  * What "the same schedule" means for the difference counts below.
@@ -281,12 +333,16 @@ describe('resource corpus — every generated fact reaches the schedule', () => 
   // One `it` per fact rather than a loop over the five: a loop reports "the
   // corpus" red and leaves the reader to find which fact stopped being
   // generated, and the whole point of 9.1 is naming the one that went missing.
-  it.each<[Fact]>([['people'], ['capacity'], ['priority'], ['dependency-reach'], ['manual-floor']])(
-    '%s changes the schedule of enough of the thousand plans',
-    (fact) => {
-      expect(seedsMovedBy(fact)).toBeGreaterThanOrEqual(COVERAGE_FLOOR);
-    },
-  );
+  it.each<[Fact]>([
+    ['people'],
+    ['capacity'],
+    ['priority'],
+    ['dependency-reach'],
+    ['manual-floor'],
+    ['deadline'],
+  ])('%s changes the schedule of enough of the thousand plans', (fact) => {
+    expect(seedsMovedBy(fact)).toBeGreaterThanOrEqual(COVERAGE_FLOOR);
+  });
 });
 
 /** Every slice with real duration, as an interval, for the invariants. */

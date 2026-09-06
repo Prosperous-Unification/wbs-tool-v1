@@ -38,6 +38,7 @@ vitest.config.*.timestamp*
 test-results/
 test-results-packaged/
 playwright-report/
+nx-gate.log
 .claude/worktrees
 .nx/polygraph
 .nx/self-healing

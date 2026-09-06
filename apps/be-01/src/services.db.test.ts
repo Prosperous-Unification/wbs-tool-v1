@@ -173,7 +173,7 @@ describe('buildServices', () => {
     // the announcement is downstream of that answer rather than of the gate.
     expect(
       await services.calendarMarkers.rename(projectId, crypto.randomUUID(), ownerId, 'Nobody'),
-    ).toEqual({ ok: false, reason: 'not_found' });
+    ).toEqual({ ok: false, reason: 'not_found', about: 'marker' });
     expect(await seq()).toBe(start + 3);
 
     expect((await services.calendarMarkers.remove(projectId, markerId, ownerId)).ok).toBe(true);
@@ -190,5 +190,110 @@ describe('buildServices', () => {
         })),
       },
     });
+  });
+
+  it('changes nothing but seq in the work-items answer, once per marker write', async () => {
+    // TASK-279 AC #4, and the assertion the browser QA finding needs to stay
+    // fixed in both directions.
+    //
+    // A marker write must move the project's `seq` — that is the whole defect
+    // this task was filed for, and the case above proves the event is recorded.
+    // But `seq` is read inside `tree()` beside the plan the client is about to
+    // redraw, so making it move is only half a fix: an implementation that
+    // reordered work items, recomputed a schedule, or dropped a field on the
+    // way through would also make `seq` advance, and every marker-side test
+    // would stay green while the client redrew a different plan on an
+    // annotation change.
+    //
+    // So the payload is compared **whole** with only `seq` deleted, and the
+    // deletion is by name: anything else that moved fails here, including a
+    // field this test does not know about, because nothing enumerates the keys.
+    // `toEqual` catches a changed value, and a reordered array — it compares
+    // arrays by position. What it does not see is a changed **key** order
+    // inside an object, which is the same object to `toEqual` and a different
+    // response to a client diffing text or hashing the body; `JSON.stringify`
+    // is here for that one.
+    const { db, services } = bootstrap();
+    const { projectId, ownerId } = await seedProject(db);
+
+    // **Three items, not one.** An empty tree is equal to itself whatever the
+    // marker writes did, and a one-item tree is equal to itself under any
+    // reordering there is — so the claim above about a reordered tree would be
+    // untrue of a fixture with fewer than two rows. A parent and two children
+    // give both a sibling order and a depth to lose (round-3 Gemini review).
+    const strip = await services.workItems.create(projectId, ownerId, {
+      parentId: null,
+      afterId: null,
+      name: 'Strip',
+    });
+    expect(strip.ok).toBe(true);
+    const parentId = strip.ok ? strip.value.id : null;
+    for (const name of ['Sand', 'Prime']) {
+      expect(
+        (await services.workItems.create(projectId, ownerId, { parentId, afterId: null, name })).ok,
+      ).toBe(true);
+    }
+
+    // `tree` answers `null` for a project it cannot find. Narrowed here rather
+    // than asserted away, because a `null` slipping through would make every
+    // equality below hold vacuously — the one way this case could pass while
+    // reading nothing at all.
+    type Tree = NonNullable<Awaited<ReturnType<typeof services.workItems.tree>>>;
+    const treeOf = async (): Promise<Tree> => {
+      const tree = await services.workItems.tree(projectId);
+      expect(tree).not.toBeNull();
+      if (tree === null) throw new Error('the seeded project answered no tree');
+      return tree;
+    };
+
+    // `delete` on a copy rather than a rest destructure, which lint reads as an
+    // unused binding — and `delete` is what keeps the surviving keys in their
+    // original order, which the `JSON.stringify` assertion below depends on.
+    const withoutSeq = (tree: Tree): Record<string, unknown> => {
+      const rest: Record<string, unknown> = { ...tree };
+      delete rest['seq'];
+      return rest;
+    };
+
+    const unchangedExceptSeq = (after: Tree, before: Tree): void => {
+      expect(withoutSeq(after)).toEqual(withoutSeq(before));
+      expect(JSON.stringify(withoutSeq(after))).toBe(JSON.stringify(withoutSeq(before)));
+      // Exactly one, not "more than before": a write announced twice makes
+      // every other reader replay a change it already has.
+      expect(after.seq).toBe(before.seq + 1);
+    };
+
+    // All four writes, in the order a composer makes them, each compared with
+    // the read before it rather than with the baseline — an equality that only
+    // held across the whole run would pass for two mutations that cancelled.
+    const markerId = crypto.randomUUID();
+    const baseline = await treeOf();
+
+    expect(
+      (
+        await services.calendarMarkers.create(projectId, ownerId, {
+          id: markerId,
+          date: '2026-03-02',
+          name: 'Freeze',
+        })
+      ).ok,
+    ).toBe(true);
+    const created = await treeOf();
+    unchangedExceptSeq(created, baseline);
+
+    expect((await services.calendarMarkers.rename(projectId, markerId, ownerId, 'Thaw')).ok).toBe(
+      true,
+    );
+    const renamed = await treeOf();
+    unchangedExceptSeq(renamed, created);
+
+    expect(
+      (await services.calendarMarkers.recolor(projectId, markerId, ownerId, '#3366cc')).ok,
+    ).toBe(true);
+    const recoloured = await treeOf();
+    unchangedExceptSeq(recoloured, renamed);
+
+    expect((await services.calendarMarkers.remove(projectId, markerId, ownerId)).ok).toBe(true);
+    unchangedExceptSeq(await treeOf(), recoloured);
   });
 });

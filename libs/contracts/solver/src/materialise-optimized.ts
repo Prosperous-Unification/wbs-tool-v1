@@ -107,7 +107,21 @@ export function materialiseOptimized(
     pinnedStarts.set(key, offset / SOLVER_QUANTUM);
   }
 
-  const placed = schedule(rows, edges, slices, notBefore, poolSizes, reach, pinnedStarts);
+  // `deadlines` is `schedule()`'s seventh argument and `pinnedStarts` its
+  // eighth. Stated positionally here rather than skipped, because the empty map
+  // is the honest value: the optimized path carries no deadline of its own —
+  // the solver has already answered with a start per slice, and this pass only
+  // materialises that answer.
+  const placed = schedule(
+    rows,
+    edges,
+    slices,
+    notBefore,
+    poolSizes,
+    reach,
+    new Map(),
+    pinnedStarts,
+  );
 
   for (const key of pinnedStarts.keys()) {
     if (!placed.slices.has(key)) {
