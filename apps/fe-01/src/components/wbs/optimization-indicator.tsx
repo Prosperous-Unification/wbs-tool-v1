@@ -85,7 +85,14 @@ export function OptimizationIndicator({
     );
   }
 
-  if (variant.state === 'pending' || variant.state === 'retrying' || variant.state === 'idle') {
+  if (variant.state === 'pending' || variant.state === 'retrying') {
+    return (
+      <p role="status" className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
+        Optimizing…
+      </p>
+    );
+  }
+  if (variant.state === 'idle') {
     return (
       <p role="status" className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
         Optimizing…
