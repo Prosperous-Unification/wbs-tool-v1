@@ -482,11 +482,10 @@ describe('classifyOidcFailure', () => {
     });
 
     it('still answers from the code table when nothing beneath it is a transport failure', () => {
-      // The walk running first must not cost the table its rows: a parse error
-      // with nothing underneath it is still ours.
+      // The walk running first must not cost the table its rows.
       expect(classifyOidcFailure({ code: 'OAUTH_PARSE_ERROR' })).toEqual({
-        kind: 'defect',
-        reason: 'local_defect',
+        kind: 'unavailable',
+        reason: 'provider_response_unusable',
       });
       expect(classifyOidcFailure({ code: 'OAUTH_RESPONSE_IS_NOT_JSON' })).toEqual({
         kind: 'unavailable',
@@ -499,6 +498,23 @@ describe('classifyOidcFailure', () => {
           cause: [{ scheme: 'bearer', parameters: { code: 'ENOTFOUND' } }],
         }),
       ).toEqual({ kind: 'defect', reason: 'client_authentication_failed' });
+    });
+
+    it('does not call a provider body that will not parse our own defect', () => {
+      // The mirror of the case above, and the reason `OAUTH_PARSE_ERROR` is not
+      // a local defect on this path. A token endpoint answering 200 with
+      // `application/json` and a truncated body reaches `exchange` like this,
+      // through the library's own `getResponseJsonBody()`: no transport failure
+      // anywhere beneath it, so the walk finds nothing and the table decides.
+      // The provider supplied the unusable response; paging an operator to debug
+      // code that did nothing wrong is the misfiling, aimed at ourselves.
+      const failure = classifyOidcFailure({
+        code: 'OAUTH_PARSE_ERROR',
+        cause: { code: 'OAUTH_PARSE_ERROR', cause: new SyntaxError('Unexpected end of JSON input') },
+      });
+
+      expect(failure).toEqual({ kind: 'unavailable', reason: 'provider_response_unusable' });
+      expect(failure.reason).not.toBe('local_defect');
     });
 
     it('still finds a transport failure when the top-level code is not one we own', () => {

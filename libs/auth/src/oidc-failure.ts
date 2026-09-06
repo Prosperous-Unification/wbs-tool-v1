@@ -157,9 +157,21 @@ const CODE_TABLE: ReadonlyMap<string, OidcFailure> = new Map([
   ['OAUTH_WWW_AUTHENTICATE_CHALLENGE', DEFECT('client_authentication_failed')],
   ['OAUTH_INVALID_REQUEST', DEFECT('request_rejected')],
   ['OAUTH_UNSUPPORTED_OPERATION', DEFECT('local_defect')],
-  // Documented as covering JWS/JWE headers, JSON bodies and the request
-  // parameters this project authors, so it is not evidence of an outage.
-  ['OAUTH_PARSE_ERROR', DEFECT('local_defect')],
+  // `OAUTH_PARSE_ERROR` is the third member of the "did not answer as itself"
+  // row, and it was filed as `local_defect` until someone traced where it
+  // actually comes from. The library's documentation covers JWS/JWE headers,
+  // JSON bodies and request parameters — which reads local, and is why it was
+  // put there — but on the path this classifier serves it is raised by
+  // `getResponseJsonBody()` when the *provider's* token response will not parse.
+  // A token endpoint answering 200 with `application/json` and a truncated body
+  // arrives here, and calling that our own defect pages an operator to debug
+  // code that did nothing wrong. The inputs this module is documented against
+  // are the ones `exchange` is handed, and those come from the far end.
+  //
+  // The genuinely local half of the code's range is not lost: a parse failure
+  // that has a transport cause under it never reaches this table at all, because
+  // the walk runs first — see {@link PROVIDER_CONTROLLED_CAUSE}.
+  ['OAUTH_PARSE_ERROR', UNAVAILABLE('provider_response_unusable')],
 ]);
 
 /** Envelope codes that carry an RFC 6749 error value worth reading. */
