@@ -993,7 +993,7 @@ describe('projects', () => {
       projectId: project.id,
       objective: 'pri',
       inputHash: 'held-hash',
-      input: { depReach: 'whole-item' },
+      input: { reach: 'whole-item' },
     });
   });
 
