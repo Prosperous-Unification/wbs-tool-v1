@@ -2105,14 +2105,15 @@ export function schedule(
    * report `Late by N workdays`; a deadline that pulled work earlier would be a
    * wish the calendar granted, which is the one thing it must never be.
    *
-   * **Underscored because nothing below reads it yet, and that is the claim
-   * 4.3 proves rather than a gap to be tidied away.** The argument is
-   * positional — {@link ScheduleInput} is what names the tuple's members — so
-   * the prefix costs callers nothing and buys the one thing worth having here:
-   * a reader who removes it and finds the linter silent has learnt that slice 5
-   * landed. Slice 5 drops it in the same commit that first reads the map.
+   * **Nothing below reads it yet, and that is the claim 4.3 proves rather than
+   * a gap to be tidied away** — so the suppression below is narrow, named and
+   * dated rather than an underscore, which would have renamed a documented
+   * positional argument to say something the doc already says. Slice 5 deletes
+   * the line in the same commit that first reads the map; a reader who deletes
+   * it early and finds the linter silent has learnt that slice 5 landed.
    */
-  _deadlines: ReadonlyMap<string, number> = new Map(),
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- TASK-267 4.1: the seventh argument arrives inert; slice 5 reads it.
+  deadlines: ReadonlyMap<string, number> = new Map(),
   /**
    * Task 4.9's `materialiseOptimized`: a start per slice key, or Fast's own.
    *
