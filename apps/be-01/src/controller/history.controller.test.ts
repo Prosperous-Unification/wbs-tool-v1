@@ -45,6 +45,8 @@ describe('one plan’s history, over HTTP', () => {
   let projects: ProjectStore;
   let token: string;
 
+  let events: ReturnType<typeof inMemoryPlanEvents>;
+
   beforeEach(async () => {
     const users = inMemoryUsers();
     const auth = testAuthService(users);
@@ -54,7 +56,7 @@ describe('one plan’s history, over HTTP', () => {
       ownerId: 'owner',
     });
     await projects.create(project, [], { at: 1, by: project.ownerId });
-    const events = inMemoryPlanEvents([
+    events = inMemoryPlanEvents([
       event('set', { createdAt: 1_000 }),
       event('cleared', { kind: 'clear_estimate', createdAt: 2_000 }),
       event('renamed', { kind: 'patch', workItemId: 'w2', stepId: null, createdAt: 3_000 }),
@@ -97,8 +99,27 @@ describe('one plan’s history, over HTTP', () => {
         headers: withToken === '' ? {} : { authorization: `Bearer ${withToken}` },
       }),
     );
-    return { status: response.status, body: (await response.json()) as { events?: PlanEvent[] } };
+    return {
+      status: response.status,
+      body: (await response.json()) as { events?: PlanEvent[]; error?: string },
+    };
   }
+
+  it('refuses undeclared query fields instead of silently ignoring them', async () => {
+    const response = await get('?extra=ignored');
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'invalid_query' });
+  });
+
+  it('keeps historical command JSON opaque while validating the surrounding event', async () => {
+    events.held.push(event('legacy', { before: { retiredCommand: 'v0' }, after: null }));
+    const response = await get('');
+    expect(response.status).toBe(200);
+    expect(response.body.events?.find((entry) => entry.id === 'legacy')).toMatchObject({
+      before: { retiredCommand: 'v0' },
+      after: null,
+    });
+  });
 
   it('answers the whole history, newest first', async () => {
     const { status, body } = await get('');

@@ -436,3 +436,307 @@ restoration then passed1804 tests,0 failures,17057 assertions across138 files in
 restoration emitted no errors (`/private/tmp/wbs-http-smoke-lint-restored.log`); strict
 OpenSpec validation passed. Full workspace/browser gates and remaining production
 endpoint migrations are still pending.
+
+# HTTP client foundation evidence
+
+Worktree: `.worktrees/refactoring`, branch `refactor/planned-project`. Ownership is confined to new `libs/contracts/src/http/client*` source/test files. No index exports, frontend callers, shared schema APIs, or active OpenSpec documents are edited by this worker.
+
+Approved task4.1 creates operationId methods, exact shape-derived inputs and status-specific success/refusal replies. `clientFromShapes(shapes, transport)` accepts Fetch Responses or explicitly tagged normalized in-process json/text/empty replies, avoiding a backend EMPTY import. `fetchTransport(baseUrl, send)` uses an explicit base URL, preserves caller headers and AbortSignal, and sets redirect:manual so redirects remain visible when Fetch exposes them. Browser opaque manual redirects can produce status0; that is an explicit undeclared-status boundary failure, not a successful302 claim.
+
+The result union distinguishes success, validated refusal, and typed client-boundary failure. Finite boundary codes currently cover cancellation, transport errors (preserving cause), invalid client input, undeclared status, and invalid response JSON/schema/representation. Unexpected validator failures propagate. Query values are the server adapter's string-valued field map, with undefined optional fields omitted; bodies are normalized to their actual JSON representation before strict validation, consistently for fetch and in-process transports. No request sharing/cache is introduced.
+
+Read source before edits: approved ports plan D13/D16/D17 transport/client section; http-endpoint-port task4.1 and design; endpoint-shape/schema-shape; frontend lib/api.ts, wbs-api.ts and saved-plan-api.ts. Existing api.ts's proxy WWW-Authenticate distinction motivates preserving status and Headers on boundary failures. No frontend behavior is claimed migrated.
+
+Initial missing-module test run:0pass1fail1error. First implementation:13pass0fail43assertions. Added cancellation-during-validation, optional query and successful-error-envelope checks:17pass3fail; fixes restored20pass0fail60assertions. Optional undefined body fields then failed before normalization, restoring21pass0fail62assertions. These are interim runtime observations only.
+
+R10 quiet window: checks paused on request and resumed only after parent release. Trusted fetch configuration failures now propagate as ClientConfigurationError; unknown-status Fetch bodies are canceled and cleanup failures propagate; blank operation IDs reject; normalized text values are checked.
+
+## Final scoped evidence
+
+Quiet window released. Runtime before faults: `bun test ./libs/contracts/src/http/client.test.ts ./libs/contracts/src/http/client-types.test.ts`: 30 passed, 0 failed, 82 assertions. Bounded actual-production-client compiler fixture `/private/tmp/http-client-types.json`: exit 0. Scoped ESLint: exit 0. Final post-comment checks recorded below after execution.
+
+24 faults were injected independently and restored after each run; all failed. Raw outputs `/private/tmp/http-client-fault-<name>.log`; structured summary `/private/tmp/http-client-fault-summary.json`. No fault remains active. Runtime faults used `bun test ./libs/contracts/src/http/client.test.ts`; type faults used `bunx tsc -p /private/tmp/http-client-types.json`.
+
+- `request-schema`: exit 1; (fail) client request and transport boundary > validates request input before invoking transport and does not share calls [2.88ms]; (fail) client request and transport boundary > validates request input before invoking transport and does not share calls [2.88ms]
+- `success-schema`: exit 1; (fail) shape-derived client response boundary > refuses a backend-only known field type change [0.36ms]; (fail) shape-derived client response boundary > awaits asynchronous validators and throws unexpected validator errors [0.33ms]
+- `refusal-schema`: exit 1; (fail) shape-derived client response boundary > validates refusal at status 429 and rejects malformed details [0.45ms]; (fail) shape-derived client response boundary > validates refusal at status 503 and rejects malformed details [0.11ms]
+- `async-schema`: exit 1; (fail) shape-derived client response boundary > validates an in-process response while retaining additive nested fields [1.40ms]; (fail) shape-derived client response boundary > refuses a backend-only known field type change [4.34ms]
+- `success-alternatives`: exit 1; Expected: "success"; Received: "failure"
+- `refusal-alternatives`: exit 1; (fail) shape-derived client response boundary > validates refusal at status 503 and rejects malformed details [0.30ms]; (fail) shape-derived client response boundary > validates refusal at status 501 and rejects malformed details [0.17ms]
+- `refusal-status`: exit 1; (fail) shape-derived client response boundary > refuses undeclared statuses and mismatched refusal status/body pairs [0.51ms]; (fail) refuses a successful refusal envelope even with a permissive success schema [3.58ms]
+- `blank-id`: exit 1; (fail) rejects blank operation identifiers consistently with shape document emission [3.51ms]; (fail) rejects blank operation identifiers consistently with shape document emission [3.51ms]
+- `duplicate-id`: exit 1; (fail) client request and transport boundary > refuses duplicate operation identifiers instead of replacing a method [0.23ms]; (fail) client request and transport boundary > refuses duplicate operation identifiers instead of replacing a method [0.23ms]
+- `params`: exit 1; (fail) refuses missing, extra and URL dot-segment params before transport [0.65ms]; (fail) refuses missing, extra and URL dot-segment params before transport [0.65ms]
+- `path-encoding`: exit 1; Expected: "https://example.test/project%20notes/a%2Fb%20%3F%23?filter=x%26y"; Received: "https://example.test/project%20notes/a/b%20?filter=x%26y#"
+- `body-normalization`: exit 1; Expected: "success"; Received: "failure"
+- `undefined-body`: exit 1; (fail) reports non-JSON client bodies before transport without hiding unexpected serialization failures [1.76ms]; (fail) reports non-JSON client bodies before transport without hiding unexpected serialization failures [1.76ms]
+- `cancellation`: exit 1; Expected: false; Received: true
+- `success-envelope`: exit 1; (fail) refuses a successful refusal envelope even with a permissive success schema [2.02ms]; (fail) refuses a successful refusal envelope even with a permissive success schema [2.02ms]
+- `text-type`: exit 1; (fail) rejects malformed normalized text before returning a typed text success [0.45ms]; (fail) rejects malformed normalized text before returning a typed text success [0.45ms]
+- `configuration`: exit 1; (fail) preserves transport encoding failures when a composed transport corrupts validated input [0.45ms]; (fail) throws for a trusted query declaration that cannot be represented on the wire [1.26ms]
+- `cleanup`: exit 1; Expected: true; Received: false
+- `serialization-errors`: exit 1; (fail) reports non-JSON client bodies before transport without hiding unexpected serialization failures [1.85ms]; (fail) reports non-JSON client bodies before transport without hiding unexpected serialization failures [1.85ms]
+- `params-type`: exit 2; libs/contracts/src/http/client-types.test.ts(54,3): error TS2578: Unused '@ts-expect-error' directive.
+- `body-type`: exit 2; libs/contracts/src/http/client-types.test.ts(60,3): error TS2578: Unused '@ts-expect-error' directive.; libs/contracts/src/http/client.test.ts(248,38): error TS2345: Argument of type '{ params: { id: string; }; body: { name: string; extra: boolean; }; }' is not assignable to parameter of type 'ClientInput<{ readonly method: "POST"; readonly path: "/projects/:id"; readonly operationId: "writeProject"; readonly policies: readonly []; readonly body: SchemaShape<{ name: string; }>; readonly responses: readonly [...]; readonly refusals: readonly []; readonly document: { ...; }; }>'.
+- `query-type`: exit 2; libs/contracts/src/http/client-types.test.ts(56,3): error TS2578: Unused '@ts-expect-error' directive.; libs/contracts/src/http/client.test.ts(449,57): error TS2322: Type 'undefined' is not assignable to type 'string'.
+- `response-type`: exit 2; libs/contracts/src/http/client-types.test.ts(69,5): error TS2578: Unused '@ts-expect-error' directive.; libs/contracts/src/http/client.test.ts(72,32): error TS2769: No overload matches this call.
+- `status-type`: exit 2; libs/contracts/src/http/client-types.test.ts(72,47): error TS2339: Property 'supported' does not exist on type '{ error: "rate_limited"; } | { error: "unsupported_body_version"; savedPlanId: string; body: "input"; version: number; supported: number[]; }'.; libs/contracts/src/http/client-types.test.ts(93,3): error TS2578: Unused '@ts-expect-error' directive.
+
+The success-validator bypass also timed out the held-validator case because that dependency was deliberately bypassed; its known-field assertion failed immediately and is the validation proof. Type proofs explicitly observed TS2578 on negative fixtures, not merely unrelated compiler errors. No frontend caller migration, exports, whole-workspace gate, browser run, or integration review is claimed. Parent owns those follow-up steps.
+
+Final restored post-format/comment verification: runtime 30 passed / 0 failed / 82 assertions (199ms), bounded actual-client source plus type-fixture compile exit 0, scoped ESLint exit 0. Logs `/private/tmp/http-client-final-{tests,types,lint}.log`. All six new client files are frozen and released for independent review; no commits or index exports.
+
+Independent client review approved without findings and re-ran30 tests/82assertions
+and the actual-client type fixture. Parent exported the reviewed client functions
+and types from the contracts barrel; FE caller conversion remains task4.2.
+
+History migration runs independently beside step after the same completed foundation.
+Its RED passed6 existing cases and failed2: unknown query returned200 instead of400;
+the old route had no typed handle (`/private/tmp/wbs-http-history-red.log`). The new
+shape preserves opaque historical before/after JSON while validating event metadata.
+Legacy OpenAPI output loses migrated per-route metadata until task3.2 publishes from
+shapes; its freshness/metadata checks are explicitly pending during this transition.
+The shared emitter's metadata tests remain required for each migrated family.
+
+### History migration checkpoint
+
+Initial expanded control had one test-fixture scoping failure (events was local to
+beforeEach); the held fixture is now explicit in describe scope. Restored controls
+passed10 tests before five fault injections, all restored in finally:
+
+| Fault                                 | Observed failure                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| Tolerant history query                | Unknown query returns200, expected400.                                          |
+| Omit query declaration                | Emitted parameter list loses kind and workItemId.                               |
+| Split kinds on semicolon              | Filter returns[] instead of[cleared,set].                                       |
+| Missing project becomes empty success | Literal handler returns200/events instead of404/error.                          |
+| Narrow historical before to string    | Historical JSON case fails in response.json: SyntaxError: Failed to parse JSON. |
+
+Logs `/private/tmp/wbs-http-history-fault-{strict,query,filter,refusal,historical}.log`.
+The last failure occurs before the status assertion because the helper reads JSON
+first; it is not recorded as an observed status assertion. All sources restored.
+Independent history/step source review approved without findings. The restored
+combined history and step run passed 65 tests / 284 assertions, and fresh contracts
+plus be-01 source/spec typechecks passed. The production OpenAPI check remains
+intentionally red until task 3.2 replaces the transitional legacy publisher: its
+freshness comparison differs and its old hand-written step-body metadata is absent
+(`/private/tmp/wbs-http-incremental-openapi.log`).
+
+# Step shape migration evidence
+
+2026-09-06, bounded task2.2 within http-endpoint-port. Owned paths:
+
+- libs/contracts/src/http/step-shapes.ts and step-shapes.test.ts
+- apps/be-01/src/controller/step.routes.ts and step.routes.test.ts
+- apps/be-01/src/controller/step.controller.db.test.ts
+
+Parent owns barrel/shape registry/app mount/committed OpenAPI integration.
+Adapter media preservation belongs to audit_migration. No shared verify edit or
+commit made by this worker.
+
+Exports addStep/renameStep/removeStep retain the exact committed operationIds.
+stepRoutes(steps) returns a const tuple of typed bindings; AuthService no longer
+belongs to the handler factory. Service name trimming and name_required422,
+not_found404, forbidden403, taken409, full in_use409 payload and empty204 remain.
+Origin then write-scope runs before parsing, with a single authenticated account
+resolution. Missing or malformed name shapes remain422; malformed JSON gets the
+approved400 invalid_json envelope. Unknown bodies/query fields are now strict,
+with actual SQLite writes/retained rows checked by the controller suite.
+
+Legacy cascade characterization used real legacy bindings and StepService with
+memory usage fixtures: repeated values are last-value-wins. New real SQLite
+regression pins true&false409 and retains usage, false&true204 deletes. No invented
+duplicate guard. Literal cascade1 remains unconfirmed, not a Boolean conversion.
+
+Initial wire RED after correcting a fixture-scope mistake:1 pass,3 fail,22
+assertions. Repeated-cascade passed; extra name body was200 instead of422,
+unknown query deleted with204 instead of400, malformed JSON had a non-JSON legacy
+envelope. Direct binding tests initially failed because the legacy handlers have
+no typed handle member;3 descriptor tests passed,4 direct cases failed. New bindings
+then produced30 passing direct/shape/controller tests,167 assertions.
+
+Type investigation: broad `never` inference initially obscured an incompatible
+Refusal code union. Explicit type arguments exposed forbidden and name_required
+being combined with codes lacking their closed context variants. Separate schema
+arms fixed the real issue; ordinary defineEndpointShape inference works, with no
+foundation change or generic/cast workaround retained. Scoped ESLint then passed.
+
+Observed step-only faults, all restored in finally before Proof comments:
+
+| Fault                                | Production-path case                  | Observed                                            |
+| ------------------------------------ | ------------------------------------- | --------------------------------------------------- |
+| Tolerant name wrapper                | undeclared name body controller case  | expected422, received200                            |
+| Tolerant cascade query wrapper       | unknown cascade query controller case | expected400, received204                            |
+| Remove origin policy                 | mounted step policy ordering          | expected403, received400                            |
+| Weaken write-scope to signed-in      | same ordering case, scoped account    | expected403, received400                            |
+| Boolean cascade conversion           | existing cascade1 refusal             | expected409, received204                            |
+| Omit measures from usage reply       | mounted full usage refusal            | expected409, received500                            |
+| Catch add-store outage as not_found  | direct binding unknown-failure case   | expected original Error, received modeled404 object |
+| Use first raw repeated cascade value | true&false DB regression              | expected409, received204                            |
+
+Fault logs `/private/tmp/step-fault-{name-strictness,query-strictness,origin,write-scope,cascade-truthiness,usage-field,unknown-catch,first-cascade}.log`.
+
+Media compatibility is required, not silently waived. Legacy JSON, URL-encoded and
+multipart name writes all returned200 with trimmed names. Existing advertised forms
+are actually used by the route parser, not merely documentation. Three new real
+controller form tests currently RED against JSON-only adapter: valid forms on both
+writes, duplicate/unknown fields, and File name. Duplicates/files must remain422
+invalid_body; unknown fields intentionally become strict422. Adapter owner is
+implementing preservation; final source/types/scoped regression evidence pending.
+
+No full backend/workspace/browser gate claimed. Committed OpenAPI parity is pending
+parent's document migration and must not be described as passing from these tests.
+
+Media restoration landed from adapter owner: all three real form cases now pass,
+including URL-encoded/multipart POST and PATCH, duplicate fields, unknown fields
+and file-valued names. No step-specific decoder or duplicate guard was added.
+The shared adapter owns those semantics; its additional injected decoder faults
+are recorded by that owner rather than attributed to this slice.
+
+Final test typing was corrected without changing production contracts: Bun's
+strict equality matcher could not correlate status/error tuples across the case
+matrix, so each awaited reply is compared as an unknown runtime envelope while
+the actual binding call remains fully typed. The nullable store read comparison
+was reversed so its expected value is non-null. No casts or foundation weakening
+were needed. Scoped ESLint passed on all five owned files after that change.
+
+Final restored checks:
+
+- `bun test ./libs/contracts/src/http/step-shapes.test.ts ./apps/be-01/src/controller/step.routes.test.ts ./apps/be-01/src/controller/step.controller.db.test.ts ./apps/be-01/src/service/step.service.db.test.ts`: **55 pass, 0 fail, 264 assertions** (`/private/tmp/step-final-tests.log`).
+- `bunx nx run-many -t typecheck --projects=contracts,be-01 --skip-nx-cache`: **both passed**, including BE source/spec references (`/private/tmp/step-final-types.log`).
+- Scoped ESLint on all five owned files: passed.
+- Prettier check on all five owned files: passed. `git diff --check`: passed.
+
+Held for independent review, no commit. Parent app/registry migration is integrated
+in these runs; whole generated OpenAPI/whole workspace/browser gates remain
+pending parent-owned migration/checkpoints and are not implied by this result.
+
+# HTTP adapter media preservation evidence
+
+Ownership: apps/be-01/src/http/elysia/{mount.ts,mount.test.ts,form.ts}. No shared contracts, emitter, production step bindings, or active verify.md edited. Parent approved preserving legacy declared-body JSON, URL encoded, and multipart media without a new shape API. Unknown-field rejection remains the approved strictness change.
+
+Read-first compatibility probe: step-media/report.md and observations.json. Valid form POST/PATCH historically 200; pre-fix mounted forms were 400 invalid_json. Adapter RED: `bun test ./apps/be-01/src/http/elysia/mount.test.ts` produced 35 pass / 2 fail, valid form expected200/received400 and malformed multipart expected invalid_body/received invalid_json. Queue independently observed three actual-step form RED tests.
+
+Implementation reads request.arrayBuffer once after policies and metadata prevalidation. Byte buffering keeps multipart files intact and separates stream failures from syntax errors. Declared form bodies decode before the same strict schema; duplicate fields become arrays, Files stay Files, unknown fields stay present for refusal. No input coercion or unknown-field deletion. Undeclared nonempty bodies still invalid_body. JSON SyntaxError remains invalid_json. URLSearchParams implements the existing forgiving URL-encoded decoder; malformed multipart maps to declared invalid_body. Other content types retain the previous JSON-decoding behavior.
+
+Bun parser boundary measured directly: malformed `multipart/form-data` without boundary throws TypeError `Can't decode form data from body because of incorrect MIME type/boundary`; broken bytes with boundary=abc throw TypeError `FormData parse error missing final boundary`. Helper catches the exact first message or Bun's `FormData parse error ` syntax family; every other error propagates. Mounted tests inject generic TypeError parser unavailable and a stream TypeError; both produce500. This is deliberately Bun-specific runtime knowledge, documented on decodeForm. A runtime update changing syntax-error messages will fail the malformed request tests rather than silently broaden the catch.
+
+Scoped restored mount runtime: 37 passed / 0 failed / 210 assertions. Final output /private/tmp/step-adapter-media-final.log. Scoped eslint command explicitly covers all three owned files; output /private/tmp/step-adapter-media-lint.log. Initial bounded compiler found test-only RequestInit.duplex unsupported; removed that unnecessary property. Queue owns the combined contracts/backend source+spec compile after source release; no whole gates run by this worker.
+
+Six independent faults were observed and restored. Commands: `bun test ./apps/be-01/src/http/elysia/mount.test.ts`; logs /private/tmp/step-media-fault-<name>.log, summary /private/tmp/step-media-fault-summary.json.
+
+- media-disabled: exit 1; Expected: 200; Received: 400; (fail) decodes declared URL encoded and multipart bodies without coercing or dropping fields [2.19ms]
+- duplicates-flattened: exit 1; Expected: 400; Received: 200; (fail) decodes declared URL encoded and multipart bodies without coercing or dropping fields [4.03ms]
+- files-coerced: exit 1; Expected: 400; Received: 200; (fail) decodes declared URL encoded and multipart bodies without coercing or dropping fields [5.92ms]
+- malformed-unmodeled: exit 1; Expected: 400; Received: 500; (fail) models malformed multipart syntax but preserves unexpected parser and stream failures [2.29ms]
+- parser-errors-hidden: exit 1; Expected: 500; Received: 400; (fail) models malformed multipart syntax but preserves unexpected parser and stream failures [3.35ms]
+- strict-body-bypassed: exit 1; Expected: 400; Received: 500; (fail) endpoint request and response boundaries > refuses unknown nested request fields and malformed JSON with declared envelopes [3.30ms]
+
+Proof comments were added only after those observations. The schema-bypass fault also exercises existing nested-request/async validation checks; source restoration precedes queue integration checks. Policies and metadata refusals leave multipart Request.bodyUsed false. No full-workspace/browser run or completed emitter media update is claimed; parent owns document consistency and independent review.
+
+## Explicit declaration revision after review
+
+Additional legacy probe: 126 requests total, /private/tmp/step-media-extended.json. For missing Content-Type (header explicitly deleted), text/plain, application/x-custom and application/octet-stream, both valid JSON name and invalid `{` returned legacy422 invalid_body. JSON sniffing in the first adapter therefore broadened accepted input; it is now removed.
+
+EndpointShape.bodyMedia is an optional nonempty tuple of the three supported media literals. Default is JSON when a body schema exists. Declaring media without a body schema fails the actual defineEndpointShape type boundary and runtime erased-table consumers. bodyMediaFor is shared by mount, emitter and JSON fetch transport; document content contains exactly the resolved media and one identical inline schema per media. Parent marks proven step/name and smoke/text shapes with all three media. Missing/unsupported request media maps through the endpoint's existing invalid_body refusal. JSON client requests against form-only declarations throw ClientConfigurationError before sending.
+
+Saved-plan save's optional/empty body semantics are a required later inventory item. This slice does not invent optional-body schema emission or change its still-legacy binding; current shape emitter always declares required bodies. Parent must settle that model before migrating that endpoint.
+
+Additional watched faults (all restored):
+
+- selection: exit 1; Expected: 400; Received: 200; (fail) refuses missing or undeclared body media without guessing JSON from the bytes [4.04ms]
+- emission: exit 1; (fail) declares exactly the accepted body media while retaining one inline schema [2.04ms]; (fail) declares exactly the accepted body media while retaining one inline schema [2.04ms]
+- client-json: exit 1; (fail) refuses JSON fetch configuration for a form-only declaration before sending [0.26ms]; (fail) refuses JSON fetch configuration for a form-only declaration before sending [0.26ms]
+- nonempty: exit 1; (fail) refuses malformed erased body media declarations before emitting a document [1.44ms]; (fail) rejects malformed erased media configuration when mounting [0.46ms]; (fail) refuses malformed erased body media declarations before emitting a document [1.44ms]
+- body-required: exit 1; (fail) refuses malformed erased body media declarations before emitting a document [0.34ms]; (fail) rejects malformed erased media configuration when mounting [0.48ms]; (fail) refuses malformed erased body media declarations before emitting a document [0.34ms]
+- known-media: exit 1; (fail) refuses malformed erased body media declarations before emitting a document [0.42ms]; (fail) rejects malformed erased media configuration when mounting [0.50ms]; (fail) refuses malformed erased body media declarations before emitting a document [0.42ms]
+- declaration-seat: exit 1; (fail) refuses malformed erased body media declarations before emitting a document [0.31ms]; (fail) refuses malformed erased body media declarations before emitting a document [0.31ms]
+- mount-seat: exit 1; (fail) rejects malformed erased media configuration when mounting [0.45ms]; (fail) rejects malformed erased media configuration when mounting [0.45ms]
+- media-types: exit 2; libs/contracts/src/http/document-from-shapes.test.ts(293,3): error TS2578: Unused '@ts-expect-error' directive.; libs/contracts/src/http/document-from-shapes.test.ts(295,3): error TS2578: Unused '@ts-expect-error' directive.
+- body-types: exit 2; libs/contracts/src/http/document-from-shapes.test.ts(299,3): error TS2578: Unused '@ts-expect-error' directive.
+
+Final runtime `bun test ./libs/contracts/src/http/document-from-shapes.test.ts ./libs/contracts/src/http/client.test.ts ./apps/be-01/src/http/elysia/mount.test.ts`: 84 passed / 0 failed / 375 assertions. Scoped lint all eight owned files exit0. Bounded compile /private/tmp/body-media-types.json includes actual mount, client and document fixtures with production dependencies; final result recorded after test-only indexed property access fix. Logs /private/tmp/body-media-final{,-types,-lint}.log. Initial compile exposed TS4111 in new emitter test, corrected to indexed [post] access. No broad gate or regenerated production document claimed.
+
+Final bounded compile after indexed-access correction: exit0. All media source files are frozen for independent review.
+
+### Directory reads checkpoint
+
+The six global directory reads now use typed shapes and bindings with their existing
+operation IDs and signed-in policy. Teams require `serviceIds`; people require
+`kind` and `teamIds`; all response declarations tolerate additive audit fields.
+The restored scoped run passed 36 tests / 116 assertions. Nine production-path
+faults were observed and restored: missing identity, tolerant query admission,
+missing binding, four missing or widened row fields, swallowed store failure, and
+strict response additions. Exact commands and failures are recorded in
+`.superpowers/sdd/2026-09-02-refactoring-plan/directory-evidence.md`.
+
+Independent source/evidence review approved all six declarations, handlers, app
+wiring, producer fields, strict query behavior, response tolerance and outage
+propagation. GET bodies cannot be constructed through the standard `Request` API,
+so this slice does not claim a separate raw-socket body rejection proof. Fresh
+root typechecks and broader integration remain parent-owned.
+
+### Solution lookup checkpoint
+
+The solution lookup now binds `getPlansBy-solutionBySlug` through a shared shape
+and a reusable complete `projectWithSteps` response declaration. The response
+requires every current `Project` and `Step` field, validates the closed scheduling
+vocabularies, and retains additive response fields. Read scope, exact slug
+forwarding, not-found behavior and unknown store failures are preserved.
+
+The restored scoped run passed 39 tests / 140 assertions. Eight faults were
+observed and restored: weakened read scope, lost slug forwarding, missing
+`depReach`, swallowed store failure, tolerant query admission, strict response
+additions, missing binding and missing slug descriptor. Exact failures are in
+`.superpowers/sdd/2026-09-02-refactoring-plan/solution-evidence.md`. Parent review
+found no source discrepancy.
+
+### Saved-plan checkpoint
+
+All six saved-plan operations now use typed shapes and bindings. Save retains its
+required object with optional non-empty name; rename requires a non-empty name.
+Compare preserves last-value query behavior, optional side-specific not-found
+detail, opaque differences, corrupt-plan detail, quota409, snapshot-busy503 and
+unsupported-version501. Only the SavedPlanService operation is inside the version
+catch; project lookups and post-commit announcements still propagate unexpected
+failures as500.
+
+The final saved-plan run passed 49 tests / 191 assertions. Nineteen original
+faults were observed and restored. Independent review then reproduced three more
+faults against the reviewed source: project and announcement version-shaped
+errors were501 instead of500, and a numeric comparison `savedPlanId` was admitted
+as404 instead of failing response validation500. The narrowed service-call catch
+and single optional-string404 schema fixed all three; the reviewer reran49/191
+and approved without Important/Critical findings. Exact evidence is in
+`.superpowers/sdd/2026-09-02-refactoring-plan/saved-plan-evidence.md` and
+`saved-plan-independent-review.md`.
+
+### Internal protocol checkpoint
+
+Forward and resume now use typed internal-identity bindings. Identity runs before
+parsing; forward payloads and trace/context headers remain opaque; resume retains
+both record and legacy numeric-array cursor forms, including fractional values
+and -1. Callback and validator failures remain unexpected500s. Response schemas
+validate finite replay points, denial reasons and the surrounding event envelope
+without narrowing historical message JSON.
+
+The restored internal run passed 39 tests / 100 assertions. Eleven production
+faults were observed and restored. The ordered-schema boundary's type proof
+separately widened its inferred output to unknown and observed TS2578 at the
+consumer before restoration; the identical bounded compiler then passed. Exact
+evidence is in `.superpowers/sdd/2026-09-02-refactoring-plan/internal-evidence.md`.
+
+### Combined migration checkpoint
+
+After source freeze, `bunx nx run-many -t typecheck --projects=contracts,be-01
+--skip-nx-cache` passed both projects. The explicit 27-file contracts/backend run
+passed 294 tests / 1266 assertions. It includes the client, schema/emitter/media,
+directory, history, internal, saved-plan, solution and step boundaries plus their
+mounted controller paths. A stale legacy-route inventory case initially expected
+saved-plan compare in `mountedRouteLists`; compare now lives in the typed endpoint
+table, whose exact one-binding parity test passed, so the obsolete legacy-only
+preflight assertion was removed rather than replaced with an empty check.
+
+Generated committed OpenAPI parity, the full workspace gate and browser gate are
+still pending. The existing OpenAPI failure remains the declared task3.2
+transition and is not counted as green here.

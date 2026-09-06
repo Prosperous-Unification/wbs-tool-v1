@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { buildApp } from '../app';
 import { ActualRepository } from '../repository/actual';
@@ -836,4 +836,93 @@ describe('the six directory reads', () => {
       Object.fromEntries(paths.map((path) => [path, 401])),
     );
   });
+});
+
+it('requires identity and refuses undeclared query on every directory read', async () => {
+  for (const path of [
+    '/teams',
+    '/people',
+    '/tags',
+    '/services',
+    '/work-item-types',
+    '/external-systems',
+  ]) {
+    const anonymous = await app.handle(new Request(`http://localhost/api${path}`));
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({ error: 'unauthenticated' });
+    expect(await call('GET', `/api${path}?extra=1`)).toEqual({
+      status: 400,
+      body: { error: 'invalid_query' },
+    });
+    expect((await call('GET', `/api${path}`)).status).toBe(200);
+  }
+});
+
+it('refuses damaged directory rows and propagates unavailable stores instead of an empty success', async () => {
+  const teams = spyOn(store, 'listTeams');
+  const people = spyOn(store, 'listPeople');
+  try {
+    teams.mockResolvedValueOnce([{ id: 't', name: 'Team' }] as never);
+    expect(
+      (
+        await app.handle(
+          new Request('http://localhost/api/teams', {
+            headers: { authorization: `Bearer ${token}` },
+          }),
+        )
+      ).status,
+    ).toBe(500);
+    for (const person of [
+      { id: 'p', name: 'Person', teamIds: [] },
+      { id: 'p', name: 'Person', kind: 'robot', teamIds: [] },
+      { id: 'p', name: 'Person', kind: 'person' },
+    ]) {
+      people.mockResolvedValueOnce([person] as never);
+      expect(
+        (
+          await app.handle(
+            new Request('http://localhost/api/people', {
+              headers: { authorization: `Bearer ${token}` },
+            }),
+          )
+        ).status,
+      ).toBe(500);
+    }
+    teams.mockRejectedValueOnce(new Error('directory unavailable'));
+    expect(
+      (
+        await app.handle(
+          new Request('http://localhost/api/teams', {
+            headers: { authorization: `Bearer ${token}` },
+          }),
+        )
+      ).status,
+    ).toBe(500);
+  } finally {
+    teams.mockRestore();
+    people.mockRestore();
+  }
+});
+
+it('retains additive directory audit fields in the mounted response', async () => {
+  const rows = [
+    {
+      id: 'p',
+      name: 'Person',
+      kind: 'agent' as const,
+      teamIds: ['t'],
+      createdAt: 42,
+      createdBy: 'owner',
+    },
+  ];
+  const people = spyOn(store, 'listPeople').mockResolvedValueOnce(rows);
+  try {
+    const response = await app.handle(
+      new Request('http://localhost/api/people', { headers: { authorization: `Bearer ${token}` } }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ people: rows });
+  } finally {
+    people.mockRestore();
+  }
 });

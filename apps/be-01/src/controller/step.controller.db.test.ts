@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { buildApp } from '../app';
 import type { Step, WorkItem, WriteStamp } from '../repository';
@@ -48,6 +48,7 @@ const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 let dir: string;
 let app: ReturnType<typeof buildApp>;
+let auth: AuthService;
 let stepStore: StepRepository;
 let estimates: EstimateRepository;
 let actuals: ActualRepository;
@@ -105,6 +106,7 @@ beforeEach(async () => {
   broadcast = recordingBroadcaster();
   writes = testWrites(broadcast);
 
+  auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
   app = buildApp({
     appOrigin: 'http://localhost',
     savedPlans: testSavedPlanService(),
@@ -113,7 +115,7 @@ beforeEach(async () => {
     priorityBands: testPriorityBandService(),
     history: testHistoryService(),
     calendarMarkers: testCalendarMarkerService(),
-    auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
+    auth,
     // The shared wrapper here too, from Gemini's Minor on PR 203: this line
     // handed `ProjectService` a PRIVATE recorder, so anything it announced
     // landed in a log nothing reads. Harmless while no step route mutates
@@ -663,4 +665,219 @@ describe('DELETE /api/projects/:id/steps/:stepId', () => {
     expect(res.status).toBe(409);
     expect(await stepStore.findById(project.qaId)).not.toBeNull();
   });
+});
+
+it('refuses undeclared name-body fields and query keys before changing steps', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  const before = await stepStore.listByProject(project.id);
+  for (const [method, path] of [
+    ['POST', `/api/projects/${project.id}/steps`],
+    ['PATCH', `/api/projects/${project.id}/steps/${project.qaId}`],
+  ]) {
+    const extraBody = await send(path, token, {
+      method,
+      body: JSON.stringify({ name: 'Changed', unexpected: { nested: true } }),
+    });
+    expect(extraBody.status).toBe(422);
+    expect(await extraBody.json()).toEqual({ error: 'invalid_body' });
+    expect(await stepStore.listByProject(project.id)).toEqual(before);
+    const extraQuery = await send(`${path}?unexpected=true`, token, {
+      method,
+      body: JSON.stringify({ name: 'Changed' }),
+    });
+    expect(extraQuery.status).toBe(400);
+    expect(await extraQuery.json()).toEqual({ error: 'invalid_query' });
+    expect(await stepStore.listByProject(project.id)).toEqual(before);
+  }
+});
+
+it('refuses unknown cascade query keys and undeclared DELETE bodies without deleting usage', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  await workItems.insert(
+    workItemRow({ projectId: project.id, id: 'strict-delete', position: 10 }),
+    [],
+    wrote(),
+  );
+  await estimates.set({ workItemId: 'strict-delete', stepId: project.qaId, ...DAYS }, wrote());
+  const path = `/api/projects/${project.id}/steps/${project.qaId}?cascade=true`;
+  for (const [url, body, error] of [
+    [`${path}&unexpected=true`, undefined, 'invalid_query'],
+    [path, '{}', 'invalid_body'],
+    [path, '{', 'invalid_body'],
+  ] as const) {
+    const refused = await send(url, token, { method: 'DELETE', body });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error });
+    expect(await stepStore.findById(project.qaId)).not.toBeNull();
+    expect(await estimates.listByProject(project.id)).toHaveLength(1);
+  }
+});
+
+it('uses the last repeated cascade value so a final false never confirms deletion', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  await workItems.insert(
+    workItemRow({ projectId: project.id, id: 'duplicate-cascade', position: 10 }),
+    [],
+    wrote(),
+  );
+  await estimates.set({ workItemId: 'duplicate-cascade', stepId: project.qaId, ...DAYS }, wrote());
+  const path = `/api/projects/${project.id}/steps/${project.qaId}`;
+  const refused = await send(`${path}?cascade=true&cascade=false`, token, { method: 'DELETE' });
+  expect(refused.status).toBe(409);
+  expect(await stepStore.findById(project.qaId)).not.toBeNull();
+  expect(await estimates.listByProject(project.id)).toHaveLength(1);
+  const confirmed = await send(`${path}?cascade=false&cascade=true`, token, { method: 'DELETE' });
+  expect(confirmed.status).toBe(204);
+  expect(await confirmed.text()).toBe('');
+  expect(await stepStore.findById(project.qaId)).toBeNull();
+  expect(await estimates.listByProject(project.id)).toEqual([]);
+});
+
+it('keeps name shape refusals distinct from blank names and malformed JSON on both writes', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  const before = await stepStore.listByProject(project.id);
+  for (const [method, path] of [
+    ['POST', `/api/projects/${project.id}/steps`],
+    ['PATCH', `/api/projects/${project.id}/steps/${project.qaId}`],
+  ]) {
+    for (const [body, status, error] of [
+      [undefined, 422, 'invalid_body'],
+      ['[]', 422, 'invalid_body'],
+      ['{"name":42}', 422, 'invalid_body'],
+      ['{"name":"   "}', 422, 'name_required'],
+      ['{', 400, 'invalid_json'],
+    ] as const) {
+      const refused = await send(path, token, { method, body });
+      expect(refused.status).toBe(status);
+      expect(await refused.json()).toEqual({ error });
+      expect(await stepStore.listByProject(project.id)).toEqual(before);
+    }
+  }
+});
+
+it('runs step origin and write-scope policies before parsing, authenticating admitted writes once', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  const path = `http://localhost/api/projects/${project.id}/steps`;
+  const authenticate = spyOn(auth, 'authenticate');
+  try {
+    const wrongOrigin = await app.handle(
+      new Request(path, {
+        method: 'POST',
+        headers: {
+          cookie: `__Host-wbs_access=${token}`,
+          origin: 'https://other.example',
+          'content-type': 'application/json',
+        },
+        body: '{',
+      }),
+    );
+    expect(wrongOrigin.status).toBe(403);
+    expect(await wrongOrigin.json()).toEqual({ error: 'invalid_origin' });
+    expect(authenticate).toHaveBeenCalledTimes(0);
+    const written = await send(`/api/projects/${project.id}/steps`, token, {
+      method: 'POST',
+      body: '{"name":"Once"}',
+    });
+    expect(written.status).toBe(200);
+    expect(authenticate).toHaveBeenCalledTimes(1);
+  } finally {
+    authenticate.mockRestore();
+  }
+  const actualAuthenticate = auth.authenticate.bind(auth);
+  const readScope = spyOn(auth, 'authenticate').mockImplementation(async (credential) => {
+    const account = await actualAuthenticate(credential);
+    return account === null ? null : { ...account, scopes: ['read'] };
+  });
+  try {
+    const refused = await send(`/api/projects/${project.id}/steps`, token, {
+      method: 'POST',
+      body: '{',
+    });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'insufficient_scope' });
+    expect(readScope).toHaveBeenCalledTimes(1);
+    expect((await stepStore.listByProject(project.id)).map((step) => step.name)).toEqual([
+      'Dev',
+      'QA',
+      'Once',
+    ]);
+  } finally {
+    readScope.mockRestore();
+  }
+});
+
+it('preserves URL-encoded and multipart name writes on both step endpoints', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  for (const method of ['POST', 'PATCH']) {
+    for (const media of ['urlencoded', 'multipart']) {
+      const path = `/api/projects/${project.id}/steps${method === 'PATCH' ? `/${project.qaId}` : ''}`;
+      const name = `${method} ${media}`;
+      const body = media === 'urlencoded' ? new URLSearchParams() : new FormData();
+      body.append('name', `  ${name}  `);
+      const reply = await app.handle(
+        new Request(`http://localhost${path}`, {
+          method,
+          headers: { authorization: `Bearer ${token}` },
+          body,
+        }),
+      );
+      expect(reply.status).toBe(200);
+      const answered = (await reply.json()) as { step: Step };
+      expect(answered.step.name).toBe(name);
+      expect(await stepStore.findById(answered.step.id)).toEqual(answered.step);
+    }
+  }
+});
+
+it('refuses repeated form names and strict extra form fields without changing steps', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  const before = await stepStore.listByProject(project.id);
+  for (const method of ['POST', 'PATCH']) {
+    for (const media of ['urlencoded', 'multipart']) {
+      for (const extra of ['name', 'unexpected']) {
+        const path = `/api/projects/${project.id}/steps${method === 'PATCH' ? `/${project.qaId}` : ''}`;
+        const body = media === 'urlencoded' ? new URLSearchParams() : new FormData();
+        body.append('name', 'First');
+        body.append(extra, 'Second');
+        const reply = await app.handle(
+          new Request(`http://localhost${path}`, {
+            method,
+            headers: { authorization: `Bearer ${token}` },
+            body,
+          }),
+        );
+        expect(reply.status).toBe(422);
+        expect(await reply.json()).toEqual({ error: 'invalid_body' });
+        expect(await stepStore.listByProject(project.id)).toEqual(before);
+      }
+    }
+  }
+});
+
+it('refuses a multipart file as a step name without changing steps', async () => {
+  const token = await register('owner');
+  const project = await newProject(token);
+  const before = await stepStore.listByProject(project.id);
+  for (const method of ['POST', 'PATCH']) {
+    const path = `/api/projects/${project.id}/steps${method === 'PATCH' ? `/${project.qaId}` : ''}`;
+    const body = new FormData();
+    body.append('name', new File(['Not a name field'], 'name.txt'));
+    const reply = await app.handle(
+      new Request(`http://localhost${path}`, {
+        method,
+        headers: { authorization: `Bearer ${token}` },
+        body,
+      }),
+    );
+    expect(reply.status).toBe(422);
+    expect(await reply.json()).toEqual({ error: 'invalid_body' });
+    expect(await stepStore.listByProject(project.id)).toEqual(before);
+  }
 });

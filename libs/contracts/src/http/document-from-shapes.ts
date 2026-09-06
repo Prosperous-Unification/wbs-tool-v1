@@ -1,6 +1,6 @@
 import type { JsonSchema } from 'arktype';
 
-import type { EndpointShape } from './endpoint-shape';
+import { bodyMediaFor, type EndpointShape } from './endpoint-shape';
 import { assertInlineSchema } from './schema-shape';
 
 export interface DocumentParameter {
@@ -40,6 +40,8 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
   const paths: ShapeDocument['paths'] = {};
   const names = new Set<string>();
   for (const shape of shapes) {
+    const bodyMedia = bodyMediaFor(shape);
+    const bodySchema = shape.body?.jsonSchema;
     // Proof: bypassing these descriptor checks published a tool with unresolved
     // tree references instead of throwing in MCP's structural-descriptor test
     // (shape-document.test.ts), independently of declaration-time validation.
@@ -114,12 +116,15 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
       summary: shape.document.summary,
       parameters,
       responses,
-      ...(shape.body === undefined
+      ...(bodySchema === undefined
         ? {}
         : {
             requestBody: {
               required: true,
-              content: { 'application/json': { schema: shape.body.jsonSchema } },
+              // Proof: emitting only JSON failed the accepted-media keys assertion in document-from-shapes.test.ts.
+              content: Object.fromEntries(
+                bodyMedia.map((media) => [media, { schema: bodySchema }]),
+              ),
             },
           }),
     };

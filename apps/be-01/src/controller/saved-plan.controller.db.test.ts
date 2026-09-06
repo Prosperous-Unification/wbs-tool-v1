@@ -2,28 +2,33 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn, test } from 'bun:test';
 
 import { buildApp } from '../app';
 import { openConnection } from '../repository/db';
 import { runMigrations } from '../repository/migrate';
 import { ProjectRepository } from '../repository/project';
+import type { SavedPlanWrite } from '../repository/saved-plan';
 import { UserRepository } from '../repository/user';
-import { AuthService } from '../service/auth.service';
+import { type AuthenticatedUser, AuthService } from '../service/auth.service';
 import { ProjectService } from '../service/project.service';
 import { defaultSavedPlanName } from '../service/saved-plan-default-name';
-import { TEST_JWT_KEY } from '../testing/auth-fixture';
+import { UnknownSavedPlanBodyVersionError } from '../service/saved-plan-integrity';
+import { testApp } from '../testing/app-fixture';
+import { TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
 import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
 import { testCapacityService } from '../testing/capacity-fixture';
 import { testDirectoryService } from '../testing/directory-fixture';
 import { testHistoryService } from '../testing/history-fixture';
 import { testPriorityBandService } from '../testing/priority-band-fixture';
+import { projectRow, testProjectService } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
-import { savedPlanServiceOn } from '../testing/saved-plan-fixture';
+import { savedPlanServiceOn, testSavedPlanService } from '../testing/saved-plan-fixture';
 import { testStepService } from '../testing/step-fixture';
 import { testWorkItemService } from '../testing/work-item-fixture';
 import { testWrites } from '../testing/writes-fixture';
+import { savedPlanRoutes } from './saved-plan.routes';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -132,6 +137,20 @@ describe('the saved-plan routes', () => {
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('refuses undeclared save fields before capture and undeclared list queries', async () => {
+    const before = broadcast.published.length;
+    const refused = await as(tokens['ada'], `/api/projects/${projectId}/saved-plans`, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Before', surprise: true }),
+    });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: 'invalid_body' });
+    expect(broadcast.published).toHaveLength(before);
+    const listed = await as(tokens['ada'], `/api/projects/${projectId}/saved-plans?surprise=1`);
+    expect(listed.status).toBe(400);
+    expect(await listed.json()).toEqual({ error: 'invalid_query' });
   });
 
   const save = (who: string, name = 'before the rewire') =>
@@ -795,4 +814,346 @@ describe('the saved-plan routes', () => {
       expect(broadcast.published).toEqual([]);
     });
   });
+});
+
+const restorations: (() => void)[] = [];
+afterEach(() => {
+  for (const restore of restorations.splice(0)) restore();
+});
+const principal: AuthenticatedUser = { id: 'actor', username: 'Ada', scopes: ['read', 'write'] };
+const record: SavedPlanWrite = {
+  id: 's',
+  projectId: 'p',
+  name: 'Saved',
+  createdBy: 'Ada',
+  createdById: 'actor',
+  createdAt: 1,
+  input: { schemaVersion: 1, bytes: '{ "historic": true }', sha256: 'digest' },
+  schedule: { present: false, absentReason: 'future_reason' },
+};
+function fixture() {
+  const plans = testSavedPlanService();
+  const projects = testProjectService();
+  const announcements = recordingBroadcaster();
+  const projectRead = spyOn(projects, 'read').mockResolvedValue({
+    project: projectRow({ id: 'p' }),
+    steps: [],
+  });
+  const save = spyOn(plans, 'save').mockResolvedValue({ outcome: 'saved', record });
+  const list = spyOn(plans, 'list').mockResolvedValue([]);
+  const read = spyOn(plans, 'read').mockResolvedValue({ outcome: 'read', plan: record });
+  const compare = spyOn(plans, 'compare').mockResolvedValue({
+    outcome: 'compared',
+    diff: { input: [], schedule: [] },
+  });
+  const rename = spyOn(plans, 'rename').mockResolvedValue({ outcome: 'touched', projectId: 'p' });
+  const remove = spyOn(plans, 'delete').mockResolvedValue({ outcome: 'touched', projectId: 'p' });
+  for (const spy of [projectRead, save, list, read, compare, rename, remove])
+    restorations.push(() => {
+      spy.mockRestore();
+    });
+  const endpoints = savedPlanRoutes(plans, projects, announcements);
+  const auth = testAuthService();
+  const authenticate = spyOn(auth, 'authenticate').mockImplementation((token) =>
+    Promise.resolve(
+      token === null ? null : token === 'reader' ? { ...principal, scopes: ['read'] } : principal,
+    ),
+  );
+  restorations.push(() => {
+    authenticate.mockRestore();
+  });
+  const app = testApp({ auth, savedPlans: plans, projects, writes: testWrites(announcements) });
+  const call = (
+    path: string,
+    method = 'GET',
+    body?: string,
+    extraHeaders: Record<string, string> = {},
+  ) =>
+    app.handle(
+      new Request(`http://localhost${path}`, {
+        method,
+        ...(body === undefined ? {} : { body }),
+        headers: {
+          authorization: 'Bearer writer',
+          'content-type': 'application/json',
+          ...extraHeaders,
+        },
+      }),
+    );
+  return {
+    endpoints,
+    app,
+    call,
+    save,
+    list,
+    read,
+    compare,
+    rename,
+    remove,
+    projectRead,
+    announcements,
+  };
+}
+
+test('mounted contention remains 503 for save, rename and delete without announcements', async () => {
+  const f = fixture();
+  f.save.mockResolvedValue({ outcome: 'snapshot_busy' });
+  f.rename.mockResolvedValue({ outcome: 'snapshot_busy' });
+  f.remove.mockResolvedValue({ outcome: 'snapshot_busy' });
+  for (const [path, method, body] of [
+    ['/api/projects/p/saved-plans', 'POST', '{}'],
+    ['/api/saved-plans/s', 'PATCH', '{"name":"New"}'],
+    ['/api/saved-plans/s', 'DELETE', undefined],
+  ] as const) {
+    const response = await f.call(path, method, body);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'snapshot_busy' });
+  }
+  expect(f.announcements.published).toEqual([]);
+});
+
+test('mounted quota keeps every limit detail and project disappearance remains 404', async () => {
+  const f = fixture();
+  for (const limit of ['body_bytes', 'plan_count', 'project_bytes'] as const) {
+    f.save.mockResolvedValueOnce({
+      outcome: 'refused',
+      refusal: { limit, asked: 12, allowed: 10 },
+    });
+    const response = await f.call('/api/projects/p/saved-plans', 'POST', '{}');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'quota',
+      refusal: { limit, asked: 12, allowed: 10 },
+    });
+  }
+  f.save.mockResolvedValueOnce({ outcome: 'no_project' });
+  expect((await f.call('/api/projects/p/saved-plans', 'POST', '{}')).status).toBe(404);
+  expect(f.announcements.published).toEqual([]);
+});
+
+test('mounted known version refusal preserves all fields and unknown store failures remain 500', async () => {
+  const f = fixture();
+  f.read.mockRejectedValueOnce(new UnknownSavedPlanBodyVersionError('s', 'input', 99, [1, 2]));
+  const response = await f.call('/api/saved-plans/s');
+  expect(response.status).toBe(501);
+  expect(await response.json()).toEqual({
+    error: 'unsupported_body_version',
+    savedPlanId: 's',
+    body: 'input',
+    version: 99,
+    supported: [1, 2],
+  });
+  f.read.mockRejectedValueOnce(new Error('store unavailable'));
+  expect((await f.call('/api/saved-plans/s')).status).toBe(500);
+});
+
+test('mounted compare preserves last query values, opaque differences, and corrupt-side detail', async () => {
+  const f = fixture();
+  const diff = {
+    input: [{ category: 'other' as const, path: 'old.x', left: { old: [1, 'x'] }, right: null }],
+    schedule: [],
+  };
+  f.compare.mockResolvedValueOnce({ outcome: 'compared', diff });
+  const response = await f.call(
+    '/api/projects/p/saved-plans/compare?left=missing&left=current&right=s',
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ diff });
+  expect(f.compare).toHaveBeenCalledWith(
+    'p',
+    { kind: 'current' },
+    { kind: 'saved', savedPlanId: 's' },
+  );
+  const refusal = {
+    reason: 'body_hash_mismatch' as const,
+    savedPlanId: 's',
+    body: 'input' as const,
+    stored: 'before',
+    recomputed: 'after',
+  };
+  f.compare.mockResolvedValueOnce({ outcome: 'corrupt', savedPlanId: 's', refusal });
+  const corrupt = await f.call('/api/projects/p/saved-plans/compare?left=s&right=current');
+  expect(corrupt.status).toBe(422);
+  expect(await corrupt.json()).toEqual({ error: 'corrupt', savedPlanId: 's', refusal });
+  expect(
+    (await f.call('/api/projects/p/saved-plans/compare?left=s&right=current&extra=1')).status,
+  ).toBe(422);
+});
+
+test('mounted name admission distinguishes required bodies and save versus rename names', async () => {
+  const f = fixture();
+  for (const body of [
+    undefined,
+    'null',
+    '[]',
+    '{"name":""}',
+    '{"name":null}',
+    '{"name":"N","extra":1}',
+  ]) {
+    expect((await f.call('/api/projects/p/saved-plans', 'POST', body)).status).toBe(422);
+    expect((await f.call('/api/saved-plans/s', 'PATCH', body)).status).toBe(422);
+  }
+  expect(f.save).not.toHaveBeenCalled();
+  expect(f.rename).not.toHaveBeenCalled();
+  expect((await f.call('/api/saved-plans/s', 'PATCH', '{}')).status).toBe(422);
+  expect((await f.call('/api/projects/p/saved-plans', 'POST', '{}')).status).toBe(201);
+  expect(
+    (
+      await f.call('/api/projects/p/saved-plans', 'POST', '', {
+        'content-type': 'application/x-www-form-urlencoded',
+      })
+    ).status,
+  ).toBe(201);
+  expect(
+    (
+      await f.call('/api/projects/p/saved-plans', 'POST', undefined, {
+        'content-type': 'application/x-www-form-urlencoded',
+      })
+    ).status,
+  ).toBe(422);
+});
+
+test('mounted policies precede malformed writes and anonymous malformed comparison', async () => {
+  const f = fixture();
+  expect(
+    (
+      await f.call('/api/projects/p/saved-plans', 'POST', '{', {
+        cookie: '__Host-wbs_session=x',
+        origin: 'http://foreign.example',
+      })
+    ).status,
+  ).toBe(403);
+  expect(
+    (await f.call('/api/projects/p/saved-plans', 'POST', '{', { authorization: 'Bearer reader' }))
+      .status,
+  ).toBe(403);
+  expect(
+    (await f.app.handle(new Request('http://localhost/api/projects/p/saved-plans/compare?bad=1')))
+      .status,
+  ).toBe(401);
+  expect(f.save).not.toHaveBeenCalled();
+  expect(f.compare).not.toHaveBeenCalled();
+});
+
+test('mounted stored-response validation requires creator and schedule fields but tolerates additive metadata', async () => {
+  const f = fixture();
+  const missingCreator = { ...record };
+  Reflect.deleteProperty(missingCreator, 'createdById');
+  f.save.mockResolvedValueOnce({ outcome: 'saved', record: missingCreator } as never);
+  expect((await f.call('/api/projects/p/saved-plans', 'POST', '{}')).status).toBe(500);
+  f.read.mockResolvedValueOnce({
+    outcome: 'read',
+    plan: { ...record, schedule: { present: true, body: record.input, inputSha256: 'digest' } },
+  } as never);
+  expect((await f.call('/api/saved-plans/s')).status).toBe(500);
+  const enriched = { ...record, audit: { newField: 'kept' } };
+  f.read.mockResolvedValueOnce({ outcome: 'read', plan: enriched });
+  const response = await f.call('/api/saved-plans/s');
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ savedPlan: enriched });
+});
+
+test('mounted integrity variants retain their distinct operational details', async () => {
+  const f = fixture();
+  const refusals = [
+    { reason: 'body_missing', savedPlanId: 's', body: 'input' },
+    {
+      reason: 'body_hash_mismatch',
+      savedPlanId: 's',
+      body: 'schedule',
+      stored: 'before',
+      recomputed: 'after',
+    },
+    {
+      reason: 'schedule_input_mismatch',
+      savedPlanId: 's',
+      body: 'schedule',
+      scheduleInputSha256: 'before',
+      inputSha256: 'after',
+    },
+    {
+      reason: 'input_version_unreadable',
+      savedPlanId: 's',
+      body: 'input',
+      storedVersion: 99,
+      readerVersion: 1,
+      versionReason: 'from-the-future',
+    },
+  ] as const;
+  for (const refusal of refusals) {
+    f.read.mockResolvedValueOnce({ outcome: 'corrupt', refusal });
+    const response = await f.call('/api/saved-plans/s');
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'corrupt', refusal });
+  }
+});
+
+it('does not classify project version-shaped failures as saved-plan refusals', async () => {
+  const f = fixture();
+  const failure = new UnknownSavedPlanBodyVersionError('unrelated', 'input', 99, [1]);
+  for (const [path, method, body] of [
+    ['/api/projects/p/saved-plans', 'POST', '{}'],
+    ['/api/projects/p/saved-plans', 'GET', undefined],
+    ['/api/projects/p/saved-plans/compare?left=current&right=current', 'GET', undefined],
+  ] as const) {
+    f.projectRead.mockRejectedValueOnce(failure);
+    expect((await f.call(path, method, body)).status).toBe(500);
+  }
+});
+
+it('does not classify announcement version-shaped failures as saved-plan refusals', async () => {
+  const f = fixture();
+  const failure = new UnknownSavedPlanBodyVersionError('unrelated', 'input', 99, [1]);
+  const publish = spyOn(f.announcements, 'publish').mockRejectedValue(failure);
+  try {
+    for (const [path, method, body] of [
+      ['/api/projects/p/saved-plans', 'POST', '{}'],
+      ['/api/saved-plans/s', 'PATCH', '{"name":"New"}'],
+      ['/api/saved-plans/s', 'DELETE', undefined],
+    ] as const)
+      expect((await f.call(path, method, body)).status).toBe(500);
+  } finally {
+    publish.mockRestore();
+  }
+});
+
+it('rejects a malformed known comparison missing-side id while preserving optional omission', async () => {
+  const f = fixture();
+  f.compare.mockResolvedValueOnce({ outcome: 'not_found', savedPlanId: 42 } as never);
+  expect((await f.call('/api/projects/p/saved-plans/compare?left=s&right=current')).status).toBe(
+    500,
+  );
+  f.compare.mockResolvedValueOnce({ outcome: 'not_found', savedPlanId: 's' });
+  const named = await f.call('/api/projects/p/saved-plans/compare?left=s&right=current');
+  expect(named.status).toBe(404);
+  expect(await named.json()).toEqual({ error: 'not_found', savedPlanId: 's' });
+  f.compare.mockResolvedValueOnce({ outcome: 'no_project' });
+  const missing = await f.call('/api/projects/p/saved-plans/compare?left=s&right=current');
+  expect(missing.status).toBe(404);
+  expect(await missing.json()).toEqual({ error: 'not_found' });
+});
+
+it('classifies saved-plan service versions on each of the six operations', async () => {
+  const f = fixture();
+  const failure = new UnknownSavedPlanBodyVersionError('s', 'schedule', 99, [1]);
+  for (const [operation, path, method, body] of [
+    [f.save, '/api/projects/p/saved-plans', 'POST', '{}'],
+    [f.list, '/api/projects/p/saved-plans', 'GET', undefined],
+    [f.compare, '/api/projects/p/saved-plans/compare?left=s&right=current', 'GET', undefined],
+    [f.read, '/api/saved-plans/s', 'GET', undefined],
+    [f.rename, '/api/saved-plans/s', 'PATCH', '{"name":"New"}'],
+    [f.remove, '/api/saved-plans/s', 'DELETE', undefined],
+  ] as const) {
+    operation.mockRejectedValueOnce(failure);
+    const response = await f.call(path, method, body);
+    expect(response.status).toBe(501);
+    expect(await response.json()).toEqual({
+      error: 'unsupported_body_version',
+      savedPlanId: 's',
+      body: 'schedule',
+      version: 99,
+      supported: [1],
+    });
+  }
+  expect(f.announcements.published).toEqual([]);
 });

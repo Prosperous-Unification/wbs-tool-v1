@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { buildApp } from '../app';
 import { AuthService } from '../service/auth.service';
@@ -12,7 +12,7 @@ import { testDirectoryService } from '../testing/directory-fixture';
 import { inMemoryServices } from '../testing/harness';
 import { testHistoryService } from '../testing/history-fixture';
 import { testPriorityBandService } from '../testing/priority-band-fixture';
-import { inMemoryProjects } from '../testing/project-fixture';
+import { inMemoryProjects, projectRow } from '../testing/project-fixture';
 import { testReplay } from '../testing/replay-fixture';
 import { testSavedPlanService } from '../testing/saved-plan-fixture';
 import { testStepService } from '../testing/step-fixture';
@@ -108,7 +108,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
     );
   }
 
-  return { app, register, send, broadcast };
+  return { app, register, send, broadcast, projectStore };
 }
 
 const created = (name: string) => ({ method: 'POST', body: JSON.stringify({ name }) });
@@ -915,4 +915,39 @@ describe('projects', () => {
     const body = (await after.json()) as { project: { optimizationEnabled: boolean } };
     expect(body.project.optimizationEnabled).toBe(false);
   });
+});
+
+it('refuses undeclared solution query before looking up a slug', async () => {
+  const { register, send, projectStore } = buildHarness();
+  const token = await register('owner');
+  const lookup = spyOn(projectStore, 'findBySolutionSlug');
+  try {
+    const response = await send('/plans/by-solution/missing?extra=1', token);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_query' });
+    expect(lookup).not.toHaveBeenCalled();
+  } finally {
+    lookup.mockRestore();
+  }
+});
+
+it('validates solution project settings and retains additive response fields', async () => {
+  const { register, send, projectStore } = buildHarness();
+  const token = await register('owner');
+  const lookup = spyOn(projectStore, 'findBySolutionSlug');
+  try {
+    const incomplete: Record<string, unknown> = { ...projectRow() };
+    delete incomplete['depReach'];
+    lookup.mockResolvedValueOnce(incomplete as never);
+    expect((await send('/plans/by-solution/damaged', token)).status).toBe(500);
+    const enriched = { ...projectRow(), updatedAt: 9, createdBy: 'owner' };
+    lookup.mockResolvedValueOnce(enriched);
+    const response = await send('/plans/by-solution/enriched', token);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ project: enriched, steps: [] });
+    lookup.mockRejectedValueOnce(new Error('solution store unavailable'));
+    expect((await send('/plans/by-solution/unavailable', token)).status).toBe(500);
+  } finally {
+    lookup.mockRestore();
+  }
 });

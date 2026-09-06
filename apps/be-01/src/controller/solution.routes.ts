@@ -1,26 +1,24 @@
-import { callerGuard } from '../http/caller';
-import { ok, respond, type Route } from '../http/route';
-import type { AuthService } from '../service/auth.service';
+import { readSolution } from '@wbs/contracts';
+
+import { bind } from '../http/endpoint';
 import type { ProjectService } from '../service/project.service';
 
 /**
- * Resolves the WBS plan owned by an external solution integration.
- *
- * `read-scope` rather than plain `signed-in`, and it is one of only two routes
- * that ask: this hands a whole plan to a machine caller by a slug it can guess
- * at, so an integration token has to have been granted `read` — see
- * {@link CallerRequirement}.
+ * Resolves the plan owned by an external solution. The mounted declaration
+ * enforces read scope; an absent solution is modeled, while store failures
+ * propagate without being disguised as absence.
+ * Proof: replacing the slug with empty text or removing this binding each
+ * returned404 instead of200 in the mounted slug-resolution case. Catching the
+ * store exception as null returned404 instead of500 in the solution-settings
+ * case (project.controller.test.ts).
  */
-export function solutionRoutes(auth: AuthService, projects: ProjectService): Route[] {
-  const guard = callerGuard(auth);
+export function solutionRoutes(projects: ProjectService) {
   return [
-    {
-      method: 'GET',
-      path: '/plans/by-solution/:slug',
-      handler: guard('read-scope', async ({ params }) => {
-        const found = await projects.readBySolutionSlug(params['slug']);
-        return found === null ? respond(404, { error: 'not_found' }) : ok(found);
-      }),
-    },
-  ];
+    bind(readSolution, async ({ params }) => {
+      const found = await projects.readBySolutionSlug(params.slug);
+      return found === null
+        ? { ok: false, status: 404, body: { error: 'not_found' } }
+        : { ok: true, status: 200, body: found };
+    }),
+  ] as const;
 }

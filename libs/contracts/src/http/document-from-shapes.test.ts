@@ -261,3 +261,42 @@ test('finds references only in supported schema-valued keywords', () => {
     examples: [{ $ref: '#/$defs/literal' }],
   });
 });
+
+test('declares exactly the accepted body media while retaining one inline schema', () => {
+  const shape = defineEndpointShape({
+    ...batch,
+    bodyMedia: ['application/json', 'application/x-www-form-urlencoded', 'multipart/form-data'],
+  });
+  const content = documentFromShapes([shape]).paths['/api/projects/{id}/commands']?.['post']
+    ?.requestBody?.content;
+  expect(Object.keys(content ?? {})).toEqual([
+    'application/json',
+    'application/x-www-form-urlencoded',
+    'multipart/form-data',
+  ]);
+  expect(content?.['multipart/form-data']?.schema).toEqual(batch.body.jsonSchema);
+});
+
+test('refuses malformed erased body media declarations before emitting a document', () => {
+  for (const bodyMedia of [[], ['text/plain'], ['application/json']]) {
+    const shape = {
+      ...batch,
+      bodyMedia,
+      ...(bodyMedia[0] === 'application/json' ? { body: undefined } : {}),
+    };
+    expect(() => documentFromShapes([shape as unknown as typeof batch])).toThrow();
+    expect(() => defineEndpointShape(shape as unknown as typeof batch)).toThrow();
+  }
+});
+
+function mediaTypeFixtures() {
+  // @ts-expect-error A declared body media list cannot be empty.
+  defineEndpointShape({ ...batch, bodyMedia: [] });
+  // @ts-expect-error Text is not an accepted structural body decoder.
+  defineEndpointShape({ ...batch, bodyMedia: ['text/plain'] });
+  const { body: omitted, ...bodyless } = batch;
+  void omitted;
+  // @ts-expect-error Media declarations require a body schema.
+  defineEndpointShape({ ...bodyless, bodyMedia: ['application/json'] });
+}
+void mediaTypeFixtures;

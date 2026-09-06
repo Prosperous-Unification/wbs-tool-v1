@@ -249,7 +249,7 @@ export type RefusalDetail = Record<BareRefusalCode, undefined> &
   Record<ParserRefusalCode, ParserContext> & {
     [C in Exclude<CommandRefusalCode, SharedCommandCode>]: CommandRefusalDetail[C];
   } & {
-    not_found: undefined | { savedPlanId: string } | { field: 'markerId' } | CommandContext;
+    not_found: { savedPlanId?: string } | { field: 'markerId' } | CommandContext;
     forbidden: undefined | CommandContext;
     name_required: undefined | CommandContext;
     taken: undefined | { field: 'markerId' } | CommandRefusalDetail['taken'];

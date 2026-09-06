@@ -178,12 +178,6 @@ export interface AppOptions {
  * that equality together. Each controller's own route tests are what would go
  * red.
  *
- * **Order is behaviour, not style.** Elysia matches in registration order, and
- * two *relative* orders below are load-bearing rather than tidy — relative, not
- * adjacent, which an earlier version of this note got wrong: `historyRoutes` is
- * separated from `projectRoutes` by the saved-plan, step, work-item and
- * directory lists and is still correct, because nothing between them declares a
- * path that could shadow `/:id/history`. What must not move is the order itself.
  */
 export function mountedRouteLists(
   opts: AppOptions,
@@ -198,53 +192,9 @@ export function mountedRouteLists(
         maxConcurrent: opts.maxConcurrentLogins ?? 8,
       }),
     ),
-    solutionRoutes(opts.auth, opts.projects),
     projectRoutes(opts.auth, opts.projects, opts.workItems),
-    // After `projectRoutes`, whose `/api/projects` paths it extends: the
-    // saved-plan collection is one segment longer than anything that
-    // route list declares, so neither can shadow the other, and adjacency is
-    // what makes that checkable at a glance.
-    savedPlanRoutes(
-      opts.auth,
-      opts.savedPlans,
-      opts.projects,
-      // The shared wrapper, like every other publisher. TASK-255 handed
-      // this route the inner broadcaster instead, because a save
-      // committing while an unrelated batch held was queued into that
-      // batch and dropped when it refused; the hold was instance state on
-      // the one shared wrapper, so "no batch is open" was being read as
-      // "this route is not part of a batch". A hold is per-caller now
-      // (TASK-256) and those are the same question again, so the special
-      // case is gone rather than merely redundant — see
-      // `DeferringBroadcaster`.
-      opts.writes.announcements,
-    ),
-    stepRoutes(opts.auth, opts.steps),
     workItemRoutes(opts.auth, opts.workItems, commands),
-    directoryRoutes(opts.auth, opts.directory),
-    // After `projectRoutes`, whose prefix it shares: Elysia matches in
-    // registration order and `/:id/history` cannot be shadowed by anything that
-    // route declares. Four lists intervene and that is fine — what is
-    // load-bearing is the relative order, not adjacency, as the note on
-    // `mountedRouteLists` says.
-    historyRoutes(opts.auth, opts.history),
-    // `savedPlanRoutes`'s reason, without its adjacency: every marker path is
-    // one segment longer than anything `projectRoutes` declares and carries a
-    // literal `calendar-markers` segment, so neither can shadow the other
-    // wherever it sits. Several lists intervene and that is fine — the
-    // separation here is structural, not positional, which is the difference
-    // from the two comments above (Sol's Minor, run 38).
     calendarMarkerRoutes(opts.auth, opts.calendarMarkers),
-    internalRoutes({
-      secret: opts.internalAuthSecret,
-      // A deliberate pure ack, not a stub. Every mutation in this product is
-      // an HTTP call to be-01; a client message arriving over the socket is
-      // acknowledged and carried no further, because there is no message the
-      // socket is the authority for. The test asserting a forward records no
-      // event and pushes nothing is what keeps this honest.
-      onForward: () => Promise.resolve({ push_responses: [] }),
-      onResume: (points) => opts.replay.replay(points),
-    }),
   ];
 }
 
@@ -252,12 +202,25 @@ export function mountedRouteLists(
  * Typed bindings migrated from {@link mountedRouteLists}, mounted by the same app.
  * Proof: dropping smoke makes app.routes.test.ts's binding check see length0 instead of1.
  */
-export function mountedEndpoints() {
-  return [...smokeRoutes()] as const;
+export function mountedEndpoints(opts: AppOptions) {
+  return [
+    ...smokeRoutes(),
+    ...stepRoutes(opts.steps),
+    ...directoryRoutes(opts.directory),
+    ...historyRoutes(opts.history),
+    ...solutionRoutes(opts.projects),
+    ...savedPlanRoutes(opts.savedPlans, opts.projects, opts.writes.announcements),
+    ...internalRoutes({
+      // A deliberate pure ack: every mutation is an HTTP call to be-01, so a
+      // client socket message has no write authority.
+      onForward: () => Promise.resolve({ push_responses: [] }),
+      onResume: (points) => opts.replay.replay(points),
+    }),
+  ] as const;
 }
 
 export function buildApp(opts: AppOptions) {
-  const endpoints: readonly BoundEndpoint[] = mountedEndpoints();
+  const endpoints: readonly BoundEndpoint[] = mountedEndpoints(opts);
   const logger = createLogger({ service: 'be-01', version: opts.version });
   // The OIDC callback is the one route list that reports anything, and it names
   // no framework, so it cannot reach the decorated `logger` above and is handed

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { buildApp } from '../app';
 import { testAuthService } from '../testing/auth-fixture';
@@ -52,7 +52,7 @@ function buildHarness() {
   }
 
   const authed = { 'x-internal-auth': SECRET, 'x-client-id': 'u-1', 'x-connection-id': 'c-1' };
-  return { log, buffer, post, authed };
+  return { app, log, buffer, replay, post, authed };
 }
 
 describe('POST /internal/forward', () => {
@@ -84,10 +84,11 @@ describe('POST /internal/forward', () => {
     expect(await log.latestSeq('project:anything')).toBe(-1);
   });
 
-  it('returns 400 on missing trace_id', async () => {
+  it('returns 422 invalid_body on missing trace_id', async () => {
     const { post, authed } = buildHarness();
     const res = await post('/internal/forward', { message: { type: 'ping' } }, authed);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: 'invalid_body' });
   });
 });
 
@@ -135,4 +136,56 @@ describe('POST /internal/resume', () => {
     const res = await post('/internal/resume', { resume_points: {}, trace_id: 't' });
     expect(res.status).toBe(401);
   });
+});
+
+it('checks internal identity before malformed JSON and refuses extra queries and body fields', async () => {
+  const { app, post, authed } = buildHarness();
+  for (const route of ['forward', 'resume']) {
+    const response = await app.handle(
+      new Request(`http://localhost/internal/${route}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{bad',
+      }),
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: 'unauthorized' });
+    const body =
+      route === 'forward' ? { message: {}, trace_id: 't' } : { resume_points: {}, trace_id: 't' };
+    expect((await post(`/internal/${route}?extra=1`, body, authed)).status).toBe(400);
+    const extra = await post(`/internal/${route}`, { ...body, extra: 1 }, authed);
+    expect(extra.status).toBe(422);
+    expect(await extra.json()).toEqual({ error: 'invalid_body' });
+  }
+});
+
+it('replays event zero from -1 and surfaces a replay store failure', async () => {
+  const { post, authed, log } = buildHarness();
+  await log.record('project:zero', { historical: ['payload'] });
+  const response = await post(
+    '/internal/resume',
+    { resume_points: { 'project:zero': -1 }, trace_id: 't' },
+    authed,
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    'project:zero': {
+      status: 'replaying',
+      events: [{ seq: 0, message: { historical: ['payload'] } }],
+    },
+  });
+  const fault = spyOn(log, 'latestSeq').mockRejectedValueOnce(new Error('event log unavailable'));
+  try {
+    expect(
+      (
+        await post(
+          '/internal/resume',
+          { resume_points: { 'project:zero': -1 }, trace_id: 't' },
+          authed,
+        )
+      ).status,
+    ).toBe(500);
+  } finally {
+    fault.mockRestore();
+  }
 });

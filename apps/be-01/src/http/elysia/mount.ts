@@ -1,4 +1,10 @@
-import { type EndpointShape, type Refusal, type SchemaShape, validateSchema } from '@wbs/contracts';
+import {
+  bodyMediaFor,
+  type EndpointShape,
+  type Refusal,
+  type SchemaShape,
+  validateSchema,
+} from '@wbs/contracts';
 import { Elysia } from 'elysia';
 
 import { hasInvalidCookieOrigin } from '../../controller/auth.routes';
@@ -12,6 +18,7 @@ import {
   type RequestMetadata,
 } from '../endpoint';
 import { matchPath } from '../route';
+import { decodeForm } from './form';
 
 interface MountOptions {
   appOrigin: string;
@@ -37,6 +44,8 @@ interface Admission {
  */
 export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: MountOptions): Elysia {
   for (const { shape } of endpoints) {
+    // Proof: omitting this call made the malformed erased media table mount without throwing.
+    bodyMediaFor(shape);
     const internal = shape.policies.some(
       (policy) => policy.kind === 'identity' && policy.require === 'internal',
     );
@@ -150,9 +159,21 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
             issues: query.issues,
             request: admission.request,
           });
+        // Proof: removing presence refusal failed absent-versus-empty form/JSON before the handler-call control.
+        if (endpoint.shape.body !== undefined && request.body === null)
+          return classifyFailure(endpoint, {
+            part: 'body',
+            code: 'invalid_body',
+            rejected: undefined,
+            request: admission.request,
+          });
         let decoded: unknown;
-        const source =
-          request.method === 'GET' || request.method === 'HEAD' ? '' : await request.text();
+        // Read outside the multipart syntax catch so an unreadable stream stays an infrastructure failure.
+        const bytes =
+          request.method === 'GET' || request.method === 'HEAD'
+            ? new ArrayBuffer(0)
+            : await request.arrayBuffer();
+        const source = new TextDecoder().decode(bytes);
         // Proof: removing this check admits every nonempty undeclared body (200 instead of 400).
         if (endpoint.shape.body === undefined && source !== '') {
           return classifyFailure(endpoint, {
@@ -163,8 +184,33 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
           });
         }
         if (endpoint.shape.body !== undefined) {
-          if (source !== '') {
+          const contentType = request.headers.get('content-type') ?? '';
+          const mediaType = contentType.split(';', 1)[0]?.trim().toLowerCase();
+          // Proof: removing media selection admitted valid JSON under missing/unsupported media (200 instead of 400).
+          if (!bodyMediaFor(endpoint.shape).some((media) => media === mediaType))
+            return classifyFailure(endpoint, {
+              part: 'body',
+              code: 'invalid_body',
+              rejected: source,
+              request: admission.request,
+            });
+          // Proof: disabling form decoding made the mounted valid-form test return 400 instead of 200.
+          if (
+            mediaType === 'application/x-www-form-urlencoded' ||
+            mediaType === 'multipart/form-data'
+          ) {
+            const form = await decodeForm(bytes, contentType);
+            if (!form.ok)
+              return classifyFailure(endpoint, {
+                part: 'body',
+                code: 'invalid_body',
+                rejected: source,
+                request: admission.request,
+              });
+            decoded = form.fields;
+          } else {
             try {
+              // Proof: skipping empty JSON parsing changed invalid_json to invalid_body in the required-body test.
               decoded = JSON.parse(source);
             } catch (error) {
               // Proof: broadening this catch maps the injected decoder outage to 400 instead of 500.

@@ -1,38 +1,54 @@
-import { callerGuard } from '../http/caller';
-import { ok, type Route } from '../http/route';
-import type { AuthService } from '../service/auth.service';
+import {
+  listExternalSystems,
+  listPeople,
+  listServices,
+  listTags,
+  listTeams,
+  listWorkItemTypes,
+} from '@wbs/contracts';
+
+import { bind } from '../http/endpoint';
 import type { DirectoryService } from '../service/directory.service';
 
 /**
- * Teams and people: global, readable and writable by any authenticated
- * account.
- *
- * Not gated by project write access, because the directory belongs to no
- * project — Dany, 2026-08-06: "the list is global for all projects, anyone can
- * add one". Gating it on a project would mean a reader who may not edit
- * project A could not name a team while working in project B.
- *
- * Adding is idempotent by name, so the picker's "type it if it is not in the
- * list" cannot make two `Platform`s.
- *
- * Every route here is a bare read behind {@link callerGuard} — the six of them
- * carried thirty lines of identical 401 block until 2026-09-02.
+ * Reads the global directory without project access restrictions. Identity and
+ * structural admission belong to the mounted declarations; service failures
+ * propagate so an unavailable directory cannot appear empty.
+ * Proof: catching listTeams as [] returned200 instead of500 in the mounted
+ * damaged-directory case. Removing the external-systems binding returned404
+ * instead of401 in the mounted identity/query case (directory.controller.db.test.ts).
  */
-export function directoryRoutes(auth: AuthService, directory: DirectoryService): Route[] {
-  const guard = callerGuard(auth);
-  const read = (path: string, body: () => Promise<unknown>): Route => ({
-    method: 'GET',
-    path: `/api${path}`,
-    handler: guard('signed-in', async () => ok(await body())),
-  });
+export function directoryRoutes(directory: DirectoryService) {
   return [
-    read('/teams', async () => ({ teams: await directory.listTeams() })),
-    read('/people', async () => ({ people: await directory.listPeople() })),
-    read('/tags', async () => ({ tags: await directory.listTags() })),
-    read('/services', async () => ({ services: await directory.listServices() })),
-    read('/work-item-types', async () => ({ workItemTypes: await directory.listWorkItemTypes() })),
-    read('/external-systems', async () => ({
-      externalSystems: await directory.listExternalSystems(),
+    bind(listTeams, async () => ({
+      ok: true,
+      status: 200,
+      body: { teams: await directory.listTeams() },
     })),
-  ];
+    bind(listPeople, async () => ({
+      ok: true,
+      status: 200,
+      body: { people: await directory.listPeople() },
+    })),
+    bind(listTags, async () => ({
+      ok: true,
+      status: 200,
+      body: { tags: await directory.listTags() },
+    })),
+    bind(listServices, async () => ({
+      ok: true,
+      status: 200,
+      body: { services: await directory.listServices() },
+    })),
+    bind(listWorkItemTypes, async () => ({
+      ok: true,
+      status: 200,
+      body: { workItemTypes: await directory.listWorkItemTypes() },
+    })),
+    bind(listExternalSystems, async () => ({
+      ok: true,
+      status: 200,
+      body: { externalSystems: await directory.listExternalSystems() },
+    })),
+  ] as const;
 }

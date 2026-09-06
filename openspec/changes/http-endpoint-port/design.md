@@ -18,6 +18,16 @@ The normative sketch's `principal: never` does not meet its own unreadable-princ
 
 Author each wire schema once in ArkType; produce validator and JSON Schema descriptor there. Requests use deep reject, including command union arms and nested arrays. Client response validation uses deep ignore, retaining additive fields while refusing incorrect known types. Async Standard Schema validation is supported even when ArkType currently validates synchronously. Translate issues to the declared refusal without serializing validator internals/original sensitive input.
 
+ArkType accepts an array for an optional-only object while emitting a JSON Schema
+`type: object`. `SchemaShape` therefore compiles each emitted descriptor once with
+the directly declared Ajv 2020 validator and applies it, without coercion or
+defaults, before Standard Schema validation for both requests and replies. A
+partial container walker was rejected because union branches can differ by
+discriminators and constraints; it can accept a value through the wrong branch.
+This adds declaration-time compilation and client bundle cost, which the final
+type/build/browser measurements must include. Tests inspect real emitted union
+arms because ArkType may simplify a declaration before `SchemaShape` receives it.
+
 Installed ArkType 2.2.0 supports generated nested inline object/array/anyOf descriptors, defaults and directional conversion, but a custom predicate throws and an unvalidated morph output can silently become an unconstrained descriptor. Initial wire declarations should stay transform/default-free unless the wrapper explicitly models input/output and proves representability. Merely catching converter errors is insufficient. DocumentFromShapes reads descriptors only, never validator internals. Resolve the explicit StandardSchema type dependency at promotion; `@standard-schema/spec` is absent, `@ark/schema` exports the types, ArkType exports JsonSchema. Draft-2020-12 descriptors require an OpenAPI 3.1-compatible emitter/MCP type boundary; installed conversion rejects openapi-3.0.
 
 ### Preparse policy matrix
@@ -107,3 +117,29 @@ Approved backend-only binding options preserve existing refusal contracts withou
 Run ordered origin/identity policies first, then metadata prevalidation before params/query/body checks. This seat can refuse an arrived HEAD with405/Allow or duplicate callback query keys with400 before validation/transaction consumption. The handler remains responsible for actual callback consumption; the hook cannot supply a body or principal.
 
 Classify a failed request part using its rejected unknown value, Standard Schema issues when available, and preserved request metadata. The classifier cannot admit a request or replace input. Return its refusal through the normal declared reply validator; absent hooks retain existing generic validation codes. Unexpected hook failures remain500. This failure-only boundary supports command at/kind and legacy precedence, including an earlier semantic command refusal ahead of a later structural error. Never derive domain codes from validator message text or first union-issue ordering; use pure family-local classification. Syntactically invalid JSON supplies source text with no schema issues, distinct from schema-invalid decoded bodies. Missing schema declarations likewise have no schema issues.
+
+## Body media preservation
+
+Each declared body may name a nonempty bodyMedia tuple of application/json,
+application/x-www-form-urlencoded and multipart/form-data; omitted metadata means
+JSON. The declaration, adapter, emitter and JSON fetch client share bodyMediaFor.
+A bodyless declaration cannot name media. Proven step name and smoke text bodies
+name all three; nested command bodies stay JSON-only. One ArkType body schema
+validates the decoded value, with no form-specific shadow schema or coercion.
+Repeated form fields remain arrays and files remain Files, so string-name schemas
+refuse both. Unknown fields still fail deep request strictness.
+
+Legacy characterization covered126 requests through actual old/new adapters and
+services. Missing/unrecognized Content-Type produced invalid_body on old step
+writes, even when the bytes looked like JSON; recognized malformed JSON keeps its
+distinct invalid_json refusal. Unsupported media uses the declared invalid_body
+classification rather than attempting JSON. Policies and metadata prevalidation
+precede the single request-byte read. Modeled multipart syntax failures are
+refused; unrelated parser/stream errors remain unexpected failures.
+
+The JSON fetch client refuses a trusted declaration that offers no JSON. This
+refinement preserves accepted wire formats and makes the generated document agree
+with the adapter. Optional empty saved-plan save bodies require separate presence
+modeling before that family migrates; an absent optional body must not be confused
+with an unsupported nonempty body. No OpenAPI3.0/3.1 compatibility cast is introduced
+into the interim legacy publisher.

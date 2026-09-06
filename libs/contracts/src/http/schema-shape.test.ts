@@ -1,5 +1,6 @@
+import { Ajv2020 } from 'ajv/dist/2020';
 import { type } from 'arktype';
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 
 import { requestSchema, responseSchema, validateSchema } from './schema-shape';
 
@@ -115,4 +116,80 @@ describe('the HTTP schema declaration boundary', () => {
     });
     expect((await validateSchema(asynchronous, { name: 42 })).issues).toBeDefined();
   });
+});
+
+test('enforces JSON object semantics for optional-only objects at every nested request boundary', async () => {
+  const patch = type({ 'name?': 'string' });
+  const shape = requestSchema(type({ patch, rows: patch.array() }));
+  for (const body of [
+    { patch: [], rows: [] },
+    { patch: {}, rows: [[]] },
+  ]) {
+    const checked = await validateSchema(shape, body);
+    expect(checked.issues).toBeDefined();
+    expect(checked.issues?.[0]?.path).toEqual(
+      'patch' in body && Array.isArray(body.patch) ? ['patch'] : ['rows', 0],
+    );
+  }
+  expect(await validateSchema(shape, { patch: {}, rows: [{}] })).toEqual({
+    value: { patch: {}, rows: [{}] },
+  });
+  const alternatives = requestSchema(
+    type({ value: type({ kind: "'object'", 'name?': 'string' }).or('string[]') }),
+  );
+  expect(await validateSchema(alternatives, { value: [] })).toEqual({ value: { value: [] } });
+  expect(await validateSchema(alternatives, { value: { kind: 'object', name: 'x' } })).toEqual({
+    value: { value: { kind: 'object', name: 'x' } },
+  });
+});
+
+test('does not mask a wrong discriminator with another branch containing a valid array', async () => {
+  const shape = requestSchema(
+    type({ kind: "'edit'", patch: { 'name?': 'string' } }).or({
+      kind: "'list'",
+      patch: 'string[]',
+    }),
+  );
+  expect((await validateSchema(shape, { kind: 'edit', patch: [] })).issues).toBeDefined();
+  expect(await validateSchema(shape, { kind: 'list', patch: [] })).toEqual({
+    value: { kind: 'list', patch: [] },
+  });
+  expect(await validateSchema(shape, { kind: 'edit', patch: {} })).toEqual({
+    value: { kind: 'edit', patch: {} },
+  });
+});
+
+test('maps escaped object keys and array indexes in request descriptor issues', async () => {
+  const shape = requestSchema(type({ 'a/b~c': type({ 'name?': 'string' }).array() }));
+  const checked = await validateSchema(shape, { 'a/b~c': [[]] });
+  expect(checked.issues?.[0]?.path).toEqual(['a/b~c', 0]);
+  const missing = await validateSchema(requestSchema(type({ name: 'string' })), {});
+  expect(missing.issues?.[0]?.path).toEqual(['name']);
+  const extra = await validateSchema(requestSchema(type({ 'name?': 'string' })), { extra: 1 });
+  expect(extra.issues?.[0]?.path).toEqual(['extra']);
+});
+
+test('throws on malformed trusted descriptor-validator diagnostics', () => {
+  for (const [errors, message] of [
+    [undefined, 'HTTP descriptor refused without issues'],
+    [[{ instancePath: '', keyword: 'type', params: {} }], 'HTTP descriptor issue has no message'],
+  ] as const) {
+    const validator = Object.assign(() => false, { errors });
+    const compile = spyOn(Ajv2020.prototype, 'compile').mockReturnValue(
+      validator as unknown as ReturnType<Ajv2020['compile']>,
+    );
+    try {
+      const shape = requestSchema(type({ 'name?': 'string' }));
+      expect(() => shape.validator['~standard'].validate({})).toThrow(message);
+    } finally {
+      compile.mockRestore();
+    }
+  }
+});
+
+test('refuses array-valued optional-only response objects while retaining additive nested fields', async () => {
+  const shape = responseSchema(type({ project: { 'name?': 'string' } }));
+  expect((await validateSchema(shape, { project: [] })).issues).toBeDefined();
+  const reply = { project: { name: 'Known', added: { anything: [] } }, future: true };
+  expect(await validateSchema(shape, reply)).toEqual({ value: reply });
 });

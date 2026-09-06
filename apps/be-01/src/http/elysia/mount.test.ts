@@ -473,7 +473,11 @@ describe('endpoint metadata and asynchronous boundaries', () => {
       }),
     ]);
     const send = (path: string) =>
-      new Request(`https://backend.example${path}`, { method: 'POST', body: '{"text":"x"}' });
+      new Request(`https://backend.example${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"text":"x"}',
+      });
     expect((await app.handle(send('/echo/fixed'))).status).toBe(200);
     expect((await app.handle(send('/echo/other'))).status).toBe(401);
     expect((await app.handle(send('/missing'))).status).toBe(404);
@@ -836,6 +840,7 @@ test('refuses undeclared query fields while deriving unschematized path params',
   const send = (suffix: string) =>
     new Request(`https://backend.example/echo/known${suffix}`, {
       method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: '{"text":"x"}',
     });
   const rejected = await app.handle(send('?extra=x'));
@@ -1090,6 +1095,7 @@ test('classifies params, query, body and JSON failures with their exact rejected
     const response = await app.handle(
       new Request(`https://backend.example${candidate.path}`, {
         method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: candidate.source,
       }),
     );
@@ -1145,4 +1151,210 @@ test('awaits metadata prevalidation before reading a request body', async () => 
   release({ ok: false, status: 403, body: { error: 'invalid_origin' } });
   expect((await response).status).toBe(403);
   expect(inbound.bodyUsed).toBe(false);
+});
+
+test('decodes declared URL encoded and multipart bodies without coercing or dropping fields', async () => {
+  const app = appFor([
+    bind(
+      defineEndpointShape({
+        ...echoShape,
+        bodyMedia: ['application/json', 'application/x-www-form-urlencoded', 'multipart/form-data'],
+      }),
+      ({ body }) => Promise.resolve({ ok: true, status: 200, body: { echoed: body.text } }),
+    ),
+  ]);
+  for (const media of ['urlencoded', 'multipart']) {
+    for (const entries of [
+      [['text', '  Form + value  ']],
+      [
+        ['text', 'first'],
+        ['text', 'second'],
+      ],
+      [
+        ['text', 'valid'],
+        ['extra', 'x'],
+      ],
+    ]) {
+      const body = media === 'urlencoded' ? new URLSearchParams() : new FormData();
+      for (const [name, value] of entries) body.append(name, value);
+      const inbound = new Request('https://backend.example/echo', { method: 'POST', body });
+      const response = await app.handle(inbound);
+      expect(response.status).toBe(entries.length === 1 ? 200 : 400);
+      expect(await response.json()).toEqual(
+        entries.length === 1 ? { echoed: '  Form + value  ' } : { error: 'invalid_body' },
+      );
+      expect(inbound.bodyUsed).toBe(true);
+    }
+  }
+  const form = new FormData();
+  form.append('text', new File([new Uint8Array([255, 0, 128])], 'binary.bin'));
+  const response = await app.handle(
+    new Request('https://backend.example/echo', { method: 'POST', body: form }),
+  );
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: 'invalid_body' });
+});
+
+test('models malformed multipart syntax but preserves unexpected parser and stream failures', async () => {
+  const app = appFor([
+    bind(
+      defineEndpointShape({
+        ...echoShape,
+        bodyMedia: ['application/json', 'application/x-www-form-urlencoded', 'multipart/form-data'],
+      }),
+      ({ body }) => Promise.resolve({ ok: true, status: 200, body: { echoed: body.text } }),
+    ),
+  ]);
+  for (const contentType of ['multipart/form-data', 'multipart/form-data; boundary=abc']) {
+    const response = await app.handle(request('broken', { 'content-type': contentType }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_body' });
+  }
+  const parser = spyOn(Response.prototype, 'formData').mockRejectedValue(
+    new TypeError('parser unavailable'),
+  );
+  try {
+    expect(
+      (await app.handle(request('broken', { 'content-type': 'multipart/form-data; boundary=abc' })))
+        .status,
+    ).toBe(500);
+  } finally {
+    parser.mockRestore();
+  }
+  const broken = new Request('https://backend.example/echo', {
+    method: 'POST',
+    headers: { 'content-type': 'multipart/form-data; boundary=abc' },
+    body: new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError('stream unavailable'));
+      },
+    }),
+  });
+  expect((await app.handle(broken)).status).toBe(500);
+});
+
+test('checks policies and metadata before consuming form bodies', async () => {
+  const guarded = appFor([
+    bind(writeShape, () => {
+      throw new Error('unreachable');
+    }),
+  ]);
+  const denied = request('broken', {
+    'content-type': 'multipart/form-data; boundary=abc',
+    authorization: 'Bearer read',
+  });
+  expect((await guarded.handle(denied)).status).toBe(403);
+  expect(denied.bodyUsed).toBe(false);
+  const prevalidated = appFor([
+    bind(
+      echoShape,
+      () => {
+        throw new Error('unreachable');
+      },
+      {
+        prevalidate: () => ({ ok: false, status: 403, body: { error: 'invalid_origin' } }),
+      },
+    ),
+  ]);
+  const refused = request('broken', { 'content-type': 'multipart/form-data; boundary=abc' });
+  expect((await prevalidated.handle(refused)).status).toBe(403);
+  expect(refused.bodyUsed).toBe(false);
+});
+
+test('refuses missing or undeclared body media without guessing JSON from the bytes', async () => {
+  const app = appFor([
+    bind(echoShape, ({ body }) =>
+      Promise.resolve({ ok: true, status: 200, body: { echoed: body.text } }),
+    ),
+  ]);
+  for (const media of [
+    undefined,
+    'text/plain',
+    'application/x-custom',
+    'application/octet-stream',
+    'application/x-www-form-urlencoded',
+    'multipart/form-data; boundary=x',
+  ]) {
+    for (const source of ['{"text":"valid"}', '{']) {
+      const inbound = request(source);
+      if (media === undefined) inbound.headers.delete('content-type');
+      else inbound.headers.set('content-type', media);
+      const response = await app.handle(inbound);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'invalid_body' });
+    }
+  }
+});
+
+test('rejects malformed erased media configuration when mounting', () => {
+  for (const bodyMedia of [[], ['text/plain'], ['application/json']]) {
+    const shape = {
+      ...echoShape,
+      bodyMedia,
+      ...(bodyMedia[0] === 'application/json' ? { body: undefined } : {}),
+    };
+    expect(() =>
+      appFor([
+        {
+          shape: shape as unknown as typeof echoShape,
+          handle: () => Promise.resolve({ ok: true, status: 200, body: { echoed: 'x' } }),
+        },
+      ]),
+    ).toThrow();
+  }
+});
+
+test('refuses an array masquerading as an optional-only object before invoking the mounted handler', async () => {
+  let calls = 0;
+  const shape = defineEndpointShape({
+    ...echoShape,
+    body: requestSchema(type({ patch: { 'name?': 'string' } })),
+  });
+  const app = appFor([
+    bind(shape, () => {
+      calls++;
+      return Promise.resolve({ ok: true, status: 200, body: { echoed: 'ok' } });
+    }),
+  ]);
+  const refused = await app.handle(request('{"patch":[]}'));
+  expect(refused.status).toBe(400);
+  expect(await refused.json()).toEqual({ error: 'invalid_body' });
+  expect(calls).toBe(0);
+  expect((await app.handle(request('{"patch":{}}'))).status).toBe(200);
+  expect(calls).toBe(1);
+});
+
+test('distinguishes absent required bodies from explicitly empty form and JSON bytes', async () => {
+  const shape = defineEndpointShape({
+    ...echoShape,
+    body: requestSchema(type({ 'name?': 'string' })),
+    bodyMedia: ['application/json', 'application/x-www-form-urlencoded'],
+  });
+  let calls = 0;
+  const app = appFor([
+    bind(shape, () => {
+      calls++;
+      return Promise.resolve({ ok: true, status: 200, body: { echoed: 'empty' } });
+    }),
+  ]);
+  for (const media of ['application/json', 'application/x-www-form-urlencoded']) {
+    const absent = await app.handle(
+      new Request('https://backend.example/echo', {
+        method: 'POST',
+        headers: { 'content-type': media },
+      }),
+    );
+    expect(absent.status).toBe(400);
+    expect(await absent.json()).toEqual({ error: 'invalid_body' });
+  }
+  expect(calls).toBe(0);
+  const emptyForm = await app.handle(
+    request('', { 'content-type': 'application/x-www-form-urlencoded' }),
+  );
+  expect(emptyForm.status).toBe(200);
+  expect(calls).toBe(1);
+  const emptyJson = await app.handle(request(''));
+  expect(emptyJson.status).toBe(400);
+  expect(await emptyJson.json()).toEqual({ error: 'invalid_json' });
+  expect(calls).toBe(1);
 });

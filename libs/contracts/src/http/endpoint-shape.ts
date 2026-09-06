@@ -39,6 +39,11 @@ export interface RefusalResponse {
  * Success variants declare their representation and status together, so JSON
  * null, an empty response, a redirect and plain text cannot be interchanged.
  */
+export type BodyMedia =
+  | 'application/json'
+  | 'application/x-www-form-urlencoded'
+  | 'multipart/form-data';
+
 export interface EndpointShape {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: `/${string}`;
@@ -47,6 +52,8 @@ export interface EndpointShape {
   params?: SchemaShape<Record<string, string>>;
   query?: SchemaShape<unknown>;
   body?: SchemaShape<unknown>;
+  // Proof: widening to string[] produced TS2578 for the empty/unknown-media actual declaration fixtures.
+  bodyMedia?: readonly [BodyMedia, ...BodyMedia[]];
   responses: readonly (JsonResponse | EmptyResponse | TextResponse)[];
   refusals: readonly RefusalResponse[];
   document: { summary: string };
@@ -99,7 +106,34 @@ export function defineEndpointShape<const S extends EndpointShape>(
   shape: S &
     ExactParams<S> &
     CompatibleIdentity<S> &
+    // Proof: removing this constraint produced TS2578 for the bodyless-media actual declaration fixture.
+    (S extends { bodyMedia: unknown }
+      ? S extends { body: SchemaShape<unknown> }
+        ? unknown
+        : never
+      : unknown) &
     (IsLiteralPath<S['path']> extends true ? unknown : never),
 ): S {
+  // Proof: omitting declaration validation made the malformed erased declaration test stop throwing.
+  bodyMediaFor(shape);
   return shape;
+}
+
+/** Resolves the JSON default and refuses malformed trusted declarations at every erased-table consumer. */
+export function bodyMediaFor(shape: EndpointShape): readonly BodyMedia[] {
+  const media: readonly unknown[] | undefined = shape.bodyMedia;
+  if (media === undefined) return shape.body === undefined ? [] : ['application/json'];
+  // Proof: independently removing body/nonempty/known-media guards made the mounted and emitted malformed-table tests stop throwing.
+  if (
+    shape.body === undefined ||
+    media.length === 0 ||
+    !media.every(
+      (entry): entry is BodyMedia =>
+        entry === 'application/json' ||
+        entry === 'application/x-www-form-urlencoded' ||
+        entry === 'multipart/form-data',
+    )
+  )
+    throw new Error(`Invalid body media declaration: ${shape.operationId}`);
+  return media;
 }

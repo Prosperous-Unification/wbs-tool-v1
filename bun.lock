@@ -15,6 +15,7 @@
         "@opentelemetry/sdk-node": "^0.215.0",
         "@sinclair/typebox": "^0.34.49",
         "@tanstack/react-router": "^1.170.24",
+        "ajv": "8.20.0",
         "arktype": "^2.2.0",
         "drizzle-orm": "1.0.0-beta.23",
         "elysia": "^1.4.28",

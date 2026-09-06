@@ -64,39 +64,6 @@ function assembled(): readonly Route[] {
 
 describe('the mounted route list', () => {
   /**
-   * The control `Route.preflight` exists under, and it asserts the **pairing**
-   * rather than the requirement: a route needs one exactly when a
-   * framework-derived validator could answer ahead of its handler guard, which
-   * is what carrying a `documentation.query` means. Nothing else in Elysia's
-   * per-route pipeline refuses before the handler for these routes, so this is
-   * the complete set — and it is checkable without enumerating the app, which
-   * is what a `(method, path, auth)` table would have needed.
-   *
-   * A guarded route with no query schema is left at today's ordering on
-   * purpose. There is nothing in front of its handler to be ordered against,
-   * and a preflight there would be a second auth mechanism bought for nothing.
-   *
-   * `preflight: undefined` cannot be told from a forgotten one, so the day an
-   * **open** route carries a query schema this needs a named allowlist beside
-   * it rather than a widened predicate. None exists today: both routes below
-   * are guarded.
-   */
-  it('gives every route carrying a query schema a preflight', () => {
-    const withQuery = assembled()
-      .filter((route) => route.documentation?.querySchema !== undefined)
-      .map(
-        (route) =>
-          `${route.method} ${route.path} preflight=${String(route.preflight !== undefined)}`,
-      )
-      .sort();
-
-    expect(withQuery).toEqual([
-      'GET /api/projects/:id/history preflight=true',
-      'GET /api/projects/:id/saved-plans/compare preflight=true',
-    ]);
-  });
-
-  /**
    * The paths that reach the app **without** passing through
    * `mountedRouteLists`, which is the only thing the clause above cannot speak
    * for. Elysia's route table is built from what was actually registered,
@@ -123,7 +90,7 @@ describe('the mounted route list', () => {
       .sort();
     const declared = [
       ...assembled().map((route) => `${route.method} ${route.path}`),
-      ...mountedEndpoints().map(({ shape }) => `${shape.method} ${shape.path}`),
+      ...mountedEndpoints(options()).map(({ shape }) => `${shape.method} ${shape.path}`),
       'GET /health',
       'GET /metrics',
       'GET /api/openapi.json',
@@ -135,7 +102,7 @@ describe('the mounted route list', () => {
 
 /** Complements actual wire requests: every migrated declaration owns exactly one binding. */
 it('binds each shared HTTP shape once and no unlisted shape', () => {
-  const endpoints = mountedEndpoints();
+  const endpoints = mountedEndpoints(options());
   expect(endpoints).toHaveLength(httpShapes.length);
   for (const shape of httpShapes) {
     expect(endpoints.filter((endpoint) => endpoint.shape === shape)).toHaveLength(1);
