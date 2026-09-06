@@ -3451,7 +3451,7 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
 
 ## 6. OptimizationCoordinator — admission, spawn, cancel, restart
 
-- [ ] 6.1 Coordinator in `apps/be-01/src/service/`: with the toggle ON, publish
+- [x] 6.1 Coordinator in `apps/be-01/src/service/`: with the toggle ON, publish
       Fast, consult the cache, and request admission for variants **absent at
       the current full key** — on a debounced edit _and on a read_. A read
       admits an absent variant, which is how an enabled project recovers after

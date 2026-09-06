@@ -41,6 +41,8 @@ export interface OptimizationCoordinatorOptions {
   readonly attemptToken: () => string;
   /** Rebuild the current canonical input for a durable queue entry after restart. */
   readonly inputOf: (projectId: string) => Promise<ScheduleInput | null>;
+  /** Whether an edit-triggered read may spend solver capacity for this project. */
+  readonly enabledOf: (projectId: string) => Promise<boolean>;
   /**
    * The launcher boundary, called only after SQLite returned this attempt's
    * counted `starting` row. Slice 6.2b binds that row to the launcher PID.
@@ -48,6 +50,8 @@ export interface OptimizationCoordinatorOptions {
   readonly spawn: ReservedSpawner;
   readonly runChild?: (options: SolverChildLifecycleOptions) => Promise<SolverChildLifecycleResult>;
   readonly onChildError: (error: unknown) => void;
+  readonly editDebounceMs?: number;
+  readonly sleep?: (milliseconds: number) => Promise<void>;
 }
 
 type ReservedAdmission = Extract<SolverSlotAdmission, { kind: 'reserved' }>;
@@ -77,6 +81,11 @@ export interface ReservedSolverChild extends SolverChildProcess {
 
 export type ReservedSpawner = (request: ReservedSpawnRequest) => Promise<ReservedSolverChild>;
 
+export const OPTIMIZATION_EDIT_DEBOUNCE_MS = 250;
+
+const sleep = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 /**
  * The synchronous plan-read half of the optimizer coordinator (tasks.md 6.1).
  *
@@ -89,6 +98,7 @@ export class OptimizationCoordinator {
   private readonly inFlight = new Set<Promise<void>>();
   private pumpInFlight: Promise<void> | undefined;
   private pumpRequested = false;
+  private readonly editEpoch = new Map<string, number>();
 
   constructor(private readonly options: OptimizationCoordinatorOptions) {}
 
@@ -100,6 +110,30 @@ export class OptimizationCoordinator {
   /** Start the restart reconciliation after the composition root has wired the input reader. */
   start(): void {
     this.requestPump();
+  }
+
+  /** Coalesce project events, then admit both absent variants for the newest input. */
+  inputChanged(projectId: string): void {
+    const epoch = (this.editEpoch.get(projectId) ?? 0) + 1;
+    this.editEpoch.set(projectId, epoch);
+    const tracked = this.optimizeAfterEdit(projectId, epoch)
+      .catch((error: unknown) => {
+        this.options.onChildError(error);
+      })
+      .finally(() => this.inFlight.delete(tracked));
+    this.inFlight.add(tracked);
+  }
+
+  private async optimizeAfterEdit(projectId: string, epoch: number): Promise<void> {
+    await (this.options.sleep ?? sleep)(
+      this.options.editDebounceMs ?? OPTIMIZATION_EDIT_DEBOUNCE_MS,
+    );
+    if (this.editEpoch.get(projectId) !== epoch) return;
+    this.editEpoch.delete(projectId);
+    if (!(await this.options.enabledOf(projectId))) return;
+    const input = await this.options.inputOf(projectId);
+    if (input === null) return;
+    this.read({ projectId, objective: 'pri', input });
   }
 
   private slotOf(request: ReservedSpawnRequest) {

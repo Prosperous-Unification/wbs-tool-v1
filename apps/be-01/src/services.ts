@@ -28,6 +28,7 @@ import { DirectoryService } from './service/directory.service';
 import { GatewayBroadcaster } from './service/gateway-broadcaster';
 import { HistoryService } from './service/history.service';
 import { OptimizationCoordinator, type ReservedSpawner } from './service/optimization-coordinator';
+import { OptimizerTriggerBroadcaster } from './service/optimizer-trigger-broadcaster';
 import { optimizerWiring } from './service/optimizer-wiring';
 import { PriorityBandService } from './service/priority-band.service';
 import { ProjectService } from './service/project.service';
@@ -178,8 +179,6 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // ever holds it. Wrapping here rather than at the runner is the point: there
   // is exactly one broadcaster object in the process, so a batch cannot hold one
   // while a service publishes through another. See {@link DeferringBroadcaster}.
-  const announcements = new DeferringBroadcaster(broadcast);
-
   const optimizerInput: { workItems: WorkItemService | undefined } = { workItems: undefined };
   const coordinator =
     opts.optimizer === undefined
@@ -198,11 +197,17 @@ export function buildServices(opts: ServicesOptions): BeServices {
             }
             return await optimizerInput.workItems.scheduleInput(projectId);
           },
+          enabledOf: async (projectId) =>
+            (await projectStore.findById(projectId))?.optimizationEnabled === true,
           spawn: opts.optimizer.spawn,
           onChildError: (err) => {
             opts.logger.error({ err }, 'optimizer child failed');
           },
         });
+  const optimizerEvents = new OptimizerTriggerBroadcaster(broadcast, (projectId) => {
+    coordinator?.inputChanged(projectId);
+  });
+  const announcements = new DeferringBroadcaster(optimizerEvents);
   // Both service-facing halves derive from the same coordinator instance: a
   // process cannot accept the ON setting unless its plan reader can also admit
   // and consume optimized rows.

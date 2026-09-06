@@ -156,6 +156,7 @@ function coordinator(
     now: () => 10,
     attemptToken: () => `${ownerId}-token-${String(token++)}`,
     inputOf: () => Promise.resolve(INPUT),
+    enabledOf: () => Promise.resolve(true),
     spawn: async (request) => {
       calls.push(request);
       return await childOf(request);
@@ -166,6 +167,70 @@ function coordinator(
 }
 
 describe('OptimizationCoordinator read', () => {
+  it('debounces edits and reads the newest enabled input once', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const sleeps: ReturnType<() => ReturnType<typeof deferred<undefined>>>[] = [];
+    let inputReads = 0;
+    let enabled = true;
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => crypto.randomUUID(),
+      enabledOf: () => Promise.resolve(enabled),
+      inputOf: () => {
+        inputReads += 1;
+        return Promise.resolve(INPUT);
+      },
+      sleep: () => {
+        const wait = deferred<undefined>();
+        sleeps.push(wait);
+        return wait.promise;
+      },
+      spawn: (request) => {
+        calls.push(request);
+        return Promise.resolve({
+          pid: 100 + calls.length,
+          stdout: stream(''),
+          stderr: stream(''),
+          exited: never,
+          verdict: () => undefined,
+          kill: () => undefined,
+        });
+      },
+      runChild: () => Promise.resolve({ kind: 'exited', code: 0 }),
+      onChildError: (error) => {
+        throw error;
+      },
+    });
+
+    instance.inputChanged('p-1');
+    instance.inputChanged('p-1');
+    sleeps[0].resolve(undefined);
+    await Promise.resolve();
+    expect(inputReads).toBe(0);
+    sleeps[1].resolve(undefined);
+    await instance.drain();
+    expect(inputReads).toBe(1);
+    expect(calls.map(({ objective }) => objective)).toEqual(['pri', 'time']);
+
+    enabled = false;
+    instance.inputChanged('p-1');
+    sleeps[2].resolve(undefined);
+    await instance.drain();
+    expect(inputReads).toBe(1);
+    expect(calls).toHaveLength(2);
+
+    // Proof: removing the epoch comparison reads the input twice; removing the
+    // edit trigger leaves both `inputReads` and `calls` at zero; removing the
+    // enabled check reads the input and attempts admission after the OFF event.
+  });
+
   it('bypasses allocation and both solvers when the canonical plan has no work', () => {
     const { path, db } = database();
     seedProject(path);
