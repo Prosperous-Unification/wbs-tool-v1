@@ -187,13 +187,18 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
           });
         let decoded: unknown;
         // Read outside the multipart syntax catch so an unreadable stream stays an infrastructure failure.
+        const hasUnreadableBody = hasUnreadableBodyFraming(request);
         const bytes =
           request.method === 'GET' || request.method === 'HEAD'
             ? new ArrayBuffer(0)
             : await request.arrayBuffer();
         const source = new TextDecoder().decode(bytes);
-        // Proof: removing this check admits every nonempty undeclared body (200 instead of 400).
-        if (endpoint.shape.body === undefined && source !== '') {
+        // Proof: deleting hasUnreadableBody from this condition made the real
+        // production /health TCP test receive six 200s instead of six 400s for
+        // GET/HEAD length, nonempty-chunked and zero-chunk body framing.
+        // Proof: deleting source from this condition admits every nonempty
+        // undeclared POST body (200 instead of 400).
+        if (endpoint.shape.body === undefined && (hasUnreadableBody || source !== '')) {
           return classifyFailure(endpoint, {
             part: 'body',
             code: 'invalid_body',
@@ -273,6 +278,24 @@ export function mountEndpoints(endpoints: readonly BoundEndpoint[], options: Mou
     );
   }
   return app;
+}
+
+/**
+ * Fetch forbids reading a GET or HEAD body. Bun retains the HTTP framing but
+ * presents nonempty and zero-chunk transfer streams identically: null body,
+ * empty text and a Transfer-Encoding header. Unknown is not accepted, so every
+ * such stream is refused; Content-Length zero remains provably empty.
+ * Proof: bypassing this predicate produced six 200s instead of six 400s in the
+ * production /health TCP test across both methods and all three framing cases.
+ */
+function hasUnreadableBodyFraming(request: Request): boolean {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return false;
+  const contentLength = request.headers.get('content-length');
+  if (contentLength !== null) {
+    const octets = Number(contentLength);
+    if (!Number.isSafeInteger(octets) || octets < 0 || octets > 0) return true;
+  }
+  return request.headers.has('transfer-encoding');
 }
 
 /**

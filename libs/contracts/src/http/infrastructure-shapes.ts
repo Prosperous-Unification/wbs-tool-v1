@@ -7,6 +7,11 @@ import { responseSchema } from './schema-shape';
 // "text/plain; version=0.0.4" and receive "text/plain".
 export const PROMETHEUS_CONTENT_TYPE = 'text/plain; version=0.0.4';
 
+const bodyRefusal = {
+  status: 400,
+  schema: responseSchema(type({ error: "'invalid_body'" })),
+} as const;
+
 /** Process readiness and its dependency state, including deploy commit identity. */
 export const health = defineEndpointShape({
   method: 'GET',
@@ -31,6 +36,9 @@ export const health = defineEndpointShape({
         }),
       ),
     },
+    // Proof: omitting this declaration made the real production /health TCP
+    // test receive six 500s instead of typed 400s for GET/HEAD body framing.
+    bodyRefusal,
   ],
   document: { summary: 'Report backend readiness and dependency health.' },
 });
@@ -45,6 +53,6 @@ export const metrics = defineEndpointShape({
     { kind: 'text', status: 200, contentType: PROMETHEUS_CONTENT_TYPE },
     { kind: 'text', status: 500, contentType: PROMETHEUS_CONTENT_TYPE },
   ],
-  refusals: [],
+  refusals: [bodyRefusal],
   document: { summary: 'Expose backend Prometheus metrics.' },
 });

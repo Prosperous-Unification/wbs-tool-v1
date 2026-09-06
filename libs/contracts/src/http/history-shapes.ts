@@ -40,7 +40,12 @@ export const readHistory = defineEndpointShape({
     { kind: 'json', status: 200, schema: responseSchema(type({ events: historyEvent.array() })) },
   ],
   refusals: [
-    { status: 400, schema: responseSchema(type({ error: "'invalid_params' | 'invalid_query'" })) },
+    {
+      status: 400,
+      schema: responseSchema(
+        type({ error: "'invalid_params' | 'invalid_query' | 'invalid_body'" }),
+      ),
+    },
     { status: 401, schema: responseSchema(type({ error: "'unauthenticated'" })) },
     {
       status: 403,

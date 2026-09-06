@@ -46,6 +46,34 @@ function options(): AppOptions {
   };
 }
 
+async function sendRawHttp(port: number, request: string): Promise<string> {
+  let response = '';
+  const completed = Promise.withResolvers<string>();
+  const socket = await Bun.connect({
+    hostname: '127.0.0.1',
+    port,
+    socket: {
+      open(peer) {
+        peer.write(request);
+      },
+      data(_peer, bytes) {
+        response += bytes.toString();
+      },
+      close() {
+        completed.resolve(response);
+      },
+      error(_peer, error) {
+        completed.reject(error);
+      },
+    },
+  });
+  try {
+    return await completed.promise;
+  } finally {
+    socket.end();
+  }
+}
+
 function oidcOptions(): NonNullable<AppOptions['oidc']> {
   return {
     appOrigin: 'https://app.test',
@@ -473,6 +501,68 @@ it('enforces the complete pinned identity and origin policy inventory on the pro
       operationId: shape.operationId,
       policies: expectedPolicies(shape.operationId),
     });
+  }
+});
+
+it('refuses framed GET and HEAD bodies on the production health route', async () => {
+  let probes = 0;
+  const app = buildApp({
+    ...options(),
+    probeDatabase: () => {
+      probes++;
+      return 'ok';
+    },
+  });
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: (request) => app.handle(request),
+  });
+  try {
+    const port = server.port;
+    if (port === undefined) throw new Error('test HTTP server has no TCP port');
+    const statuses: string[] = [];
+    const getBodies: string[] = [];
+    for (const method of ['GET', 'HEAD'] as const) {
+      for (const framed of [
+        'Content-Length: 2\r\n\r\n{}',
+        'Transfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n',
+        'Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n',
+      ]) {
+        const response = await sendRawHttp(
+          port,
+          `${method} /health HTTP/1.1\r\nHost: 127.0.0.1:${String(port)}\r\nConnection: close\r\n${framed}`,
+        );
+        statuses.push(response.split('\r\n', 1)[0] ?? 'missing status');
+        if (method === 'GET') getBodies.push(response.split('\r\n\r\n', 2)[1] ?? 'missing body');
+      }
+    }
+    expect(statuses).toEqual([
+      'HTTP/1.1 400 Bad Request',
+      'HTTP/1.1 400 Bad Request',
+      'HTTP/1.1 400 Bad Request',
+      'HTTP/1.1 400 Bad Request',
+      'HTTP/1.1 400 Bad Request',
+      'HTTP/1.1 400 Bad Request',
+    ]);
+    expect(getBodies).toEqual([
+      '{"error":"invalid_body"}',
+      '{"error":"invalid_body"}',
+      '{"error":"invalid_body"}',
+    ]);
+    expect(probes).toBe(0);
+    const emptyStatuses: string[] = [];
+    for (const method of ['GET', 'HEAD'] as const) {
+      const response = await sendRawHttp(
+        port,
+        `${method} /health HTTP/1.1\r\nHost: 127.0.0.1:${String(port)}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`,
+      );
+      emptyStatuses.push(response.split('\r\n', 1)[0] ?? 'missing status');
+    }
+    expect(emptyStatuses).toEqual(['HTTP/1.1 200 OK', 'HTTP/1.1 200 OK']);
+    expect(probes).toBe(2);
+  } finally {
+    await server.stop(true);
   }
 });
 

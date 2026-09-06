@@ -202,11 +202,11 @@ export function mountedEndpoints(
       scrapeMetrics: runtime.scrapeMetrics,
     }),
     ...authPasswordEndpoints(opts.auth, opts.oidc, passwordThrottle),
-    // Proof: removing this spread made app.routes.test.ts receive 38 bindings
-    // instead of the 42 required by the OIDC composition.
+    // Proof: removing this spread made app.routes.test.ts receive 40 bindings
+    // instead of the 44 required by the OIDC composition.
     ...(opts.oidc === undefined ? [] : authOidcEndpoints(opts.auth, opts.oidc)),
     // Proof: omitting this binding made “binds each shared HTTP shape once”
-    // receive37 instead of38 in app.routes.test.ts.
+    // receive39 instead of40 in app.routes.test.ts.
     ...smokeRoutes(),
     ...stepRoutes(opts.steps),
     ...directoryRoutes(opts.directory),
