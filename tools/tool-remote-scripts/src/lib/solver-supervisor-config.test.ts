@@ -39,9 +39,9 @@ describe('the solver supervisor host config', () => {
   });
 
   it('refuses paths outside the service runtime directory and excess host caps', () => {
-    expect(() => decodeSolverSupervisorConfig({ ...CONFIG, socketPath: '/tmp/supervisor.sock' })).toThrow(
-      /runtime-directory/,
-    );
+    expect(() =>
+      decodeSolverSupervisorConfig({ ...CONFIG, socketPath: '/tmp/supervisor.sock' }),
+    ).toThrow(/runtime-directory/);
     for (const [key, value] of [
       ['maxSearchWorkers', 3],
       ['maxMemoryLimitMb', 513],
@@ -63,9 +63,9 @@ describe('the solver supervisor host config', () => {
       maxManagedContainers: CONFIG.maxManagedContainers,
     };
     expect(() => decodeSolverSupervisorConfig(missing)).toThrow(/missing key images/);
-    expect(() => decodeSolverSupervisorConfig({ ...CONFIG, dockerSocket: '/var/run/docker.sock' })).toThrow(
-      /unknown key dockerSocket/,
-    );
+    expect(() =>
+      decodeSolverSupervisorConfig({ ...CONFIG, dockerSocket: '/var/run/docker.sock' }),
+    ).toThrow(/unknown key dockerSocket/);
     expect(() => decodeSolverSupervisorConfig({ ...CONFIG, pidsLimit: 1.5 })).toThrow(/pidsLimit/);
     expect(() =>
       decodeSolverSupervisorConfig({
