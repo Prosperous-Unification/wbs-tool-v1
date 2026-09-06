@@ -26,7 +26,7 @@
  * `indeterminate` is the fourth answer, and it is the honest one: some evidence
  * we fully understand still does not say whose move it is. A taxonomy built on
  * that question needs a value for "this does not answer it", or the row gets
- * assigned by whoever argued last. See {@link UNATTRIBUTED_ALERT}.
+ * assigned by whoever argued last. See {@link CAPABILITY_MISMATCH_ALERT}.
  */
 export type OidcFailureKind = 'refused' | 'unavailable' | 'defect' | 'indeterminate';
 
@@ -275,49 +275,55 @@ const CLIENT_CREDENTIAL_ALERT =
   /_ALERT_(BAD_CERTIFICATE|UNSUPPORTED_CERTIFICATE|CERTIFICATE_REVOKED|CERTIFICATE_EXPIRED|CERTIFICATE_UNKNOWN|UNKNOWN_CA|CERTIFICATE_REQUIRED|ACCESS_DENIED|UNKNOWN_PSK_IDENTITY)$/;
 
 /**
- * The alerts that say the two ends could not agree on how to talk at all, and
- * that name our side's message as the thing they could not accept.
+ * The alerts that say the message we sent broke the protocol.
  *
- * `PROTOCOL_VERSION` is RFC 5246 §7.2.2's "the protocol version the client has
- * attempted to negotiate is recognized but not supported" and
- * `INSUFFICIENT_SECURITY` is that section's "the server requires ciphers more
- * secure than those supported by the client"; RFC 8446 §6.2 defines
- * `MISSING_EXTENSION` against a handshake message that omitted an extension it
- * was required to send and `UNSUPPORTED_EXTENSION` against one that carried an
- * extension it was forbidden to send. Each one quotes something we sent and says
- * what is wrong with it. The peer was reachable and objected to our terms rather
- * than to us; waiting will not change either side's configuration, so an
- * operator has to. They take `local_defect` rather than the credential slug
- * because nothing about our identity was refused — only our terms.
+ * This is one half of the line the two arms are drawn on, and the line is
+ * **protocol violation versus capability mismatch**, not "does the alert mention
+ * something of ours". Every alert here is RFC 8446 §6.2 asserting that the
+ * received handshake was malformed against the specification itself:
+ * `ILLEGAL_PARAMETER` is "a field in the handshake was incorrect or inconsistent
+ * with other fields", `DECODE_ERROR` is a message whose field was out of range
+ * or whose length was wrong, `UNEXPECTED_MESSAGE` is a message that had no
+ * business being sent at that point, and `MISSING_EXTENSION` and
+ * `UNSUPPORTED_EXTENSION` are an extension that had to be present or must not
+ * have been. A conforming peer cannot provoke any of them by changing its own
+ * configuration, which is what makes them ours and not a shared outcome.
+ *
+ * They take `local_defect` rather than the credential slug because nothing about
+ * our identity was refused, and an operator rather than time has to act.
  */
-const NEGOTIATION_ALERT =
-  /_ALERT_(PROTOCOL_VERSION|INSUFFICIENT_SECURITY|MISSING_EXTENSION|UNSUPPORTED_EXTENSION)$/;
+const LOCAL_PROTOCOL_VIOLATION_ALERT =
+  /_ALERT_(ILLEGAL_PARAMETER|DECODE_ERROR|UNEXPECTED_MESSAGE|MISSING_EXTENSION|UNSUPPORTED_EXTENSION)$/;
 
 /**
- * The alerts that report an empty intersection rather than a fault, which is a
- * fourth thing and not a harder instance of the other three.
+ * The alerts that report an empty intersection between two conforming ends,
+ * which is a fourth thing and not a harder instance of the other three.
  *
- * RFC 5246 §7.2.2 defines alert 40, `HANDSHAKE_FAILURE`, as "unable to negotiate
- * an acceptable set of security parameters", and RFC 8446 §6.2 defines
- * `NO_APPLICATION_PROTOCOL` as a client advertising only protocols the server
- * does not support. Both name the outcome — no overlap — and neither says whose
- * set should have contained the other's. Unlike every member of
- * {@link NEGOTIATION_ALERT} they quote nothing of ours *and say what is wrong
- * with it*, and unlike {@link CLIENT_CREDENTIAL_ALERT} they refuse no credential
- * of ours. A provider node brought up with the wrong certificate chain, a
- * half-finished TLS rollout across their fleet, or a rollout that dropped the
- * protocol we offer emits exactly this and nothing else — before any HTTP exists
- * to carry a status. So does a cipher, curve or ALPN list of ours that their new
- * configuration no longer accepts.
+ * This is the other half of the line. Nothing here says either side broke the
+ * protocol; each says only that what we offer and what they accept do not meet.
+ * RFC 5246 §7.2.2 defines `HANDSHAKE_FAILURE` as "unable to negotiate an
+ * acceptable set of security parameters" and `PROTOCOL_VERSION` as a version
+ * that is recognised but not supported; `INSUFFICIENT_SECURITY` is that
+ * section's server requiring ciphers more secure than the client's, which RFC
+ * 8446 §6.2 restates as no overlap between the two parameter sets; and
+ * `NO_APPLICATION_PROTOCOL` is a client advertising only protocols the server
+ * does not support. Every one of them is emitted, unchanged, by a provider
+ * rollout that raised or narrowed its own requirements while we changed nothing
+ * — and by a list of ours that was always too narrow. The alert does not say
+ * which happened, so neither does this module.
  *
- * Two reviews of this file reached opposite conclusions from that same fact, one
- * calling the row a negotiation defect and one calling it a lost outage signal,
- * and both were right about their half. The row is not what is wrong; the
- * taxonomy was, because it offered only answers that name a party. `indeterminate`
- * with its own slug says what the alert says and stops there: the sign-in did not
- * happen, retrying later is the only move a person has, and which end has to
- * change is not in the evidence. An operator greps `tls_negotiation_failed` and
- * looks at both.
+ * A provider node brought up with the wrong certificate chain and a
+ * half-finished TLS rollout across their fleet reach here too, before any HTTP
+ * exists to carry a status.
+ *
+ * Two reviews of this file reached opposite conclusions about `HANDSHAKE_FAILURE`
+ * from that same fact, one calling it a negotiation defect and one calling it a
+ * lost outage signal, and both were right about their half. The row was not what
+ * was wrong; the taxonomy was, because it offered only answers that name a
+ * party. `indeterminate` with its own slug says what the alert says and stops
+ * there: the sign-in did not happen, retrying later is the only move a person
+ * has, and which end has to change is not in the evidence. An operator greps
+ * `tls_negotiation_failed` and looks at both.
  *
  * A code this module does not recognise stays `defect`/`unrecognised_failure`
  * and does not come here. The distinction is deliberate: `indeterminate` is for
@@ -325,7 +331,8 @@ const NEGOTIATION_ALERT =
  * unrecognised code is evidence we have not read at all — which is this module
  * being behind, and an operator's move.
  */
-const UNATTRIBUTED_ALERT = /_ALERT_(HANDSHAKE_FAILURE|NO_APPLICATION_PROTOCOL)$/;
+const CAPABILITY_MISMATCH_ALERT =
+  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|NO_APPLICATION_PROTOCOL)$/;
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
@@ -397,8 +404,8 @@ export function classifyOidcFailure(error: unknown): OidcFailure {
     const transport = transportCodeOf(error);
     if (transport !== undefined) {
       if (CLIENT_CREDENTIAL_ALERT.test(transport)) return DEFECT('client_authentication_failed');
-      if (NEGOTIATION_ALERT.test(transport)) return DEFECT('local_defect');
-      if (UNATTRIBUTED_ALERT.test(transport)) return INDETERMINATE('tls_negotiation_failed');
+      if (LOCAL_PROTOCOL_VIOLATION_ALERT.test(transport)) return DEFECT('local_defect');
+      if (CAPABILITY_MISMATCH_ALERT.test(transport)) return INDETERMINATE('tls_negotiation_failed');
       return UNAVAILABLE('provider_unreachable');
     }
 

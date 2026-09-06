@@ -269,19 +269,19 @@ describe('classifyOidcFailure', () => {
       }
     });
 
-    it('calls an alert about how we asked a defect, not an outage', () => {
-      // The peer was reachable and objected to our terms rather than to us: no
-      // credential was refused and nothing is going to change on its own, so
-      // waiting — the `unavailable` move — would be advice that never comes
-      // true. An operator has to change one side's TLS configuration.
-      // Every member quotes something we sent *and says what is wrong with it* —
-      // our version is unsupported, our ciphers too weak, our message missing a
-      // required extension or carrying a forbidden one. That is what keeps them
-      // out of the `indeterminate` arm below, where the alert reports only that
-      // two sets did not overlap.
+    it('calls an alert that says our message broke the protocol a defect, not an outage', () => {
+      // The line is protocol violation versus capability mismatch. Each of these
+      // is RFC 8446 §6.2 asserting the handshake it received was malformed
+      // against the specification: a field out of range or inconsistent, a
+      // message that could not be decoded, a message that had no business being
+      // sent, an extension that had to be there or must not have been. A
+      // conforming peer cannot provoke any of them by changing its own
+      // configuration, which is what makes them ours — and what keeps them out
+      // of the `indeterminate` arm below. One case per member of the rule.
       for (const code of [
-        'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
-        'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
+        'ERR_SSL_TLSV1_ALERT_ILLEGAL_PARAMETER',
+        'ERR_SSL_TLSV1_ALERT_DECODE_ERROR',
+        'ERR_SSL_TLSV1_ALERT_UNEXPECTED_MESSAGE',
         'ERR_SSL_TLSV13_ALERT_MISSING_EXTENSION',
         'ERR_SSL_TLSV1_ALERT_UNSUPPORTED_EXTENSION',
       ]) {
@@ -293,19 +293,23 @@ describe('classifyOidcFailure', () => {
     });
 
     it('calls an alert that reports no overlap indeterminate, because it names no party', () => {
-      // RFC 5246 §7.2.2's alert 40 is "unable to negotiate an acceptable set of
-      // security parameters" and RFC 8446 §6.2's `NO_APPLICATION_PROTOCOL` is a
-      // client advertising only protocols the server does not support. Both name
-      // the outcome — the two sets did not overlap — and neither says whose set
-      // should have contained the other's. A provider node with the wrong chain,
-      // a rollout that dropped the protocol we offer, and a cipher or ALPN list
-      // of ours their new config stopped accepting all arrive here, and nothing
-      // in the evidence separates them. Three prefixes for alert 40 because the
-      // rule is written against the alert and not against the OpenSSL family.
+      // The other half of the line: none of these says either side broke the
+      // protocol, only that what we offer and what they accept do not meet.
+      // Alert 40 is "unable to negotiate an acceptable set of security
+      // parameters", `PROTOCOL_VERSION` is a version recognised but not
+      // supported, `INSUFFICIENT_SECURITY` is no overlap between the two
+      // parameter sets, `NO_APPLICATION_PROTOCOL` is no overlap between two ALPN
+      // lists. Every one is emitted unchanged by a provider rollout that raised
+      // or narrowed its own requirements while we changed nothing, and by a list
+      // of ours that was always too narrow. One case per member of the rule,
+      // plus two extra prefixes for alert 40 because the rule is written against
+      // the alert and not against the OpenSSL family.
       for (const code of [
         'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV13_ALERT_HANDSHAKE_FAILURE',
+        'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
+        'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
         'ERR_SSL_TLSV1_ALERT_NO_APPLICATION_PROTOCOL',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
