@@ -293,8 +293,7 @@ const CLIENT_CREDENTIAL_ALERT =
  * others do not carry: it "should never be observed in communication between
  * proper implementations, except when messages were corrupted in the network".
  * A corrupted message is neither end being wrong, so filing it here would page
- * an operator for a failure nobody caused. It keeps the open-ended alert
- * default, which is where `RECORD_OVERFLOW` sits for the same stated reason.
+ * an operator for a failure nobody caused. See {@link TRANSIT_CORRUPTION_ALERT_SUFFIX}.
  *
  * They take `local_defect` rather than the credential slug because nothing about
  * our identity was refused, and an operator rather than time has to act.
@@ -314,13 +313,10 @@ const LOCAL_PROTOCOL_VIOLATION_ALERT =
  * section's server requiring ciphers more secure than the client's, which RFC
  * 8446 §6.2 restates as no overlap between the two parameter sets; and
  * `NO_APPLICATION_PROTOCOL` is a client advertising only protocols the server
- * does not support. `UNRECOGNIZED_NAME` is the same shape one layer out: the
- * server has no configuration under the name our `server_name` extension asked
- * for, which is equally an issuer hostname of ours that was wrong and a provider
- * rollout that stopped serving that hostname. Every one of them is emitted,
- * unchanged, by a provider rollout that raised or narrowed its own requirements
- * while we changed nothing — and by a list or a name of ours that was always
- * wrong. The alert does not say which happened, so neither does this module.
+ * does not support. Every one of them is emitted, unchanged, by a provider
+ * rollout that raised or narrowed its own requirements while we changed nothing
+ * — and by a list of ours that was always too narrow. The alert does not say
+ * which happened, so neither does this module.
  *
  * A provider node brought up with the wrong certificate chain and a
  * half-finished TLS rollout across their fleet reach here too, before any HTTP
@@ -342,7 +338,49 @@ const LOCAL_PROTOCOL_VIOLATION_ALERT =
  * being behind, and an operator's move.
  */
 const CAPABILITY_MISMATCH_ALERT =
-  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|NO_APPLICATION_PROTOCOL|UNRECOGNIZED_NAME)$/;
+  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|NO_APPLICATION_PROTOCOL)$/;
+
+/**
+ * The same party-neutral shape one layer out, and the one rule here that cannot
+ * be written against the `_ALERT_` infix.
+ *
+ * RFC 6066 §3's `unrecognized_name` says the server has no configuration under
+ * the name our `server_name` extension asked for. That is equally an issuer
+ * hostname of ours that was wrong and a provider rollout that stopped serving
+ * that hostname, so it belongs with the mismatches above.
+ *
+ * **OpenSSL does not spell this one as an alert.** Its reason string is
+ * `SSL_R_TLSV1_UNRECOGNIZED_NAME`, so Node surfaces
+ * `ERR_SSL_TLSV1_UNRECOGNIZED_NAME` — no `_ALERT_` infix — and a rule written
+ * against {@link OPENSSL_ALERT} would never see it. The optional group matches
+ * both spellings so a future OpenSSL that regularises the name does not silently
+ * drop the row, and {@link isTransportCode} names this rule directly for the
+ * same reason: without that, the code is not recognised as a transport failure
+ * at all and lands in `unrecognised_failure`.
+ */
+const UNRECOGNISED_SNI_NAME = /^ERR_SSL_[A-Z0-9]+_(?:ALERT_)?UNRECOGNIZED_NAME$/;
+
+/**
+ * The alert that says a message arrived mangled, which is nobody's defect.
+ *
+ * `DECODE_ERROR` is the one alert RFC 8446 §6.2 excuses outright: it "should
+ * never be observed in communication between proper implementations, except when
+ * messages were corrupted in the network". Receiving it proves the provider was
+ * reached and that something between us damaged what it read, so neither
+ * `local_defect` nor `provider_unreachable` is true — it is the same unresolved
+ * responsibility the mismatch alerts carry, and it takes the same answer rather
+ * than a fifth one.
+ */
+const TRANSIT_CORRUPTION_ALERT_SUFFIX = '_ALERT_DECODE_ERROR';
+
+/** Every rule whose alert names an outcome and leaves responsibility open. */
+function namesNoParty(code: string): boolean {
+  return (
+    CAPABILITY_MISMATCH_ALERT.test(code) ||
+    UNRECOGNISED_SNI_NAME.test(code) ||
+    code.endsWith(TRANSIT_CORRUPTION_ALERT_SUFFIX)
+  );
+}
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
@@ -367,7 +405,7 @@ function numberProperty(value: unknown, key: string): number | undefined {
 }
 
 function isTransportCode(code: string): boolean {
-  return TRANSPORT_CODES.has(code) || OPENSSL_ALERT.test(code);
+  return TRANSPORT_CODES.has(code) || OPENSSL_ALERT.test(code) || UNRECOGNISED_SNI_NAME.test(code);
 }
 
 /** Walks `cause` for a transport code, since `fetch` buries it one or more levels down. */
@@ -415,7 +453,7 @@ export function classifyOidcFailure(error: unknown): OidcFailure {
     if (transport !== undefined) {
       if (CLIENT_CREDENTIAL_ALERT.test(transport)) return DEFECT('client_authentication_failed');
       if (LOCAL_PROTOCOL_VIOLATION_ALERT.test(transport)) return DEFECT('local_defect');
-      if (CAPABILITY_MISMATCH_ALERT.test(transport)) return INDETERMINATE('tls_negotiation_failed');
+      if (namesNoParty(transport)) return INDETERMINATE('tls_negotiation_failed');
       return UNAVAILABLE('provider_unreachable');
     }
 

@@ -225,11 +225,6 @@ describe('classifyOidcFailure', () => {
       for (const code of [
         'ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR',
         'ERR_SSL_TLSV1_ALERT_SOMETHING_OPENSSL_ADDS_LATER',
-        // `DECODE_ERROR` reads like a protocol violation of ours and is not
-        // filed as one: RFC 8446 §6.2 says it should never be seen between
-        // proper implementations "except when messages were corrupted in the
-        // network", and corruption is neither end being wrong.
-        'ERR_SSL_TLSV1_ALERT_DECODE_ERROR',
         // Not alerts, but still about what came back over the wire — one case
         // per enumerated member, so removing any of them turns this red.
         'ERR_SSL_WRONG_VERSION_NUMBER',
@@ -278,8 +273,9 @@ describe('classifyOidcFailure', () => {
       // The line is protocol violation versus capability mismatch. Each of these
       // is RFC 8446 §6.2 asserting the handshake it received was malformed
       // against the specification: a field out of range or inconsistent, a
-      // message that could not be decoded, a message that had no business being
-      // sent, an extension that had to be there or must not have been. A
+      // message that had no business being sent, an extension that had to be
+      // there or must not have been. `DECODE_ERROR` is not among them, because
+      // §6.2 excuses it for messages corrupted in the network. A
       // conforming peer cannot provoke any of them by changing its own
       // configuration, which is what makes them ours — and what keeps them out
       // of the `indeterminate` arm below. One case per member of the rule.
@@ -315,7 +311,17 @@ describe('classifyOidcFailure', () => {
         'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
         'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
         'ERR_SSL_TLSV1_ALERT_NO_APPLICATION_PROTOCOL',
+        // RFC 6066 §3's `unrecognized_name`, in the spelling OpenSSL actually
+        // emits. Its reason string is `SSL_R_TLSV1_UNRECOGNIZED_NAME`, with no
+        // `_ALERT_` infix, so a rule written against the alert shape would never
+        // see the code Node really produces. Both spellings are asserted.
+        'ERR_SSL_TLSV1_UNRECOGNIZED_NAME',
         'ERR_SSL_TLSV1_ALERT_UNRECOGNIZED_NAME',
+        // Receiving `DECODE_ERROR` proves the provider was reached and that
+        // something between us damaged what it read. RFC 8446 §6.2 excuses it
+        // for exactly that, so neither end is established and it takes the same
+        // answer rather than a fifth one.
+        'ERR_SSL_TLSV1_ALERT_DECODE_ERROR',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'indeterminate',
