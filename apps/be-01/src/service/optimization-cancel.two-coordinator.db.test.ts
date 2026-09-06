@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
+import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { openDatabase, openDrizzle } from '../repository/db';
@@ -13,6 +15,11 @@ import { ProjectRepository } from '../repository/project';
 import { optimizedScheduleCache, solverQueue, solverSlot } from '../repository/schema';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { clockOf } from './clock';
+import {
+  OptimizationCoordinator,
+  type ReservedSolverChild,
+  type ReservedSpawnRequest,
+} from './optimization-coordinator';
 import { ProjectService } from './project.service';
 import {
   runSolverChildLifecycle,
@@ -23,6 +30,24 @@ import {
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 const CONTRACT = '7+1.0.0';
 const BUDGET = 60_000;
+const INPUT: ScheduleInput = {
+  rows: [{ id: 'w-1', parentId: null, position: 10, frozenNumber: null, priority: null }],
+  edges: [],
+  slices: [
+    {
+      workItemId: 'w-1',
+      stepId: 'step-dev',
+      days: 2,
+      personId: null,
+      width: 1,
+      poolIds: [],
+    },
+  ],
+  notBefore: new Map(),
+  poolSizes: new Map(),
+  reach: 'whole-item',
+  deadlines: new Map(),
+};
 const dirs: string[] = [];
 const children: Bun.Subprocess[] = [];
 
@@ -84,7 +109,15 @@ function heartbeatGate(): {
   };
 }
 
-describe('an OFF patch served by the other coordinator', () => {
+async function until(condition: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 50; turn += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error('optimizer cancellation condition did not arrive');
+}
+
+describe('cross-coordinator cancellation', () => {
   it('kills both real children inside one heartbeat and fences their late outcomes', async () => {
     const { blue, green } = database();
     const generation = allocateGeneration(blue, 'p-1', CONTRACT, 'hash-1', 10);
@@ -179,5 +212,116 @@ describe('an OFF patch served by the other coordinator', () => {
 
     // Proof: without the OFF transaction's epoch increment, both late writes
     // store after the ON patch and this fails on `superseded` before heartbeat.
+  });
+
+  it('ends the old real children and fences their outcomes during edit overlap', async () => {
+    const { blue } = database();
+    let input = INPUT;
+    let token = 0;
+    const attempts: {
+      readonly request: ReservedSpawnRequest;
+      readonly process: Bun.Subprocess<'ignore', 'pipe', 'pipe'>;
+      readonly heartbeat: ReturnType<typeof heartbeatGate>;
+    }[] = [];
+    const errors: unknown[] = [];
+    const instance = new OptimizationCoordinator({
+      db: blue,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => `blue-${String(token++)}`,
+      inputOf: () => Promise.resolve(input),
+      enabledOf: () => Promise.resolve(true),
+      editDebounceMs: 0,
+      sleep: () => Promise.resolve(),
+      spawn: (request): Promise<ReservedSolverChild> => {
+        const process = childProcess();
+        const heartbeat = heartbeatGate();
+        attempts.push({ request, process, heartbeat });
+        return Promise.resolve({
+          pid: process.pid,
+          stdout: process.stdout,
+          stderr: process.stderr,
+          exited: process.exited,
+          verdict: () => undefined,
+          kill: () => {
+            process.kill();
+          },
+        });
+      },
+      runChild: (options) => {
+        const attempt = attempts.find(({ process }) => process.pid === options.child.pid);
+        if (attempt === undefined) throw new Error('spawned child was not recorded');
+        return runSolverChildLifecycle({ ...options, sleep: attempt.heartbeat.sleep });
+      },
+      onChildError: (error) => errors.push(error),
+    });
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input })).toBeNull();
+    await until(
+      () =>
+        attempts.length === 2 &&
+        blue
+          .select({ lifecycle: solverSlot.lifecycle })
+          .from(solverSlot)
+          .all()
+          .every(({ lifecycle }) => lifecycle === 'running'),
+    );
+    const firstGeneration = attempts[0].request.generation;
+
+    input = {
+      ...INPUT,
+      slices: INPUT.slices.map((slice) => ({ ...slice, days: (slice.days ?? 0) + 1 })),
+    };
+    instance.inputChanged('p-1');
+    await until(
+      () =>
+        attempts.length === 4 &&
+        blue
+          .select({ lifecycle: solverSlot.lifecycle })
+          .from(solverSlot)
+          .all()
+          .every(({ lifecycle }) => lifecycle === 'running'),
+    );
+
+    expect(attempts.map(({ request }) => request.objective)).toEqual([
+      'pri',
+      'time',
+      'pri',
+      'time',
+    ]);
+    expect(new Set(attempts.slice(0, 2).map(({ request }) => request.generation))).toEqual(
+      new Set([firstGeneration]),
+    );
+    expect(new Set(attempts.slice(2).map(({ request }) => request.generation))).toEqual(
+      new Set([firstGeneration + 1]),
+    );
+    expect(blue.select().from(solverSlot).all()).toHaveLength(4);
+
+    for (const attempt of attempts.slice(0, 2)) attempt.heartbeat.wake();
+    const oldExitCodes = await Promise.all(
+      attempts.slice(0, 2).map(({ process }) => process.exited),
+    );
+    await until(() => blue.select().from(solverSlot).all().length === 2);
+    expect(oldExitCodes.every((code) => typeof code === 'number')).toBe(true);
+    expect(
+      blue
+        .select()
+        .from(optimizedScheduleCache)
+        .all()
+        .filter(({ generation }) => generation === firstGeneration),
+    ).toEqual([]);
+
+    for (const attempt of attempts.slice(2)) attempt.process.kill();
+    await instance.drain();
+    expect(blue.select().from(solverSlot).all()).toEqual([]);
+    expect(errors).toEqual([]);
+    expect(scheduleInputHash(input)).not.toBe(scheduleInputHash(INPUT));
+
+    // Proof: dropping both durable generation-cancellation signals leaves the
+    // first pair alive at its next heartbeat; releasing old seats before their
+    // actual exits makes the sampled overlap exceed the SQLite-owned count.
   });
 });

@@ -3613,15 +3613,14 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       proves the serving composition calls startup before health turns green.
       The supervisor channel, lifecycle and runtime suites prove EOF cleanup,
       the persistent deadline timer command, and pre-listen orphan sweeping.
-- [ ] 6.6 **Proven by** `optimization-coordinator.test.ts`, asserting on an
-      injected spawner rather than timing: a cold input spawns exactly two; a
-      full hit spawns none; **two concurrent first reads spawn exactly one per
-      objective**; a second edit mid-solve kills the old pair (asserting the
-      child process actually exited, not that a flag was set) and writes no
-      stale row; the per-project count never exceeds 4 during termination
-      overlap; the queue discards a stale-generation entry at dequeue; the
-      queue discards a still-current-hash entry whose project toggled OFF while
-      queued.
+- [x] 6.6 **Proven by** the distributed coordinator suite, asserting on
+      injected spawners rather than timing: `optimization-coordinator.db.test.ts`
+      covers cold input, full-hit reuse, and two-coordinator coalescing at one
+      call per objective; `optimization-cancel.two-coordinator.db.test.ts`
+      drives a second edit through four real child processes, samples the
+      four-seat termination overlap, observes both old processes exit, and
+      finds no old-generation write; `optimization-queue.db.test.ts` discards
+      generation-stale and still-current-hash/project-OFF entries at dequeue.
 - [x] 6.7 **Proven by** `optimization-admission.db.test.ts`: **two coordinator
       instances against one SQLite file** — the blue/green case — admit 16
       children between them, not 32, and 4 for one project, not 8; and a
