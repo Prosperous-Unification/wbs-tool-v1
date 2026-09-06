@@ -18,6 +18,7 @@ const logger = createLogger({ service: 'be-01', level: cfg.LOG_LEVEL });
 let running;
 try {
   running = bootBe01({
+    appOrigin: cfg.appOrigin,
     dbPath: cfg.DB_PATH,
     port: cfg.PORT,
     logger,

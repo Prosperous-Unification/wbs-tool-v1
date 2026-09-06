@@ -19,6 +19,7 @@ const TEST_SECRET = 'x'.repeat(32);
 describe('POST /api/smoke/echo', () => {
   it('returns the validated message', async () => {
     const app = buildApp({
+      appOrigin: 'http://localhost',
       directory: testDirectoryService(),
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
@@ -49,6 +50,7 @@ describe('POST /api/smoke/echo', () => {
 
   it('rejects invalid body with 400', async () => {
     const app = buildApp({
+      appOrigin: 'http://localhost',
       directory: testDirectoryService(),
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),

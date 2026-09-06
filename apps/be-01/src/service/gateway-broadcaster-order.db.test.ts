@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { systemTimers } from '@wbs/runtime-portable';
 import { expect, it } from 'bun:test';
 
 import { openDrizzle } from '../repository/db';
@@ -35,6 +36,9 @@ it('allows C to overtake recorded B while its push is held', async () => {
       gwUrl: 'http://transport.test',
       secret: 'fixture',
       maxRetries: 0,
+      timers: systemTimers,
+      attemptMs: 5_000,
+      overallMs: 15_000,
       fetchImpl: async (_url, init) => {
         if (typeof init?.body !== 'string') throw new Error('push body must be serialized JSON');
         const frame = JSON.parse(init.body) as { seq: number; message: { type: string } };

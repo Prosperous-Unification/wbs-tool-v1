@@ -65,6 +65,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
     }),
   });
   const app = buildApp({
+    appOrigin: 'http://localhost',
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
@@ -86,7 +87,7 @@ function buildHarness(options: { writeOnly?: boolean; optimizerAvailable?: boole
     const res = await app.handle(
       new Request('http://localhost/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { origin: 'http://localhost', 'content-type': 'application/json' },
         body: JSON.stringify({ username, password: 'correct-horse' }),
       }),
     );

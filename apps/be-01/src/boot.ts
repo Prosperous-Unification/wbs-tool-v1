@@ -15,6 +15,7 @@ import { WriteLock } from './service/write-lock';
 import { type BeServices, buildServices } from './services';
 
 export interface BootOptions {
+  appOrigin: string;
   dbPath: string;
   port: number;
   logger: Logger;
@@ -91,6 +92,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
 
   const state = { migrationsApplied: false };
   const app = buildApp({
+    appOrigin: opts.appOrigin,
     get migrationsApplied() {
       return state.migrationsApplied;
     },

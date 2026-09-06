@@ -12,23 +12,23 @@ Each implementation change keeps ordered slices and fresh evidence in its own
 - [x] Create isolated worktree and branch; install locked dependencies.
 - [x] Establish baseline unit tests and current collision inventory (full gates pending).
 - [ ] W4-4: table modules committed (`281144a9`), 601 concept tests and review passed; full gates pending.
-- [ ] R1: plan refresh coordinator; after W4-4, before client migration.
+- [ ] R1: implemented/reviewed and integrated (`35576d79`), 220 focused regressions passed; full gates pending.
 - [ ] R2: team removal revisions and audit stamps — implementation/review/typecheck done (`e9141949`); full gate pending.
 - [ ] R3: authentication storage fault boundary — implementation/review/typecheck done (`271500c4`); full gate pending.
 - [ ] R4: ingress committed (`ae1fc858`), 337 scoped tests and review passed; composed gate pending.
 - [ ] R5: login admission committed (`47167984`), 131 scoped tests/review/typecheck passed; full gate pending.
 - [ ] R6: scoped queries committed (`20801719`), scoped tests/review/typecheck passed; full gate pending.
-- [ ] R7: project-scoped presence delivery; after R4.
+- [ ] R7: scoped presence implemented/reviewed and integrated (`96c2cd6e`); 342 scoped tests passed, full gate pending.
 - [ ] R8: bounded replay sweep committed (`5793763e`), 31 scoped tests/review passed; full gate pending.
-- [ ] R9: bounded gateway transport deadlines; after gateway/auth owners release files.
-- [ ] R10: measured viewport rendering and search isolation; after W4-4/R1.
-- [ ] HTTP Wave 0: reconcile landed features and routes; inventory collision paths.
+- [ ] R9: backend/gateway cancellation implemented/reviewed and integrated (`d13b0330`, `f594a8fa`); full gates pending.
+- [ ] R10: implementation started in isolated `refactor/measured-rendering`; preparing Chromium measurement fixtures.
+- [ ] HTTP Wave 0: route/refusal/origin inventories and compiler baseline recorded; promotion reconciliation underway.
 - [ ] HTTP Wave 1: shared endpoint shapes, adapter, document and typed clients.
 - [ ] Store Wave 2: ports, write coordinator, unit of work, runtime ports and kits.
 - [ ] Core Wave 3: extract packages and enforce rings with negative proofs.
 - [ ] Namespacing: move packages and update gates.
 - [ ] Review each implementation and resolve findings.
-- [ ] Integrate feature-bearing main `a91f831b`: three conflict resolutions under review; check for later features again before final gates.
+- [ ] Main `a91f831b` integrated/reviewed/browser-green; `b2bb095c` deadline slice merged without conflicts, 1693 backend tests passed. Fetch again before final gates.
 - [ ] Freeze final tree; full workspace/browser gates and whole-branch review.
 
 ## Integration policy

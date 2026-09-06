@@ -12,6 +12,7 @@ import {
   type TokenVerifier,
 } from '@wbs/auth';
 
+import { oidcCallbackUrlFromEnv } from '../config';
 import { checkedBody } from '../http/body-doc';
 import {
   isFieldBag,
@@ -77,17 +78,7 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
     if (env[key] === undefined || env[key] === '')
       throw new Error(`${key} is required in AUTH_MODE=oidc`);
   }
-  const redirectUriValue = env['AUTH_REDIRECT_URI'];
-  if (redirectUriValue === undefined)
-    throw new Error('AUTH_REDIRECT_URI is required in AUTH_MODE=oidc');
-  const redirectUri = new URL(redirectUriValue);
-  if (
-    redirectUri.pathname !== '/api/auth/okta/callback' ||
-    redirectUri.search !== '' ||
-    redirectUri.hash !== ''
-  ) {
-    throw new Error('AUTH_REDIRECT_URI must use the mounted /api/auth/okta/callback route');
-  }
+  const redirectUri = oidcCallbackUrlFromEnv(env);
   const passwordLoginEnabled = booleanFlagOf(env, 'AUTH_PASSWORD_LOGIN', true);
   const passwordRegisterEnabled = booleanFlagOf(env, 'AUTH_PASSWORD_REGISTER', false);
   if (passwordRegisterEnabled && !passwordLoginEnabled) {

@@ -75,6 +75,7 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
     const auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
 
     app = buildApp({
+      appOrigin: 'http://localhost',
       savedPlans: testSavedPlanService(),
       auth,
       projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
@@ -117,7 +118,7 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
     const registered = await app.handle(
       new Request('http://localhost/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { origin: 'http://localhost', 'content-type': 'application/json' },
         body: JSON.stringify({ username: 'owner', password: 'correct-horse' }),
       }),
     );
@@ -303,7 +304,7 @@ describe('setCapacity on POST /api/projects/:id/commands', () => {
     const registered = await app.handle(
       new Request('http://localhost/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { origin: 'http://localhost', 'content-type': 'application/json' },
         body: JSON.stringify({ username: 'stranger', password: 'correct-horse' }),
       }),
     );

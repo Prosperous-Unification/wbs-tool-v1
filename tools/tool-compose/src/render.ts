@@ -79,6 +79,7 @@ export function previewContext(
     // just needs *some* valid env_file entry, not the real per-tier
     // allowlisting a real deploy applies.
     ENV_FILES: env['ENV_FILES'] ?? '    env_file:\n      - /home/puni1/wbs/be-01.env\n',
+    ENVIRONMENT: env['ENVIRONMENT'] ?? '',
     VOLUMES: env['VOLUMES'] ?? '    volumes:\n      - /home/puni1/wbs/data:/data\n',
   };
 }

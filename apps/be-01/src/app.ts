@@ -18,7 +18,7 @@ import { solutionRoutes } from './controller/solution.routes';
 import { stepRoutes } from './controller/step.routes';
 import { workItemRoutes } from './controller/work-item.routes';
 import { bindElysia } from './http/elysia/bind';
-import type { Route } from './http/route';
+import { matchPath, type Route } from './http/route';
 import { userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
@@ -40,6 +40,8 @@ import type { WorkItemService } from './service/work-item.service';
 import type { WriteLock } from './service/write-lock';
 
 export interface AppOptions {
+  /** Trusted browser origin, resolved from operator configuration before boot. */
+  appOrigin: string;
   migrationsApplied: boolean;
   /**
    * Required rather than optional. An optional auth service would let a
@@ -269,7 +271,19 @@ export function buildApp(opts: AppOptions) {
       // here is a red rather than a silent omission.
       .use(openApiPlugin())
       .onRequest(async ({ request, set }) => {
-        if (opts.oidc !== undefined && hasInvalidCookieOrigin(request, opts.oidc.appOrigin)) {
+        const path = new URL(request.url).pathname;
+        // Proof: reverting to exact paths invokes authentication once in both
+        // trailing-slash origin.integration.test.ts cases instead of zero times.
+        const passwordHandshake =
+          request.method === 'POST' &&
+          (matchPath('/api/auth/login', path) !== null ||
+            matchPath('/api/auth/register', path) !== null);
+        // Proof: origin.integration.test.ts receives 400 instead of 403 when
+        // the handshake check is removed, and 200 instead of 403 without the cookie check.
+        if (
+          (passwordHandshake && request.headers.get('origin') !== opts.appOrigin) ||
+          hasInvalidCookieOrigin(request, opts.appOrigin)
+        ) {
           set.status = 403;
           return { error: 'invalid_origin' };
         }

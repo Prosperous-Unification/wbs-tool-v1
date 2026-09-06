@@ -23,6 +23,7 @@ const TEST_SECRET = 'x'.repeat(32);
 
 function app(auth = testAuthService(), maxConcurrentLogins?: number) {
   return buildApp({
+    appOrigin: 'http://localhost',
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
@@ -45,7 +46,7 @@ function app(auth = testAuthService(), maxConcurrentLogins?: number) {
 const json = (path: string, body: unknown) =>
   new Request(`http://localhost${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: 'http://localhost' },
     body: JSON.stringify(body),
   });
 
@@ -87,7 +88,10 @@ describe('POST /api/auth/register', () => {
 describe('POST /api/auth/login', () => {
   it('returns a token for correct credentials', async () => {
     const a = app();
-    await a.handle(json('/api/auth/register', { username: 'grace', password: 'hopper2026' }));
+    const registered = await a.handle(
+      json('/api/auth/register', { username: 'grace', password: 'hopper2026' }),
+    );
+    expect(registered.status).toBe(200);
     const res = await a.handle(
       json('/api/auth/login', { username: 'grace', password: 'hopper2026' }),
     );
@@ -97,7 +101,10 @@ describe('POST /api/auth/login', () => {
 
   it('returns 401 for a wrong password', async () => {
     const a = app();
-    await a.handle(json('/api/auth/register', { username: 'grace', password: 'hopper2026' }));
+    const registered = await a.handle(
+      json('/api/auth/register', { username: 'grace', password: 'hopper2026' }),
+    );
+    expect(registered.status).toBe(200);
     const res = await a.handle(
       json('/api/auth/login', { username: 'grace', password: 'wrongpassword' }),
     );
@@ -127,6 +134,7 @@ describe('GET /api/auth/me', () => {
       },
     });
     const res = await buildApp({
+      appOrigin: 'http://localhost',
       directory: testDirectoryService(),
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),
@@ -304,7 +312,11 @@ function heldLogins(maxConcurrentLogins?: number, now?: () => number) {
   const login = (username: string, ip: string): Promise<Response> => {
     const request = new Request('http://localhost/api/auth/login', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://localhost',
+        'x-forwarded-for': ip,
+      },
       body: JSON.stringify({ username, password: 'long-enough-password' }),
     });
     const response = application.handle(request).then((response) => {

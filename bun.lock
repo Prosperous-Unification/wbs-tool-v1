@@ -5,6 +5,7 @@
     "": {
       "name": "@wbs/source",
       "dependencies": {
+        "@ark/schema": "0.56.0",
         "@elysiajs/openapi": "^1.4.15",
         "@elysiajs/opentelemetry": "^1.4.11",
         "@modelcontextprotocol/sdk": "1.30.0",

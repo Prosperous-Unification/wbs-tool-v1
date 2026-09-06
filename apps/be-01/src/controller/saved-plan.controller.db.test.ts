@@ -86,6 +86,7 @@ describe('the saved-plan routes', () => {
     const projects = new ProjectRepository(connection.db);
 
     app = buildApp({
+      appOrigin: 'http://localhost',
       auth: new AuthService({ users: new UserRepository(connection.db), jwtKey: TEST_JWT_KEY }),
       // The same recorder the rest of this app is built on, not a second one:
       // `ProjectServiceOptions.broadcast` is required (project.service.ts), and
@@ -113,7 +114,7 @@ describe('the saved-plan routes', () => {
       const res = await app.handle(
         new Request('http://localhost/api/auth/register', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { origin: 'http://localhost', 'content-type': 'application/json' },
           body: JSON.stringify({ username, password: 'correct-horse' }),
         }),
       );

@@ -138,6 +138,7 @@ function fixture(
   };
   const users = inMemoryUsers();
   const app = buildApp({
+    appOrigin: oidc.appOrigin,
     auth: testAuthService(users, oidc),
     capacity: testCapacityService(),
     directory: testDirectoryService(),
@@ -165,7 +166,7 @@ describe('OIDC browser routes', () => {
     const register = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/register', {
         body: JSON.stringify({ username: 'bypass', password: 'bypass-password' }),
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', origin: 'https://dev.wbs.test' },
         method: 'POST',
       }),
     );
@@ -404,7 +405,7 @@ describe('OIDC browser routes', () => {
     const login = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/login', {
         body: JSON.stringify({ username: 'claire-qa', password: 'correct-horse-2026' }),
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', origin: 'https://dev.wbs.test' },
         method: 'POST',
       }),
     );
@@ -485,6 +486,7 @@ describe('OIDC browser routes', () => {
         path: route.path,
         status: 403,
       });
+      expect(await res.json()).toEqual({ error: 'insufficient_scope' });
     }
   });
 
@@ -1204,4 +1206,22 @@ describe('OIDC authentication failure boundaries', () => {
     const f = fixture({ sub: 'subject-1' });
     expect((await f.app.handle(request())).status).toBe(401);
   });
+});
+
+it('checks password-route origin before reporting a disabled route', async () => {
+  const f = fixture(undefined, { passwordLoginEnabled: false });
+  for (const action of ['login', 'register']) {
+    const origins: Record<string, string>[] = [{}, { origin: 'https://foreign.example' }];
+    for (const headers of origins) {
+      const response = await f.app.handle(
+        new Request(`https://dev.wbs.test/api/auth/${action}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...headers },
+          body: JSON.stringify({ username: 'disabled', password: 'valid-password-123' }),
+        }),
+      );
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: 'invalid_origin' });
+    }
+  }
 });

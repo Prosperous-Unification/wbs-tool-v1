@@ -134,6 +134,7 @@ describe('the schedule identity guarantee', () => {
     const projects = new ProjectRepository(db);
 
     app = buildApp({
+      appOrigin: 'http://localhost',
       auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
       projects: new ProjectService({ projects, broadcast }),
       steps: new StepService({ projects, steps: new StepRepository(db), broadcast }),
@@ -182,7 +183,7 @@ describe('the schedule identity guarantee', () => {
     const res = await app.handle(
       new Request('http://localhost/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { origin: 'http://localhost', 'content-type': 'application/json' },
         body: JSON.stringify({ username, password: 'correct-horse' }),
       }),
     );

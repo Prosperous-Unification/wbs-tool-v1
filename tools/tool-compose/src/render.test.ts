@@ -25,7 +25,7 @@ describe('renderTemplate', () => {
 
 describe('previewContext', () => {
   it('supplies an empty MCP route block for the build preview', () => {
-    expect(previewContext({})).toMatchObject({ MCP_ROUTES: '' });
+    expect(previewContext({})).toMatchObject({ MCP_ROUTES: '', ENVIRONMENT: '' });
   });
 });
 
@@ -46,6 +46,7 @@ describe('renderAll', () => {
         MCP_ROUTES: '',
         ENV_FILES:
           '    env_file:\n      - /home/puni1/wbs/be-01.env\n      - /home/puni1/wbs/be-01.secrets.env\n',
+        ENVIRONMENT: '    environment:\n      APP_ORIGIN: https://wbs.bulletpoints.club\n',
         VOLUMES: '    volumes:\n      - /home/puni1/wbs/data:/data\n',
       },
     });
@@ -54,6 +55,7 @@ describe('renderAll', () => {
     expect(tier).toMatch(/image: registry.infra.bulletpoints.club\/wbs-be-01:abc1234/);
     expect(tier).toMatch(/be-01-green:/);
     expect(tier).toMatch(/- \/home\/puni1\/wbs\/be-01\.secrets\.env/);
+    expect(tier).toContain('APP_ORIGIN: https://wbs.bulletpoints.club');
     expect(tier).toContain('driver: json-file');
     expect(tier).toContain("max-size: '20m'");
     expect(tier).toContain("max-file: '3'");

@@ -150,6 +150,7 @@ describe('the calendar-marker routes', () => {
     const projects = new ProjectRepository(db);
 
     app = buildApp({
+      appOrigin: 'http://localhost',
       auth: new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY }),
       projects: new ProjectService({ projects, broadcast }),
       // A clock held still, because `createdAt` is an ordering key here rather
@@ -180,7 +181,7 @@ describe('the calendar-marker routes', () => {
       const res = await app.handle(
         new Request('http://localhost/api/auth/register', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { origin: 'http://localhost', 'content-type': 'application/json' },
           body: JSON.stringify({ username, password: 'correct-horse' }),
         }),
       );

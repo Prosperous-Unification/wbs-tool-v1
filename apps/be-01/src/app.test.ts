@@ -58,6 +58,7 @@ async function signedInProbe(): Promise<{
 
 function appWith(auth: AuthService): ReturnType<typeof buildApp> {
   return buildApp({
+    appOrigin: 'http://localhost',
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),

@@ -19,6 +19,7 @@ const SECRET = 'test-secret-must-be-32-chars-at-least-!';
 function buildHarness() {
   const { log, buffer, replay } = testReplay();
   const app = buildApp({
+    appOrigin: 'http://localhost',
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),

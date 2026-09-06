@@ -106,6 +106,7 @@ beforeEach(async () => {
   writes = testWrites(broadcast);
 
   app = buildApp({
+    appOrigin: 'http://localhost',
     savedPlans: testSavedPlanService(),
     directory: new DirectoryService({ directory, broadcast: recordingBroadcaster() }),
     capacity: testCapacityService(),
@@ -153,7 +154,7 @@ async function register(username: string): Promise<string> {
   const res = await app.handle(
     new Request('http://localhost/api/auth/register', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { origin: 'http://localhost', 'content-type': 'application/json' },
       body: JSON.stringify({ username, password: 'correct-horse' }),
     }),
   );

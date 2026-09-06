@@ -69,6 +69,7 @@ beforeEach(() => {
   const directory = new DirectoryRepository(db);
 
   app = buildApp({
+    appOrigin: 'http://localhost',
     savedPlans: testSavedPlanService(),
     directory: testDirectoryService(),
     capacity: testCapacityService(),
@@ -113,7 +114,7 @@ async function registerAccount(username: string): Promise<{ token: string; userI
   const res = await app.handle(
     new Request('http://localhost/api/auth/register', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { origin: 'http://localhost', 'content-type': 'application/json' },
       body: JSON.stringify({ username, password: 'correct-horse' }),
     }),
   );

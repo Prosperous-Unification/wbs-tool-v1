@@ -33,6 +33,7 @@ import { testWrites } from './writes-fixture';
  */
 export function testApp(overrides: Partial<AppOptions> = {}): ReturnType<typeof buildApp> {
   return buildApp({
+    appOrigin: 'http://localhost',
     auth: testAuthService(),
     projects: testProjectService(),
     workItems: testWorkItemService(),

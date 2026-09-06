@@ -283,6 +283,9 @@ export default defineConfig({
   // three servers that cannot talk to each other.
   webServer: [
     server('be-01', 'bun src/main.ts', `${beUrl}/health`, {
+      // Proof: pinning4200 made the shifted-config login probe receive403
+      // instead of401 from the actual backend route (playwright-config.test.ts).
+      APP_ORIGIN: `http://localhost:${String(fePort)}`,
       PORT: String(bePort),
       GW_URL: gwUrl,
       DB_PATH: runDatabase,

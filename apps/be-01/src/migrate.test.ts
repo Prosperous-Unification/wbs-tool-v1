@@ -18,6 +18,7 @@ describe('migrate lifecycle', () => {
   it('exposes 503 before migrations complete then 200 after', async () => {
     const state = { migrationsApplied: false };
     const app = buildApp({
+      appOrigin: 'http://localhost',
       directory: testDirectoryService(),
       capacity: testCapacityService(),
       priorityBands: testPriorityBandService(),

@@ -193,7 +193,7 @@ interface SchemaShape<T> {
   validator: StandardSchemaV1<T>;
   jsonSchema: JsonSchema; // JSON Schema descriptor generated from the same declaration
 }
-type RefusalStatus = 400 | 401 | 403 | 404 | 409 | 422 | 429 | 503;
+type RefusalStatus = 400 | 401 | 403 | 404 | 405 | 409 | 422 | 429 | 501 | 503;
 type RequestPolicy =
   | { kind: 'origin'; when: 'always-unsafe-with-session-cookie' | 'always' }
   | { kind: 'identity'; require: 'signed-in' | 'read-scope' | 'write-scope' | 'internal' };

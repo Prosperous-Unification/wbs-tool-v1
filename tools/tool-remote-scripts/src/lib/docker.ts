@@ -209,7 +209,9 @@ export function tierEnvFiles(tier: Tier, layout: EnvLayout = CURRENT_ENV): strin
  * this check existed).
  */
 const APP_ENV_ALLOWED_KEYS: Record<Tier, readonly string[]> = {
-  be: ['PORT', 'LOG_LEVEL', 'GW_URL', 'DB_PATH', 'AUTH_MODE'],
+  // Proof: removing APP_ORIGIN made startGreen admits in swap.test.ts throw
+  // outside-tier-allowlist before writing Compose or invoking Docker.
+  be: ['PORT', 'LOG_LEVEL', 'GW_URL', 'DB_PATH', 'AUTH_MODE', 'APP_ORIGIN'],
   gw: ['PORT', 'LOG_LEVEL', 'BE_URL', 'AUTH_MODE'],
   fe: [],
 };
@@ -286,6 +288,39 @@ function volumesBlock(tier: Tier, layout: EnvLayout = CURRENT_ENV): string {
 }
 
 /**
+ * The public Caddy address as one browser origin. Bare hosts use Caddy's
+ * automatic HTTPS; an explicit HTTP/HTTPS scheme is retained. This is trusted
+ * deployment configuration, never an arriving request's Host or Origin.
+ * @throws if siteAddress includes credentials, whitespace, a path, query, fragment,
+ * or a non-HTTP scheme, since none denotes the one allowed browser origin.
+ */
+function browserOrigin(siteAddress: string): string {
+  // Proof: deleting whitespace refusal let a newline-bearing address render
+  // instead of throwing in docker.test.ts (URL would normalize it away).
+  if (/\s/.test(siteAddress)) throw new Error('siteAddress must name one HTTP origin');
+  let origin: URL;
+  try {
+    origin = new URL(siteAddress.includes('://') ? siteAddress : `https://${siteAddress}`);
+  } catch (cause) {
+    throw new Error('siteAddress must name one HTTP origin', { cause });
+  }
+  // Proof: deleting this origin check rendered a credential-bearing layout
+  // instead of throwing in docker.test.ts.
+  if (
+    (origin.protocol !== 'https:' && origin.protocol !== 'http:') ||
+    origin.username !== '' ||
+    origin.password !== '' ||
+    origin.pathname !== '/' ||
+    origin.search !== '' ||
+    origin.hash !== '' ||
+    origin.hostname.includes('*')
+  ) {
+    throw new Error('siteAddress must name one HTTP origin');
+  }
+  return origin.origin;
+}
+
+/**
  * Substitution context for `tier.compose.tmpl`. `{{TIER}}` is deliberately
  * the app name (`be-01`), not the short tier code (`be`): that's what makes
  * the rendered service/container name equal `containerName()`, and what
@@ -318,6 +353,12 @@ export function tierComposeContext(
     NETWORK: layout.network,
     IMAGE: assertDigestPinnedRef(image, tier),
     ENV_FILES: envFilesBlock(tier, layout),
+    // Proof: omitting the template carrier made the rendered-environment backend
+    // startup probe exit1 instead of0 (docker.test.ts).
+    ENVIRONMENT:
+      tier === 'be'
+        ? `    environment:\n      APP_ORIGIN: ${JSON.stringify(browserOrigin(layout.siteAddress))}\n`
+        : '',
     VOLUMES: volumesBlock(tier, layout),
   };
 }

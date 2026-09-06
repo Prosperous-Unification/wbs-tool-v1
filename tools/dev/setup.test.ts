@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -86,4 +86,64 @@ describe('the seeded env files must agree where two tiers share a secret', () =>
       expect(env.get('NODE_ENV')).toBe('development');
     }
   });
+});
+
+describe('existing local backend configuration', () => {
+  it('diagnoses the missing origin without replacing unrelated configuration', async () => {
+    const existing = 'AUTH_MODE=local\nPORT=9999\nCUSTOM=value\n';
+    const root = await makeFakeRepo({
+      'be-01': { example: 'AUTH_MODE=local\nAPP_ORIGIN=http://localhost:4200\n', env: existing },
+    });
+    await seedApp('be-01', root).then(
+      () => {
+        throw new Error('expected missing-origin refusal');
+      },
+      (error: unknown) => {
+        expect(error).toBeInstanceOf(Error);
+        expect(String(error)).toContain('APP_ORIGIN=http://localhost:4200');
+      },
+    );
+    expect(await Bun.file(join(root, 'apps/be-01/.env')).text()).toBe(existing);
+  });
+  it('accepts an existing configured local origin and quoted auth mode', async () => {
+    const root = await makeFakeRepo({
+      'be-01': {
+        example: 'AUTH_MODE=local\n',
+        env: 'AUTH_MODE="local"\nAPP_ORIGIN="http://localhost:4700"\n',
+      },
+    });
+    expect(await seedApp('be-01', root)).toBe('already-present');
+  });
+  it('leaves OIDC configuration on its callback-derived origin', async () => {
+    const root = await makeFakeRepo({
+      'be-01': {
+        example: 'AUTH_MODE=local\n',
+        env: 'AUTH_MODE=oidc\nAUTH_REDIRECT_URI=https://app.example/api/auth/okta/callback\n',
+      },
+    });
+    expect(await seedApp('be-01', root)).toBe('already-present');
+  });
+});
+
+it('refuses an unreadable existing backend environment', async () => {
+  const root = await makeFakeRepo({
+    'be-01': {
+      example: 'AUTH_MODE=local\n',
+      env: 'AUTH_MODE=local\nAPP_ORIGIN=http://localhost:4200\n',
+    },
+  });
+  const target = join(root, 'apps/be-01/.env');
+  await chmod(target, 0);
+  try {
+    await seedApp('be-01', root).then(
+      () => {
+        throw new Error('expected unreadable-environment refusal');
+      },
+      (error: unknown) => {
+        expect(error).toMatchObject({ code: 'EACCES' });
+      },
+    );
+  } finally {
+    await chmod(target, 0o600);
+  }
 });

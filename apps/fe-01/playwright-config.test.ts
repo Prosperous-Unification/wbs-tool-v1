@@ -4,6 +4,7 @@
 // the Playwright config pulls in `@playwright/test`, and a config module has no
 // DOM to test. Kept beside that file rather than under `src/` because both are
 // about a config at the root of this app rather than about the app.
+import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -87,6 +88,36 @@ describe('the browser gate’s port shift', () => {
   it('points the browser at the frontend it actually started', async () => {
     const config = (await loadConfig('500')) as { use?: { baseURL?: string } };
     expect(config.use?.baseURL).toBe('http://localhost:4700');
+  });
+
+  it('lets a shifted browser login reach authentication through the configured backend origin', async () => {
+    const [backend] = serversOf(await loadConfig('500'));
+    const env = {
+      AUTH_MODE: 'local',
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'error',
+      INTERNAL_AUTH_SECRET: 's'.repeat(32),
+      JWT_SIGNING_KEY_CURRENT: 'k'.repeat(32),
+      ...backend.env,
+    };
+    const script = `
+      import { loadConfig } from './apps/be-01/src/config.ts';
+      import { testApp } from './apps/be-01/src/testing/app-fixture.ts';
+      const config = loadConfig(JSON.parse(process.env['ORIGIN_PROBE_CONFIG']));
+      const app = testApp({appOrigin: config.appOrigin});
+      const response = await app.handle(new Request('http://localhost:3600/api/auth/login', {
+        method:'POST', headers:{'content-type':'application/json',origin:'http://localhost:4700'},
+        body:JSON.stringify({username:'origin-probe',password:'incorrect'}),
+      }));
+      console.log(response.status);
+    `;
+    const status = execFileSync('bun', ['--no-env-file', '--eval', script], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { PATH: process.env['PATH'], ORIGIN_PROBE_CONFIG: JSON.stringify(env) },
+    });
+    expect(status.trim()).toBe('401');
   });
 
   it('refuses a shift it cannot use rather than reading it as zero', async () => {

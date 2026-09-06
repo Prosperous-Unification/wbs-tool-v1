@@ -645,3 +645,41 @@ describe('readMcpExposure', () => {
     expect(threw).toBe(true);
   });
 });
+
+it('startGreen admits backend APP_ORIGIN and writes its trusted container override before Docker', async () => {
+  const written = new Map<string, string>();
+  let started = false;
+  await startGreen(
+    'be',
+    'green',
+    'registry.infra.bulletpoints.club/wbs-be-01@sha256:' + 'a'.repeat(64),
+    '/fixture/be.phase',
+    {
+      oidcEnvPath: null,
+      readText: (path) =>
+        Promise.resolve(
+          path.endsWith('/be-01.env')
+            ? 'PORT=3100\nLOG_LEVEL=error\nGW_URL=http://gw\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\nAPP_ORIGIN=https://operator.example\n'
+            : 'INTERNAL_AUTH_SECRET=s\nJWT_SIGNING_KEY_CURRENT=k\n',
+        ),
+      writePhaseFile: () => Promise.resolve(),
+      writeAtomicFile: (path, content) => {
+        written.set(path, content);
+        return Promise.resolve();
+      },
+      runDocker: () => {
+        const compose = [...written.values()].find((content) => content.startsWith('services:'));
+        if (compose === undefined) throw new Error('Docker called before Compose write');
+        const parsed = Bun.YAML.parse(compose) as {
+          services: Record<string, { environment: Record<string, string> }>;
+        };
+        expect(Object.values(parsed.services)[0].environment['APP_ORIGIN']).toBe(
+          'https://wbs.bulletpoints.club',
+        );
+        started = true;
+        return Promise.resolve('');
+      },
+    },
+  );
+  expect(started).toBe(true);
+});

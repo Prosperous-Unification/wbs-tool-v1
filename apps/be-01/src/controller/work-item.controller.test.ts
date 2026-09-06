@@ -21,6 +21,7 @@ function buildHarness() {
   const plan = inMemoryServices();
   const { projects: projectStore, directory: directoryStore, measures: measureStore } = plan.stores;
   const app = buildApp({
+    appOrigin: 'http://localhost',
     // **One** directory, shared with the work item service below. Two would
     // both look healthy while a person created through a `createPerson`
     // command was invisible to the assignment that names them — which is
@@ -47,7 +48,7 @@ function buildHarness() {
     const res = await app.handle(
       new Request('http://localhost/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { origin: 'http://localhost', 'content-type': 'application/json' },
         body: JSON.stringify({ username, password: 'correct-horse' }),
       }),
     );

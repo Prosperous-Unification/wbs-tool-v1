@@ -17,8 +17,9 @@
  * MissingEnvExampleError. See setup.test.ts.
  */
 import { existsSync } from 'node:fs';
-import { copyFile } from 'node:fs/promises';
+import { copyFile, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { parseEnv } from 'node:util';
 
 const ROOT = resolve(import.meta.dir, '..', '..');
 const APPS: readonly string[] = ['be-01', 'gw-01', 'fe-01'];
@@ -41,7 +42,21 @@ export async function seedApp(app: string, root: string = ROOT): Promise<SeedOut
   const example = resolve(root, 'apps', app, '.env.example');
   const target = resolve(root, 'apps', app, '.env');
   if (!existsSync(example)) throw new MissingEnvExampleError(app);
-  if (existsSync(target)) return 'already-present';
+  if (existsSync(target)) {
+    if (app === 'be-01') {
+      // Proof: swallowing readFile failure makes the unreadable-environment
+      // setup.test.ts case resolve instead of reject.
+      const environment = parseEnv(await readFile(target, 'utf8'));
+      // Proof: removing this check makes the missing-origin setup.test.ts
+      // case resolve, preserving an unusable local configuration.
+      if (environment['AUTH_MODE'] === 'local' && !environment['APP_ORIGIN']) {
+        throw new Error(
+          'apps/be-01/.env requires APP_ORIGIN=http://localhost:4200 for local mode. Add the origin of your browser frontend; existing configuration was left unchanged.',
+        );
+      }
+    }
+    return 'already-present';
+  }
   await copyFile(example, target);
   return 'wrote';
 }

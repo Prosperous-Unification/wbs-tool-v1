@@ -105,3 +105,33 @@ Independent scoped review approved the coverage fix. No config fault remains.
 zero failed. ADR inventory: 17 unique IDs, with all three marker-reference files
 updated to 0017. Logs: `/private/tmp/wbs-refactoring-heavy-lock.log` and
 `/private/tmp/wbs-refactoring-merge-openspec.json`.
+
+## Merged checkpoint gates at 362c29a8
+
+Tracked tree remained clean throughout both runs. Full browser command:
+`env -u HEAVY_LOCK_WAIT_SECONDS CI=1 E2E_PORT_SHIFT=1900 bin/with-heavy-lock.sh -- bun run e2e`. Fresh owned ports5000/5100/6100 and CI server-reuse refusal were verified. **293 passed, 1 skipped, 0 failed**,10.0m, exit0. The existing skipped case is `apps/fe-01/e2e/gantt.spec.ts:2684`, “the chart edge the reader drags > dragging up moves the boundary up”. Log `/private/tmp/wbs-refactoring-merged-browser.log`.
+
+Full workspace command: `env -u HEAVY_LOCK_WAIT_SECONDS bin/h2puni-gate.sh`. Format and all lint/typecheck/build targets passed; backend **1693 passed,0failed**, frontend **2307 passed in88files** plus **3 Auckland cases in2files**. The complete run exited1 solely for `tool-bootstrap:test`:53passed,7failed,219assertions,1360.16s. Log `/private/tmp/wbs-refactoring-merged-gate.log`. **This is not a full gate pass.**
+
+The four host-state fault sweeps took25.40–32.91s under Bun's default5s timeout; the128-cell environment sweeps took339.44–451.94s under60s limits. Bun reported timeout and killed fixture subprocesses, causing expected deliberate-stop7 to read as null. No provisioning assertion was removed. The test-only correction gives host sweeps120s and environment sweeps900s. Focused host controls passed: 4 tests, 104 assertions, 140.11s. The corrected complete bootstrap suite passed: 60 tests, 0 failures, 286 assertions, 969.23s, exit 0, under the canonical lock with HEAVY_LOCK_WAIT_SECONDS unset. Logs: `/private/tmp/wbs-refactoring-bootstrap-host.log` and `/private/tmp/wbs-refactoring-bootstrap-restored.log`. These runner budgets do not claim provisioning performance. A new complete workspace gate is still required; this scoped restoration does not change the earlier exit 1.
+
+Workers began R1/R7/R9 in separate sibling worktrees from362c29a8 during this run; they did not edit its frozen tracked tree. Their pending tests are not part of this checkpoint evidence.
+
+## Deadline feature integration
+
+Fetched main advanced to b2bb095c, additive deadline schema slice#218. Merging into the integration branch produced no conflicts. Read-only review found explicit work-item projections keep the nullable field outside current API/capture shapes; R2 stamps and R6 assignment joins are unchanged. Upstream historical review/gate claims are not substituted for this branch's checks. The complete backend suite passed after merge: 1693 tests, 0 failures, 15395 assertions, 130 files, 112.90s; log `/private/tmp/wbs-refactoring-deadline-be.log`. Forced backend and frontend root source/spec typechecks passed during HTTP baseline measurement. A fresh migration lint after merge remains pending. Future writable deadline slices must coordinate projection and delete/undo restoration before they are integrated.
+
+## HTTP foundation checkpoint — 2026-09-06
+
+Frozen primary source at 35576d79 plus reviewed HTTP/origin changes: complete
+backend suite passed 1765 tests, 0 failures, 15716 assertions across 136 files
+in 106.30s (`env -u HEAVY_LOCK_WAIT_SECONDS bin/with-heavy-lock.sh -- bun test
+./apps/be-01/src`). Log: `/private/tmp/wbs-http-origin-backend-full.log`.
+A 2126-file content manifest was unchanged after the suite. Forced backend root
+source/spec compilation passed separately. Post-foundation forced compiler means
+were 10.133s backend and 11.637s frontend; neither doubled the recorded baseline.
+This is a scoped checkpoint; a fresh full workspace and browser gate remain owed.
+
+Fetched feature head bf69132d awaits integration after this checkpoint commit.
+Read-only audits identified OIDC mismatch retention, resolved marker wire colors,
+marker broadcaster composition, and required slice lateBy fields to preserve.

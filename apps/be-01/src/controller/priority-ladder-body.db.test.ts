@@ -92,6 +92,7 @@ describe('setPriorityBands on POST /api/projects/:id/commands', () => {
     broadcast = recordingBroadcaster();
     const auth = new AuthService({ users: new UserRepository(db), jwtKey: TEST_JWT_KEY });
     app = buildApp({
+      appOrigin: 'http://localhost',
       auth,
       projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
       directory: testDirectoryService(),
@@ -144,7 +145,7 @@ describe('setPriorityBands on POST /api/projects/:id/commands', () => {
     const response = await app.handle(
       new Request('http://localhost/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { origin: 'http://localhost', 'content-type': 'application/json' },
         body: JSON.stringify({ username, password: 'correct-horse' }),
       }),
     );

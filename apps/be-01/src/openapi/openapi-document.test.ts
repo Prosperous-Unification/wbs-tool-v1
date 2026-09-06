@@ -72,14 +72,13 @@ describe('the committed OpenAPI document', () => {
     const answered = await busy.handle(
       new Request(`http://localhost/api/auth/register`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { origin: 'http://localhost', 'content-type': 'application/json' },
         body: JSON.stringify({ username: 'someone', password: 'a-password-long-enough' }),
       }),
     );
     // The precondition: a route that 404s compiles no validator, and this case
     // would then be asserting nothing at all.
-    expect(answered.status).toBeLessThan(500);
-    expect(answered.status).not.toBe(404);
+    expect(answered.status).toBe(200);
 
     expect(serialiseDocument(await documentFromApp(testApp()))).toBe(clean);
   });

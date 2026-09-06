@@ -26,6 +26,7 @@ import { testWrites } from './testing/writes-fixture';
 
 function options(): AppOptions {
   return {
+    appOrigin: 'http://localhost',
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     calendarMarkers: testCalendarMarkerService(),

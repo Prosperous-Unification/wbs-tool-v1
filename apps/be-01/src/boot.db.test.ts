@@ -60,6 +60,7 @@ function boot(
   const dbPath = join(dir, 'test.db');
   runMigrations(dbPath, FOLDER);
   running = bootBe01({
+    appOrigin: oidc?.appOrigin ?? 'http://localhost',
     dbPath,
     port: 0,
     logger: createLogger({ service: 'be-01' }),
@@ -99,6 +100,7 @@ describe('bootBe01', () => {
   it('persists the fixed local identity after migrating an empty development database', async () => {
     const dir = tempDir('wbs-local-boot-');
     running = bootBe01({
+      appOrigin: 'http://localhost',
       dbPath: join(dir, 'test.db'),
       port: 0,
       logger: createLogger({ service: 'be-01' }),
