@@ -4623,57 +4623,100 @@ test.describe("a marker chip's contrast, as the compositor drew it", () => {
   const shotOf = async (page: Page, clip: Shot): Promise<string> =>
     (await page.screenshot({ clip })).toString('base64');
 
-  test('clears 3:1 against the weekday cell it stands on, in light', async ({ page }) => {
+  /**
+   * The composited ratio between a chip on a `kind` cell and the same kind of
+   * cell with no marker on it.
+   *
+   * One body for all four cases, because the four differ only in which cells
+   * they read and which palette the page is in: a case written out four times
+   * is four places for the pipeline above to drift, and this slice's whole
+   * subject is that the pipeline is the oracle.
+   *
+   * On the weekend it also proves its own binding. `bg-muted-foreground/10`
+   * over the base is a different colour from the base, so the weekend control
+   * is asserted **different** from a weekday control photographed in the same
+   * pass: a control that had landed on an unshaded cell — the way an unbound
+   * duplicate of the weekday case would — reads the weekday ground, and two
+   * cases then measure one surface. Against a cell photographed in the same
+   * pass and not against a literal, for `controlShotOn`'s reason.
+   */
+  async function ratioOn(
+    page: Page,
+    kind: 'weekday' | 'weekend',
+    palette: 'light' | 'dark' = 'light',
+  ): Promise<number> {
     await seedPlan(page, 'marker-chip-contrast');
     await openTheChart(page);
+    // Asserted here rather than before the navigation: the root's `dark` class
+    // is the app's answer to the media preference and there is no root to read
+    // it off until something has loaded. A case that skipped this would
+    // measure the light palette twice and call the second one dark.
+    expect(
+      await page.evaluate(() =>
+        document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+      ),
+      'the page is not in the palette this case is about',
+    ).toBe(palette);
 
     const weekdays = await weekdayDays(page);
     expect(weekdays.length, 'the fixture draws no pair of weekday cells').toBeGreaterThan(3);
-    const shot = await chipShotOn(page, weekdays[0], 'Cut');
-    const backdrop = await controlShotOn(page, weekdays[2], shot);
-
-    const ratio = await contrastBetween(
-      page,
-      await shotOf(page, shot),
-      await shotOf(page, backdrop),
-    );
-    expect(
-      ratio,
-      'the chip the compositor drew does not clear 3:1 against the weekday cell behind it',
-    ).toBeGreaterThanOrEqual(3);
-  });
-
-  test('clears 3:1 against the weekend cell it stands on, in light', async ({ page }) => {
-    await seedPlan(page, 'marker-chip-contrast');
-    await openTheChart(page);
+    if (kind === 'weekday') {
+      const shot = await chipShotOn(page, weekdays[0], 'Cut');
+      const backdrop = await controlShotOn(page, weekdays[2], shot);
+      return contrastBetween(page, await shotOf(page, shot), await shotOf(page, backdrop));
+    }
 
     const weekend = await weekendDays(page);
-    const weekdays = await weekdayDays(page);
     expect(weekend.length, 'the fixture draws no pair of weekend cells').toBeGreaterThan(1);
     const shot = await chipShotOn(page, weekend[0], 'Cut');
     const backdrop = await controlShotOn(page, weekend[1], shot);
-
-    // **The weekend clip is bound to the weekend surface**, and this is what
-    // says so: `bg-muted-foreground/10` over the base is a different colour
-    // from the base, so a control that had landed on an unshaded cell — the
-    // way an unbound duplicate of the weekday case would — reads the weekday
-    // ground and this case measures a surface it does not name. Asserted
-    // against a weekday cell photographed in the same pass rather than against
-    // a literal, for `controlShotOn`'s reason.
     const weekdayGround = await controlShotOn(page, weekdays[0], shot);
     expect(
       await shotOf(page, backdrop),
       'the weekend control photographs the same surface as a weekday cell',
     ).not.toBe(await shotOf(page, weekdayGround));
+    return contrastBetween(page, await shotOf(page, shot), await shotOf(page, backdrop));
+  }
 
-    const ratio = await contrastBetween(
-      page,
-      await shotOf(page, shot),
-      await shotOf(page, backdrop),
-    );
+  test('clears 3:1 against the weekday cell it stands on, in light', async ({ page }) => {
     expect(
-      ratio,
+      await ratioOn(page, 'weekday'),
+      'the chip the compositor drew does not clear 3:1 against the weekday cell behind it',
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  test('clears 3:1 against the weekend cell it stands on, in light', async ({ page }) => {
+    expect(
+      await ratioOn(page, 'weekend'),
       'the chip the compositor drew does not clear 3:1 against the weekend cell behind it',
     ).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * The dark pair, and the emulation comes **before the first navigation**.
+   *
+   * `dark-mode.spec.ts:302` drives the palette with `emulateMedia`, and this
+   * app resolves the root's `dark` class off that preference. Set after
+   * `seedPlan` the sign-up and the project creation would paint light and only
+   * the chart would repaint, which is a page these cases are not about.
+   */
+  test.describe('in dark', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.emulateMedia({ colorScheme: 'dark' });
+    });
+
+    test('clears 3:1 against the weekday cell it stands on', async ({ page }) => {
+      expect(
+        await ratioOn(page, 'weekday', 'dark'),
+        'the chip the compositor drew does not clear 3:1 against the weekday cell behind it',
+      ).toBeGreaterThanOrEqual(3);
+    });
+
+    test('clears 3:1 against the weekend cell it stands on', async ({ page }) => {
+      expect(
+        await ratioOn(page, 'weekend', 'dark'),
+        'the chip the compositor drew does not clear 3:1 against the weekend cell behind it',
+      ).toBeGreaterThanOrEqual(3);
+    });
   });
 });
