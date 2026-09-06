@@ -7031,6 +7031,19 @@ describe('downloading the chart as a standalone .svg', () => {
         ),
       ).toEqual(onScreen);
       expect(doc.querySelectorAll('[data-gantt-marker-rule]')).toHaveLength(0);
+      // **And at this rung's own pixels**, not merely the same identities. The
+      // set assertion above compares ids, and every other position assertion in
+      // this suite runs at 28px — so `day.offset * dayPx` written back to the
+      // constant `DAY_PX` would leave all of them green while the file spaced
+      // its chips 28px apart over a chart laid out at 4 (peer review, Minor,
+      // 2026-09-06). Adjacent cells, so the gap is the rung.
+      const chips = [...doc.querySelectorAll('[data-marker-chip]')];
+      expect(chips.map((chip) => Number(chip.getAttribute('width')))).toEqual(
+        packed.map(() => FENCE_RUNG_PX),
+      );
+      expect(
+        Number(chips[1].getAttribute('x')) - Number(chips[0].getAttribute('x')),
+      ).toBe(FENCE_RUNG_PX);
       // And the names, which at 4px is the whole of what a chip can say: a tick
       // that wide holds no readable text at all.
       expect(
