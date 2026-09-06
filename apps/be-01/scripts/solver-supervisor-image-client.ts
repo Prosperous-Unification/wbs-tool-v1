@@ -25,7 +25,8 @@ const attempt = await connectSolverSupervisor({
   projectId: '11111111-1111-4111-8111-111111111111',
   objective: 'pri',
   attemptToken,
-  childDeadlineAt: Date.now() + 60_000,
+  // The deadline also covers Docker create/start on contended shared runners.
+  childDeadlineAt: Date.now() + 180_000,
   searchWorkers: 2,
   memoryLimitMb: 512,
   request,
