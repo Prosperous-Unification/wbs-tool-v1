@@ -33,6 +33,7 @@ import {
   chartBelowTheFold,
   clampedGanttHeight,
   DAY_PX,
+  type DayPx,
   DAY_SCALES,
   FALLBACK_GANTT_THEME,
   GANTT_CEILING_PX,
@@ -6727,6 +6728,235 @@ describe('downloading the chart as a standalone .svg', () => {
       expect(anyBar?.getAttribute('tabindex')).toBeNull();
     },
   );
+
+  /**
+   * Slices 8.6 and 8.7: the chips and the legend that names them.
+   *
+   * **The trap this suite is written against.** The body rule lives inside the
+   * live `<svg>`, which the file nests whole — so a download built with markers
+   * threaded through and the axis loop left alone draws a coloured line and
+   * *nothing that says what it is*. That state passes any count of rules and
+   * any check that the file "carries the markers"; what it delivers is the
+   * "unidentified coloured line" `spec.md` calls worse than no line at all.
+   * Each case below is chosen so that state fails it.
+   */
+  describe('the markers the file carries', () => {
+    /** A PALETTE entry, so the fill under test is one be-01 would accept. */
+    const AZURE = '#5d6afe';
+    const CORAL = '#ff6f61';
+    /** The rung the fence suppression is scoped to, and 8.7's own rung. */
+    const FENCE_RUNG_PX = 4;
+    const VIEWPORT_PX = 100;
+
+    /** `MONDAY_START` plus `offset` **calendar** days, which is the axis's step. */
+    const dayAt = (offset: number): string => {
+      const day = new Date(`${MONDAY_START}T00:00:00Z`);
+      day.setUTCDate(day.getUTCDate() + offset);
+      return day.toISOString().slice(0, 10);
+    };
+
+    const markedPlan = (): GanttPlan =>
+      planOf({
+        rows: [rowAt('span', 0, 40, { number: '010', name: 'Span' })],
+        slices: [sliceAt('span-dev', 'span', 0, 40)],
+      });
+
+    const renderMarked = (markers: readonly CalendarMarkerView[], dayPx?: DayPx): void => {
+      render(
+        <GanttPanel
+          plan={markedPlan()}
+          startDate={MONDAY_START}
+          scheduleError={null}
+          generation={0}
+          heightPx={null}
+          {...(dayPx === undefined ? {} : { dayPx })}
+          onPickRow={() => undefined}
+          onPointRow={() => undefined}
+          pointed={pointedAtRow(null)}
+          markers={markers}
+        />,
+      );
+    };
+
+    /** The downloaded file, parsed, with the parser's own refusal asserted first. */
+    const downloadedDoc = async (): Promise<Document> => {
+      const { blobs } = captureDownloads();
+      clickDownload();
+      const doc = new DOMParser().parseFromString(await readBlobText(blobs[0]), 'image/svg+xml');
+      expect(doc.querySelector('parsererror')).toBeNull();
+      return doc;
+    };
+
+    itDom('draws a chip per marker day in the rebuilt axis, in the axis cell it stands on', async () => {
+      // Slice 8.6's first half. The `x` is asserted **against the day number
+      // the same loop prints**, not against a gutter width this test would have
+      // to re-derive: the claim is that the chip is in the axis rebuild's own
+      // coordinate space, and a chip placed by a second arithmetic that happened
+      // to agree at the default rung is exactly the drift `dayPx` was threaded
+      // through this function to stop.
+      renderMarked([
+        { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
+        { id: 'm-freeze', date: dayAt(5), name: 'Freeze', color: CORAL },
+      ]);
+      const doc = await downloadedDoc();
+
+      const chips = [...doc.querySelectorAll('[data-marker-chip]')];
+      expect(chips.map((chip) => chip.getAttribute('data-marker-chip'))).toEqual([
+        'm-cut',
+        'm-freeze',
+      ]);
+      expect(chips.map((chip) => chip.getAttribute('fill'))).toEqual([AZURE, CORAL]);
+
+      // The day number for the same offset is anchored at the middle of its
+      // cell, so the cell's left edge is its `x` less half a day. Read off the
+      // root's own children rather than the whole document: the nested live
+      // `<svg>` is in here too, and a `text` of its own would shift the index.
+      const dayNumbers = [...doc.documentElement.children].filter(
+        (node) => node.tagName === 'text' && node.getAttribute('text-anchor') === 'middle',
+      );
+      for (const chip of chips) {
+        const offset = Number(chip.getAttribute('data-marker-offset'));
+        const width = Number(chip.getAttribute('width'));
+        expect(width).toBe(DAY_PX);
+        const numberAt = dayNumbers[offset];
+        expect(numberAt).toBeDefined();
+        expect(Number(chip.getAttribute('x'))).toBe(Number(numberAt?.getAttribute('x')) - width / 2);
+      }
+    });
+
+    itDom('names every chip it draws, because a downloaded file has no pointer', async () => {
+      // Slice 8.6's second half and its whole point. On screen the answer to
+      // "which marker is this rule?" is the chip's hover list; a `.svg` in a
+      // Downloads folder has no hover. **This is the case that fails on the
+      // half-exported state** — chips threaded through and the legend left out
+      // renders two coloured shapes naming nothing, and the query below finds
+      // none of them.
+      renderMarked([
+        { id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE },
+        { id: 'm-freeze', date: dayAt(5), name: 'Freeze', color: CORAL },
+      ]);
+      const doc = await downloadedDoc();
+
+      const named = [...doc.querySelectorAll('[data-marker-legend]')];
+      expect(named.map((entry) => entry.textContent)).toEqual(['Cutover', 'Freeze']);
+      // The swatch beside each name carries the chip's own fill, so the legend
+      // is joinable to the picture rather than being a list of words beside it.
+      expect(named.map((entry) => entry.getAttribute('data-marker-legend'))).toEqual([
+        AZURE,
+        CORAL,
+      ]);
+    });
+
+    itDom('grows the document before it writes the viewBox, so the legend is inside the file', async () => {
+      // Slice 8.6's real cost. `totalHeight` is written into the `viewBox`, the
+      // `width`, the `height` and the background rect within ten lines of being
+      // computed, and the legend is a block **below** the chart: a legend
+      // appended after those writes draws into air the file never declared, and
+      // every renderer clips it away while every count assertion above stays
+      // green.
+      renderMarked([{ id: 'm-cut', date: dayAt(2), name: 'Cutover', color: AZURE }]);
+      const doc = await downloadedDoc();
+
+      const root = doc.documentElement;
+      const declared = Number(root.getAttribute('height'));
+      expect(root.getAttribute('viewBox')).toBe(
+        `0 0 ${root.getAttribute('width') ?? ''} ${String(declared)}`,
+      );
+      // The background rect is written from the same number, so a legend the
+      // viewBox holds but the background does not would be words on nothing.
+      const background = doc.querySelector('rect');
+      expect(Number(background?.getAttribute('height'))).toBe(declared);
+
+      const legend = doc.querySelector('[data-marker-legend]');
+      expect(legend).not.toBeNull();
+      expect(Number(legend?.getAttribute('y'))).toBeLessThan(declared);
+      // And below the chart, not over it: the nested live `<svg>` is the
+      // picture, and a legend inside its box is a legend across the bars.
+      const nested = doc.querySelector('svg svg');
+      const chartBottom = Number(nested?.getAttribute('y')) + Number(nested?.getAttribute('height'));
+      expect(Number(legend?.getAttribute('y'))).toBeGreaterThan(chartBottom);
+    });
+
+    itDom('wraps the legend on measured widths, and grows the file by the row it wrapped to', async () => {
+      // What makes the measurement load-bearing rather than decorative: the
+      // wrap decides how many rows there are, and the row count is what the
+      // document grew by. A width guessed per name gives a legend that either
+      // runs off the right edge or reserves height for a row it never draws —
+      // and both are invisible to a case that only counts the names.
+      //
+      // The ruler in `vitest.setup.ts` answers half an em per character, so
+      // these three names are 90px of legend entry each against a file whose
+      // whole width is the label gutter plus a 40-day chart at 28px.
+      const long = 'A'.repeat(400);
+      renderMarked([{ id: 'm-one', date: dayAt(2), name: 'Short', color: AZURE }]);
+      const oneRow = await downloadedDoc();
+      const oneRowHeight = Number(oneRow.documentElement.getAttribute('height'));
+      cleanup();
+
+      renderMarked([
+        { id: 'm-one', date: dayAt(2), name: long, color: AZURE },
+        { id: 'm-two', date: dayAt(5), name: long, color: CORAL },
+        { id: 'm-three', date: dayAt(9), name: long, color: AZURE },
+      ]);
+      const wrapped = await downloadedDoc();
+
+      const rows = new Set(
+        [...wrapped.querySelectorAll('[data-marker-legend]')].map((entry) =>
+          entry.getAttribute('y'),
+        ),
+      );
+      expect(rows.size).toBeGreaterThan(1);
+      expect(Number(wrapped.documentElement.getAttribute('height'))).toBeGreaterThan(oneRowHeight);
+    });
+
+    itDom('at the fence rung the file is the screen: chips drawn, rules suppressed', async () => {
+      // Slice 8.7. Seven occupied dates inside the 25-day window that opens at
+      // offset 30 is `7 > 6` per 100px, which is the rung's own suppression —
+      // so the screen here is chips and no lines, and the file has to be the
+      // same picture. The rule needs no work to travel (it is inside the nested
+      // `<svg>`) and the chip needs all of it, which is why one case asserts
+      // both halves.
+      const packed = [30, 31, 32, 33, 34, 35, 36];
+      renderMarked(
+        packed.map((offset) => ({
+          id: `m-${String(offset)}`,
+          date: dayAt(offset),
+          name: `Day ${String(offset)}`,
+          color: AZURE,
+        })),
+        FENCE_RUNG_PX,
+      );
+      const panel = document.querySelector('[data-gantt-panel]');
+      if (!(panel instanceof HTMLElement)) throw new Error('the panel is not on the page');
+      Object.defineProperty(panel, 'clientWidth', { value: VIEWPORT_PX, configurable: true });
+      panel.scrollLeft = 30 * FENCE_RUNG_PX + CHART_PAD_PX;
+      fireEvent.scroll(panel);
+
+      // The screen, first — an assertion about a file matching a screen that
+      // was never in the state under test says nothing.
+      expect(document.querySelectorAll('[data-gantt-marker-rule]')).toHaveLength(0);
+      const onScreen = [...document.querySelectorAll('[data-marker-chip]')].map((chip) =>
+        chip.getAttribute('data-marker-chip'),
+      );
+      expect(onScreen).toHaveLength(packed.length);
+
+      const doc = await downloadedDoc();
+      // **The set and not the count**: the export resolves its own band, and
+      // two renderers that agree on how many chips there are while disagreeing
+      // about which ones is precisely the drift a per-cell cap can introduce.
+      expect(
+        [...doc.querySelectorAll('[data-marker-chip]')].map((chip) =>
+          chip.getAttribute('data-marker-chip'),
+        ),
+      ).toEqual(onScreen);
+      expect(doc.querySelectorAll('[data-gantt-marker-rule]')).toHaveLength(0);
+      // And the names, which at 4px is the whole of what a chip can say: a tick
+      // that wide holds no readable text at all.
+      expect(
+        [...doc.querySelectorAll('[data-marker-legend]')].map((entry) => entry.textContent),
+      ).toEqual(packed.map((offset) => `Day ${String(offset)}`));
+    });
+  });
 });
 
 describe('the waits the filter left undrawn', () => {
