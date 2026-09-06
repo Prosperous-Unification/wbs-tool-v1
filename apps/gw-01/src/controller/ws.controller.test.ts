@@ -245,7 +245,7 @@ describe('client frame validation before dispatch', () => {
     '{"type":"resume","resume_points":[1]}',
     '{"type":"resume","resume_points":{"presence":"1"}}',
     '{"type":"resume","resume_points":{"presence":null}}',
-    '{"type":"resume","resume_points":{"presence":-1}}',
+    '{"type":"resume","resume_points":{"presence":-2}}',
     '{"type":"resume","resume_points":{"presence":1.5}}',
     '{"type":"resume","resume_points":{"presence":1e999}}',
     '{"type":"resume","resume_points":{"presence":9007199254740992}}',

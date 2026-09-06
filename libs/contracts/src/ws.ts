@@ -27,13 +27,16 @@ export const WsFrame = type({
 export type WsFrame = typeof WsFrame.infer;
 
 /**
- * Resume cursors address durable sequence numbers, including zero before the first event.
+ * Resume cursors address durable sequence numbers, including -1 for empty history before event zero.
+ * Proof: the old lower bound zero made `replays event zero from the covered
+ * empty-history cursor on a real socket` fail waiting for resume_ack; the socket
+ * had answered invalid_payload and pong instead.
  * Proof: replacing the value constraint with number makes the negative/fractional/infinite/unsafe
  * controller cases receive resume_ack instead of invalid_payload. Removing the array refinement
  * does the same for both array cases and the real-socket malformed-frame regression.
  */
 const ResumePoints = type({
-  '[string]': '0 <= number.integer <= 9007199254740991',
+  '[string]': '-1 <= number.integer <= 9007199254740991',
 }).narrow((points) => !Array.isArray(points));
 
 /** A client asking for everything it missed, per subscription. */

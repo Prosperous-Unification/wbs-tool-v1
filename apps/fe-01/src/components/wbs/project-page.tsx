@@ -462,12 +462,15 @@ export function ProjectPage({
     connected: false,
   });
   const subscribe = useMemo(
-    () => (projectId: string, handlers: SubscriptionHandlers) =>
+    () => (projectId: string, handlers: SubscriptionHandlers, baseline: number) =>
       subscribeToProject({
         projectId,
-        // The table's first read has not happened yet, so the stream starts
-        // knowing nothing and the read reports its sequence through `seen`.
-        sinceSeq: -1,
+        // The owner read this tree anchor before its unsequenced resources.
+        // Replay closes the interval from that anchor to socket registration.
+        // Proof: hardcoding -1 here or at the adapter factory call sends -1
+        // instead of7 in `resumes the table subscription from its covered positive anchor`.
+        sinceSeq: baseline,
+        hasBaseline: true,
         onChange: handlers.onChange,
         onConnectionChange: (connected) => {
           setRoster((current) => ({ ...current, connected }));

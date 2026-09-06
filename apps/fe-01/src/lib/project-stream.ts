@@ -33,6 +33,8 @@ export interface ProjectStreamOptions {
   projectId: string;
   /** Where the caller's last read of this project left off; `-1` for none. */
   sinceSeq: number;
+  /** A covered empty history still resumes from -1 to catch the first event. */
+  hasBaseline?: boolean;
   /**
    * Something changed on the server — refetch.
    *
@@ -42,7 +44,7 @@ export interface ProjectStreamOptions {
    * (`resume_ack` with no replay count, `resume_denied`), a `message` that is
    * not an object, or a `type` that is not a string. Optional as well as
    * nullable, so a caller that does not care reads as one that cannot say: a
-   * `() => void` is still a valid handler, and `readScopeFor` treats an absent
+   * `() => void` is still a valid handler, and `resourcesFor` treats an absent
    * argument exactly as it treats `null`.
    *
    * It is a `string` and not a union on purpose. The union lives in be-01
@@ -51,7 +53,7 @@ export interface ProjectStreamOptions {
    * unrecognised one exactly as it treats `null`. R5: unknown is not OK, and
    * the honest answer to an unknown event is the full read.
    */
-  onChange: (changed?: string | null) => void;
+  onChange: (changed?: string | null, seq?: number) => void;
   /** Whether a socket is currently open, so the caller can say so on screen. */
   onConnectionChange?: (connected: boolean) => void;
   /**
@@ -153,6 +155,7 @@ export function subscribeToProject(
   let unsubscribed = false;
   let socket: StreamSocket | null = null;
   let pendingReconnect: unknown = null;
+  let socketEpoch = 0;
 
   /** `500ms · 2ⁿ`, capped, then jittered down by up to half. */
   function delayFor(attemptIndex: number): number {
@@ -236,7 +239,7 @@ export function subscribeToProject(
     // would then resume past an edit nobody ever saw. `seen` is the only way
     // forward, and it is called by whoever actually installed the new rows.
     if (typeof frame.seq !== 'number') return;
-    options.onChange(changedFactOf(frame.message));
+    options.onChange(changedFactOf(frame.message), frame.seq);
   }
 
   /**
@@ -249,6 +252,9 @@ export function subscribeToProject(
    * 300ms from every open browser, forever.
    */
   function settle(): void {
+    // Proof: removing this guard reported [true] instead of [] in
+    // `does not report connected when its recovery callback unsubscribes`.
+    if (unsubscribed) return;
     attempt = 0;
     options.onConnectionChange?.(true);
   }
@@ -258,8 +264,14 @@ export function subscribeToProject(
     // the flag is read here too.
     if (unsubscribed) return;
     pendingReconnect = null;
+    const epoch = ++socketEpoch;
+    // Proof: ignoring this epoch let stale close disconnect the new socket,
+    // stale open send three extra frames, and stale resume/presence call their owners
+    // in `ignores stale %s from the physical socket replaced by a reconnect`.
+    const isCurrent = () => !unsubscribed && socketEpoch === epoch;
     socket = deps.openSocket(websocketUrl(), {
       onOpen: () => {
+        if (!isCurrent()) return;
         socket?.send(wsSubscribe(subscription));
         // Subscribe first, then ask: `who` is answered with **this
         // connection's** project, so a `who` that overtook the subscribe would
@@ -273,7 +285,9 @@ export function subscribeToProject(
         // recorded event, each one making the caller refetch — on every first
         // load, to establish a baseline the caller's own read is about to give
         // us through `seen`. So: subscribe, and call it synchronised.
-        if (sinceSeq < 0) {
+        // Proof: ignoring explicit baseline intent left Launch undefined after
+        // replay in `replays event zero committed ... before socket registration`.
+        if (sinceSeq < 0 && options.hasBaseline !== true) {
           settle();
           return;
         }
@@ -283,10 +297,13 @@ export function subscribeToProject(
         // no socket registered to receive it.
         socket?.send(wsResume({ [subscription]: sinceSeq }));
       },
-      onMessage: receive,
+      onMessage: (raw) => {
+        if (isCurrent()) receive(raw);
+      },
       onClose: () => {
+        if (!isCurrent()) return;
+        socketEpoch += 1;
         options.onConnectionChange?.(false);
-        if (unsubscribed) return;
         pendingReconnect = deps.schedule(connect, delayFor(attempt));
         attempt += 1;
       },

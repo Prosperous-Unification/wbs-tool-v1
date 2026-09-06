@@ -1978,9 +1978,4 @@ export function WbsTable({
 }
 
 export { widthFromDrag } from './use-plan-layout';
-export {
-  type PlanReadScope,
-  readScopeFor,
-  type SubscriptionHandlers,
-  type WbsTableProps,
-} from './use-plan-read';
+export { type PlanReadScope, type SubscriptionHandlers, type WbsTableProps } from './use-plan-read';

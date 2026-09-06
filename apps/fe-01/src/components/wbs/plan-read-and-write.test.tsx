@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WorkItemView } from '@/lib/wbs-api';
@@ -185,11 +186,14 @@ describe('live edits from other people', () => {
       throw new Error('the table never subscribed');
     };
     let unsubscribed = false;
-    const seen: number[] = [];
-    const subscribe = (_projectId: string, handlers: SubscriptionHandlers) => {
+    const cursors: number[] = [];
+    const subscribe = (_projectId: string, handlers: SubscriptionHandlers, baseline: number) => {
+      cursors.push(baseline);
       notify = handlers.onChange;
       return {
-        seen: (seq: number) => seen.push(seq),
+        seen: (seq: number) => {
+          cursors.push(seq);
+        },
         unsubscribe: () => {
           unsubscribed = true;
         },
@@ -209,10 +213,8 @@ describe('live edits from other people', () => {
       expect(numbersOnScreen()).toEqual(['010']);
     });
 
-    // The stream resumes from what the table read, so every read must report
-    // where it landed — otherwise the next reconnect asks for a range that
-    // starts before the rows already on screen.
-    expect(seen.at(-1)).toBe(api.rows.length - 1);
+    // An unsequenced change establishes a new covered subscription anchor.
+    expect(cursors.at(-1)).toBe(api.rows.length - 1);
 
     view.unmount();
     expect(unsubscribed).toBe(true);
@@ -1428,4 +1430,239 @@ describe('a step changing, and what the table does about it', () => {
 
     expect(refusedDraftFor('w1::step-qa-final')).toBeUndefined();
   });
+});
+
+describe('overlapping resource invalidations', () => {
+  it.each([false, true])(
+    'installs a held renamed step with competing tree=%s',
+    async (competing) => {
+      const api = fakeApi();
+      await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Before' });
+      api.rows[0].id = 'overlap-row';
+      let notify: SubscriptionHandlers['onChange'] | undefined;
+      render(
+        <WbsTable
+          projectId="p1"
+          api={api}
+          subscribe={(_project, handlers) => {
+            notify = handlers.onChange;
+            return { seen: () => undefined, unsubscribe: () => undefined };
+          }}
+        />,
+      );
+      await waitFor(() => {
+        expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Before');
+      });
+      const listed = await api.steps('p1');
+      let release!: (steps: typeof listed) => void;
+      const held = new Promise<typeof listed>((resolve) => {
+        release = resolve;
+      });
+      api.steps = () => held;
+      if (notify === undefined) throw new Error('the table did not subscribe');
+      act(() => notify?.('step_renamed'));
+      if (competing) {
+        api.rows[0].name = 'Tree arrived';
+        act(() => notify?.('tree_replaced'));
+        await waitFor(() => {
+          expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Tree arrived');
+        });
+      }
+      await act(async () => {
+        release(
+          listed.map((step, index) => (index === 0 ? { ...step, name: 'Renamed step' } : step)),
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(screen.getByText('Renamed step')).toBeTruthy();
+      });
+    },
+  );
+});
+
+describe('refresh owner lifetimes', () => {
+  it.each(['resolve', 'reject'] as const)(
+    'ignores an old API read that settles by %s on the same project',
+    async (settle) => {
+      const api = fakeApi();
+      await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Old owner' });
+      api.rows[0].id = 'old-owner-row';
+      let notify: SubscriptionHandlers['onChange'] | undefined;
+      const subscribe = (_project: string, handlers: SubscriptionHandlers) => {
+        notify = handlers.onChange;
+        return { seen: () => undefined, unsubscribe: () => undefined };
+      };
+      const view = render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
+      await waitFor(() => {
+        expect(notify).toBeTypeOf('function');
+      });
+      const oldTree = await api.tree('p1');
+      let release!: (tree: typeof oldTree) => void;
+      let reject!: (cause: unknown) => void;
+      api.tree = () =>
+        new Promise((yes, no) => {
+          release = yes;
+          reject = no;
+        });
+      act(() => notify?.('tree_replaced'));
+      const replacement = fakeApi();
+      await replacement.createWorkItem('p1', {
+        parentId: null,
+        afterId: null,
+        name: 'Replacement owner',
+      });
+      replacement.rows[0].id = 'replacement-owner-row';
+      view.rerender(<WbsTable projectId="p1" api={replacement} subscribe={subscribe} />);
+      await waitFor(() => {
+        expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Replacement owner');
+      });
+      await act(async () => {
+        if (settle === 'resolve') release(oldTree);
+        else reject(new Error('departed failure'));
+        await Promise.resolve();
+      });
+      expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Replacement owner');
+      expect(staleBanner()).toBeNull();
+      expect(toastTexts()).toEqual([]);
+    },
+  );
+
+  it('creates a live second owner after StrictMode cleans up its first setup', async () => {
+    const api = fakeApi();
+    await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Strict owner' });
+    api.rows[0].id = 'strict-owner-row';
+    let opened = 0;
+    let closed = 0;
+    const view = render(
+      <StrictMode>
+        <WbsTable
+          projectId="p1"
+          api={api}
+          subscribe={() => {
+            opened += 1;
+            return {
+              seen: () => undefined,
+              unsubscribe: () => {
+                closed += 1;
+              },
+            };
+          }}
+        />
+      </StrictMode>,
+    );
+    await waitFor(() => {
+      expect(opened).toBe(1);
+    });
+    expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Strict owner');
+    view.unmount();
+    expect(closed).toBe(1);
+  });
+
+  it('does not toast an old API mutation refusal into its replacement', async () => {
+    const api = fakeApi();
+    await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Old mutation' });
+    api.rows[0].id = 'old-mutation-row';
+    const view = render(<WbsTable projectId="p1" api={api} />);
+    await screen.findByLabelText('Name of 010');
+    let reject!: (cause: unknown) => void;
+    api.patchWorkItem = () =>
+      new Promise((_yes, no) => {
+        reject = no;
+      });
+    const input = screen.getByLabelText('Name of 010');
+    fireEvent.change(input, { target: { value: 'Pending rename' } });
+    fireEvent.blur(input);
+    await waitFor(() => {
+      expect(reject).toBeTypeOf('function');
+    });
+    const replacement = fakeApi();
+    await replacement.createWorkItem('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'New mutation owner',
+    });
+    replacement.rows[0].id = 'new-mutation-row';
+    view.rerender(<WbsTable projectId="p1" api={replacement} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'New mutation owner');
+    });
+    await act(async () => {
+      reject(new Error('forbidden'));
+      await Promise.resolve();
+    });
+    expect(toastTexts()).toEqual([]);
+  });
+});
+
+itDom('does not expose a first editor before its held column vocabulary installs', async () => {
+  const api = fakeApi();
+  await api.createWorkItem('p1', { parentId: null, afterId: null, name: 'Anchored row' });
+  api.rows[0].id = 'initial-columns-row';
+  const steps = await api.steps('p1');
+  let release!: (loaded: typeof steps) => void;
+  const held = new Promise<typeof steps>((resolve) => {
+    release = resolve;
+  });
+  let requested = false;
+  api.steps = () => {
+    requested = true;
+    return held;
+  };
+  render(<WbsTable projectId="p1" api={api} />);
+  await waitFor(() => {
+    expect(requested).toBe(true);
+  });
+  expect(screen.queryByLabelText('Name of 010')).toBeNull();
+  await act(async () => {
+    release(steps);
+    await Promise.resolve();
+  });
+  const input = await screen.findByLabelText('Name of 010');
+  expect(input).toHaveProperty('value', 'Anchored row');
+});
+
+itDom('installs held directory labels after a newer tree already installed', async () => {
+  const api = fakeApi();
+  const row = await api.createWorkItem('p1', {
+    parentId: null,
+    afterId: null,
+    name: 'Directory before',
+  });
+  const tag = await api.addTag('Old directory tag');
+  api.labelWithTag(row.id, [tag.id]);
+  let notify: SubscriptionHandlers['onChange'] = () => {
+    throw new Error('not subscribed');
+  };
+  render(
+    <WbsTable
+      projectId="p1"
+      api={api}
+      subscribe={(_id, handlers) => {
+        notify = handlers.onChange;
+        return { seen: () => undefined, unsubscribe: () => undefined };
+      }}
+    />,
+  );
+  await screen.findAllByText('Old directory tag');
+  let release!: (tags: Awaited<ReturnType<typeof api.listTags>>) => void;
+  api.listTags = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  act(() => {
+    notify('directory_changed');
+  });
+  api.rows[0].name = 'Directory tree arrived';
+  act(() => {
+    notify('tree_replaced');
+  });
+  await waitFor(() => {
+    expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Directory tree arrived');
+  });
+  await act(async () => {
+    release([{ ...tag, name: 'Covered directory tag' }]);
+    await Promise.resolve();
+  });
+  expect((await screen.findAllByText('Covered directory tag')).length).toBeGreaterThan(0);
 });

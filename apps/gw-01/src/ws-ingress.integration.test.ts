@@ -2,7 +2,7 @@ import { expect, it } from 'bun:test';
 
 import { buildApp } from './app';
 
-async function connect() {
+async function connect(firstEvent = false) {
   const forwarded: unknown[] = [];
   const resumed: unknown[] = [];
   const app = buildApp({
@@ -21,7 +21,10 @@ async function connect() {
         resumed.push(request.resume_points);
         return Promise.resolve(
           Response.json({
-            presence: { status: 'replaying', events: [{ seq: 6, message: { kept: true } }] },
+            presence: {
+              status: 'replaying',
+              events: [{ seq: firstEvent ? 0 : 6, message: { kept: true } }],
+            },
           }),
         );
       }
@@ -170,3 +173,26 @@ for (const [name, prefix] of [
     }
   });
 }
+
+it('replays event zero from the covered empty-history cursor on a real socket', async () => {
+  const client = await connect(true);
+  try {
+    client.socket.send('{"type":"resume","resume_points":{"presence":-1}}');
+    await client.ping();
+    await client.until(() =>
+      client.received.some((frame) => (frame as { type?: string }).type === 'resume_ack'),
+    );
+    expect(client.resumed).toEqual([{ presence: -1 }]);
+    expect(client.received).toContainEqual({
+      subscription: 'presence',
+      seq: 0,
+      message: { kept: true },
+    });
+    client.received.length = 0;
+    client.socket.send('{"type":"resume","resume_points":{"presence":-2}}');
+    await client.ping();
+    expect(client.received).toEqual([{ type: 'error', code: 'invalid_payload' }, { type: 'pong' }]);
+  } finally {
+    await client.close();
+  }
+});

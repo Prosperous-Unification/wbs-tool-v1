@@ -930,4 +930,49 @@ describe('the calendar markers the host owns', () => {
     });
     expect(screen.getByLabelText('Name of 010')).toBe(nameCell);
   });
+  itDom('installs held markers after a newer tree already installed', async () => {
+    const api = await datedApi();
+    let notify: SubscriptionHandlers['onChange'] = () => {
+      throw new Error('not subscribed');
+    };
+    await planWithTheChartOpen(api, (_id, handlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    });
+    let release!: (markers: Awaited<ReturnType<typeof api.listCalendarMarkers>>) => void;
+    api.listCalendarMarkers = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    notify('calendar_markers_changed');
+    api.rows[0].name = 'Marker tree arrived';
+    notify('tree_replaced');
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Marker tree arrived');
+    });
+    release([{ id: 'covered', name: 'Covered marker', date: MONDAY, color: null }]);
+    await waitFor(() => {
+      expect(chip('covered')?.textContent).toBe('Covered marker');
+    });
+  });
+
+  itDom('rereads a marker refused because a peer already deleted it', async () => {
+    const api = await datedApi();
+    await api.createCalendarMarker('p1', { markerId: 'launch', date: MONDAY, name: 'Launch' });
+    await planWithTheChartOpen(api);
+    await waitFor(() => {
+      expect(chip('launch')).not.toBeNull();
+    });
+    fireEvent.click(cellAt(0));
+    fireEvent.click(await screen.findByLabelText('Rename Launch'));
+    await api.deleteCalendarMarker('p1', 'launch');
+    fireEvent.change(screen.getByLabelText('New name for Launch'), {
+      target: { value: 'Too late' },
+    });
+    fireEvent.click(screen.getByLabelText('Save the new name for Launch'));
+    await waitFor(() => {
+      expect(chip('launch')).toBeNull();
+    });
+    expect(document.querySelector('[data-toast-text]')?.textContent).toContain('no longer');
+  });
 });

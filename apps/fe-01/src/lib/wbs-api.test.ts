@@ -685,47 +685,24 @@ describe('the browser writes through command batches (plan-commands)', () => {
 });
 
 describe('reads asked for twice at once', () => {
-  /**
-   * A refresh reads the plan and the five global vocabularies together, and a
-   * refresh is started by every write and every socket frame — so a held arrow
-   * key, or a peer typing, asks for the same eight URLs again before the
-   * previous eight have landed.
-   *
-   * The fetch below never settles on its own, which is the window the fault
-   * lives in: asserting after both promises resolve would be asserting outside
-   * it, and the count would be 1 either way once the map had emptied.
-   *
-   * Proof: with `send`'s GET branch removed so every call goes straight to
-   * `sendOnce`, watched failing on `expected [ [ '/api/teams', …(1) ], …(1) ]
-   * to have a length of 1 but got 2` (2026-09-02).
-   */
-  it('makes one request, and both callers get its answer', async () => {
+  it('leaves concurrent read ownership to the coordinator', async () => {
     let settle: (value: Response) => void = () => undefined;
     const held = new Promise<Response>((resolve) => {
       settle = resolve;
     });
-    const fetched = vi.fn(() => held);
+    const fetched = vi.fn(async () => (await held).clone());
     vi.stubGlobal('fetch', fetched);
     const api = httpProjectApi('t');
 
     const first = api.listTeams();
     const second = api.listTeams();
-    expect(fetched.mock.calls).toHaveLength(1);
+    expect(fetched.mock.calls).toHaveLength(2);
 
     settle(response(200, JSON.stringify({ teams: [{ id: 'team1', name: 'Wiring' }] })));
     expect(await first).toEqual(await second);
   });
 
-  /**
-   * The de-duplication is a window, not a cache: once a read has landed the next
-   * one goes to be-01 again, which is what keeps "the plan is replaced, never
-   * patched" true.
-   *
-   * Proof: with the `.finally` that drops the entry removed, watched failing on
-   * `expected [ [ '/api/teams', …(1) ] ] to have a length of 2 but got 1` — the
-   * second read answered from the first's promise, so an edit made in between
-   * was invisible (2026-09-02).
-   */
+  /** A completed read never supplies the answer to a later request. */
   it('asks again once the first has landed', async () => {
     const fetched = vi.fn(() => Promise.resolve(response(200, JSON.stringify({ teams: [] }))));
     vi.stubGlobal('fetch', fetched);
@@ -737,13 +714,7 @@ describe('reads asked for twice at once', () => {
     expect(fetched.mock.calls).toHaveLength(2);
   });
 
-  /**
-   * Two writes to one path are two writes, however identical they look.
-   *
-   * Proof: with the method check dropped so every call is de-duplicated, watched
-   * failing on `expected [ [ '/api/projects/p1/opened', …(1) ] ] to have a
-   * length of 2 but got 1` — the second `opened` never left.
-   */
+  /** Two writes to one path are two requests, even when their bodies match. */
   it('never shares a write', async () => {
     let settle: (value: Response) => void = () => undefined;
     const held = new Promise<Response>((resolve) => {
@@ -842,5 +813,26 @@ describe('the calendar-marker client', () => {
 
     expect(fetched.mock.calls[0]?.[0]).toBe('/api/projects/p1/calendar-markers/m1');
     expect(fetched.mock.calls[0]?.[1]).toMatchObject({ method: 'DELETE' });
+  });
+});
+
+describe('read ownership across API lifetimes', () => {
+  it('does not lend a pre-edit tree response to a later API owner', async () => {
+    let release!: (response: Response) => void;
+    const oldResponse = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const fetched = vi
+      .fn()
+      .mockReturnValueOnce(oldResponse)
+      .mockResolvedValue(response(200, TREE('p1', ['new-row'])));
+    vi.stubGlobal('fetch', fetched);
+    const oldRead = httpProjectApi('old-session').tree('p1');
+    const newRead = httpProjectApi('new-session').tree('p1');
+    release(response(200, TREE('p1', ['old-row'])));
+    const [before, after] = await Promise.all([oldRead, newRead]);
+    expect(before.workItems.map((row) => row.id)).toEqual(['old-row']);
+    expect(after.workItems.map((row) => row.id)).toEqual(['new-row']);
+    expect(fetched).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SavedPlanListEntryView } from '@/lib/saved-plan-api';
 import type { CreatedProject, ProjectApi, ProjectListEntry } from '@/lib/wbs-api';
@@ -1584,3 +1584,124 @@ describe('a new project opens with its name ready to be typed', () => {
     });
   });
 });
+
+itDom('resumes the table subscription from its covered positive anchor', async () => {
+  const sent: string[] = [];
+  class Socket extends EventTarget {
+    constructor() {
+      super();
+      queueMicrotask(() => {
+        this.dispatchEvent(new Event('open'));
+      });
+    }
+    send(frame: string) {
+      sent.push(frame);
+    }
+    close() {
+      /* The page's cleanup has already stopped its stream. */
+    }
+  }
+  vi.stubGlobal('WebSocket', Socket);
+  try {
+    const api = fakeProjects(TWO);
+    api.tree = () => Promise.resolve(planRead({ seq: 7 }));
+    pageWith(api);
+    await selectProject('p2');
+    await waitFor(() => {
+      expect(sent.some((frame) => (JSON.parse(frame) as { type: string }).type === 'resume')).toBe(
+        true,
+      );
+    });
+    const frames = sent.map(
+      (frame) => JSON.parse(frame) as { type: string; resume_points?: Record<string, number> },
+    );
+    expect(frames.find((frame) => frame.type === 'resume')?.resume_points).toEqual({
+      'project:p2': 7,
+    });
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+  }
+});
+
+it.each(['resume_denied', 'resume_ack'] as const)(
+  'recovers a persistent %s without replacing the registered socket',
+  async (refusal) => {
+    const sockets: Socket[] = [];
+    class Socket extends EventTarget {
+      sent: string[] = [];
+      constructor() {
+        super();
+        sockets.push(this);
+        queueMicrotask(() => {
+          this.dispatchEvent(new Event('open'));
+        });
+      }
+      send(frame: string) {
+        this.sent.push(frame);
+      }
+      close() {
+        /* Tests deliver close explicitly to model delayed browser callbacks. */
+      }
+      refuse() {
+        this.dispatchEvent(
+          new MessageEvent('message', {
+            data: JSON.stringify(
+              refusal === 'resume_denied'
+                ? { type: refusal, subscription: 'project:p2', reason: 'unavailable' }
+                : { type: refusal, replayed: {} },
+            ),
+          }),
+        );
+      }
+    }
+    vi.stubGlobal('WebSocket', Socket);
+    try {
+      let reads = 0;
+      const api = fakeProjects(TWO);
+      api.tree = () => {
+        reads += 1;
+        return Promise.resolve(planRead({ seq: reads === 1 ? 0 : 7 }));
+      };
+      pageWith(api);
+      await selectProject('p2');
+      await waitFor(() => {
+        expect(sockets).toHaveLength(1);
+      });
+      await act(async () => {
+        sockets[0].refuse();
+        await Promise.resolve();
+      });
+      expect(reads).toBe(2);
+      expect(sockets).toHaveLength(1);
+      expect(
+        sockets[0].sent.filter(
+          (frame) => (JSON.parse(frame) as { type: string }).type === 'resume',
+        ),
+      ).toHaveLength(1);
+
+      // A real departure may recover again, using the completed anchored read.
+      act(() => {
+        sockets[0].dispatchEvent(new Event('close'));
+      });
+      await waitFor(() => {
+        expect(sockets).toHaveLength(2);
+      });
+      const resumes = sockets[1].sent.map(
+        (frame) => JSON.parse(frame) as { type: string; resume_points?: Record<string, number> },
+      );
+      expect(resumes.find((frame) => frame.type === 'resume')?.resume_points).toEqual({
+        'project:p2': 7,
+      });
+      await act(async () => {
+        sockets[1].refuse();
+        await Promise.resolve();
+      });
+      expect(reads).toBe(3);
+      expect(sockets).toHaveLength(2);
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  },
+);

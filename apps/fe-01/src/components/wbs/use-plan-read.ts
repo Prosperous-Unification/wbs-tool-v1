@@ -2,6 +2,13 @@ import type { DependencyReach } from '@wbs/domain/dependency-reach';
 import type * as React from 'react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
+import {
+  ALL_RESOURCES,
+  createPlanRefresh,
+  type PlanRefresh,
+  type PlanRefreshSnapshot,
+  resourcesFor,
+} from '@/lib/plan-refresh';
 import type { ProjectStream } from '@/lib/project-stream';
 import type {
   AssignedPersonView,
@@ -54,7 +61,11 @@ export interface WbsTableProps {
    * Opens a live subscription. Optional so the table can be tested without a
    * socket; supplied in the app.
    */
-  subscribe?: (projectId: string, handlers: SubscriptionHandlers) => ProjectStream;
+  subscribe?: (
+    projectId: string,
+    handlers: SubscriptionHandlers,
+    baseline: number,
+  ) => ProjectStream;
   /**
    * The saved-plan shelf, for the phone's `Plan actions` sheet — and rendered
    * **only** there, in the `cards` arm below.
@@ -72,17 +83,16 @@ export interface WbsTableProps {
 
 export interface SubscriptionHandlers {
   /** See `ProjectStreamOptions.onChange`: what the frame said changed, or `null`. */
-  onChange: (changed?: string | null) => void;
+  onChange: (changed?: string | null, seq?: number) => void;
   onConnectionChange: (connected: boolean) => void;
 }
 
 /**
  * How much of the plan a read has to fetch.
  *
- * `refresh` reads eight things: the tree, the project's steps, and six global
- * vocabularies. Most of those cannot have changed for most events, and the
- * socket used to start all eight for every one of them — so a peer holding a
- * key issued eight requests per keystroke.
+ * The coordinator owns tree, steps, grouped directory and calendar markers.
+ * These scopes adapt existing plan mutation callers to resource obligations;
+ * marker mutations invalidate their separate resource directly.
  *
  * `'all'` is the default and the answer to anything this side does not
  * recognise. The two narrower scopes are claims about be-01's events, and each
@@ -101,21 +111,6 @@ export interface SubscriptionHandlers {
  * they are full reads.
  */
 export type PlanReadScope = 'all' | 'tree' | 'tree-and-steps';
-
-/**
- * Which reads a frame's event needs.
- *
- * Unknown is not OK: an event this build has never heard of, and a frame that
- * said nothing, both read everything. Narrowing is opt-in per known kind, so a
- * new `ProjectEvent` added in be-01 is correct here before anybody edits this.
- */
-export function readScopeFor(changed: string | null | undefined): PlanReadScope {
-  if (changed === 'tree_replaced') return 'tree';
-  if (changed === 'step_added' || changed === 'step_renamed' || changed === 'step_removed') {
-    return 'tree-and-steps';
-  }
-  return 'all';
-}
 
 /**
  * One read of the tree, as far as the chart is concerned: the slices, the steps
@@ -150,7 +145,7 @@ export interface ChartRead {
   pertWeights: PertWeightsView;
   estimateRounding: EstimateRoundingView;
   /**
-   * Which read this is: `refresh`'s own generation, and 0 before any has
+   * Which read this is: the coordinator's installed tree generation, and 0 before any has
    * landed.
    *
    * Carried here rather than kept in a ref because it is what
@@ -443,20 +438,16 @@ export function usePlanRead({
   setStartDate: React.Dispatch<React.SetStateAction<string | null>>;
   setSteps: React.Dispatch<React.SetStateAction<StepView[]>>;
   pushToast: (toast: Toast) => void;
-  subscribe: ((projectId: string, handlers: SubscriptionHandlers) => ProjectStream) | undefined;
+  subscribe:
+    | ((projectId: string, handlers: SubscriptionHandlers, baseline: number) => ProjectStream)
+    | undefined;
   setConnected: React.Dispatch<React.SetStateAction<boolean>>;
   focusIntent: React.MutableRefObject<FocusIntent>;
   setBusy: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
-  const latestRefresh = useRef(0);
-
-  /**
-   * The live subscription, so a refresh can tell it where the read landed.
-   *
-   * A ref rather than state: reporting the sequence must not re-render, and the
-   * stream outlives every render between subscribe and unsubscribe.
-   */
-  const stream = useRef<ProjectStream | null>(null);
+  const ownerRef = useRef<PlanRefresh | null>(null);
+  const activeApi = useRef(api);
+  activeApi.current = api;
 
   /**
    * Settles this browser's own state against the steps be-01 just reported.
@@ -517,133 +508,95 @@ export function usePlanRead({
     [setDrafts],
   );
 
-  const refresh = useCallback(
-    async (scope: PlanReadScope = 'all') => {
-      // An action from the project shown before the latest render can finish
-      // afterwards. It may finish its server request, but it no longer gets a
-      // read generation or a write into this project's screen.
-      if (projectId !== activeProject.current) return;
-      // Every mutation and every socket event starts a refresh, and they can
-      // finish out of order — an earlier one landing last would replace the table
-      // with a tree older than what is on screen, with nothing guaranteed to
-      // arrive afterwards and repair it. Only the newest request may write.
-      const generation = latestRefresh.current + 1;
-      latestRefresh.current = generation;
-      // `null` where the scope says this read does not need that request. The
-      // vocabularies stay in one nested `Promise.all` rather than becoming six
-      // ternaries, so they are still issued in one breath when they are issued at
-      // all — which is what the five comments below are about.
-      const [tree, loadedSteps, loadedVocabularies] = await Promise.all([
-        api.tree(projectId),
-        scope === 'tree' ? null : api.steps(projectId),
-        scope === 'all'
-          ? Promise.all([
-              api.listTeams(),
-              // Beside the teams rather than behind them: both are global lists the
-              // pickers need before a reader can tick anything, and a second round trip
-              // would put the tag facet a frame behind the team one.
-              api.listTags(),
-              // And the third dimension in the same breath, for that reason a third
-              // time: the service facet names its options out of this list.
-              api.listServices(),
-              // And the fourth, a fourth time. Loaded even though the column is hidden
-              // by default: a reader who turns Types on from `Columns` gets a picker
-              // that already has the vocabulary, rather than one that is empty until the
-              // next refresh — and the type facet is built from this list the same way.
-              api.listWorkItemTypes(),
-              // And the fifth, on the same read for the same reason: the ref marks name
-              // their system out of this list, so a tree that arrived first would draw a
-              // row's links as `other` for a frame.
-              api.listExternalSystems(),
-              api.listPeople(),
-            ])
-          : null,
-      ]);
-      if (projectId !== activeProject.current) return;
-      if (generation !== latestRefresh.current) return;
-      // This read landed, so whatever the last failed one left behind is over.
-      // After the generation check, not before: a superseded read must not
-      // vouch for a tree it is about to throw away, and the newest read is the
-      // one entitled to say the screen is current.
-      // Proof: removed, `raises the stale-tree banner when a socket refetch
-      // fails` and `clears the banner on a later successful refetch from any
-      // path` both failed with the banner still up after a clean reread.
-      // Watched, 2026-08-06.
-      setTreeMayBeStale(false);
-      if (loadedVocabularies !== null) {
-        const [
-          loadedTeams,
-          loadedTags,
-          loadedServices,
-          loadedWorkItemTypes,
-          loadedExternalSystems,
-          loadedPeople,
-        ] = loadedVocabularies;
-        setTeams(loadedTeams);
-        setTags(loadedTags);
-        setServices(loadedServices);
-        setWorkItemTypes(loadedWorkItemTypes);
-        setExternalSystems(loadedExternalSystems);
-        setPeople(loadedPeople);
+  const applySnapshot = useCallback(
+    (
+      snapshot: PlanRefreshSnapshot,
+      applied: Record<'tree' | 'steps' | 'directory' | 'markers', number>,
+    ) => {
+      setTreeMayBeStale(snapshot.staleResources.length > 0);
+      // Publish the first table with its column vocabulary. The tree anchor
+      // alone would expose editors which the initial steps read then remounts.
+      // Proof: removing this gate exposed a textarea instead of null in
+      // `does not expose a first editor before its held column vocabulary installs`.
+      if (snapshot.baseline === null) return;
+      if (
+        snapshot.directory.installed !== null &&
+        snapshot.directory.installed.generation > applied.directory
+      ) {
+        const vocabulary = snapshot.directory.installed.value;
+        applied.directory = snapshot.directory.installed.generation;
+        setTeams(vocabulary.teams);
+        setTags(vocabulary.tags);
+        setServices(vocabulary.services);
+        setWorkItemTypes(vocabulary.workItemTypes);
+        setExternalSystems(vocabulary.externalSystems);
+        setPeople(vocabulary.people);
       }
-      const drawn = toTree(tree.workItems);
-      setWorkItems(drawn);
-      treeReadProject.current = projectId;
-      // The open hover card, settled against the rows that just arrived. The
-      // previous placements are read into a local **before** the ref is replaced:
-      // React may run the updater below after this call returns, and reading the
-      // ref from inside it would compare the new tree against itself and never
-      // close anything.
-      // Proof: this pair deleted, `closes the card when a peer moves the row it
-      // is anchored to` failed on `expected <div role="tooltip" …/> to be null`.
-      // Watched, 2026-08-09.
-      const placements = placementsOf(drawn);
-      const wasPlaced = rowPlacements.current;
-      rowPlacements.current = placements;
-      setHoveredCell((open) => hoveredCellAfterRefresh(open, wasPlaced, placements));
-      // On the same read as the rows and behind the same generation check: a
-      // superseded read must not leave its slices under another read's rows.
-      // Proof: written as `setSlices((current) => current.length === 0 ?
-      // tree.slices : current)` — the refetch leaving the slices where the first
-      // read put them — and `replaces the slices on every refetch, as it replaces
-      // the rows` failed on `expected '2' to be '1'`: a second row on screen with
-      // the one-row plan's slices still behind it; watched 2026-08-09.
-      //
-      // One call, so the chart's three parts can only ever be one payload's. The
-      // steps and the names come from `tree` and **not** from `loadedSteps` or
-      // `loadedPeople` below: those are three more requests, and a peer's step
-      // delete landing between them is what used to hand `layOutGantt` a slice
-      // under a step the plan no longer listed.
-      setChartRead({
-        slices: tree.slices,
-        steps: tree.steps,
-        people: tree.assignedPeople,
-        depReach: tree.depReach,
-        pertWeights: tree.pertWeights,
-        estimateRounding: tree.estimateRounding,
-        generation,
-      });
-      setStack({ undoable: tree.undoable, redoable: tree.redoable });
-      setTeamCapacities(tree.teamCapacities);
-      setPriorityBands(tree.priorityBands);
-      setScheduleError(tree.scheduleError);
-      setEstimateMethod(tree.estimateMethod);
-      setStartDate(tree.startDate);
-      // Replaced only when the steps actually differ. Every read returns a fresh
-      // array, and `steps` is the one dependency `columns` still has — so a new
-      // array on every refresh rebuilt every column definition, which is how a
-      // stranger's edit used to take the focus of whoever was mid-word.
-      if (loadedSteps !== null) {
-        setSteps((current) => (sameSteps(current, loadedSteps) ? current : loadedSteps));
+      if (snapshot.tree.installed !== null && snapshot.tree.installed.generation > applied.tree) {
+        const tree = snapshot.tree.installed.value;
+        applied.tree = snapshot.tree.installed.generation;
+        const drawn = toTree(tree.workItems);
+        setWorkItems(drawn);
+        treeReadProject.current = projectId;
+        // The open hover card, settled against the rows that just arrived. The
+        // previous placements are read into a local **before** the ref is replaced:
+        // React may run the updater below after this call returns, and reading the
+        // ref from inside it would compare the new tree against itself and never
+        // close anything.
+        // Proof: this pair deleted, `closes the card when a peer moves the row it
+        // is anchored to` failed on `expected <div role="tooltip" …/> to be null`.
+        // Watched, 2026-08-09.
+        const placements = placementsOf(drawn);
+        const wasPlaced = rowPlacements.current;
+        rowPlacements.current = placements;
+        setHoveredCell((open) => hoveredCellAfterRefresh(open, wasPlaced, placements));
+        // On the same read as the rows and behind the same generation check: a
+        // superseded read must not leave its slices under another read's rows.
+        // Proof: written as `setSlices((current) => current.length === 0 ?
+        // tree.slices : current)` — the refetch leaving the slices where the first
+        // read put them — and `replaces the slices on every refetch, as it replaces
+        // the rows` failed on `expected '2' to be '1'`: a second row on screen with
+        // the one-row plan's slices still behind it; watched 2026-08-09.
+        //
+        // One call, so the chart's three parts can only ever be one payload's. The
+        // steps and the names come from `tree` and **not** from `loadedSteps` or
+        // `loadedPeople` below: those are three more requests, and a peer's step
+        // delete landing between them is what used to hand `layOutGantt` a slice
+        // under a step the plan no longer listed.
+        setChartRead({
+          slices: tree.slices,
+          steps: tree.steps,
+          people: tree.assignedPeople,
+          depReach: tree.depReach,
+          pertWeights: tree.pertWeights,
+          estimateRounding: tree.estimateRounding,
+          generation: snapshot.tree.installed.generation,
+        });
+        setStack({ undoable: tree.undoable, redoable: tree.redoable });
+        setTeamCapacities(tree.teamCapacities);
+        setPriorityBands(tree.priorityBands);
+        setScheduleError(tree.scheduleError);
+        setEstimateMethod(tree.estimateMethod);
+        setStartDate(tree.startDate);
+      }
+      if (
+        snapshot.steps.installed !== null &&
+        snapshot.steps.installed.generation > applied.steps
+      ) {
+        const loadedSteps = snapshot.steps.installed.value;
+        applied.steps = snapshot.steps.installed.generation;
+        setSteps((current) => (sameSteps(current, loadedSteps) ? current : [...loadedSteps]));
         settleAgainstSteps(loadedSteps);
       }
-      // Reported after the generation check, so a superseded read cannot move the
-      // resume point to a moment whose rows were thrown away.
-      stream.current?.seen(tree.seq);
+      if (
+        snapshot.markers.installed !== null &&
+        snapshot.markers.installed.generation > applied.markers
+      ) {
+        applied.markers = snapshot.markers.installed.generation;
+        setMarkers(snapshot.markers.installed.value);
+      }
     },
     [
-      activeProject,
-      api,
       projectId,
       rowPlacements,
       setChartRead,
@@ -665,166 +618,108 @@ export function usePlanRead({
       setWorkItems,
       settleAgainstSteps,
       treeReadProject,
+      setMarkers,
     ],
   );
 
-  /**
-   * Rereads the tree, and raises the stale banner instead of throwing when
-   * that fails.
-   *
-   * The last good tree stays on screen — clearing it would lose the reader's
-   * place over a blip — and the banner is what stops that being a silent lie
-   * about how current the rows are. Never rejects, deliberately: callers that
-   * have their own refusals to report (`dependOn`) must still report them
-   * after a failed reread.
-   */
-  const refreshOrMarkStale = useCallback(
-    async (scope: PlanReadScope = 'all') => {
-      try {
-        await refresh(scope);
-      } catch {
-        // The reason is not shown. It is be-01's word for a network failure the
-        // reader did not cause and cannot act on beyond retrying, and the banner
-        // already says the one thing they can do about it.
-        //
-        // Proof: emptied to the silent catch this replaced, four of the block's
-        // tests failed — `raises the stale-tree banner when a socket refetch
-        // fails`, `clears the banner on a later successful refetch from any
-        // path`, `raises the banner when the refetch after an edit fails` and
-        // `shows both the refusal and the banner when the refetch failed too`.
-        // Watched, 2026-08-06.
-        setTreeMayBeStale(true);
+  useEffect(() => {
+    // Proof: reusing the disposed owner left zero subscriptions instead of one
+    // in `creates a live second owner after StrictMode cleans up its first setup`.
+    const owner = createPlanRefresh({ projectId, api });
+    ownerRef.current = owner;
+    const applied = { tree: 0, steps: 0, directory: 0, markers: 0 };
+    let stream: ProjectStream | null = null;
+    let streamSequence = -1;
+    const isCurrent = () =>
+      ownerRef.current === owner &&
+      activeProject.current === projectId &&
+      activeApi.current === api;
+    const apply = () => {
+      if (!isCurrent()) return;
+      const snapshot = owner.getSnapshot();
+      applySnapshot(snapshot, applied);
+      if (subscribe !== undefined && snapshot.baseline !== null && stream === null) {
+        // The existing socket is already registered during recovery. Reopening
+        // here would turn every refused resume into another read/socket cycle.
+        // Proof: restoring epoch replacement opened two sockets instead of one
+        // in both `recovers a persistent %s ...` production-page cases.
+        streamSequence = snapshot.baseline.seq;
+        stream = subscribe(
+          projectId,
+          {
+            onChange: (changed, seq) => {
+              if (!isCurrent()) return;
+              if (changed == null && seq === undefined) void owner.initialize();
+              else void owner.invalidate({ resources: resourcesFor(changed), seq });
+            },
+            onConnectionChange: (connected) => {
+              if (isCurrent()) setConnected(connected);
+            },
+          },
+          snapshot.baseline.seq,
+        );
       }
+      if (snapshot.acknowledged > streamSequence) {
+        stream?.seen(snapshot.acknowledged);
+        streamSequence = snapshot.acknowledged;
+      }
+    };
+    const stop = owner.subscribe(apply);
+    void owner.initialize().then((outcome) => {
+      if (!isCurrent() || outcome.status !== 'failed') return;
+      for (const failure of outcome.failures)
+        pushToast({ kind: 'error', text: failureText(failure.cause, 'load_failed') });
+    });
+    return () => {
+      if (ownerRef.current === owner) ownerRef.current = null;
+      stop();
+      owner.dispose();
+      stream?.unsubscribe();
+    };
+  }, [activeProject, api, projectId, applySnapshot, pushToast, setConnected, subscribe]);
+
+  /** Awaits this invalidation's covering outcome; failures remain in the owner snapshot. */
+  const refreshOrMarkStale = useCallback(
+    async (scope: PlanReadScope = 'all'): Promise<void> => {
+      const owner = ownerRef.current;
+      if (owner === null || activeProject.current !== projectId || activeApi.current !== api)
+        return;
+      if (owner.getSnapshot().baseline === null && owner.getSnapshot().staleResources.length > 0)
+        await owner.initialize();
+      else
+        await owner.invalidate({
+          resources:
+            scope === 'tree'
+              ? ['tree']
+              : scope === 'tree-and-steps'
+                ? ['tree', 'steps']
+                : ALL_RESOURCES,
+        });
     },
-    [refresh, setTreeMayBeStale],
+    [activeProject, api, projectId],
   );
 
-  useEffect(() => {
-    void refresh().catch((thrown: unknown) => {
-      // The first read, which is different from a failed reread: there is no
-      // last good tree to be stale, so this is an event to report rather than
-      // a state to sit under. "This plan may be out of date" over an empty
-      // table would be a sentence about a plan that never arrived.
-      //
-      // Not `refusalSentence`: nothing was refused. This is the first read of
-      // the plan failing — a network word, not a verdict on a change somebody
-      // asked for — and "That change could not be completed" would name a
-      // change nobody made.
-      pushToast({ kind: 'error', text: failureText(thrown, 'load_failed') });
-    });
-  }, [refresh, pushToast]);
-
-  /**
-   * Which marker read is the newest, on {@link latestRefresh}'s reasoning and
-   * for the same fault: four writes in a burst are four reads that may land out
-   * of order, and an earlier one landing last would put a deleted marker back
-   * on the chart with nothing guaranteed to arrive afterwards and take it off
-   * again.
-   */
-  const latestMarkerRead = useRef(0);
-
-  const readMarkers = useCallback(async () => {
-    const issuedFor = projectId;
-    const generation = latestMarkerRead.current + 1;
-    latestMarkerRead.current = generation;
-    const listed = await api.listCalendarMarkers(projectId);
-    // The project may have changed under the request, and a newer read may have
-    // been issued while this one was in flight. Both checks after the await,
-    // both for `refresh`'s reasons.
-    if (activeProject.current !== issuedFor) return;
-    if (generation !== latestMarkerRead.current) return;
-    setMarkers(listed);
-  }, [activeProject, api, projectId, setMarkers]);
-
-  useEffect(() => {
-    void readMarkers().catch((thrown: unknown) => {
-      // Said out loud rather than swallowed. A silent failure here is a chart
-      // that draws no markers and gives no reason for it, which is
-      // indistinguishable from a project that has none — and that
-      // indistinguishability is exactly the bug this seam was found by: twenty
-      // -five chunks of marker work gated green while the running product drew
-      // nothing, because nothing anywhere said so.
-      //
-      // `failureText` and not `refusalSentence`, on the plan read's reasoning:
-      // nobody asked for a change, so "That change could not be completed"
-      // would name a change that was never made.
-      pushToast({ kind: 'error', text: failureText(thrown, 'load_failed') });
-    });
-  }, [readMarkers, pushToast]);
-
-  /**
-   * One of the panel's four marker writes, performed and then read back.
-   *
-   * Beside {@link run} rather than through it, and the difference is the whole
-   * point: `run` ends in `refreshOrMarkStale`, a full plan reread this write
-   * has no business asking for. What a marker write invalidates is the marker
-   * list and nothing else.
-   *
-   * The reread happens on the **refusal path too**. A refused write is often a
-   * screen that is behind — a rename aimed at a marker somebody else deleted is
-   * be-01's `not_found`, and leaving that marker drawn is the reader being told
-   * "no" while still looking at the thing that is gone.
-   */
+  /** A refused marker write also invalidates its list: the target may have disappeared. */
   const runMarkerWrite = useCallback(
     async (write: () => Promise<unknown>) => {
-      const issuedFor = projectId;
+      const owner = ownerRef.current;
+      if (owner === null) return;
+      const isCurrent = () =>
+        ownerRef.current === owner &&
+        activeProject.current === projectId &&
+        activeApi.current === api;
       try {
         await write();
-      } catch (thrown: unknown) {
-        // A refusal from a project the reader has left is not a refusal of
-        // anything on the screen now — `run`'s rule, and for its reason.
-        if (activeProject.current !== issuedFor) return;
+      } catch (thrown) {
+        if (!isCurrent()) return;
         pushToast({ kind: 'error', text: refusalSentence(thrown) });
       }
-      if (activeProject.current !== issuedFor) return;
-      await readMarkers().catch(() => {
-        // The write landed or was refused and has already been reported; a
-        // reread that then failed is the network, and a second toast about the
-        // same outage would say nothing the first did not.
-        setTreeMayBeStale(true);
-      });
+      // Proof: returning after the refusal left the deleted marker's span drawn
+      // in `rereads a marker refused because a peer already deleted it`.
+      if (isCurrent()) await owner.invalidate({ resources: ['markers'] });
     },
-    [activeProject, projectId, pushToast, readMarkers, setTreeMayBeStale],
+    [activeProject, api, projectId, pushToast],
   );
-
-  // Someone else's edit refetches rather than patching: a create or move can
-  // renumber rows this client never touched.
-  useEffect(() => {
-    if (subscribe === undefined) return undefined;
-    const opened = subscribe(projectId, {
-      onChange: (changed) => {
-        const scope = readScopeFor(changed);
-        // No toast: nobody asked for this read, so nothing of theirs was
-        // refused. What it can leave behind is a tree that has fallen behind,
-        // and that is the banner's job.
-        void refreshOrMarkStale(scope);
-        // The markers are their own state off their own read, so the plan
-        // reread above cannot carry them. Without this line be-01's
-        // `calendar_markers_changed` is a broadcast into an empty room: the
-        // frame arrives on every other client's socket and changes nothing on
-        // their screens until somebody reloads the page.
-        //
-        // Gated on the full scope rather than on the event's name, which is
-        // {@link readScopeFor}'s whole contract — the two narrow scopes are
-        // claims about be-01's tree and step events, and neither of those moves
-        // a marker. An event this build has never heard of takes the full read
-        // here for the same reason it takes one there.
-        if (scope === 'all') {
-          void readMarkers().catch(() => {
-            // {@link runMarkerWrite}'s rule for exactly this failure: the
-            // banner rather than a second toast about a read nobody asked for.
-            setTreeMayBeStale(true);
-          });
-        }
-      },
-      onConnectionChange: setConnected,
-    });
-    stream.current = opened;
-    return () => {
-      opened.unsubscribe();
-      stream.current = null;
-    };
-  }, [subscribe, projectId, refreshOrMarkStale, readMarkers, setConnected, setTreeMayBeStale]);
 
   /**
    * One edit: send it, then reread the tree.
@@ -858,7 +753,14 @@ export function usePlanRead({
    */
   const run = useCallback(
     async (action: () => Promise<void>): Promise<CommitOutcome> => {
-      const issuedFor = projectId;
+      // Proof: guarding only projectId leaked one refusal toast into the new API
+      // owner in `does not toast an old API mutation refusal into its replacement`.
+      const owner = ownerRef.current;
+      const isCurrent = () =>
+        owner !== null &&
+        ownerRef.current === owner &&
+        activeProject.current === projectId &&
+        activeApi.current === api;
       // Read here, synchronously, because this is the moment the gesture
       // happened. The intent compares it against where the focus is when the
       // refetch lands, and everything between the two is the window in which
@@ -872,7 +774,7 @@ export function usePlanRead({
           // A refusal from a project the reader has left is not a refusal of
           // anything on the screen now. The old burst stops without putting
           // its toast or refetch into the next project.
-          if (activeProject.current !== issuedFor) return 'refused';
+          if (!isCurrent()) return 'refused';
           // Proof, two faults, both watched 2026-08-09. `refusalSentence`
           // replaced by `failureText`, `says a row that has gone is gone, and
           // rereads the tree that proves it` failed on `expected [ 'not_found' ]
@@ -889,15 +791,15 @@ export function usePlanRead({
           if (refusal === GONE || INVALID_REQUEST.has(refusal)) await refreshOrMarkStale();
           return 'refused';
         }
-        if (activeProject.current === issuedFor) await refreshOrMarkStale();
+        if (isCurrent()) await refreshOrMarkStale();
         return 'landed';
       } finally {
         // The next project's write owns its busy state. An older completion
         // cannot clear the affordance while that write is still in flight.
-        if (activeProject.current === issuedFor) setBusy(false);
+        if (isCurrent()) setBusy(false);
       }
     },
-    [activeProject, focusIntent, projectId, pushToast, refreshOrMarkStale, setBusy],
+    [activeProject, api, focusIntent, projectId, pushToast, refreshOrMarkStale, setBusy],
   );
 
   /**
@@ -915,18 +817,26 @@ export function usePlanRead({
    */
   const stepStack = useCallback(
     async (direction: 'undo' | 'redo') => {
+      const owner = ownerRef.current;
+      const isCurrent = () =>
+        owner !== null &&
+        ownerRef.current === owner &&
+        activeProject.current === projectId &&
+        activeApi.current === api;
       setBusy(true);
       try {
         let outcome;
         try {
           outcome = direction === 'undo' ? await api.undo(projectId) : await api.redo(projectId);
         } catch (thrown: unknown) {
+          if (!isCurrent()) return;
           // The same register as `run`: be-01's two *modeled* refusals are read
           // out of the 409 below and get their own sentences; anything else is
           // a code, and a code is not a sentence.
           pushToast({ kind: 'error', text: refusalSentence(thrown) });
           return;
         }
+        if (!isCurrent()) return;
         if (outcome.ok) {
           pushToast({
             kind: 'info',
@@ -949,10 +859,10 @@ export function usePlanRead({
         }
         await refreshOrMarkStale();
       } finally {
-        setBusy(false);
+        if (isCurrent()) setBusy(false);
       }
     },
-    [api, projectId, pushToast, refreshOrMarkStale, setBusy],
+    [activeProject, api, projectId, pushToast, refreshOrMarkStale, setBusy],
   );
   return { refreshOrMarkStale, run, stepStack, runMarkerWrite };
 }
