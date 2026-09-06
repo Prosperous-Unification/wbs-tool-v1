@@ -2034,7 +2034,7 @@ in both slices rather than implied by position.
       ratios stay green. That is what proves the weekend case measures the
       weekend backdrop: without it the weekend clip is an unbound duplicate of
       the weekday one, and two cases measure one surface.
-- [ ] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
+- [x] 9.3 A second client re-reads on the event — **mounting `WbsTable`, not
       `GanttPanel`.** `GanttPanel` has no stream at all; the project stream is
       `WbsTable`'s `subscribe` prop (`wbs-table.tsx:225`) and the scope it
       re-reads comes from `readScopeFor` (`:280`), so a test that mounted the
@@ -3431,3 +3431,50 @@ reloads, the sheet and the delete all stay green. Restored, `1 passed`.
 
 **Next**: 9.2a (the visible focus ring on a dated axis cell — its own slice,
 because it cannot observe 9.2's negative), then 9.1's broadcast, then 8.4.
+
+## Chunk 60 — 9.3, the client half of the content-free event (TASK-235 run 30, 2026-09-06)
+
+**The event had no reader, and the slice's own text is what found it.** 9.1
+landed `calendar_markers_changed` on all four be-01 writes. On this side
+`readScopeFor` already answers `'all'` for it — the slice's second correction is
+right, no arm was needed — but `'all'` is a _plan_ read, and since 9.0 the
+markers are their own state off their own `readMarkers`. `refresh` never touches
+them. So before this chunk the frame arrived on every peer's socket and moved
+nothing on their screens: `readMarkers` had exactly two callers, the mount effect
+and `runMarkerWrite`, and neither is a socket. A peer's marker was invisible
+until somebody reloaded the page.
+
+**One `if` in the stream handler, and it is gated on the scope, not on the
+event's name.** `wbs-table.tsx`'s `subscribe` effect now names the scope it
+computed and, when it is `'all'`, reads the markers beside the plan reread. That
+keeps `readScopeFor`'s contract as the single place that decides what a frame
+costs: the two narrow scopes are claims about be-01's tree and step events,
+neither of which moves a marker, and an unrecognised event takes the marker read
+here for the same reason it takes the full plan read there. A failed reread
+raises the stale banner rather than a toast — `runMarkerWrite`'s existing rule
+for this exact failure, because nobody asked for this read.
+
+**Watched, and it is the mutation the slice specified.** With
+`if (changed === 'calendar_markers_changed') return 'tree';` added to
+`readScopeFor` and nothing else changed, `plan-chart-seam.test.tsx` goes
+`1 failed | 19 passed (20)` — only the new case, on
+`expected undefined to be 'Cutover'`, the peer's chip still absent after the
+frame. That is also the realistic future defect: somebody narrowing the new
+event for speed. Restored from the byte copy, `20 passed`; `wbs-table.tsx` md5
+`0249c0b4` equal on both hosts.
+
+**The case mounts `WbsTable`, not `GanttPanel`** — the panel has no stream at
+all — and asserts the second half of "no remount" by node identity: the
+`Name of 010` input is the **same element** before and after the frame, so a
+peer's marker cannot take the caret out of a half-typed name.
+
+**Gates on h2puni at the committed bytes.** `fe-01:test` **88 files /
+2288 pass / 0 fail** (2287 before this case), `fe-01:typecheck` rc 0,
+`fe-01:lint` rc 0 (the one remaining warning is `wbs-table.tsx:4748`'s
+pre-existing `useMemo` dependency notice, untouched here),
+`prettier --check` rc 0 over both files, cross-host md5 equal on both. The full
+suite figure was measured before a formatting-only fix to the test file's import
+order and one signature line; the seam suite was re-run at the final bytes,
+`20 passed`.
+
+**11 plan items remain open.**

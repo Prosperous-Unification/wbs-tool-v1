@@ -10,7 +10,7 @@ import { planRead, projectListEntry, sliceView, workItemView } from '@/testing/v
 
 import type * as GanttGeometryModule from './gantt-geometry';
 import type * as TableFrameModule from './table-frame';
-import { WbsTable } from './wbs-table';
+import { type SubscriptionHandlers, WbsTable, type WbsTableProps } from './wbs-table';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
@@ -131,11 +131,14 @@ const rowFor = (number: string): HTMLElement => {
  * The fake is a parameter rather than always minted here so a caller can seed
  * it **before** the mount — the marker cases below need a project that already
  * has a start date and a marker on it, and both arrive on the first read.
+ *
+ * `subscribe` is optional for the prop's own reason: the table is driven by a
+ * fake here and only the peer case below has a socket to open.
  */
-async function threeRoots(api = fakeApi()) {
+async function threeRoots(api = fakeApi(), subscribe?: WbsTableProps['subscribe']) {
   // Dev's columns take part in the keyboard grid below, so they are open.
 
-  render(<WbsTable projectId="p1" api={api} />);
+  render(<WbsTable projectId="p1" api={api} subscribe={subscribe} />);
   // Named, not left blank. Blank names made an ordering assertion compare three
   // empty strings against three empty strings, which passes for any order.
   for (const [number, name] of [
@@ -162,8 +165,8 @@ async function threeRoots(api = fakeApi()) {
  * wiring **between** the two faces: a suite that only hovered rows in the
  * table would be asserting the absence of a light with nothing to light.
  */
-async function planWithTheChartOpen(seeded = fakeApi()) {
-  const api = await threeRoots(seeded);
+async function planWithTheChartOpen(seeded = fakeApi(), subscribe?: WbsTableProps['subscribe']) {
+  const api = await threeRoots(seeded, subscribe);
   // `threeRoots` unfolds Dev, so the three points are three boxes rather than
   // the folded cell's one.
   for (const number of ['010', '020', '030']) {
@@ -886,5 +889,45 @@ describe('the calendar markers the host owns', () => {
     await waitFor(() => {
       expect(chip('launch')).toBeNull();
     });
+  });
+
+  itDom('draws a peer’s new marker on the event, without remounting', async () => {
+    const api = await datedApi();
+    await api.createCalendarMarker('p1', { markerId: 'launch', date: MONDAY, name: 'Launch' });
+
+    // The socket, as the table sees one: a `subscribe` that hands back the
+    // frame handler. `WbsTable` owns the stream (`wbs-table.tsx`'s `subscribe`
+    // prop) and `GanttPanel` has none at all, so a case that mounted the panel
+    // would have no way to deliver this event.
+    let notify: SubscriptionHandlers['onChange'] = () => {
+      throw new Error('the table never subscribed');
+    };
+    await planWithTheChartOpen(api, (_projectId, handlers) => {
+      notify = handlers.onChange;
+      return { seen: () => undefined, unsubscribe: () => undefined };
+    });
+    await waitFor(() => {
+      expect(chip('launch')).not.toBeNull();
+    });
+
+    // What a peer's write looks like from here: the project is holding a second
+    // marker and nothing on this screen did it or knows about it.
+    await api.createCalendarMarker('p1', { markerId: 'cutover', date: MONDAY, name: 'Cutover' });
+    expect(chip('cutover')).toBeNull();
+
+    // The cell the reader is in. Its identity is what says the frame was a
+    // re-render and not a remount — a remounted table would build a new input
+    // and take the caret out of a half-typed name with it.
+    const nameCell = screen.getByLabelText('Name of 010');
+
+    notify('calendar_markers_changed');
+
+    // 9.1 counts the emissions be-01 sends. This is the half that makes the
+    // content-free event worth sending: the frame carries no marker, so the
+    // client has to go and read one.
+    await waitFor(() => {
+      expect(chip('cutover')?.textContent).toBe('Cutover');
+    });
+    expect(screen.getByLabelText('Name of 010')).toBe(nameCell);
   });
 });

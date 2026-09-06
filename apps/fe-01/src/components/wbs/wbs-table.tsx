@@ -3964,10 +3964,29 @@ export function WbsTable({
     if (subscribe === undefined) return undefined;
     const opened = subscribe(projectId, {
       onChange: (changed) => {
+        const scope = readScopeFor(changed);
         // No toast: nobody asked for this read, so nothing of theirs was
         // refused. What it can leave behind is a tree that has fallen behind,
         // and that is the banner's job.
-        void refreshOrMarkStale(readScopeFor(changed));
+        void refreshOrMarkStale(scope);
+        // The markers are their own state off their own read, so the plan
+        // reread above cannot carry them. Without this line be-01's
+        // `calendar_markers_changed` is a broadcast into an empty room: the
+        // frame arrives on every other client's socket and changes nothing on
+        // their screens until somebody reloads the page.
+        //
+        // Gated on the full scope rather than on the event's name, which is
+        // {@link readScopeFor}'s whole contract — the two narrow scopes are
+        // claims about be-01's tree and step events, and neither of those moves
+        // a marker. An event this build has never heard of takes the full read
+        // here for the same reason it takes one there.
+        if (scope === 'all') {
+          void readMarkers().catch(() => {
+            // {@link runMarkerWrite}'s rule for exactly this failure: the
+            // banner rather than a second toast about a read nobody asked for.
+            setTreeMayBeStale(true);
+          });
+        }
       },
       onConnectionChange: setConnected,
     });
@@ -3976,7 +3995,7 @@ export function WbsTable({
       opened.unsubscribe();
       stream.current = null;
     };
-  }, [subscribe, projectId, refreshOrMarkStale]);
+  }, [subscribe, projectId, refreshOrMarkStale, readMarkers]);
 
   /**
    * A drag does not survive the tree changing underneath it.
