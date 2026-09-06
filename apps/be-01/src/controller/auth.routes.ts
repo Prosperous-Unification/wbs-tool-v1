@@ -365,11 +365,15 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // the transaction is gone.
         //
         // **And it is refused before `consume`, with nothing cleared**, which
-        // is the half that matters. `InMemoryOidcTransactionStore.consume`
-        // deletes the record before it checks the state, so reaching it with
-        // the wrong value burns a login that was about to succeed; a duplicated
-        // parameter now costs the caller nothing at all and the correct
-        // callback still works.
+        // is the half that matters: a duplicated parameter costs the caller
+        // nothing at all and the correct callback still works. It was written
+        // when reaching `consume` with the wrong value destroyed the record on
+        // arrival; TASK-276 has since made the store keep a mismatched record,
+        // so this guard is no longer the only thing standing between a
+        // pollution attempt and a burnt login. It stays because the reason it
+        // gives is still its own — no authorization server sends a parameter
+        // twice, and picking a value would only move the failure past this
+        // route into `exchange`.
         //
         // **Any repeated key, not just `state`.** A doubled `code` is the same
         // fault one parameter over and it is strictly worse: the state matches,
@@ -413,7 +417,28 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         const binding = cookieOf(req, '__Host-wbs_oidc');
         if (!state || binding === null) return empty(400, [clear('__Host-wbs_oidc')]);
         const transaction = options.transactions.consume(binding, state);
-        if (transaction === null) return empty(400, [clear('__Host-wbs_oidc')]);
+        // **The mismatch is the one refusal here that leaves the binding
+        // alone** (TASK-276). A state this browser cannot prove it owns is a
+        // callback that is not this login — a hostile top-level navigation
+        // carrying the `SameSite=Lax` cookie is exactly what it looks like —
+        // and the store now keeps the record for the real callback still on its
+        // way. Clearing the cookie would throw that login away anyway, from the
+        // other end: the honest arrival would find no binding and take the 400
+        // one line up. So the refusal costs the caller nothing, which is the
+        // same shape the duplicated-parameter refusal above already takes.
+        //
+        // **Status and body do not move**, and that is deliberate: this stays
+        // the bodiless 400 the other dead-transaction answers give, because a
+        // caller who is told "your state was wrong" while the record survives
+        // has been handed the retry signal the old ordering was destroying the
+        // record to deny. The only observable difference is the absent
+        // `Set-Cookie`.
+        //
+        // Proof: `refuses a forged error callback without burning the login it
+        // interrupts` fails on the honest callback with `Expected: 302
+        // Received: 400` when this clears the binding.
+        if (transaction.outcome === 'state_mismatch') return empty(400, []);
+        if (transaction.outcome !== 'consumed') return empty(400, [clear('__Host-wbs_oidc')]);
 
         // **An error callback is the authorization server saying this login is
         // over**, and it is the most ordinary thing a person can do: clicking
@@ -434,17 +459,15 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // forged navigation to `?error=access_denied&state=<guess>` cannot reach
         // this line: only a state matching this browser's binding does.
         //
-        // **That is not a claim that the forged navigation is harmless, and it
-        // must not be read as one.** `consume` deletes the binding's record
-        // *before* it compares the state (`libs/auth/src/oidc-store.ts`), so a
-        // hostile top-level navigation carrying the `SameSite=Lax` binding
-        // cookie still burns a live login on its way to the 400 — no state guess
-        // required. That is TASK-269's recorded decision and this branch neither
-        // introduces nor widens it: the mismatch path here is byte-identical to
-        // the one that shipped. Filed as its own task, because fixing it means
-        // giving the store a typed result so "expired" and "wrong state" stop
-        // being the same `null`, which is a change to a shared auth contract and
-        // not to this handler.
+        // **The forged navigation this used to warn about is closed** —
+        // TASK-276, and the note it replaces said what closing it would take.
+        // `consume` no longer deletes the binding's record before it compares
+        // the state (`libs/auth/src/oidc-store.ts`), so a hostile top-level
+        // navigation to `?error=…&state=anything` carrying the `SameSite=Lax`
+        // cookie now stops at the `state_mismatch` refusal above with the
+        // record and the cookie both intact, and never reaches this branch at
+        // all. What still reaches it is the callback whose state *matched*,
+        // which is this browser's own login being ended by its own provider.
         //
         // **302 back to the app, where the other refusals here are bodiless
         // statuses.** This is the one refusal on this route a person chose, and

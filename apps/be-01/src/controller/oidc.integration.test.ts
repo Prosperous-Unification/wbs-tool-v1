@@ -516,6 +516,7 @@ describe('OIDC browser routes', () => {
     expect(res.headers.get('set-cookie')).toContain('__Host-wbs_oidc=binding-1;');
     expect(f.transactions.consume('binding-1', 'state-1')).toEqual({
       nonce: 'nonce-1',
+      outcome: 'consumed',
       verifier: 'verifier-1',
     });
   });
@@ -528,6 +529,51 @@ describe('OIDC browser routes', () => {
 
     expect(res.status).toBe(400);
     expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  /**
+   * TASK-276, end to end, and it is the case the whole change exists for.
+   *
+   * The binding cookie is `SameSite=Lax`, so a hostile page can send a browser
+   * with a login in flight to this route on a top-level GET and the cookie
+   * rides along. Until now `consume` deleted the record before comparing the
+   * state, so that navigation destroyed a transaction that was about to
+   * succeed — no state guess required, because any string reached the delete.
+   *
+   * The refusal itself does not move: 400, no body, exchange untouched. The two
+   * assertions that carry the fix are the **absent `Set-Cookie`** — clearing the
+   * binding would lose the login from the other end, the honest callback
+   * arriving to find no cookie — and the honest callback that still completes.
+   */
+  it('refuses a forged error callback without burning the login it interrupts', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const forged = await f.app.handle(
+      new Request(
+        'https://dev.wbs.test/api/auth/okta/callback?error=access_denied&state=anything',
+        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+      ),
+    );
+
+    expect(forged.status).toBe(400);
+    expect(await forged.text()).toBe('');
+    expect(forged.headers.get('set-cookie')).toBeNull();
+    expect(f.calls.exchange).toHaveLength(0);
+
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
   });
 
   /**
