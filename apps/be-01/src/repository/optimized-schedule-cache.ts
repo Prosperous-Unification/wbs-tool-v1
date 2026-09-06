@@ -452,6 +452,27 @@ export interface SlotClaim {
   readonly attemptToken: string;
 }
 
+/** The exact seat this writer still owns, or null after reclamation/replacement. */
+function heldSolverSlot(db: Reader, claim: SlotClaim): ReturnType<typeof toSolverSlotRow> | null {
+  const stored = db
+    .select()
+    .from(solverSlot)
+    .where(
+      and(
+        eq(solverSlot.projectId, claim.projectId),
+        eq(solverSlot.contractVersion, claim.contractVersion),
+        eq(solverSlot.generation, claim.generation),
+        eq(solverSlot.objective, claim.objective),
+        eq(solverSlot.budgetMs, claim.budgetMs),
+      ),
+    )
+    .get();
+  if (stored === undefined) return null;
+
+  const row = toSolverSlotRow(stored);
+  return row.ownerId === claim.ownerId && row.attemptToken === claim.attemptToken ? row : null;
+}
+
 /**
  * Whether the writer still holds the slot it is about to commit against
  * (tasks.md 4.1's first condition).
@@ -481,23 +502,7 @@ export interface SlotClaim {
  * {@link storeOptimizedOutcome}.
  */
 export function writerStillHolds(db: Reader, claim: SlotClaim): boolean {
-  const stored = db
-    .select()
-    .from(solverSlot)
-    .where(
-      and(
-        eq(solverSlot.projectId, claim.projectId),
-        eq(solverSlot.contractVersion, claim.contractVersion),
-        eq(solverSlot.generation, claim.generation),
-        eq(solverSlot.objective, claim.objective),
-        eq(solverSlot.budgetMs, claim.budgetMs),
-      ),
-    )
-    .get();
-  if (stored === undefined) return false;
-
-  const row = toSolverSlotRow(stored);
-  return row.ownerId === claim.ownerId && row.attemptToken === claim.attemptToken;
+  return heldSolverSlot(db, claim) !== null;
 }
 
 /**
@@ -643,15 +648,18 @@ export type OutcomeWriteResult = 'stored' | 'superseded' | 'already-recorded';
  * The write half of tasks.md 4.1: a conditional insert of one attempt's
  * outcome, guarded by all four conditions inside one transaction.
  *
- * **Not an upsert, and that is the whole design.** A superseded run must not be
- * able to store, evict, overwrite an `ok` with a `failed`, or emit a second
- * outcome record for one key. `onConflictDoNothing` is what makes the last of
- * those true: the primary key is
+ * **Not a blind upsert, and that is the whole design.** A superseded run must
+ * not be able to store, evict, overwrite an `ok` with a `failed`, or emit a
+ * second outcome record for one key. The primary key is
  * `(projectId, inputHash, objective, contractVersion, budgetMs)` and does
  * **not** include `generation`, so two generations of the same key collide by
- * construction. The legitimate replacement path is not an overwrite either —
- * `allocateGeneration` deletes that contract version's older-generation cache
- * rows in its own transaction, so a newer generation finds the key empty.
+ * construction. An ordinary result remains insert-only. The one conditional
+ * update is an explicit Retry: a `failed`/`corrupt` row older than the attempt's
+ * own slot may be replaced, and stamping the replacement at or after that slot
+ * makes a second commit from the same attempt ineligible. A Retry therefore
+ * preserves the diagnostic marker while it runs and overwrites it exactly once.
+ * `allocateGeneration` still deletes older-generation rows in its own
+ * transaction, so a genuinely newer input finds the key empty.
  *
  * **All four predicates are re-read inside the transaction, not passed in.**
  * The caller read them minutes ago when it was admitted; what matters is
@@ -677,7 +685,8 @@ export function storeOptimizedOutcomeIn(
   write: OutcomeWrite,
 ): OutcomeWriteResult {
   const { claim, outcome } = write;
-  if (!writerStillHolds(tx, claim)) return 'superseded';
+  const held = heldSolverSlot(tx, claim);
+  if (held === null) return 'superseded';
   if (
     !admissionStillCurrent(tx, {
       projectId: claim.projectId,
@@ -689,8 +698,23 @@ export function storeOptimizedOutcomeIn(
     return 'superseded';
   }
   if (!optimizationStillEnabled(tx, claim.projectId)) return 'superseded';
+  if (write.now < held.startedAt) {
+    throw new Error('outcome timestamp predates the solver slot that produced it');
+  }
 
-  const inserted = tx
+  const storedOutcome = {
+    generation: claim.generation,
+    status: outcome.kind,
+    resultJson:
+      outcome.kind === 'ok'
+        ? JSON.stringify(encodeOptimizedResult(outcome.result))
+        : outcome.kind === 'plan-infeasible'
+          ? JSON.stringify(encodePlanInfeasible(outcome.certificate))
+          : null,
+    failureReason: outcome.kind === 'failed' ? outcome.reason : null,
+    createdAt: write.now,
+  } as const;
+  let written = tx
     .insert(optimizedScheduleCache)
     .values({
       projectId: claim.projectId,
@@ -698,22 +722,44 @@ export function storeOptimizedOutcomeIn(
       objective: claim.objective,
       contractVersion: claim.contractVersion,
       budgetMs: claim.budgetMs,
-      generation: claim.generation,
-      status: outcome.kind,
-      resultJson:
-        outcome.kind === 'ok'
-          ? JSON.stringify(encodeOptimizedResult(outcome.result))
-          : outcome.kind === 'plan-infeasible'
-            ? JSON.stringify(encodePlanInfeasible(outcome.certificate))
-            : null,
-      failureReason: outcome.kind === 'failed' ? outcome.reason : null,
-      createdAt: write.now,
+      ...storedOutcome,
     })
     .onConflictDoNothing()
     .returning({ objective: optimizedScheduleCache.objective })
     .all();
 
-  if (inserted.length !== 1) return 'already-recorded';
+  if (written.length === 0) {
+    const key = {
+      projectId: claim.projectId,
+      inputHash: write.inputHash,
+      contractVersion: claim.contractVersion,
+      budgetMs: claim.budgetMs,
+    };
+    const previous = readOptimizedPair(tx, key)[claim.objective];
+    if (
+      (previous.kind !== 'failed' && previous.kind !== 'corrupt') ||
+      previous.createdAt >= held.startedAt
+    ) {
+      return 'already-recorded';
+    }
+    written = tx
+      .update(optimizedScheduleCache)
+      .set(storedOutcome)
+      .where(
+        and(
+          eq(optimizedScheduleCache.projectId, claim.projectId),
+          eq(optimizedScheduleCache.inputHash, write.inputHash),
+          eq(optimizedScheduleCache.objective, claim.objective),
+          eq(optimizedScheduleCache.contractVersion, claim.contractVersion),
+          eq(optimizedScheduleCache.budgetMs, claim.budgetMs),
+          eq(optimizedScheduleCache.generation, previous.generation),
+          eq(optimizedScheduleCache.createdAt, previous.createdAt),
+        ),
+      )
+      .returning({ objective: optimizedScheduleCache.objective })
+      .all();
+    if (written.length === 0) return 'already-recorded';
+  }
 
   enforceLiveBudgetBound(tx, {
     projectId: claim.projectId,
