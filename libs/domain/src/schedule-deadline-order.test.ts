@@ -178,9 +178,10 @@ describe('minimum slack orders the ready set', () => {
   });
 
   it('schedules the same deadlined plan the same way twice', () => {
-    // AC #3's determinism clause. Two slices that tie on slack *and* on date
-    // fall all the way through to the plan's own order, and that order is a
-    // total one, so there is no pair the comparator can leave unresolved.
+    // AC #3's determinism clause, in its weakest form: one input, run twice.
+    // It cannot fail — `schedule` is pure and both arms hand it the identical
+    // array — so it is kept as a smoke case and the claim it is named for is
+    // proved by the permutation case below, which is the one that can fail.
     const rows = [item('a'), item('b')];
     const slices = [slice('a', DEV, 2, 'kat'), slice('b', DEV, 2, 'kat')];
     const deadlines = new Map([
@@ -194,6 +195,47 @@ describe('minimum slack orders the ready set', () => {
     expect(JSON.stringify([...again.slices])).toBe(JSON.stringify([...once.slices]));
     expect(planned(once, 'a', DEV)).toMatchObject({ earliestStart: 0 });
     expect(planned(once, 'b', DEV)).toMatchObject({ earliestStart: 2, boundBy: 'person' });
+  });
+
+  it('schedules the same plan from either row order when two slices tie on every key', () => {
+    // AC #3's determinism clause where it can actually break. Every comparison
+    // in `goesFirst` ties here: same person, same duration, same deadline and
+    // therefore the same slack, the same unleveled start and float, the same
+    // number — `frozenNumber` is reported verbatim and `deriveNumbers` enforces
+    // no uniqueness on it — and both are one-slice items, so both sit at step
+    // index 0. A comparator whose last key is that step index leaves the pair
+    // unresolved in both directions, and the eligible set is a heap, so the
+    // insertion order decides: reversing these rows reverses which of them
+    // takes `kat` on day 0.
+    //
+    // The rows carry their positions with them, so the two arms are the same
+    // plan written down in a different order rather than two plans — the
+    // numbers, the tree and the slices are identical, and only the array order
+    // moves.
+    const rows: PlannedRow[] = [
+      { id: 'a', parentId: null, position: 10, frozenNumber: '010', priority: 1 },
+      { id: 'b', parentId: null, position: 20, frozenNumber: '010', priority: 1 },
+    ];
+    const slices = [slice('a', DEV, 2, 'kat'), slice('b', DEV, 2, 'kat')];
+    const deadlines = new Map([
+      ['a', 6],
+      ['b', 6],
+    ]);
+
+    const forward = withDeadlines(rows, slices, deadlines);
+    const reversed = withDeadlines([...rows].reverse(), slices, deadlines);
+
+    // Asserted on the placements and not on the map's entries: the map is
+    // filled in node order, so its iteration order follows the rows either way
+    // and a stringified comparison would fail on a plan that is the same one.
+    for (const id of ['a', 'b']) {
+      expect(planned(reversed, id, DEV)).toMatchObject({
+        earliestStart: planned(forward, id, DEV).earliestStart,
+        earliestFinish: planned(forward, id, DEV).earliestFinish,
+      });
+    }
+    expect(planned(forward, 'a', DEV)).toMatchObject({ earliestStart: 0 });
+    expect(planned(forward, 'b', DEV)).toMatchObject({ earliestStart: 2, boundBy: 'person' });
   });
 });
 

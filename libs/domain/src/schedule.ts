@@ -1112,8 +1112,31 @@ interface SlicePriority {
   float: number;
   /** Its work item's number — the tie goes to the row that reads first. */
   number: string;
-  /** Its place in the step order, which is the last thing two slices can differ by. */
+  /** Its place in the step order — what separates two slices of one work item. */
   at: number;
+  /**
+   * Its slice key, and the only comparison here that cannot tie.
+   *
+   * The five rules above it are all facts a planner can repeat: two work items
+   * may carry one priority, one date, one start, one float, and — because
+   * `deriveNumbers` reports a `frozenNumber` verbatim and enforces no
+   * uniqueness on it — one number. {@link at} does not save them either, since
+   * it is the step index *inside* a work item and two one-slice items both sit
+   * at 0. Without a key that cannot repeat, `goesFirst(a, b)` and
+   * `goesFirst(b, a)` are both false for such a pair, the eligible set is a
+   * heap, and the order the rows arrived in decides which of them takes the
+   * person — so the same plan written down twice schedules two ways.
+   *
+   * The key is `workItemId` and `stepId`, which is unique by construction: it
+   * is the key {@link Schedule.slices} is filled under, so two slices sharing
+   * one would already be one row overwriting the other.
+   *
+   * A node index would be unique too, and would be the wrong choice: it is
+   * assigned by the order the rows were handed over, so it would make the
+   * comparator total while leaving the plan's answer dependent on that order.
+   * A key made of the work's own identity is the same answer either way.
+   */
+  key: string;
 }
 
 /**
@@ -2369,6 +2392,7 @@ export function schedule(
       // that are already equal on time.
       number: numbers.get(node.slice.workItemId) ?? '',
       at: node.at,
+      key: node.key,
     };
   });
   /**
@@ -2393,11 +2417,17 @@ export function schedule(
    * mistake, and it costs the priority rule nothing on the plans that have no
    * deadlines — which today is all of them.
    *
-   * The last two are what make it deterministic rather than merely correct.
-   * Two slices that tie on time are separated by their work item's number and
-   * then by their place in the step order, so the same plan cannot schedule two
-   * ways — and no pair can tie on all five, since two slices of one work item
-   * differ in the last.
+   * The last three are what make it deterministic rather than merely correct.
+   * Two slices that tie on time are separated by their work item's number, then
+   * by their place in the step order, and finally by their slice key — which
+   * cannot tie, because it is the key the plan's slices are stored under. The
+   * step index alone was not enough and read as though it were: two one-slice
+   * work items both sit at 0, and a `frozenNumber` is reported verbatim, so a
+   * pair could tie on all five and the heap's insertion order decided between
+   * them. See {@link SlicePriority.key}, and
+   * `schedules the same plan from either row order when two slices tie on
+   * every key`, which reversed the rows and got the other answer; watched
+   * 2026-09-06.
    *
    * **This rule decides an order, never a date.** Whichever slice is taken
    * first is still placed at the latest of its own floors, so a priority cannot
@@ -2426,7 +2456,8 @@ export function schedule(
     if (first.start !== second.start) return first.start < second.start;
     if (first.float !== second.float) return first.float < second.float;
     if (first.number !== second.number) return first.number < second.number;
-    return first.at < second.at;
+    if (first.at !== second.at) return first.at < second.at;
+    return first.key < second.key;
   };
 
   /**
