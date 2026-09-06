@@ -103,6 +103,12 @@ export const WORK_ITEM_COLUMNS = {
   frozenNumber: workItem.frozenNumber,
   startNoEarlierThan: workItem.startNoEarlierThan,
   startNoEarlierThanReason: workItem.startNoEarlierThanReason,
+  // Named here the moment the column became writable, not later: `remove`'s
+  // `restore_subtree` inverse journals `rowOf(rows, …)` — whole rows off this
+  // very projection — so a column missing from this list is a column an undo of
+  // a delete puts back as null. `tasks.md` 1.3 made that a precondition of the
+  // write path rather than a follow-up to it.
+  deadline: workItem.deadline,
   priority: workItem.priority,
   serviceTeamId: workItem.serviceTeamId,
   serviceId: workItem.serviceId,
@@ -345,6 +351,12 @@ export class WorkItemRepository implements WorkItemStore {
       // about` failed with it, because the branch this line guards returns
       // before the transaction the pair rule lives in. Watched 2026-08-18.
       patch.startNoEarlierThanReason === undefined &&
+      // Proof: this line deleted, so a patch naming only the deadline is taken
+      // as naming nothing — the store answers `ok` with the row it read and the
+      // column is never written. Watched with `writes a deadline and reads it
+      // back` failing on `Expected: "2026-03-31" / Received: null`, which is
+      // the not-before line's own red one column over.
+      patch.deadline === undefined &&
       patch.priority === undefined &&
       patch.serviceTeamId === undefined &&
       patch.teamIds === undefined &&

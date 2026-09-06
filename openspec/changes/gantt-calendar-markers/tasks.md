@@ -1796,6 +1796,17 @@ in both slices rather than implied by position.
       the name, order, date and swatch assertions all stay green — the fault
       that separates "the names are in the file" from "the names are on the
       page".
+      **SUPERSEDED on the membership question (2026-09-06, TASK-287).** "One row
+      per marker" above is this checklist's original wording and it is no longer
+      the contract: the legend carries one row per **drawn chip**, and
+      `spec.md`'s "Per chip drawn, not per marker" paragraph is the single
+      authority. Nothing else in this block moves — the order, the swatch, the
+      `date` beside the `name`, the bounds assertion and all three negatives
+      stand exactly as written; only the population they range over is the
+      drawn band rather than the full marker list. Left in place rather than
+      rewritten because this file is the record of what each round decided, and
+      a silently edited checklist would erase the round-8 and round-9 reasoning
+      that is still correct.
       **Fourth case, because the chip-and-rule pairing is vacuous about rules**
       (round-11 Sol review, Minor). It requires a chip per marker and relates
       each _existing_ rule to a chip, so an export carrying chips, a legend and

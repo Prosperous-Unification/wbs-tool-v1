@@ -472,6 +472,7 @@ function parsePatch(body: unknown): {
   notes?: string;
   startNoEarlierThan?: IsoDate | null;
   startNoEarlierThanReason?: string | null;
+  deadline?: IsoDate | null;
   priority?: number | null;
   serviceTeamId?: string | null;
   teamIds?: readonly string[];
@@ -494,6 +495,13 @@ function parsePatch(body: unknown): {
       raw['startNoEarlierThanReason'],
       'startNoEarlierThanReason',
     ),
+    // The floor's own reader, unchanged and not a copy of it: a non-`IsoDate`
+    // becomes `deadline_must_be_a_date` through the **existing** malformed-payload
+    // path, which is 6.1's whole requirement for the shape of the value. The one
+    // deadline-specific refusal — a date before the project's day zero — is not
+    // here, because this function has no project to compare against; it is the
+    // service's, where `deadlineOffsetOf` already answers `before-project-start`.
+    deadline: asOptionalDate(raw['deadline'], 'deadline'),
     priority: asOptionalPriority(raw['priority'], 'priority'),
     serviceTeamId:
       'serviceTeamId' in raw ? asIdOrNull(raw['serviceTeamId'], 'serviceTeamId') : undefined,

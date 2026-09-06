@@ -89,6 +89,7 @@ function row(parentId: string | null, position: number, name: string): WorkItem 
     priority: null,
     startNoEarlierThan: null,
     startNoEarlierThanReason: null,
+    deadline: null,
     serviceTeamId: null,
     serviceId: null,
     maxParallel: 1,
@@ -388,6 +389,49 @@ describe('the team set beside the column', () => {
     const read = await repo.listByProject(projectId);
     expect(read.at(0)?.startNoEarlierThan).toBe('2026-09-12');
     expect(read.at(0)?.startNoEarlierThanReason).toBe('waiting on client sign-off');
+  });
+
+  it('writes a deadline and reads it back, and clears it with a null', async () => {
+    // The whole of the column's store-level contract, and deliberately shorter
+    // than the floor's above it: there is no reason beside a deadline, so there
+    // is no pair to be in and no refusal to meet here. A date goes in, comes
+    // back off the read projection, and `null` takes it off again.
+    //
+    // Both faces are asserted — `patch`'s own `returning()` and a later
+    // `listByProject` — because they are two different **reads**, not two
+    // different column lists: both project `WORK_ITEM_COLUMNS`, which is why
+    // adding the column there made both true at once, and the second assertion
+    // is what says the value was stored rather than only echoed back off the
+    // statement that wrote it.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, [], wrote());
+
+    const written = await repo.patch(strip.id, { deadline: '2026-03-31' }, wrote());
+
+    expect(written.ok).toBe(true);
+    expect(written.ok ? written.workItem.deadline : null).toBe('2026-03-31');
+    expect((await repo.listByProject(projectId)).at(0)?.deadline).toBe('2026-03-31');
+
+    const cleared = await repo.patch(strip.id, { deadline: null }, wrote());
+
+    expect(cleared.ok).toBe(true);
+    expect(cleared.ok ? cleared.workItem.deadline : 'unset').toBeNull();
+    expect((await repo.listByProject(projectId)).at(0)?.deadline).toBeNull();
+  });
+
+  it('leaves a deadline alone when the patch does not name it', async () => {
+    // The other half of "a patch names what it names": an edit to a different
+    // column must not read as a deadline nobody typed, and must not clear one
+    // somebody did. This is the case that fails if `deadline` is ever merged
+    // with `??` rather than an `undefined` check.
+    const strip = row(null, 10, 'Strip');
+    await repo.insert(strip, [], wrote());
+    await repo.patch(strip.id, { deadline: '2026-03-31' }, wrote());
+
+    const renamed = await repo.patch(strip.id, { name: 'Strip the walls' }, wrote());
+
+    expect(renamed.ok ? renamed.workItem.deadline : null).toBe('2026-03-31');
+    expect((await repo.listByProject(projectId)).at(0)?.deadline).toBe('2026-03-31');
   });
 
   it('refuses a reason with no date to be about', async () => {

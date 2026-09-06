@@ -106,6 +106,7 @@ describe('the stored schedule body', () => {
           serviceId: null,
           maxParallel: 1,
           startNoEarlierThanReason: null,
+          deadline: null,
           revision: 0,
         },
         [],

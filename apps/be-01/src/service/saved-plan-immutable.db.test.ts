@@ -57,6 +57,7 @@ describe('a saved plan does not move when the live plan does', () => {
     serviceId: null,
     maxParallel: 1,
     startNoEarlierThanReason: null,
+    deadline: null,
     revision: 0,
   });
 

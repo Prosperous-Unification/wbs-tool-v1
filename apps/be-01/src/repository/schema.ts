@@ -434,21 +434,29 @@ export const workItem = sqliteTable(
      * migration — measured against a copy of dev's live database in
      * `openspec/changes/work-item-deadline/verify.md`, not assumed.
      *
-     * **Nothing reads or writes this column**, and that is the whole reason
-     * plans schedule exactly as they did. `WORK_ITEM_COLUMNS` does not name
-     * `deadline`, so no row is selected with one or written with one, and the
-     * plan read hands `schedule()` the `NO_DEADLINES` placeholder. The sentence
-     * here first said the scheduler had no `deadlines` argument at all, which
-     * was true of the release that added the column and stopped being true when
-     * slices 2–5 landed the seventh argument — the argument arrived, the empty
-     * map stayed, and it is `fast-golden-corpus.test.ts` that proves the
-     * difference is none. **Every sentence in this comment that
-     * describes an ordering, a fold, a late label or a read-time resolution —
-     * before this paragraph and after it — describes what the column is *for*,
-     * not code standing at this head.** Stated once here rather than hedged
-     * sentence by sentence, and stated as a direction rather than a position,
-     * because a pointer that says "below" is one edit away from pointing at
-     * the wrong half.
+     * **This column reaches the schedule as of slice 3.4/4.2.**
+     * `WORK_ITEM_COLUMNS` names it, so every row selected carries it and the
+     * patch `SET` writes it (slice 6); the plan read resolves each stored date
+     * against the project's start with `deadlineOffsetsOf` and hands the
+     * offsets to `schedule()` as its seventh argument. So the ordering and the
+     * fold described above are behaviour at this head rather than intent.
+     *
+     * **The lateness is a number, not yet a label.** What ships at this head is
+     * a nullable `lateBy` per slice on the plan payload; the
+     * `Late by N workdays` sentence a reader sees is slice 9.2 and nothing in
+     * `apps/fe-01` consumes the number yet. Said plainly because the paragraph
+     * this replaced blurred the two, and the same blur is the third of three
+     * review Criticals this task has taken, all of them sentences.
+     *
+     * This paragraph has moved three times and each move deleted the sentence
+     * it replaced rather than appending to it: it first said the scheduler had
+     * no `deadlines` argument at all, true of the release that added the column
+     * and false once slices 2–5 landed the seventh argument; it then said
+     * nothing read or wrote the column, true until slice 6 made it writable;
+     * it then said the read still passed a `NO_DEADLINES` placeholder, true
+     * until this slice. `fast-golden-corpus.test.ts` still proves an empty map
+     * schedules identically, which is what makes a plan with no deadline on it
+     * unchanged by all four.
      *
      * **Below the floor's reason rather than beside the floor**, deliberately:
      * `startNoEarlierThanReason` says its words are about "this column and the
@@ -457,12 +465,14 @@ export const workItem = sqliteTable(
      * position in this object is not its position in the table anyway, since
      * `ALTER TABLE ADD COLUMN` appends.
      *
-     * **Stored as authored, and no later edit will rewrite it** — a rule about
-     * the writes the later slices add, since at this head there are none. A
-     * project start moved past a stored deadline is to resolve
-     * `before-project-start` at **read** time and the row is to be reported
-     * late by the whole span; the value is to be left alone and the request
-     * that moved the project is not to be rejected. It is written down here,
+     * **Stored as authored, and no later edit rewrites it.** The writes exist
+     * as of slice 6 and this is the rule they keep. A project start moved past
+     * a stored deadline resolves `before-project-start` at **read** time and
+     * the row is reported late by the whole span; the value is left alone and
+     * the request that moved the project is not rejected. Implemented as of
+     * 3.4/4.2 and proved by `deadline-plan-read.test.ts`, which moves a
+     * project's start under a stored date and asserts both halves. It is
+     * written down here,
      * on the column, because rewriting the value would delete what somebody
      * typed on an unrelated edit, and the place that argument has to survive
      * is the definition of the thing being rewritten.

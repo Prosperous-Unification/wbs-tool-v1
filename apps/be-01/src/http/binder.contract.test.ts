@@ -41,6 +41,13 @@ const ALICE: AuthenticatedUser = {
 const NO_SCOPES: AuthenticatedUser = { id: 'user-2', username: 'bob', scopes: [] };
 
 /**
+ * The store behind `/probe/find/:slug`. One key is ordinary; the other is the
+ * three characters `%ZZ`, which is a legal solution slug and not legal percent
+ * encoding — the pair TASK-270 item 2 measured the two binders apart on.
+ */
+const FINDABLE: ReadonlySet<string> = new Set(['ok', '%ZZ']);
+
+/**
  * The smallest thing that satisfies the guard's one call. A real `AuthService`
  * would drag a database in and prove nothing extra: what is under test is the
  * route layer's behaviour given an answer, not how the answer is reached.
@@ -52,7 +59,7 @@ function stubAuth(byToken: Record<string, AuthenticatedUser>): AuthService {
   } as unknown as AuthService;
 }
 
-function routes(auth: AuthService): Route[] {
+function routes(auth: AuthService, writes: string[] = []): Route[] {
   const guard = callerGuard(auth);
   return [
     { method: 'GET', path: '/probe/plain', handler: () => Promise.resolve(ok({ hello: 'world' })) },
@@ -66,6 +73,73 @@ function routes(auth: AuthService): Route[] {
       method: 'POST',
       path: '/probe/body',
       handler: ({ body }) => Promise.resolve(ok({ received: body })),
+    },
+    /**
+     * `GET /plans/by-solution/:slug` in miniature: an exact lookup keyed by
+     * a path parameter, over a store that holds one ordinary key and one whose
+     * name is a percent sequence no decoder accepts. The echo route above shows
+     * what each binder *puts* in `params`; this one shows what that value can
+     * reach, which is the part TASK-270 item 2 was about.
+     */
+    {
+      method: 'GET',
+      path: '/probe/find/:slug',
+      handler: ({ params }) => Promise.resolve(ok({ found: FINDABLE.has(params['slug']) })),
+    },
+    /**
+     * `POST /api/projects` in miniature: the same `typeof name !== 'string'`
+     * refusal, and a recorder standing in for `ProjectService.create`.
+     *
+     * The recorder is the point. A content-type clause that asserts only the
+     * status cannot tell a refusal apart from a write that happened and then
+     * answered the same number, and it is the *call* that TASK-270 item 4 was
+     * about: on `application/merge-patch+json` one binder created a project and
+     * the other did not. Their statuses differed too, so a status clause would
+     * have caught that particular pair — but only the recorder says which of
+     * the two answers had already written.
+     */
+    {
+      method: 'POST',
+      path: '/probe/write',
+      handler: ({ body }) => {
+        const name = (body as { name?: unknown } | undefined)?.name;
+        if (typeof name !== 'string')
+          return Promise.resolve(respond(422, { error: 'invalid_body' }));
+        writes.push(name);
+        return Promise.resolve(ok({ created: name }));
+      },
+    },
+    /**
+     * `PATCH /api/projects/:id` in miniature, and the one refusal `/probe/write`
+     * cannot express: `patchFrom` takes **any** field bag, so an *empty* object
+     * is a legal patch that reaches `projects.update` while `undefined` is a 422
+     * before it (`../controller/project.routes.ts`). A route that refuses both
+     * cannot see a binder that turned "no body" into `{}`, which is what reading
+     * `content-type` on a bodyless request did.
+     */
+    {
+      method: 'PATCH',
+      path: '/probe/patch-write',
+      handler: ({ body }) => {
+        if (typeof body !== 'object' || body === null)
+          return Promise.resolve(respond(422, { error: 'invalid_body' }));
+        writes.push('patched');
+        return Promise.resolve(ok({ patched: true }));
+      },
+    },
+    /**
+     * `/probe/write`'s verb twin. A DELETE route that records, because the
+     * mutation Elysia refuses before a handler and this binder used to run is a
+     * DELETE: `decodeBody` treated every DELETE as bodyless while Elysia's own
+     * condition excludes only GET and HEAD.
+     */
+    {
+      method: 'DELETE',
+      path: '/probe/delete-write',
+      handler: () => {
+        writes.push('deleted');
+        return Promise.resolve(noContent());
+      },
     },
     {
       method: 'DELETE',
@@ -189,7 +263,8 @@ function routes(auth: AuthService): Route[] {
 
 describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
   const auth = stubAuth({ 'alice-token': ALICE, 'scopeless-token': NO_SCOPES });
-  const app = bind(routes(auth));
+  const writes: string[] = [];
+  const app = bind(routes(auth, writes));
   const get = (path: string, headers: Record<string, string> = {}) =>
     app.handle(new Request(`http://localhost${path}`, { headers }));
 
@@ -218,6 +293,189 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
       }),
     );
     expect(await res.json()).toEqual({ received: { name: 'Strip out' } });
+  });
+
+  /**
+   * TASK-270 item 4, and the clause asserts the **service call** rather than
+   * only the status, because the call is the difference that matters and the
+   * status is the one a reader stops at.
+   *
+   * `decodeBody` dispatched on `contentType.includes('json')` until this chunk,
+   * so every media type carrying the substring reached the JSON parser. The
+   * statuses did not match — that is the point of asserting the call as well:
+   * the two answers below differ in status *and* in whether a project was
+   * created, and only one of those is visible to a clause that reads
+   * `res.status`. Measured on h2puni at `39e53dda`, `POST /api/projects` with
+   * `application/merge-patch+json` and `{"name":"Sand"}`:
+   *
+   * ```
+   * content-type                   elysia                in-process
+   * application/merge-patch+json   422, no service call  200, create("Sand")
+   * application/not-json           422, no service call  200, create("Sand")
+   * ```
+   *
+   * **What the framework actually dispatches on is one character**, and the
+   * first draft of this clause got it wrong by reading the tidy five-name
+   * `switch` at `elysia/dist/compose.mjs:500` — which is the path taken only
+   * when a route registers a `parse` hook. No route in this app does, so a
+   * request that reaches the parser at all takes the fast path at `:435-444`: a
+   * `switch` on `contentType.charCodeAt(12)` alone, with a `default` that reads
+   * character 0 and treats anything starting `t` as text. No `;` truncation, no
+   * lower-casing. **Reaching it is two conditions:** `hasBody` excludes GET and
+   * HEAD (`:257-258`) and the header is read only `if(c.request.body)`
+   * (`:421-426`), so a POST carrying a body media type and no body never
+   * dispatches — the clause below the write ones pins that.
+   *
+   * Which makes the accepted set stranger than any list of media types:
+   * `application/json-patch+json` is **admitted** — character 12 is `j` — while
+   * `application/merge-patch+json` is refused, on `m`. That pair is in the
+   * clauses below deliberately: it is the one that would go unnoticed, and it is
+   * the reason this is a reproduction rather than a tidy-up.
+   */
+  it.each([['application/merge-patch+json'], ['application/not-json'], ['APPLICATION/JSON']])(
+    'reaches no service on a %s body, under either binder',
+    async (contentType) => {
+      writes.length = 0;
+      const res = await app.handle(
+        new Request('http://localhost/probe/write', {
+          method: 'POST',
+          headers: { 'content-type': contentType },
+          body: JSON.stringify({ name: 'Sand' }),
+        }),
+      );
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({ error: 'invalid_body' });
+      expect(writes).toEqual([]);
+    },
+  );
+
+  /**
+   * The control the clause above needs: the media types that *are* accepted
+   * still reach the service, so "no service call" is a property of the refused
+   * set rather than of a route that stopped working. `; charset=utf-8` is here
+   * because the fast path never truncates the header — it does not have to,
+   * since it only ever reads character 12 — and `json-patch+json` because it is
+   * the accepted one nobody would predict.
+   */
+  it.each([
+    ['application/json'],
+    ['application/json; charset=utf-8'],
+    ['application/json-patch+json'],
+  ])('reaches the service on a %s body, under either binder', async (contentType) => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', {
+        method: 'POST',
+        headers: { 'content-type': contentType },
+        body: JSON.stringify({ name: 'Sand' }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['Sand']);
+  });
+
+  /**
+   * The `x` arm, and the counterexample that caught this chunk's first draft.
+   *
+   * `application/xml` has `x` at index 12, so the framework reads its body with
+   * `parseQuery` and the route is served. Folding `x` and `r` into one
+   * `formData()` call made this a 400 here — `Request.formData()` throws on that
+   * media type — which is refusing what production serves, the same defect as
+   * admitting what it refuses. Nothing in the app *sends* `application/xml`;
+   * this is the shape of the dispatch being pinned, not a supported media type.
+   */
+  it('serves an x-dispatched body the framework parses, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', {
+        method: 'POST',
+        headers: { 'content-type': 'application/xml' },
+        body: 'name=Sand',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['Sand']);
+  });
+
+  /**
+   * The DELETE half of the same property, and the one with a real mutation
+   * behind it: `DELETE /api/saved-plans/:id` calls `plans.delete` and
+   * publishes.
+   *
+   * Elysia parses a DELETE body — its condition excludes only GET and HEAD — so
+   * a malformed JSON body answers 400 from the parser, before the handler.
+   * `decodeBody` treated every DELETE as bodyless, so the same request ran the
+   * handler here and deleted. The refusal *bodies* differ and always have
+   * (Elysia's parse error is its own); what both binders owe is the status and
+   * the absence of the call.
+   */
+  it('refuses a malformed DELETE body before the handler, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/delete-write', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: '{',
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(writes).toEqual([]);
+  });
+
+  /**
+   * The control for the clause above: a DELETE that carries no body at all is
+   * still served, so "read the body" did not become "require one".
+   */
+  it('still answers a bodiless DELETE, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/delete-write', { method: 'DELETE' }),
+    );
+    expect(res.status).toBe(204);
+    expect(writes).toEqual(['deleted']);
+  });
+
+  /**
+   * Elysia's *other* precondition, and the one this chunk's first pass at
+   * "reproduce the dispatch" left out: the header is read only
+   * `if(c.request.body)` (`elysia/dist/compose.mjs:421-426`), so a body media
+   * type on a request carrying no body is not a parse instruction.
+   *
+   * `application/xml` makes it visible because its `x` arm reads text: an empty
+   * read through `URLSearchParams` is `{}`, not `undefined`, and an empty
+   * object is a legal patch. The recorder is what separates the two — both
+   * answers would otherwise be a status a reader could accept — and it is a real
+   * `PATCH /api/projects/:id`, which under Elysia is a 422 with no call and
+   * under a binder without this guard called `projects.update` with an empty
+   * patch.
+   */
+  it('does not parse a body media type on a request with no body, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/patch-write', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/xml' },
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(writes).toEqual([]);
+  });
+
+  /**
+   * The control the clause above needs: the same route with a real body still
+   * patches, so "ignore a bodyless request" did not become "ignore the body".
+   */
+  it('still reads an x-dispatched body that is actually there, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/patch-write', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/xml' },
+        body: 'name=Sand',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['patched']);
   });
 
   /**
@@ -321,6 +579,173 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
       }),
     );
     expect(await res.json()).toEqual({ received: { tag: 'a', name: 'Sand' } });
+  });
+
+  /**
+   * TASK-270 item 1, and the row of its measured table that crossed the
+   * service-call boundary rather than merely differing in shape.
+   *
+   * A multipart field whose single value opens with `{` or `[` is an **object**
+   * by the time a handler sees it (`adapter/web-standard/index.mjs:52-64`), and
+   * every `typeof value !== 'string'` refusal in the controllers reads that:
+   * `POST /api/projects` with multipart `name={"a":1}` is a 422 with no service
+   * call under Elysia, and was a 200 that called `projects.create` under a
+   * binder that kept the bytes. That is the same defect class as item 4's, one
+   * media type further in.
+   *
+   * The shape clause is here and the **call** clause is below it, on the
+   * recorder, because those are two different claims and only the second one is
+   * the defect.
+   */
+  it('parses a multipart field whose whole value is JSON into an object', async () => {
+    const form = new FormData();
+    form.append('tag', '{"a":1}');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: { a: 1 } } });
+  });
+
+  /**
+   * The clause above, taken to the boundary it is actually about: `/probe/write`
+   * refuses a non-string `name` without recording, so a multipart `name` that is
+   * an object is a 422 with an empty recorder, and the binder that kept the
+   * bytes answered 200 and appended. The measured row said `projects.create`;
+   * this is that row with a recorder standing in for the service.
+   */
+  it('refuses a multipart name that arrives as an object, without writing', async () => {
+    writes.length = 0;
+    const form = new FormData();
+    form.append('name', '{"a":1}');
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', { method: 'POST', body: form }),
+    );
+    expect(res.status).toBe(422);
+    expect(writes).toEqual([]);
+  });
+
+  /**
+   * The control for both: the same route, the same media type, a `name` that is
+   * a plain string — which still reaches the recorder, so "coerce JSON-looking
+   * values" did not become "refuse multipart".
+   */
+  it('still writes a plain multipart name, under either binder', async () => {
+    writes.length = 0;
+    const form = new FormData();
+    form.append('name', 'Sand');
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', { method: 'POST', body: form }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['Sand']);
+  });
+
+  /**
+   * The other opener. `charCodeAt(0) === 91` is in the framework's condition
+   * beside `123` (`adapter/web-standard/index.mjs:57-58`), and a JSON array is
+   * an object to `typeof`, so it survives the acceptance test — which makes a
+   * lone `[1,2]` field an **array** in front of a handler, not a string.
+   */
+  it('parses a multipart field whose whole value is a JSON array', async () => {
+    const form = new FormData();
+    form.append('tag', '[1,2]');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: [1, 2] } });
+  });
+
+  /**
+   * The control the clause above needs, and the reason its coercion is a `try`
+   * rather than a shape check (`adapter/web-standard/index.mjs:56-63`): a value
+   * that opens with `{` and does not parse keeps its bytes and reaches the
+   * handler, so a half-typed body is still the handler's 422 to give rather
+   * than a parser's 400.
+   */
+  it('leaves a multipart value that opens with a brace but is not JSON as its bytes', async () => {
+    const form = new FormData();
+    form.append('tag', '{oops');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: '{oops' } });
+  });
+
+  /**
+   * A multipart key is a **path** when it carries a `.` or a `[`
+   * (`adapter/web-standard/index.mjs:76-96`): `user.name` names a field inside
+   * an object, not a flat field spelled with a dot. A route module reading
+   * `body['user.name']` finds nothing under either binder, which is the whole
+   * point of pinning it — the flat spelling is what an in-process binder
+   * without this rule handed over.
+   */
+  it('builds a nested object from a multipart dotted key', async () => {
+    const form = new FormData();
+    form.append('user.name', 'Sand');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { user: { name: 'Sand' } } });
+  });
+
+  /**
+   * The bracketed half of the same rule: `t[0]` and `t[1]` are indices into one
+   * array, not two fields (`adapter/web-standard/index.mjs:76-96`). Note this
+   * is a *different* array from the repeated-key one two clauses up — that one
+   * is a key sent twice, this one is a key sent once per index — and both
+   * binders have to reach the same shape down both routes.
+   */
+  it('builds an array from multipart bracketed keys', async () => {
+    const form = new FormData();
+    form.append('t[0]', 'a');
+    form.append('t[1]', 'b');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { t: ['a', 'b'] } });
+  });
+
+  /**
+   * The third rule, and the one with no visible parser in it: the multipart
+   * body is accumulated onto a normally-parented object, so a field named
+   * `__proto__` is skipped by the loop's own `if(c.body[key])` guard before it
+   * is assigned (`adapter/web-standard/index.mjs:49`). The field is simply
+   * not there, while its neighbour is — measured on h2puni as
+   * `{"ok":"y"}` under Elysia against `{"__proto__":"x","ok":"y"}` under a
+   * binder folding with `Object.fromEntries` onto a fresh object.
+   *
+   * `ok` is in the body to keep this a clause about one field disappearing
+   * rather than about the request being refused.
+   */
+  it('drops a multipart field named __proto__ and keeps its neighbour', async () => {
+    const form = new FormData();
+    form.append('__proto__', 'x');
+    form.append('ok', 'y');
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', { method: 'POST', body: form }),
+    );
+    expect(await res.json()).toEqual({ received: { ok: 'y' } });
+  });
+
+  /**
+   * The control that keeps the two form arms honest: none of the four rules
+   * above is a *form* rule, they are all `multipart` rules. The same bytes sent
+   * as `application/x-www-form-urlencoded` go through `parseQuery`, which has
+   * no JSON coercion, no key paths and no prototype-shaped guard
+   * (`parse-query.mjs:94-130`), so the value stays the string a handler
+   * compares. Folding the two arms into one implementation is the exact mistake
+   * item 4 made in the other direction, and this clause fails if it is made
+   * again.
+   */
+  it('leaves a urlencoded value that looks like JSON as its string', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: 'tag={"a":1}',
+      }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: '{"a":1}' } });
   });
 
   /** The query half of the same finding, which measured as agreement. */
@@ -537,17 +962,70 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * Probed rather than reasoned about, and the reading decided the fix:
    * `elysia 200 {"id":null,"mode":null}`, `in-process URIError`. Elysia
    * **matches the route** and runs the handler, so making the in-process binder
-   * 404 would have been a second divergence dressed as a fix. `matchPath` now
-   * hands an undecodable segment over raw and both answer 200.
+   * 404 would have been a second divergence dressed as a fix.
    *
-   * The status is asserted and the parameter's value is not, for the reason the
-   * 422 clause below states: the status is the route module's and both binders
-   * give it, while `null` versus `'%ZZ'` for a request no client sends
-   * deliberately is the framework's own reading.
+   * The first fix handed the segment over **raw** and asserted only the status,
+   * on the argument that `'%ZZ'` and `null` both reach a repository lookup that
+   * answers `not_found`. TASK-270 item 2 measured that argument false — see the
+   * clause below — so the value is asserted too, and the two binders agree on it.
+   *
+   * The table is the whole probe, not one row of it, and that is the point of
+   * its shape: a decoder special-casing `%ZZ` would satisfy a single malformed
+   * case and still disagree with Elysia everywhere else, so the five undecodable
+   * rows pin the failure and the four decodable ones pin that failing is not the
+   * answer to everything. Measured on h2puni at `53d78020` before the fix: both
+   * binders already produced the decoded value for `%20`, `a%2Fb`,
+   * `%F0%9F%98%80` and a plain segment, and only the five malformed rows
+   * differed. So `decodeURIComponent` throwing and Elysia's
+   * `fast-decode-uri-component` returning `null` are the same accept set here.
    */
-  it('answers a malformed percent-encoded parameter rather than throwing', async () => {
-    const res = await get('/probe/echo/%ZZ');
+  it.each([
+    ['a bare percent', '%', null],
+    ['a stray pair of them', '%%', null],
+    ['a truncated multi-byte sequence', '%E0%A4%A', null],
+    ['an overlong encoding', '%C0%80', null],
+    ['two characters that are not hex', '%ZZ', null],
+    ['an encoded space', '%20', ' '],
+    ['an encoded slash', 'a%2Fb', 'a/b'],
+    ['an encoded astral character', '%F0%9F%98%80', '😀'],
+    ['a segment needing no decoding', 'plain', 'plain'],
+  ])('decodes %s the same way under either binder', async (_label, segment, expected) => {
+    const res = await get(`/probe/echo/${segment}`);
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: expected, mode: null });
+  });
+
+  /**
+   * Why the clause above asserts the value, and the case that makes it bite.
+   *
+   * The raw-passthrough fix left the in-process binder able to reach a stored
+   * record the production binder cannot. Elysia hands the handler `null`, which
+   * matches no key; the raw `'%ZZ'` matches a record whose key is literally
+   * those three characters. Nothing forbids one: a solution slug is any
+   * non-empty string (`controller/project.routes.ts`), and
+   * `GET /plans/by-solution/:slug` is an exact lookup
+   * (`controller/solution.routes.ts`), so the second binder answered 200 with a
+   * record where the shipped server answers 404.
+   *
+   * Measured on h2puni at `53d78020` before the fix, over the same two keys —
+   * the probe's handler returned the stored value where this one returns only
+   * whether it was found, so the shape below is the probe's and not this
+   * fixture's:
+   * `FIND elysia "%ZZ" -> 200 {"found":false}` and
+   * `FIND in-process "%ZZ" -> 200 {"found":true,...}`. That is the divergence
+   * the second binder exists to catch, found in the second binder itself.
+   *
+   * The clause bites in both directions: it fails if either binder starts
+   * reaching the record, and the `'ok'` half fails if a binder stops reaching a
+   * record it should — so "never find anything" cannot pass it.
+   */
+  it.each([
+    ['an undecodable segment', '%ZZ', { found: false }],
+    ['a decodable one', 'ok', { found: true }],
+  ])('looks up %s the same way under either binder', async (_label, slug, expected) => {
+    const res = await get(`/probe/find/${slug}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(expected);
   });
 
   /**

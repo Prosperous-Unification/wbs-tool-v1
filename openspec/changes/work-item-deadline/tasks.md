@@ -176,6 +176,14 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       `before-project-start` at write time (slice 6) is malformed input;
       unreachable-but-well-formed is legitimate input that Fast reports late
       (slice 5) and PRI/Time report infeasible (slice 8).
+      **Two of the three boundaries stand as of 3.4/4.2 and the box stays open
+      on the third.** Write time is slice 6's service refusal (422, naming the
+      work item and the project's day zero). Read time is
+      `deadline-plan-read.test.ts`'s moved-start case: the same resolution, the
+      opposite verdict — the request is not rejected, the stored value is not
+      rewritten, and Fast reports the row late by the whole span. What is still
+      owed is the third clause, `plan-infeasible` from PRI/Time, which is slice
+      8 and TASK-219/241's; this item cannot be closed from inside this task.
 - [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
       earlier than its parent must be loosened to the parent's date. Measured on
       h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
@@ -200,6 +208,12 @@ constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
       single arithmetic, rather than re-deriving a comparison. Ticking it now
       would claim a referent for two slices that do not exist yet, and 8 is
       TASK-219's. Close it when 9 reads the same number.
+      **Still open after 3.4/4.2, and for the same reason rather than by
+      oversight.** The plan read now puts `lateBy` — the number
+      `workdaysLateBy` produced from this one predicate — on every slice the
+      payload carries, so the referent slice 9 needs is on the wire and no
+      second comparison was written to get it there. The clause names three
+      slices and two of them still do not exist.
 - [x] 4.3 **The no-op proof.** Every case in the Fast golden corpus produces a
       **byte-identical** schedule under the seventh argument defaulted to an
       empty map. This is the one test that says the seam did not move; it is
@@ -281,7 +295,7 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       deadlines are asked first, so on most contended plans the priority
       comparison is never reached. Recorded in the file, with the stale
       "tightest is dependency-reach" note amended to priority.
-- [ ] 5.4 A project start moved past a stored deadline resolves
+- [x] 5.4 A project start moved past a stored deadline resolves
       `before-project-start` **at read time** and is reported late by the whole
       span — the stored value is not rewritten and the request is not rejected.
       **The domain half is landed and the box stays open on the storage half.**
@@ -307,27 +321,98 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       wrong number, because a one-day item finishing on day zero meets every
       offset a clamp can produce. Recorded this way rather than as two separable
       reds, which is what a first reading of them claimed.
-      **What is still owed:** the be-01 read path that supplies those dates, and
-      with it the claims that the stored value is not rewritten and the request
-      is not rejected. Both wait on slice 1's column.
+      **The storage half landed at 3.4/4.2 and closes this box.**
+      `work-item.service.ts`'s plan read builds the as-authored
+      `Map<workItemId, IsoDate>` off the rows it already has and hands it to
+      `deadlineOffsetsOf`, under the same rule the floors beside it take: a
+      project with no `startDate` has no day zero to count from and applies
+      none, which is the one branch `NO_DEADLINES` still names. The two claims
+      this item makes about the write are asserted by the moved-start case in
+      `deadline-plan-read.test.ts` — the one named for reporting a moved project
+      start late by the whole span — which moves the project under a
+      legally-written date and then reads both the plan and the row: `lateBy`
+      **2** for a two-day slice standing on workday 1 — `-1` subtracted, the
+      whole span — and the stored `2026-03-04` still on the work item. The
+      project update that moved it was not rejected, and that half is asserted
+      at the layer that could reject it: the case drives the move through
+      `ProjectService.update` — where `bad_start_date` and `bad_pert_weights`
+      live — and asserts `ok`. Through `ProjectStore.update` it would have been
+      the check that cannot fail, since a repository can only report a vanished
+      row; found by the round-1 Sol seat and closed by moving the call, not by
+      narrowing the claim. That service is asked nothing about deadlines, which
+      is what makes this read-time rather than write-time. Its two reds are the ones recorded above, restated as this
+      case sees them: drop the entry and it reads `null` (on time), clamp to `0`
+      and it reads `1`.
+      **The seam's own red, watched rather than argued:** the read reverted to
+      `NO_DEADLINES` — both the ask and the `schedule()` call — leaves **5 of
+      the 7 cases in `deadline-plan-read.test.ts` red** on h2puni at `9d4542f5`.
+      The two that survive are the file's declared negative controls, and they
+      survive for the reason that makes them controls: an unwired read also
+      reports a met deadline as `null`, and the no-start-date case is the
+      `NO_DEADLINES` branch itself, which the revert makes universal. Each says
+      so where it stands rather than being left to look like coverage.
 
 ## 6. API, realtime, undo
 
-- [ ] 6.1 `deadline` joins the work-item PATCH payload as a nullable `IsoDate`.
-      Non-`IsoDate` → `422` through the **existing** malformed-payload path;
+- [x] 6.1 `deadline` joins the work-item PATCH payload as a nullable `IsoDate`.
+      Non-`IsoDate` → refused through the **existing** malformed-payload path;
       `deadlineOffsetOf` returning `before-project-start` → `422` naming the
       offending work item and the project's day zero, which is the **only**
       deadline-specific rejection; `null` clears it.
-- [ ] 6.2 Authorization is the existing work-item write authorization —
+      Done: `parsePatch` reads it with `asOptionalDate`, the floor's own reader,
+      so a non-date is `deadline_must_be_a_date` through the path that already
+      existed. **That path answers 400, not the 422 this item first said**, and
+      the sentence is corrected here rather than the code bent to it: the
+      requirement is the existing path, asOptionalDate throws BadRequest, and
+      the batch route's default for a malformed body is 400 — the same status
+      every other malformed field on this payload gets. Making the deadline
+      alone 422 would be a new path, which is what this item forbids. The case
+      that asserts it is the one named "refuses a deadline that is not a date,
+      the way every other malformed field is refused" in
+      work-item.controller.test.ts. Found by the round-1 Gemini seat, which read
+      refusalFor rather than the claim. The day-zero refusal is the
+      **service's**, not the controller's — it is the first layer holding the
+      project as well as the payload — and it
+      answers 422 over the batch route's own 400 default through a new
+      `UNPROCESSABLE` arm in `refusal-status.ts`, carrying `workItemId` and
+      `projectDayZero` out through the batch runner's existing `detailOf`.
+      A project with **no start date** is asked nothing: there is no day zero
+      for a date to fall before, which is the plan read's own rule for floors.
+- [x] 6.2 Authorization is the existing work-item write authorization —
       asserted by a test that a caller who may edit a work item may set its
       deadline, so no new authority is silently introduced.
-- [ ] 6.3 No new event type and no new undo verb: `deadline` rides the existing
+      Done: both directions in one case on a restricted project — the owner's
+      set lands, the stranger's is `forbidden` 403 and the stored date is
+      unchanged. The owner's 200 alone would pass against a route checking
+      nothing.
+- [x] 6.3 No new event type and no new undo verb: `deadline` rides the existing
       work-item update event and the existing undo stack. Redo of a clear
       restores `null`; redo of a set restores the date. Both through the ordinary
       field-edit path.
-- [ ] 6.4 A deadline edit invalidates the optimized cache for that project
+      Done: one line in `fieldsOf` and one in `revertTo`, which is the whole of
+      it — no verb, no event, no branch. Two cases against real SQLite: a set
+      then a clear, undone twice, and a deleted branch's deadline restored by
+      `restore_subtree`. The second is 1.3's obligation and is why
+      `WORK_ITEM_COLUMNS` had to name the column in the same slice that made it
+      writable — `remove` journals whole rows off that projection.
+- [x] 6.4 A deadline edit invalidates the optimized cache for that project
       exactly as a priority or floor edit does, through the existing debounce and
       generation fence, with no new machinery.
+      **Closed by 3.4/4.2 with no machinery added, which is what this item
+      asks.** The cache key is the whole `ScheduleInput` the plan read hands
+      `schedule()` (`publishedOptimized`), so an edit invalidates the cache
+      exactly when it moves that input — and as of the plan read a deadline is
+      in it. The cache-key case in `deadline-plan-read.test.ts` — the one named
+      for putting the resolved offsets in the input the cache is keyed on —
+      reads the ask itself: `[]` before
+      the edit and `[[id, 2]]` after, off the same `OptimizedScheduleAsk` the
+      hash is computed from. Asserted on the ask rather than on a stored row on
+      purpose — whether the cache then misses is 4.1–4.8's, proved against real
+      SQLite in `optimized-schedule-cache.db.test.ts`, and re-proving it here
+      would prove nothing about this edit.
+      The key holds the resolved **offset** and not the calendar date, so the
+      hash does not depend on the project's start twice
+      (`canonical-schedule-input.ts` (d) and (g)).
 
 ## 7. Canonical input, contract-version bump, retention scoping
 
@@ -369,15 +454,37 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       `fast-golden-corpus.test.ts` asserts in two directions — the stored bytes
       reproduce, and the stored `contractVersion` equals the constant — and
       regenerating at 7 satisfies both, so the guard is not being worked around.
-      What makes 7 still true is measurable rather than argued: **no work item
-      can carry a deadline yet.** Slice 1 landed at `b2bb095c`, so the column
-      is now there — the reason this holds moved with it and the claim did not.
-      Nothing reads or writes it: `WORK_ITEM_COLUMNS` in
-      `apps/be-01/src/repository/work-item.ts` does not name `deadline`, so no
-      row is selected with one or written with one, and the plan read hands
-      `schedule()` the `NO_DEADLINES` placeholder. So `deadlines` is empty for
-      every real plan, every new comparison ties, and no cached row can have
-      been computed from a date that could not be stored. The bump's blast radius is also this
+      What makes 7 still true is measurable rather than argued, and the
+      measurement has now moved twice. It first read "no work item can carry a
+      deadline yet", true until slice 1 landed the column at `b2bb095c`. It then
+      read "nothing reads or writes it", true until slice 6 landed the write path
+      — `WORK_ITEM_COLUMNS` names `deadline` as of that slice and a work item can
+      carry one. It then read "the plan read still passes `NO_DEADLINES`", true
+      until 3.4/4.2 threaded the stored dates through.
+      **That third reason has now expired, and this item was re-examined rather
+      than inherited — the answer is still 7, and the reason is now the input
+      hash.** `deadlines` is the seventh canonical-input entry, so a plan that
+      states one hashes differently from the same plan that states none: a
+      cached row written before this slice was necessarily computed under `[]`,
+      and the only inputs that still key to it are the ones that canonicalize to
+      `[]` today. For those, 4.3's byte-identical no-op proof says Fast's answer
+      did not move, so the row is still the right answer. A plan carrying a
+      deadline misses instead and is recomputed, which is 6.4. A version bump
+      keys a cache; the thing that changed here is already in the key, so
+      bumping would evict every correct row to no end.
+      **The solver side, corrected here rather than left standing.** An earlier
+      revision of this paragraph said the solver does not read `deadlines` at
+      this head and that the hard finish constraint was TASK-241's. Both are
+      false and the round-1 Sol seat read the source: `build-solver-request.ts`
+      folds `plan.deadlines` through `leafDeadlinesOf` into `deadlineUnits` per
+      slice, and `wbs_solver/model.py` clause 6 enforces
+      `end <= deadlineUnits`. TASK-219 built that path against a legitimately
+      empty deadline source, which is exactly this task's own boundary note. It
+      does not change the answer above: an optimized row is keyed by the same
+      `inputHash`, so a row computed under `[]` is not served to a plan that now
+      states a date — it misses and is recomputed, this time through a solver
+      that has always been able to read the dates and until now never got any.
+      The bump's blast radius is also this
       slice's own: seven `libs/contracts/solver` request fixtures pinned by
       `wire-contract-version.test.ts`, `revalidate-solver-result.test.ts` and
       `libs/solver-py`, all of them slice 7/8 artifacts TASK-219 owns. Splitting

@@ -480,12 +480,14 @@ describe('a priority ladder moves no date', () => {
         // oracle predates the field, so every slice now carries a key the
         // capture cannot have — a payload that gained a field, which is not a
         // payload that moved a date. Null is the assertion and not a
-        // convenience: no work item in these sixteen plans can carry a deadline
-        // at all, so a replay reporting any slice late would mean the engine
-        // had invented a date rather than read one. The column exists as of
-        // `b2bb095c` — what makes the claim true is that nothing reads or
-        // writes it, since `WORK_ITEM_COLUMNS` does not name `deadline` and the
-        // plan read passes the `NO_DEADLINES` placeholder.
+        // convenience: no work item in these sixteen plans carries a deadline,
+        // so a replay reporting any slice late would mean the engine had
+        // invented a date rather than read one. The column exists as of
+        // `b2bb095c`, is readable and writable as of slice 6, and the plan read
+        // resolves it into `schedule()`'s seventh argument as of 3.4/4.2 — so
+        // what keeps the claim true is the **corpus** alone: none of these
+        // sixteen plans states a deadline, and a row with none is absent from
+        // the map the read builds.
         expect(lateBy).toBeNull();
         return slice;
       }),
@@ -502,8 +504,16 @@ describe('a priority ladder moves no date', () => {
           state,
           serviceId,
           startNoEarlierThanReason,
+          deadline,
           ...row
         }) => {
+          // Lifted by `work-item-deadline` 6.1, which made the column readable,
+          // and asserted **null** for `tagIds`' reason: the oracle predates the
+          // column, nothing in sixteen replayed plans sets one, and a null on
+          // every row is this slice's own claim — the read path widened by one
+          // column and invented no date on the way. A bare lift would let a
+          // projection that defaulted the column to today pass silently.
+          expect(deadline).toBeNull();
           expect(teamIds).toEqual(row.serviceTeamId === null ? [] : [row.serviceTeamId]);
           // `tagIds` is lifted the same way by `tags` (R10-B) and asserted **empty**
           // for `actuals`' reason: the oracle predates the dimension, nothing in

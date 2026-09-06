@@ -603,6 +603,63 @@ describe('undoing each kind of change', () => {
     expect(await teamIdsOf(sockets)).toEqual(socketTeams);
   });
 
+  it('restores the deadline of a deleted work item, against the real cascade', async () => {
+    // `tasks.md` 1.3's obligation on whichever slice first makes the column
+    // writable, and it is here rather than in the in-memory suite for the
+    // actuals' reason: the row is genuinely gone after the delete, so the date
+    // can only come back from the journal, and the journal only carries it if
+    // `WORK_ITEM_COLUMNS` names `deadline` — `remove` journals whole rows off
+    // that projection. A case written against the fixture store passes with
+    // the column missing from the list, because its rows survive the deletion
+    // in an array.
+    //
+    // Proof: `deadline` removed from `WORK_ITEM_COLUMNS`, and this fails on
+    // `Expected: "2026-03-31" / Received: null` — a branch that comes back from
+    // an undo having quietly lost a date somebody typed, which no face shows as
+    // a loss because the row itself is back.
+    const strip = await root('Strip');
+    const sockets = await child(strip, 'Sockets');
+    expect((await workItems.patch(sockets, ownerId, { deadline: '2026-03-31' })).ok).toBe(true);
+
+    expect((await workItems.remove(strip, ownerId, 'cascade')).ok).toBe(true);
+    expect(await rows()).toEqual([]);
+
+    expect(expectDone(await undone())).toBe('delete “Strip”');
+
+    const back = await rows();
+    expect(back.find((row) => row.id === sockets)?.deadline).toBe('2026-03-31');
+    // And the sibling that never had one still has none: a restore that filled
+    // the column from a default would pass the assertion above and fail here.
+    expect(back.find((row) => row.id === strip)?.deadline).toBeNull();
+  });
+
+  it('puts a cleared deadline back, and takes a first one away again', async () => {
+    // 6.3's whole claim in one case: no new undo verb and no new event type —
+    // a deadline rides the ordinary field-edit path, so the inverse of a clear
+    // is the date and the inverse of a set is `null`. Both directions, because
+    // a `revertTo` written with `??` rather than an `undefined` check restores
+    // the first and silently drops the second.
+    const strip = await root('Strip');
+    expect((await workItems.patch(strip, ownerId, { deadline: '2026-03-31' })).ok).toBe(true);
+    expect((await workItems.patch(strip, ownerId, { deadline: null })).ok).toBe(true);
+
+    expect(expectDone(await undone())).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.deadline).toBe('2026-03-31');
+
+    expect(expectDone(await undone())).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.deadline).toBeNull();
+
+    // And forward again, which is the half `revertTo` is **not** on: redo
+    // replays the journalled `forward` patch and never reads `before`. Both
+    // directions, because 6.3 names both — redo of a set restores the date,
+    // redo of the clear restores `null`.
+    expect(expectDone(await workItems.redo(projectId, ownerId))).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.deadline).toBe('2026-03-31');
+
+    expect(expectDone(await workItems.redo(projectId, ownerId))).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.deadline).toBeNull();
+  });
+
   it('restores a legacy singleton delete journal that has no teamIds', async () => {
     const strip = await root('Strip');
     const backend = await directoryStore.addTeam(

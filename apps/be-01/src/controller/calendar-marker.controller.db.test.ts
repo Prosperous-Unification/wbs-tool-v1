@@ -365,6 +365,60 @@ describe('the calendar-marker routes', () => {
   });
 
   /**
+   * TASK-279 AC #7, the other half: the **marker-addressed** routes.
+   *
+   * `PATCH` and `DELETE` do carry a marker id, so the fix above left them
+   * blaming it unconditionally — including for an **absent project**, where the
+   * id on the path is real, well-formed and entirely innocent. Both refusals
+   * are the same `not_found`: the service merges "no such project" and "no such
+   * marker" into one reason on purpose, so the route cannot tell them apart
+   * from the reason and now reads `CalendarMarkerRefused.about` instead.
+   *
+   * The two halves are asserted **in one case** because the claim is the
+   * discrimination and not either answer alone. A route that blamed nothing
+   * ever would satisfy the first half and break the spec's `not_found` row; one
+   * that blamed `markerId` always is the defect. Only both together pin it.
+   *
+   * Negative: `refusalBody`'s condition reduced to `requestCarriedMarkerId`
+   * alone — `about` ignored, which is exactly the behaviour before this change.
+   * Watched at **27 pass / 2 fail** on h2puni, 2026-09-06: this case, and
+   * "refuses all four mutations for a read-only actor, and writes nothing".
+   *
+   * That second failure is worth stating, because it is what makes an earlier
+   * line of this fix falsifiable. `refusalBody` used to carry an explicit
+   * `reason !== 'forbidden'` arm; it was struck as unfalsifiable, since
+   * `forbidden` is minted only by `gate()`, which tags it `about: 'project'`.
+   * The negative confirms the subsumption rather than assuming it: with
+   * `about` ignored, `forbidden` starts carrying `field: 'markerId'` and the
+   * read-only case fails. The arm was redundant with `about`, not with
+   * nothing.
+   */
+  it('blames markerId for an absent marker but not for an absent project', async () => {
+    const absentProject = 'e0000000-0000-4000-8000-0000000000ac';
+    const absentMarker = 'f9000000-0000-4000-8000-00000000000e';
+
+    const patchedElsewhere = await patchIn(absentProject, 'owner', absentMarker, {
+      name: 'Nothing to rename',
+    });
+    expect(patchedElsewhere.status).toBe(404);
+    expect(await patchedElsewhere.json()).toEqual({ error: 'not_found' });
+
+    const removedElsewhere = await removeIn(absentProject, 'owner', absentMarker);
+    expect(removedElsewhere.status).toBe(404);
+    expect(await removedElsewhere.json()).toEqual({ error: 'not_found' });
+
+    // Same reason, same status, same routes — and here the field is the truth,
+    // because the project resolved and the marker is what was missing.
+    const patched = await patch('owner', absentMarker, { name: 'Nothing to rename' });
+    expect(patched.status).toBe(404);
+    expect(await patched.json()).toEqual({ error: 'not_found', field: 'markerId' });
+
+    const removed = await removeIn(projectId, 'owner', absentMarker);
+    expect(removed.status).toBe(404);
+    expect(await removed.json()).toEqual({ error: 'not_found', field: 'markerId' });
+  });
+
+  /**
    * The slice's point, through the routes this time.
    *
    * Both markers are created at {@link FIXED_NOW} on one date, so `(date,
@@ -1054,6 +1108,7 @@ describe('the calendar-marker routes', () => {
       priority: null,
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
+      deadline: null,
       serviceTeamId: null,
       serviceId: null,
       maxParallel: 1,

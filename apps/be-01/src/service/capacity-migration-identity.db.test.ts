@@ -288,11 +288,14 @@ describe('every plan schedules identically across the migration', () => {
         // payload that gained one is not a payload that moved a date.
         // `lateBy` comes off beside it, by `work-item-deadline` 5.2 and for the
         // same reason, asserted null rather than dropped: no plan in this
-        // corpus can carry a deadline, so a slice reporting itself late would
-        // be the engine inventing a date. The column exists as of `b2bb095c`;
-        // what makes that true is that nothing reads or writes it — see
-        // `priority-band-identity.db.test.ts`, which asserts the same null for
-        // the same reason.
+        // corpus carries a deadline, so a slice reporting itself late would be
+        // the engine inventing a date. The column exists as of `b2bb095c`, is
+        // readable and writable as of slice 6, and the plan read resolves it
+        // into `schedule()`'s seventh argument as of 3.4/4.2 — so the reason the
+        // null holds is now the **corpus** alone: not one of the sixteen
+        // replayed plans states a deadline, and a row with none is absent from
+        // the map. See `priority-band-identity.db.test.ts`, which asserts the
+        // same null for the same reason.
         slices: tree.slices.map(({ capacityTeamId, lateBy, ...slice }) => {
           if (slice.boundBy === 'capacity') {
             const owed = effectiveTeamOf(slice.workItemId);
@@ -318,6 +321,7 @@ describe('every plan schedules identically across the migration', () => {
             state,
             serviceId,
             startNoEarlierThanReason,
+            deadline,
             ...row
           }) => {
             // The arity claim, and the only place it is made: the set the join
@@ -412,6 +416,13 @@ describe('every plan schedules identically across the migration', () => {
             // bare lift would hide a read path that invented either.
             expect(serviceId).toBeNull();
             expect(startNoEarlierThanReason).toBeNull();
+            // The third of the same kind, and the newest: `work-item-deadline`
+            // slice 6 made `work_item.deadline` readable, so every row now
+            // carries a key the pinned document predates. `null` on all sixteen
+            // replayed plans is the claim — no row in this corpus has a deadline
+            // and none was invented by the read path that widened to carry one —
+            // and a bare lift would hide a projection that defaulted the column.
+            expect(deadline).toBeNull();
             return row;
           },
         ),

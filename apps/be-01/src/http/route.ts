@@ -70,7 +70,15 @@ export interface RouteRequest {
   receivedMethod: HttpMethod | 'HEAD';
   /** The pathname as matched, without query string. */
   path: string;
-  /** Path parameters by name, from the `:name` segments of {@link Route.path}. */
+  /**
+   * Path parameters by name, from the `:name` segments of {@link Route.path}.
+   *
+   * A segment whose percent encoding no decoder accepts arrives as `null` under
+   * every binder, against this type — Elysia declares path parameters as
+   * strings and puts `null` there, and a binder that disagreed would let a
+   * route reach a record the shipped server cannot. `decodeSegment` carries the
+   * measurement and the widening that would make the type honest.
+   */
   params: Record<string, string>;
   /**
    * Query parameters. A repeated key keeps its **last** value, as Elysia does.
@@ -349,7 +357,8 @@ export function noContent(): RouteResponse {
  * alone so the root path does not normalise to the empty string.
  */
 /**
- * One path segment, decoded — or left exactly as it arrived where it cannot be.
+ * One path segment, decoded — or `null` where it cannot be, which is what
+ * Elysia puts there.
  *
  * `decodeURIComponent` **throws** `URIError` on malformed percent encoding, and
  * `matchPath` is called outside the in-process binder's `try`, so
@@ -360,22 +369,45 @@ export function noContent(): RouteResponse {
  *
  * So the fix is agreement on the answer, not a refusal: the route matches under
  * both binders, the handler runs under both, and a segment this app cannot
- * decode is handed over raw. Raw and not `null`, because {@link
- * RouteRequest.params} is `Record<string, string>` and widening it to carry a
- * framework's failure value would put that case in front of every handler in
- * the app; `%ZZ` reaches a repository lookup that answers `not_found`, which is
- * what Elysia's `null` reaches too.
+ * decode arrives as **the same value Elysia puts there** — `null`.
  *
- * The remaining difference is the parameter's *value* under a request no client
- * sends deliberately, which `binder.contract.test.ts` records in the same
- * excluded category as Elysia's own 404 body and its malformed-JSON refusal:
- * the status is the route module's and both binders give it.
+ * The first fix handed it over raw instead, on the argument that `'%ZZ'` and
+ * `null` both reach a repository lookup that answers `not_found`. TASK-270
+ * item 2 measured that argument false. A solution slug is any non-empty string
+ * (`controller/project.routes.ts`) and `GET /plans/by-solution/:slug` is an
+ * exact lookup (`controller/solution.routes.ts`), so a stored slug spelled
+ * `%ZZ` is reachable by the raw value and unreachable by Elysia's `null`: on
+ * h2puni at `53d78020`, over a store holding that key, `elysia -> found:false`
+ * and `in-process -> found:true`. A second binder that admits a record the
+ * shipped server cannot see is the exact failure the second binder exists to
+ * catch, so it is closed rather than described.
+ *
+ * `null` is a lie against the declared type, and it is **Elysia's own lie**:
+ * that framework declares a path parameter as `string` too —
+ * `Record<GetPathParameter<Path>, string>`, `elysia/dist/types.d.ts:342` at
+ * 1.4.28 — and puts `null` there anyway. Reproducing it keeps one meaning per
+ * URL across binders. The honest alternative — widening {@link
+ * RouteRequest.params} to `Record<string, string | null>` — is deferred, not
+ * rejected: it puts a case no client sends in front of 31 parameter reads on 27
+ * lines of the seven controller modules. Measured at this head, deferring it
+ * changes no answer any of them gives except one: `POST /projects/:id/commands`
+ * hands `null` to `PlanCommandRunner`'s no-project sentinel, so a batch naming a
+ * work item answers 400 `project_required` where the raw segment answered 404
+ * `not_found`. Both refuse, both roll back, and neither is the wrong 200 the
+ * divergence itself was. Whoever wants the compiler to enforce the case should
+ * widen the type and keep these clauses, which assert values and not statuses.
+ *
+ * Same accept set, measured rather than assumed: across `%ZZ`, `%`, `%%`,
+ * `%E0%A4%A`, `%C0%80`, `%20`, `%F0%9F%98%80`, `a%2Fb` and `ok`, this decoder
+ * and Elysia's `fast-decode-uri-component` failed on the same five and produced
+ * the same value for the same four. `binder.contract.test.ts` pins both the
+ * parameter's value and what that value can reach.
  */
-function decodeSegment(segment: string): string {
+function decodeSegment(segment: string): string | null {
   try {
     return decodeURIComponent(segment);
   } catch {
-    return segment;
+    return null;
   }
 }
 
@@ -393,7 +425,12 @@ export function matchPath(pattern: string, pathname: string): Record<string, str
       // 404 rather than resolve to a project whose id is the empty string,
       // which every repository would then look up and answer `not_found` to.
       if (given === '') return null;
-      params[segment.slice(1)] = decodeSegment(given);
+      // The one cast in this file, and it is the framework's: `decodeSegment`
+      // answers `null` for a segment no decoder accepts, exactly as Elysia
+      // does, and Elysia declares the same `Record<string, string>` while doing
+      // it. See `decodeSegment` for the measurement and for the widening that
+      // would remove the cast.
+      params[segment.slice(1)] = decodeSegment(given) as unknown as string;
     } else if (segment !== given) {
       return null;
     }

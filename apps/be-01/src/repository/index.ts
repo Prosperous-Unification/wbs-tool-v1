@@ -390,6 +390,15 @@ export interface WorkItem {
    */
   startNoEarlierThanReason: string | null;
   /**
+   * The last day this work may finish on, or null where nobody has said.
+   *
+   * The mirror of {@link WorkItem.startNoEarlierThan} at the other end: a
+   * date-only ceiling, never a pin and never a promise the scheduler keeps —
+   * Fast orders by it and reports `Late by N workdays` when it cannot be met.
+   * **No reason column beside it**, unlike the floor; `tasks.md` 1.1 says why.
+   */
+  deadline: IsoDate | null;
+  /**
    * How important this work is — an integer of 1 or more, smaller being more
    * important — or null for "nobody has said".
    *
@@ -650,6 +659,19 @@ export interface WorkItemPatch {
    * where a blank becomes this `null`, so `''` never reaches the column.
    */
   startNoEarlierThanReason?: string | null;
+  /**
+   * The last day this work may finish on, or `null` to take the deadline off.
+   *
+   * **No pair rule and no second field**: the floor above has a reason column to
+   * stay consistent with and this has nothing, so this store takes any
+   * `IsoDate` or `null` and refuses neither. Two layers above it do. The
+   * **controller** refuses a value that is not an `IsoDate`, through the same
+   * malformed-payload path the floor uses — a 400, like every other malformed
+   * field. The **service** refuses a date before the project's day zero, which
+   * is where that check has to live because it is the first layer holding the
+   * project as well as the payload; that one is a 422.
+   */
+  deadline?: IsoDate | null;
   /**
    * An integer of 1 or more, or `null` to leave this work with no priority.
    *

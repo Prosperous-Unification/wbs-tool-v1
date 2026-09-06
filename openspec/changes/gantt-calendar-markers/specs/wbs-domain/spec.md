@@ -516,11 +516,34 @@ disagree.
 **A chip is a position and a colour, not a name.** On screen the name lives in
 the chip's hover list, and at 4px the chip is a coloured tick; a downloaded
 file has no pointer and no 4px exemption. So the export SHALL also carry a
-**legend**: one row per marker, its swatch, its `date` and its `name`, in the
-list's `(date, created_at, id)` order, at every rung. Every marker name SHALL
-appear as text in the exported markup. A tooltip mechanism does not satisfy
-this — it is the hover answer again, and it is invisible in a printed page or
-a rasterised copy, which is what a downloaded chart is for.
+**legend**: one row per chip **the file draws**, its swatch, its `date` and its
+`name`, in the band's `(date, created_at, id)` order, at every rung. Every name
+the legend names SHALL appear as text in the exported markup. A tooltip
+mechanism does not satisfy this — it is the hover answer again, and it is
+invisible in a printed page or a rasterised copy, which is what a downloaded
+chart is for.
+
+**Per chip drawn, not per marker** (2026-09-06, TASK-287). The clause above
+said "one row per marker" until this change, while `layOutMarkerLegend` has
+taken the drawn band since it was written; TASK-281's 12px case made the two
+contradict each other in writing by asserting a capped marker's _absence_ from
+the legend. The band is what loses ties here, and deliberately: a legend is a
+**key to the picture**. Its stated job two sentences up is to turn the file's
+coloured shapes back into names, so a row whose swatch names a colour that is
+nowhere in the file is a key that sends the reader hunting for a shape that
+does not exist — the same defect as an unnamed shape, pointing the other way.
+A marker off the drawn horizon and a marker past its cell's share of
+`MARKER_BAND_MAX_PER_CELL` are both undrawn, both by
+`markersDrawnInBand`, and neither has a swatch to be the key to.
+
+**What this does not settle.** "The file drops a marker the plan has" is a real
+concern and it is not the legend's to answer. On screen that cell carries a
+`+N` badge and a day card behind it; the export carries neither, so a capped
+marker leaves the download with nothing at all saying it was dropped. That is a
+gap in what the _picture_ records, not in what the _key_ names, and the fix for
+it is the export's own overflow affordance rather than nameless legend rows —
+an undrawn entry has no swatch to show and no chip to point at, so a legend
+built from the full marker list would have to invent both.
 
 The legend SHALL lie wholly inside the exported `viewBox`, which means the
 export SHALL grow its canvas to hold it. `buildStandaloneGanttSvg` fixes
@@ -536,18 +559,40 @@ the same failure as no legend, wearing a passing test.
   rule per occupied date** carrying that date and that colour, and each rule has
   a chip at the same date in the same colour
 
-#### Scenario: a downloaded chart names its markers at every rung
+#### Scenario: a downloaded chart names the markers it draws at every rung
 
-- **WHEN** a plan with two markers is exported at 28px per day and again at 4px
+- **WHEN** a plan with two markers **on distinct dates inside the drawn
+  horizon** is exported at 28px per day and again at 4px
 - **THEN** both markers' names appear as text in the exported markup at both
   rungs
 
+The dates are distinct **and stated so**, because `MARKER_BAND_MAX_PER_CELL[4]`
+is 1: two markers sharing one date at the 4px rung are one drawn chip and one
+capped-out marker, so the unconstrained version of this scenario was false for a
+valid plan (round-1 Sol review, TASK-287). It asserts the rung ladder, which is
+what it is for, and not the cap — which the scenario below it owns.
+
 #### Scenario: the legend is readable rather than merely present
 
-- **WHEN** a plan with two markers is exported
-- **THEN** the legend carries one row per marker in `(date, created_at, id)`
-  order, each row carrying that marker's swatch colour and its `date` beside
-  its `name`, and the last row lies wholly inside the exported `viewBox`
+- **WHEN** a plan with two markers on distinct in-horizon dates is exported
+- **THEN** the legend carries one row per **drawn chip** in the band's
+  `(date, created_at, id)` order, each row carrying that chip's swatch colour
+  and its `date` beside its `name`, and the last row lies wholly inside the
+  exported `viewBox`
+
+#### Scenario: the legend names what the file draws and nothing else
+
+- **WHEN** three markers share one date and the plan is exported at the 12px
+  rung, where `MARKER_BAND_MAX_PER_CELL` is 2
+- **THEN** the file draws two chips and the legend carries exactly those two
+  rows, and the capped-out marker has **no legend row**
+
+Scoped to the legend and not to the whole markup, deliberately (round-2 Sol
+review, TASK-287): "its name appears nowhere in the file" would be a stronger
+claim than the membership rule makes, and it would pre-empt the overflow
+affordance the paragraph above leaves open — a future `+N` list could name a
+capped marker without giving it a legend row, and this scenario must not forbid
+that in advance.
 
 #### Scenario: the export drops nothing the screen shows
 
@@ -872,6 +917,7 @@ SHALL be **422**, the malformed-body answer:
 | `color` fails the 3:1 contrast bar         | `contrast`  | 422    | `color`    |
 | `markerId` already exists                  | `taken`     | 409    | `markerId` |
 | the marker is absent, or another project's | `not_found` | 404    | `markerId` |
+| the **project** is absent                  | `not_found` | 404    | —          |
 | the caller may not write the project       | `forbidden` | 403    | —          |
 
 `MARKER_NAME_MAX` SHALL be **120** characters, counted in Unicode code points
@@ -881,9 +927,20 @@ paragraph — it is a label, and a cap that admits a sentence invites one. Empty
 is refused by the same row: the minimum is 1.
 
 Every row SHALL answer with **exactly** the code, status and field its row
-gives. `forbidden` is the one row whose `field` is absent, and that absence is
-part of the contract rather than an omission: the refusal is about the caller,
-not about a field of the body.
+gives. `forbidden` is not the only row whose `field` is absent: an **absent
+project** answers the same `not_found` as an absent marker and SHALL blame
+nothing, on every route including the two addressed at a marker. The marker id
+on `PATCH /…/:markerId` and `DELETE /…/:markerId` is real and well-formed when
+the project is the thing that is missing, and a body naming it would send a
+client to correct the one value that was already right. In both cases the
+absence is part of the contract rather than an omission: the refusal is about
+the caller or the project, not about a field of the request.
+
+A route SHALL NOT read the `field` off the reason, because `not_found` is
+deliberately one reason for two states (below). It SHALL read it off what the
+service says the refusal was **about** — the project, or the marker — and the
+service is the only layer that knows, since the project check and the marker
+check happen in different places.
 
 `taken` reaches 409 through the shared `CONFLICTS` set, `not_found` through the
 shared 404 arm and `forbidden` through the shared 403 arm; only `malformed` and

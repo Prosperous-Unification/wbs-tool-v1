@@ -614,6 +614,145 @@ describe('work item routes', () => {
     });
   });
 
+  it('refuses a deadline before the project starts, naming the row and day zero', async () => {
+    // 6.1's only deadline-specific rejection, through the route, because the
+    // status is half the answer: **422 and not 400**, over the batch route's own
+    // 400 default. The body parses, the row exists and the date is a real
+    // `IsoDate` — what is wrong is the value against this project, and a 400
+    // would send a client back to check its syntax.
+    //
+    // Day zero is the **first workday on or after** the project start, not the
+    // start itself: 2026-03-01 is a Sunday, so a deadline on the Friday before
+    // is refused against 2026-03-02.
+    const { token, send, projectId } = await setup();
+    const started = await send(`/api/projects/${projectId}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ startDate: '2026-03-01' }),
+    });
+    expect(started.status).toBe(200);
+    const id = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const early = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: id,
+      patch: { deadline: '2026-02-27' },
+    });
+
+    expect(early.status).toBe(422);
+    expect(await early.json()).toEqual({
+      error: 'deadline_before_project_start',
+      workItemId: id,
+      projectDayZero: '2026-03-02',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    expect(await firstRow(send, token, projectId)).toMatchObject({ deadline: null });
+
+    // And day zero itself is taken, so the refusal is a boundary rather than a
+    // ban: a check written with `<=` would refuse this too.
+    const onDayZero = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: id,
+      patch: { deadline: '2026-03-02' },
+    });
+
+    expect(onDayZero.status).toBe(200);
+    expect(await firstRow(send, token, projectId)).toMatchObject({ deadline: '2026-03-02' });
+  });
+
+  it('refuses a deadline that is not a date, the way every other malformed field is refused', async () => {
+    // 6.1's other half, and the one the plan text got wrong: a non-`IsoDate`
+    // goes through the **existing** malformed-payload path, and that path
+    // answers **400**, not 422 — `asOptionalDate` throws `BadRequest` and the
+    // batch route's own default is 400. Asserted rather than assumed, because
+    // "the existing path" is the requirement and its status is whatever the
+    // existing path already says. See `tasks.md` 6.1, corrected against this.
+    const { token, send, projectId } = await setup();
+    const id = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const malformed = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: id,
+      patch: { deadline: 'the end of March' },
+    });
+
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({
+      error: 'deadline_must_be_a_date',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    expect(await firstRow(send, token, projectId)).toMatchObject({ deadline: null });
+  });
+
+  it('lets a caller who may edit a work item set its deadline, and nobody else', async () => {
+    // 6.2: the authority is the existing work-item write authority and no new
+    // one is introduced. Both directions in one case, because only the pair
+    // proves it — the owner's 200 alone would pass against a route that checked
+    // nothing at all.
+    const { register, send } = buildHarness();
+    const owner = await register('owner');
+    const stranger = await register('stranger');
+    const created = await send('/api/projects', owner, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Restricted' }),
+    });
+    const { project } = (await created.json()) as { project: { id: string } };
+    const id = await addWorkItem(send, owner, project.id, { parentId: null, name: 'Strip' });
+    await send(`/api/projects/${project.id}`, owner, {
+      method: 'PATCH',
+      body: JSON.stringify({ restricted: true }),
+    });
+
+    const mine = await command(send, owner, project.id, {
+      kind: 'patchWorkItem',
+      workItemId: id,
+      patch: { deadline: '2026-03-31' },
+    });
+    expect(mine.status).toBe(200);
+
+    // The same request from an account the project is restricted against, which
+    // is the `forbidden` every other work-item write already answers. A deadline
+    // reaching the column here would be a new authority nobody granted.
+    const theirs = await command(send, stranger, project.id, {
+      kind: 'patchWorkItem',
+      workItemId: id,
+      patch: { deadline: '2026-04-30' },
+    });
+    expect(theirs.status).toBe(403);
+    expect(await theirs.json()).toEqual({
+      error: 'forbidden',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    expect(await firstRow(send, owner, project.id)).toMatchObject({ deadline: '2026-03-31' });
+
+    // The half that bites, and the one an owner-only gate would fail: on an
+    // **unrestricted** project the existing authorization lets any signed-in
+    // account edit a work item, so it must let that account set a deadline. The
+    // 403 above alone would pass under a new owner-only rule; this will not.
+    const open = await send('/api/projects', owner, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Open' }),
+    });
+    const { project: openProject } = (await open.json()) as { project: { id: string } };
+    const openId = await addWorkItem(send, owner, openProject.id, {
+      parentId: null,
+      name: 'Strip',
+    });
+
+    const byStranger = await command(send, stranger, openProject.id, {
+      kind: 'patchWorkItem',
+      workItemId: openId,
+      patch: { deadline: '2026-04-30' },
+    });
+
+    expect(byStranger.status).toBe(200);
+    expect(await firstRow(send, stranger, openProject.id)).toMatchObject({
+      deadline: '2026-04-30',
+    });
+  });
+
   it('refuses a reason with no date, and takes the pair away together', async () => {
     // Both halves of the pair rule through the route, because the status is half
     // the answer: 400 and not 409 — there is no state of the plan in which words

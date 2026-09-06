@@ -71,6 +71,7 @@ async function leaf(name: string): Promise<string> {
       priority: 50,
       startNoEarlierThan: null,
       startNoEarlierThanReason: null,
+      deadline: null,
       serviceTeamId: null,
       serviceId: null,
       maxParallel: 1,

@@ -135,6 +135,7 @@ describe('SavedPlanService.save is atomic', () => {
     serviceId: null,
     maxParallel: 1,
     startNoEarlierThanReason: null,
+    deadline: null,
     revision: 0,
   });
 

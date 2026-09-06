@@ -97,28 +97,37 @@ jobs:
       # different hat.
       #
       # The runner's step log also cut this command off at ~760 KB, before
-      # either the failing case or Nx's final summary. Stream avoids Nx's
-      # aggregate renderer, while the file keeps the complete output outside
-      # the runner log path. The bounded tail is only a convenience; the
-      # uploaded file below is the diagnostic record.
+      # either the failing case or Nx's final summary. Redirecting to the file
+      # keeps the complete output outside that capped path; stream mode only
+      # makes child output reach the retained file incrementally, so a timeout
+      # does not discard everything still held by Nx's aggregate renderer. The
+      # bounded tail is only a convenience; the uploaded file below is the
+      # diagnostic record. The annotation pass restores only exact, located
+      # error commands and cannot replace the gate's original exit status.
       # Proof: CI 34029234602 at bca2e32d changed `isWithin`'s named root-self
       # assertion to a real failure. The gate failed, the upload still passed,
       # and its 1,094,648-byte artifact names the case and `domain:test`.
       # Green control CI 34028724397 carries the four-target Nx summary.
       - name: Gate — test, lint, typecheck, build
+        id: nx_gate
         run: |
           set +e
           bunx nx run-many -t test lint typecheck build --parallel=2 --output-style=stream \
             > nx-gate.log 2>&1
           gate_status=$?
           tail -n 200 nx-gate.log
-          exit "$gate_status"
+          annotation_status=0
+          bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts nx-gate.log || annotation_status=$?
+          if [ "$gate_status" -ne 0 ]; then
+            exit "$gate_status"
+          fi
+          exit "$annotation_status"
 
       - name: Upload gate log
-        if: always()
+        if: ${{ always() && steps.nx_gate.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
-          name: nx-gate-log
+          name: nx-gate-log-${{ github.run_attempt }}
           path: nx-gate.log
           if-no-files-found: error
 
