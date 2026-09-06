@@ -639,8 +639,8 @@ order`, with their tests. A repository assertion that no unqualified
       stored date is still printed beside it, which is §2.3's "not silently
       dropped".
       **The predicate is `deadlineOffsetOf` — be-01's own** — and that is not a
-      breach of 9.2's rule. `lateBy` is *how late* and stays be-01's alone;
-      *whether a stored date falls before day zero* is a different question, and
+      breach of 9.2's rule. `lateBy` is _how late_ and stays be-01's alone;
+      _whether a stored date falls before day zero_ is a different question, and
       the cell answers it with the same function `work-item.service.ts` calls
       for its `deadline_before_project_start` refusal. One implementation
       shared, not two opinions computed.
@@ -648,7 +648,7 @@ order`, with their tests. A repository assertion that no unqualified
       the difference is visible on screen: a project starting Saturday
       2026-08-08 with a deadline of that same Saturday is impossible while the
       two dates a reader sees are equal, and one starting Saturday the 8th with
-      a deadline of Sunday the 9th is impossible with the start *earlier* than
+      a deadline of Sunday the 9th is impossible with the start _earlier_ than
       the deadline. Round 1's OpenAI seat caught the original sentence
       contradicting the cell; a case now asserts the equal-dates reading.
 
