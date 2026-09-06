@@ -133,7 +133,10 @@ async function storedDeadline(id: string): Promise<string | null> {
  * it moves this object. Borrowed from `optimized-plan-read.test.ts`, which
  * proves the seam itself.
  */
-function recordingReader(): { asks: OptimizedScheduleAsk[]; read: () => Schedule | null } {
+function recordingReader(): {
+  asks: OptimizedScheduleAsk[];
+  read: (ask: OptimizedScheduleAsk) => Schedule | null;
+} {
   const asks: OptimizedScheduleAsk[] = [];
   return {
     asks,
