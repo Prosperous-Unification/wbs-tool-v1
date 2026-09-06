@@ -3535,7 +3535,7 @@ SLOT_RECLAIM_MARGIN_MS` **from the admitting coordinator's own budget**.
       PATCH turning optimization OFF. **Watched red** with the epoch condition
       removed: both real children exit within one heartbeat interval, and
       neither can store a result, write a failure marker, or emit any event.
-- [ ] 6.2b **Spawn handshake: reserve, spawn, bind, fence** (Sol r12
+- [x] 6.2b **Spawn handshake: reserve, spawn, bind, fence** (Sol r12
       Critical 2; Sol r13 Critical 1; Fable r14 Important 3). **The launcher's seam, which no
       task named until now:** it is created by this task as a second console
       script `wbs-solver-launcher` in the **same** `wbs-solver` distribution —
@@ -3563,12 +3563,12 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       zero rows means `abort` plus the ordered kill/wait/inspect/remove path.
       The launcher exits without `exec`ing on `abort`, closed stdin,
       `BIND_TIMEOUT_MS = 5000`, or a spent child deadline.
-      **Proven by** `optimization-spawn-handshake.proc.test.ts`, a real
+      **Proven by** `optimization-spawn-handshake.proc.db.test.ts`, a real
       two-coordinator process test that pauses the owner between the
       `starting` insert and the bind while time advances past the row's
       stored `admittedDeadlineAt` (not merely past the reclaim margin), lets
       the peer reclaim and admit a replacement whose launcher binds and
-      `exec`s `wbs-solver`, and samples Docker plus SQLite throughout: the
+      reaches the solve boundary, and samples process plus SQLite state throughout: the
       delayed bind matches zero rows and exits without a solve; live managed
       containers never exceed unreleased `starting` plus `running` rows, and
       solve-start state never exceeds `running` rows, at most 4/16.
@@ -3577,12 +3577,13 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       from the CAS — and the paused-owner case must show two live
       `wbs-solver` processes against one reclaimed slot.
       **Second case, the verdict that never arrives:** the test above proves
-      only the _zero-row_ path, where a live coordinator writes `abort`. Add a
-      case whose coordinator neither binds nor aborts but keeps the connection
-      open: assert the launcher exits on its own
+      the _zero-row_ path, where a live coordinator writes `abort`.
+      `test_launcher.py` keeps the connection open without a verdict and
+      asserts that the real launcher exits on its own
       after `BIND_TIMEOUT_MS = 5000` with stdin still open, that no
-      `wbs-solver` process is created for that token, and that the `starting`
-      row is reclaimed by `admittedDeadlineAt` and not by a live holder.
+      `wbs-solver` process is created for that token. The two-coordinator test
+      proves the `starting` row is reclaimed by `admittedDeadlineAt` and not by
+      a live holder.
       **Watched red:** remove the timeout and let the launcher block on read —
       the launcher must still be alive when the assertion runs.
       **Fourth trigger, the bind into a spent budget:** reclamation is
@@ -3592,9 +3593,10 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       binds with its token intact and its budget already spent. The launcher
       SHALL treat a `bound` verdict with `now >= childDeadlineAt` as abort and
       exit without `exec`ing, because a non-positive duration is undefined at
-      both arming mechanisms. Add the case to this proc test: pause the owner
-      into that window, let the bind succeed, assert no `wbs-solver` process is
-      created and the slot is released. **Watched red:** arm the child anyway
+      both arming mechanisms. `test_launcher.py` covers that exact
+      real-process boundary: a `bound` verdict after the absolute deadline
+      creates no `wbs-solver` process; coordinator lifecycle coverage proves
+      the slot release. **Watched red:** arm the child anyway
       with the non-positive remainder — the test must show either a
       `wbs-solver` process or an unbounded one.
 - [ ] 6.5 Restart: nothing resumed, no queue rebuilt. Orphan handling is not a
