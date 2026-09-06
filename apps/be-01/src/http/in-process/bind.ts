@@ -142,7 +142,7 @@ async function withoutBody(res: Response): Promise<Response> {
  * There is no `;` truncation on this path and no lower-casing. Character 12 is
  * the one after `application/`.
  *
- * Measured on h2puni at elysia 1.4.30 rather than read off alone, because the
+ * Measured on h2puni rather than read off alone, because the
  * consequences are not what a reader expects:
  *
  * ```
@@ -156,6 +156,11 @@ async function withoutBody(res: Response): Promise<Response> {
  * text/plain                     (none)    "{\"name\":\"Sand\"}"
  * application/octet-stream       o         ArrayBuffer
  * ```
+ *
+ * The probe ran against the copy in bun's install cache, which is 1.4.30; this
+ * repository locks **1.4.28** (`bun.lock`), and the dispatch above is the same
+ * in the locked source — checked, because a measurement against a version the
+ * repo does not run is not evidence about the repo.
  *
  * So `application/json-patch+json` is admitted and `application/merge-patch+json`
  * is refused, and the difference is one character in a position nothing about
@@ -232,10 +237,20 @@ const DISPATCH_TEXT = 116;
  * `openapi/openapi-document.test.ts`.
  */
 async function decodeBody(request: Request): Promise<unknown> {
-  // HEAD is here for the same reason GET is, and explicitly rather than by
-  // falling through the content-type checks below: it reaches this function
-  // carrying its own verb, not the GET it was dispatched to.
-  if (request.method === 'GET' || request.method === 'DELETE' || request.method === 'HEAD') {
+  // GET and HEAD only, which is the framework's own condition
+  // (`compose.mjs:257-258`) and **not** what this line said until TASK-270:
+  // DELETE was in it, and Elysia parses a DELETE body. A `DELETE` carrying
+  // `content-type: application/json` and a body that will not parse answered
+  // 400 there — before the handler — while this binder never read it and ran
+  // the handler, so `DELETE /api/saved-plans/:id` deleted a plan the production
+  // binder had already refused (`../../controller/saved-plan.routes.ts`).
+  // Measured under both binders; pinned by the DELETE clause in
+  // `../binder.contract.test.ts`.
+  //
+  // HEAD is named explicitly rather than left to fall through the checks below:
+  // it reaches this function carrying its own verb, not the GET it was
+  // dispatched to.
+  if (request.method === 'GET' || request.method === 'HEAD') {
     return undefined;
   }
   const contentType = request.headers.get('content-type') ?? '';
@@ -289,14 +304,20 @@ async function decodeBody(request: Request): Promise<unknown> {
   // It is one interlocking feature — file folding into a parsed object hangs
   // off the same code — and reproducing a third of it faithfully is worse than
   // recording it, so it belongs to whoever wants it, like the 405 above.
-  if (dispatch === DISPATCH_URLENCODED || dispatch === DISPATCH_FORM_DATA) {
-    const form = await request.formData();
-    return Object.fromEntries(
-      [...new Set(form.keys())].map((key) => {
-        const values = form.getAll(key);
-        return [key, values.length === 1 ? values[0] : values];
-      }),
-    );
+  // **Two arms, not one, and the framework is why.** `x` is `parseQuery(await
+  // request.text())` there and `r` is the `formData()` literal
+  // (`adapter/web-standard/index.mjs:33-35` and `:41-60`), and folding them
+  // into one `formData()` call was this chunk's own first draft — caught by
+  // review and then measured: `content-type: application/xml` has `x` at index
+  // 12, so Elysia reads `name=Sand` with `parseQuery` and `POST /api/projects`
+  // answers 200, while `Request.formData()` on that media type **throws** and
+  // this binder turned it into 400. Refusing what production serves is the same
+  // defect as admitting what it refuses, in the other direction.
+  if (dispatch === DISPATCH_URLENCODED) {
+    return foldRepeats(new URLSearchParams(await request.text()));
+  }
+  if (dispatch === DISPATCH_FORM_DATA) {
+    return foldRepeats(await request.formData());
   }
   // The framework's `default`, and the only arm that reads a character other
   // than the thirteenth: any header beginning `t` is read as text, so
@@ -305,4 +326,23 @@ async function decodeBody(request: Request): Promise<unknown> {
     return request.text();
   }
   return undefined;
+}
+
+/**
+ * A key seen once keeps its bare value; a key seen again becomes the array of
+ * every value. The rule both of Elysia's form parsers reach, down their two
+ * different paths, and the one place it is written now that the two arms above
+ * are separate.
+ *
+ * `Object.fromEntries` is kept over an assigning loop on purpose: it defines own
+ * properties, so a field literally named `__proto__` lands as data rather than
+ * reaching the prototype setter.
+ */
+function foldRepeats(entries: URLSearchParams | FormData): Record<string, unknown> {
+  return Object.fromEntries(
+    [...new Set(entries.keys())].map((key) => {
+      const values = entries.getAll(key);
+      return [key, values.length === 1 ? values[0] : values];
+    }),
+  );
 }

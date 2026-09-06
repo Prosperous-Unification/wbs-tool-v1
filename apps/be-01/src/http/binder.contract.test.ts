@@ -77,6 +77,20 @@ function routes(auth: AuthService, writes: string[] = []): Route[] {
      * was: both binders answering on `application/merge-patch+json`, one of them
      * having called the service first.
      */
+    /**
+     * `/probe/write`'s verb twin. A DELETE route that records, because the
+     * mutation Elysia refuses before a handler and this binder used to run is a
+     * DELETE: `decodeBody` treated every DELETE as bodyless while Elysia's own
+     * condition excludes only GET and HEAD.
+     */
+    {
+      method: 'DELETE',
+      path: '/probe/delete-write',
+      handler: () => {
+        writes.push('deleted');
+        return Promise.resolve(noContent());
+      },
+    },
     {
       method: 'POST',
       path: '/probe/write',
@@ -247,8 +261,11 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
    * status, because the status is what hid the defect.
    *
    * `decodeBody` dispatched on `contentType.includes('json')` until this chunk,
-   * so every media type carrying the substring reached the JSON parser. Measured
-   * on h2puni at `39e53dda`, `POST /api/projects` with
+   * so every media type carrying the substring reached the JSON parser. The
+   * statuses did not match — that is the point of asserting the call as well:
+   * the two answers below differ in status *and* in whether a project was
+   * created, and only one of those is visible to a clause that reads
+   * `res.status`. Measured on h2puni at `39e53dda`, `POST /api/projects` with
    * `application/merge-patch+json` and `{"name":"Sand"}`:
    *
    * ```
@@ -312,6 +329,67 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     );
     expect(res.status).toBe(200);
     expect(writes).toEqual(['Sand']);
+  });
+
+  /**
+   * The `x` arm, and the counterexample that caught this chunk's first draft.
+   *
+   * `application/xml` has `x` at index 12, so the framework reads its body with
+   * `parseQuery` and the route is served. Folding `x` and `r` into one
+   * `formData()` call made this a 400 here — `Request.formData()` throws on that
+   * media type — which is refusing what production serves, the same defect as
+   * admitting what it refuses. Nothing in the app *sends* `application/xml`;
+   * this is the shape of the dispatch being pinned, not a supported media type.
+   */
+  it('serves an x-dispatched body the framework parses, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', {
+        method: 'POST',
+        headers: { 'content-type': 'application/xml' },
+        body: 'name=Sand',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['Sand']);
+  });
+
+  /**
+   * The DELETE half of the same property, and the one with a real mutation
+   * behind it: `DELETE /api/saved-plans/:id` calls `plans.delete` and
+   * publishes.
+   *
+   * Elysia parses a DELETE body — its condition excludes only GET and HEAD — so
+   * a malformed JSON body answers 400 from the parser, before the handler.
+   * `decodeBody` treated every DELETE as bodyless, so the same request ran the
+   * handler here and deleted. The refusal *bodies* differ and always have
+   * (Elysia's parse error is its own); what both binders owe is the status and
+   * the absence of the call.
+   */
+  it('refuses a malformed DELETE body before the handler, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/delete-write', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: '{',
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(writes).toEqual([]);
+  });
+
+  /**
+   * The control for the clause above: a DELETE that carries no body at all is
+   * still served, so "read the body" did not become "require one".
+   */
+  it('still answers a bodiless DELETE, under either binder', async () => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/delete-write', { method: 'DELETE' }),
+    );
+    expect(res.status).toBe(204);
+    expect(writes).toEqual(['deleted']);
   });
 
   /**
