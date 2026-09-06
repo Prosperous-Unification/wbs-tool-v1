@@ -931,6 +931,55 @@ export function markersDrawnInBand(
 }
 
 /**
+ * The cells that ran out of room: how many chips each one swallowed, and
+ * everything standing on it.
+ *
+ * **The hidden count is a subtraction and not a second cap.** It is the markers
+ * on that offset minus the ones {@link markersDrawnInBand} put on it, so the
+ * `+N` on screen cannot disagree with the chips beside it: a badge that
+ * recomputed `count - MARKER_BAND_MAX_PER_CELL[dayPx]` would be right only for
+ * as long as the two arithmetics stayed identical, and would go wrong the first
+ * time the band grew a reason to draw fewer than its cap.
+ *
+ * `all` is the whole cell and not the hidden tail, because it is what the card
+ * shows: a list opened from `+2` that named only the two undrawn markers would
+ * be a list the reader has to mentally join to the chips still on screen.
+ *
+ * Sorted by offset rather than left in `markers` order. The store hands this
+ * component `(date, created_at, id)` order and so the map is already built
+ * left-to-right — but the DOM order of the badges is what a reader tabbing the
+ * band walks, and it should not rest on a caller's sort staying what it is.
+ */
+export function markerBandOverflow(
+  markers: readonly CalendarMarkerView[],
+  axis: readonly AxisDay[],
+  dayPx: DayPx,
+): {
+  readonly offset: number;
+  readonly hidden: number;
+  readonly all: readonly CalendarMarkerView[];
+}[] {
+  const shown = new Map<number, number>();
+  for (const { offset } of markersDrawnInBand(markers, axis, dayPx)) {
+    shown.set(offset, (shown.get(offset) ?? 0) + 1);
+  }
+  const onCell = new Map<number, CalendarMarkerView[]>();
+  for (const marker of markers) {
+    const offset = axisOffsetOf(axis, marker.date);
+    // Off the drawn horizon: no cell to be hidden on, and counting it into a
+    // `+N` would promise a list entry the card cannot place.
+    if (offset === null) continue;
+    const cell = onCell.get(offset);
+    if (cell === undefined) onCell.set(offset, [marker]);
+    else cell.push(marker);
+  }
+  return [...onCell.entries()]
+    .map(([offset, all]) => ({ offset, hidden: all.length - (shown.get(offset) ?? 0), all }))
+    .filter(({ hidden }) => hidden > 0)
+    .sort((first, second) => first.offset - second.offset);
+}
+
+/**
  * Where today stands on the chart, or null when it does not stand on it at all.
  *
  * **The lookup itself is {@link axisOffsetOf}'s**, and today is only its first
@@ -2785,6 +2834,15 @@ function GanttChart({
   // against. Separate from the bars' state and mutually exclusive with it —
   // each opener closes the other, so `getByRole('tooltip')` is singular.
   const [openDay, setOpenDay] = useState<{ offset: number; anchor: AnchorRect } | null>(null);
+  // The crowded cell's own open list (task 8.4), and it is a third surface
+  // rather than a shape of `openDay`: the day card answers "which day is this"
+  // for every cell on the axis, and this one answers "what is standing on this
+  // one" for the few that ran out of room. Sharing the state would make the
+  // `+N` badge's card and the cell's card the same card, so hovering the badge
+  // would replace the day's words rather than list its markers.
+  const [openMarkers, setOpenMarkers] = useState<{ offset: number; anchor: AnchorRect } | null>(
+    null,
+  );
   /**
    * The calendar-marker composer's day, and it is the **date** rather than the
    * offset the cell was drawn at.
@@ -2956,6 +3014,7 @@ function GanttChart({
     cancelOpening();
     setOpen(null);
     setOpenDay(null);
+    setOpenMarkers(null);
   }, [cancelOpening]);
 
   // Every timer this panel started, stopped when it goes: a surface opening
@@ -3454,7 +3513,26 @@ function GanttChart({
   const showDaySurface = (offset: number, cell: HTMLElement): void => {
     const box = cell.getBoundingClientRect();
     setOpen(null);
+    setOpenMarkers(null);
     setOpenDay({ offset, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
+  };
+
+  /**
+   * The crowded cell's list, anchored to the `+N` badge that owns it.
+   *
+   * Anchored to the **badge** and not to the axis cell the badge stands on:
+   * at the 4px rung a cell is four pixels wide and the badge is as wide as its
+   * own text, so a card placed against the cell would open under a mark the
+   * reader cannot see the edges of. The badge is the thing that was pointed at.
+   *
+   * Closes the other two surfaces for {@link openDay}'s reason — one card at a
+   * time, so `getByRole('tooltip')` stays singular.
+   */
+  const showMarkerOverflow = (offset: number, badge: HTMLElement): void => {
+    const box = badge.getBoundingClientRect();
+    setOpen(null);
+    setOpenDay(null);
+    setOpenMarkers({ offset, anchor: { left: box.left, top: box.top, bottom: box.bottom } });
   };
 
   /**
@@ -4800,13 +4878,14 @@ function GanttChart({
               `pointer-events-none`: the cell underneath is the control — it
               carries the click that opens the composer and the hover that opens
               the day card — and a chip lying across it would eat both on
-              exactly the days that have something to say. What a chip does when
-              it is pointed at is task 8.4's, and it will need this line
-              revisited rather than kept.
+              exactly the days that have something to say.
 
-              Overflow is **not** here: `MARKER_BAND_MAX_PER_CELL` and the `+N`
-              collapse are task 8.4, and until they land two markers on one date
-              draw two chips at one x.
+              **Task 8.4 kept that line and opted one thing out of it.** The
+              layer stays pointer-transparent and the chips stay passive; only
+              the `+N` badge below turns pointer events back on, because it is
+              the one mark in the band that has to answer a pointer. Turning
+              them on for the layer would have given the empty air over every
+              uncrowded day a click that goes nowhere.
             */}
               <div
                 data-gantt-marker-band
@@ -4849,6 +4928,68 @@ function GanttChart({
                     </span>
                   );
                 })}
+                {/*
+                  The count the crowded cell collapsed to, and the only mark in
+                  this band that takes a pointer (task 8.4).
+
+                  **At the cell's right edge**, not its left: the chips are
+                  left-anchored and truncate at `maxWidth: dayPx`, so a badge at
+                  the same `left` would cover the first characters of the name —
+                  the end a truncated label can least afford to lose. `left` is
+                  the *next* cell's edge with the badge's own width taken back
+                  off, which is the one form that stays on the cell at every
+                  rung: at 4px the badge is wider than the day it belongs to,
+                  and any width-based arithmetic would need a measurement React
+                  does not have at render.
+                */}
+                {markerBandOverflow(markers, axis, dayPx).map(({ offset, hidden, all }) => (
+                  <button
+                    key={offset}
+                    type="button"
+                    data-marker-overflow={offset}
+                    // The count beside the pixels, for {@link markersDrawnInBand}'s
+                    // reason: a test reading only the text is reading the
+                    // formatter as much as the arithmetic.
+                    data-marker-hidden={hidden}
+                    className="border-border bg-background text-muted-foreground focus-visible:ring-ring pointer-events-auto absolute bottom-0 z-10 block rounded-sm border px-0.5 text-[9px] leading-3 focus-visible:ring-2 focus-visible:outline-none"
+                    style={{ left: offset * dayPx + dayPx, transform: 'translateX(-100%)' }}
+                    aria-haspopup="dialog"
+                    aria-expanded={openMarkers?.offset === offset}
+                    // The badge reads `+2`, which says how many but not of what
+                    // or where. The cell's own date is what makes it an answer,
+                    // and it is the ISO string the cell already publishes in
+                    // `data-axis-date` rather than a second formatting of it.
+                    aria-label={`${String(hidden)} more marker${hidden === 1 ? '' : 's'} on ${all[0]?.date ?? ''}`}
+                    onPointerEnter={(pointer) => {
+                      // The axis cell's touch seam, on the badge: a tap
+                      // synthesizes a pointerenter too, and it is the click
+                      // below that owns taps — opening here as well would open
+                      // and immediately toggle shut.
+                      if (pointer.pointerType !== 'mouse') return;
+                      const badge = pointer.currentTarget;
+                      cancelOpening();
+                      opening.current = setTimeout(() => {
+                        showMarkerOverflow(offset, badge);
+                      }, HOVER_OPEN_MS);
+                    }}
+                    onPointerLeave={dismiss}
+                    onClick={(press) => {
+                      // Tap, and Enter or Space on the keyboard: a `<button>`
+                      // synthesizes a click for both, which is why this badge is
+                      // a button and not the axis cell's `role="button"` span.
+                      // A toggle rather than an open, because a tap has no
+                      // "leave" to close it with.
+                      cancelOpening();
+                      if (openMarkers?.offset === offset) {
+                        setOpenMarkers(null);
+                        return;
+                      }
+                      showMarkerOverflow(offset, press.currentTarget);
+                    }}
+                  >
+                    +{hidden}
+                  </button>
+                ))}
               </div>
             </div>
             {/*
@@ -5010,6 +5151,33 @@ function GanttChart({
                 {lines.map((line) => (
                   <p key={line} className="text-xs">
                     {line}
+                  </p>
+                ))}
+              </HoverCard>
+            );
+          })()}
+        {/*
+        The crowded cell's list (task 8.4): everything standing on that day, in
+        the order the band would have drawn it, whether or not a chip for it is
+        on screen. The overflow is recomputed here rather than carried in the
+        state for {@link openDay}'s reason — an axis or a marker list rebuilt
+        under an open card answers with the new cell or with nothing, never with
+        a stale one.
+      */}
+        {openMarkers !== null &&
+          (() => {
+            const cell = markerBandOverflow(markers, axis, dayPx).find(
+              (entry) => entry.offset === openMarkers.offset,
+            );
+            if (cell === undefined) return null;
+            return (
+              <HoverCard
+                label={`Markers on ${cell.all[0]?.date ?? 'this day'}`}
+                anchor={openMarkers.anchor}
+              >
+                {cell.all.map((marker) => (
+                  <p key={marker.id} data-marker-listed={marker.id} className="text-xs">
+                    {marker.name}
                   </p>
                 ))}
               </HoverCard>

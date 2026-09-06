@@ -7963,3 +7963,124 @@ describe('the marker band caps each cell at its rung', () => {
     ]);
   });
 });
+
+/**
+ * Task 8.4's render half: the `+N` the crowded cell collapses to, and the list
+ * it opens.
+ *
+ * One case per rung, on one fixture with four markers on a Wednesday and a
+ * fifth on the Thursday after it — one more than every rung allows, so the
+ * count under test differs at each and the uncrowded neighbour is the same
+ * neighbour throughout. The chip counts here are {@link markersDrawnInBand}'s
+ * answer *as rendered*: the module cases above assert the seam, these assert
+ * that the band is wired to it and that the badge's arithmetic agrees.
+ */
+describe('a crowded cell collapses to a count that lists the day', () => {
+  /** Wednesday of the first week — axis offset 2 on a Monday start. */
+  const CROWD_AT = 2;
+  /** The Thursday after it, which never crowds: one marker at any rung. */
+  const QUIET_AT = 3;
+
+  const crowd: CalendarMarkerView[] = [
+    { id: 'm1', date: '2026-08-12', name: 'Alpha', color: null },
+    { id: 'm2', date: '2026-08-12', name: 'Bravo', color: null },
+    { id: 'm3', date: '2026-08-12', name: 'Charlie', color: null },
+    { id: 'm4', date: '2026-08-12', name: 'Delta', color: null },
+    { id: 'm5', date: '2026-08-13', name: 'Echo', color: null },
+  ];
+
+  const drawAt = (dayPx: 28 | 12 | 4): void => {
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 10)],
+          slices: [sliceAt('strip-dev', 'strip', 0, 10)],
+        })}
+        startDate={MONDAY_START}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        dayPx={dayPx}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+        markers={crowd}
+      />,
+    );
+  };
+
+  const chipsAt = (offset: number): number =>
+    document.querySelectorAll(`[data-marker-offset="${String(offset)}"]`).length;
+
+  const badgeAt = (offset: number): HTMLElement | null =>
+    document.querySelector<HTMLElement>(`[data-marker-overflow="${String(offset)}"]`);
+
+  const theBadge = (offset: number): HTMLElement => {
+    const badge = badgeAt(offset);
+    if (badge === null) throw new Error(`no overflow badge at offset ${String(offset)}`);
+    return badge;
+  };
+
+  itDom('shows three chips and +1 at the Days rung', () => {
+    drawAt(28);
+    expect(chipsAt(CROWD_AT)).toBe(3);
+    expect(theBadge(CROWD_AT).textContent).toBe('+1');
+  });
+
+  itDom('shows two chips and +2 at the Weeks rung', () => {
+    drawAt(12);
+    expect(chipsAt(CROWD_AT)).toBe(2);
+    expect(theBadge(CROWD_AT).textContent).toBe('+2');
+  });
+
+  itDom('shows one chip and +3 at the Months rung', () => {
+    // The rung the ladder exists for: three chips do not fit four pixels of
+    // day, and a cap tuned at 28px would draw them anyway. The module case
+    // above watches that fault on the seam; this one is what a reader sees.
+    drawAt(4);
+    expect(chipsAt(CROWD_AT)).toBe(1);
+    expect(theBadge(CROWD_AT).textContent).toBe('+3');
+  });
+
+  itDom('leaves the uncrowded neighbour with its chip and no badge', () => {
+    // The cap is per cell, and the badge is too. A `+N` on a day that hid
+    // nothing is the same fault as a chip dropped from one that had room —
+    // both are the list being counted instead of the cell — and at 4px the
+    // neighbour is one marker against a cap of one, the tightest place for it
+    // to go wrong.
+    drawAt(4);
+    expect(chipsAt(QUIET_AT)).toBe(1);
+    expect(badgeAt(QUIET_AT)).toBeNull();
+  });
+
+  itDom('opens the whole day on a tap, chips and hidden alike', () => {
+    // A tap and not a hover: hovering is a real-pointer fact and belongs in the
+    // browser tier. What jsdom can say is that the badge is a `<button>` whose
+    // activation opens the card — which is also the keyboard path, since Enter
+    // and Space synthesize this same click.
+    //
+    // **The whole day, not the hidden tail.** A list opened from `+3` that
+    // named only the three undrawn markers is one the reader has to join to the
+    // chip still on screen; `markerBandOverflow` carries the cell entire.
+    drawAt(4);
+    fireEvent.click(theBadge(CROWD_AT));
+
+    const listed = [...document.querySelectorAll('[data-marker-listed]')].map(
+      (line) => line.textContent,
+    );
+    expect(listed).toEqual(['Alpha', 'Bravo', 'Charlie', 'Delta']);
+    // Echo stands on the next day and is not on this card: the surface is the
+    // cell's, not the band's.
+    expect(document.querySelector('[data-marker-listed="m5"]')).toBeNull();
+    expect(theBadge(CROWD_AT).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  itDom('says whose day the count belongs to, in the date the cell publishes', () => {
+    // The badge reads `+3`, which is how many and not of what. Every other
+    // badge on a crowded chart reads the same three characters, so the name is
+    // the only thing telling a reader on a screen reader which one they are on.
+    drawAt(4);
+    expect(theBadge(CROWD_AT).getAttribute('aria-label')).toBe('3 more markers on 2026-08-12');
+    expect(theBadge(CROWD_AT).getAttribute('aria-expanded')).toBe('false');
+  });
+});
