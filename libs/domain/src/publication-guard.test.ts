@@ -88,6 +88,7 @@ describe('(i) the width-5 case: quantisation costs more than the search won', ()
       new Map(),
       new Map(),
       'whole-item',
+      new Map(),
       quantisedOptimum,
     );
 

@@ -127,6 +127,7 @@ describe('the order Fast hands the backward pass', () => {
       new Map(),
       new Map(),
       'whole-item',
+      new Map(),
       // Fast's own starts, so the only thing that can differ is the ORDER the
       // backward pass was handed.
       new Map([
