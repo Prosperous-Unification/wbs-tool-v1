@@ -42,7 +42,15 @@ curl --fail --silent --show-error --max-time 2 "http://$registry/v2/" >/dev/null
 registry_tag="$registry/wbs-be-01:solver-smoke"
 docker tag "$image" "$registry_tag"
 docker push "$registry_tag" >/dev/null
-solver_image="$(docker inspect --format '{{index .RepoDigests 0}}' "$registry_tag")"
+mapfile -t matching_digests < <(
+  docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$registry_tag" |
+    grep --fixed-strings "$registry/wbs-be-01@"
+)
+if [ "${#matching_digests[@]}" -ne 1 ]; then
+  echo "[solver-image-smoke] local registry did not produce one matching digest" >&2
+  exit 1
+fi
+solver_image="${matching_digests[0]}"
 case "$solver_image" in
   *@sha256:????????????????????????????????????????????????????????????????) ;;
   *)
