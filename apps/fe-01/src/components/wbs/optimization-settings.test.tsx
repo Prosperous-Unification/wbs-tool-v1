@@ -58,18 +58,25 @@ describe('project optimization settings', () => {
   });
 
   itDom.each([
-    ['Fast', { scheduleEngine: 'fast' }],
-    ['PRI', { scheduleEngine: 'optimized', scheduleObjective: 'pri' }],
-    ['Time', { scheduleEngine: 'optimized', scheduleObjective: 'time' }],
-  ] as const)('maps %s to the persisted engine and objective', async (label, patch) => {
-    const { setSettings, onChanged } = mounted(ON);
+    ['Fast', ON, { scheduleEngine: 'fast' }],
+    ['PRI', ON, { scheduleEngine: 'optimized', scheduleObjective: 'pri' }],
+    [
+      'Time',
+      { enabled: true, engine: 'optimized', objective: 'pri' },
+      { scheduleEngine: 'optimized', scheduleObjective: 'time' },
+    ],
+  ] as const)(
+    'maps %s to the persisted engine and objective',
+    async (label, before, patch) => {
+      const { setSettings, onChanged } = mounted(before);
 
-    fireEvent.click(screen.getByRole('radio', { name: label }));
-    await settle();
+      fireEvent.click(screen.getByRole('radio', { name: label }));
+      await settle();
 
-    expect(setSettings).toHaveBeenCalledWith(patch);
-    expect(onChanged).toHaveBeenCalledOnce();
-  });
+      expect(setSettings).toHaveBeenCalledWith(patch);
+      expect(onChanged).toHaveBeenCalledOnce();
+    },
+  );
 
   itDom('follows an incoming project read instead of keeping a local selector', () => {
     const { view } = mounted({ enabled: true, engine: 'fast', objective: 'pri' });
