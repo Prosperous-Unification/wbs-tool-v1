@@ -1,8 +1,13 @@
-import { builtByNonOwner } from '@wbs/domain';
+import { builtByNonOwner, type Schedule, schedule } from '@wbs/domain';
 import { describe, expect, it } from 'bun:test';
 
 import { buildApp } from '../app';
+import type {
+  OptimizationVariantState,
+  OptimizedScheduleReader,
+} from '../service/optimized-schedule-reader';
 import { ProjectService } from '../service/project.service';
+import { WorkItemService } from '../service/work-item.service';
 import { inMemoryUsers, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { testCalendarMarkerService } from '../testing/calendar-marker-fixture';
@@ -16,7 +21,7 @@ import { testSavedPlanService } from '../testing/saved-plan-fixture';
 import { testStepService } from '../testing/step-fixture';
 import { testWrites } from '../testing/writes-fixture';
 
-function buildHarness() {
+function buildHarness(optimized?: OptimizedScheduleReader) {
   const writes = testWrites();
   const plan = inMemoryServices();
   const { projects: projectStore, directory: directoryStore, measures: measureStore } = plan.stores;
@@ -32,9 +37,16 @@ function buildHarness() {
     history: testHistoryService(),
     calendarMarkers: testCalendarMarkerService(),
     auth: testAuthService(inMemoryUsers()),
-    projects: new ProjectService({ projects: projectStore, broadcast: recordingBroadcaster() }),
+    projects: new ProjectService({
+      projects: projectStore,
+      broadcast: recordingBroadcaster(),
+      ...(optimized === undefined ? {} : { optimizerAvailable: () => true }),
+    }),
     steps: testStepService(projectStore),
-    workItems: plan.service,
+    workItems:
+      optimized === undefined
+        ? plan.service
+        : new WorkItemService({ ...plan.stores, broadcast: plan.broadcast, optimized }),
     savedPlans: testSavedPlanService(),
     replay: testReplay().replay,
     probeDatabase: () => 'ok',
@@ -82,8 +94,8 @@ type Send = (
   init?: { method?: string; body?: string },
 ) => Promise<Response>;
 
-async function setup() {
-  const { register, send, measures, writes } = buildHarness();
+async function setup(optimized?: OptimizedScheduleReader) {
+  const { register, send, measures, writes } = buildHarness(optimized);
   const token = await register('owner');
   const created = await send('/api/projects', token, {
     method: 'POST',
@@ -186,6 +198,149 @@ async function firstRow(
 }
 
 describe('work item routes', () => {
+  it('serializes every optimizer variant state and keeps empty plans idle', async () => {
+    type Variants = Readonly<Record<'pri' | 'time', OptimizationVariantState>>;
+    let variants: Variants = { pri: { state: 'pending' }, time: { state: 'pending' } };
+    let serve = false;
+    const optimized: OptimizedScheduleReader = (ask) => {
+      const empty = ask.input.slices.length === 0;
+      const fast = schedule(
+        ask.input.rows,
+        ask.input.edges,
+        ask.input.slices,
+        ask.input.notBefore,
+        ask.input.poolSizes,
+        ask.input.reach,
+      );
+      let selectedSchedule: Schedule | null = null;
+      if (serve && !empty) {
+        const slices = new Map(fast.slices);
+        const workItems = new Map(fast.workItems);
+        let index = 0;
+        for (const [key, placed] of slices) {
+          const start = 2 + index / 4;
+          const width = placed.earliestFinish - placed.earliestStart;
+          slices.set(key, {
+            ...placed,
+            earliestStart: start,
+            earliestFinish: start + width,
+            latestStart: start,
+            latestFinish: start + width,
+            boundBy: 'optimizer',
+          });
+          const item = workItems.get(placed.workItemId);
+          if (item !== undefined) {
+            workItems.set(placed.workItemId, {
+              ...item,
+              earliestStart: start,
+              earliestFinish: start + width,
+              latestStart: start,
+              latestFinish: start + width,
+            });
+          }
+          index += 1;
+        }
+        selectedSchedule = { ...fast, slices, workItems };
+      }
+      return {
+        inputHash: 'controller-input-hash',
+        generation: empty ? null : 7,
+        contractVersion: '7+controller',
+        budgetMs: 60_000,
+        variants: empty ? { pri: { state: 'idle' }, time: { state: 'idle' } } : variants,
+        selectedSchedule,
+      };
+    };
+    const { token, send, projectId } = await setup(optimized);
+
+    const empty = await send(`/api/projects/${projectId}/work-items`, token);
+    expect((await empty.json()) as unknown).toMatchObject({
+      workItems: [],
+      slices: [],
+      optimization: {
+        inputHash: 'controller-input-hash',
+        generation: null,
+        displayed: 'fast',
+        variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+      },
+    });
+
+    const transient = await addWorkItem(send, token, projectId, {
+      parentId: null,
+      name: 'Transient',
+    });
+    await command(send, token, projectId, {
+      kind: 'deleteWorkItem',
+      workItemId: transient,
+    });
+    const emptyAgain = await send(`/api/projects/${projectId}/work-items`, token);
+    expect((await emptyAgain.json()) as unknown).toMatchObject({
+      workItems: [],
+      slices: [],
+      optimization: {
+        generation: null,
+        displayed: 'fast',
+        variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+      },
+    });
+
+    const first = await addWorkItem(send, token, projectId, { parentId: null, name: 'First' });
+    await addWorkItem(send, token, projectId, { parentId: null, name: 'Second' });
+    const enabled = await send(`/api/projects/${projectId}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ optimizationEnabled: true, scheduleEngine: 'optimized' }),
+    });
+    expect(enabled.status).toBe(200);
+
+    const terminalItems = [
+      { ownerWorkItemId: 'parent', boundWorkItemId: first, effectiveDeadlineOffset: 11 },
+    ];
+    const states: Variants[] = [
+      { pri: { state: 'pending' }, time: { state: 'pending' } }, // cold admission
+      { pri: { state: 'pending' }, time: { state: 'pending' } }, // durable queue
+      { pri: { state: 'retrying' }, time: { state: 'idle' } },
+      { pri: { state: 'failed', reason: 'timeout' }, time: { state: 'idle' } },
+      { pri: { state: 'corrupt', message: 'bad dto' }, time: { state: 'idle' } },
+      {
+        pri: { state: 'plan-infeasible', items: terminalItems },
+        time: { state: 'idle' },
+      },
+    ];
+    for (const state of states) {
+      variants = state;
+      serve = false;
+      const response = await send(`/api/projects/${projectId}/work-items`, token);
+      const body = (await response.json()) as {
+        optimization: { displayed: string; variants: Variants; comparison?: unknown };
+      };
+      expect(body.optimization.displayed).toBe('fast');
+      expect(body.optimization.variants).toEqual(state);
+      expect(body.optimization).not.toHaveProperty('comparison');
+    }
+
+    for (const state of [
+      { pri: { state: 'ready' }, time: { state: 'failed', reason: 'timeout' } },
+      { pri: { state: 'ready' }, time: { state: 'ready' } },
+    ] satisfies Variants[]) {
+      variants = state;
+      serve = true;
+      const response = await send(`/api/projects/${projectId}/work-items`, token);
+      const body = (await response.json()) as {
+        optimization: {
+          displayed: string;
+          variants: Variants;
+          comparison?: { deltaDays: number; sameOrder: boolean };
+        };
+        slices: { boundBy: string }[];
+      };
+      expect(body.optimization.displayed).toBe('pri');
+      expect(body.optimization.variants).toEqual(state);
+      expect(typeof body.optimization.comparison?.deltaDays).toBe('number');
+      expect(body.optimization.comparison?.sameOrder).toBe(false);
+      expect(body.slices.every(({ boundBy }) => boundBy === 'optimizer')).toBe(true);
+    }
+  });
+
   it('answers 400 for a ref nobody minted, and 404 for a row that is not there', async () => {
     // The one exception in `statusForRefusal`'s `unknown_*` family, and until
     // 2026-09-02 nothing asserted it: `unknown_ref` is a mistake **inside the
