@@ -87,8 +87,15 @@ describe('InMemoryOidcTransactionStore', () => {
    * The ordering the preserved mismatch arm depends on. Expiry is dead for
    * everyone and keeps deleting on sight; if the comparison ran first, an
    * expired record answering a wrong state would be preserved by the very arm
-   * that exists to protect a live login, and nothing would ever remove it
-   * except the next `save` on the same binding.
+   * that exists to protect a live login.
+   *
+   * **The claim is about this call, not about the record's fate.** An earlier
+   * version of this comment said nothing would ever remove such a record except
+   * a later `save` on the same binding; that is wrong, because `save` runs the
+   * whole-map `cleanupExpired` and the public `cleanupExpired` removes every
+   * expired entry regardless of binding. What the ordering actually decides is
+   * whether a callback that reaches a dead record leaves it behind, which is
+   * why the second assertion is `cleanupExpired()` finding nothing left to do.
    */
   it('reports an expired transaction as expired even when the state also mismatches', () => {
     let now = 1_000;

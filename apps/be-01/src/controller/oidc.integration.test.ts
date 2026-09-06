@@ -544,6 +544,15 @@ describe('OIDC browser routes', () => {
    * assertions that carry the fix are the **absent `Set-Cookie`** — clearing the
    * binding would lose the login from the other end, the honest callback
    * arriving to find no cookie — and the honest callback that still completes.
+   *
+   * **The second request carries what a browser would still be holding, and
+   * that is the point of `surviving` below.** Re-sending the cookie string
+   * unconditionally is what the sibling cases do, and it made this case's
+   * status assertion vacuous against a route that cleared the binding: the
+   * header assertion caught that mutation and the 302 did not. The seats split
+   * on whether that mattered — Sol called the two assertions complementary,
+   * agy called the second one vacuous — and it is cheaper to make both catch it
+   * than to record the disagreement.
    */
   it('refuses a forged error callback without burning the login it interrupts', async () => {
     const f = fixture();
@@ -566,9 +575,12 @@ describe('OIDC browser routes', () => {
     expect(forged.headers.get('set-cookie')).toBeNull();
     expect(f.calls.exchange).toHaveLength(0);
 
+    const surviving = forged.headers.get('set-cookie')?.includes('__Host-wbs_oidc=;')
+      ? {}
+      : { cookie: '__Host-wbs_oidc=binding-1' };
     const honest = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: surviving,
       }),
     );
 
@@ -580,9 +592,12 @@ describe('OIDC browser routes', () => {
    * TASK-269, the first half. `searchParams.get('state')` answers the **first**
    * value of a repeated key and `RouteRequest.query` answers the **last**, so
    * moving this handler onto the framework-free route shape silently changed
-   * which string a duplicated `state` selected — and `consume` deletes the
-   * record before it compares, so the wrong value burned a login that was about
-   * to succeed.
+   * which string a duplicated `state` selected — and `consume` deleted the
+   * record before it compared, so the wrong value burned a login that was about
+   * to succeed. **That last clause is history now:** TASK-276 made the mismatch
+   * keep the record, so picking the wrong value costs the transaction nothing.
+   * The refusal stays for its own reason — no authorization server sends a
+   * parameter twice, and `openid-client` rejects one a moment later regardless.
    *
    * The decision is to refuse the request rather than to pick a value: no
    * authorization server sends `state` twice, and `openid-client` refuses a

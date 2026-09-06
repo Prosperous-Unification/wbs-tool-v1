@@ -20,9 +20,9 @@ export interface ConsumedOidcTransaction {
  * describes a **live** record that this arrival failed to prove it owns, and a
  * caller that treats it as the other two hands an attacker the login.
  *
- * The shape follows {@link RefreshRotationResult} in this file, which answered
- * the same question — "the record is fine, *you* are not it" is not "there is no
- * record" — one store earlier.
+ * The shape follows {@link RefreshRotationResult}, declared with the token store
+ * further down this file, which answered the same question — "the record is
+ * fine, *you* are not it" is not "there is no record" — for refresh rotation.
  */
 export type OidcConsumeResult =
   | ({ outcome: 'consumed' } & ConsumedOidcTransaction)
@@ -99,11 +99,19 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
    * record is dead for everyone, and preserving one would be a leak with no
    * login left to protect.
    *
-   * **The two-tab residual recorded here before does not move and is not fixed
-   * by this:** two logins started in two tabs share one cookie name, so the
-   * second overwrites the browser's binding and the first tab's stale callback
-   * still costs the second tab its transaction. That is one-cookie-per-browser,
-   * it is TASK-272, and this change neither closes nor widens it.
+   * **The two-tab residual recorded here before is half closed by this, and
+   * the surviving half is the tab that lost its cookie** — both review seats
+   * caught the earlier wording, which claimed the whole thing was untouched.
+   * Two logins started in two tabs share one cookie name, so the second
+   * overwrites the browser's binding. The first tab's stale callback then
+   * arrives carrying the *second* tab's binding and the *first* tab's state,
+   * which is precisely a mismatch: under the old ordering it burnt the second
+   * tab's live record on the way to the 400, and it no longer does — the second
+   * tab's record and cookie both survive and its own callback still completes.
+   * What remains is that the **first** tab cannot finish at all, because its
+   * binding was replaced before its callback came back and no ordering here can
+   * recover a cookie the browser has already overwritten; its orphaned record
+   * waits for expiry. That half is one-cookie-per-browser and it is TASK-272.
    */
   consume(browserBinding: string, state: string): OidcConsumeResult {
     const key = digest(browserBinding);
@@ -114,17 +122,23 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
 
     // Proof: `refuses and removes an expired transaction` fails if an expired
     // callback can still recover its verifier, and `reports an expired
-    // transaction as expired even when the state also mismatches` fails —
-    // leaving a dead record behind forever — if this is ordered after the
-    // comparison below.
+    // transaction as expired even when the state also mismatches` fails with
+    // `Received: {"outcome": "state_mismatch"}` if this is ordered after the
+    // comparison below — a dead record preserved on that call by the arm that
+    // exists to protect a live login. It would still be swept by the next
+    // `save`'s whole-map cleanup rather than kept forever; the defect is the
+    // preservation on this call, which is the narrower and true claim.
     if (transaction.expiresAt <= this.now()) {
       this.records.delete(key);
       return { outcome: 'expired' };
     }
-    // Proof: `keeps the initiating browser transaction when a forged callback
-    // returns the wrong state` fails if this deletes, and `refuses a forged
-    // error callback without burning the login it interrupts` reddens in
-    // `oidc.integration.test.ts` at the same time.
+    // Proof: restoring the delete here reddens two named cases with the exact
+    // symptom of the defect. `keeps the initiating browser transaction when a
+    // forged callback returns the wrong state` fails at the *honest* consume
+    // with `Received: {"outcome": "missing"}` where the payload belongs, and
+    // `refuses a forged error callback without burning the login it interrupts`
+    // fails in `oidc.integration.test.ts` with `Expected: 302 Received: 400` —
+    // the login the forged navigation destroyed, one layer up.
     if (!sameSecret(transaction.state, state)) return { outcome: 'state_mismatch' };
 
     this.records.delete(key);

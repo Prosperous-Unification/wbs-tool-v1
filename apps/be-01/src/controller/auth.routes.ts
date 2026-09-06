@@ -393,8 +393,9 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         //
         // Proof: `refuses a callback carrying two states without spending the
         // transaction` fails on `Expected "{"error":"duplicate_parameter"}"
-        // Received ""` — the bodiless 400 with the cookie cleared, i.e. the
-        // burn — when this reads `req.query['state']` instead; and `refuses a
+        // Received ""` — the bodiless 400, which since TASK-276 is the state
+        // mismatch's answer and no longer a burn — when this reads
+        // `req.query['state']` instead; and `refuses a
         // callback carrying two codes with the transaction still unspent`
         // fails with `Expected: 400 Received: 302` when the rule is narrowed
         // back to `state` alone.
@@ -437,12 +438,11 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // Proof: `refuses a forged error callback without burning the login it
         // interrupts` fails with `Received: "__Host-wbs_oidc=; HttpOnly;
         // Secure; SameSite=Lax; Path=/; Max-Age=0"` against `toBeNull()` when
-        // this clears the binding. It is the *only* red that mutation causes,
-        // and deliberately so: the honest callback in that case is a fixture
-        // sending the cookie string again rather than a browser that was just
-        // told to drop it, so it still completes. The header is where the loss
-        // is observable, which is why it is asserted rather than inferred from
-        // the second request.
+        // this clears the binding. That case's second request derives its
+        // cookie from the first answer rather than re-sending the string, so
+        // the same mutation also takes the honest callback's 302 down to a 400
+        // — the loss is observed where a browser would suffer it, not only in
+        // the header that causes it.
         if (transaction.outcome === 'state_mismatch') return empty(400, []);
         if (transaction.outcome !== 'consumed') return empty(400, [clear('__Host-wbs_oidc')]);
 
@@ -478,7 +478,8 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // **302 back to the app, where the other refusals here are bodiless
         // statuses.** This is the one refusal on this route a person chose, and
         // the thing they want is the sign-in card they started from; the 405
-        // and the two 400s above, and the 401s and 409 below, all describe a
+        // and the three bodiless 400s above — TASK-276 split the dead-record
+        // one into a mismatch and the rest — and the 401s and 409 below, all describe a
         // callback that is broken rather than a decision, and a browser cannot
         // act on any of them.
         //
