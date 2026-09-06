@@ -59,11 +59,60 @@ file, so its mounts, user, limits and image are still the old ones). Until 2026-
 second case was silent, and the deploy reported success for a change that was in effect
 nowhere. The env row is still silent, because a gitignored file cannot arrive in a push.
 
-Every dev sync also requires the host-owned solver supervisor service and Unix socket, then
-runs its `--preflight=dev` check against the configured digest before moving the checkout.
-The config records a full `devSourceSha`; `tool-devsync` diffs the solver compatibility paths
-between that commit and the requested commit, so unrelated source changes keep the mapping
-while a changed solver package cannot silently run under an older image.
+The host-owned solver supervisor service, config, and Unix socket are deploy prerequisites only
+when `libs/solver-py/**` or `apps/be-01/Dockerfile` changed between the currently deployed and
+requested commits. Unrelated changes do not read the config or probe the service; there is no
+placeholder config to install and absence is the documented default until solver compatibility
+inputs move. For a solver-affecting deploy, materialize a validated config with the
+`tool-remote-scripts:materialize-solver-supervisor-config` target, then dry-run and execute the
+`tool-remote-scripts:install-solver-supervisor` target. The checked-in installer publishes the
+bundle, mode-0600 config, and user unit and verifies the service and socket. The config contains
+only commit and digest-pinned image identities plus resource limits; it carries no secret.
+
+The command shape is explicit; replace the descriptive image identities and local output path
+with release-manifest values, first dry-run the installer, then repeat its last command with
+`--execute`:
+
+```sh
+bun run tools/tool-remote-scripts/src/materialize-solver-supervisor-config.ts \
+  --blue-image=REGISTRY/BE@sha256:BLUE_DIGEST \
+  --green-image=REGISTRY/BE@sha256:GREEN_DIGEST \
+  --dev-solver-image=REGISTRY/BE@sha256:DEV_DIGEST \
+  --dev-source-sha=FULL_DEV_SOURCE_COMMIT \
+  --output=/absolute/local/path/solver-supervisor.json
+bunx nx run tool-remote-scripts:build
+bun run tools/tool-remote-scripts/src/install-solver-supervisor.ts \
+  --config=/absolute/local/path/solver-supervisor.json --dry-run
+bun run tools/tool-remote-scripts/src/install-solver-supervisor.ts \
+  --config=/absolute/local/path/solver-supervisor.json --execute
+```
+
+The config records a full `devSourceSha`; `tool-devsync` also diffs the solver compatibility
+paths between that commit and the requested commit, so a changed solver package cannot silently
+run under an older image.
+
+### One-time TASK-292 outage bootstrap
+
+The fix for the 2026-09-06 missing-config outage cannot deploy itself: the poller must run the
+old checkout's `sync.ts`, and that copy throws before it can reset to the fixed commit. After the
+fix is on `origin/main`, use the following one-time recovery on h2puni. The guard must produce no
+output; if it does, stop and use the normal deploy path after satisfying the named prerequisite.
+This bypass is safe only for the source-only range that TASK-292 measured.
+
+```sh
+git -C /home/puni1/wbs-dev/src fetch --quiet origin main
+git -C /home/puni1/wbs-dev/src diff --exit-code HEAD origin/main -- \
+  libs/solver-py apps/be-01/Dockerfile bun.lock package.json nx.json \
+  apps/be-01/drizzle 'apps/*/project.json' 'apps/*/tsconfig.json' \
+  'libs/*/project.json' apps/fe-01/vite.config.ts tsconfig.base.json \
+  deploy/dev-src
+git -C /home/puni1/wbs-dev/src reset --hard origin/main
+```
+
+Then wait for the source watchers and require the next poll tick to report no work, the checkout
+HEAD to equal `origin/main`, and `/health` to report that same commit. Never reuse this reset as a
+general deploy command; it deliberately bypasses `tool-devsync` after proving that none of its
+solver, restart, or recreate paths moved.
 
 Dev has **no edge password**. It was removed 2026-08-06: it was a second login on top of the
 app's own, and a browser that had cached a wrong credential for the realm could not be talked

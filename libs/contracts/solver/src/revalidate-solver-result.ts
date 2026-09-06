@@ -1,4 +1,4 @@
-import { lastWorkdayOf, SOLVER_QUANTUM } from '@wbs/domain';
+import { isOnTime, lastWorkdayOf, SOLVER_QUANTUM } from '@wbs/domain';
 
 import {
   SOLVER_OBJECTIVE_TERMS,
@@ -449,6 +449,15 @@ export const revalidateSolverResult = (
  * deadline violation: the key sets are equal by construction once
  * `materialiseOptimized` has returned, so a gap is our bug and blaming the
  * solver would send the repair to the wrong side of the seam.
+ *
+ * **The verdict is {@link isOnTime}'s and is not re-derived here.** This once
+ * computed `lastWorkdayOf` and compared it to `dueDay` itself, which made it
+ * the third copy of a predicate `libs/domain/src/on-time.ts` exists to hold
+ * once — and the copy the CP-SAT model carried disagreed with it on a
+ * zero-duration milestone, so a plan the solver called feasible was refused
+ * here as `invalid-output` instead of being reported as `plan-infeasible`.
+ * `lastWorkdayOf` still appears below, but only to name the day in the refusal
+ * message; nothing decides anything from it.
  */
 export const revalidateOptimizedDeadlines = (
   request: SolverRequest,
@@ -472,8 +481,8 @@ export const revalidateOptimizedDeadlines = (
       );
     }
     const dueDay = slice.deadlineUnits / SOLVER_QUANTUM - 1;
-    const lastDay = lastWorkdayOf(timing.earliestStart, timing.earliestFinish);
-    if (lastDay > dueDay) {
+    if (!isOnTime(timing.earliestStart, timing.earliestFinish, dueDay)) {
+      const lastDay = lastWorkdayOf(timing.earliestStart, timing.earliestFinish);
       return refuse(
         'deadline-violated',
         `slice ${JSON.stringify(slice.key)} last works on day ${String(lastDay)}, past its deadline day ${String(dueDay)}`,

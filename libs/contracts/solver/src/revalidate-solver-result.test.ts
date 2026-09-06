@@ -382,6 +382,39 @@ describe('revalidateOptimizedDeadlines', () => {
     ).toEqual({ ok: true, published: true });
   });
 
+  /**
+   * The pair that proves this side and the CP-SAT side now read one predicate.
+   * A zero-duration milestone is the only input on which
+   * `end <= deadlineUnits` and `start + max(duration, 1) <= deadlineUnits`
+   * differ, and `libs/solver-py/tests/test_model.py`'s W2 pair fixes the same
+   * two placements in units: unit 48 refused, unit 47 admitted. Day 1 and day
+   * 47/48 are those two placements in the fractional domain this side works in.
+   *
+   * Before `tasks.md` 8.3 the model admitted the first of them while this
+   * refused it, so a deterministic `plan-infeasible` arrived at the coordinator
+   * as `invalid-output`. If either half of this pair ever disagrees with its
+   * Python twin, that confusion is back.
+   */
+  it('refuses a zero-duration milestone standing on the exclusive boundary', () => {
+    const found = revalidateOptimizedDeadlines(
+      request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 48 })] }),
+      placedOf({ a: [1, 1] }),
+    );
+    expect(found.ok).toBe(false);
+    if (found.ok) throw new Error('unreachable');
+    expect(found.failure).toBe('deadline-violated');
+    expect(found.detail).toContain('day 1');
+  });
+
+  it('accepts the same milestone one unit inside its due day', () => {
+    expect(
+      revalidateOptimizedDeadlines(
+        request({ slices: [slice({ key: 'a', durationUnits: 0, deadlineUnits: 48 })] }),
+        placedOf({ a: [47 / 48, 47 / 48] }),
+      ),
+    ).toEqual({ ok: true, published: true });
+  });
+
   it('leaves a slice with no deadline unconstrained however late it runs', () => {
     expect(
       revalidateOptimizedDeadlines(

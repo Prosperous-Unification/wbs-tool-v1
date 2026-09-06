@@ -8,7 +8,10 @@ import {
   assertDevSolverSourceCompatible,
   assertMcpEnv,
   devSolverMappingOf,
+  devSyncFailureMessage,
+  LOCK_BUSY_EXIT_CODE,
   needsRestart,
+  preflightSolver,
   RECREATE_PATHS,
   RESTART_PATHS,
   SOLVER_COMPATIBILITY_PATHS,
@@ -16,6 +19,15 @@ import {
 } from './sync';
 
 const DEV_IMAGE = `registry.example/wbs-be@sha256:${'a'.repeat(64)}`;
+
+function solverConfigBytes(sourceSha: string): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      devSourceSha: sourceSha,
+      images: [{ callerName: 'wbs-dev-src', solverImage: DEV_IMAGE }],
+    }),
+  );
+}
 
 describe('needsRestart', () => {
   it('does not restart when nothing in the manifest changed', () => {
@@ -145,6 +157,114 @@ describe('dev supervisor', () => {
     expect(fetchAt).toBeGreaterThan(-1);
     expect(preflightAt).toBeGreaterThan(fetchAt);
     expect(resetAt).toBeGreaterThan(preflightAt);
+  });
+
+  it('does not require supervisor host state for source-unrelated deploys', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    let configReads = 0;
+    let hostChecks = 0;
+
+    await preflightSolver(targetSha, {
+      currentSha: () => Promise.resolve(deployedSha),
+      changedPaths: (from, to) => {
+        expect(from).toBe(deployedSha);
+        expect(to).toBe(targetSha);
+        return Promise.resolve([]);
+      },
+      readConfig: () => {
+        configReads += 1;
+        return Promise.reject(new Error('missing optional supervisor config'));
+      },
+      requireHost: () => {
+        hostChecks += 1;
+        return Promise.resolve();
+      },
+    });
+
+    expect(configReads).toBe(0);
+    expect(hostChecks).toBe(0);
+  });
+
+  it('still requires the solver mapping when compatibility sources changed', async () => {
+    let configReads = 0;
+
+    expect(
+      await rejection(
+        preflightSolver('c'.repeat(40), {
+          currentSha: () => Promise.resolve('b'.repeat(40)),
+          changedPaths: () => Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']),
+          readConfig: () => {
+            configReads += 1;
+            return Promise.reject(new Error('missing required supervisor config'));
+          },
+          requireHost: () => Promise.reject(new Error('host check must follow config validation')),
+        }),
+      ),
+    ).toContain('missing required supervisor config');
+    expect(configReads).toBe(1);
+  });
+
+  it('refuses a stale solver mapping before the host preflight', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    const mappingSha = 'd'.repeat(40);
+    let changedPathReads = 0;
+    let hostChecks = 0;
+
+    expect(
+      await rejection(
+        preflightSolver(targetSha, {
+          currentSha: () => Promise.resolve(deployedSha),
+          changedPaths: (from, to) => {
+            changedPathReads += 1;
+            expect(to).toBe(targetSha);
+            expect(from).toBe(changedPathReads === 1 ? deployedSha : mappingSha);
+            return Promise.resolve(['libs/solver-py/src/wbs_solver/solve.py']);
+          },
+          readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
+          requireHost: () => {
+            hostChecks += 1;
+            return Promise.resolve();
+          },
+        }),
+      ),
+    ).toContain('dev solver mapping is stale');
+    expect(changedPathReads).toBe(2);
+    expect(hostChecks).toBe(0);
+  });
+
+  it('runs the host preflight with the mapped image when solver sources are compatible', async () => {
+    const deployedSha = 'b'.repeat(40);
+    const targetSha = 'c'.repeat(40);
+    const mappingSha = 'd'.repeat(40);
+    let changedPathReads = 0;
+    let hostImage: string | undefined;
+
+    await preflightSolver(targetSha, {
+      currentSha: () => Promise.resolve(deployedSha),
+      changedPaths: () => {
+        changedPathReads += 1;
+        return Promise.resolve(changedPathReads === 1 ? ['apps/be-01/Dockerfile'] : []);
+      },
+      readConfig: () => Promise.resolve(solverConfigBytes(mappingSha)),
+      requireHost: (image) => {
+        hostImage = image;
+        return Promise.resolve();
+      },
+    });
+
+    expect(changedPathReads).toBe(2);
+    expect(hostImage).toBe(DEV_IMAGE);
+  });
+});
+
+describe('dev-sync lock diagnostics', () => {
+  it('identifies only flock lock contention as a held deploy lock', () => {
+    expect(devSyncFailureMessage(LOCK_BUSY_EXIT_CODE)).toBe(
+      '[dev-sync] skipped: another deploy holds the lock',
+    );
+    expect(devSyncFailureMessage(1)).toBe('[dev-sync] failed (exit 1); see the error above');
   });
 });
 

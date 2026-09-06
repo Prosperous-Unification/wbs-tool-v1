@@ -333,3 +333,133 @@ between two ready slices; that comment now says so and says why.
 
 **Round 3 is owed.** Both seats returned BLOCK at `65fb9359`, the fold is
 `f1ad1326` and later, and no seat has read the folded tree yet.
+
+## 10.1 — the watched-red ledger
+
+`tasks.md` 10.1 asks for all six watched reds "recorded failing before their
+implementation lands, per AGENTS.md R5, each with the exact fault injected and
+the exact assertion that caught it". **Three of the six are in this change's
+slices 2–4 and are recorded below. The other three are in slices 7–8, which this
+change does not own** — the ownership table gives them to `dual-optimized-scheduler`
+(TASK-219/241) — **so 10.1 stays unticked until those land and append here.**
+Ticking it on a half ledger would claim evidence for reds nobody has run.
+
+| red    | `tasks.md` | fault                                                       | state                           |
+| ------ | ---------- | ----------------------------------------------------------- | ------------------------------- |
+| **W1** | 4.4        | drop the `max` term from `lastWorkdayOf`                    | recorded below, twice           |
+| **W2** | 8.4        | `finishUnits <= (D + 1) × quantum` in the CP-SAT constraint | owed — slice 8, not this change |
+| **W3** | 2.4        | `workdaysBetween` in place of `deadlineOffsetOf`            | recorded below                  |
+| **W4** | 3.5        | `max` instead of `min` in the deadline fold                 | recorded below                  |
+| **W5** | 8.6        | map solver `infeasible` onto `unknown`                      | owed — slice 8, not this change |
+| **W6** | 7.6        | omit the seventh argument from the canonical-input hash     | owed — slice 7, not this change |
+
+Every measurement below ran on **h2puni** over ssh; nothing was built or run on
+the workspace box. **For W1, W3 and W4** each fault was reverted immediately and
+the restored file md5-compared on both hosts, and that md5 is quoted with the
+file it belongs to, so the revert is checkable rather than asserted. The
+slice-level table further down does not carry restoring hashes; its faults are
+cited by count and by failing assertion only, and it says so rather than
+borrowing this sentence.
+
+### W3 — `workdaysBetween` substituted for `deadlineOffsetOf` (2.4)
+
+**3 of 37 cases red, 34 pass.** 2.4 demands two specific halves go red
+_together_, and they did:
+
+- `never grants a weekend deadline the following Monday` — expected `offset 4`,
+  received `offset 5`. `nextWorkday` rolls Saturday the 8th to Monday the 10th,
+  so every weekend deadline is handed two calendar days nobody agreed to.
+- `never turns a deadline before the plan into offset zero` — expected
+  `{ kind: 'before-project-start' }`, received `{ kind: 'offset', offset: 0 }`.
+  **This is the half a weekend-only case cannot see, and the worse of the two:**
+  `0` is the tightest deadline on the axis, so a date typed in the past arrives
+  downstream indistinguishable from one somebody chose.
+
+A third case, `takes the project's day zero from nextWorkday`, went red with
+them. Restored: `workday.ts` md5 `173c7320`, equal on both hosts.
+
+### W4 — `min` folded as `max` (3.5)
+
+**3 of 12 cases red, 9 pass**, injecting `Math.min` → `Math.max` in
+`leafDeadlinesOf`:
+
+- `keeps each leaf the EARLIEST of its own deadline and every ancestor's` —
+  expected `12`, received `20`. This is 3.5's own sentence: a child dated
+  earlier than its parent, loosened to the parent's date.
+- `takes the tighter ancestor when two of them bind` — expected `18`,
+  received `30`.
+- `keeps a day-zero deadline, which is a real and very tight constraint` —
+  expected `0`, received `12`.
+
+Restored: `leaf-constraints.ts` md5 `6ad8e4d9`, equal on both hosts — and that
+is still the file's hash at this head, so the revert is checkable today with one
+`md5sum`. A later re-measurement of the
+same fault against the grown file read **532 pass / 4 fail**, the same three
+plus `lets an EARLIER parent tighten a later child`.
+
+### W1 — the bare `ceil(snapWorkdays(finish)) − 1` (4.4)
+
+Recorded **twice, at two different seams**, because the arithmetic moved between
+them and a red measured at the old seam would not prove the new one.
+
+**First, in `isOnTime`: 2 of 5 cases red.** Both are milestones, exactly as 4.4
+predicts — `is late for a zero-duration milestone standing past its deadline`
+expected `false`, received `true` (a milestone standing a full day past its
+deadline reported on time), and `meets a day-zero deadline only at day zero`
+with it. **No fixture with a duration can produce this red:** once
+`finish > start` the `max` term changes nothing, which is why 4.4 says the test
+must be the milestone. Restored: `on-time.ts` md5 `78cb2fe8`, equal on both
+hosts. **That hash is the slice-4 seam's file and will not match this head.**
+`on-time.ts` held `isOnTime` alone when it was taken; `workdaysLateBy` joined it
+in slice 5, and the file never reached `origin/main` in its one-function shape —
+`8decf889` squashed both in together. A reader running `md5sum` at this head
+gets `63824ae9`, which is the _second_ seam's number, immediately below.
+
+**Then, re-proved after `workdaysLateBy` took the arithmetic: 4 of 9 cases red,
+5 pass.** The substitution now has to go inside `workdaysLateBy`, because
+`isOnTime` no longer contains it:
+
+- `isOnTime > is late for a zero-duration milestone standing past its deadline` — expected `false`, received `true`
+- `isOnTime > meets a day-zero deadline only at day zero` — expected `false`, received `true`
+- `workdaysLateBy > counts a weekend as no time at all` — expected `1`, received `0`
+- `workdaysLateBy > counts a zero-duration milestone from the day it stands on` — expected `1`, received `0`
+
+Restored: `on-time.ts` md5 `63824ae9`, equal on both hosts, and that is the
+file's hash at this head.
+
+**The case that stayed green is why this red is worth recording at the second
+seam at all.** `workdaysLateBy > is zero exactly when the slice met its
+deadline` passes _under the fault_, correctly: it asserts the two functions
+agree, and under a shared fault they agree on the wrong answer together. A
+consistency case cannot double as a correctness case, and reading its green as
+proof of either function would be the check-that-cannot-fail shape R5 exists to
+forbid. It is kept for the one thing it does prove — that the definition is an
+identity and not a second comparison.
+
+### The slice-level reds this change also measured
+
+Not part of 10.1's six, which are the change-wide ones, but recorded here so the
+ledger is not read as the complete list of what was proved:
+
+| red    | fault                                                                                          | measured                                                                                                                                            |
+| ------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W-5.1a | delete the `first.slack !== second.slack` comparison alone                                     | 531 pass / **1 fail** — `prefers the tighter slack over the earlier date when the two disagree`                                                     |
+| W-5.1b | delete both new comparisons                                                                    | 526 pass / **6 fail**; `prefers the tighter slack …` is **green** here, so neither red subsumes the other                                           |
+| W-5.2a | the wrong question — `finish > deadlineOffset` in place of the shared predicate                | **5 fail of 8**, including the zero-duration milestone and the inclusive boundary                                                                   |
+| W-5.2b | the authored map in place of the folded one                                                    | **2 fail** — exactly the two ancestor cases, which W-5.2a leaves green                                                                              |
+| W-5.3  | W-5.1b's fault against the 1,000-seed corpus case                                              | `Received: 0` of 1,000 — zero, not a weakened count, because the map is then read nowhere                                                           |
+| W-5.4a | drop the entry                                                                                 | **4 fail of 7**, both lateness cases reading `null`                                                                                                 |
+| W-5.4b | clamp to `0`                                                                                   | the same four; the difference is the _symptom_, not the set                                                                                         |
+| seam   | delete `new Map(),` from `materialise-optimized.ts` so the pin falls into the `deadlines` slot | **2 of 243** contracts cases red — and one of them stops throwing at all: a wrong-slot call does not error, it quietly answers a different question |
+
+Two honest notes on that table. **W-5.4a and W-5.4b share a case set** — a first
+draft of the log called them separable and they are not; what still distinguishes
+the clamp is that `is late on day zero itself` reads _on time_ under it, the only
+failure among the seven that is a met date rather than a wrong number. And the
+run log of 2026-09-06T08:07Z calls the `materialise-optimized` seam red "W5";
+**that is a local name, not `tasks.md`'s W5**, which is slice 8.6's
+`infeasible` → `unknown` map and is still owed.
+
+The seam red is the one worth keeping in view for slices 7–8: `deadlines` and
+`pinnedStarts` are both `ReadonlyMap<string, number>`, so **every wrong-slot call
+type-checks** and TypeScript cannot help at that boundary.

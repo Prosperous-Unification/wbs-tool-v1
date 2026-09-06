@@ -28,11 +28,11 @@ the directory existed; that came from reading `libs/contracts/`'s own listing an
 attributing it to a child. Corrected here rather than left standing, because
 "verified at this head" is the sentence TASK-219 reads first.) So:
 
-| Slices            | Owner                                          | Why                                                                                                                                        |
-| ----------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1–6, 9, 10.1–10.3 | **this change's own queue tasks**              | column, converter, fold, `schedule()`'s seventh argument, Fast ordering, API, UI — all against code that exists                            |
-| 7, 8              | **TASK-219 absorbs them**                      | they assert cache-key columns (7.4), hash behaviour (7.1, 7.6) and a wire schema (8.1) belonging to artifacts TASK-219 has not created yet |
-| 10.4              | **both owners, each at its own terminal gate** | AGENTS.md's cross-provider review binds whoever ships a diff; it is not one task's checkbox                                                |
+| Slices            | Owner                                          | Why                                                                                                                                                                                                           |
+| ----------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1–6, 9, 10.2–10.3 | **this change's own queue tasks**              | column, converter, fold, `schedule()`'s seventh argument, Fast ordering, API, UI — all against code that exists                                                                                               |
+| 7, 8              | **TASK-219 absorbs them**                      | they assert cache-key columns (7.4), hash behaviour (7.1, 7.6) and a wire schema (8.1) belonging to artifacts TASK-219 has not created yet                                                                    |
+| 10.1, 10.4        | **both owners, each at its own terminal gate** | AGENTS.md's cross-provider review binds whoever ships a diff; it is not one task's checkbox — and 10.1's six reds are watched three here and three inside TASK-219, so it closes only when both have appended |
 
 Consequently **W1, W3 and W4 are watched here; W2, W5 and W6 are watched inside
 TASK-219**, and 10.1's "all six recorded failing" spans both tasks rather than
@@ -198,7 +198,7 @@ constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
       with `deadlines: ReadonlyMap<string, number>` **defaulted to an empty map**,
       so every existing caller compiles unchanged and the no-op proof in 4.3 is
       about behaviour rather than about call sites.
-- [ ] 4.2 The predicate, applied per slice against its effective deadline offset,
+- [x] 4.2 The predicate, applied per slice against its effective deadline offset,
       written **once** as `lastWorkdayOf(start, finish) <= deadlineOffset` and
       referenced by slices 5, 8 and 9 rather than re-derived in any of them.
       `finish <= deadline` does not appear in the implementation.
@@ -521,10 +521,10 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       enumeration check compares the tagged lists against the schema's own
       `required` sets and fails on the symmetric difference — a partial edit is a
       red gate by design, so land them together or watch the gate go red.
-- [ ] 8.3 The CP-SAT constraint `startUnits(s) + max(durationUnits(s), 1) <=
+- [x] 8.3 The CP-SAT constraint `startUnits(s) + max(durationUnits(s), 1) <=
 (D + 1) × quantum`, added **before** the objective terms and independent of
       them — not a penalty, not a soft term, not a lexicographic stage.
-- [ ] 8.4 **WATCHED RED W2** — substitute `finishUnits <= (D + 1) × quantum`. A
+- [x] 8.4 **WATCHED RED W2** — substitute `finishUnits <= (D + 1) × quantum`. A
       zero-duration milestone one day late must be admitted as feasible. Every
       non-zero-duration fixture stays green under the substitution, so the test
       must be the milestone.
@@ -595,7 +595,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       `plan-infeasible` takes that path. The UI hiding the affordance is not
       sufficient — the route is reachable without the UI, which is exactly the
       hole the `corrupt`-promised-a-Retry Critical named.
-- [ ] 8.8 Revalidator clause `lastWorkdayOf(start, finish) <=
+- [x] 8.8 Revalidator clause `lastWorkdayOf(start, finish) <=
 effectiveDeadlineOffset`, evaluated on the materialised schedule in the
       **real fractional domain**, not in quantised units. A violation is
       `invalid-output` — a deadline-violating solver result is a broken engine,
@@ -657,6 +657,14 @@ order`, with their tests. A repository assertion that no unqualified
 - [ ] 10.1 All six watched reds (W1–W6) recorded failing before their
       implementation lands, per AGENTS.md R5, each with the exact fault injected
       and the exact assertion that caught it.
+      **Half of it is written and the half is named: `verify.md` § "10.1 — the
+      watched-red ledger" carries W1, W3 and W4** — fault, exact failing
+      assertion text, pass/fail counts, and the restoring md5 on both hosts —
+      plus the eight slice-level reds that are not among the six. **W2 (8.4),
+      W5 (8.6) and W6 (7.6) are slices 7–8 and belong to
+      `dual-optimized-scheduler` (TASK-219/241);** they append to the same
+      section when they land. Deliberately unticked until then: a ledger missing
+      three of six is not the item.
 - [ ] 10.2 Full remote autotest + lint + typecheck gate on h2puni at the exact
       head, for `libs/domain`, `apps/be-01` and `apps/fe-01`. Nothing is built or
       run on the workspace box.

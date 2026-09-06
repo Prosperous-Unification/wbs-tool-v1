@@ -6,9 +6,9 @@ import { calendarScale } from '../src/components/wbs/gantt-geometry';
 import { CHART_PAD_PX, DAY_PX, LABEL_COLUMN_PX, ROW_PX } from '../src/components/wbs/gantt-panel';
 import {
   type ClipPixels,
-  differingColumns,
-  greatestChannelDelta,
   isContiguousRun,
+  type PixelDifference,
+  pixelDifference,
   sameColumns,
 } from '../src/components/wbs/marker-rule-ink';
 import { createProject } from './create-project';
@@ -3704,7 +3704,7 @@ test.describe('the marker rule, measured in the columns it paints', () => {
   }
 
   /**
-   * Decodes two clips **in the page** so their pixels can be compared.
+   * Decodes and compares two clips **in the page**.
    *
    * `page.screenshot` hands back a Node `Buffer` and there is no PNG decoder in
    * this workspace, so the bytes are carried in as a data URL and drawn into a
@@ -3712,17 +3712,13 @@ test.describe('the marker rule, measured in the columns it paints', () => {
    * spelled out because two of its steps throw or truncate when left implicit:
    * `img.decode()` before drawing, and the canvas sized from the image before
    * that, since a fresh `<canvas>` is 300×150 and would crop a wider clip.
+   * The decoded `Uint8ClampedArray`s stay behind one `JSHandle`; only the
+   * compact reducer result crosses CDP.
    */
-  async function pixelsOf(
-    page: Page,
-    before: string,
-    after: string,
-  ): Promise<readonly [ClipPixels, ClipPixels]> {
-    return page.evaluate(
-      async ([first, second]) => {
-        const read = async (
-          encoded: string,
-        ): Promise<{ width: number; height: number; data: number[] }> => {
+  async function differenceOf(page: Page, before: string, after: string): Promise<PixelDifference> {
+    const decoded = await page.evaluateHandle(
+      async ([first, second]): Promise<readonly [ClipPixels, ClipPixels]> => {
+        const read = async (encoded: string): Promise<ClipPixels> => {
           const image = new Image();
           image.src = `data:image/png;base64,${encoded}`;
           await image.decode();
@@ -3735,12 +3731,17 @@ test.describe('the marker rule, measured in the columns it paints', () => {
           // All four arguments: `getImageData()` with none is a `TypeError`, not
           // a whole-canvas read.
           const got = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          return { width: got.width, height: got.height, data: [...got.data] };
+          return { width: got.width, height: got.height, data: got.data };
         };
-        return [await read(first), await read(second)];
+        return [await read(first), await read(second)] as const;
       },
       [before, after] as const,
     );
+    try {
+      return await page.evaluate(pixelDifference, decoded);
+    } finally {
+      await decoded.dispose();
+    }
   }
 
   /** Moves the ladder, and waits for the day columns to have really moved. */
@@ -3878,8 +3879,8 @@ test.describe('the marker rule, measured in the columns it paints', () => {
         line.style.visibility = '';
       });
 
-      const totalInk = differingColumns(...(await pixelsOf(page, before.strip, present.strip)));
-      const ruleInk = differingColumns(...(await pixelsOf(page, hidden.strip, present.strip)));
+      const totalInk = (await differenceOf(page, before.strip, present.strip)).differingColumns;
+      const ruleInk = (await differenceOf(page, hidden.strip, present.strip)).differingColumns;
 
       // A hairline against a day. The bound is deliberately not tight enough to
       // tell 1 CSS pixel from 2 — the rule sits on a pixel boundary and Skia
@@ -3913,11 +3914,19 @@ test.describe('the marker rule, measured in the columns it paints', () => {
       // arithmetic's controlled fault pins that distinction. Proof: a
       // temporary untagged marker line eight days outside the strip failed
       // this assertion at delta 79 against the allowed 8 on h2puni.
-      const bodyDelta = greatestChannelDelta(...(await pixelsOf(page, before.body, hidden.body)));
+      const bodyDifference = await differenceOf(page, before.body, hidden.body);
       expect(
-        bodyDelta,
+        bodyDifference.greatestChannelDelta,
         `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,
       ).toBeLessThanOrEqual(8);
+      // Measured on h2puni across three complete cases (nine body pairs): eight
+      // pairs were identical and one changed three pixels at delta 5. Sixteen
+      // leaves more than five times that observed area while a broad band at
+      // the same low contrast fails on its area instead of hiding under delta 8.
+      expect(
+        bodyDifference.changedPixels,
+        `at ${String(rung)}px the low-contrast body difference covers too much area`,
+      ).toBeLessThanOrEqual(16);
       // `ruleInk` is non-empty by `isContiguousRun` above, so the marker really
       // did draw body ink; a second exact-PNG check here would let the same
       // raster jitter satisfy that positive assertion by itself.

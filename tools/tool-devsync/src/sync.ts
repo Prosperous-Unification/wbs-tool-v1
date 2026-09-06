@@ -26,6 +26,7 @@ const SRC = '/home/puni1/wbs-dev/src';
 const CONTAINER = 'wbs-dev-src';
 const LOCK = '/home/puni1/wbs-dev/state/devsync.lock';
 const CONFIG_MAX_BYTES = 256 * 1024;
+export const LOCK_BUSY_EXIT_CODE = 75;
 export const SOLVER_COMPATIBILITY_PATHS = ['libs/solver-py', 'apps/be-01/Dockerfile'] as const;
 
 export interface DevSolverMapping {
@@ -68,29 +69,64 @@ export function assertDevSolverSourceCompatible(changedPaths: readonly string[])
   );
 }
 
-async function preflightSolver(sha: string): Promise<void> {
-  const bytes = new Uint8Array(
-    await Bun.file(SOLVER_SUPERVISOR_CONFIG)
-      .slice(0, CONFIG_MAX_BYTES + 1)
-      .arrayBuffer(),
-  );
+export interface SolverPreflightDependencies {
+  currentSha(): Promise<string>;
+  changedPaths(from: string, to: string): Promise<readonly string[]>;
+  readConfig(): Promise<Uint8Array>;
+  requireHost(image: string): Promise<void>;
+}
+
+async function changedSolverPaths(from: string, to: string): Promise<readonly string[]> {
+  return (
+    await $`git -C ${SRC} diff --name-only ${from} ${to} -- ${SOLVER_COMPATIBILITY_PATHS}`.text()
+  )
+    .split('\n')
+    .filter((path) => path !== '');
+}
+
+const SOLVER_PREFLIGHT_DEPENDENCIES: SolverPreflightDependencies = {
+  currentSha: async () => (await $`git -C ${SRC} rev-parse HEAD`.text()).trim(),
+  changedPaths: changedSolverPaths,
+  readConfig: async () =>
+    new Uint8Array(
+      await Bun.file(SOLVER_SUPERVISOR_CONFIG)
+        .slice(0, CONFIG_MAX_BYTES + 1)
+        .arrayBuffer(),
+    ),
+  requireHost: async (image) => {
+    await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
+    await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
+    await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${SOLVER_SUPERVISOR_CONFIG} --solver-image=${image}`;
+  },
+};
+
+/** Solver host state is a deploy prerequisite only when its compatibility inputs move. */
+export async function preflightSolver(
+  sha: string,
+  dependencies: SolverPreflightDependencies = SOLVER_PREFLIGHT_DEPENDENCIES,
+): Promise<void> {
+  const deployedSha = await dependencies.currentSha();
+  const targetChanges = await dependencies.changedPaths(deployedSha, sha);
+  if (targetChanges.length === 0) return;
+
+  const bytes = await dependencies.readConfig();
   if (bytes.byteLength === 0 || bytes.byteLength > CONFIG_MAX_BYTES) {
     throw new Error(
       `solver supervisor config must contain 1 through ${String(CONFIG_MAX_BYTES)} bytes`,
     );
   }
   const mapping = devSolverMappingOf(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-  const changed = (
-    await $`git -C ${SRC} diff --name-only ${mapping.sourceSha} ${sha} -- ${SOLVER_COMPATIBILITY_PATHS}`.text()
-  )
-    .split('\n')
-    .filter((path) => path !== '');
+  const changed = await dependencies.changedPaths(mapping.sourceSha, sha);
   assertDevSolverSourceCompatible(changed);
-  await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
-  await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
-  // Proof: sync.test.ts makes one solver source path differ and requires
-  // refusal before this exact host preflight can run.
-  await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${SOLVER_SUPERVISOR_CONFIG} --solver-image=${mapping.image}`;
+  // Proof: sync.test.ts supplies a stale mapping for a changed solver path and
+  // observes refusal before its injected host preflight can run.
+  await dependencies.requireHost(mapping.image);
+}
+
+export function devSyncFailureMessage(exitCode: number): string {
+  return exitCode === LOCK_BUSY_EXIT_CODE
+    ? '[dev-sync] skipped: another deploy holds the lock'
+    : `[dev-sync] failed (exit ${String(exitCode)}); see the error above`;
 }
 
 /**
@@ -265,12 +301,12 @@ if (import.meta.main) {
     // Two overlapping runs can interleave their fetch, reset, install and
     // restart, leaving dev on one SHA with another SHA's dependencies. flock
     // makes the whole sequence exclusive; -n fails fast rather than queueing a
-    // deploy whose operator has stopped watching.
-    const run = await $`flock -n ${LOCK} bun ${import.meta.path} --locked ${sha}`.nothrow();
+    // deploy whose operator has stopped watching. The dedicated conflict exit
+    // keeps a child failure from being mislabeled as lock contention.
+    const run =
+      await $`flock -E ${LOCK_BUSY_EXIT_CODE} -n ${LOCK} bun ${import.meta.path} --locked ${sha}`.nothrow();
     if (run.exitCode !== 0) {
-      console.error(
-        `[dev-sync] failed (exit ${String(run.exitCode)}) -- another deploy may hold the lock`,
-      );
+      console.error(devSyncFailureMessage(run.exitCode));
     }
     process.exit(run.exitCode);
   }

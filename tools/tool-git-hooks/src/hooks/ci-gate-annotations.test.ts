@@ -1,8 +1,49 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, test } from 'bun:test';
 
 import { readErrorAnnotations, selectErrorAnnotations } from './ci-gate-annotations';
 
 describe('CI gate annotations', () => {
+  test('the production helper never emits a second command after a bare carriage return', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wbs-ci-annotations-'));
+    const log = join(dir, 'nx-gate.log');
+    const valid = '::error file=valid.test.ts,line=2::real failure';
+    const located = '::error file=injected.test.ts,line=1::failure';
+    const injected = `${located}\r::add-mask::not-a-real-secret`;
+
+    try {
+      writeFileSync(log, `${injected}\n${valid}\n`);
+      const run = Bun.spawnSync({
+        cmd: [process.execPath, 'run', join(import.meta.dir, 'ci-gate-annotations.ts'), log],
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      // Proof: splitting only on CRLF/LF wrote the injected bare CR and its
+      // suffix to stdout before this exact production invocation was fixed.
+      expect(run.exitCode).toBe(0);
+      expect(new TextDecoder().decode(run.stdout)).toBe(`${located}\n${valid}\n`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects embedded C0 controls and DEL from selected commands', () => {
+    const controls = [
+      ...Array.from({ length: 32 }, (_, code) => code).filter((code) => code !== 10 && code !== 13),
+      127,
+    ];
+    const lines = controls.map(
+      (code, index) =>
+        `::error file=control-${String(index)}.test.ts,line=1::before${String.fromCharCode(code)}after`,
+    );
+
+    expect(selectErrorAnnotations(lines.join('\n'))).toEqual([]);
+  });
+
   test('preserves the exact file and line command emitted by the failing assertion', () => {
     const annotation =
       '::error file=libs/domain/src/is-within.test.ts,line=14,col=9::Expected false to be true';

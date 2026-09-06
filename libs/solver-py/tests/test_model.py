@@ -186,7 +186,7 @@ class HandBuiltInstancesAreRealRequests(unittest.TestCase):
             ),
             "a zero duration": a_request([a_slice("a", duration=0, pools=["t"])], pools={"t": 1}),
             "a fenced zero duration": a_request(
-                [a_slice("a", duration=0, person="p", not_before=5, deadline=5),
+                [a_slice("a", duration=0, person="p", not_before=5, deadline=6),
                  a_slice("b", duration=10, person="p", deadline=10)],
                 horizon=20,
             ),
@@ -365,7 +365,9 @@ class FloorAndHorizonClauses(unittest.TestCase):
 
 
 class DeadlineClause(unittest.TestCase):
-    """Clause 6, the one the re-validator does not carry.
+    """Clause 6. Bun carries the same clause on the materialised schedule in
+    the real fractional domain, through the `isOnTime` predicate the two sides
+    now share; this is the integer-unit half of it.
 
     It is what makes design.md's `INFEASIBLE, k = 1` row mean "the user's
     deadlines cannot be met" rather than "the engine is broken": deadlines are in
@@ -404,6 +406,40 @@ class DeadlineClause(unittest.TestCase):
             [a_slice("a", duration=10, not_before=20, deadline=None)], horizon=40
         )
         self.assertEqual(status_of(request), cp_model.OPTIMAL)
+
+    def test_a_zero_duration_milestone_one_day_late_is_infeasible(self) -> None:
+        """**WATCHED RED W2** (tasks.md 8.4). Substitute `end <= deadlineUnits`
+        for `start + max(duration, 1) <= deadlineUnits` and this goes OPTIMAL.
+
+        The milestone is the only input the two forms disagree on. `end == start`
+        at duration zero, so the substituted form admits a start of exactly `48`
+        — `(D + 1) x quantum` for a day-0 deadline, which is the first instant of
+        day 1 and a day late. `lastWorkdayOf` in `libs/domain/src/on-time.ts`
+        reads that placement as day 1 and calls it late, so under the
+        substitution the solver publishes a schedule Bun then refuses as
+        `deadline-violated`: a plan-infeasible verdict arriving as an engine
+        failure, which is exactly what TASK-241's AC #2 forbids.
+
+        Every non-zero-duration fixture stays green under the substitution,
+        which is why the case has to be the milestone and not a shorter task.
+        """
+        request = a_request(
+            [a_slice("a", duration=0, not_before=0, deadline=48)], horizon=96
+        )
+        built = build_model(request)
+        built.model.add(built.starts["a"] == 48)
+        self.assertEqual(_solver().solve(built.model), cp_model.INFEASIBLE)
+
+    def test_the_same_milestone_inside_its_due_day_is_feasible(self) -> None:
+        """The slack half of W2: the clause fences the milestone, it does not
+        forbid it. Unit 47 is still inside day 0 — `lastWorkdayOf(47/48, 47/48)`
+        is 0 — and `47 + max(0, 1) <= 48` admits it."""
+        request = a_request(
+            [a_slice("a", duration=0, not_before=0, deadline=48)], horizon=96
+        )
+        built = build_model(request)
+        built.model.add(built.starts["a"] == 47)
+        self.assertEqual(_solver().solve(built.model), cp_model.OPTIMAL)
 
 
 class PoolClause(unittest.TestCase):
@@ -527,9 +563,16 @@ class ZeroDurationSlices(unittest.TestCase):
         Watched red: drop the `duration > 0` filter and this is INFEASIBLE — a
         plan reported unschedulable that the re-validator's sweep, which drops
         zero-length placements before counting, would have accepted.
+
+        `a`'s deadline is 6 and not 5. Clause 6 became
+        `start + max(duration, 1) <= deadlineUnits` (tasks.md 8.3), so the
+        exclusive bound that pins a zero-duration slice to unit 5 is 6; under the
+        old `end <= deadlineUnits` it was 5. The fence is the same fence and the
+        assertion below is unchanged — only the number that expresses "no later
+        than unit 5" moved, because the clause it is written against changed.
         """
         request = a_request(
-            [a_slice("a", duration=0, person="p", not_before=5, deadline=5),
+            [a_slice("a", duration=0, person="p", not_before=5, deadline=6),
              a_slice("b", duration=10, person="p", deadline=10)],
             horizon=20,
         )
@@ -560,9 +603,13 @@ class ZeroDurationSlices(unittest.TestCase):
         kept because the filter is one decision covering both clauses, and a
         case that documents the pool reading is worth more than a case that
         only re-proves the one CP-SAT already gives.
+
+        `a`'s deadline is 6 for the same reason as the assignee case above: the
+        exclusive bound that pins a zero-duration slice to unit 5 is 6 under
+        clause 6's `start + max(duration, 1) <= deadlineUnits`.
         """
         request = a_request(
-            [a_slice("a", duration=0, width=9, pools=["t"], not_before=5, deadline=5),
+            [a_slice("a", duration=0, width=9, pools=["t"], not_before=5, deadline=6),
              a_slice("b", duration=10, width=1, pools=["t"], deadline=10)],
             pools={"t": 1},
             horizon=20,

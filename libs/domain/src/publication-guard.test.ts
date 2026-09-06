@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import type { ScheduleInput } from './canonical-schedule-input';
 import { guardRealPublication } from './publication-guard';
-import { schedule, type Slice, sliceKey } from './schedule';
+import { type Schedule, schedule, type Slice, sliceKey } from './schedule';
 import { SOLVER_QUANTUM } from './solver-quantum';
 
 /**
@@ -38,6 +38,7 @@ const inputOf = (
   rows: ScheduleInput['rows'],
   edges: ScheduleInput['edges'],
   slices: ScheduleInput['slices'],
+  deadlines: ScheduleInput['deadlines'] = new Map(),
 ): ScheduleInput => ({
   rows,
   edges,
@@ -45,7 +46,7 @@ const inputOf = (
   notBefore: new Map(),
   poolSizes: new Map(),
   reach: 'whole-item',
-  deadlines: new Map(),
+  deadlines,
 });
 
 const NO_MOVEMENT = () => 0;
@@ -213,5 +214,99 @@ describe('(ii) an equal primary carrying a strictly better secondary', () => {
 
     expect(decision.optimizedValues.priority).toBeLessThan(decision.baselineValues.priority);
     expect(decision.chosen).toBe('optimized');
+  });
+});
+
+describe('(iii) the Baseline is computed over the WHOLE canonical input, deadlines included', () => {
+  // TASK-280. `guardRealPublication` called `schedule()` with six of its seven
+  // arguments, so `input.deadlines` never reached the Baseline. TypeScript said
+  // nothing because the seventh parameter defaults to `new Map()` — the same
+  // default that made the drop invisible is what made it a defect rather than a
+  // compile error.
+  //
+  // The fixture is `schedule-deadline-order.test.ts`'s first case, chosen
+  // because both halves of the difference show on it at once: `a` outranks `b`
+  // and takes the person on priority alone, while `b` has the date and takes it
+  // on minimum slack. One shared person is what forces a choice; with two the
+  // slices run in parallel and the order stops being observable.
+  const rows = [leafRow('a', 10, 1), leafRow('b', 20, 9)];
+  const slices = [work('a', 2, { personId: 'kat' }), work('b', 2, { personId: 'kat' })];
+
+  // `a` has nine workdays of room and `b` has none: it is due on the project's
+  // first working day against two days of work. So `b` goes first on slack, and
+  // it is still late when it does — which is the second half of the difference.
+  const deadlines = new Map([
+    ['a', 10],
+    ['b', 0],
+  ]);
+
+  const input = inputOf(rows, [], slices, deadlines);
+
+  /** The Baseline the guard's own doc promises: `schedule()` over the same input. */
+  const overTheSameInput = () =>
+    schedule(input.rows, input.edges, input.slices, new Map(), new Map(), 'whole-item', deadlines);
+
+  const startOf = (plan: Schedule, id: string) => plan.slices.get(key(id))?.earliestStart;
+  const lateByOf = (plan: Schedule, id: string) => plan.slices.get(key(id))?.lateBy;
+
+  it('orders the Baseline by the deadlines the input carries, not by priority alone', () => {
+    // Proof: `input.deadlines` dropped from the `schedule()` call in
+    // `publication-guard.ts` — the six-argument form this task fixes — and this
+    // case failed on the first expect, `b` reading 2 rather than 0, because
+    // priority decides an undeadlined ready set. Watched at `faea8430`:
+    // 568 pass / 2 fail, and these two were the two.
+    const decision = guardRealPublication(
+      input,
+      overTheSameInput(),
+      'makespan',
+      UNWEIGHTED,
+      NO_MOVEMENT,
+    );
+
+    expect(startOf(decision.baseline, 'b')).toBe(0);
+    expect(startOf(decision.baseline, 'a')).toBe(2);
+
+    // The negative control, and the reason the fixture is this one: the answer
+    // the six-argument call produced is a real and *different* plan, not an
+    // absent one. A test that only asserted the deadlined order would have
+    // passed on a fixture where the two orders agree.
+    const undeadlined = schedule(
+      input.rows,
+      input.edges,
+      input.slices,
+      new Map(),
+      new Map(),
+      'whole-item',
+    );
+    expect(startOf(undeadlined, 'a')).toBe(0);
+    expect(startOf(undeadlined, 'b')).toBe(2);
+  });
+
+  it('publishes the Baseline lateness the input earns, rather than null on every slice', () => {
+    // The half that reaches the stored row. Proof: the same dropped argument —
+    // with no map no slice has a deadline, so `lateBy` is null everywhere and a
+    // plan that misses a date the user wrote is published as one that meets it.
+    // Watched at `faea8430`: this case read null where it expects 1.
+    const decision = guardRealPublication(
+      input,
+      overTheSameInput(),
+      'makespan',
+      UNWEIGHTED,
+      NO_MOVEMENT,
+    );
+
+    expect(lateByOf(decision.baseline, 'b')).toBe(1);
+    expect(lateByOf(decision.baseline, 'a')).toBeNull();
+
+    const undeadlined = schedule(
+      input.rows,
+      input.edges,
+      input.slices,
+      new Map(),
+      new Map(),
+      'whole-item',
+    );
+    expect(lateByOf(undeadlined, 'b')).toBeNull();
+    expect(lateByOf(undeadlined, 'a')).toBeNull();
   });
 });
