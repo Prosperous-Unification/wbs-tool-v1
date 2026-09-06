@@ -30,7 +30,8 @@ function recordOf(value: unknown, index: number): Record<string, unknown> {
 function decodeRule(value: unknown, index: number): SupervisorImageRule {
   const rule = recordOf(value, index);
   const unknown = Object.keys(rule).filter((key) => !RULE_KEYS.includes(key as never));
-  if (unknown.length > 0) throw defect(`rule ${String(index)} has unknown key ${unknown.sort()[0]}`);
+  if (unknown.length > 0)
+    throw defect(`rule ${String(index)} has unknown key ${unknown.sort()[0]}`);
   const missing = RULE_KEYS.filter((key) => !Object.hasOwn(rule, key));
   if (missing.length > 0) throw defect(`rule ${String(index)} has missing key ${missing[0]}`);
 

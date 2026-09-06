@@ -53,9 +53,7 @@ describe('the host-owned solver image map', () => {
       ]),
     ).toThrow(/solverImage is not digest-pinned/);
     expect(() =>
-      supervisorImagePolicy([
-        { callerName: 'be-01-blue', callerImage: null, solverImage: SOLVER },
-      ]),
+      supervisorImagePolicy([{ callerName: 'be-01-blue', callerImage: null, solverImage: SOLVER }]),
     ).toThrow(/callerImage is not digest-pinned/);
     expect(() =>
       supervisorImagePolicy([
