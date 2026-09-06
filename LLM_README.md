@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; slice 6.3's durable FIFO and restart-safe launch pump are complete. Next run the full h2puni gate and exact-head CI, then reconcile the remaining unticked coordinator proofs. Do not merge or install the host service.
+Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; slices 6.2, 6.3, and 6.7 now prove shared SQLite admission, restart-safe FIFO launch, and deadline-only reclaim. Next reconcile 6.10's generation proofs, then close the missing 6.1 edit-trigger path. Do not merge or install the host service.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),

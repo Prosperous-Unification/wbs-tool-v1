@@ -18,8 +18,8 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe('reserveSolverSlot global capacity', () => {
-  it('refuses a seventeenth seat across two coordinators sharing one SQLite file', () => {
+describe('reserveSolverSlot cross-coordinator capacity', () => {
+  it('shares both ceilings and reclaims abandoned seats only after their stored deadlines', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wbs-optimization-global-admission-'));
     dirs.push(dir);
     const path = join(dir, 'test.db');
@@ -80,8 +80,47 @@ describe('reserveSolverSlot global capacity', () => {
     ).toEqual({ kind: 'global-full' });
     expect(blue.select().from(solverSlot).all()).toHaveLength(16);
 
+    expect(
+      reserveSolverSlot(green, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation: generations.get('p-1')!,
+        objective: 'pri',
+        budgetMs: 70_001,
+        ownerId: 'fifth-project-owner',
+        attemptToken: 'fifth-project-token',
+        now: 20_000,
+      }),
+    ).toEqual({ kind: 'project-full' });
+    expect(
+      reserveSolverSlot(green, {
+        projectId: 'p-5',
+        contractVersion: CONTRACT,
+        generation: generations.get('p-5')!,
+        objective: 'pri',
+        budgetMs: 70_000,
+        ownerId: 'early-replacement-owner',
+        attemptToken: 'early-replacement-token',
+        now: 20_000,
+      }),
+    ).toEqual({ kind: 'global-full' });
+    expect(
+      reserveSolverSlot(green, {
+        projectId: 'p-5',
+        contractVersion: CONTRACT,
+        generation: generations.get('p-5')!,
+        objective: 'pri',
+        budgetMs: 70_000,
+        ownerId: 'replacement-owner',
+        attemptToken: 'replacement-token',
+        now: 80_014,
+      }),
+    ).toMatchObject({ kind: 'reserved', attemptToken: 'replacement-token' });
+    expect(blue.select().from(solverSlot).all()).toHaveLength(1);
+
     // Proof: changing the global comparison from >= to > admits the seventeenth
-    // row. Using one connection throughout leaves the two-coordinator boundary
-    // this regression is about unexercised.
+    // row. Counting only one connection admits the fifth p-1 row. Reclaiming
+    // from heartbeat age makes the 20_000 ms request succeed; ignoring the
+    // stored deadlines leaves the 80_014 ms replacement globally blocked.
   });
 });

@@ -3464,7 +3464,7 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       rule, and would have left a cold enabled project on Fast for ever. Child
       killed at `solverBudgetMs + 5000`; a result is written only under the
       generation predicate of 4.1.
-- [ ] 6.2 **Admission in SQLite, not memory**: one transaction that reclaims
+- [x] 6.2 **Admission in SQLite, not memory**: one transaction that reclaims
       slots whose stored `admittedDeadlineAt` has passed, refuses at 4 rows for
       the project and 16 rows globally counting **every** unreleased row
       including those already asked to cancel, rejects unless the matching
@@ -3616,7 +3616,7 @@ attempt_token=:token AND lifecycle='starting'` (with `:pid` the
       overlap; the queue discards a stale-generation entry at dequeue; the
       queue discards a still-current-hash entry whose project toggled OFF while
       queued.
-- [ ] 6.7 **Proven by** `optimization-admission.db.test.ts`: **two coordinator
+- [x] 6.7 **Proven by** `optimization-admission.db.test.ts`: **two coordinator
       instances against one SQLite file** — the blue/green case — admit 16
       children between them, not 32, and 4 for one project, not 8; and a
       coordinator killed without cleanup has its slots reclaimed once
