@@ -319,12 +319,14 @@ describe('the managed solver lifecycle', () => {
   it('does not hide a failed kill while the orphan still has a live PID', async () => {
     const driver = new FakeDriver();
     driver.killFailure = new Error('daemon refused kill');
-    await expect(sweepManagedSolverOrphans(driver)).rejects.toThrow('daemon refused kill');
-    expect(driver.events.map((event) => event.split(':')[0])).toEqual([
-      'list',
-      'kill',
-      'inspect1',
-    ]);
+    let rejection: unknown;
+    try {
+      await sweepManagedSolverOrphans(driver);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(rejection).toEqual(new Error('daemon refused kill'));
+    expect(driver.events.map((event) => event.split(':')[0])).toEqual(['list', 'kill', 'inspect1']);
   });
 
   it('refuses the host cap before creating another container', async () => {

@@ -174,7 +174,11 @@ export async function runManagedSolverAttempt(
     const reason = relayState.error instanceof Error ? relayState.error.message : 'unknown failure';
     throw new Error(`managed solver lifecycle: output limit failure: ${reason}`);
   }
-  if (cleanupFailure !== undefined) throw cleanupFailure;
+  if (cleanupFailure !== undefined) {
+    throw cleanupFailure instanceof Error
+      ? cleanupFailure
+      : new Error('managed solver lifecycle: non-Error cleanup failure');
+  }
   return terminal;
 }
 
