@@ -1,8 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216. Durable FIFO repository protocol
-is at `693a2bfc`; next wire capacity enqueue/dequeue into the coordinator and launch pump (slice 6.3
-remains open). Do not merge or install the host service.
+Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; FIFO repository protocol at `693a2bfc`; next coordinator wiring/pump, with slice 6.3 open. Do not merge or install the host service.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
