@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { isOnTime } from './on-time';
+import { isOnTime, workdaysLateBy } from './on-time';
 
 describe('isOnTime', () => {
   it('counts the day a slice finishes on as a day it met', () => {
@@ -46,5 +46,43 @@ describe('isOnTime', () => {
     expect(isOnTime(0, 0, 0)).toBe(true);
     expect(isOnTime(0, 1, 0)).toBe(true);
     expect(isOnTime(1, 1, 0)).toBe(false);
+  });
+});
+
+describe('workdaysLateBy', () => {
+  it('is zero exactly when the slice met its deadline', () => {
+    // The definition isOnTime is built on, asserted as the identity it is: a
+    // second `<=` living in the predicate is how a row reads late with no
+    // number beside it, or reads `Late by 0`.
+    for (const [start, finish, deadline] of [
+      [3, 5, 4],
+      [3, 5, 3],
+      [3, 4.5, 4],
+      [7, 7, 6],
+      [0, 0, 0],
+      [1, 1, 0],
+    ] as const) {
+      expect(workdaysLateBy(start, finish, deadline) === 0).toBe(isOnTime(start, finish, deadline));
+    }
+  });
+
+  it('counts whole workdays past the deadline, never fewer than one when late', () => {
+    // Two days from workday 3 is still on workday 4, so a deadline of 3 is
+    // missed by exactly one workday.
+    expect(workdaysLateBy(3, 5, 3)).toBe(1);
+    expect(workdaysLateBy(3, 5, 0)).toBe(4);
+    expect(workdaysLateBy(3, 5, 4)).toBe(0);
+  });
+
+  it('counts a weekend as no time at all, because the axis is workdays', () => {
+    // Offsets are workday offsets before they reach here. A Friday deadline
+    // missed into the following Monday is one workday late, not three calendar
+    // days — which is the whole reason the copy has to say `workdays`.
+    expect(workdaysLateBy(5, 5, 4)).toBe(1);
+  });
+
+  it('counts a zero-duration milestone from the day it stands on', () => {
+    expect(workdaysLateBy(7, 7, 6)).toBe(1);
+    expect(workdaysLateBy(6, 6, 6)).toBe(0);
   });
 });
