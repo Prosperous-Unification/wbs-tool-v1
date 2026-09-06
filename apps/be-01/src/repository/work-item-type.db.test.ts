@@ -262,7 +262,17 @@ describe('the work item type vocabulary', () => {
     if (outcome.ok || outcome.reason !== 'in_use') throw new Error('the removal was not refused');
     // `DirectoryUsageRows` is the flat repository shape — the service is what
     // folds it into a per-project tree — so the row is read off `workItems`.
-    expect(outcome.usage.workItems.map((each) => each.id)).toEqual([itemId, childId]);
+    //
+    // **Ascending `work_item.id`, not insertion order.** This line asserted the
+    // order the rows happened to be inserted in, which was never what
+    // `usageRowsIn` promised: the select carried no `ORDER BY` at all, so what
+    // it returned was whatever plan SQLite chose. CI run 34020910596 at
+    // `44463938` chose the index and the two ids came back swapped —
+    // `0588a41f…` before `d705447e…`, ascending — on bytes whose only change
+    // was merging `work_item_project_id_id` in. The read now states its order
+    // and this states the same one; the ids are UUIDv4, so the expectation is
+    // sorted rather than written out.
+    expect(outcome.usage.workItems.map((each) => each.id)).toEqual([itemId, childId].sort());
     expect(outcome.usage.projects.map((each) => each.id)).toEqual([projectId]);
     expect(await repo.listWorkItemTypes()).toEqual([{ id: bug.id, name: 'Bug' }]);
   });
