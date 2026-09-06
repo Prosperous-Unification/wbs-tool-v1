@@ -442,8 +442,8 @@ function foldFilesIntoObject(values: unknown[]): unknown {
  * measured table records `__proto__=x, ok=y` answering `{"ok":"y"}` under
  * Elysia while this binder, folding with `Object.fromEntries` onto a fresh
  * object, used to answer both fields. The named `DANGEROUS_KEYS` set below is a
- * *second*, explicit guard the framework applies only on the nested-path branch,
- * where a walk could otherwise reach `constructor.prototype`.
+ * second and explicit guard, which the framework applies only on the
+ * nested-path branch where a walk could otherwise reach `constructor.prototype`.
  *
  * The two spellings differ on a key already written with a falsy value: Elysia
  * re-processes it and this loop does not. It re-reads `getAll(key)` and
