@@ -1997,9 +1997,26 @@ const showDay = (days: number): string => String(Math.round(days * 10) / 10);
 const notBeforeOffsetOf = (startDate: string | null, notBefore: string | null): number | null =>
   startDate === null || notBefore === null ? null : workdaysBetween(startDate, notBefore);
 
-/** What the Work item deadline cell says about a date the project has moved past. */
+/**
+ * What the Work item deadline cell says about a date the project has moved past.
+ *
+ * **"Before the project's first working day", not "before the project starts".**
+ * The two differ, and the difference is visible on screen: a project starting
+ * Saturday 2026-08-08 with a deadline of that same Saturday is impossible —
+ * day zero rolls forward to Monday the 10th and the deadline rolls back to
+ * Friday the 7th — while the two dates the reader can see are *equal*. A
+ * project starting Saturday the 8th with a deadline of Sunday the 9th is
+ * impossible with the start *earlier* than the deadline. Either sentence about
+ * raw calendar order would be a cell contradicting itself. Round 1's OpenAI
+ * seat, Important 1.
+ *
+ * The wording is exactly true whenever the predicate fires: the first working
+ * day is a workday at or after the project start, and if the deadline were on
+ * or after it then the last workday on-or-before the deadline would be too, so
+ * the predicate would not have fired.
+ */
 const DEADLINE_BEFORE_START =
-  'This deadline is before the project starts, so nothing can meet it — the project starts after it. The date is kept; move the deadline or the project start.';
+  "This deadline falls before the project's first working day, so nothing can finish by it. The date is kept; move the deadline or the project start.";
 
 /**
  * Whether a stored deadline resolves before the project's day zero — the
@@ -2025,6 +2042,12 @@ const DEADLINE_BEFORE_START =
  *   one, and a render is not the moment to take the table down over a byte the
  *   server sent.
  */
+/**
+ * The width the impossible mark is given inside the deadline cell, and the
+ * padding the date reserves for it. One number so the two cannot drift.
+ */
+const DEADLINE_MARK_PX = 10;
+
 const deadlineBeforeProjectStart = (startDate: string | null, deadline: string | null): boolean => {
   if (startDate === null || deadline === null) return false;
   if (!isIsoDate(startDate) || !isIsoDate(deadline)) return false;
@@ -10322,6 +10345,15 @@ export function WbsTable({
                     background: 'transparent',
                     border: 'none',
                     cursor: noCalendar ? 'not-allowed' : 'text',
+                    // The mark is out of flow, so it would otherwise paint over
+                    // the date rather than sit beside it — and the date that
+                    // needs the mark is the long one: `shortIsoDate` prints the
+                    // year on an off-year day, so `20 May 2027` fills the 84px
+                    // column and the `!` at its right edge would cover the last
+                    // characters. Reserved here rather than by shortening the
+                    // date, because the date is what §2.3 says must stay
+                    // readable. Round 1's OpenAI seat, Important 2.
+                    paddingRight: impossible ? DEADLINE_MARK_PX : undefined,
                   }}
                   // An em-dash for a row with no deadline, which reads as "none"
                   // rather than as a cell that failed to load. **The impossible
@@ -10371,7 +10403,11 @@ export function WbsTable({
                     // descendants, and a mark that joined the keyboard grid
                     // would put a stop between Due and Start that a reader
                     // cannot type into.
-                    aria-label={`Deadline for ${row.original.number} is before the project starts`}
+                    // Says the same true thing {@link DEADLINE_BEFORE_START}
+                    // does, for the reason recorded there: raw calendar order
+                    // is not what the predicate tests, and a mark claiming it
+                    // contradicts the two equal dates beside it.
+                    aria-label={`Deadline for ${row.original.number} falls before the project's first working day`}
                     role="img"
                     data-deadline-impossible={row.original.id}
                     // Out of flow, so a marked row and an unmarked one lay out
@@ -10384,6 +10420,8 @@ export function WbsTable({
                       position: 'absolute',
                       top: 0,
                       right: 0,
+                      width: DEADLINE_MARK_PX,
+                      textAlign: 'right',
                       pointerEvents: 'none',
                       // The table's own problem colour, defined in both themes
                       // (`styles.css`), so the mark is legible in dark mode
