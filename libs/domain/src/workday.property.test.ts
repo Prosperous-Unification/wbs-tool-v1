@@ -3,8 +3,8 @@ import fc from 'fast-check';
 
 import {
   addWorkdays,
-  deadlineOffsetOf,
   type DeadlineOffset,
+  deadlineOffsetOf,
   type IsoDate,
   previousWorkday,
   workdaysBetween,
@@ -104,7 +104,7 @@ function deadlineOffsetOfByWalking(projectStart: IsoDate, deadline: IsoDate): De
  * kinds under different rules. One string compares both kinds under one.
  */
 function shown(at: DeadlineOffset): string {
-  return at.kind === 'offset' ? `offset ${at.offset}` : at.kind;
+  return at.kind === 'offset' ? `offset ${String(at.offset)}` : at.kind;
 }
 
 /** A week that covers every start weekday, both weekend days included. */
@@ -207,9 +207,9 @@ describe('the closed form and the walk agree', () => {
       for (let offset = 0; offset <= 500; offset += 1) {
         const deadline = addWorkdays(from, offset);
         const closed = shown(deadlineOffsetOf(from, deadline));
-        const expected = `offset ${offset}`;
+        const expected = `offset ${String(offset)}`;
         if (closed !== expected) {
-          disagreements.push(`${from}+${offset}: got ${closed} expected ${expected}`);
+          disagreements.push(`${from}+${String(offset)}: got ${closed} expected ${expected}`);
         }
       }
     }
@@ -261,9 +261,7 @@ describe('the closed form and the walk agree', () => {
     // and deadlines on either side of their own project start.
     fc.assert(
       fc.property(isoDate, fc.integer({ min: -400, max: 400 }), (projectStart, ahead) => {
-        const deadline = new Date(
-          new Date(`${projectStart}T00:00:00Z`).getTime() + ahead * DAY_MS,
-        )
+        const deadline = new Date(new Date(`${projectStart}T00:00:00Z`).getTime() + ahead * DAY_MS)
           .toISOString()
           .slice(0, 10);
         expect(shown(deadlineOffsetOf(projectStart, deadline))).toBe(
