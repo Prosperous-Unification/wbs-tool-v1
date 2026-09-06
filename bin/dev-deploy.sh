@@ -78,8 +78,8 @@ ssh h2puni "bash -lc '
 
 # No credential is fetched or sent. Dev's edge password was removed 2026-08-06;
 # these checks now reach the same thing a browser does, which is the point of
-# them. `/api/auth/me` below still answers 401-shaped JSON, because be-01's own
-# auth is what guards the app and that has not changed.
+# them. `/api/auth/me` below answers the app's explicit anonymous-user JSON;
+# rejected credentials still take the route's separate 401 path.
 
 # Printing a status code and exiting 0 regardless is how a 502 reads as a
 # successful deploy. Each tier is asserted, and a miss fails the script.
