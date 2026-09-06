@@ -150,13 +150,31 @@ export async function runManagedSolverAttempt(
   const terminal = terminalFrame(
     await driver.inspect(exactManagedContainerArgs('inspect', containerId), deadlineKilled),
   );
-  await channel.send(terminal);
-  await deadlineTimer.cancel();
-  await driver.remove(exactManagedContainerArgs('rm', containerId));
+  let cleanupFailure: unknown;
+  try {
+    await channel.send(terminal);
+  } catch (error) {
+    // EOF is itself a termination trigger, so terminal delivery can fail on
+    // the exact path that most needs host cleanup. Preserve the first failure
+    // for the connection log, but never strand the timer or container behind
+    // the already-closed coordinator socket.
+    cleanupFailure = error;
+  }
+  try {
+    await deadlineTimer.cancel();
+  } catch (error) {
+    cleanupFailure ??= error;
+  }
+  try {
+    await driver.remove(exactManagedContainerArgs('rm', containerId));
+  } catch (error) {
+    cleanupFailure ??= error;
+  }
   if (!relayState.ok) {
     const reason = relayState.error instanceof Error ? relayState.error.message : 'unknown failure';
     throw new Error(`managed solver lifecycle: output limit failure: ${reason}`);
   }
+  if (cleanupFailure !== undefined) throw cleanupFailure;
   return terminal;
 }
 
@@ -164,7 +182,21 @@ export async function runManagedSolverAttempt(
 export async function sweepManagedSolverOrphans(driver: ManagedContainerDriver): Promise<void> {
   const containerIds = await driver.list(listManagedContainersArgs());
   for (const containerId of containerIds) {
-    await driver.kill(exactManagedContainerArgs('kill', containerId));
+    try {
+      await driver.kill(exactManagedContainerArgs('kill', containerId));
+    } catch (killFailure) {
+      // A persistent deadline timer can stop the container while the
+      // restart-always supervisor itself is down. Distinguish that expected
+      // state from a failed kill of a still-live orphan before continuing.
+      const stopped = await driver.inspect(
+        exactManagedContainerArgs('inspect', containerId),
+        false,
+      );
+      if (stopped.pid !== 0) throw killFailure;
+      await driver.wait(exactManagedContainerArgs('wait', containerId));
+      await driver.remove(exactManagedContainerArgs('rm', containerId));
+      continue;
+    }
     await driver.wait(exactManagedContainerArgs('wait', containerId));
     await driver.inspect(exactManagedContainerArgs('inspect', containerId), false);
     await driver.remove(exactManagedContainerArgs('rm', containerId));
