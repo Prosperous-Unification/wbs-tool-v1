@@ -173,6 +173,19 @@ describe('the managed solver lifecycle', () => {
     ]);
   });
 
+  it('sends started before consuming immediately available child output', async () => {
+    const driver = new FakeDriver();
+    driver.stdout = output('x');
+
+    await runManagedSolverAttempt(START, OPTIONS, driver, channel(['bound'], driver.events));
+
+    expect(driver.events.filter((event) => event.startsWith('send:'))).toEqual([
+      'send:started',
+      'send:stdout',
+      'send:terminal',
+    ]);
+  });
+
   for (const control of ['abort', 'eof', 'kill', 'timeout'] as const) {
     it(`${control} kills, waits, captures evidence, reports, then removes`, async () => {
       const driver = new FakeDriver();
