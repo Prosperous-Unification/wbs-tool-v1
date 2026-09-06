@@ -48,7 +48,7 @@ function decodeRule(value: unknown, index: number): SupervisorImageRule {
   } else if (typeof callerImage !== 'string' || !DIGEST_PINNED_IMAGE.test(callerImage)) {
     throw defect(`rule ${String(index)} callerImage is not digest-pinned`);
   }
-  return { callerName, callerImage: callerImage as string | null, solverImage };
+  return { callerName, callerImage, solverImage };
 }
 
 function exactNamePattern(name: string): RegExp {
