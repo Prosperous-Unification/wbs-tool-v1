@@ -66,11 +66,11 @@ describe('browser binding cookie', () => {
 
     expect(consumeBrowserBinding(store, ['binding-1', 'binding-2'], 'state-1')).toEqual({
       remaining: ['binding-2'],
-      result: { nonce: 'nonce-for-state-1', outcome: 'consumed', verifier: 'verifier-for-state-1' },
+      transaction: { nonce: 'nonce-for-state-1', outcome: 'consumed', verifier: 'verifier-for-state-1' },
     });
     expect(consumeBrowserBinding(store, ['binding-2'], 'state-2')).toEqual({
       remaining: [],
-      result: { nonce: 'nonce-for-state-2', outcome: 'consumed', verifier: 'verifier-for-state-2' },
+      transaction: { nonce: 'nonce-for-state-2', outcome: 'consumed', verifier: 'verifier-for-state-2' },
     });
   });
 
@@ -82,7 +82,7 @@ describe('browser binding cookie', () => {
 
     const first = consumeBrowserBinding(store, ['binding-1', 'binding-2'], 'shared-state');
 
-    expect(first.result.outcome).toBe('consumed');
+    expect(first.transaction.outcome).toBe('consumed');
     expect(first.remaining).toEqual(['binding-2']);
     // Proof that the second record was never read on that call: it is still
     // consumable, which it would not be had the loop kept going.
@@ -102,7 +102,7 @@ describe('browser binding cookie', () => {
 
     expect(consumeBrowserBinding(store, ['binding-1', 'binding-2'], 'guessed')).toEqual({
       remaining: ['binding-1', 'binding-2'],
-      result: { outcome: 'state_mismatch' },
+      transaction: { outcome: 'state_mismatch' },
     });
     expect(store.consume('binding-1', 'state-1').outcome).toBe('consumed');
     expect(store.consume('binding-2', 'state-2').outcome).toBe('consumed');
@@ -115,7 +115,7 @@ describe('browser binding cookie', () => {
 
     expect(consumeBrowserBinding(store, ['binding-1'], 'state-1')).toEqual({
       remaining: [],
-      result: { outcome: 'expired' },
+      transaction: { outcome: 'expired' },
     });
     expect(store.consume('binding-1', 'state-1')).toEqual({ outcome: 'missing' });
   });
@@ -140,7 +140,20 @@ describe('browser binding cookie', () => {
 
     expect(consumeBrowserBinding(store, ['binding-1', 'binding-2'], 'unrelated')).toEqual({
       remaining: ['binding-2'],
-      result: { outcome: 'state_mismatch' },
+      transaction: { outcome: 'state_mismatch' },
+    });
+  });
+
+  it('reports an expired binding over a missing one, the more specific truth', () => {
+    let clock = 1_000;
+    const store = storeWith([{ binding: 'binding-1', state: 'state-1' }], () => clock);
+    clock = 10_000;
+
+    // `binding-2` was never saved, so it is `missing`; `binding-1` outlived its
+    // TTL. Offering both must still report the expiry.
+    expect(consumeBrowserBinding(store, ['binding-1', 'binding-2'], 'state-1')).toEqual({
+      remaining: [],
+      transaction: { outcome: 'expired' },
     });
   });
 
@@ -149,11 +162,11 @@ describe('browser binding cookie', () => {
 
     expect(consumeBrowserBinding(store, ['binding-1'], 'state-1')).toEqual({
       remaining: [],
-      result: { outcome: 'missing' },
+      transaction: { outcome: 'missing' },
     });
     expect(consumeBrowserBinding(store, [], 'state-1')).toEqual({
       remaining: [],
-      result: { outcome: 'missing' },
+      transaction: { outcome: 'missing' },
     });
   });
 });

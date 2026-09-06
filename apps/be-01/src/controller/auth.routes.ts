@@ -471,7 +471,7 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // (`consumeBrowserBinding`). `remaining` is what the browser should
         // still be holding afterwards — the logins in other tabs — and it is
         // what every answer below writes back instead of clearing the cookie.
-        const { remaining, result: transaction } = consumeBrowserBinding(
+        const { remaining, transaction } = consumeBrowserBinding(
           options.transactions,
           bindings,
           state,

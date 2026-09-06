@@ -87,10 +87,20 @@ export function serializeBrowserBindings(bindings: readonly string[]): string {
   return bindings.join(BINDING_SEPARATOR);
 }
 
+/**
+ * What one callback's bindings came to: the store's single answer for this
+ * arrival, and the bindings the browser should still be holding after it.
+ *
+ * The two travel together because the caller cannot derive one from the other —
+ * `remaining` is not "the bindings minus the consumed one", it is also missing
+ * the ones whose records were gone, and it is the whole list when nothing
+ * matched.
+ */
 export interface BrowserBindingConsumeResult {
   /** The bindings the browser should still be holding after this answer. */
   readonly remaining: string[];
-  readonly result: OidcConsumeResult;
+  /** The one outcome this callback earned. See {@link OidcConsumeResult}. */
+  readonly transaction: OidcConsumeResult;
 }
 
 /**
@@ -131,20 +141,20 @@ export function consumeBrowserBinding(
       remaining.push(binding);
       continue;
     }
-    const result = store.consume(binding, state);
-    if (result.outcome === 'consumed') {
-      consumed = result;
+    const offered = store.consume(binding, state);
+    if (offered.outcome === 'consumed') {
+      consumed = offered;
       continue;
     }
-    if (result.outcome === 'state_mismatch') {
+    if (offered.outcome === 'state_mismatch') {
       mismatched = true;
       remaining.push(binding);
       continue;
     }
-    if (result.outcome === 'expired') expired = true;
+    if (offered.outcome === 'expired') expired = true;
   }
 
-  if (consumed !== null) return { remaining, result: consumed };
-  if (mismatched) return { remaining, result: { outcome: 'state_mismatch' } };
-  return { remaining, result: { outcome: expired ? 'expired' : 'missing' } };
+  if (consumed !== null) return { remaining, transaction: consumed };
+  if (mismatched) return { remaining, transaction: { outcome: 'state_mismatch' } };
+  return { remaining, transaction: { outcome: expired ? 'expired' : 'missing' } };
 }
