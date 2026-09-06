@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-220 is ready for main-session review on `change/optimized-scheduler-coordinator`, PR 216. Its owned coordinator/cache/event scope is landed and terminal-gated; the nonblocking terminal findings and Retry/host-service installation are assigned to TASK-268. Do not merge or install the host service under TASK-220.
+TASK-221 is implementing project-wide Fast/PRI/Time selection and the same-input comparison indicator on `change/schedule-selector-comparison`. Components and plan integration are focused-test green on h2puni; next run the remote typecheck/lint/format and full gate, then terminal-review the exact head. Retry and host-service installation remain assigned to TASK-268.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
