@@ -1,10 +1,11 @@
-import { useState } from 'react';
-
+import type { RefusalWords } from '@/lib/refusal';
 import type {
   ProjectOptimizationPatch,
   ScheduleEngineView,
   ScheduleObjectiveView,
 } from '@/lib/wbs-api';
+
+import { SectionProblem, useSettingsSection } from './use-settings-section';
 
 export interface OptimizationSettingsValue {
   readonly enabled: boolean;
@@ -19,6 +20,11 @@ export interface OptimizationSettingsProps {
   readonly onDirtyChange: (dirty: boolean) => void;
 }
 
+const OPTIMIZATION_REFUSALS: RefusalWords = {
+  sentences: {},
+  otherwise: () => 'That optimization change did not land. Try again.',
+};
+
 /** Project-owned optimizer controls. Every checked value comes from the latest plan read. */
 export function OptimizationSettingsPanel({
   value,
@@ -26,24 +32,21 @@ export function OptimizationSettingsPanel({
   onChanged,
   onDirtyChange,
 }: OptimizationSettingsProps) {
-  const [writing, setWriting] = useState(false);
+  const section = useSettingsSection({
+    words: OPTIMIZATION_REFUSALS,
+    dirty: false,
+    onDirtyChange,
+    onChanged,
+  });
 
-  async function write(patch: ProjectOptimizationPatch): Promise<void> {
-    setWriting(true);
-    onDirtyChange(true);
-    try {
-      await setSettings(patch);
-      await onChanged();
-    } finally {
-      setWriting(false);
-      onDirtyChange(false);
-    }
+  function write(patch: ProjectOptimizationPatch): void {
+    void section.attempt(() => setSettings(patch));
   }
 
   const selected = value.enabled ? (value.engine === 'fast' ? 'fast' : value.objective) : 'fast';
 
   return (
-    <div aria-busy={writing} className="space-y-4">
+    <div aria-busy={section.busy} className="space-y-4">
       <div>
         <h3 className="font-medium">Schedule optimization</h3>
         <p className="text-muted-foreground text-sm">
@@ -51,19 +54,25 @@ export function OptimizationSettingsPanel({
         </p>
       </div>
 
+      <SectionProblem problem={section.problem} />
+
       <label className="flex items-center gap-2 text-sm font-medium">
         <input
           type="checkbox"
           checked={value.enabled}
-          disabled={writing}
+          disabled={section.busy}
           onChange={(event) => {
-            void write({ optimizationEnabled: event.currentTarget.checked });
+            write({ optimizationEnabled: event.currentTarget.checked });
           }}
         />
         Optimize schedules
       </label>
 
-      <fieldset className="space-y-2" disabled={!value.enabled || writing}>
+      <fieldset
+        className="space-y-2"
+        disabled={!value.enabled || section.busy}
+        aria-describedby={!value.enabled ? 'optimization-disabled-reason' : undefined}
+      >
         <legend className="text-sm font-medium">Active schedule</legend>
         <div className="flex flex-wrap gap-3">
           <label className="flex items-center gap-1.5 text-sm">
@@ -73,7 +82,7 @@ export function OptimizationSettingsPanel({
               value="fast"
               checked={selected === 'fast'}
               onChange={() => {
-                void write({ scheduleEngine: 'fast' });
+                write({ scheduleEngine: 'fast' });
               }}
             />
             Fast
@@ -85,7 +94,7 @@ export function OptimizationSettingsPanel({
               value="pri"
               checked={selected === 'pri'}
               onChange={() => {
-                void write({ scheduleEngine: 'optimized', scheduleObjective: 'pri' });
+                write({ scheduleEngine: 'optimized', scheduleObjective: 'pri' });
               }}
             />
             PRI
@@ -97,7 +106,7 @@ export function OptimizationSettingsPanel({
               value="time"
               checked={selected === 'time'}
               onChange={() => {
-                void write({ scheduleEngine: 'optimized', scheduleObjective: 'time' });
+                write({ scheduleEngine: 'optimized', scheduleObjective: 'time' });
               }}
             />
             Time
@@ -106,7 +115,9 @@ export function OptimizationSettingsPanel({
       </fieldset>
 
       {!value.enabled && (
-        <p className="text-muted-foreground text-sm">Fast is active while optimization is off.</p>
+        <p id="optimization-disabled-reason" className="text-muted-foreground text-sm">
+          Fast is active while optimization is off.
+        </p>
       )}
     </div>
   );

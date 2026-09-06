@@ -11856,10 +11856,10 @@ export function WbsTable({
       {chartRead.optimization !== undefined && (
         <OptimizationIndicator
           optimization={chartRead.optimization}
+          stale={treeMayBeStale}
           workItemName={(id) => {
             const found = flat.find((row) => row.id === id);
-            if (found === undefined) throw new Error(`optimization names unknown work item ${id}`);
-            return found.name;
+            return found?.name ?? id;
           }}
         />
       )}

@@ -121,7 +121,7 @@ const escape = (): void => {
   fireEvent.keyDown(dialog(), { key: 'Escape' });
 };
 
-describe('one modal for the project’s four settings', () => {
+describe('one modal for the project’s five settings', () => {
   itDom('opens on one control and offers every section from its tab list', () => {
     mounted();
     open();

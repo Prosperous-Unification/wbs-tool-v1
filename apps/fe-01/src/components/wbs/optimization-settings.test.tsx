@@ -51,7 +51,27 @@ describe('project optimization settings', () => {
 
     expect(setSettings).toHaveBeenCalledWith({ optimizationEnabled: true });
     expect(onChanged).toHaveBeenCalledOnce();
-    expect(onDirtyChange.mock.calls).toEqual([[true], [false]]);
+    expect(onDirtyChange).toHaveBeenCalledWith(true);
+    expect(onDirtyChange.mock.calls.at(-1)).toEqual([false]);
+  });
+
+  itDom('keeps a refused project change on this surface', async () => {
+    const setSettings = vi.fn(() => Promise.reject(new Error('forbidden')));
+    render(
+      <OptimizationSettingsPanel
+        value={OFF}
+        setSettings={setSettings}
+        onChanged={() => Promise.resolve()}
+        onDirtyChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Optimize schedules' }));
+    await settle();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'That optimization change did not land. Try again.',
+    );
   });
 
   itDom.each([

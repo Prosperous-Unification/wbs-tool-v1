@@ -440,7 +440,7 @@ export function ProjectSettingsModal({
             >
               {optimization === undefined ? (
                 <p className="text-muted-foreground text-sm">
-                  Optimization settings are unavailable on this server.
+                  Optimization settings are not available yet.
                 </p>
               ) : (
                 <OptimizationSettingsPanel
