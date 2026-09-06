@@ -100,3 +100,11 @@ export const BUNDLE_FILES: readonly BundleFile[] = [
 export function bundleFilesFor(root: string): BundleFile[] {
   return BUNDLE_FILES.map((file) => ({ local: file.local, remote: `${root}${file.remote}` }));
 }
+
+export {
+  SOLVER_SUPERVISOR_BUN,
+  SOLVER_SUPERVISOR_BUNDLE,
+  SOLVER_SUPERVISOR_CONFIG,
+  SOLVER_SUPERVISOR_SERVICE,
+  SOLVER_SUPERVISOR_SOCKET,
+} from './solver-supervisor-install-contract';

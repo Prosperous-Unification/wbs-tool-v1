@@ -617,16 +617,40 @@ order`, with their tests. A repository assertion that no unqualified
 
 ## 9. UI
 
-- [ ] 9.1 The **Work item deadline** cell on any row, leaf or parent, nullable
+- [x] 9.1 The **Work item deadline** cell on any row, leaf or parent, nullable
       and date-only, using the existing date-cell affordances.
-- [ ] 9.2 The `Late by N workdays` label per missed slice, reading the number
+- [x] 9.2 The `Late by N workdays` label per missed slice, reading the number
       computed in 5.2 rather than recomputing it in the view.
 - [ ] 9.3 `Plan infeasible · N work item deadlines` with the offending items
       listed on demand, Fast still on screen and usable, **no toast and no
       modal**, and **no Retry affordance**.
-- [ ] 9.4 A work item whose deadline resolves `before-project-start` at read time
+- [x] 9.4 A work item whose deadline resolves `before-project-start` at read time
       shows its Work item deadline with the existing "impossible" affordance and
       is not silently dropped.
+      **The affordance this names did not exist, so 9.4 built one.**
+      `rg -n impossible apps/fe-01/src` returns 17 hits and every one is a code
+      comment about a union or a memo; there was nothing to borrow. The mark is
+      `role="img"` with a row-naming accessible name, carries **no**
+      `data-cell` (`editableGrid` collects `[data-cell]` descendants, so a mark
+      that joined the keyboard grid would put a stop between Due and Start that
+      nobody can type into), sits out of flow with `pointerEvents: none` inside
+      the width `DEADLINE_MARK_PX` reserves, and is drawn in
+      `var(--destructive)`, which `styles.css` defines in both themes. The
+      stored date is still printed beside it, which is §2.3's "not silently
+      dropped".
+      **The predicate is `deadlineOffsetOf` — be-01's own** — and that is not a
+      breach of 9.2's rule. `lateBy` is _how late_ and stays be-01's alone;
+      _whether a stored date falls before day zero_ is a different question, and
+      the cell answers it with the same function `work-item.service.ts` calls
+      for its `deadline_before_project_start` refusal. One implementation
+      shared, not two opinions computed.
+      **The wording names the project's first WORKING day, not its start**, and
+      the difference is visible on screen: a project starting Saturday
+      2026-08-08 with a deadline of that same Saturday is impossible while the
+      two dates a reader sees are equal, and one starting Saturday the 8th with
+      a deadline of Sunday the 9th is impossible with the start _earlier_ than
+      the deadline. Round 1's OpenAI seat caught the original sentence
+      contradicting the cell; a case now asserts the equal-dates reading.
 
 ## 10. Gate
 

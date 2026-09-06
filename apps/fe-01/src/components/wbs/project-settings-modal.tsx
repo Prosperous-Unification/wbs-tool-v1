@@ -12,6 +12,7 @@ import {
 import { type Remembered, rememberedText } from '@/lib/remembered';
 
 import { EstimatingPanel, type EstimatingPanelProps } from './estimating-panel';
+import { OptimizationSettingsPanel, type OptimizationSettingsProps } from './optimization-settings';
 import { PrioritiesPanel, type PrioritiesPanelProps } from './priorities-panel';
 import { StepsPanel, type StepsPanelProps } from './steps-panel';
 import { TeamsPanel, type TeamsPanelProps } from './teams-panel';
@@ -22,13 +23,14 @@ import { SettingsIcon } from './toolbar-icons';
  * list shows them — the order the three toolbar buttons stood in until
  * `project-config-modal` folded them into this one surface.
  */
-export type SettingsSection = 'teams' | 'priorities' | 'steps' | 'estimating';
+export type SettingsSection = 'teams' | 'priorities' | 'steps' | 'estimating' | 'optimization';
 
 const SECTIONS: readonly { id: SettingsSection; label: string }[] = [
   { id: 'teams', label: 'Teams' },
   { id: 'priorities', label: 'Priorities' },
   { id: 'steps', label: 'Steps' },
   { id: 'estimating', label: 'Estimating' },
+  { id: 'optimization', label: 'Optimization' },
 ];
 
 const FIRST_SECTION: SettingsSection = 'teams';
@@ -103,6 +105,8 @@ export interface ProjectSettingsModalProps {
    * whose width is the scarce resource.
    */
   estimating: SectionOwn<EstimatingPanelProps>;
+  /** Absent only before the first plan read or when this backend has no optimizer. */
+  optimization?: SectionOwn<OptimizationSettingsProps>;
 }
 
 /**
@@ -156,6 +160,7 @@ export function ProjectSettingsModal({
   priorities,
   steps,
   estimating,
+  optimization,
 }: ProjectSettingsModalProps) {
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState<SettingsSection>(FIRST_SECTION);
@@ -205,6 +210,7 @@ export function ProjectSettingsModal({
       priorities: reporterFor('priorities'),
       steps: reporterFor('steps'),
       estimating: reporterFor('estimating'),
+      optimization: reporterFor('optimization'),
     }),
     [reporterFor],
   );
@@ -425,6 +431,23 @@ export function ProjectSettingsModal({
                   closeFrom('estimating');
                 }}
               />
+            </div>
+            <div
+              role="tabpanel"
+              id={panelId('optimization')}
+              aria-labelledby={tabId('optimization')}
+              hidden={shown !== 'optimization'}
+            >
+              {optimization === undefined ? (
+                <p className="text-muted-foreground text-sm">
+                  Optimization settings are not available yet.
+                </p>
+              ) : (
+                <OptimizationSettingsPanel
+                  {...optimization}
+                  onDirtyChange={reporters.optimization}
+                />
+              )}
             </div>
           </div>
         </div>

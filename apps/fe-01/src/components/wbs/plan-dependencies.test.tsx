@@ -1348,6 +1348,7 @@ describe('dependencies in the table — cross-review findings', () => {
                       width: 1,
                       effort: 7,
                       capacityPredecessorIds: [],
+                      lateBy: null,
                       ...schedule,
                     }),
                   ],

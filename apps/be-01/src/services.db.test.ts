@@ -10,6 +10,7 @@ import { DrizzleEventLogRepo } from './repository/event-log';
 import { runMigrations } from './repository/migrate';
 import { ProjectRepository } from './repository/project';
 import { UserRepository } from './repository/user';
+import type { ReservedSpawner, ReservedSpawnRequest } from './service/optimization-coordinator';
 import { WriteLock } from './service/write-lock';
 import { buildServices } from './services';
 import { projectRow } from './testing/project-fixture';
@@ -22,7 +23,11 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function bootstrap() {
+function bootstrap(optimizer?: {
+  solverVersion: string;
+  budgetMs: number;
+  spawn: ReservedSpawner;
+}) {
   const dir = mkdtempSync(join(tmpdir(), 'wbs-services-'));
   dirs.push(dir);
   const path = join(dir, 'test.db');
@@ -35,6 +40,7 @@ function bootstrap() {
     jwtKey: 'k'.repeat(32),
     gwUrl: 'http://gw.invalid',
     internalAuthSecret: 's'.repeat(32),
+    optimizer,
   });
   return { db, services };
 }
@@ -295,5 +301,63 @@ describe('buildServices', () => {
 
     expect((await services.calendarMarkers.remove(projectId, markerId, ownerId)).ok).toBe(true);
     unchangedExceptSeq(await treeOf(), recoloured);
+  });
+
+  it('builds one available optimizer whose first enabled read launches both release-keyed variants', async () => {
+    // This is the process graph, not an OptimizationCoordinator unit test. The
+    // child process is the external boundary; SQLite admission, project gating,
+    // plan reading and request composition are real. Proof: leave
+    // `optimizerWiring(undefined)` in services.ts and the setting write refuses
+    // `optimizer_unavailable`; wire availability without the reader and no
+    // launch arrives here.
+    const spawned: ReservedSpawnRequest[] = [];
+    const { db, services } = bootstrap({
+      solverVersion: '0.1.0',
+      budgetMs: 60_000,
+      spawn: (request) => {
+        spawned.push(request);
+        const empty = () =>
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          });
+        return Promise.resolve({
+          pid: 10_000 + spawned.length,
+          stdout: empty(),
+          stderr: empty(),
+          exited: Promise.resolve(1),
+          verdict: () => undefined,
+          kill: () => undefined,
+        });
+      },
+    });
+    const { projectId, ownerId } = await seedProject(db);
+    await services.workItems.create(projectId, ownerId, {
+      parentId: null,
+      afterId: null,
+      name: 'Rewire',
+    });
+
+    expect(
+      await services.projects.update(projectId, ownerId, {
+        optimizationEnabled: true,
+        scheduleEngine: 'fast',
+      }),
+    ).toHaveProperty('ok', true);
+    await services.workItems.tree(projectId);
+    await services.optimizer?.drain();
+
+    expect(spawned.map((request) => request.objective)).toEqual(['pri', 'time']);
+    expect(
+      spawned.map((request) => [
+        request.request.solverVersion,
+        request.request.contractVersion,
+        request.request.budgetMs,
+      ]),
+    ).toEqual([
+      ['0.1.0', '7+0.1.0', 60_000],
+      ['0.1.0', '7+0.1.0', 60_000],
+    ]);
   });
 });

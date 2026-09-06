@@ -1,3 +1,4 @@
+import { contractVersionOf } from '@wbs/domain';
 import type { Logger } from '@wbs/observability';
 import { systemTimers } from '@wbs/runtime-portable';
 
@@ -27,6 +28,8 @@ import { clockOf } from './service/clock';
 import { DirectoryService } from './service/directory.service';
 import { GatewayBroadcaster } from './service/gateway-broadcaster';
 import { HistoryService } from './service/history.service';
+import { OptimizationCoordinator, type ReservedSpawner } from './service/optimization-coordinator';
+import { OptimizerTriggerBroadcaster } from './service/optimizer-trigger-broadcaster';
 import { optimizerWiring } from './service/optimizer-wiring';
 import { PriorityBandService } from './service/priority-band.service';
 import { ProjectService } from './service/project.service';
@@ -52,6 +55,12 @@ const EVENT_LOG_MAX_PER_SUBSCRIPTION = 1_000;
 const RETENTION_INTERVAL_MS = 10 * 60_000;
 const REPLAY_BUFFER_MAX_AGE_MS = 5 * 60_000;
 
+export interface OptimizerRuntime {
+  solverVersion: string;
+  budgetMs: number;
+  spawn: ReservedSpawner;
+}
+
 export interface ServicesOptions {
   db: Drizzle;
   /**
@@ -72,6 +81,7 @@ export interface ServicesOptions {
   oidc?: AuthServiceOptions['oidc'];
   passwordSessions?: boolean;
   localIdentity?: AuthServiceOptions['localIdentity'];
+  optimizer?: OptimizerRuntime;
 }
 
 export interface BeServices {
@@ -105,6 +115,7 @@ export interface BeServices {
   history: HistoryService;
   replay: ReplayOrchestrator;
   retention: RetentionTimer;
+  optimizer: OptimizationCoordinator | undefined;
 }
 
 /**
@@ -177,19 +188,47 @@ export function buildServices(opts: ServicesOptions): BeServices {
   // ever holds it. Wrapping here rather than at the runner is the point: there
   // is exactly one broadcaster object in the process, so a batch cannot hold one
   // while a service publishes through another. See {@link DeferringBroadcaster}.
-  const announcements = new DeferringBroadcaster(broadcast);
+  const optimizerInput: { workItems: WorkItemService | undefined } = { workItems: undefined };
+  const coordinator =
+    opts.optimizer === undefined
+      ? undefined
+      : new OptimizationCoordinator({
+          db: opts.db,
+          contractVersion: contractVersionOf(opts.optimizer.solverVersion),
+          solverVersion: opts.optimizer.solverVersion,
+          budgetMs: opts.optimizer.budgetMs,
+          ownerId: crypto.randomUUID(),
+          now: Date.now,
+          attemptToken: () => crypto.randomUUID(),
+          inputOf: async (projectId) => {
+            if (optimizerInput.workItems === undefined) {
+              throw new Error('optimizer input reader used before service composition completed');
+            }
+            return await optimizerInput.workItems.scheduleInput(projectId);
+          },
+          enabledOf: async (projectId) =>
+            (await projectStore.findById(projectId))?.optimizationEnabled === true,
+          spawn: opts.optimizer.spawn,
+          eventLog,
+          pushRecorded: (subscription, recorded, event) =>
+            broadcast.pushRecorded(subscription, recorded, event),
+          onChildError: (err) => {
+            opts.logger.error({ err }, 'optimizer child failed');
+          },
+        });
+  const optimizerEvents = new OptimizerTriggerBroadcaster(broadcast, (projectId) => {
+    coordinator?.inputChanged(projectId);
+  });
+  const announcements = new DeferringBroadcaster(optimizerEvents);
+  // Both service-facing halves derive from the same coordinator instance: a
+  // process cannot accept the ON setting unless its plan reader can also admit
+  // and consume optimized rows.
+  const optimizer = optimizerWiring(coordinator?.readPlan);
 
-  // **The optimizer is not deployed yet, and this is the one line that says so.**
-  // TASK-219 lands the solver core and the Fast-parity refactor; TASK-220 is
-  // what wires a real `OptimizedScheduleReader` in here, behind its migrations.
-  // Until then `read` is `undefined`, `available()` is `false`, and the settings
-  // PATCH refuses to switch a project on to something no plan read could serve —
-  // see {@link optimizerWiring} for why these are one argument and not two.
-  const optimizer = optimizerWiring(undefined);
-
-  return {
+  const services: BeServices = {
     announcements,
     gatewayBroadcaster: broadcast,
+    optimizer: coordinator,
     auth: new AuthService({
       clock,
       users: userStore,
@@ -318,4 +357,6 @@ export function buildServices(opts: ServicesOptions): BeServices {
       },
     }),
   };
+  optimizerInput.workItems = services.workItems;
+  return services;
 }

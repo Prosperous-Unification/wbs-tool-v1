@@ -687,6 +687,7 @@ describe('the capacity columns', () => {
       boundBy: 'projectStart',
       resourcePredecessorId: null,
       capacityPredecessorIds: [],
+      lateBy: null,
       width,
       effort,
       duration: effort / width,

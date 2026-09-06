@@ -86,6 +86,11 @@ function mounted(overrides: Partial<ProjectSettingsModalProps> = {}) {
       setArithmetic,
       onChanged,
     },
+    optimization: {
+      value: { enabled: false, engine: 'fast', objective: 'pri' },
+      setSettings: () => Promise.resolve(),
+      onChanged,
+    },
     ...overrides,
   };
   render(<ProjectSettingsModal {...props} />);
@@ -116,7 +121,7 @@ const escape = (): void => {
   fireEvent.keyDown(dialog(), { key: 'Escape' });
 };
 
-describe('one modal for the project’s four settings', () => {
+describe('one modal for the project’s five settings', () => {
   itDom('opens on one control and offers every section from its tab list', () => {
     mounted();
     open();
@@ -125,7 +130,7 @@ describe('one modal for the project’s four settings', () => {
     const list = screen.getByRole('tablist');
     expect(
       [...list.querySelectorAll('[role="tab"]')].map((each) => each.textContent.trim()),
-    ).toEqual(['Teams', 'Priorities', 'Steps', 'Estimating']);
+    ).toEqual(['Teams', 'Priorities', 'Steps', 'Estimating', 'Optimization']);
     // The first section is showing, and it is the teams'.
     expect(tab('Teams')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Teams' })).toBeVisible();
@@ -153,10 +158,12 @@ describe('one modal for the project’s four settings', () => {
     fireEvent.keyDown(tab('Steps'), { key: 'ArrowRight' });
     expect(tab('Estimating')).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(tab('Estimating'), { key: 'ArrowRight' });
+    expect(tab('Optimization')).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(tab('Optimization'), { key: 'ArrowRight' });
     expect(tab('Teams')).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(tab('Teams'), { key: 'End' });
-    expect(tab('Estimating')).toHaveAttribute('aria-selected', 'true');
-    fireEvent.keyDown(tab('Estimating'), { key: 'Home' });
+    expect(tab('Optimization')).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(tab('Optimization'), { key: 'Home' });
     expect(tab('Teams')).toHaveAttribute('aria-selected', 'true');
   });
 

@@ -3,6 +3,11 @@ import {
   encodeOptimizedResult,
   type OptimizedResult,
 } from '@wbs/contracts/solver/optimized-result';
+import {
+  decodePlanInfeasible,
+  encodePlanInfeasible,
+  type PlanInfeasibleResult,
+} from '@wbs/contracts/solver/plan-infeasible';
 import { type Schedule } from '@wbs/domain';
 import { type ScheduleInput, scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
 import { and, desc, eq } from 'drizzle-orm';
@@ -16,11 +21,14 @@ import {
   SOLVER_OBJECTIVES,
   type SolverFailureReason,
   type SolverObjectiveName,
+  solverQueue,
   solverSlot,
 } from './schema';
 
 /** The handle a caller's own transaction hands to the helpers below. */
-type Transaction = Parameters<Parameters<SQLiteBunDatabase['transaction']>[0]>[0];
+export type OptimizedOutcomeTransaction = Parameters<
+  Parameters<SQLiteBunDatabase['transaction']>[0]
+>[0];
 
 /**
  * A database handle or an open transaction on one.
@@ -31,7 +39,7 @@ type Transaction = Parameters<Parameters<SQLiteBunDatabase['transaction']>[0]>[0
  * the insert never sees, which is the entire failure the predicates exist to
  * prevent.
  */
-type Reader = SQLiteBunDatabase | Transaction;
+type Reader = SQLiteBunDatabase | OptimizedOutcomeTransaction;
 
 /**
  * Tasks.md 4.1, both halves: the stored outcome of both objectives for one full
@@ -82,7 +90,7 @@ export type CachedOutcome =
     }
   | {
       readonly kind: 'plan-infeasible';
-      readonly certificate: Record<string, unknown>;
+      readonly certificate: PlanInfeasibleResult;
       readonly generation: number;
       readonly createdAt: number;
     }
@@ -95,6 +103,46 @@ export type CachedOutcome =
 
 /** Both objectives' outcomes for one key, which is what a plan read asks for. */
 export type OptimizedPair = Readonly<Record<SolverObjectiveName, CachedOutcome>>;
+
+/** Whether this exact generation/objective/key still owns a slot or FIFO entry. */
+export function optimizedVariantIsLive(
+  db: Reader,
+  key: OptimizedCacheKey,
+  generation: number,
+  objective: SolverObjectiveName,
+): boolean {
+  const identity = [
+    eq(solverSlot.projectId, key.projectId),
+    eq(solverSlot.contractVersion, key.contractVersion),
+    eq(solverSlot.generation, generation),
+    eq(solverSlot.objective, objective),
+    eq(solverSlot.budgetMs, key.budgetMs),
+  ] as const;
+  if (
+    db
+      .select({ projectId: solverSlot.projectId })
+      .from(solverSlot)
+      .where(and(...identity))
+      .get()
+  ) {
+    return true;
+  }
+  return (
+    db
+      .select({ projectId: solverQueue.projectId })
+      .from(solverQueue)
+      .where(
+        and(
+          eq(solverQueue.projectId, key.projectId),
+          eq(solverQueue.contractVersion, key.contractVersion),
+          eq(solverQueue.generation, generation),
+          eq(solverQueue.objective, objective),
+          eq(solverQueue.budgetMs, key.budgetMs),
+        ),
+      )
+      .get() !== undefined
+  );
+}
 
 /** No row at all, and the value every objective starts at. */
 const MISS: CachedOutcome = { kind: 'miss' };
@@ -169,23 +217,16 @@ function decodePayload(
     }
   }
 
-  const value = parsed.value;
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return corrupt(
-      new Error('stored certificate: payload is not an object'),
+  try {
+    return {
+      kind: 'plan-infeasible',
+      certificate: decodePlanInfeasible(parsed.value),
       generation,
       createdAt,
-    );
+    };
+  } catch (error) {
+    return corrupt(error, generation, createdAt);
   }
-  const certificate = value as Record<string, unknown>;
-  if (typeof certificate['dtoVersion'] !== 'number') {
-    return corrupt(
-      new Error('stored certificate: dtoVersion is missing or not a number'),
-      generation,
-      createdAt,
-    );
-  }
-  return { kind: 'plan-infeasible', certificate, generation, createdAt };
 }
 
 /**
@@ -562,7 +603,8 @@ export function optimizationStillEnabled(db: Reader, projectId: string): boolean
  */
 export type OutcomeToStore =
   | { readonly kind: 'ok'; readonly result: OptimizedResult }
-  | { readonly kind: 'failed'; readonly reason: SolverFailureReason };
+  | { readonly kind: 'failed'; readonly reason: SolverFailureReason }
+  | { readonly kind: 'plan-infeasible'; readonly certificate: PlanInfeasibleResult };
 
 /**
  * One finished attempt's commit, carrying every fact the four predicates and
@@ -630,54 +672,64 @@ export type OutcomeWriteResult = 'stored' | 'superseded' | 'already-recorded';
  * rows *other than this one* survive a commit, it is separately numbered, and
  * folding it in would make this function's contract two claims instead of one.
  */
+export function storeOptimizedOutcomeIn(
+  tx: OptimizedOutcomeTransaction,
+  write: OutcomeWrite,
+): OutcomeWriteResult {
+  const { claim, outcome } = write;
+  if (!writerStillHolds(tx, claim)) return 'superseded';
+  if (
+    !admissionStillCurrent(tx, {
+      projectId: claim.projectId,
+      contractVersion: claim.contractVersion,
+      generation: claim.generation,
+      admittedCancelEpoch: write.admittedCancelEpoch,
+    })
+  ) {
+    return 'superseded';
+  }
+  if (!optimizationStillEnabled(tx, claim.projectId)) return 'superseded';
+
+  const inserted = tx
+    .insert(optimizedScheduleCache)
+    .values({
+      projectId: claim.projectId,
+      inputHash: write.inputHash,
+      objective: claim.objective,
+      contractVersion: claim.contractVersion,
+      budgetMs: claim.budgetMs,
+      generation: claim.generation,
+      status: outcome.kind,
+      resultJson:
+        outcome.kind === 'ok'
+          ? JSON.stringify(encodeOptimizedResult(outcome.result))
+          : outcome.kind === 'plan-infeasible'
+            ? JSON.stringify(encodePlanInfeasible(outcome.certificate))
+            : null,
+      failureReason: outcome.kind === 'failed' ? outcome.reason : null,
+      createdAt: write.now,
+    })
+    .onConflictDoNothing()
+    .returning({ objective: optimizedScheduleCache.objective })
+    .all();
+
+  if (inserted.length !== 1) return 'already-recorded';
+
+  enforceLiveBudgetBound(tx, {
+    projectId: claim.projectId,
+    objective: claim.objective,
+    contractVersion: claim.contractVersion,
+    inputHash: write.inputHash,
+  });
+  return 'stored';
+}
+
+/** Compatibility wrapper for callers that own no wider transaction. */
 export function storeOptimizedOutcome(
   db: SQLiteBunDatabase,
   write: OutcomeWrite,
 ): OutcomeWriteResult {
-  const { claim, outcome } = write;
-  return db.transaction((tx) => {
-    if (!writerStillHolds(tx, claim)) return 'superseded';
-    if (
-      !admissionStillCurrent(tx, {
-        projectId: claim.projectId,
-        contractVersion: claim.contractVersion,
-        generation: claim.generation,
-        admittedCancelEpoch: write.admittedCancelEpoch,
-      })
-    ) {
-      return 'superseded';
-    }
-    if (!optimizationStillEnabled(tx, claim.projectId)) return 'superseded';
-
-    const inserted = tx
-      .insert(optimizedScheduleCache)
-      .values({
-        projectId: claim.projectId,
-        inputHash: write.inputHash,
-        objective: claim.objective,
-        contractVersion: claim.contractVersion,
-        budgetMs: claim.budgetMs,
-        generation: claim.generation,
-        status: outcome.kind,
-        resultJson:
-          outcome.kind === 'ok' ? JSON.stringify(encodeOptimizedResult(outcome.result)) : null,
-        failureReason: outcome.kind === 'failed' ? outcome.reason : null,
-        createdAt: write.now,
-      })
-      .onConflictDoNothing()
-      .returning({ objective: optimizedScheduleCache.objective })
-      .all();
-
-    if (inserted.length !== 1) return 'already-recorded';
-
-    enforceLiveBudgetBound(tx, {
-      projectId: claim.projectId,
-      objective: claim.objective,
-      contractVersion: claim.contractVersion,
-      inputHash: write.inputHash,
-    });
-    return 'stored';
-  });
+  return db.transaction((tx) => storeOptimizedOutcomeIn(tx, write));
 }
 
 /**
@@ -725,7 +777,7 @@ interface LiveBudgetKey {
  * Called only after an insert that actually landed. On the
  * `already-recorded` path nothing was added, so nothing can have gone over.
  */
-function enforceLiveBudgetBound(tx: Transaction, key: LiveBudgetKey): void {
+function enforceLiveBudgetBound(tx: OptimizedOutcomeTransaction, key: LiveBudgetKey): void {
   const live = tx
     .select({ budgetMs: optimizedScheduleCache.budgetMs })
     .from(optimizedScheduleCache)

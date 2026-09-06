@@ -33,12 +33,14 @@ vite.config.*.timestamp*
 # window — a `git add -A` mid-run being the one that matters.
 vitest.config.*.timestamp*
 
+# Complete output retained by the CI Nx gate before its bounded runner tail.
+nx-gate.log
+
 # What the browser layout gate leaves behind: the screenshot CI uploads, the
 # traces, and the HTML report. Diagnostics of one run, never of the repo.
 test-results/
 test-results-packaged/
 playwright-report/
-nx-gate.log
 .claude/worktrees
 .nx/polygraph
 .nx/self-healing

@@ -1360,6 +1360,76 @@ describe('the chart is drawn in calendar days', () => {
     expect(lines.filter((line) => line.startsWith('Float'))).toEqual([]);
   });
 
+  itDom('says how many workdays a bar finished past its deadline', () => {
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 3, { number: '010', name: 'Strip' })],
+          slices: [sliceAt('strip-dev', 'strip', 0, 3, { lateBy: 3 })],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+    expect(linesOf(surfaceOn('strip-dev'))).toContain('Late by 3 workdays');
+  });
+
+  itDom('says workday, not workdays, for a bar that missed by one', () => {
+    // The domain left this to the view on purpose — `workdaysLateBy` owns the
+    // count and this file owns the sentence — and `Late by 1 workdays` is a
+    // defect a reader sees on the commonest miss there is.
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 3, { number: '010', name: 'Strip' })],
+          slices: [sliceAt('strip-dev', 'strip', 0, 3, { lateBy: 1 })],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+    expect(linesOf(surfaceOn('strip-dev'))).toContain('Late by 1 workday');
+  });
+
+  itDom('says nothing about lateness on a bar that missed nothing', () => {
+    // The negative control for the line above: `null` is both "met it" and
+    // "nobody set a deadline", and a `Late by 0 workdays` on every bar of the
+    // plans that have no deadlines at all would be furniture rather than a
+    // fact. The float line is asserted beside it so a run where the whole
+    // surface went missing cannot pass this.
+    render(
+      <GanttPanel
+        plan={planOf({
+          rows: [rowAt('strip', 0, 3, { number: '010', name: 'Strip' })],
+          slices: [sliceAt('strip-dev', 'strip', 0, 3, { float: 2 })],
+        })}
+        startDate={null}
+        scheduleError={null}
+        generation={0}
+        heightPx={null}
+        onPickRow={() => undefined}
+        onPointRow={() => undefined}
+        pointed={pointedAtRow(null)}
+      />,
+    );
+
+    const lines = linesOf(surfaceOn('strip-dev'));
+    expect(lines).toContain('Float 2 days');
+    expect(lines.filter((line) => line.startsWith('Late by'))).toEqual([]);
+  });
+
   itDom('leaves no line blank where a fact is missing', () => {
     // Every absence at once, on one chart: a slice under no step, nobody
     // assigned, no estimate for that step, and no team. Each says so in words —
@@ -2983,6 +3053,7 @@ const sliceOf = (workItemId: string, start: number, finish: number): SliceView =
   effort: finish - start,
   capacityTeamId: null,
   capacityPredecessorIds: [],
+  lateBy: null,
 });
 
 const SLICES: SliceView[] = [
@@ -3155,6 +3226,7 @@ function fakeApi(startDate: string | null, skew: ReadSkew = {}): ProjectApi {
     removeTag: () => notImplemented('removeTag'),
     renameTag: () => notImplemented('renameTag'),
     setDepReach: () => notImplemented('setDepReach'),
+    setOptimizationSettings: () => notImplemented('setOptimizationSettings'),
     setEstimateArithmetic: () => notImplemented('setEstimateArithmetic'),
     setPriorityBands: () => notImplemented('setPriorityBands'),
     setTeamCapacity: () => notImplemented('setTeamCapacity'),
@@ -8202,23 +8274,25 @@ describe('the day sheet renames a listed marker', () => {
         pointed={pointedAtRow(null)}
         markers={markers}
         onRenameMarker={(markerId, name) => {
-          void api.renameCalendarMarker('p1', markerId, name);
-          setMarkers(api.markers.map((marker) => ({ ...marker })));
+          void api.renameCalendarMarker('p1', markerId, name).then(() => {
+            setMarkers(api.markers.map((marker) => ({ ...marker })));
+          });
         }}
         onRecolorMarker={(markerId, color) => {
-          void api.recolorCalendarMarker('p1', markerId, color);
-          setMarkers(api.markers.map((marker) => ({ ...marker })));
+          void api.recolorCalendarMarker('p1', markerId, color).then(() => {
+            setMarkers(api.markers.map((marker) => ({ ...marker })));
+          });
         }}
       />
     );
   }
 
   /** The fake, already holding one marker on {@link CUTOVER_DAY}. */
-  const apiHoldingCutover = (): ProjectApi & { markers: CalendarMarkerView[] } => {
+  const apiHoldingCutover = async (): Promise<ProjectApi & { markers: CalendarMarkerView[] }> => {
     const api = fakeProjectApi();
     // The store's own create rather than a hand-pushed object, so the marker
     // under test is one this fake could really have answered.
-    void api.createCalendarMarker('p1', {
+    await api.createCalendarMarker('p1', {
       markerId: 'm-cut',
       date: CUTOVER_DAY,
       name: 'Cutover',
@@ -8238,12 +8312,12 @@ describe('the day sheet renames a listed marker', () => {
       (row) => row.querySelector('span.grow')?.textContent ?? null,
     );
 
-  itDom('sends the new name and draws what came back', () => {
+  itDom('sends the new name and draws what came back', async () => {
     // **The oracle is the recorded call as well as the DOM**, which is 3.4's
     // rule: a handler that repainted optimistically and sent nothing is green
     // on a DOM-only assertion, and this is the second of the three actions
     // 6.3 offers that nothing had ever invoked.
-    const api = apiHoldingCutover();
+    const api = await apiHoldingCutover();
     const renames = recordCalls(api, 'renameCalendarMarker');
     render(<OwnedMarkers api={api} />);
 
@@ -8263,7 +8337,9 @@ describe('the day sheet renames a listed marker', () => {
     // One call, naming this marker and this name — **trimmed**, and carrying
     // no colour: be-01 refuses a `PATCH` body naming both, so a rename that
     // sent a colour with it could only ever be refused (7.2a).
-    expect(renames).toEqual([['p1', 'm-cut', 'Go live']]);
+    await waitFor(() => {
+      expect(renames).toEqual([['p1', 'm-cut', 'Go live']]);
+    });
     // And the fake really holds it, which a recorder that pushed without
     // performing would not show.
     expect(api.markers.map((marker) => marker.name)).toEqual(['Go live']);
@@ -8297,8 +8373,9 @@ describe('the day sheet recolours a listed marker', () => {
         pointed={pointedAtRow(null)}
         markers={markers}
         onRecolorMarker={(markerId, color) => {
-          void api.recolorCalendarMarker('p1', markerId, color);
-          setMarkers(api.markers.map((marker) => ({ ...marker })));
+          void api.recolorCalendarMarker('p1', markerId, color).then(() => {
+            setMarkers(api.markers.map((marker) => ({ ...marker })));
+          });
         }}
       />
     );
@@ -8317,13 +8394,13 @@ describe('the day sheet recolours a listed marker', () => {
     return chip;
   };
 
-  itDom('sends the picked fill and draws what came back', () => {
+  itDom('sends the picked fill and draws what came back', async () => {
     // The last of the three actions 6.3 offers that nothing had ever invoked.
     // Same three oracles as the rename: the recorded call, the fake's own
     // store, and the chip drawn from what the owner read back — a handler that
     // repainted optimistically and sent nothing passes on the chip alone.
     const api = fakeProjectApi();
-    void api.createCalendarMarker('p1', {
+    await api.createCalendarMarker('p1', {
       markerId: 'm-cut',
       date: CUTOVER_DAY,
       name: 'Cutover',
@@ -8357,7 +8434,9 @@ describe('the day sheet recolours a listed marker', () => {
 
     // One call, this marker, that entry's own fill — and no name with it: be-01
     // refuses a PATCH body naming both (7.2a).
-    expect(recolours).toEqual([['p1', 'm-cut', '#0386a5']]);
+    await waitFor(() => {
+      expect(recolours).toEqual([['p1', 'm-cut', '#0386a5']]);
+    });
     expect(api.markers.map((marker) => marker.color)).toEqual(['#0386a5']);
     expect(chipOf('m-cut').style.backgroundColor).toBe('rgb(3, 134, 165)');
     // Picked, so the palette gives way rather than staying open over a choice
@@ -8390,8 +8469,9 @@ describe('the day sheet takes a listed marker off the chart', () => {
         pointed={pointedAtRow(null)}
         markers={markers}
         onDeleteMarker={(markerId) => {
-          void api.deleteCalendarMarker('p1', markerId);
-          setMarkers(api.markers.map((marker) => ({ ...marker })));
+          void api.deleteCalendarMarker('p1', markerId).then(() => {
+            setMarkers(api.markers.map((marker) => ({ ...marker })));
+          });
         }}
       />
     );
@@ -8403,18 +8483,18 @@ describe('the day sheet takes a listed marker off the chart', () => {
     return cell;
   };
 
-  itDom('sends the delete and drops the row the answer no longer holds', () => {
+  itDom('sends the delete and drops the row the answer no longer holds', async () => {
     // Two markers on the day, because deleting the only one leaves an empty
     // sheet whatever the handler did: the surviving row is what says the right
     // marker went.
     const api = fakeProjectApi();
-    void api.createCalendarMarker('p1', {
+    await api.createCalendarMarker('p1', {
       markerId: 'm-cut',
       date: CUTOVER_DAY,
       name: 'Cutover',
       color: AZURE,
     });
-    void api.createCalendarMarker('p1', {
+    await api.createCalendarMarker('p1', {
       markerId: 'm-freeze',
       date: CUTOVER_DAY,
       name: 'Freeze',
@@ -8432,7 +8512,9 @@ describe('the day sheet takes a listed marker off the chart', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Cutover' }));
 
-    expect(deletes).toEqual([['p1', 'm-cut']]);
+    await waitFor(() => {
+      expect(deletes).toEqual([['p1', 'm-cut']]);
+    });
     expect(api.markers.map((marker) => marker.id)).toEqual(['m-freeze']);
     expect(
       Array.from(document.querySelectorAll('[data-marker-row]'), (row) =>
@@ -8495,8 +8577,9 @@ describe('the composer creates the marker whose colour it previewed', () => {
         markers={markers}
         newMarkerId={newMarkerId}
         onCreateMarker={(marker) => {
-          void api.createCalendarMarker('p1', marker);
-          setMarkers(api.markers.map((stored) => ({ ...stored })));
+          void api.createCalendarMarker('p1', marker).then(() => {
+            setMarkers(api.markers.map((stored) => ({ ...stored })));
+          });
         }}
       />
     );
@@ -8518,7 +8601,7 @@ describe('the composer creates the marker whose colour it previewed', () => {
     return cell;
   };
 
-  itDom('sends the previewed id and draws the chip in the previewed colour', () => {
+  itDom('sends the previewed id and draws the chip in the previewed colour', async () => {
     // The pinning is asserted rather than trusted: if the palette ever grows or
     // reorders, these two ids can collide in one bucket and this case would go
     // on passing while proving nothing. Failing here says which.
@@ -8550,7 +8633,11 @@ describe('the composer creates the marker whose colour it previewed', () => {
     // exactly, so this case fails for the reason it is about rather than for a
     // date or a name. Trimmed, and **no colour**: automatic is the absence of a
     // choice, and `undefined` is what 7.2a's 422 arm proves the body may carry.
-    expect(creates).toEqual([['p1', { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live' }]]);
+    await waitFor(() => {
+      expect(creates).toEqual([
+        ['p1', { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live' }],
+      ]);
+    });
     // And the fake really holds it, which a recorder that pushed without
     // performing would not show.
     expect(api.markers.map((marker) => marker.id)).toEqual([PREVIEW_ID]);
@@ -8650,7 +8737,7 @@ describe('the composer creates the marker whose colour it previewed', () => {
     expect(creates).toEqual([]);
   });
 
-  itDom('sends a colour the reader chose that clears the bar, and previews it first', () => {
+  itDom('sends a colour the reader chose that clears the bar, and previews it first', async () => {
     // The other half of the same call site: the check is a gate and not a ban,
     // so a palette fill picked by hand reaches the create body as `color` —
     // which is also what says the `undefined` in the case above is the absence
@@ -8673,9 +8760,14 @@ describe('the composer creates the marker whose colour it previewed', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
 
-    expect(creates).toEqual([
-      ['p1', { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live', color: PALETTE[0].fill }],
-    ]);
+    await waitFor(() => {
+      expect(creates).toEqual([
+        [
+          'p1',
+          { markerId: PREVIEW_ID, date: GO_LIVE_DAY, name: 'Go live', color: PALETTE[0].fill },
+        ],
+      ]);
+    });
   });
 });
 

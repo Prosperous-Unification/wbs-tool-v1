@@ -1,0 +1,13 @@
+[Unit]
+Description=WBS host-owned solver supervisor
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bun /home/puni1/.local/lib/wbs-solver/solver-supervisor.js --config=/home/puni1/.config/wbs-solver/solver-supervisor.json
+Restart=always
+RestartSec=1s
+RuntimeDirectory=wbs-solver
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=default.target

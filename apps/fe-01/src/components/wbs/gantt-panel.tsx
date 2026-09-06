@@ -1423,6 +1423,31 @@ function dayWords(days: number): string {
 }
 
 /**
+ * What a bar that finished past its deadline says, and nothing at all where it
+ * did not — `Late by 1 workday`, `Late by 3 workdays`, `null`.
+ *
+ * **Workdays and not days**, which is the one thing the copy has to get right:
+ * the number be-01 published is a count of working days, and a reader who
+ * added it to a Friday off a `days` label would land on the wrong Monday. It
+ * is why this is its own function beside {@link dayWords} rather than a reuse
+ * of it — the two nouns are different units and only one of them fits.
+ *
+ * The singular is decided **here**, which the domain deliberately left open:
+ * `workdaysLateBy` owns the count and the view owns the sentence, and
+ * `Late by 1 workdays` is a visible defect nothing below this line could have
+ * prevented. The `${n} noun${s}` shape is the tool's, from `plan-cards.tsx`'s
+ * float hint and `external-ref-marks.ts`'s `plural`.
+ *
+ * @param lateBy be-01's count, or null where the slice met its deadline or had
+ * none — the two absences are one state on the wire and stay one here.
+ */
+function lateWords(lateBy: number | null): string | null {
+  if (lateBy === null) return null;
+  const shown = daysNumber(lateBy);
+  return `Late by ${shown} ${shown === '1' ? 'workday' : 'workdays'}`;
+}
+
+/**
  * How long a bar runs, and what an unestimated slice says instead of a length.
  *
  * Proof: the not-estimated arm dropped, so a guessed width read as `0 days` —
@@ -1654,6 +1679,15 @@ export function barFacts(
     bar.estimated ? null : `Not estimated — drawn as ${dayWords(ASSUMED_SLICE_WORKDAYS)}`,
     trioWords(bar.trio),
     bar.critical ? 'On the critical path — no float' : `Float ${dayWords(bar.float)}`,
+    // Straight after the float, because the two are one subject said from
+    // either end: the float is how much this bar may still slip, and this is
+    // how much it already slipped past the day it owed.
+    //
+    // Only where the plan missed something. `null` is both "met it" and "nobody
+    // set one", said once — a line reading `Late by 0 workdays` on every bar of
+    // every plan with no deadlines is furniture, and the same bargain the
+    // priority line above makes.
+    lateWords(bar.lateBy),
     // Only where somebody set one. Unranked is a state of its own, and a line
     // reading `Priority —` on every bar of every plan that priorities nothing is
     // furniture, not a fact — the same bargain the cell in the table makes by
@@ -2323,6 +2357,14 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     // nothing today, because the loop under it runs zero times, but it was an
     // `Infinity` computed once per empty day and waiting for the first
     // refactor that hoists the expression or logs it.
+    //
+    // Proof: `if (standing.length === 0) continue;` deleted, watched failing
+    // `leaves a day with no chips on it before the share arithmetic` — with the
+    // guard gone every axis day emits a cell clip, so the exported markup
+    // carries one `clipPath` per day of the horizon instead of the two that
+    // case asserts for a chart whose two chips are three cells apart.
+    // `GEMINI.md` R5 (TASK-288 Minor 2): a safety check on a production path
+    // and the negative that watched it are only findable together.
     if (standing.length === 0) continue;
     const sharePx = dayPx / standing.length;
     // **One rounded cell, square joins inside it** (TASK-287 AC #3). Each

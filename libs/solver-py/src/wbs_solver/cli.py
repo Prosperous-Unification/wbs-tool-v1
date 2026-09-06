@@ -35,67 +35,52 @@ response `$comment`). Diagnostics go to stderr.
 
 from __future__ import annotations
 
-import ctypes
 import json
-import os
-import signal
 import sys
 from typing import BinaryIO, Sequence, TextIO
 
 from . import __version__
-from .solve import SolveFailed, solve_request
+from .lifecycle import set_parent_death_signal
+from .solve import SolveFailed, SolverConfig, solve_request
 from .validate import RequestRejected, validate_request
 
 EXIT_OK = 0
 EXIT_BAD_REQUEST = 64
 EXIT_INTERNAL = 70
 
-# linux/prctl.h. Not importable from anywhere in the stdlib, so it is written
-# out with its provenance rather than looked up.
-PR_SET_PDEATHSIG = 1
-
-
-def set_parent_death_signal() -> bool:
-    """Ask the kernel to SIGKILL this process when its parent dies.
-
-    Returns True when the flag was installed, False when the platform has no
-    such call. On Linux a failure is raised rather than reported: the ceiling
-    described in this module's docstring is only sound if this worked, and a
-    silent no-op there would be the ceiling quietly ceasing to exist.
-
-    Off Linux it is a no-op with a note on stderr. macOS has no equivalent and
-    developer machines are not where the ceiling is enforced; a hard failure
-    would make the package unrunnable on the only machines that read its
-    tracebacks.
-    """
-    if sys.platform != "linux":
-        print(
-            f"wbs-solver: PR_SET_PDEATHSIG unavailable on {sys.platform}; "
-            "this process will not die with its parent",
-            file=sys.stderr,
-        )
-        return False
-
-    libc = ctypes.CDLL(None, use_errno=True)
-    prctl = libc.prctl
-    prctl.restype = ctypes.c_int
-    prctl.argtypes = [
-        ctypes.c_int,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-    ]
-    ctypes.set_errno(0)
-    if prctl(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0) != 0:
-        err = ctypes.get_errno()
-        raise OSError(err, f"prctl(PR_SET_PDEATHSIG, SIGKILL) failed: {os.strerror(err)}")
-    return True
-
-
 def read_request(stream: BinaryIO) -> bytes:
     """Read the whole request. Named so the ordering test can watch it."""
     return stream.read()
+
+
+def _solver_config(argv: Sequence[str]) -> SolverConfig | None:
+    if not argv:
+        return SolverConfig()
+    if len(argv) not in (2, 4):
+        return None
+    values: dict[str, str] = {}
+    for index in range(0, len(argv), 2):
+        flag, value = argv[index], argv[index + 1]
+        if flag not in {"--search-workers", "--child-deadline-epoch-ms"} or flag in values:
+            return None
+        values[flag] = value
+    if "--search-workers" not in values:
+        return None
+    try:
+        workers = int(values["--search-workers"])
+        deadline = (
+            int(values["--child-deadline-epoch-ms"])
+            if "--child-deadline-epoch-ms" in values
+            else None
+        )
+    except ValueError:
+        return None
+    if workers <= 0 or (deadline is not None and deadline <= 0):
+        return None
+    return SolverConfig(
+        num_search_workers=workers,
+        child_deadline_epoch_ms=deadline,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -114,8 +99,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         # parser somewhere else.
         print(__version__, file=stdout)
         return EXIT_OK
-    if argv:
-        print(f"wbs-solver: unexpected arguments {argv!r}; usage: wbs-solver [--version]", file=stderr)
+    config = _solver_config(argv)
+    if config is None:
+        print(
+            "wbs-solver: unexpected arguments "
+            f"{argv!r}; usage: wbs-solver [--version | --search-workers COUNT "
+            "[--child-deadline-epoch-ms EPOCH_MS]]",
+            file=stderr,
+        )
         return EXIT_BAD_REQUEST
 
     try:
@@ -125,7 +116,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_BAD_REQUEST
 
     try:
-        response = solve_request(request)
+        response = solve_request(request, config)
     except SolveFailed as exc:
         # The two outcomes the wire cannot carry: a later-stage INFEASIBLE,
         # which is the solver holding a counterexample to its own answer, and a

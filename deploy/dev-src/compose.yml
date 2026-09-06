@@ -16,6 +16,10 @@ services:
     volumes:
       - /home/puni1/wbs-dev/src:/src
       - /home/puni1/wbs-dev/data:/data
+      # Mount the runtime directory rather than supervisor.sock itself. The
+      # service may atomically replace its socket inode across a restart; the
+      # directory mount lets this long-lived container observe the replacement.
+      - /run/user/1000/wbs-solver:/run/wbs-solver:ro
     env_file:
       # Provider credentials stay off-repo and are mode 600 on the dev host.
       # CI has no credential file; on dev its absence is still fatal because

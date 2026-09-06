@@ -35,6 +35,7 @@ would be the first place it appeared.
 from __future__ import annotations
 
 import math
+import time
 import sys
 import unittest
 from pathlib import Path
@@ -164,6 +165,12 @@ class TheLimitIsDeterministicAndNotTheWallClock(unittest.TestCase):
         self.assertEqual(parameters.max_time_in_seconds, 30.0)
         self.assertTrue(math.isinf(parameters.max_deterministic_time))
         self.assertEqual(parameters.num_search_workers, 2)
+
+    def test_the_absolute_child_deadline_clamps_a_stage_wall_clock(self) -> None:
+        config = SolverConfig(child_deadline_epoch_ms=int(time.time() * 1_000) + 2_000)
+        parameters = _configure(config, budget_ms=30000.0).parameters
+        self.assertGreater(parameters.max_time_in_seconds, 0.0)
+        self.assertLessEqual(parameters.max_time_in_seconds, 2.0)
 
     def test_the_two_limits_are_never_both_in_force(self) -> None:
         """A solve bounded by whichever of the two fires first is reproducible

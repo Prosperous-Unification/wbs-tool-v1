@@ -27,6 +27,7 @@ import {
   type EstimateMethod,
   type EstimateRoundingView,
   type PertWeightsView,
+  type PlanOptimizationView,
   type ProjectApi,
   type SliceView,
   type StepView,
@@ -144,6 +145,8 @@ export interface ChartRead {
    */
   pertWeights: PertWeightsView;
   estimateRounding: EstimateRoundingView;
+  /** The optimizer state returned with the schedule, when the runtime is wired. */
+  optimization?: PlanOptimizationView;
   /**
    * Which read this is: the coordinator's installed tree generation, and 0 before any has
    * landed.
@@ -570,6 +573,7 @@ export function usePlanRead({
           depReach: tree.depReach,
           pertWeights: tree.pertWeights,
           estimateRounding: tree.estimateRounding,
+          ...(tree.optimization === undefined ? {} : { optimization: tree.optimization }),
           generation: snapshot.tree.installed.generation,
         });
         setStack({ undoable: tree.undoable, redoable: tree.redoable });

@@ -31,6 +31,11 @@ export type OidcConsumeResult =
 export interface OidcTransactionStore {
   cleanupExpired(): number;
   consume(browserBinding: string, state: string): OidcConsumeResult;
+  /**
+   * When this binding's transaction dies, or `null` once it holds none —
+   * reaping the record if it is already past its deadline.
+   */
+  expiresAt(browserBinding: string): number | null;
   save(transaction: OidcTransactionInput): void;
 }
 
@@ -99,19 +104,20 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
    * record is dead for everyone, and preserving one would be a leak with no
    * login left to protect.
    *
-   * **The two-tab residual recorded here before is half closed by this, and
-   * the surviving half is the tab that lost its cookie** — both review seats
-   * caught the earlier wording, which claimed the whole thing was untouched.
-   * Two logins started in two tabs share one cookie name, so the second
-   * overwrites the browser's binding. The first tab's stale callback then
-   * arrives carrying the *second* tab's binding and the *first* tab's state,
-   * which is precisely a mismatch: under the old ordering it burnt the second
-   * tab's live record on the way to the 400, and it no longer does — the second
-   * tab's record and cookie both survive and its own callback still completes.
-   * What remains is that the **first** tab cannot finish at all, because its
-   * binding was replaced before its callback came back and no ordering here can
-   * recover a cookie the browser has already overwritten; its orphaned record
-   * waits for expiry. That half is one-cookie-per-browser and it is TASK-272.
+   * **The two-tab residual is closed, and not here** (TASK-272). Two logins
+   * started in two tabs shared one cookie name, so the second overwrote the
+   * browser's binding and the first tab's stale callback arrived carrying
+   * the *second* tab's binding with the *first* tab's state — a mismatch.
+   * The half this method owned is above: that arrival no longer burns the
+   * second tab's live record, so the login being completed survives. The other
+   * half was never a store-ordering question at all, because no ordering here
+   * can give a tab back a cookie the browser has already replaced. It is fixed
+   * one layer out, in `oidc-binding.ts`: each login now writes its binding
+   * under its own cookie name, and a callback offers every binding the browser
+   * still holds so that **this** method decides which one the arriving state
+   * proves. Nothing about single use moves — it is still keyed by the binding
+   * and still enforced by the delete below; only the transport became plural,
+   * and `consumeBrowserBinding` consumes at most one record per callback.
    */
   consume(browserBinding: string, state: string): OidcConsumeResult {
     const key = digest(browserBinding);
@@ -143,6 +149,48 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
 
     this.records.delete(key);
     return { nonce: transaction.nonce, outcome: 'consumed', verifier: transaction.verifier };
+  }
+
+  /**
+   * The deadline a binding's record carries, or `null` once there is none, for a
+   * caller deciding which of a browser's several in-flight logins to keep
+   * (`oidc-binding.ts`, TASK-272).
+   *
+   * **It never spends a live transaction**, which is the whole reason it is a
+   * second method rather than an argument to `consume`: ordering a browser's
+   * bindings must not consume any of them, and single use stays exactly where
+   * {@link consume} enforces it.
+   *
+   * **It does delete a record it finds already expired**, and that is not a
+   * convenience. This method is now the only thing a callback asks about a
+   * binding whose deadline has passed — before it existed the callback offered
+   * every binding to {@link consume}, whose expiry arm deleted on sight, so
+   * reading without deleting would leave a dead login's `nonce` and `verifier`
+   * resident until an unrelated `save` swept them (peer review, TASK-272 r2,
+   * Important). A dead record is dead for everyone and keeping one is a leak
+   * with no login left to protect, which is the same sentence {@link consume}
+   * and {@link InMemoryTokenStore.read} are written from.
+   *
+   * **It hands out nothing the caller did not already have.** The argument is
+   * the binding, which is `HttpOnly` and unguessable, and the answer is a
+   * timestamp this app chose; a caller that can ask already holds the cookie
+   * and could learn the same by consuming it, at the cost of the login.
+   */
+  expiresAt(browserBinding: string): number | null {
+    const key = digest(browserBinding);
+    const transaction = this.records.get(key);
+    if (transaction === undefined) return null;
+    // Proof: `reaps an expired transaction it is asked to order` fails with
+    // `Expected: 0 Received: 1` from `cleanupExpired()` when this answers `null`
+    // for an expired record **without** deleting it — the perturbation that
+    // isolates the delete. Returning the stale deadline instead reddens the same
+    // case one line earlier, at `expect(store.expiresAt('browser-1')).toBeNull()`
+    // with `Received: 6000`; both were run.
+    if (transaction.expiresAt <= this.now()) {
+      this.records.delete(key);
+      return null;
+    }
+    return transaction.expiresAt;
   }
 
   cleanupExpired(): number {

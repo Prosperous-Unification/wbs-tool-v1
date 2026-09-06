@@ -3,6 +3,14 @@ import { describe, expect, it } from 'bun:test';
 import { buildInstallPlan, parseInstallArgs, parseSha256sumOutput } from './install';
 import { BUNDLE_FILES, bundleFilesFor } from './lib/deploy-contract';
 import { envLayout } from './lib/env';
+import {
+  assertSolverSupervisorBunVersion,
+  SOLVER_SUPERVISOR_BUN,
+  SOLVER_SUPERVISOR_BUN_VERSION,
+  SOLVER_SUPERVISOR_BUNDLE,
+  SOLVER_SUPERVISOR_CONFIG,
+  SOLVER_SUPERVISOR_RUNTIME_DIRECTORY,
+} from './lib/solver-supervisor-install-contract';
 
 /** Prod's absolute bundle paths, which is what `WBS_ENV` unset resolves to. */
 const prodFiles = bundleFilesFor(envLayout('prod').root);
@@ -126,5 +134,48 @@ describe('the install target must build what it ships', () => {
       'dist/tool-remote-scripts/swap.js',
       'dist/tool-smoke/smoke.js',
     ]);
+  });
+});
+
+describe('host-wide solver supervisor contract', () => {
+  it('keeps the singleton artifact and config outside both environment roots', () => {
+    for (const layout of [envLayout('prod'), envLayout('dev')]) {
+      expect(SOLVER_SUPERVISOR_BUNDLE.remote).not.toStartWith(`${layout.root}/`);
+      expect(SOLVER_SUPERVISOR_CONFIG).not.toStartWith(`${layout.root}/`);
+    }
+  });
+
+  it('refuses any host Bun except the pinned runtime', () => {
+    expect(() => {
+      assertSolverSupervisorBunVersion('1.2.20\n');
+    }).toThrow(`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUN_VERSION}`);
+    expect(() => {
+      assertSolverSupervisorBunVersion('');
+    }).toThrow('(missing)');
+    expect(() => {
+      assertSolverSupervisorBunVersion('1.3.14-next');
+    }).toThrow('1.3.14-next');
+    assertSolverSupervisorBunVersion('1.3.14\n');
+  });
+
+  it('builds the exact host artifact and pins the restart-always user unit', async () => {
+    const root = new URL('../../../', import.meta.url).pathname;
+    const config = (await Bun.file(`${root}tools/tool-remote-scripts/project.json`).json()) as {
+      targets: Record<string, { options: { commands: string[] } }>;
+    };
+    expect(config.targets['build'].options.commands).toContain(
+      `bun build tools/tool-remote-scripts/src/solver-supervisor.ts --target=bun --outfile ${SOLVER_SUPERVISOR_BUNDLE.local}`,
+    );
+
+    const unit = await Bun.file(
+      `${root}deploy/solver-supervisor/wbs-solver-supervisor.service`,
+    ).text();
+    expect(unit).toContain(
+      `ExecStart=${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --config=${SOLVER_SUPERVISOR_CONFIG}`,
+    );
+    expect(unit).toContain('Restart=always');
+    expect(unit).toContain(`RuntimeDirectory=${SOLVER_SUPERVISOR_RUNTIME_DIRECTORY}`);
+    expect(unit).not.toContain('/home/puni1/wbs/');
+    expect(unit).not.toContain('/home/puni1/wbs-dev/');
   });
 });

@@ -1,4 +1,4 @@
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, isNull, lt } from 'drizzle-orm';
 import type { SQLiteBunDatabase } from 'drizzle-orm/bun-sqlite';
 
 import { toOptimizationGenerationRow } from './optimizer-rows';
@@ -7,6 +7,7 @@ import {
   type OptimizationGenerationRow,
   optimizedScheduleCache,
   solverQueue,
+  solverSlot,
 } from './schema';
 
 /** The handle a caller's own transaction hands to {@link readGeneration}. */
@@ -64,7 +65,7 @@ export function readGeneration(
 }
 
 /**
- * Allocates the next generation for one release's key and evicts what it
+ * Reuses an equal-hash generation, or allocates the next one and evicts what it
  * supersedes, in one transaction (tasks.md 4.1's allocation clause).
  *
  * Three rules the eviction obeys, each of them load-bearing:
@@ -75,9 +76,14 @@ export function readGeneration(
  * 2. **Only OLDER generations.** The rows this allocation itself will produce
  *    carry the new number, and a delete written as "not the current one" would
  *    race its own writer.
- * 3. **Slot rows are not touched.** Freeing the count before the children are
- *    proved dead is what let six real children run while SQLite counted two;
- *    a slot row is released by the owner that holds it, never by an allocation.
+ * 3. **Slot rows are retained and asked to cancel.** Freeing the count before
+ *    the children are proved dead is what let six real children run while
+ *    SQLite counted two; allocation stamps the first cancellation request, and
+ *    the owner still releases its own row.
+ *
+ * A missing row is inserted with do-nothing-on-conflict and then re-read. Thus
+ * two first readers of one hash converge on generation 1, while an equal hash
+ * on any later read returns before evicting or cancelling anything.
  */
 export function allocateGeneration(
   db: SQLiteBunDatabase,
@@ -87,7 +93,7 @@ export function allocateGeneration(
   now: number,
 ): number {
   return db.transaction((tx) => {
-    const current = tx
+    let current = tx
       .select()
       .from(optimizationGeneration)
       .where(
@@ -97,24 +103,56 @@ export function allocateGeneration(
         ),
       )
       .get();
-    const next = (current?.generation ?? 0) + 1;
+    if (current === undefined) {
+      tx.insert(optimizationGeneration)
+        .values({
+          projectId,
+          contractVersion,
+          generation: 1,
+          inputHash,
+          cancelEpoch: 0,
+          admissionState: 'open',
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+      current = tx
+        .select()
+        .from(optimizationGeneration)
+        .where(
+          and(
+            eq(optimizationGeneration.projectId, projectId),
+            eq(optimizationGeneration.contractVersion, contractVersion),
+          ),
+        )
+        .get();
+      if (current === undefined) throw new Error('generation allocation did not create a row');
+    }
 
-    tx.insert(optimizationGeneration)
-      .values({
-        projectId,
-        contractVersion,
-        generation: next,
-        inputHash,
-        cancelEpoch: current?.cancelEpoch ?? 0,
-        admissionState: current?.admissionState ?? 'open',
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [optimizationGeneration.projectId, optimizationGeneration.contractVersion],
-        // `cancelEpoch` and `admissionState` are deliberately absent: a new
-        // generation is not a cancellation and does not reopen a draining one.
-        set: { generation: next, inputHash, updatedAt: now },
-      })
+    if (current.inputHash === inputHash) return current.generation;
+
+    const next = current.generation + 1;
+    tx.update(optimizationGeneration)
+      .set({ generation: next, inputHash, updatedAt: now })
+      .where(
+        and(
+          eq(optimizationGeneration.projectId, projectId),
+          eq(optimizationGeneration.contractVersion, contractVersion),
+          eq(optimizationGeneration.generation, current.generation),
+        ),
+      )
+      .run();
+
+    tx.update(solverSlot)
+      .set({ cancelRequestedAt: now })
+      .where(
+        and(
+          eq(solverSlot.projectId, projectId),
+          eq(solverSlot.contractVersion, contractVersion),
+          lt(solverSlot.generation, next),
+          isNull(solverSlot.cancelRequestedAt),
+        ),
+      )
       .run();
 
     tx.delete(optimizedScheduleCache)

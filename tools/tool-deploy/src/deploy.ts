@@ -6,7 +6,17 @@
 // (Task 4) is a separate, explicit step that writes `release.json`. This CLI
 // only reads that file, so a stale or missing release entry fails loudly
 // rather than silently deploying an old image.
-import { APP_NAME, bundleFilesFor, type Color, PORT } from '@wbs/deploy-contract';
+import {
+  APP_NAME,
+  bundleFilesFor,
+  type Color,
+  PORT,
+  SOLVER_SUPERVISOR_BUN,
+  SOLVER_SUPERVISOR_BUNDLE,
+  SOLVER_SUPERVISOR_CONFIG,
+  SOLVER_SUPERVISOR_SERVICE,
+  SOLVER_SUPERVISOR_SOCKET,
+} from '@wbs/deploy-contract';
 import { type EnvLayout } from '@wbs/tool-env';
 
 import { materialize, parseDeployArgs, type Tier } from './affected';
@@ -154,6 +164,21 @@ export const defaultDeployPlanDeps: DeployPlanDeps = {
   dirtyPaths: defaultDirtyPaths,
 };
 
+/** The host check that must pass before the first production backend swap. */
+export function prodSolverSupervisorPreflightCommand(
+  activeColor: Color | undefined,
+  image: string,
+): string {
+  const targetColor = activeColor === 'blue' ? 'green' : 'blue';
+  return (
+    `systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE} && ` +
+    `test -S ${SOLVER_SUPERVISOR_SOCKET} && ` +
+    `${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} ` +
+    `--preflight=prod --config=${SOLVER_SUPERVISOR_CONFIG} ` +
+    `--caller-name=be-01-${targetColor} --image=${image}`
+  );
+}
+
 /**
  * Builds the deploy plan: which tiers move, what each one's remote swap
  * command will be, and — the safety-critical part — refuses to proceed if a
@@ -183,6 +208,7 @@ export async function buildDeployPlan(
   const commands: string[] = [];
   const preflightCommands: string[] = [];
   const imageArgs: string[] = [];
+  let solverSupervisorPreflight = '';
 
   const remote = await deps.readRemoteState(host, args.layout.stateDir);
   const release = await deps.readRelease(args.bundle ?? DEFAULT_RELEASE_PATH);
@@ -270,6 +296,12 @@ export async function buildDeployPlan(
     // `--image-<tier>` carries the whole publish address; nothing on the far
     // side reconstructs it (see ReleaseEntry.image).
     imageArgs.push(`--image-${t}=${entry.image}`);
+    if (t === 'be' && args.layout.env === 'prod') {
+      solverSupervisorPreflight = prodSolverSupervisorPreflightCommand(
+        state?.activeColor,
+        entry.image,
+      );
+    }
   }
 
   if (tiers.length > 0) {
@@ -296,6 +328,11 @@ export async function buildDeployPlan(
     // Still read-only, still ahead of every swap: decision 10 requires a
     // registry/auth problem to abort before the FIRST tier starts, and
     // swap.js's --preflight loops all the named tiers without taking a lock.
+    if (solverSupervisorPreflight !== '') {
+      // Proof: deploy.test.ts requires this to be the first preflight and to
+      // name the exact target colour and release image.
+      preflightCommands.push(solverSupervisorPreflight);
+    }
     preflightCommands.push(`${base} --preflight`);
   }
 

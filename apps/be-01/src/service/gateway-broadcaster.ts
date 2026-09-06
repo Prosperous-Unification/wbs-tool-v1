@@ -1,4 +1,4 @@
-import type { EventLogRepo } from '../repository/event-log';
+import type { EventLogRepo, RecordedEvent } from '../repository/event-log';
 import { type Broadcaster, type ProjectEvent, subscriptionFor } from './broadcast';
 import { type Clock, clockOf } from './clock';
 import type { PushClient } from './push-client';
@@ -111,17 +111,29 @@ export class GatewayBroadcaster implements Broadcaster {
    */
   async publish(projectId: string, event: ProjectEvent): Promise<void> {
     const subscription = subscriptionFor(projectId);
-    const seq = await this.opts.lock.run(async () => {
+    const recorded = await this.opts.lock.run(async () => {
       const recorded = await this.opts.eventLog.recordEvent(subscription, event, this.clock.now());
-      // Inside the turn with the record it describes: a buffer entry published
-      // before the row is durable is one a rollback could still take back.
-      this.opts.buffer.record(subscription, recorded.seq, event);
-      return recorded.seq;
+      return recorded;
     });
     // Proof: moving push into the lock made the real-client durability case
     // observe entered=false for its second writer while transport was pending.
+    await this.pushRecorded(subscription, recorded, event);
+  }
+
+  /** Buffer and push an event whose durable row already committed. */
+  async pushRecorded(
+    subscription: string,
+    recorded: RecordedEvent,
+    event: ProjectEvent,
+  ): Promise<void> {
+    if (recorded.subscription !== subscription) {
+      throw new Error(
+        `recorded subscription ${recorded.subscription} does not match push ${subscription}`,
+      );
+    }
+    this.opts.buffer.record(subscription, recorded.seq, event);
     try {
-      await this.opts.push.push({ subscription, seq, message: event });
+      await this.opts.push.push({ subscription, seq: recorded.seq, message: event });
     } catch (err) {
       // Proof: rethrowing here made the same deadline durability test observe
       // settled=false instead of successful publication after the event committed.

@@ -134,12 +134,13 @@ test('HEAD and every duplicate key leave the browser login unspent', async () =>
 
 test('live mismatch retains cookies for honest recovery; expired and missing bindings clear', async () => {
   const f = fixture();
-  const clearedBinding = '__Host-wbs_oidc=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0';
   const absent = await f.callback('', 'state=random-2&code=ok');
   expect(absent.status).toBe(400);
   expect(await absent.json()).toEqual({ error: 'invalid_oidc_callback' });
-  expect(absent.headers.getSetCookie()).toEqual([clearedBinding]);
+  expect(absent.headers.getSetCookie()).toEqual([]);
   let cookie = await f.start();
+  const bindingName = cookie.split('=')[0] ?? '';
+  const clearedBinding = `${bindingName}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
   const forged = await f.callback(cookie, 'state=forged&error=access_denied');
   expect(forged.status).toBe(400);
   expect(await forged.json()).toEqual({ error: 'invalid_oidc_callback' });
@@ -148,7 +149,7 @@ test('live mismatch retains cookies for honest recovery; expired and missing bin
   const honest = await f.callback(cookie);
   expect(honest.status).toBe(302);
   expect(honest.headers.getSetCookie()).toEqual([
-    '__Host-wbs_oidc=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0',
+    clearedBinding,
     '__Host-wbs_access=access; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=900',
     '__Host-wbs_session=random-5; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000',
   ]);
@@ -159,11 +160,14 @@ test('live mismatch retains cookies for honest recovery; expired and missing bin
   expect(missing.headers.getSetCookie()).toEqual([clearedBinding]);
   const expired = fixture();
   const old = await expired.start();
+  const oldName = old.split('=')[0] ?? '';
   expired.expire();
   const refused = await expired.callback(old);
   expect(refused.status).toBe(400);
   expect(await refused.json()).toEqual({ error: 'invalid_oidc_callback' });
-  expect(refused.headers.getSetCookie()).toEqual([clearedBinding]);
+  expect(refused.headers.getSetCookie()).toEqual([
+    `${oldName}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+  ]);
 });
 
 test('provider refusals never exchange or reflect descriptions and blank errors stay400', async () => {

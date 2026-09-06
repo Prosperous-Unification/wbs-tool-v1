@@ -1,9 +1,22 @@
+import { deadlineOffsetOf, isIsoDate } from '@wbs/domain/workday';
+
 import { DateField } from '../date-field';
 import { cellKey } from '../editable-grid';
 import type { PlanLive } from '../plan-live';
 import { shortIsoDate } from '../short-date';
 import { DATE_EDITOR_WIDTH } from '../table-frame';
 import { column } from './column';
+
+const DEADLINE_BEFORE_START =
+  "This deadline falls before the project's first working day, so nothing can finish by it. The date is kept; move the deadline or the project start.";
+const DEADLINE_MARK_PX = 10;
+
+/** Whether a stored deadline resolves before the project's first working day. */
+const deadlineBeforeProjectStart = (startDate: string | null, deadline: string | null): boolean => {
+  if (startDate === null || deadline === null) return false;
+  if (!isIsoDate(startDate) || !isIsoDate(deadline)) return false;
+  return deadlineOffsetOf(startDate, deadline).kind === 'before-project-start';
+};
 
 /** Builds the work-item deadline column against the stable live cell contract. */
 export function createDeadlineColumn({ live }: { live: PlanLive }) {
@@ -13,6 +26,7 @@ export function createDeadlineColumn({ live }: { live: PlanLive }) {
     cell: ({ row }) => {
       const day = row.original.deadline;
       const noCalendar = live.current.startDate === null;
+      const impossible = deadlineBeforeProjectStart(live.current.startDate, day);
       const editing = live.current.editingDeadline === row.original.id;
       const open = (): void => {
         if (!noCalendar) live.current.openDeadline(row.original.id);
@@ -47,49 +61,74 @@ export function createDeadlineColumn({ live }: { live: PlanLive }) {
           }}
         />
       ) : (
-        <input
-          aria-label={`Deadline for ${row.original.number}`}
-          disabled={noCalendar}
-          data-deadline={row.original.id}
-          data-cell={cellKey(row.original.id, 'deadline')}
-          data-fact={
-            noCalendar
-              ? 'Set the project start date first — without one there are no dates to hold a deadline against.'
-              : [
-                  day === null ? null : `${day}.`,
-                  'The last day this work item may finish on. It does not move the plan; a plan that misses it says so.',
-                ]
-                  .filter((part) => part !== null)
-                  .join(' ')
-          }
-          style={{
-            width: '100%',
-            boxSizing: 'border-box',
-            font: 'inherit',
-            background: 'transparent',
-            border: 'none',
-            cursor: noCalendar ? 'not-allowed' : 'text',
-          }}
-          value={day === null ? '—' : shortIsoDate(day, new Date())}
-          onChange={open}
-          onClick={open}
-          onKeyDown={(event) => {
-            if (
-              event.key === 'Enter' &&
-              !event.metaKey &&
-              !event.ctrlKey &&
-              !event.altKey &&
-              !event.shiftKey
-            ) {
-              event.preventDefault();
-              open();
-              return;
+        <span style={{ position: 'relative', display: 'block' }}>
+          <input
+            aria-label={`Deadline for ${row.original.number}`}
+            disabled={noCalendar}
+            data-deadline={row.original.id}
+            data-cell={cellKey(row.original.id, 'deadline')}
+            data-fact={
+              noCalendar
+                ? 'Set the project start date first — without one there are no dates to hold a deadline against.'
+                : [
+                    day === null ? null : `${day}.`,
+                    impossible
+                      ? DEADLINE_BEFORE_START
+                      : 'The last day this work item may finish on. It does not move the plan; a plan that misses it says so.',
+                  ]
+                    .filter((part) => part !== null)
+                    .join(' ')
             }
-            live.current.onAltMove(event, row.original, 'deadline');
-            live.current.onCommandKey(event, row.original, 'deadline');
-            live.current.onTabKey(event, row.original.id, 'deadline');
-          }}
-        />
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              font: 'inherit',
+              background: 'transparent',
+              border: 'none',
+              cursor: noCalendar ? 'not-allowed' : 'text',
+              paddingRight: impossible ? DEADLINE_MARK_PX : undefined,
+            }}
+            value={day === null ? '—' : shortIsoDate(day, new Date())}
+            onChange={open}
+            onClick={open}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Enter' &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey &&
+                !event.shiftKey
+              ) {
+                event.preventDefault();
+                open();
+                return;
+              }
+              live.current.onAltMove(event, row.original, 'deadline');
+              live.current.onCommandKey(event, row.original, 'deadline');
+              live.current.onTabKey(event, row.original.id, 'deadline');
+            }}
+          />
+          {impossible && (
+            <span
+              aria-label={`Deadline for ${row.original.number} falls before the project's first working day`}
+              role="img"
+              data-deadline-impossible={row.original.id}
+              style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                width: DEADLINE_MARK_PX,
+                textAlign: 'right',
+                pointerEvents: 'none',
+                color: 'var(--destructive)',
+                fontWeight: 700,
+                lineHeight: 1,
+              }}
+            >
+              !
+            </span>
+          )}
+        </span>
       );
     },
   });

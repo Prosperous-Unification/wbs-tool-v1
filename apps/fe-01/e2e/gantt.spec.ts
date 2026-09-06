@@ -5,7 +5,9 @@ import { expect, type Locator, type Page, type Response, test } from '@playwrigh
 import { calendarScale } from '../src/components/wbs/gantt-geometry';
 import { CHART_PAD_PX, DAY_PX, LABEL_COLUMN_PX, ROW_PX } from '../src/components/wbs/gantt-panel';
 import {
+  type ClipPixels,
   differingColumns,
+  greatestChannelDelta,
   isContiguousRun,
   sameColumns,
 } from '../src/components/wbs/marker-rule-ink';
@@ -3702,7 +3704,7 @@ test.describe('the marker rule, measured in the columns it paints', () => {
   }
 
   /**
-   * Decodes two clips **in the page** and returns the columns they differ in.
+   * Decodes two clips **in the page** so their pixels can be compared.
    *
    * `page.screenshot` hands back a Node `Buffer` and there is no PNG decoder in
    * this workspace, so the bytes are carried in as a data URL and drawn into a
@@ -3711,8 +3713,12 @@ test.describe('the marker rule, measured in the columns it paints', () => {
    * `img.decode()` before drawing, and the canvas sized from the image before
    * that, since a fresh `<canvas>` is 300×150 and would crop a wider clip.
    */
-  async function differingColumnsOf(page: Page, before: string, after: string): Promise<number[]> {
-    const pixels = await page.evaluate(
+  async function pixelsOf(
+    page: Page,
+    before: string,
+    after: string,
+  ): Promise<readonly [ClipPixels, ClipPixels]> {
+    return page.evaluate(
       async ([first, second]) => {
         const read = async (
           encoded: string,
@@ -3735,7 +3741,6 @@ test.describe('the marker rule, measured in the columns it paints', () => {
       },
       [before, after] as const,
     );
-    return differingColumns(pixels[0], pixels[1]);
   }
 
   /** Moves the ladder, and waits for the day columns to have really moved. */
@@ -3859,6 +3864,8 @@ test.describe('the marker rule, measured in the columns it paints', () => {
     for (const rung of RUNGS) {
       await pickRung(page, rung);
       const present = await photograph(page);
+      const before = absent.get(rung);
+      if (before === undefined) throw new Error(`no absent clip at ${String(rung)}px`);
 
       // `visibility` rather than `display`, so nothing reflows between the two
       // clips — and on **the element the assertions above queried**, which is
@@ -3871,11 +3878,8 @@ test.describe('the marker rule, measured in the columns it paints', () => {
         line.style.visibility = '';
       });
 
-      const before = absent.get(rung);
-      if (before === undefined) throw new Error(`no absent clip at ${String(rung)}px`);
-
-      const totalInk = await differingColumnsOf(page, before.strip, present.strip);
-      const ruleInk = await differingColumnsOf(page, hidden.strip, present.strip);
+      const totalInk = differingColumns(...(await pixelsOf(page, before.strip, present.strip)));
+      const ruleInk = differingColumns(...(await pixelsOf(page, hidden.strip, present.strip)));
 
       // A hairline against a day. The bound is deliberately not tight enough to
       // tell 1 CSS pixel from 2 — the rule sits on a pixel boundary and Skia
@@ -3901,19 +3905,22 @@ test.describe('the marker rule, measured in the columns it paints', () => {
       ).toBe(true);
 
       // The binding, over the whole body rather than the strip: a strip cannot
-      // prove the absence of paint it does not cover. If hiding one element
-      // returns the chart to its marker-free state, that element is the only
-      // body ink the marker adds, anywhere.
+      // prove the absence of paint it does not cover. Chrome occasionally
+      // rasterizes an unchanged SVG text edge a few channel values either side
+      // of its earlier frame under load — the reproduced failure was three
+      // pixels with a greatest channel delta of 5. Eight admits that invisible
+      // jitter; an opaque auxiliary rule has a delta many times larger and the
+      // arithmetic's controlled fault pins that distinction. Proof: a
+      // temporary untagged marker line eight days outside the strip failed
+      // this assertion at delta 79 against the allowed 8 on h2puni.
+      const bodyDelta = greatestChannelDelta(...(await pixelsOf(page, before.body, hidden.body)));
       expect(
-        hidden.body === before.body,
+        bodyDelta,
         `at ${String(rung)}px the marker leaves body ink the queried rule does not account for`,
-      ).toBe(true);
-      // And the marker really drew something, so the identity above is not two
-      // photographs of the same empty chart.
-      expect(
-        present.body === before.body,
-        `at ${String(rung)}px the marker changes nothing in the body at all`,
-      ).toBe(false);
+      ).toBeLessThanOrEqual(8);
+      // `ruleInk` is non-empty by `isContiguousRun` above, so the marker really
+      // did draw body ink; a second exact-PNG check here would let the same
+      // raster jitter satisfy that positive assertion by itself.
     }
   });
 });

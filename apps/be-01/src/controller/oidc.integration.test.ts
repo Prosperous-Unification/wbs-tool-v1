@@ -1,5 +1,9 @@
 import type { JwtClaims } from '@wbs/auth';
-import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
+import {
+  browserBindingCookieName,
+  InMemoryOidcTransactionStore,
+  InMemoryTokenStore,
+} from '@wbs/auth';
 import { describe, expect, it } from 'bun:test';
 import { errors } from 'jose';
 
@@ -64,6 +68,13 @@ function fixture(
   routeOverrides: {
     passwordLoginEnabled?: boolean;
     passwordRegisterEnabled?: boolean;
+    // Spread over the fixture's own five-value list, for the cases that drive
+    // more than one login through one browser (TASK-272).
+    random?: () => string;
+    // Drives the routes *and* both stores, for the one case that needs two
+    // logins to have started at different instants — the eviction order is the
+    // store's `expiresAt`, so a frozen clock would make it a tie (TASK-272).
+    clock?: () => number;
   } = {},
   // Separate from `routeOverrides`, which is spread onto the options object:
   // this replaces one method of the fake provider client, and the only case
@@ -107,8 +118,10 @@ function fixture(
     },
     ...clientOverrides,
   };
-  const transactions = new InMemoryOidcTransactionStore({ now: () => now, ttlMs: 300_000 });
-  const tokens = new InMemoryTokenStore({ now: () => now });
+  const { clock, ...routeOptions } = routeOverrides;
+  const tick = clock ?? ((): number => now);
+  const transactions = new InMemoryOidcTransactionStore({ now: tick, ttlMs: 300_000 });
+  const tokens = new InMemoryTokenStore({ now: tick });
   const random = ['binding-1', 'state-1', 'nonce-1', 'verifier-1', 'session-1'];
   // What a refused or failed login writes down. `buildApp` hands the route list
   // its own pino logger when the options carry none; supplying one here wins,
@@ -123,7 +136,7 @@ function fixture(
     groupsClaim: 'wbs_groups',
     logger: { info: record('info'), warn: record('warn'), error: record('error') },
     mode: 'oidc' as const,
-    now: () => now,
+    now: tick,
     random: () => random.shift() ?? 'extra-random',
     redirectUri: 'https://dev.wbs.test/api/auth/okta/callback',
     verifier: {
@@ -134,7 +147,7 @@ function fixture(
     },
     tokens,
     transactions,
-    ...routeOverrides,
+    ...routeOptions,
   };
   const users = inMemoryUsers();
   const app = buildApp({
@@ -157,6 +170,57 @@ function fixture(
     savedPlans: testSavedPlanService(),
   });
   return { app, calls, logs, tokens, transactions, users, oidc };
+}
+
+/**
+ * The binding cookies one response writes, name to value, with a cleared cookie
+ * reading `null` (TASK-272).
+ *
+ * A login is one cookie now rather than one entry in a list, so the cases below
+ * track a jar. Reading the values rather than whole attribute strings keeps an
+ * assertion about which logins a browser holds from also asserting `HttpOnly`
+ * and `Max-Age`; those are asserted once, at `binds login state, nonce, and
+ * PKCE verifier to the initiating browser`.
+ */
+function bindingCookiesOf(res: Response): Map<string, string | null> {
+  const written = new Map<string, string | null>();
+  for (const [, name, value] of (res.headers.get('set-cookie') ?? '').matchAll(
+    /(__Host-wbs_oidc_[^=;,\s]+)=([^;,]*)/g,
+  )) {
+    written.set(name, value === '' ? null : value);
+  }
+  return written;
+}
+
+/** The cookies a browser would hold for these logins, one each. */
+function jarOf(...bindings: string[]): Map<string, string> {
+  return new Map(bindings.map((binding) => [browserBindingCookieName(binding), binding]));
+}
+
+/** What a browser holds after applying one response to the jar it had. */
+function browserJar(held: Map<string, string>, res: Response): Map<string, string> {
+  const next = new Map(held);
+  for (const [name, value] of bindingCookiesOf(res)) {
+    if (value === null) next.delete(name);
+    else next.set(name, value);
+  }
+  return next;
+}
+
+/** The logins a jar is holding, in the order a browser would send them. */
+function bindingsOf(jar: Map<string, string>): string[] {
+  return [...jar.values()];
+}
+
+/** Whether this answer retired the cookie that was holding `binding`. */
+function retires(res: Response, binding: string): boolean {
+  return bindingCookiesOf(res).get(browserBindingCookieName(binding)) === null;
+}
+
+/** What the browser sends back, or no cookie header at all when it holds none. */
+function cookieHeader(jar: Map<string, string>): Record<string, string> {
+  if (jar.size === 0) return {};
+  return { cookie: [...jar].map(([name, value]) => `${name}=${value}`).join('; ') };
 }
 
 describe('OIDC browser routes', () => {
@@ -516,12 +580,202 @@ describe('OIDC browser routes', () => {
         verifier: 'verifier-1',
       },
     ]);
-    expect(res.headers.get('set-cookie')).toContain('__Host-wbs_oidc=binding-1;');
+    expect(bindingCookiesOf(res).get(browserBindingCookieName('binding-1'))).toBe('binding-1');
+    // The one place the binding cookie's attributes are asserted: the name is
+    // new under TASK-272 and `__Host-` only means anything with all of these.
+    expect(res.headers.get('set-cookie')).toContain(
+      `${browserBindingCookieName('binding-1')}=binding-1; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300`,
+    );
     expect(f.transactions.consume('binding-1', 'state-1')).toEqual({
       nonce: 'nonce-1',
       outcome: 'consumed',
       verifier: 'verifier-1',
     });
+  });
+
+  /**
+   * TASK-272, end to end, and it is the case the whole change exists for.
+   *
+   * Two tabs, one cookie name. Before this, the second login's `Set-Cookie`
+   * replaced the first's, so the first tab's callback came back holding a
+   * binding that was not its own and was refused — a login lost to nothing but
+   * a second tab, with no attacker anywhere in it. TASK-276 had already stopped
+   * that arrival from destroying the *second* tab's record; what it could not
+   * do is give the first tab back a cookie the browser had overwritten.
+   *
+   * Every request here carries what a browser would actually be holding, taken
+   * from the previous response rather than written down, because the cookie's
+   * value is now the thing under test.
+   *
+   * Measured against the login route writing both logins under one shared
+   * cookie name: this fails first at the jar the second login leaves behind,
+   * `Expected: ["binding-1", "binding-2"] Received: ["binding-2"]`, because that
+   * assertion throws and ends the case. Delete it as well and it fails where a
+   * browser would suffer it, at the late callback: `Expected: 302 Received:
+   * 400`. Both were run; the loss is asserted at the cause and at the effect.
+   *
+   * **The second login's answer must also not name the first login's cookie**
+   * (TASK-272 r1, Important). The shape this replaced kept both bindings in one
+   * value, so starting a login meant rewriting the list — and a login started
+   * while that request was in flight was erased by a write it never appeared in.
+   * `expect(bindingCookiesOf(secondTab).size).toBe(1)` is that: the second login
+   * writes its own name and says nothing whatever about the first's.
+   */
+  it('lets the first tab finish a login a second tab started after it', async () => {
+    const sequence = [
+      'binding-1',
+      'state-1',
+      'nonce-1',
+      'verifier-1',
+      'binding-2',
+      'state-2',
+      'nonce-2',
+      'verifier-2',
+      'session-1',
+    ];
+    const f = fixture(claims, { random: () => sequence.shift() ?? 'extra-random' });
+
+    const firstTab = await f.app.handle(new Request('https://dev.wbs.test/api/auth/login'));
+    const afterFirst = browserJar(new Map(), firstTab);
+    const secondTab = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/login', { headers: cookieHeader(afterFirst) }),
+    );
+    const afterSecond = browserJar(afterFirst, secondTab);
+
+    expect(bindingsOf(afterFirst)).toEqual(['binding-1']);
+    expect(bindingsOf(afterSecond)).toEqual(['binding-1', 'binding-2']);
+    expect(bindingCookiesOf(secondTab).size).toBe(1);
+
+    // The first tab's callback, returning after the second login started and
+    // carrying every binding cookie the browser holds, with its own state.
+    const late = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(afterSecond),
+      }),
+    );
+    const afterLate = browserJar(afterSecond, late);
+
+    expect(late.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+    // The second tab's login is still in the browser and still live, and the
+    // answer never named its cookie at all — only the one it spent.
+    expect(bindingsOf(afterLate)).toEqual(['binding-2']);
+    expect([...bindingCookiesOf(late).keys()]).toEqual([browserBindingCookieName('binding-1')]);
+
+    const second = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-2', {
+        headers: cookieHeader(afterLate),
+      }),
+    );
+
+    expect(second.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(2);
+    expect(bindingsOf(browserJar(afterLate, second))).toEqual([]);
+  });
+
+  /**
+   * TASK-272's fourth acceptance criterion: the bound on how many logins one
+   * browser may hold is `MAX_BROWSER_BINDINGS`, it is written down, and it is
+   * the *oldest* login that is dropped — not the one being completed. Without
+   * it the jar would grow for as long as a person keeps opening tabs and the
+   * real limit would be the user agent's silent per-domain cap.
+   *
+   * With one cookie per login the bound is kept by **clearing a name**, and the
+   * name to clear comes from the store's `expiresAt` rather than from anything
+   * the cookie says about itself. Removing the eviction from the login route
+   * leaves the fourth login's jar reading four bindings here.
+   */
+  it('holds three concurrent logins per browser and drops the oldest', async () => {
+    const sequence = [1, 2, 3, 4].flatMap((n) => [
+      `binding-${String(n)}`,
+      `state-${String(n)}`,
+      `nonce-${String(n)}`,
+      `verifier-${String(n)}`,
+    ]);
+    // A second between tabs, so "oldest" is a fact the store holds rather than
+    // the order the browser happened to send its cookies in.
+    let clock = now;
+    const f = fixture(claims, {
+      clock: () => clock,
+      random: () => sequence.shift() ?? 'session-1',
+    });
+
+    let held = new Map<string, string>();
+    for (let tab = 0; tab < 4; tab += 1) {
+      const res = await f.app.handle(
+        new Request('https://dev.wbs.test/api/auth/login', { headers: cookieHeader(held) }),
+      );
+      held = browserJar(held, res);
+      clock += 1_000;
+    }
+
+    expect(bindingsOf(held)).toEqual(['binding-2', 'binding-3', 'binding-4']);
+
+    // The dropped login is unfinishable, and its refusal is the ordinary one:
+    // the browser cannot present a binding it no longer holds.
+    const dropped = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(held),
+      }),
+    );
+
+    expect(dropped.status).toBe(400);
+    expect(f.calls.exchange).toHaveLength(0);
+    // …and it costs the three surviving logins nothing: state-1 matched none of
+    // them, so the answer names no cookie at all.
+    expect(dropped.headers.get('set-cookie')).toBeNull();
+
+    const surviving = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-2', {
+        headers: cookieHeader(held),
+      }),
+    );
+
+    expect(surviving.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
+    expect(bindingsOf(browserJar(held, surviving))).toEqual(['binding-3', 'binding-4']);
+  });
+
+  /**
+   * The denial TASK-272 would have opened if the stateless refusal had gone on
+   * clearing the browser's bindings. They are `SameSite=Lax`, so a hostile page
+   * can navigate a browser to this route with **no query at all** — and once a
+   * browser can hold three logins, one such navigation would have ended all
+   * three. It is the TASK-276 attack with a shorter URL and it gets the same
+   * answer: the bodiless 400, nothing live cleared.
+   */
+  it('refuses a stateless callback without discarding the logins in flight', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+    const held = jarOf('binding-1');
+
+    const stateless = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c', {
+        headers: cookieHeader(held),
+      }),
+    );
+
+    expect(stateless.status).toBe(400);
+    expect(stateless.headers.get('set-cookie')).toBeNull();
+    expect(f.calls.exchange).toHaveLength(0);
+
+    // The second request carries what a browser would still be holding, derived
+    // from the first answer rather than written down — the shape TASK-276's
+    // sibling case arrived at, because re-sending the jar unconditionally makes
+    // this assertion vacuous against a route that cleared the binding.
+    const honest = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(browserJar(held, stateless)),
+      }),
+    );
+
+    expect(honest.status).toBe(302);
+    expect(f.calls.exchange).toHaveLength(1);
   });
 
   it('burns a callback with no matching browser transaction', async () => {
@@ -572,7 +826,7 @@ describe('OIDC browser routes', () => {
     const forged = await f.app.handle(
       new Request(
         'https://dev.wbs.test/api/auth/okta/callback?error=access_denied&state=anything',
-        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+        { headers: cookieHeader(jarOf('binding-1')) },
       ),
     );
 
@@ -581,19 +835,12 @@ describe('OIDC browser routes', () => {
     expect(forged.headers.get('set-cookie')).toBeNull();
     expect(f.calls.exchange).toHaveLength(0);
 
-    // Annotated, because the ternary's own type is a union of two object
-    // literal shapes and `HeadersInit` will not take it: `be-01:typecheck`
-    // fails with `TS2322: Type '{ cookie?: undefined; } | { cookie: string; }'
-    // is not assignable to type 'HeadersInit | undefined'` while every test
-    // still passes, since bun's runtime never sees the difference.
-    const surviving: Record<string, string> = forged.headers
-      .get('set-cookie')
-      ?.includes('__Host-wbs_oidc=;')
-      ? {}
-      : { cookie: '__Host-wbs_oidc=binding-1' };
+    // Derived from the forged answer rather than written down: a route that
+    // retired the binding leaves the browser holding nothing, and the honest
+    // callback below then fails the way a person would experience it.
     const honest = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: surviving,
+        headers: cookieHeader(browserJar(jarOf('binding-1'), forged)),
       }),
     );
 
@@ -631,7 +878,7 @@ describe('OIDC browser routes', () => {
 
     const polluted = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1&state=other', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -645,7 +892,7 @@ describe('OIDC browser routes', () => {
 
     const honest = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -676,7 +923,7 @@ describe('OIDC browser routes', () => {
 
     const polluted = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&code=c2&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -687,7 +934,7 @@ describe('OIDC browser routes', () => {
 
     const honest = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -718,7 +965,7 @@ describe('OIDC browser routes', () => {
 
     const probed = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
         method: 'HEAD',
       }),
     );
@@ -727,15 +974,15 @@ describe('OIDC browser routes', () => {
     expect(probed.headers.get('allow')).toBe('GET');
     expect(f.calls.exchange).toHaveLength(0);
     // The cookie has to survive the refusal, not just the record: reading
-    // `f.transactions` by key would still pass if the 405 cleared
-    // `__Host-wbs_oidc`, and a browser with no binding cannot finish the login
+    // `f.transactions` by key would still pass if the 405 cleared the binding
+    // cookie, and a browser with no binding cannot finish the login
     // the record is still holding. So the carrying assertion is the honest GET
     // that follows, sending the same cookie the probe was answered with.
     expect(probed.headers.get('set-cookie')).toBeNull();
 
     const honest = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -783,20 +1030,20 @@ describe('OIDC browser routes', () => {
     const cancelled = await f.app.handle(
       new Request(
         'https://dev.wbs.test/api/auth/okta/callback?error=access_denied&error_description=The+resource+owner+declined&state=state-1',
-        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+        { headers: cookieHeader(jarOf('binding-1')) },
       ),
     );
 
     expect(cancelled.status).toBe(302);
     expect(cancelled.headers.get('location')).toBe('/?auth_error=access_denied');
     expect(f.calls.exchange).toHaveLength(0);
-    expect(cancelled.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(retires(cancelled, 'binding-1')).toBe(true);
 
     // The login is over, so the transaction went with it: a code arriving for
     // the same state afterwards finds nothing to complete.
     const late = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -817,14 +1064,14 @@ describe('OIDC browser routes', () => {
       new Request(
         'https://dev.wbs.test/api/auth/okta/callback?error=login_required&state=state-1',
         {
-          headers: { cookie: '__Host-wbs_oidc=binding-1' },
+          headers: cookieHeader(jarOf('binding-1')),
         },
       ),
     );
 
     expect(refused.status).toBe(302);
     expect(refused.headers.get('location')).toBe('/?auth_error=login_required');
-    expect(refused.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(retires(refused, 'binding-1')).toBe(true);
     expect(f.calls.exchange).toHaveLength(0);
   });
 
@@ -852,13 +1099,13 @@ describe('OIDC browser routes', () => {
     const opaque = await f.app.handle(
       new Request(
         'https://dev.wbs.test/api/auth/okta/callback?error=okta_policy_evaluation_failure&error_description=Call+support+on+555-0100&state=state-1',
-        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+        { headers: cookieHeader(jarOf('binding-1')) },
       ),
     );
 
     expect(opaque.status).toBe(302);
     expect(opaque.headers.get('location')).toBe('/?auth_error=provider_error');
-    expect(opaque.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(retires(opaque, 'binding-1')).toBe(true);
     expect(f.calls.exchange).toHaveLength(0);
     // The location is not the only place a description could surface. This
     // answer carries no body at all, and a regression that started explaining
@@ -884,13 +1131,13 @@ describe('OIDC browser routes', () => {
 
     const blank = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?error=&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
     expect(blank.status).toBe(400);
     expect(blank.headers.get('location')).toBeNull();
-    expect(blank.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(retires(blank, 'binding-1')).toBe(true);
     expect(f.calls.exchange).toHaveLength(0);
   });
 
@@ -918,7 +1165,7 @@ describe('OIDC browser routes', () => {
     await f.app.handle(
       new Request(
         'https://dev.wbs.test/api/auth/okta/callback?error=okta_policy_evaluation_failure&error_description=Blocked+by+policy+Zone-7&state=state-1',
-        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+        { headers: cookieHeader(jarOf('binding-1')) },
       ),
     );
 
@@ -948,7 +1195,7 @@ describe('OIDC browser routes', () => {
 
     await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?error=access_denied&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -999,13 +1246,13 @@ describe('OIDC browser routes', () => {
 
     const failed = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
     expect(failed.status).toBe(401);
     expect(attempts).toHaveLength(1);
-    expect(failed.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+    expect(retires(failed, 'binding-1')).toBe(true);
     // A failed exchange mints nothing: the two session cookies never appear.
     expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_access=');
     expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_session=');
@@ -1024,7 +1271,7 @@ describe('OIDC browser routes', () => {
     });
     const res = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -1057,7 +1304,7 @@ describe('OIDC browser routes', () => {
 
     const res = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -1081,7 +1328,7 @@ describe('OIDC browser routes', () => {
 
     const res = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+        headers: cookieHeader(jarOf('binding-1')),
       }),
     );
 
@@ -1099,7 +1346,7 @@ describe('OIDC browser routes', () => {
     });
     const res = await f.app.handle(
       new Request('http://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: { cookie: '__Host-wbs_oidc=binding-1', 'x-forwarded-proto': 'https' },
+        headers: { ...cookieHeader(jarOf('binding-1')), 'x-forwarded-proto': 'https' },
       }),
     );
 

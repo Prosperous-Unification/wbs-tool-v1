@@ -138,3 +138,56 @@ test('checks deadline and slice lateness while retaining additive nested respons
   ])
     expect((await validateSchema(schema, altered)).issues).toBeDefined();
 });
+
+test('checks the optional optimization projection and every variant state', async () => {
+  const schema = responseSchema(workItemTree);
+  const tree = {
+    workItems: [],
+    seq: 1,
+    scheduleError: null,
+    waitingForPerson: 0,
+    waitingForCapacity: 0,
+    slices: [],
+    steps: [],
+    assignedPeople: [],
+    teamCapacities: [],
+    priorityBands: [],
+    estimateMethod: 'pert',
+    pertWeights: { optimistic: 1, realistic: 4, pessimistic: 1 },
+    estimateRounding: 'exact',
+    depReach: 'whole-item',
+    startDate: null,
+    projectRevision: 1,
+  };
+  const optimization = {
+    enabled: true,
+    engine: 'optimized',
+    objective: 'pri',
+    inputHash: 'input',
+    generation: 2,
+    contractVersion: '7+test',
+    budgetMs: 60_000,
+    displayed: 'pri',
+    variants: {
+      pri: { state: 'ready' },
+      time: {
+        state: 'plan-infeasible',
+        items: [{ ownerWorkItemId: 'owner', boundWorkItemId: 'bound', effectiveDeadlineOffset: 4 }],
+      },
+    },
+    comparison: { deltaDays: -2, sameOrder: false },
+  };
+
+  expect((await validateSchema(schema, { ...tree, optimization })).issues).toBeUndefined();
+  expect(
+    (
+      await validateSchema(schema, {
+        ...tree,
+        optimization: {
+          ...optimization,
+          variants: { ...optimization.variants, pri: { state: 'failed', reason: 'unknown' } },
+        },
+      })
+    ).issues,
+  ).toBeDefined();
+});

@@ -859,6 +859,15 @@ export function PlanToolbar({
           setArithmetic: (arithmetic) => api.setEstimateArithmetic(projectId, arithmetic),
           onChanged: refreshOrMarkStale,
         }}
+        {...(chartRead.optimization === undefined
+          ? {}
+          : {
+              optimization: {
+                value: chartRead.optimization,
+                setSettings: (patch) => api.setOptimizationSettings(projectId, patch),
+                onChanged: refreshOrMarkStale,
+              },
+            })}
       />
       {/*
         Find. Deliberately without `data-cell`: this is not a cell of the

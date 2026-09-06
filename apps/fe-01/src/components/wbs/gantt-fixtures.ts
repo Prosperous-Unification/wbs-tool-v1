@@ -77,6 +77,7 @@ export const sliceAt = (
   width: 1,
   effort: earliestFinish - earliestStart,
   capacityPredecessorIds: [],
+  lateBy: null,
   ...extras,
 });
 

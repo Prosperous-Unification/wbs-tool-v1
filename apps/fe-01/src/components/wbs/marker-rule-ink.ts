@@ -72,6 +72,31 @@ export function differingColumns(baseline: ClipPixels, after: ClipPixels): numbe
 }
 
 /**
+ * The largest per-channel movement between two clips of the same pixels.
+ *
+ * Chrome can rasterize an unchanged SVG text edge a few values either side of
+ * the previous frame under load. That is not new ink, while an opaque mark on
+ * the chart moves at least one channel by far more. Keeping this arithmetic
+ * here lets the browser test state that discrimination explicitly instead of
+ * turning a three-pixel anti-alias wobble into a whole-test retry.
+ */
+export function greatestChannelDelta(baseline: ClipPixels, after: ClipPixels): number {
+  if (baseline.width !== after.width || baseline.height !== after.height) {
+    throw new Error(
+      `clips are ${String(baseline.width)}×${String(baseline.height)} and ` +
+        `${String(after.width)}×${String(after.height)}; ` +
+        'the same pixels decoded twice cannot change size',
+    );
+  }
+  let greatest = 0;
+  const channels = baseline.width * baseline.height * 4;
+  for (let at = 0; at < channels; at += 1) {
+    greatest = Math.max(greatest, Math.abs(baseline.data[at] - after.data[at]));
+  }
+  return greatest;
+}
+
+/**
  * Whether the differing columns are one run with no gap in it.
  *
  * A vertical hairline paints one run. Two hairlines a column apart paint two

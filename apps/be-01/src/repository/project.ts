@@ -29,10 +29,13 @@ import type {
 import { isScheduleEngine, isSolverObjective, unknownStoredValue } from './optimizer-rows';
 import { bumpedProject } from './revision';
 import {
+  optimizationGeneration,
   project,
   projectAccess,
   type ScheduleEngine,
   type SolverObjectiveName,
+  solverQueue,
+  solverSlot,
   step,
   users,
 } from './schema';
@@ -449,32 +452,68 @@ export class ProjectRepository implements ProjectStore {
     if (Object.values(patch).every((value) => value === undefined)) {
       return this.findById(id);
     }
+    const { solutionRef, pertWeights, ...fields } = patch;
     // The bump rides in the same `SET` as the change it describes, so a patch
     // that lands without moving the revision is not a state this can reach.
-    const { solutionRef, pertWeights, ...fields } = patch;
-    const rows = await this.db
-      .update(project)
-      .set({
-        ...fields,
-        // The triple is written as a triple or not at all: a patch holding one
-        // weight would leave the other two as they were, and the divisor is
-        // their sum — half an answer is a different arithmetic rather than a
-        // partial one. `ProjectPatch` carries them as one object for that
-        // reason, and this is where it becomes three columns.
-        ...(pertWeights === undefined ? {} : weightColumns(pertWeights)),
-        ...(solutionRef === undefined
-          ? {}
-          : {
-              solutionSlug: solutionRef?.slug ?? null,
-              solutionUrl: solutionRef?.url ?? null,
-            }),
-        revision: bumpedProject,
-        ...auditOnUpdate(stamp),
-      })
-      .where(eq(project.id, id))
-      .returning();
-    const updated = rows.at(0);
-    return updated === undefined ? null : toProject(updated);
+    const updates = {
+      ...fields,
+      // The triple is written as a triple or not at all: a patch holding one
+      // weight would leave the other two as they were, and the divisor is
+      // their sum — half an answer is a different arithmetic rather than a
+      // partial one. `ProjectPatch` carries them as one object for that
+      // reason, and this is where it becomes three columns.
+      ...(pertWeights === undefined ? {} : weightColumns(pertWeights)),
+      ...(solutionRef === undefined
+        ? {}
+        : {
+            solutionSlug: solutionRef?.slug ?? null,
+            solutionUrl: solutionRef?.url ?? null,
+          }),
+      revision: bumpedProject,
+    };
+    return this.db.transaction((tx) => {
+      // Claim the ON→OFF edge with a write, not a read followed by a write.
+      // Two backend processes can PATCH one SQLite file during a blue/green
+      // swap; the conditional UPDATE serializes them so exactly one advances
+      // every release's cancellation epoch.
+      let updated =
+        patch.optimizationEnabled === false
+          ? tx
+              .update(project)
+              .set({ ...updates, ...auditOnUpdate(stamp) })
+              .where(and(eq(project.id, id), eq(project.optimizationEnabled, true)))
+              .returning()
+              .all()
+              .at(0)
+          : undefined;
+      const turnedOff = updated !== undefined;
+      updated ??= tx
+        .update(project)
+        .set({ ...updates, ...auditOnUpdate(stamp) })
+        .where(eq(project.id, id))
+        .returning()
+        .all()
+        .at(0);
+      if (updated === undefined) return null;
+
+      if (turnedOff) {
+        tx.update(optimizationGeneration)
+          .set({
+            cancelEpoch: sql`${optimizationGeneration.cancelEpoch} + 1`,
+            updatedAt: stamp.at,
+          })
+          .where(eq(optimizationGeneration.projectId, id))
+          .run();
+        tx.update(solverSlot)
+          .set({ cancelRequestedAt: stamp.at })
+          .where(eq(solverSlot.projectId, id))
+          .run();
+        tx.delete(solverQueue).where(eq(solverQueue.projectId, id)).run();
+      }
+      // Proof: without this cleanup, `turns optimization off as an idempotent
+      // project-scoped cancellation` leaves both epochs, slots and queues live.
+      return toProject(updated);
+    });
   }
 
   /**

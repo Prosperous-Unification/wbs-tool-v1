@@ -78,6 +78,7 @@ const slice = (over: Partial<ExportSlice> & Pick<ExportSlice, 'id' | 'workItemId
     width: 1,
     effort: 3,
     capacityPredecessorIds: [],
+    lateBy: null,
     ...over,
   });
 

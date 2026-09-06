@@ -1,0 +1,36 @@
+{
+  "name": "solver-supervisor-protocol",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/contracts/solver/supervisor-protocol/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:contracts", "runtime:isomorphic"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/contracts/solver/supervisor-protocol/tsconfig.lib.json"
+      },
+      "outputs": ["{workspaceRoot}/dist/out-tsc/libs/contracts/solver/supervisor-protocol"]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx eslint libs/contracts/solver/supervisor-protocol/src"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage --coverage-reporter=lcov",
+        "cwd": "libs/contracts/solver/supervisor-protocol"
+      },
+      "outputs": ["{projectRoot}/coverage"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx tsc --build --force libs/contracts/solver/supervisor-protocol/tsconfig.json"
+      }
+    }
+  }
+}

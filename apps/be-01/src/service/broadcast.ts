@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { ScheduleEngine, SolverObjectiveName, Step } from '../repository';
+import type { SolverFailureReason } from '../repository/schema';
 import type { NumberedWorkItem } from './work-item.service';
 
 /**
@@ -95,8 +96,8 @@ export type ProjectEvent =
    * of state. All three are sent whatever moved, because a reader holding one
    * changed field and two stale ones cannot tell which it has.
    *
-   * `schedule_optimized` is **not** this event and is deliberately not declared
-   * here: it stays reserved for a stored solver *result* arriving, which is a
+   * `schedule_optimized` is **not** this event: it is reserved for a stored
+   * solver *result* arriving, which is a
    * different fact with a different payload and a different trigger. Emitting
    * a settings change as a result would tell a client a schedule had been
    * recomputed when nothing had run.
@@ -106,6 +107,25 @@ export type ProjectEvent =
       optimizationEnabled: boolean;
       scheduleEngine: ScheduleEngine;
       scheduleObjective: SolverObjectiveName;
+    }
+  | {
+      type: 'schedule_optimized';
+      projectId: string;
+      generation: number;
+      inputHash: string;
+      objective: SolverObjectiveName;
+      contractVersion: string;
+      budgetMs: number;
+    }
+  | {
+      type: 'schedule_optimization_failed';
+      projectId: string;
+      generation: number;
+      inputHash: string;
+      objective: SolverObjectiveName;
+      contractVersion: string;
+      budgetMs: number;
+      failureReason: SolverFailureReason;
     }
   /**
    * This project's list of saved plans has changed — one saved, renamed or

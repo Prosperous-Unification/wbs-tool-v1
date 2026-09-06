@@ -28,6 +28,15 @@ export const ROOT = CURRENT_ENV.root;
 
 export const BE_ALIAS = 'be-01.internal';
 
+/**
+ * The supervisor owns this host runtime directory. Backend containers receive
+ * a read-only bind of the directory, never the socket inode itself: systemd
+ * may atomically replace `supervisor.sock` when the service restarts, and a
+ * file bind would pin the stale inode inside an otherwise healthy backend.
+ */
+export const SOLVER_SUPERVISOR_HOST_DIRECTORY = '/run/user/1000/wbs-solver';
+export const SOLVER_SUPERVISOR_CONTAINER_DIRECTORY = '/run/wbs-solver';
+
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 
 export function isDigest(v: string): boolean {
@@ -211,7 +220,17 @@ export function tierEnvFiles(tier: Tier, layout: EnvLayout = CURRENT_ENV): strin
 const APP_ENV_ALLOWED_KEYS: Record<Tier, readonly string[]> = {
   // Proof: removing APP_ORIGIN made startGreen admits in swap.test.ts throw
   // outside-tier-allowlist before writing Compose or invoking Docker.
-  be: ['PORT', 'LOG_LEVEL', 'GW_URL', 'DB_PATH', 'AUTH_MODE', 'APP_ORIGIN'],
+  be: [
+    'PORT',
+    'LOG_LEVEL',
+    'GW_URL',
+    'DB_PATH',
+    'AUTH_MODE',
+    'APP_ORIGIN',
+    'SOLVER_BUDGET_MS',
+    'SOLVER_SEARCH_WORKERS',
+    'SOLVER_MEMORY_LIMIT_MB',
+  ],
   gw: ['PORT', 'LOG_LEVEL', 'BE_URL', 'AUTH_MODE'],
   fe: [],
 };
@@ -279,12 +298,13 @@ function envFilesBlock(tier: Tier, layout: EnvLayout = CURRENT_ENV): string {
   return `    env_file:\n${lines.join('\n')}\n`;
 }
 
-/** Only be-01 (`apps/be-01/src/repository/db.ts`) opens a SQLite file off `/data` — see `tierComposeContext`'s doc comment. */
-const DATA_VOLUME_TIERS: ReadonlySet<Tier> = new Set<Tier>(['be']);
-
 function volumesBlock(tier: Tier, layout: EnvLayout = CURRENT_ENV): string {
-  if (!DATA_VOLUME_TIERS.has(tier)) return '';
-  return `    volumes:\n      - ${layout.root}/data:/data\n`;
+  if (tier !== 'be') return '';
+  return (
+    `    volumes:\n` +
+    `      - ${layout.root}/data:/data\n` +
+    `      - ${SOLVER_SUPERVISOR_HOST_DIRECTORY}:${SOLVER_SUPERVISOR_CONTAINER_DIRECTORY}:ro\n`
+  );
 }
 
 /**

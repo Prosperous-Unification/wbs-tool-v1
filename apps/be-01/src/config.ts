@@ -14,17 +14,43 @@ export const BeConfig = type({
   // >=32 bound as gw-01's copy so a short key fails at both ends or neither.
   JWT_SIGNING_KEY_CURRENT: 'string>=32',
   AUTH_MODE: "'local'|'oidc'",
+  'SOLVER_BUDGET_MS?': 'string.integer.parse',
+  'SOLVER_SEARCH_WORKERS?': 'string.integer.parse',
+  'SOLVER_MEMORY_LIMIT_MB?': 'string.integer.parse',
 });
-export type BeConfig = typeof BeConfig.infer;
+export type BeConfig = Omit<
+  typeof BeConfig.infer,
+  'SOLVER_BUDGET_MS' | 'SOLVER_SEARCH_WORKERS' | 'SOLVER_MEMORY_LIMIT_MB'
+> & {
+  SOLVER_BUDGET_MS: number;
+  SOLVER_SEARCH_WORKERS: number;
+  SOLVER_MEMORY_LIMIT_MB: number;
+};
 
 export const loadConfig = (
   envSource: Record<string, string | undefined> = process.env,
 ): BeConfig & { appOrigin: string } => {
   const mode = authModeOf(envSource);
   const config = defineConfig(BeConfig, envSource);
+  const solverBudgetMs = config.SOLVER_BUDGET_MS ?? 60_000;
+  if (solverBudgetMs <= 0) throw new Error('SOLVER_BUDGET_MS must be greater than zero');
+  const solverSearchWorkers = config.SOLVER_SEARCH_WORKERS ?? 2;
+  if (solverSearchWorkers <= 0) {
+    throw new Error('SOLVER_SEARCH_WORKERS must be greater than zero');
+  }
+  const solverMemoryLimitMb = config.SOLVER_MEMORY_LIMIT_MB ?? 512;
+  if (solverMemoryLimitMb <= 0) {
+    throw new Error('SOLVER_MEMORY_LIMIT_MB must be greater than zero');
+  }
   const appOrigin =
     mode === 'oidc' ? oidcCallbackUrlFromEnv(envSource).origin : localAppOriginFromEnv(envSource);
-  return { ...config, appOrigin };
+  return {
+    ...config,
+    appOrigin,
+    SOLVER_BUDGET_MS: solverBudgetMs,
+    SOLVER_SEARCH_WORKERS: solverSearchWorkers,
+    SOLVER_MEMORY_LIMIT_MB: solverMemoryLimitMb,
+  };
 };
 
 /** The configured callback is also the trusted browser origin in OIDC mode. */

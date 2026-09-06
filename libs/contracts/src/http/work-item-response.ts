@@ -67,6 +67,35 @@ const slice = scheduled.and({
   effort: 'number',
   lateBy: 'number | null',
 });
+const optimizationVariant = type({ state: "'ready' | 'pending' | 'retrying' | 'idle'" })
+  .or({
+    state: "'failed'",
+    reason:
+      "'timeout' | 'invalid-output' | 'no-solution' | 'internal-error' | 'oom' | 'horizon-overflow' | 'objective-overflow'",
+  })
+  .or({ state: "'corrupt'", message: 'string' })
+  .or({
+    state: "'plan-infeasible'",
+    items: type({
+      ownerWorkItemId: 'string',
+      boundWorkItemId: 'string',
+      effectiveDeadlineOffset: 'number',
+    })
+      .array()
+      .readonly(),
+  });
+const optimization = type({
+  enabled: 'boolean',
+  engine: "'fast' | 'optimized'",
+  objective: "'pri' | 'time'",
+  inputHash: 'string',
+  generation: 'number | null',
+  contractVersion: 'string',
+  budgetMs: 'number',
+  displayed: "'fast' | 'pri' | 'time'",
+  variants: { pri: optimizationVariant, time: optimizationVariant },
+  'comparison?': { deltaDays: 'number', sameOrder: 'boolean' },
+});
 
 /**
  * The complete project tree shared by reads and exports. Account-specific undo
@@ -92,4 +121,7 @@ export const workItemTree = type({
   // Proof: making projectRevision optional admitted a missing producer field,200 instead of500 in the mounted tree case.
   startDate: 'string | null',
   projectRevision: 'number',
+  // Proof: leaving this known response field unmodeled made the production-client
+  // boundary test fail on `promise resolved … instead of rejecting` for `failed/unknown`.
+  'optimization?': optimization,
 });

@@ -1,6 +1,14 @@
 import { randomBytes } from 'node:crypto';
 
-import { oidcIdentityFromClaims } from '@wbs/auth';
+import {
+  browserBindingCookieName,
+  browserBindingsIn,
+  consumeBrowserBinding,
+  type HeldBrowserBinding,
+  MAX_BROWSER_BINDINGS,
+  oidcIdentityFromClaims,
+  selectBrowserBindings,
+} from '@wbs/auth';
 import {
   completeOidcLogin,
   logoutOidcSession,
@@ -16,7 +24,7 @@ import {
   type RequestFailure,
   type RequestMetadata,
 } from '../http/endpoint';
-import { cookieValue } from '../middleware/authenticated';
+import { cookiesIn, cookieValue } from '../middleware/authenticated';
 import type { AuthService } from '../service/auth.service';
 import type { OidcRouteOptions } from './oidc-options';
 
@@ -36,7 +44,15 @@ function cookie(name: string, value: string, maxAge: number): Header {
     `${name}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${String(maxAge)}`,
   ];
 }
-const clearBinding = () => cookie('__Host-wbs_oidc', '', 0);
+/** Five minutes, matching the transaction store configured by {@link oidcRouteOptionsFromEnv}. */
+const OIDC_BINDING_TTL_SECONDS = 300;
+const bindingCookie = (binding: string): Header =>
+  cookie(browserBindingCookieName(binding), binding, OIDC_BINDING_TTL_SECONDS);
+const clearBinding = (name: string): Header => cookie(name, '', 0);
+const clearsFor = (held: readonly HeldBrowserBinding[]): Header[] =>
+  held.map(({ cookieName }) => clearBinding(cookieName));
+const browserBindingsOf = (request: RequestMetadata): HeldBrowserBinding[] =>
+  browserBindingsIn(cookiesIn(request.headers.get('cookie') ?? undefined));
 const clearSession = (): Header[] => [
   cookie('__Host-wbs_access', '', 0),
   cookie('__Host-wbs_session', '', 0),
@@ -72,7 +88,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
   const now = options.now ?? Date.now;
   const random = options.random ?? (() => randomBytes(32).toString('base64url'));
   return [
-    bind(startOidcLogin, async () => {
+    bind(startOidcLogin, async ({ request }) => {
       const browserBinding = random();
       const state = random();
       const nonce = random();
@@ -84,32 +100,63 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
         verifier,
         redirectUri: options.redirectUri,
       });
+      const held = selectBrowserBindings(options.transactions, browserBindingsOf(request), now());
+      const evicted = [
+        ...held.surplus,
+        ...held.offered.slice(0, Math.max(0, held.offered.length - (MAX_BROWSER_BINDINGS - 1))),
+      ];
       return {
         ok: true,
         status: 302,
         body: EMPTY,
-        headers: [cookie('__Host-wbs_oidc', browserBinding, 300), ['location', location.href]],
+        // Proof: using the shared old cookie name made `lets the first tab finish a login a
+        // second tab started after it` fail at the late callback, Expected302 Received400.
+        // Dropping the evictions made `holds three concurrent logins per browser and drops
+        // the oldest` retain four bindings after the fourth login.
+        headers: [
+          bindingCookie(browserBinding),
+          ...clearsFor(evicted),
+          ['location', location.href],
+        ],
       };
     }),
     bind(
       completeOidcLogin,
       async ({ request, query }): Promise<HttpReply<typeof completeOidcLogin>> => {
         const state = query['state'];
-        const binding = cookieValue(request.headers.get('cookie') ?? undefined, '__Host-wbs_oidc');
+        const held = selectBrowserBindings(options.transactions, browserBindingsOf(request), now());
+        let settled = held.surplus;
         // Proof: substituting invalid_query made the mounted absent-binding
         // assertion receive that code instead of invalid_oidc_callback.
-        if (!state || binding === null)
+        if (held.offered.length === 0 || !state)
           return {
             ok: false,
             status: 400,
             body: { error: 'invalid_oidc_callback' },
-            headers: [clearBinding()],
+            // Proof: clearing live bindings here made `refuses a stateless callback without
+            // discarding the logins in flight` fail at its honest callback, Expected302 Received400.
+            headers: clearsFor(settled),
           };
-        const transaction = options.transactions.consume(binding, state);
+        const consumed = consumeBrowserBinding(
+          options.transactions,
+          held.offered.map(({ binding }) => binding),
+          state,
+        );
+        const remaining = new Set(consumed.remaining);
+        settled = [...settled, ...held.offered.filter(({ binding }) => !remaining.has(binding))];
+        const transaction = consumed.transaction;
         // Proof: clearing this cookie failed the mounted empty-cookie assertion; spending
         // the retained transaction made its subsequent honest callback receive400 instead of302.
         if (transaction.outcome === 'state_mismatch')
-          return { ok: false, status: 400, body: { error: 'invalid_oidc_callback' } };
+          return {
+            ok: false,
+            status: 400,
+            body: { error: 'invalid_oidc_callback' },
+            // Proof: clearing the mismatched binding made `refuses a forged error callback
+            // without burning the login it interrupts` receive a Set-Cookie clear and made
+            // its subsequent honest callback fail, Expected302 Received400.
+            headers: clearsFor(settled),
+          };
         // Proof: substituting invalid_query made the mounted missing-transaction
         // assertion receive that code instead of invalid_oidc_callback.
         if (transaction.outcome !== 'consumed')
@@ -117,7 +164,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             ok: false,
             status: 400,
             body: { error: 'invalid_oidc_callback' },
-            headers: [clearBinding()],
+            headers: clearsFor(settled),
           };
         // Proof: bypassing this branch redirected access_denied to / in the mounted provider test.
         if (Object.hasOwn(query, 'error')) {
@@ -129,7 +176,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
               ok: false,
               status: 400,
               body: { error: 'invalid_oidc_callback' },
-              headers: [clearBinding()],
+              headers: clearsFor(settled),
             };
           }
           // Proof: forwarding an unknown error exposed provider_secret instead of provider_error.
@@ -148,7 +195,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             ok: true,
             status: 302,
             body: EMPTY,
-            headers: [clearBinding(), ['location', `/?auth_error=${reason}`]],
+            headers: [...clearsFor(settled), ['location', `/?auth_error=${reason}`]],
           };
         }
         // Proof: using arrived origin forwarded internal HTTP instead of configured HTTPS in the mounted proxy test.
@@ -172,7 +219,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             ok: false,
             status: 401,
             body: { error: 'invalid_oidc_session' },
-            headers: [clearBinding()],
+            headers: clearsFor(settled),
           };
         }
         if (tokens.idTokenClaims === undefined)
@@ -180,7 +227,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             ok: false,
             status: 401,
             body: { error: 'invalid_oidc_session' },
-            headers: [clearBinding()],
+            headers: clearsFor(settled),
           };
         let identity;
         try {
@@ -193,7 +240,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             ok: false,
             status: 401,
             body: { error: 'invalid_oidc_session' },
-            headers: [clearBinding()],
+            headers: clearsFor(settled),
           };
         }
         // Proof: catching account-store failure as null returned409 instead of500 in the mounted failure test.
@@ -203,7 +250,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
             ok: false,
             status: 409,
             body: { error: 'oidc_identity_conflict' },
-            headers: [clearBinding()],
+            headers: clearsFor(settled),
           };
         const correlation = random();
         if (tokens.refreshToken !== undefined)
@@ -218,7 +265,7 @@ export function authOidcEndpoints(auth: AuthService, options: OidcRouteOptions) 
           status: 302,
           body: EMPTY,
           headers: [
-            clearBinding(),
+            ...clearsFor(settled),
             cookie('__Host-wbs_access', tokens.accessToken, tokens.expiresIn),
             cookie('__Host-wbs_session', correlation, 30 * 86400),
             ['location', '/'],

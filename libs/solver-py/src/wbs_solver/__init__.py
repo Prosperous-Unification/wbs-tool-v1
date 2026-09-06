@@ -9,9 +9,10 @@ It is `0.1.0` because the golden request corpus already spends that string.
 See pyproject.toml's header for the full argument; `tests/test_version.py`
 asserts the pin against the corpus rather than restating it.
 
-Nothing else is exported. The package has no import surface on purpose: the
-only supported way in is the `wbs-solver` console script (or `python -m
-wbs_solver`, which is the same `main`).
+Nothing else is exported. The package has no application import surface on
+purpose: solving enters through `wbs-solver` (or `python -m wbs_solver`), while
+production first enters through the lightweight `wbs-solver-launcher` bind
+gate from the same version-locked distribution.
 """
 
 __version__ = "0.1.0"

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { inMemoryEventLog } from '../testing/replay-fixture';
-import type { ProjectEvent } from './broadcast';
+import { type ProjectEvent, subscriptionFor } from './broadcast';
 import { clockOf } from './clock';
 import { GatewayBroadcaster } from './gateway-broadcaster';
 import { type PushClient, PushFailed } from './push-client';
@@ -48,6 +48,18 @@ describe('GatewayBroadcaster', () => {
 
     expect(await log.latestSeq('project:p-1')).toBe(0);
     expect(pushed).toEqual([{ subscription: 'project:p-1', seq: 0 }]);
+  });
+
+  it('pushes an already-recorded event without recording it a second time', async () => {
+    const { broadcaster, log, buffer, pushed } = bootstrap();
+    const subscription = subscriptionFor('p-1');
+    const recorded = await log.recordEvent(subscription, EVENT, 1_000);
+
+    await broadcaster.pushRecorded(subscription, recorded, EVENT);
+
+    expect(await log.latestSeq(subscription)).toBe(0);
+    expect(buffer.oldestSeq(subscription)).toBe(0);
+    expect(pushed).toEqual([{ subscription, seq: 0 }]);
   });
 
   it('keeps the event when the gateway refuses it', async () => {

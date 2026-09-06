@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { fakeProjectApi } from '@/testing/fake-project-api';
@@ -47,7 +47,7 @@ describe('a clicked day reaches the create body as the day it was, under a non-U
     return cell;
   };
 
-  it('sends the clicked date verbatim rather than its UTC neighbour', () => {
+  it('sends the clicked date verbatim rather than its UTC neighbour', async () => {
     const api = fakeProjectApi();
     const creates = recordCalls(api, 'createCalendarMarker');
     render(
@@ -87,7 +87,9 @@ describe('a clicked day reaches the create body as the day it was, under a non-U
 
     // The whole body, exactly: this is the assertion 4.3a is, and the id and
     // the name are pinned so that it can only fail for the date.
-    expect(creates).toEqual([['p1', { markerId: MARKER_ID, date: GO_LIVE_DAY, name: '' }]]);
+    await waitFor(() => {
+      expect(creates).toEqual([['p1', { markerId: MARKER_ID, date: GO_LIVE_DAY, name: '' }]]);
+    });
     // And the fake really holds that day, which a recorder that logged without
     // performing would not show.
     expect(api.markers.map((marker) => marker.date)).toEqual([GO_LIVE_DAY]);

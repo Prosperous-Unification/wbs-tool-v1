@@ -9,7 +9,8 @@
       "executor": "nx:run-commands",
       "options": {
         "commands": [
-          "bun build tools/tool-remote-scripts/src/swap.ts --target=bun --outfile dist/tool-remote-scripts/swap.js"
+          "bun build tools/tool-remote-scripts/src/swap.ts --target=bun --outfile dist/tool-remote-scripts/swap.js",
+          "bun build tools/tool-remote-scripts/src/solver-supervisor.ts --target=bun --outfile dist/tool-remote-scripts/solver-supervisor.js"
         ],
         "parallel": false
       },
@@ -22,6 +23,21 @@
       },
       "cache": false,
       "dependsOn": ["build", "tool-smoke:build"]
+    },
+    "install-solver-supervisor": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run tools/tool-remote-scripts/src/install-solver-supervisor.ts"
+      },
+      "cache": false,
+      "dependsOn": ["build"]
+    },
+    "materialize-solver-supervisor-config": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run tools/tool-remote-scripts/src/materialize-solver-supervisor-config.ts"
+      },
+      "cache": false
     },
     "test": {
       "executor": "nx:run-commands",

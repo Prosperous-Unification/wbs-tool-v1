@@ -25,6 +25,7 @@ import { ExternalRefsModal } from './external-refs-modal';
 import { GanttFaultBoundary } from './gantt-fault';
 import { appliedGanttHeight, DAY_PX, GanttPanel } from './gantt-panel';
 import { KeyboardCheatSheet } from './keyboard-cheat-sheet';
+import { OptimizationIndicator } from './optimization-indicator';
 import { PlanCards } from './plan-cards';
 import { createPlanCellProps, opensAPopover } from './plan-cell-props';
 import { usePlanChartInput, usePlanSchedule } from './plan-chart-input';
@@ -1345,6 +1346,14 @@ export function WbsTable({
               </Button>
             )}
         </div>
+      )}
+
+      {chartRead.optimization !== undefined && (
+        <OptimizationIndicator
+          optimization={chartRead.optimization}
+          stale={treeMayBeStale}
+          workItemName={(id) => flat.find((row) => row.id === id)?.name ?? id}
+        />
       )}
 
       {/*

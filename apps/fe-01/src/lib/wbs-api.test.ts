@@ -699,6 +699,30 @@ describe('what a refused directory change says', () => {
   });
 });
 
+describe('setting project optimization', () => {
+  it('patches the shared flag, engine, and objective at the project route', async () => {
+    const fetched = stub(() => response(200, JSON.stringify({ project: PROJECT })));
+    const api = httpProjectApi('t');
+
+    await api.setOptimizationSettings('p1', {
+      optimizationEnabled: true,
+      scheduleEngine: 'optimized',
+      scheduleObjective: 'time',
+    });
+
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(fetched.mock.calls[0]?.[0]).toBe('/api/projects/p1');
+    expect(fetched.mock.calls[0]?.[1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({
+        optimizationEnabled: true,
+        scheduleEngine: 'optimized',
+        scheduleObjective: 'time',
+      }),
+    });
+  });
+});
+
 /** The JSON a request carried, or an empty string — `RequestInit.body` is wider than string. */
 const bodyOf = (init: RequestInit | undefined): string =>
   typeof init?.body === 'string' ? init.body : '';
@@ -1001,6 +1025,33 @@ describe('the calendar-marker client', () => {
 });
 
 describe('read ownership across API lifetimes', () => {
+  it('rejects a malformed optimization variant before the tree reaches its screen', async () => {
+    const tree = JSON.parse(TREE('p1', [])) as { optimization?: unknown };
+    tree.optimization = {
+      enabled: true,
+      engine: 'optimized',
+      objective: 'pri',
+      inputHash: 'input',
+      generation: 1,
+      contractVersion: '7+test',
+      budgetMs: 60_000,
+      displayed: 'fast',
+      variants: {
+        pri: { state: 'failed', reason: 'unknown' },
+        time: { state: 'idle' },
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, JSON.stringify(tree)))),
+    );
+
+    await expect(httpProjectApi('t').tree('p1')).rejects.toMatchObject({
+      message: 'invalid_response',
+      problem: { kind: 'failure', failure: { code: 'invalid_response' } },
+    });
+  });
+
   it('rejects a malformed external-reference id before the tree reaches its screen', async () => {
     const tree = JSON.parse(TREE('p1', ['w1'])) as {
       workItems: { externalRefs: unknown[] }[];

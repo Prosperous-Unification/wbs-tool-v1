@@ -1,0 +1,182 @@
+import { describe, expect, it } from 'bun:test';
+
+import {
+  readInstalledSolverVersion,
+  readRuntimeSolverVersion,
+  type SolverLauncherProcess,
+  type SolverLauncherSpawnOptions,
+  spawnSolverLauncher,
+} from './solver-launcher-process';
+
+interface Harness {
+  readonly calls: SolverLauncherSpawnOptions[];
+  readonly writes: string[];
+  readonly process: SolverLauncherProcess;
+  readonly ended: () => number;
+  readonly killed: () => number;
+}
+
+function harness(): Harness {
+  const calls: SolverLauncherSpawnOptions[] = [];
+  const writes: string[] = [];
+  let ended = 0;
+  let killed = 0;
+  const process: SolverLauncherProcess = {
+    pid: 42,
+    stdin: {
+      write: (chunk) => void writes.push(chunk),
+      end: () => void (ended += 1),
+    },
+    stdout: new ReadableStream<Uint8Array>(),
+    stderr: new ReadableStream<Uint8Array>(),
+    exited: Promise.resolve(0),
+    kill: () => void (killed += 1),
+  };
+  return {
+    calls,
+    writes,
+    process,
+    ended: () => ended,
+    killed: () => killed,
+  };
+}
+
+describe('spawnSolverLauncher', () => {
+  it('reads the installed launcher version through the command that owns the metadata', () => {
+    // The process command is the package boundary. Proof: remove the reader and
+    // this case fails before a production boot can invent a duplicated version;
+    // call the solver entrypoint instead and the literal argv differs.
+    const seen: string[][] = [];
+
+    expect(
+      readInstalledSolverVersion((command) => {
+        seen.push([...command]);
+        return {
+          exitCode: 0,
+          stdout: new TextEncoder().encode('0.1.0\n'),
+          stderr: new Uint8Array(),
+        };
+      }),
+    ).toBe('0.1.0');
+    expect(seen).toEqual([['wbs-solver-launcher', '--version']]);
+  });
+
+  it('reads source metadata only for the source-run dev container', () => {
+    const probe = (): never => {
+      throw new Error('installed launcher must not run in source dev');
+    };
+    // setuptools reads this exact module attribute through
+    // `[tool.setuptools.dynamic]`; pyproject.toml deliberately contains no
+    // static project version. The source-run backend must consult the same
+    // authority or the browser gate cannot boot its development stack.
+    expect(readRuntimeSolverVersion('development', '__version__ = "0.1.0"\n', probe)).toBe('0.1.0');
+    expect(() => readRuntimeSolverVersion('development', '__all__ = []\n', probe)).toThrow(
+      /exactly one/,
+    );
+  });
+
+  it('spawns the lifecycle launcher with identity and absolute deadline only on argv', () => {
+    const fake = harness();
+    const child = spawnSolverLauncher(
+      {
+        attemptToken: 'attempt-1',
+        childDeadlineAt: 12_345,
+        searchWorkers: 3,
+        memoryLimitMb: 768,
+        request: { wireVersion: 1, objective: 'pri' },
+      },
+      (options) => {
+        fake.calls.push(options);
+        return fake.process;
+      },
+    );
+
+    expect(fake.calls).toEqual([
+      {
+        cmd: [
+          'wbs-solver-launcher',
+          '--attempt-token',
+          'attempt-1',
+          '--child-deadline-epoch-ms',
+          '12345',
+          '--search-workers',
+          '3',
+          '--memory-limit-mb',
+          '768',
+        ],
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    ]);
+    expect(child.pid).toBe(42);
+    expect(child.stdout).toBe(fake.process.stdout);
+    expect(child.stderr).toBe(fake.process.stderr);
+    expect(child.exited).toBe(fake.process.exited);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it('writes the bind verdict before exactly one newline-framed request and closes stdin', () => {
+    const fake = harness();
+    const child = spawnSolverLauncher(
+      {
+        attemptToken: 'attempt-1',
+        childDeadlineAt: 12_345,
+        searchWorkers: 2,
+        memoryLimitMb: 512,
+        request: { wireVersion: 1, objective: 'time', nested: { value: 'one\nline' } },
+      },
+      () => fake.process,
+    );
+
+    child.verdict('bound');
+
+    expect(fake.writes).toEqual([
+      'bound\n',
+      '{"wireVersion":1,"objective":"time","nested":{"value":"one\\nline"}}\n',
+    ]);
+    expect(fake.ended()).toBe(1);
+  });
+
+  it('sends no request on abort and delegates termination to the process', () => {
+    const fake = harness();
+    const child = spawnSolverLauncher(
+      {
+        attemptToken: 'attempt-1',
+        childDeadlineAt: 12_345,
+        searchWorkers: 2,
+        memoryLimitMb: 512,
+        request: { wireVersion: 1 },
+      },
+      () => fake.process,
+    );
+
+    child.verdict('abort');
+    child.kill();
+
+    expect(fake.writes).toEqual(['abort\n']);
+    expect(fake.ended()).toBe(1);
+    expect(fake.killed()).toBe(1);
+  });
+
+  it('refuses a second verdict so a request cannot be written twice', () => {
+    const fake = harness();
+    const child = spawnSolverLauncher(
+      {
+        attemptToken: 'attempt-1',
+        childDeadlineAt: 12_345,
+        searchWorkers: 2,
+        memoryLimitMb: 512,
+        request: { wireVersion: 1 },
+      },
+      () => fake.process,
+    );
+
+    child.verdict('bound');
+
+    expect(() => {
+      child.verdict('bound');
+    }).toThrow('launcher verdict already sent');
+    expect(fake.writes).toEqual(['bound\n', '{"wireVersion":1}\n']);
+  });
+});

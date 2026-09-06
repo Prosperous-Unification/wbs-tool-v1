@@ -11,6 +11,7 @@ import { STEP_POSITION_STEP } from './index';
 import { runMigrations } from './migrate';
 import { rollbackTo } from './migrate-down';
 import { ProjectRepository } from './project';
+import { optimizationGeneration, solverQueue, solverSlot } from './schema';
 import { UserRepository } from './user';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
@@ -606,6 +607,109 @@ describe('what a project read publishes', () => {
     // like any other, and a reader holding revision 1 must not be able to
     // overwrite it blind.
     expect(settled?.revision).toBe(made.revision + 3);
+  });
+
+  it('turns optimization off as an idempotent project-scoped cancellation', async () => {
+    const made = await repo.create(
+      {
+        ...project('Rewire', 10),
+        optimizationEnabled: true,
+        scheduleEngine: 'optimized',
+      },
+      [],
+      wrote(),
+    );
+    const bystander = await repo.create(
+      {
+        ...project('Roof', 11),
+        optimizationEnabled: true,
+        scheduleEngine: 'optimized',
+      },
+      [],
+      wrote(),
+    );
+    const db = openDrizzle(join(dir, 'test.db'));
+    for (const [projectId, contractVersion, cancelEpoch] of [
+      [made.id, '7+1.0.0', 2],
+      [made.id, '8+1.0.0', 4],
+      [bystander.id, '7+1.0.0', 6],
+    ] as const) {
+      db.insert(optimizationGeneration)
+        .values({
+          projectId,
+          contractVersion,
+          generation: 1,
+          inputHash: 'hash',
+          cancelEpoch,
+          admissionState: 'open',
+          updatedAt: 1,
+        })
+        .run();
+      db.insert(solverQueue)
+        .values({
+          projectId,
+          contractVersion,
+          objective: 'pri',
+          budgetMs: 60_000,
+          generation: 1,
+          admittedCancelEpoch: cancelEpoch,
+          enqueuedAt: 1,
+        })
+        .run();
+      db.insert(solverSlot)
+        .values({
+          projectId,
+          contractVersion,
+          generation: 1,
+          objective: 'time',
+          budgetMs: 60_000,
+          ownerId: 'blue',
+          attemptToken: `${projectId}-${contractVersion}`,
+          lifecycle: 'running',
+          pid: 42,
+          startedAt: 1,
+          heartbeatAt: 1,
+          cancelRequestedAt: null,
+          admittedDeadlineAt: 80_000,
+        })
+        .run();
+    }
+
+    await repo.update(made.id, { optimizationEnabled: false }, { at: 50, by: ownerId });
+    await repo.update(made.id, { optimizationEnabled: false }, { at: 60, by: ownerId });
+
+    const generations = db.select().from(optimizationGeneration).all();
+    expect(
+      new Set(
+        generations.map(
+          (row) =>
+            `${row.projectId}/${row.contractVersion}/${String(row.cancelEpoch)}/${String(row.updatedAt)}`,
+        ),
+      ),
+    ).toEqual(
+      new Set([
+        `${made.id}/7+1.0.0/3/50`,
+        `${made.id}/8+1.0.0/5/50`,
+        `${bystander.id}/7+1.0.0/6/1`,
+      ]),
+    );
+    const slots = db.select().from(solverSlot).all();
+    expect(slots.filter((row) => row.projectId === made.id)).toHaveLength(2);
+    expect(
+      slots.filter((row) => row.projectId === made.id).every((row) => row.cancelRequestedAt === 50),
+    ).toBe(true);
+    expect(slots.find((row) => row.projectId === bystander.id)?.cancelRequestedAt).toBeNull();
+    expect(
+      db
+        .select()
+        .from(solverQueue)
+        .all()
+        .map((row) => row.projectId),
+    ).toEqual([bystander.id]);
+    expect(await repo.findById(made.id)).toMatchObject({ optimizationEnabled: false });
+
+    // Proof: without the OFF-transition cleanup, the first generation tuple
+    // stays at 2/1, both owned slots stay null, and both queue rows survive.
   });
 
   /**

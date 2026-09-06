@@ -473,6 +473,70 @@ export interface OptimizationDrainReconciliation {
   readonly waiting: number;
 }
 
+/** Limit a reclaim pass to one drain target; omit it for admission's global sweep. */
+export interface SolverSlotReclaimScope {
+  readonly projectId: string;
+  readonly contractVersion?: string;
+}
+
+/**
+ * Remove expired seats and finish every affected drain in the same transaction.
+ *
+ * Admission calls the unscoped form before counting capacity, because an
+ * expired child anywhere on the host no longer owns a global seat. The drain
+ * reconciler calls the scoped form so its existing target-by-target result
+ * counts stay meaningful. In both cases the deadline comes from each row and
+ * the last-row delete cannot commit without the matching finish attempt.
+ */
+export function reclaimExpiredSolverSlotsIn(
+  tx: Transaction,
+  now: number,
+  scope?: SolverSlotReclaimScope,
+): OptimizationDrainReconciliation {
+  const expiring = and(
+    lte(solverSlot.admittedDeadlineAt, now),
+    ...(scope === undefined
+      ? []
+      : [
+          eq(solverSlot.projectId, scope.projectId),
+          ...(scope.contractVersion === undefined
+            ? []
+            : [eq(solverSlot.contractVersion, scope.contractVersion)]),
+        ]),
+  );
+  const expired = tx
+    .select({
+      projectId: solverSlot.projectId,
+      contractVersion: solverSlot.contractVersion,
+    })
+    .from(solverSlot)
+    .where(expiring)
+    .all();
+  tx.delete(solverSlot).where(expiring).run();
+
+  const targets: SolverSlotReclaimScope[] = [];
+  if (scope !== undefined) {
+    targets.push(scope);
+  } else {
+    const contracts = new Map<string, SolverSlotReclaimScope>();
+    const projects = new Map<string, SolverSlotReclaimScope>();
+    for (const row of expired) {
+      contracts.set(`${row.projectId}\u0000${row.contractVersion}`, row);
+      projects.set(row.projectId, { projectId: row.projectId });
+    }
+    targets.push(...contracts.values(), ...projects.values());
+  }
+
+  let finished = 0;
+  let waiting = 0;
+  for (const target of targets) {
+    const outcome = finishDrainIn(tx, target.projectId, target.contractVersion);
+    if (outcome === 'finished') finished += 1;
+    if (outcome === 'waiting') waiting += 1;
+  }
+  return { reclaimed: expired.length, finished, waiting };
+}
+
 /**
  * The path that makes a crash between `begin` and `finish` recoverable
  * (tasks.md 3.9b).
@@ -523,19 +587,12 @@ export function reconcileOptimizationDrains(
     // Counted by reading the rows rather than by the delete's own row count:
     // `.run()` is typed `void` here, so `.changes` is reachable at runtime but
     // untyped, and a number nobody can typecheck is a number nobody can trust.
-    const pass = db.transaction((tx) => {
-      const expiring = and(
-        eq(solverSlot.projectId, projectId),
-        ...(contractVersion === undefined ? [] : [eq(solverSlot.contractVersion, contractVersion)]),
-        lte(solverSlot.admittedDeadlineAt, now),
-      );
-      const count = tx.select().from(solverSlot).where(expiring).all().length;
-      tx.delete(solverSlot).where(expiring).run();
-      return { count, outcome: finishDrainIn(tx, projectId, contractVersion) };
-    });
-    reclaimed += pass.count;
-    if (pass.outcome === 'finished') finished += 1;
-    if (pass.outcome === 'waiting') waiting += 1;
+    const pass = db.transaction((tx) =>
+      reclaimExpiredSolverSlotsIn(tx, now, { projectId, contractVersion }),
+    );
+    reclaimed += pass.reclaimed;
+    finished += pass.finished;
+    waiting += pass.waiting;
   };
 
   const draining = db

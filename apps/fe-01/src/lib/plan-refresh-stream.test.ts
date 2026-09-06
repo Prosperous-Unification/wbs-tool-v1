@@ -21,7 +21,7 @@ function held<T>() {
 
 function scenario(initialSeq = -1) {
   let seq = initialSeq;
-  let markers: CalendarMarkerView[] = [];
+  let markers: (CalendarMarkerView & { projectId: string; createdAt: number })[] = [];
   let markerGate: ReturnType<typeof held<undefined>> | null = null;
   let markerStarted = held<undefined>();
   let treeGate: ReturnType<typeof held<undefined>> | null = null;
@@ -36,9 +36,33 @@ function scenario(initialSeq = -1) {
         const gate = treeGate;
         treeStarted.resolve(undefined);
         if (gate !== null) await gate.promise;
-        return Response.json(planRead({ seq }));
+        return Response.json({
+          ...planRead({ seq }),
+          waitingForPerson: 0,
+          waitingForCapacity: 0,
+        });
       }
-      if (path === '/api/projects/p1') return Response.json({ steps: [] });
+      if (path === '/api/projects/p1')
+        return Response.json({
+          project: {
+            id: 'p1',
+            name: 'Plan',
+            ownerId: 'owner',
+            restricted: false,
+            estimateMethod: 'pert',
+            depReach: 'whole-item',
+            pertWeights: { optimistic: 1, realistic: 4, pessimistic: 1 },
+            estimateRounding: 'ceil',
+            startDate: null,
+            solutionRef: null,
+            revision: 0,
+            createdAt: 0,
+            optimizationEnabled: false,
+            scheduleEngine: 'fast',
+            scheduleObjective: 'pri',
+          },
+          steps: [],
+        });
       if (path === '/api/projects/p1/calendar-markers') {
         const captured = Response.json({ markers });
         const gate = markerGate;
@@ -148,7 +172,16 @@ function scenario(initialSeq = -1) {
     },
     commitMarker(name = 'Launch') {
       seq += 1;
-      markers = [{ id: 'launch', name, date: '2026-09-06', color: '#2563eb' }];
+      markers = [
+        {
+          id: 'launch',
+          projectId: 'p1',
+          name,
+          date: '2026-09-06',
+          color: '#2563eb',
+          createdAt: 0,
+        },
+      ];
       journal.push({ seq, message: { type: 'calendar_markers_changed' } });
     },
     async overtakeMarkerWithTree() {

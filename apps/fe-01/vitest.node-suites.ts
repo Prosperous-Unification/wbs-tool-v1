@@ -50,11 +50,11 @@ export const NODE_SUITES: readonly string[] = [
   // wrong in, as the rule's own comment says, so it is left where the rule
   // puts it rather than special-cased.
   'src/lib/saved-plan-compare.test.ts',
-  // Proof: after the latest wbs-api suite stopped mentioning browser-only
-  // globals, test-tiers.test.ts failed with this path present in the DOM-free
-  // inventory but absent here, and the partition counted 92 of 93 suites.
-  'src/lib/wbs-api.test.ts',
   'src/test-tiers.test.ts',
   'src/testing/fake-project-api.test.ts',
   'src/testing/record-calls.test.ts',
+  // Proof: after the generated-client merge, leaving `wbs-api.test.ts` here
+  // and `refusing-api.test.ts` out failed test-tiers.test.ts with
+  // `+ src/lib/wbs-api.test.ts` and `- src/testing/refusing-api.test.ts`.
+  'src/testing/refusing-api.test.ts',
 ];

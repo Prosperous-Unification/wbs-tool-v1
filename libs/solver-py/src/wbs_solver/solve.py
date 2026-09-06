@@ -46,6 +46,7 @@ whole share forward and the three shares are shares of a worst case.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -148,6 +149,7 @@ class SolverConfig:
     num_search_workers: int = 2
     random_seed: int = 0
     deterministic_time_per_stage: float | None = None
+    child_deadline_epoch_ms: int | None = None
 
 
 def evaluate_terms(
@@ -287,7 +289,11 @@ def _configure(config: SolverConfig, budget_ms: float) -> cp_model.CpSolver:
         # `exclusiveMinimum: 0` on every share and `minimum: 1` on `budgetMs`
         # make the product positive, and a zero would read as "no limit" to
         # CP-SAT, which is the opposite of what an exhausted budget means.
-        solver.parameters.max_time_in_seconds = max(budget_ms, 1.0) / 1000.0
+        wall_budget_ms = budget_ms
+        if config.child_deadline_epoch_ms is not None:
+            remaining_ms = config.child_deadline_epoch_ms - time.time_ns() / 1_000_000
+            wall_budget_ms = min(wall_budget_ms, remaining_ms)
+        solver.parameters.max_time_in_seconds = max(wall_budget_ms, 1.0) / 1000.0
     return solver
 
 

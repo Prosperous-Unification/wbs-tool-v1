@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { differingColumns, isContiguousRun, sameColumns } from './marker-rule-ink';
+import {
+  differingColumns,
+  greatestChannelDelta,
+  isContiguousRun,
+  sameColumns,
+} from './marker-rule-ink';
 
 /**
  * Slice 8.2a's column arithmetic, on the functions that own it.
@@ -17,6 +22,25 @@ const blankStrip = (width: number, height: number) => ({
   width,
   height,
   data: new Array<number>(width * height * 4).fill(255),
+});
+
+describe('how far a raster channel moved', () => {
+  it('measures a tiny anti-alias wobble without calling it opaque ink', () => {
+    expect(greatestChannelDelta(blankStrip(5, 3), painted(5, 3, [2], { value: 249 }))).toBe(6);
+  });
+
+  it('keeps an opaque auxiliary mark far outside the raster-jitter allowance', () => {
+    // This is the controlled fault for the whole-body browser oracle: changing
+    // a white channel to black is 255, so an 8-value allowance cannot hide an
+    // extra rule even if it is only one pixel.
+    expect(greatestChannelDelta(blankStrip(5, 3), painted(5, 3, [2]))).toBe(255);
+  });
+
+  it('refuses differently sized clips rather than measuring their shared prefix', () => {
+    expect(() => greatestChannelDelta(blankStrip(5, 3), blankStrip(5, 4))).toThrow(
+      /cannot change size/,
+    );
+  });
 });
 
 /**

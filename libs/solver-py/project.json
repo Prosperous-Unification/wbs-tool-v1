@@ -1,0 +1,17 @@
+{
+  "name": "solver-py",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/solver-py/src",
+  "projectType": "library",
+  "tags": ["scope:lib", "type:lib", "runtime:python"],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python3 -m unittest discover -s tests -t tests",
+        "cwd": "libs/solver-py"
+      },
+      "cache": false
+    }
+  }
+}

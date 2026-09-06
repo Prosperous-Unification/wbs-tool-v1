@@ -233,6 +233,19 @@ export interface SliceView {
    * hole in it.
    */
   capacityPredecessorIds: string[];
+  /**
+   * How many whole workdays this slice finished past its effective deadline,
+   * or null where it met the deadline or had none.
+   *
+   * be-01's number, read and never recomputed. The client holds
+   * {@link WorkItemView.deadline} and the slice's own dates one column away
+   * from each other, and subtracting them here would be a second implementation
+   * of the arithmetic the plan was actually built with — see that field's own
+   * note. `null` and not `0`: met and missed-by-nothing are the same state, and
+   * the engine says so by publishing nothing rather than a zero the view would
+   * have to special-case into silence.
+   */
+  lateBy: number | null;
 }
 
 export interface WorkItemView {
@@ -1090,6 +1103,55 @@ export interface CreatedProject {
   restricted: boolean;
 }
 
+export type ScheduleEngineView = 'fast' | 'optimized';
+export type ScheduleObjectiveView = 'pri' | 'time';
+
+export interface ProjectOptimizationPatch {
+  readonly optimizationEnabled?: boolean;
+  readonly scheduleEngine?: ScheduleEngineView;
+  readonly scheduleObjective?: ScheduleObjectiveView;
+}
+
+export type OptimizationVariantView =
+  | { readonly state: 'ready' }
+  | { readonly state: 'pending' }
+  | { readonly state: 'retrying' }
+  | {
+      readonly state: 'failed';
+      readonly reason:
+        | 'timeout'
+        | 'invalid-output'
+        | 'no-solution'
+        | 'internal-error'
+        | 'oom'
+        | 'horizon-overflow'
+        | 'objective-overflow';
+    }
+  | { readonly state: 'corrupt'; readonly message: string }
+  | {
+      readonly state: 'plan-infeasible';
+      readonly items: readonly {
+        readonly ownerWorkItemId: string;
+        readonly boundWorkItemId: string;
+        readonly effectiveDeadlineOffset: number;
+      }[];
+    }
+  | { readonly state: 'idle' };
+
+/** The selected schedule and both same-input optimizer states from one plan read. */
+export interface PlanOptimizationView {
+  readonly enabled: boolean;
+  readonly engine: ScheduleEngineView;
+  readonly objective: ScheduleObjectiveView;
+  readonly inputHash: string;
+  readonly generation: number | null;
+  readonly contractVersion: string;
+  readonly budgetMs: number;
+  readonly displayed: 'fast' | ScheduleObjectiveView;
+  readonly variants: Readonly<Record<ScheduleObjectiveView, OptimizationVariantView>>;
+  readonly comparison?: { readonly deltaDays: number; readonly sameOrder: boolean };
+}
+
 /**
  * The project's work items, and the event sequence they were read at.
  *
@@ -1220,6 +1282,8 @@ export interface ProjectApi {
    * in the plan may move on it, so the caller reads the tree again.
    */
   setDepReach(projectId: string, reach: DependencyReach): Promise<void>;
+  /** Changes the project-wide optimizer flag or the schedule every collaborator sees. */
+  setOptimizationSettings(projectId: string, patch: ProjectOptimizationPatch): Promise<void>;
   /** Puts the plan on a calendar, or `null` to take it off again. */
   setStartDate(projectId: string, startDate: string | null): Promise<void>;
   /**
@@ -2315,6 +2379,16 @@ export function httpProjectApi(token: string): ProjectApi {
         await client.patchApiProjectsById({
           params: { id: projectId },
           body: { depReach: reach },
+          headers: auth(token),
+        }),
+      );
+    },
+    async setOptimizationSettings(projectId, patch) {
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: patch,
           headers: auth(token),
         }),
       );

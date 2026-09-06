@@ -8,6 +8,7 @@ import {
   type DeployPlanDeps,
   installCommandFor,
   parseSha256sumOutput,
+  prodSolverSupervisorPreflightCommand,
   type ReleaseRecord,
 } from './deploy';
 import { parseRemoteStateOutput, type RemoteTierState } from './remote-state';
@@ -152,13 +153,37 @@ describe('buildDeployPlan', () => {
   // not between tiers.
   it('preflights every tier before any of them swaps, without --execute', async () => {
     const p = await buildDeployPlan(['--all', '--execute'], [], HEAD, fakeDeps());
-    expect(p.preflightCommands).toHaveLength(1);
-    const cmd = p.preflightCommands[0];
+    expect(p.preflightCommands).toHaveLength(2);
+    const cmd = p.preflightCommands[1];
     expect(cmd).toContain('--preflight');
     expect(cmd).toContain('--image-be=');
     expect(cmd).toContain('--image-gw=');
     expect(cmd).toContain('--image-fe=');
     expect(cmd).not.toContain('--execute');
+  });
+
+  it('preflights the supervisor, socket and exact next prod colour before registry access', async () => {
+    const image = entry('be').image;
+    const deps = fakeDeps({
+      readRemoteState: () =>
+        Promise.resolve({
+          be: { tier: 'be', activeColor: 'blue', lastDeployedSha: HEAD },
+        }),
+    });
+    const plan = await buildDeployPlan(['be', '--execute'], [], HEAD, deps);
+    expect(plan.preflightCommands[0]).toBe(prodSolverSupervisorPreflightCommand('blue', image));
+    expect(plan.preflightCommands[0]).toContain('systemctl --user is-active --quiet');
+    expect(plan.preflightCommands[0]).toContain(
+      'test -S /run/user/1000/wbs-solver/supervisor.sock',
+    );
+    expect(plan.preflightCommands[0]).toContain('--caller-name=be-01-green');
+    expect(plan.preflightCommands[0]).toContain(`--image=${image}`);
+  });
+
+  it('does not make non-backend deploys depend on the solver supervisor', async () => {
+    const plan = await buildDeployPlan(['gw', '--execute'], [], HEAD, fakeDeps());
+    expect(plan.preflightCommands).toHaveLength(1);
+    expect(plan.preflightCommands[0]).not.toContain('solver-supervisor');
   });
 
   // I1: the deploy lock lives inside swap.js, so one SSH invocation per tier

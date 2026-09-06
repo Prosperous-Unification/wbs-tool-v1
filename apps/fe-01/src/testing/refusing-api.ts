@@ -9,6 +9,7 @@ import {
   listTags,
   listTeams,
   listWorkItemTypes,
+  patchProject,
   removeCalendarMarker,
   removeStep,
   renameStep,
@@ -67,6 +68,46 @@ function markerView(marker: CalendarMarkerView): CalendarMarkerView {
 
 function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
   const checked: Partial<ProjectApi> = {};
+  const setOptimizationSettingsAnswer = answers.setOptimizationSettings;
+  if (setOptimizationSettingsAnswer !== undefined) {
+    checked.setOptimizationSettings = async (projectId, patch) => {
+      const client = clientFromShapes([patchProject], async () => {
+        await setOptimizationSettingsAnswer(projectId, patch);
+        return {
+          kind: 'json',
+          status: 200,
+          body: {
+            project: {
+              id: projectId,
+              name: 'Fake project',
+              ownerId: 'fake-owner',
+              restricted: false,
+              estimateMethod: 'pert',
+              depReach: 'whole-item',
+              pertWeights: { optimistic: 1, realistic: 4, pessimistic: 1 },
+              estimateRounding: 'ceil',
+              startDate: null,
+              solutionRef: null,
+              revision: 0,
+              createdAt: 0,
+              optimizationEnabled: patch.optimizationEnabled ?? false,
+              scheduleEngine: patch.scheduleEngine ?? 'fast',
+              scheduleObjective: patch.scheduleObjective ?? 'pri',
+            },
+          },
+        };
+      });
+      const reply = await client.patchApiProjectsById({
+        params: { id: projectId },
+        body: patch,
+      });
+      // Proof: bypassing this generated call made malformed optimizer settings resolve
+      // `undefined` instead of rejecting and invoked the mutation spy in refusing-api.test.ts.
+      if (reply.kind === 'failure') boundaryFailure(reply.failure);
+      if (reply.kind === 'refusal') throw new Error(reply.body.error);
+    };
+  }
+
   const addStepAnswer = answers.addStep;
   if (addStepAnswer !== undefined) {
     checked.addStep = async (projectId, name) => {

@@ -3,6 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { refusingApi } from './refusing-api';
 
 describe('refusingApi contract boundary', () => {
+  it('refuses malformed optimizer settings before the stated mutation runs', async () => {
+    const setOptimizationSettings = vi.fn(() => Promise.resolve());
+    const api = refusingApi({ setOptimizationSettings });
+
+    await expect(
+      api.setOptimizationSettings('p1', { scheduleEngine: 'quantum' } as never),
+    ).rejects.toThrow('fake_invalid_request');
+    expect(setOptimizationSettings).not.toHaveBeenCalled();
+  });
+
   it('refuses a malformed stated request before the answer can mutate', async () => {
     const addStep = vi.fn(() => Promise.resolve({ id: 'step-dev', name: 'Dev' }));
     const api = refusingApi({ addStep });

@@ -1,6 +1,6 @@
-# LLM_README
+# LLM_README — read this, then only the doc your task needs
 
-Agent orientation. Read this, then only the one doc your task needs.
+TASK-221 implements project-wide Fast/PRI/Time selection and the same-input comparison indicator on `change/schedule-selector-comparison`. Focused tests, FE typecheck, lint, and formatting are green on h2puni; both terminal seats found no Critical defect and their concrete findings are closed. Next: PR/CI at the final head. Retry and host-service installation remain assigned to TASK-268.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
@@ -137,6 +137,7 @@ any first message _containing_ `"pong"`; drain reads a malformed metrics body as
 | `docs/superpowers/{plans,specs}/2026-08-02-compose-blue-green-*.md`                 | before touching deploy, and why the pipeline is shaped this way                                                                                            |
 | `docs/runbook-dev-deploy.md`                                                        | deploying dev; what a deploy cannot carry                                                                                                                  |
 | `docs/runbook-prod-deploy.md`                                                       | deploying prod; commands and their refusals                                                                                                                |
+| `openspec/changes/dual-optimized-scheduler/supervisor-amendment.md`                 | before changing solver host authority, installer, image mapping, or runtime-directory mount                                                                |
 | `docs/runbook-dagger-engine-registry-dns.md`                                        | engine can't resolve `registry`                                                                                                                            |
 | `docs/local-dev.md`                                                                 | running locally                                                                                                                                            |
 | `docs/capacity.md`                                                                  | why a plan's dates moved; where a team's number is typed                                                                                                   |
@@ -146,5 +147,4 @@ any first message _containing_ `"pong"`; drain reads a malformed metrics body as
 | `docs/2026-08-30-agent-loop-audit.md`                                               | **before gating while other agents are live** — worktree ownership, lock lanes, five false greens                                                          |
 | `docs/2026-09-02-refactoring-plan.md`, `docs/2026-09-05-ports-and-adapters-plan.md` | before any refactor — five waves and ledgers; then the core / store-sqlite / store-memory / be-01 split, ADR 0014–0015; its `-history.md` is not normative |
 
-Conventions: pure planners + thin IO shell; `strictTypeChecked`; comments say **why** and state what
-was/wasn't verified; never print a secret value. Explicit return types are house style, **not** lint-enforced.
+Conventions: pure planners + thin IO shell; strict types; comments say **why** and what was verified; never print secrets.

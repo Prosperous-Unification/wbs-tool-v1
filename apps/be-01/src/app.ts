@@ -190,7 +190,12 @@ export function mountedEndpoints(
     // Proof: omitting health and metrics separately made app.routes.test.ts
     // expect 40 local bindings and receive 39 for each injected fault.
     ...infrastructureEndpoints({
-      migrationsApplied: opts.migrationsApplied,
+      // Readiness changes after the endpoint table is built. Capturing this
+      // boolean here left production `/health` at 503 after boot had completed;
+      // boot.db.test.ts observed `Expected: 200, Received: 503` on five paths.
+      get migrationsApplied() {
+        return opts.migrationsApplied;
+      },
       probeDatabase: opts.probeDatabase,
       deployedCommit: opts.deployedCommit,
       logger: runtime.logger,

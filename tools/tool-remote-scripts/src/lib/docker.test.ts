@@ -20,6 +20,8 @@ import {
   revokeAliasCommands,
   ROOT,
   SHARED_ENV_PATH,
+  SOLVER_SUPERVISOR_CONTAINER_DIRECTORY,
+  SOLVER_SUPERVISOR_HOST_DIRECTORY,
   tierComposeContext,
   tierComposeFile,
   tierEnvFiles,
@@ -247,7 +249,7 @@ describe('tierComposeContext', () => {
     expect(ctx['VOLUMES']).toBe('');
   });
 
-  it('gives be-01 its app-config file, its own secrets file, and the data volume', () => {
+  it('gives be-01 its app-config, secrets, data, and directory-only supervisor mount', () => {
     const ctx = tierComposeContext(
       'be',
       'blue',
@@ -256,7 +258,12 @@ describe('tierComposeContext', () => {
     expect(ctx['ENV_FILES']).toBe(
       `    env_file:\n      - ${ROOT}/be-01.env\n      - ${ROOT}/be-01.secrets.env\n`,
     );
-    expect(ctx['VOLUMES']).toBe(`    volumes:\n      - ${ROOT}/data:/data\n`);
+    expect(ctx['VOLUMES']).toBe(
+      `    volumes:\n` +
+        `      - ${ROOT}/data:/data\n` +
+        `      - ${SOLVER_SUPERVISOR_HOST_DIRECTORY}:${SOLVER_SUPERVISOR_CONTAINER_DIRECTORY}:ro\n`,
+    );
+    expect(ctx['VOLUMES']).not.toContain('supervisor.sock');
   });
 });
 
@@ -400,7 +407,7 @@ describe('assertTierEnvAllowed', () => {
     expect(() => {
       assertTierEnvAllowed(
         'be',
-        'PORT=3100\nLOG_LEVEL=info\nGW_URL=x\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\n',
+        'PORT=3100\nLOG_LEVEL=info\nGW_URL=x\nDB_PATH=/data/wbs.db\nAUTH_MODE=oidc\nSOLVER_BUDGET_MS=120000\nSOLVER_SEARCH_WORKERS=2\nSOLVER_MEMORY_LIMIT_MB=512\n',
       );
     }).not.toThrow();
   });

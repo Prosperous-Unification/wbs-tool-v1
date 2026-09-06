@@ -12,7 +12,7 @@ import { UserRepository } from './repository/user';
 import type { AuthenticatedUser } from './service/auth.service';
 import { SavedPlanService } from './service/saved-plan.service';
 import { WriteLock } from './service/write-lock';
-import { type BeServices, buildServices } from './services';
+import { type BeServices, buildServices, type OptimizerRuntime } from './services';
 
 export interface BootOptions {
   appOrigin: string;
@@ -46,6 +46,8 @@ export interface BootOptions {
    * sets it.
    */
   commitDir?: string;
+  /** The installed solver process boundary, absent only in tests that do not exercise it. */
+  optimizer?: OptimizerRuntime;
 }
 
 export interface RunningBe {
@@ -88,6 +90,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
           },
     passwordSessions: opts.oidc !== undefined && opts.oidc.passwordLoginEnabled !== false,
     localIdentity: opts.localIdentity,
+    optimizer: opts.optimizer,
   });
 
   const state = { migrationsApplied: false };
@@ -172,12 +175,14 @@ export function bootBe01(opts: BootOptions): RunningBe {
         'be-01 listening (schema managed by the deploy pipeline)',
       );
       ensureLocalIdentity();
+      services.optimizer?.start();
       state.migrationsApplied = true;
       return;
     }
     opts.logger.info({ port: opts.port }, 'be-01 listening (migrating)');
     runMigrations(opts.dbPath, opts.migrationsFolder ?? './drizzle');
     ensureLocalIdentity();
+    services.optimizer?.start();
     state.migrationsApplied = true;
     opts.logger.info('migrations applied');
   });
@@ -188,6 +193,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     /** Stops accepting, waits for a retention sweep in flight, then closes the file. */
     stop: async () => {
       await app.stop();
+      await services.optimizer?.stop();
       await services.retention.stop();
       connection.close();
     },

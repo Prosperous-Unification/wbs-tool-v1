@@ -101,13 +101,15 @@ const EXEMPT = new Set([
   'planEvent',
   'eventSequencer',
   'examples',
-  // The three optimizer tables are machine state keyed by generation, not
-  // authored rows: nothing in them has an author to record, and each is deleted
-  // wholesale by the next allocation. The `it` below is what keeps that claim
-  // honest — an exemption survives only while the table declares no audit
-  // columns.
+  // The four optimizer tables are machine state keyed by generation, not
+  // authored rows: nothing in them has an author to record. Generation and
+  // cache rows are replaced by allocation; slot rows are token-fenced leases;
+  // queue rows are capacity waiters carrying their own enqueue instant. The
+  // `it` below is what keeps that claim honest — an exemption survives only
+  // while the table declares no audit columns.
   'optimizationGeneration',
   'solverSlot',
+  'solverQueue',
   'optimizedScheduleCache',
   'savedPlan',
   'savedPlanBody',

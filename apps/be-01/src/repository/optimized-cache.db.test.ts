@@ -348,7 +348,7 @@ describe('the generation predicate on the read', () => {
     const db = tempDb();
     try {
       const first = prepared(db.path);
-      const second = allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, HASH, 2);
+      const second = allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, 'h2', 2);
       expect(second).toBeGreaterThan(first);
 
       storeRow(db.path, {
@@ -491,7 +491,10 @@ describe('a plan-infeasible row, as far as its codec exists', () => {
     const db = tempDb();
     try {
       const generation = prepared(db.path);
-      const certificate = { dtoVersion: 1, items: [{ workItemId: 'a', deadline: 10 }] };
+      const certificate = {
+        dtoVersion: 1,
+        items: [{ ownerWorkItemId: 'parent', boundWorkItemId: 'a', effectiveDeadlineOffset: 10 }],
+      };
       storeRow(db.path, {
         objective: 'time',
         generation,
@@ -504,7 +507,7 @@ describe('a plan-infeasible row, as far as its codec exists', () => {
 
       expect(outcome.kind).toBe('plan-infeasible');
       if (outcome.kind !== 'plan-infeasible') throw new Error('unreachable');
-      expect(outcome.certificate).toEqual(certificate);
+      expect(outcome.certificate).toEqual({ items: certificate.items });
     } finally {
       db.cleanup();
     }
@@ -527,6 +530,32 @@ describe('a plan-infeasible row, as far as its codec exists', () => {
       expect(outcome.kind).toBe('corrupt');
       if (outcome.kind !== 'corrupt') throw new Error('unreachable');
       expect(outcome.reason).toMatch(/dtoVersion/);
+      expect(storedRowCount(db.path)).toBe(1);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('reads a malformed certificate item as corrupt and keeps the row', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      storeRow(db.path, {
+        objective: 'time',
+        generation,
+        status: 'plan-infeasible',
+        resultJson: JSON.stringify({
+          dtoVersion: 1,
+          items: [{ ownerWorkItemId: 'a', boundWorkItemId: 'a', effectiveDeadlineOffset: '10' }],
+        }),
+        failureReason: null,
+      });
+
+      const outcome = read(db.path).time;
+
+      expect(outcome.kind).toBe('corrupt');
+      if (outcome.kind !== 'corrupt') throw new Error('unreachable');
+      expect(outcome.reason).toMatch(/effectiveDeadlineOffset/);
       expect(storedRowCount(db.path)).toBe(1);
     } finally {
       db.cleanup();
@@ -1053,6 +1082,25 @@ describe("4.1's conditional write, with all four conditions composed", () => {
       expect(pair.pri.kind).toBe('failed');
       if (pair.pri.kind !== 'failed') throw new Error('unreachable');
       expect(pair.pri.reason).toBe('timeout');
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  it('stores a plan-infeasible row carrying its versioned certificate', () => {
+    const db = tempDb();
+    try {
+      admitted(db.path);
+      const certificate = {
+        items: [
+          { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 10 },
+        ],
+      };
+
+      expect(commit(db.path, { kind: 'plan-infeasible', certificate })).toBe('stored');
+
+      const pair = read(db.path);
+      expect(pair.pri).toMatchObject({ kind: 'plan-infeasible', certificate });
     } finally {
       db.cleanup();
     }
@@ -1829,10 +1877,10 @@ describe("4.2's injected spawner, asserted on the calls and not on the clock", (
    * 4.2's eviction half, and the honest reading of "a failed row is overwritten
    * by the next run for that key". Nothing UPDATEs it: the primary key omits
    * `generation` and 4.1's insert is `onConflictDoNothing`, so the replacement
-   * path is `allocateGeneration`'s delete and nothing else. A Retry allocates,
-   * the prior rows go — `failed` ones included, because the delete is scoped by
-   * project and contract version and says nothing about status — and the very
-   * next read asks for both objectives again.
+   * path is `allocateGeneration`'s delete and nothing else. A changed input
+   * allocates, the prior rows go — `failed` ones included, because the delete
+   * is scoped by project and contract version and says nothing about status —
+   * and a read of the old hash asks for both objectives again.
    */
   it('clears every prior row for the project when a generation is allocated, failed ones included', () => {
     const db = tempDb();
@@ -1850,7 +1898,7 @@ describe("4.2's injected spawner, asserted on the calls and not on the clock", (
 
       const settled = recorder();
       readAndSpawn(db.path, settled.spawn);
-      allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, HASH, 2);
+      allocateGeneration(openDrizzle(db.path), 'p-1', CONTRACT, 'h2', 2);
 
       const after = recorder();
       const pair = readAndSpawn(db.path, after.spawn);

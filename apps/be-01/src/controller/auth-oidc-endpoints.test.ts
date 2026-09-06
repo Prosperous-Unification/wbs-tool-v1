@@ -1,4 +1,8 @@
-import { InMemoryOidcTransactionStore, InMemoryTokenStore } from '@wbs/auth';
+import {
+  browserBindingCookieName,
+  InMemoryOidcTransactionStore,
+  InMemoryTokenStore,
+} from '@wbs/auth';
 import { expect, test } from 'bun:test';
 
 import { EMPTY } from '../http/endpoint';
@@ -60,7 +64,7 @@ test('direct OIDC login binds the exact transaction to the provider and emits an
     headers: [
       [
         'set-cookie',
-        '__Host-wbs_oidc=browser; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300',
+        `${browserBindingCookieName('browser')}=browser; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300`,
       ],
       ['location', 'https://provider.test/'],
     ],

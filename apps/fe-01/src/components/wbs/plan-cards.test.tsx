@@ -251,6 +251,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
                 width: 1,
                 effort: 0,
                 capacityPredecessorIds: [],
+                lateBy: null,
               }),
             ),
             // The same two lists `steps` and `listPeople` answer with, on the read
