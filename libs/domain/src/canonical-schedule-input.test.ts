@@ -505,6 +505,24 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
       expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(TIED));
       expect(run(mutated)).not.toEqual(run(TIED));
     });
+
+    /**
+     * The seventh argument, and it is no longer declared-pending.
+     *
+     * The case used to sit below among the deliberately-stricter mutations,
+     * reading "a deadline, which the engine cannot yet read (TASK-241)" and
+     * asserting `toEqual`, on the stated ground that `schedule()` took six
+     * parameters. TASK-267 slice 4 added the seventh and slice 5 gave it two
+     * readers — the leveler's slack ordering (`schedule.ts:2400`) and the
+     * `missed` count each scheduled slice reports (`schedule.ts:2565`) — so that
+     * ground expired. Its own comment named this move, and it is the measured
+     * one: with `deadlines` reaching `schedule()`, `b`'s day-3 date against its
+     * day-6 finish comes back a different serialized schedule.
+     */
+    movesAPlacement('a deadline the engine now reads', {
+      ...BASE,
+      deadlines: new Map([['b', 3]]),
+    });
   });
 
   /**
@@ -576,23 +594,6 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
       };
       expect(run(mutated)).toEqual(run(BASE));
       expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(BASE));
-    });
-
-    /**
-     * The seventh argument, and it is no longer declared-pending.
-     *
-     * The case used to read "which the engine cannot yet read (TASK-241)" and
-     * assert `toEqual`, on the stated ground that `schedule()` took six
-     * parameters. TASK-267 slice 4 added the seventh and slice 5 gave it two
-     * readers — the leveler's slack ordering (`schedule.ts:2400`) and the
-     * `missed` count each scheduled slice reports (`schedule.ts:2565`) — so the
-     * ground expired. Its own comment named this move: it is now here rather
-     * than in the pending list, and `not.toEqual` is what the engine measurably
-     * does with the date.
-     */
-    movesAPlacement('a deadline the engine now reads', {
-      ...BASE,
-      deadlines: new Map([['b', 3]]),
     });
 
     /**
