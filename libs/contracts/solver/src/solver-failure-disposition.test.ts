@@ -144,9 +144,13 @@ describe('a solver that ran and answered nothing is invalid-output', () => {
       if (!match) throw new Error(`cli.py no longer defines ${name}`);
       return Number(match[1]);
     };
-    expect(SOLVER_EXIT_CODES.ok).toBe(codeOf('EXIT_OK'));
-    expect(SOLVER_EXIT_CODES.badRequest).toBe(codeOf('EXIT_BAD_REQUEST'));
-    expect(SOLVER_EXIT_CODES.solveFailed).toBe(codeOf('EXIT_INTERNAL'));
+    // Parsed value first: `SOLVER_EXIT_CODES` is `as const`, so each member is
+    // a literal type and `toBe` would narrow the expectation to that literal
+    // and reject a plain `number` — the constant would be checking the file
+    // against itself, backwards.
+    expect(codeOf('EXIT_OK')).toBe(SOLVER_EXIT_CODES.ok);
+    expect(codeOf('EXIT_BAD_REQUEST')).toBe(SOLVER_EXIT_CODES.badRequest);
+    expect(codeOf('EXIT_INTERNAL')).toBe(SOLVER_EXIT_CODES.solveFailed);
   });
 });
 
