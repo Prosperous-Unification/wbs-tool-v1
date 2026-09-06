@@ -74,7 +74,7 @@ function buildHarness(
       },
     }),
   });
-  const appOptions = {
+  const appOptions: Parameters<typeof buildApp>[0] = {
     directory: testDirectoryService(),
     capacity: testCapacityService(),
     priorityBands: testPriorityBandService(),
