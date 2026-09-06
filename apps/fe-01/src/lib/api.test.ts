@@ -80,6 +80,14 @@ describe('me', () => {
     );
     await expect(me()).resolves.toBeNull();
   });
+
+  it('reads the server’s explicit anonymous state without an error response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Promise.resolve(response(200, JSON.stringify({ user: null })))),
+    );
+    await expect(me()).resolves.toBeNull();
+  });
 });
 
 describe('websocketUrl', () => {

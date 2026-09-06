@@ -72,7 +72,7 @@ export async function me(): Promise<SessionUser | null> {
   // request into a 401 from Caddy that looks like an expired app token.
   const res = await fetch('/api/auth/me');
   if (!res.ok) return null;
-  return ((await res.json()) as { user: SessionUser }).user;
+  return ((await res.json()) as { user: SessionUser | null }).user;
 }
 
 /** The access cookie authenticates the upgrade; the URL carries no credential. */
