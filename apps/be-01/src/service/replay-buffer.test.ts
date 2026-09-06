@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { ReplayBuffer } from './replay-buffer';
 
@@ -77,9 +77,8 @@ describe('ReplayBuffer', () => {
     });
 
     it('keeps sweeping when the key it swept last has gone', () => {
-      // The rotation is by name, and a swept-empty key is deleted — so the
-      // next lap starts over rather than stopping at a name that is no longer
-      // in the map.
+      // A swept-empty key is deleted. The retained iterator must still reach
+      // the following subscriptions, rather than stopping at the deleted key.
       let t = 0;
       const buf = new ReplayBuffer({ maxPerSubscription: 100, maxAgeMs: 1000, now: () => t });
       buf.record('project:one', 0, {});
@@ -94,4 +93,76 @@ describe('ReplayBuffer', () => {
       expect(buf.oldestSeq('project:two')).toBeNull();
     });
   });
+});
+
+describe('bounded subscription selection', () => {
+  for (const subscriptions of [100, 1_000, 10_000]) {
+    it(`bounds record iterator work with ${String(subscriptions)} subscriptions`, () => {
+      const buffer = new ReplayBuffer({ maxPerSubscription: 10, maxAgeMs: 1_000, now: () => 0 });
+      for (let index = 0; index < subscriptions; index += 1) {
+        buffer.record(`project:${String(index)}`, 0, {});
+      }
+      // Native Map keys and entries share this iterator prototype. Counting its
+      // next method observes retained cursors as well as newly created ones.
+      const prototype = Object.getPrototypeOf(new Map().keys()) as {
+        next(this: object): IteratorResult<unknown>;
+      };
+      // Retain the native function; the wrapper explicitly supplies its cursor
+      // receiver through call(), rather than binding it to the prototype.
+      const advance = Reflect.get(prototype, 'next') as (this: object) => IteratorResult<unknown>;
+      let visits = 0;
+      const counter = spyOn(prototype, 'next').mockImplementation(function (this: object) {
+        visits += 1;
+        return advance.call(this);
+      });
+      const measured: number[] = [];
+      try {
+        for (let seq = 1; seq <= 4; seq += 1) {
+          visits = 0;
+          buffer.record('project:0', seq, {});
+          measured.push(visits);
+        }
+      } finally {
+        counter.mockRestore();
+      }
+      expect(measured.some((count) => count > 0)).toBe(true);
+      for (const count of measured) expect(count).toBeLessThanOrEqual(3);
+    });
+  }
+});
+
+it('reaches subscriptions added after a completed sweep lap', () => {
+  let now = 0;
+  const buffer = new ReplayBuffer({ maxPerSubscription: 10, maxAgeMs: 1_000, now: () => now });
+  buffer.record('live', 0, {});
+  buffer.record('first', 0, {});
+  for (let seq = 1; seq <= 4; seq += 1) buffer.record('live', seq, {});
+  buffer.record('later', 0, {});
+  now = 2_000;
+  for (let seq = 5; seq <= 8; seq += 1) buffer.record('live', seq, {});
+  expect(buffer.oldestSeq('first')).toBeNull();
+  expect(buffer.oldestSeq('later')).toBeNull();
+  expect(buffer.since('live', -1).map((entry) => entry.seq)).toEqual([5, 6, 7, 8]);
+});
+
+it('advances past an earlier subscription that remains unexpired', () => {
+  let now = 0;
+  const buffer = new ReplayBuffer({ maxPerSubscription: 10, maxAgeMs: 1_000, now: () => now });
+  buffer.record('earlier', 0, {});
+  buffer.record('abandoned', 0, {});
+  now = 500;
+  buffer.record('earlier', 1, {});
+  now = 1_200;
+  for (let seq = 0; seq < 4; seq += 1) buffer.record('writer', seq, {});
+  expect(buffer.oldestSeq('abandoned')).toBeNull();
+  expect(buffer.since('earlier', -1).map((entry) => entry.seq)).toEqual([1]);
+});
+
+it('reports expired coverage as absent before reading replay events', () => {
+  let now = 0;
+  const buffer = new ReplayBuffer({ maxPerSubscription: 10, maxAgeMs: 1_000, now: () => now });
+  buffer.record('project', 3, {});
+  expect(buffer.covers('project', 3)).toBe(true);
+  now = 1_001;
+  expect(buffer.covers('project', 3)).toBe(false);
 });
