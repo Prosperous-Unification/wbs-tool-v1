@@ -64,6 +64,10 @@ describe('leafFloorsOf', () => {
 
 describe('leafDeadlinesOf', () => {
   it('carries a deadline written on a parent down to every leaf beneath it', () => {
+    // Compared as the whole map and not with two `get`s, because the entries
+    // that are *absent* are half of 3.3: a dated row constrains the leaves
+    // under it and never itself, so a fold that also emitted `['P', 20]` fails
+    // here on the extra entry rather than passing unnoticed.
     expect([...leafDeadlinesOf(new Map([['P', 20]]), index)]).toEqual([
       ['L1', 20],
       ['L2', 20],
@@ -146,18 +150,19 @@ describe('leafDeadlinesOf', () => {
   });
 
   it('keeps a dated parent’s own date when its subtree is deleted', () => {
-    // tasks.md 3.3, read as the shape a tree can actually take. "A parent with
-    // a deadline and no leaves" is not a state `PlannedRow[]` can hold — a row
-    // with no children **is** a leaf — so the case the product has is the one
-    // after the delete: `P`'s children are gone, `P` is now a leaf, and the
-    // date written on it binds `P` itself.
+    // tasks.md 3.3. A row with no children **is** a leaf in `indexTree`, so
+    // `leavesUnder` is never empty for a row the tree carries and "a parent
+    // with no leaves" names no reachable state. The reachable neighbour is the
+    // delete: `P`'s children are gone, `P` is now a leaf, and the date written
+    // on it binds `P` itself.
     //
     // No constraint is emitted for the children that no longer exist, nothing
     // throws, and the stored date is not silently dropped on the way through.
     // The alternative — treating a formerly-parent id as unresolvable and
     // discarding it — would delete a date the user wrote by deleting rows
     // underneath it, which is a data loss no undo would catch because nothing
-    // recorded it.
+    // recorded it. `P` is then an ordinary dated leaf, ordered and reported
+    // late like any other, which is the intended consequence and not a leak.
     const pruned = indexTree([
       { id: 'G', parentId: null, position: 0, frozenNumber: null, priority: null },
       { id: 'P', parentId: 'G', position: 0, frozenNumber: null, priority: null },

@@ -136,17 +136,32 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       leaf's own date wins". `lets an EARLIER parent tighten a later child` is
       the new case, and a fold that simply preferred the leaf's own value passes
       every other case in that describe and fails only this one.
-- [x] 3.3 Empty subtree — a parent with a deadline and no leaves emits no
-      constraint, raises no error, and keeps its stored date when its subtree is
-      deleted. **Read as the shape the tree can actually take:** "a parent with
-      no leaves" is not a state `PlannedRow[]` can hold, because a row with no
-      children _is_ a leaf. So the case the product has is the one after the
-      delete — `P`'s children are gone, `P` is a leaf, and its date binds `P`
-      itself rather than being discarded as an unresolvable id, which would
-      delete a date the user wrote by deleting rows underneath it. Two cases,
-      because they fail differently: the pruned-subtree one goes red on a fold
-      that drops such an id, and the empty-map one goes red on a fold that seeds
-      every leaf.
+- [x] 3.3 A dated row constrains the leaves under it and never itself, and a row
+      with no children is a leaf under itself — so deleting a parent's subtree
+      leaves its stored date binding the row it was written on, raises no error,
+      and emits nothing for the children that are gone.
+
+      **The clause was first written as "a parent with a deadline and no leaves
+      emits no constraint", and that sentence names no state this tree can
+      reach.** A row with no children _is_ a leaf in `indexTree`, so
+      `leavesUnder` is never empty for a row the tree carries. Written that way
+      the item could only be closed by a check that cannot fail, which is why
+      the rule above replaces it rather than being reconciled with it — recorded
+      2026-09-06 against a review finding that read the old sentence and the
+      test together and found them opposed. The decision is that the date
+      survives: discarding a formerly-parent id as unresolvable would delete
+      something the user wrote by deleting rows underneath it, with nothing to
+      undo because nothing recorded it. The consequence is deliberate — after
+      the delete `P` is an ordinary dated leaf, so Fast orders it by its slack
+      and reports its `lateBy` like any other.
+
+      **Both halves are proved, and they fail differently.** _Never itself_:
+      `carries a deadline written on a parent down to every leaf beneath it`
+      compares the whole map, `[['L1', 20], ['L2', 20]]`, so a fold that also
+      constrained `P` fails on the extra entry. _Keeps its date_: the
+      pruned-subtree case goes red on a fold that drops such an id. _Emits
+      nothing_: the empty-map case goes red on a fold that seeds every leaf.
+
 - [ ] 3.4 The two impossible kinds are distinguished at their own boundaries:
       `before-project-start` at write time (slice 6) is malformed input;
       unreachable-but-well-formed is legitimate input that Fast reports late
