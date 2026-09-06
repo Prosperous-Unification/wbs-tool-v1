@@ -11,7 +11,7 @@ import { runMigrations } from '../repository/migrate';
 import { reserveSolverSlot } from '../repository/optimization-admission';
 import { allocateGeneration, readGeneration } from '../repository/optimization-generation';
 import { readOptimizedPair } from '../repository/optimized-schedule-cache';
-import { solverSlot } from '../repository/schema';
+import { solverQueue, solverSlot } from '../repository/schema';
 import {
   OptimizationCoordinator,
   type ReservedSolverChild,
@@ -218,6 +218,52 @@ describe('OptimizationCoordinator read', () => {
 
     // Proof: bypassing SQLite leaves zero rows; removing the full-key conflict
     // check lets green call the spawner twice more for the same generation.
+  });
+
+  it('persists both absent objectives when project capacity is already full', () => {
+    const { path, db } = database();
+    seedProject(path);
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, scheduleInputHash(INPUT), 2);
+    for (let index = 0; index < 4; index += 1) {
+      expect(
+        reserveSolverSlot(db, {
+          projectId: 'p-1',
+          contractVersion: CONTRACT,
+          generation,
+          objective: index % 2 === 0 ? 'pri' : 'time',
+          budgetMs: BUDGET + index + 1,
+          ownerId: `existing-${String(index)}`,
+          attemptToken: `existing-token-${String(index)}`,
+          now: 5,
+        }),
+      ).toMatchObject({ kind: 'reserved' });
+    }
+    const calls: ReservedSpawnRequest[] = [];
+
+    expect(
+      coordinator(db, calls).read({ projectId: 'p-1', objective: 'pri', input: INPUT }),
+    ).toBeNull();
+    expect(calls).toEqual([]);
+    expect(
+      db
+        .select({
+          objective: solverQueue.objective,
+          budgetMs: solverQueue.budgetMs,
+          generation: solverQueue.generation,
+          epoch: solverQueue.admittedCancelEpoch,
+        })
+        .from(solverQueue)
+        .all(),
+    ).toEqual([
+      { objective: 'pri', budgetMs: BUDGET, generation, epoch: 0 },
+      { objective: 'time', budgetMs: BUDGET, generation, epoch: 0 },
+    ]);
+
+    coordinator(db, calls, 'green').read({ projectId: 'p-1', objective: 'time', input: INPUT });
+    expect(db.select().from(solverQueue).all()).toHaveLength(2);
+
+    // Proof: ignoring project-full/global-full leaves this FIFO empty; replacing
+    // the full-key conflict policy changes the second read to four rows or throws.
   });
 
   it('stores both preflight refusals without creating a launcher', () => {

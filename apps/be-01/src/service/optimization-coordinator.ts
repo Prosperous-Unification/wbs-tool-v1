@@ -11,6 +11,7 @@ import {
 } from '../repository/optimization-admission';
 import { releaseSolverSlot } from '../repository/optimization-drain';
 import { allocateGeneration } from '../repository/optimization-generation';
+import { enqueueSolverRequest } from '../repository/optimization-queue';
 import {
   readOptimizedPairAndSpawn,
   type SpawnRequest,
@@ -243,6 +244,17 @@ export class OptimizationCoordinator {
           attemptToken: this.options.attemptToken(),
           now,
         });
+        if (admission.kind === 'project-full' || admission.kind === 'global-full') {
+          enqueueSolverRequest(this.options.db, {
+            projectId: request.key.projectId,
+            contractVersion: request.key.contractVersion,
+            generation,
+            objective: request.objective,
+            budgetMs: request.key.budgetMs,
+            enqueuedAt: now,
+          });
+          return;
+        }
         if (admission.kind === 'reserved') {
           requests ??= buildSolverRequestPair(
             ask.input,
