@@ -100,7 +100,7 @@ describe('the host-owned solver command builder', () => {
         'systemd-run',
         '--user',
         `--unit=wbs-solver-deadline-${ATTEMPT_TOKEN}`,
-        '--on-calendar=@20.000',
+        '--on-calendar=1970-01-01 00:00:20.000 UTC',
         '--timer-property=AccuracySec=1ms',
         '--remain-after-exit',
         '/usr/bin/docker',

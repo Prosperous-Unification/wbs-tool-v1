@@ -24,6 +24,14 @@ function requireContainerId(containerId: string): void {
   }
 }
 
+/** A millisecond-precise form accepted by the host's systemd calendar parser. */
+function systemdCalendarAt(epochMs: number): string {
+  // `@<seconds>.<milliseconds>` looks like systemd's epoch syntax but 259
+  // rejects its fractional form. An explicit UTC calendar instant preserves
+  // the same precision without making the host interpret a local timezone.
+  return new Date(epochMs).toISOString().replace('T', ' ').replace('Z', ' UTC');
+}
+
 export function buildManagedContainerArgs(
   frame: SupervisorStartFrame,
   options: ManagedContainerOptions,
@@ -98,7 +106,7 @@ export function buildPersistentDeadlineTimerCommands(
       'systemd-run',
       '--user',
       `--unit=${unit}`,
-      `--on-calendar=@${(frame.childDeadlineAt / 1000).toFixed(3)}`,
+      `--on-calendar=${systemdCalendarAt(frame.childDeadlineAt)}`,
       '--timer-property=AccuracySec=1ms',
       '--remain-after-exit',
       '/usr/bin/docker',
