@@ -48,7 +48,14 @@ describe('durable dev poller', () => {
     const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
 
     await requireCommand(['git', 'init', '--quiet', '--initial-branch=main', source]);
-    await requireCommand(['git', '-C', source, 'config', 'user.email', 'poller-test@example.invalid']);
+    await requireCommand([
+      'git',
+      '-C',
+      source,
+      'config',
+      'user.email',
+      'poller-test@example.invalid',
+    ]);
     await requireCommand(['git', '-C', source, 'config', 'user.name', 'poller test']);
 
     const sync = join(source, 'tools/tool-devsync/src/sync.ts');
