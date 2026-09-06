@@ -755,9 +755,12 @@ describe('what the deadline change must not do to the cache key', () => {
         'budget_ms',
       ]);
 
-      // Load-bearing: the assertion above is an equality, so it already fails
-      // on a sixth column — but naming the negative is what a later reader
-      // greps for when they are about to add one.
+      // NOT load-bearing, and saying so is the point: the equality above is
+      // exact, so it reds on a sixth column first and this line cannot fail on
+      // its own. It is a grep target — the string a later reader adding
+      // `deadline` to the key will land on — and it survives only because
+      // naming the negative is cheaper than the review that rediscovers why the
+      // key stops where it does.
       expect(primaryKeyColumns(db.path, 'optimized_schedule_cache')).not.toContain('deadline');
     } finally {
       db.cleanup();
