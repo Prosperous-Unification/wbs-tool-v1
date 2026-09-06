@@ -228,7 +228,7 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
  * `ERR_SSL_NO_CIPHER_MATCH` is a local cipher configuration that fails before we
  * ever reach the provider. The `_ALERT_` infix is what separates "the peer
  * objected" from "our own TLS setup is wrong". Non-alert OpenSSL failures that
- * *are* transport failures are enumerated below by name instead.
+ * really are transport failures are enumerated below by name instead.
  *
  * `EPROTO` does not stand in for any of this: it is the errno, not the OpenSSL
  * code, and the two arrive separately.
