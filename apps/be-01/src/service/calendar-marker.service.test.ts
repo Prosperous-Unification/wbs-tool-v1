@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { CalendarMarker } from '../repository';
-import { recordingBroadcaster } from '../testing/broadcast-fixture';
+import { type RecordingBroadcaster, recordingBroadcaster } from '../testing/broadcast-fixture';
 import {
   inMemoryCalendarMarkers,
   testCalendarMarkerService,
@@ -92,7 +92,14 @@ const WRITES: Record<
   },
 };
 
-const ANNOUNCED = [{ projectId: PROJECT, event: { type: 'calendar_markers_changed' } }];
+/**
+ * Annotated rather than inferred: an unannotated literal widens `type` to
+ * `string`, which is not a `ProjectEvent` and which `toEqual` rejects against
+ * the recorder's own element type.
+ */
+const ANNOUNCED: RecordingBroadcaster['published'] = [
+  { projectId: PROJECT, event: { type: 'calendar_markers_changed' } },
+];
 
 /**
  * What each write announces, per write and per outcome.
