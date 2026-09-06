@@ -80,9 +80,7 @@ export function buildSolverSupervisorInstallPlan(
 ): readonly SolverSupervisorInstallStep[] {
   const files = solverSupervisorInstallFiles(config);
   const temp = files.map((file) => ({ ...file, remote: `${file.remote}.tmp` }));
-  const moves = files
-    .map((file, index) => `mv ${temp[index]?.remote} ${file.remote}`)
-    .join(' && ');
+  const moves = files.map((file, index) => `mv ${temp[index]?.remote} ${file.remote}`).join(' && ');
   const readiness =
     `set -eu; systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}; ` +
     'solver_probe=0; ' +
@@ -197,11 +195,7 @@ export async function installSolverSupervisor(
     }
   }
 
-  const plan = buildSolverSupervisorInstallPlan(
-    args.host,
-    args.config,
-    options.connection.unix,
-  );
+  const plan = buildSolverSupervisorInstallPlan(args.host, args.config, options.connection.unix);
   if (!args.execute) return plan;
 
   const preflight = plan.find((step) => step.phase === 'preflight');
