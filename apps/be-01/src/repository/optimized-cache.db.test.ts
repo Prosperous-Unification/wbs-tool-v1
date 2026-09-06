@@ -980,10 +980,7 @@ describe("4.1's conditional write, with all four conditions composed", () => {
   } as const;
 
   /** The seat the writer holds, exactly as the coordinator reserves it. */
-  function reserve(
-    path: string,
-    over: { attemptToken?: string; startedAt?: number } = {},
-  ): void {
+  function reserve(path: string, over: { attemptToken?: string; startedAt?: number } = {}): void {
     const db = openDatabase(path);
     try {
       db.run(
@@ -1335,13 +1332,21 @@ describe("4.1's conditional write, with all four conditions composed", () => {
         const replacement = solverResult(realPlan());
 
         expect(
-          commit(db.path, { kind: 'ok', result: replacement }, { attemptToken: 'tok-retry', now: 9 }),
+          commit(
+            db.path,
+            { kind: 'ok', result: replacement },
+            { attemptToken: 'tok-retry', now: 9 },
+          ),
         ).toBe('stored');
         expect(
-          commit(db.path, { kind: 'failed', reason: 'internal-error' }, {
-            attemptToken: 'tok-retry',
-            now: 10,
-          }),
+          commit(
+            db.path,
+            { kind: 'failed', reason: 'internal-error' },
+            {
+              attemptToken: 'tok-retry',
+              now: 10,
+            },
+          ),
         ).toBe('already-recorded');
 
         const afterRetry = read(db.path).pri;
