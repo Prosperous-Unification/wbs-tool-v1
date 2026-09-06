@@ -4,30 +4,34 @@ import type { OidcConsumeResult, OidcTransactionStore } from './oidc-store';
  * **One browser, several logins, one cookie name** (TASK-272).
  *
  * `InMemoryOidcTransactionStore` addresses a transaction by the binding alone
- * and that is correct; what was not correct is that a browser could only ever
- * *hold* one binding. Two tabs starting a login share `__Host-wbs_oidc`, so the
- * second overwrites the first and the first tab's callback comes back carrying
- * a binding that is not its own. TASK-276 stopped that arrival from destroying
+ * and that is correct; what was not correct is that a browser could only
+ * ever *hold* one. Two tabs starting a login share `__Host-wbs_oidc`, so the
+ * second overwrites the first and the first tab's callback comes back carrying a
+ * binding that is not its own. TASK-276 stopped that arrival from destroying
  * the second tab's login; it could not give the first tab back a cookie the
  * browser had already replaced. This module is that half: the cookie's **value**
  * becomes a bounded ordered list, so a browser offers every binding it still
  * holds and the store decides which one the arriving `state` proves.
  *
- * **Why not a cookie per login.** The obvious alternative is a per-login cookie
- * *name* — `__Host-wbs_oidc_<id>` — with the callback deriving the name from
- * `state`. It is rejected for two reasons, and the first is a security
- * property this file must not spend. Deriving the cookie name from a URL
- * parameter lets the arriving request choose which server-side record the
- * browser offers; the binding stops being the browser's own proof and becomes
- * addressable by whoever composed the URL, which is exactly what the store's
- * `refuses another browser without consuming the initiating browser
- * transaction` exists to forbid. The second is that it has no bound anyone
- * writes down: browsers cap cookies per domain and evict silently, so the limit
- * would be the user agent's rather than this application's — and TASK-272's
- * fourth acceptance criterion asks for a bound that is explicit and tested.
+ * **A cookie per login is the stronger shape and is not what this is** — said
+ * plainly, because the first version of this paragraph claimed a security
+ * objection it does not have. A per-login cookie *name*
+ * (`__Host-wbs_oidc_<id>`) does let the arriving URL select which cookie the
+ * browser is asked for, but what it selects is *which* proof is offered, never
+ * what it is: the value stays `HttpOnly` and unguessable, the store still
+ * compares the state, and naming a cookie the browser does not hold earns the
+ * same refusal. Its real costs are a cookie jar that grows and a bound that has
+ * to be kept by clearing names.
  *
- * Single-use is unmoved. It is still keyed by the binding and still enforced in
- * the store; only the transport becomes plural.
+ * Its real advantage is the one this shape does not have. A single cookie is a
+ * read-modify-write across a round trip, so two logins starting at the same
+ * instant can both read the same list and the later answer wins — a lost update
+ * that costs the other login (peer review, TASK-272 r1, Important). Distinct
+ * names make those writes independent, and moving to them is the recorded next
+ * step for this task rather than a thing this comment can talk its way out of.
+ *
+ * Single-use is unmoved either way. It is still keyed by the binding and still
+ * enforced in the store; only the transport becomes plural.
  */
 export const MAX_BROWSER_BINDINGS = 3;
 

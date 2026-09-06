@@ -101,8 +101,8 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
    *
    * **The two-tab residual is closed, and not here** (TASK-272). Two logins
    * started in two tabs shared one cookie name, so the second overwrote the
-   * browser's binding and the first tab's stale callback arrived carrying the
-   * *second* tab's binding with the *first* tab's state — precisely a mismatch.
+   * browser's binding and the first tab's stale callback arrived carrying
+   * the *second* tab's binding with the *first* tab's state — a mismatch.
    * The half this method owned is above: that arrival no longer burns the
    * second tab's live record, so the login being completed survives. The other
    * half was never a store-ordering question at all, because no ordering here
