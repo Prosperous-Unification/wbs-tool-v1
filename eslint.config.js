@@ -220,46 +220,74 @@ export default [
       ],
     },
   },
-  // The other half of the same criterion, and the half a review found missing:
-  // the fence above stands in front of `src/controller`, so it says nothing
-  // about what the modules a controller is *allowed* to import may themselves
-  // import. `http/` is the framework-free layer every controller reaches the
-  // outside through — `route.ts`, `response.ts`, `caller.ts`, `body-doc.ts`
-  // and the second binder under `http/in-process/` — so `elysia` arriving in
-  // any of them is the criterion failing one hop out, with the grep in AC 1
-  // still clean.
+  // The other half of the same criterion, and the half two reviews found
+  // missing in turn: the fence above stands in front of `src/controller`, so it
+  // says nothing about what the modules a controller is *allowed* to import may
+  // themselves import.
   //
-  // `http/elysia/` is excluded because it *is* the dialect: it is the one
-  // place under `src/` outside `app.ts` that AC 1 lets import the framework.
+  // This block used to cover `http/**` only, on the reasoning that `http/` is
+  // the layer every controller reaches the outside through. That was true and
+  // still too narrow — it left every other directory under `src/` (`service/`,
+  // `repository/`, `openapi/`, `realtime/`) unfenced, so a controller importing
+  // a service that imports the framework passed both blocks. **The fence is now
+  // the whole of `apps/be-01/src`, by exception rather than by inclusion**, and
+  // that is what makes AC 1 transitive *by construction*: every module on every
+  // import chain that begins in `controller/` and stays inside this project is
+  // covered, with no graph to walk and no second tool to maintain.
   //
-  // Measured rather than assumed, on a probe controller run through this
-  // config (2026-09-06, h2puni, `~/t262-gate`): `import 'elysia'` errors and
+  // The exceptions are the entire list of modules under `src/` that name the
+  // framework — measured at `a2dd1153`, not assumed:
+  //
+  //     git grep -lE "from '(elysia|elysia/[^']*|@elysiajs/[^']*)'|\
+  //     from '[^']*http/elysia/" -- apps/be-01/src
+  //     → app.ts, http/elysia/{bind,body-doc-conformance,query-schemas}.ts,
+  //       openapi/openapi-plugin.ts
+  //
+  // - `http/elysia/**` *is* the dialect; it is the one directory under `src/`
+  //   that AC 1 lets import the framework, and it covers three of the five.
+  // - `app.ts` is the composition root — it is where the dialect is allowed to
+  //   meet the route list, and AC 1 has always named it.
+  // - `openapi/openapi-plugin.ts` imports `@elysiajs/openapi` and is a plugin
+  //   `app.ts` mounts, not a module on any controller's import path.
+  // - `http/binder.contract.test.ts` is AC 3's parameterised suite, whose whole
+  //   job is to run one route list through BOTH binders, so it imports
+  //   `./elysia/bind` on purpose. Measured, not guessed — it was the one file
+  //   in `http/` the narrower block reddened (`elysia/*` matches a
+  //   `./elysia/…` specifier).
+  // - `controller/**` is ignored *here* only because the block above already
+  //   fences it with a message written for route authors. Flat config replaces
+  //   a rule's options per file rather than merging them, so without this
+  //   ignore the broader block would silently overwrite that message; the
+  //   pattern list is deliberately identical either way, so nothing is lost.
+  //
+  // Measured on a probe controller run through this config (2026-09-06,
+  // h2puni, `~/t262-gate`): `import 'elysia'` errors and
   // `import '../http/elysia/query-schemas'` errors — so `**/http/elysia/*`
-  // *does* match a `../`-relative specifier, contrary to the review's second
-  // claim — while `import '@elysiajs/openapi'` did **not**, which is why
-  // `@elysiajs/*` is now in both groups.
+  // *does* match a `../`-relative specifier, contrary to a review's claim —
+  // while `import '@elysiajs/openapi'` did **not**, which is why `@elysiajs/*`
+  // is in both groups.
   //
   // What this still does not do, stated so nobody reads more into it: eslint
-  // matches specifier strings, not a dependency graph, so a controller
-  // importing some third module that imports the framework is caught by AC 1's
-  // own `git grep` control and by `app.routes.test.ts`, not by this rule.
-  // `openapi/openapi-plugin.ts` imports `@elysiajs/openapi` and is deliberately
-  // outside this fence — it is a plugin `app.ts` mounts, not a module on any
-  // controller's import path.
+  // matches specifier strings, not a dependency graph, so the guarantee stops
+  // at this project's boundary. A cross-project edge is
+  // `@nx/enforce-module-boundaries`' job, which *is* graph-transitive. Today
+  // the only library naming the framework is `libs/observability`, confined to
+  // `src/server/` behind the `@wbs/observability/server` subpath, and only
+  // `app.ts` imports it — controllers reach `@wbs/auth`, `@wbs/contracts`,
+  // `@wbs/domain` and `@wbs/validation`, none of which name it.
   //
   // It repeats the `bun:sqlite` restriction for the controller block's reason:
   // flat config replaces a rule's options per file rather than merging them, so
-  // without the repeat every module under `http/` would silently lose it.
-  //
-  // `binder.contract.test.ts` is the second exclusion and the more interesting
-  // one: it is AC 3's parameterised suite, whose whole job is to run the same
-  // route list through BOTH binders, so it imports `./elysia/bind` on purpose.
-  // Measured, not guessed — it is the one file in `http/` this block reddened
-  // (`elysia/*` matches a `./elysia/…` specifier), and excluding the suite that
-  // proves the seam is cheaper than a pattern that has to know about it.
+  // without the repeat every module under `src/` would silently lose it.
   {
-    files: ['apps/be-01/src/http/**/*.ts'],
-    ignores: ['apps/be-01/src/http/elysia/**', 'apps/be-01/src/http/binder.contract.test.ts'],
+    files: ['apps/be-01/src/**/*.ts'],
+    ignores: [
+      'apps/be-01/src/controller/**',
+      'apps/be-01/src/http/elysia/**',
+      'apps/be-01/src/app.ts',
+      'apps/be-01/src/openapi/openapi-plugin.ts',
+      'apps/be-01/src/http/binder.contract.test.ts',
+    ],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
@@ -276,12 +304,13 @@ export default [
           ],
           patterns: [
             {
-              group: ['elysia', 'elysia/*', '@elysiajs/*'],
+              group: ['elysia', 'elysia/*', '@elysiajs/*', '**/http/elysia/*'],
               allowTypeImports: false,
               message:
-                'http/ is the framework-free layer — acceptance criterion #1 of the be-01 ' +
-                'refactor. Only http/elysia/ names the framework; a module here that needs ' +
-                'something from it takes a name the binder resolves instead ' +
+                'be-01 is framework-free below app.ts — acceptance criterion #1 of the ' +
+                'be-01 refactor, and it holds transitively only because this fence covers ' +
+                'every module under src/. Only http/elysia/ names the framework; a module ' +
+                'here that needs something from it takes a name the binder resolves instead ' +
                 '(see QuerySchemaName in http/route.ts).',
             },
           ],

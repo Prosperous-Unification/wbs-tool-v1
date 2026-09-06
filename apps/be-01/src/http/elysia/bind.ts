@@ -72,14 +72,27 @@ function receivedMethodOf(raw: string, method: HttpMethod): HttpMethod | 'HEAD' 
  * The Elysia binder: a route list in, a mountable Elysia instance out.
  *
  * Everything a controller does is expressed against `../route`, and swapping
- * the framework means writing a sibling of this file. The framework itself is
- * imported only under `http/elysia/` — here and by `query-schemas.ts` — plus
- * `app.ts`, which mounts the result; nothing a route module imports reaches it,
- * which is the claim acceptance criterion #1 makes. The check is
- * `git grep -l elysia apps/be-01/src/controller`, scoped to the controllers and
- * expected to be **empty**. Widened to `apps/be-01/src` it matches this file,
- * `query-schemas.ts` and `app.ts` by design, so the unscoped command answers a
- * different question and always has matches.
+ * the framework means writing a sibling of this file. Nothing a route module
+ * imports reaches the framework, which is the claim acceptance criterion #1
+ * makes — and it is `eslint.config.js` that makes it true, not the grep this
+ * comment used to name. Two `@typescript-eslint/no-restricted-imports` blocks
+ * fence `apps/be-01/src/controller/**` and then the whole of
+ * `apps/be-01/src/**`, so every module on every import chain that starts in a
+ * controller and stays in this project is covered. The exceptions are enumerated
+ * in that config and are exactly the modules that name the framework:
+ * `http/elysia/**` (this file, `query-schemas.ts`, `body-doc-conformance.ts`),
+ * `app.ts`, which mounts the result, `openapi/openapi-plugin.ts`, which
+ * `app.ts` also mounts, and `binder.contract.test.ts`, which drives both
+ * binders on purpose.
+ *
+ * The guarantee stops at this project's boundary, and saying so is the point:
+ * eslint matches specifier strings, not a dependency graph, so a library that
+ * imported the framework and was imported by a controller would pass this fence.
+ * That edge belongs to `@nx/enforce-module-boundaries`, which *is*
+ * graph-transitive. `git grep -l elysia apps/be-01/src/controller` remains a
+ * useful hand control and is expected to be **empty**; widened to
+ * `apps/be-01/src` it matches the exceptions above by design, so the unscoped
+ * command answers a different question and always has matches.
  *
  * Routes are registered through the **method-specific** calls rather than a
  * generic `.route()`, because `@elysiajs/openapi` builds its document from the
