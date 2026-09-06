@@ -2888,6 +2888,9 @@ function rowOf(parts: {
     dates: { startsOn: parts.startsOn, endsOn: parts.endsOn },
     startNoEarlierThan: parts.notBefore ?? null,
     startNoEarlierThanReason: null,
+    // No deadline: this file's fixtures are about where bars are drawn, and
+    // a deadline moves none of them.
+    deadline: null,
     serviceTeamId: null,
     teamIds: [],
     assignees: {},
