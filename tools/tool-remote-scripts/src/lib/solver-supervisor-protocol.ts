@@ -36,7 +36,8 @@ const START_KEYS = [
   'request',
 ] as const;
 
-const CONTAINER_ID = /^[0-9a-f]{64}$/;
+const FULL_CONTAINER_ID = /^[0-9a-f]{64}$/;
+const DOCKER_HOSTNAME_ID = /^[0-9a-f]{12}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function defect(message: string): Error {
@@ -90,11 +91,25 @@ export function decodeSupervisorStartFrame(
     throw defect(`unknown protocolVersion ${JSON.stringify(value['protocolVersion'])}`);
   }
 
-  const callerId = value['callerId'];
-  if (typeof callerId !== 'string' || !CONTAINER_ID.test(callerId)) {
-    throw defect('callerId is not a full Docker container id');
+  const claimedCallerId = value['callerId'];
+  if (
+    typeof claimedCallerId !== 'string' ||
+    (!FULL_CONTAINER_ID.test(claimedCallerId) && !DOCKER_HOSTNAME_ID.test(claimedCallerId))
+  ) {
+    throw defect('callerId is not a full Docker container id or 12-hex Docker hostname');
   }
-  if (callerId !== context.peerCallerId) throw defect('callerId does not match peer caller id');
+  if (!FULL_CONTAINER_ID.test(context.peerCallerId)) {
+    throw defect('peer caller id is not a full Docker container id');
+  }
+  // Proof: solver-supervisor-protocol.test.ts supplies a wrong 12-hex prefix,
+  // and solver-supervisor-service.test.ts proves the accepted prefix becomes
+  // only this peer-derived full identity before the attempt runner sees it.
+  if (
+    claimedCallerId !== context.peerCallerId &&
+    !(DOCKER_HOSTNAME_ID.test(claimedCallerId) && context.peerCallerId.startsWith(claimedCallerId))
+  ) {
+    throw defect('callerId does not match peer caller id');
+  }
 
   const projectId = value['projectId'];
   if (typeof projectId !== 'string' || !UUID.test(projectId)) {
@@ -131,7 +146,7 @@ export function decodeSupervisorStartFrame(
   return {
     type: 'start',
     protocolVersion: SUPERVISOR_PROTOCOL_VERSION,
-    callerId,
+    callerId: context.peerCallerId,
     projectId,
     objective,
     attemptToken,

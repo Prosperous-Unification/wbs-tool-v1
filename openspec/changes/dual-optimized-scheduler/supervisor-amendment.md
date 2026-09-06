@@ -28,8 +28,10 @@ maintained primitives; the custom code is only their narrow protocol adapter.
    text. Every Docker command is an argv array assembled from validated typed
    fields and fixed flags.
 3. On accept, the supervisor reads `SO_PEERCRED`, resolves the peer's host PID
-   through `/proc/<pid>/cgroup` to a Docker container, and requires that id to
-   equal the claimed caller id. It then inspects that live container and
+   through `/proc/<pid>/cgroup` to a full Docker container id, and requires the
+   claimed caller id to equal either that full id or its exact 12-hex Docker
+   hostname prefix. It canonicalizes the accepted claim to the peer-derived
+   full id before any label, image-map, or lifecycle use. It then inspects that live container and
    accepts only configured backend container-name patterns. A claimed id for
    another live backend is rejected. The supervisor selects the caller's image
    itself; a caller cannot choose an image, entrypoint, mount, network,
@@ -45,12 +47,12 @@ maintained primitives; the custom code is only their narrow protocol adapter.
    read-only root with a 64 MiB `/tmp` tmpfs, all capabilities dropped,
    `no-new-privileges`, `--init`, no restart policy, and the requested limits.
    The fixed command is `wbs-solver-launcher --attempt-token <token>
-   --child-deadline-epoch-ms <childDeadlineAt> --search-workers <count>
-   --memory-limit-mb <limit>`.
+--child-deadline-epoch-ms <childDeadlineAt> --search-workers <count>
+--memory-limit-mb <limit>`.
 6. Every list, kill, or removal first filters on
    `wbs-managed-solver=true` and then uses one exact container id; broad prune
    is forbidden. Termination is ordered `docker kill`, `docker wait`, `docker
-   inspect`, terminal-frame delivery, then `docker rm`. Removal never precedes
+inspect`, terminal-frame delivery, then `docker rm`. Removal never precedes
    evidence capture. On service start the supervisor applies this sequence to
    every managed orphan before listening.
 
@@ -65,7 +67,8 @@ deployment state, never a field the caller may override.
 ## One connection, one attempt
 
 The Unix stream is newline-framed, bounded, and never multiplexed. The one
-`start` frame contains `protocolVersion`, claimed caller id, project id,
+`start` frame contains `protocolVersion`, claimed caller id (the full Docker id
+or the exact 12-hex Docker hostname visible inside that same container), project id,
 objective, attempt token, absolute `childDeadlineAt`, search-worker count,
 memory limit, and the deterministic solver request. Before creating a
 container, the supervisor validates the whole frame, `SO_PEERCRED` identity,

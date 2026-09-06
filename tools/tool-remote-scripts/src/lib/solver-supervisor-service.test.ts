@@ -81,6 +81,35 @@ describe('serveSupervisorConnection', () => {
     expect(writes).toEqual(['{"type":"started","pid":99}\n']);
   });
 
+  it('resolves an in-container Docker hostname claim to the authenticated full identity', async () => {
+    let runCallerId = '';
+
+    await serveSupervisorConnection(
+      { fd: 17 },
+      bytes(`${JSON.stringify({ ...FRAME, callerId: CALLER_ID.slice(0, 12) })}\n`),
+      () => Promise.resolve(),
+      {
+        allowedNamePatterns: [/^wbs-dev-src$/],
+        maxInputBytes: 2 * 1024 * 1024,
+        bindTimeoutMs: 1_000,
+        maxSearchWorkers: 2,
+        maxMemoryLimitMb: 512,
+        now: () => 10_000,
+      },
+      {
+        credentials: () => ({ pid: 4242, uid: 1000, gid: 1000 }),
+        cgroup: () => Promise.resolve(`0::/system.slice/docker-${CALLER_ID}.scope\n`),
+        inspect: (id) => Promise.resolve({ id, name: 'wbs-dev-src', image: 'wbs-dev-src:1' }),
+        run: (frame) => {
+          runCallerId = frame.callerId;
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(runCallerId).toBe(CALLER_ID);
+  });
+
   it('does not run when the frame claims a different live backend', async () => {
     let runs = 0;
     const error = await rejectionOf(
@@ -108,8 +137,8 @@ describe('serveSupervisorConnection', () => {
       ),
     );
 
-    // Proof: decoding against the frame claim instead of the authenticated id
-    // runs this spoofed connection as another otherwise valid backend.
+    // Proof: accepting a valid-length claim without matching the authenticated
+    // full identity runs this spoofed connection as another live backend.
     expect(error.message).toMatch(/callerId does not match peer caller id/);
     expect(runs).toBe(0);
   });

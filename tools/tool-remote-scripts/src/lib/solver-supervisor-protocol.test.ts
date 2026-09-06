@@ -46,6 +46,10 @@ describe('decodeSupervisorStartFrame', () => {
     expect(decode(frame())).toEqual(frame());
   });
 
+  it('accepts the exact Docker hostname prefix and canonicalizes it to the peer identity', () => {
+    expect(decode(frame({ callerId: CALLER_ID.slice(0, 12) }))).toEqual(frame());
+  });
+
   it('rejects unknown authority and duplicate newline frames', () => {
     // Production break caught: deleting exact-key validation lets a caller
     // choose a Docker image or option the host must own.
@@ -85,6 +89,9 @@ describe('decodeSupervisorStartFrame', () => {
     // Production break caught: trusting callerId instead of the peer-derived
     // id lets one backend claim another backend's host mapping.
     expect(() => decode(frame(), { peerCallerId: 'b'.repeat(64) })).toThrow(/peer caller/);
+    expect(() => decode(frame({ callerId: `${CALLER_ID.slice(0, 11)}b` }))).toThrow(/peer caller/);
+    expect(() => decode(frame({ callerId: CALLER_ID.slice(0, 11) }))).toThrow(/callerId/);
+    expect(() => decode(frame({ callerId: CALLER_ID.slice(0, 13) }))).toThrow(/callerId/);
     expect(() => decode(frame({ callerId: '../docker.sock' }))).toThrow(/callerId/);
     expect(() => decode(frame({ projectId: 'project one' }))).toThrow(/projectId/);
     expect(() => decode(frame({ attemptToken: 'guessable' }))).toThrow(/attemptToken/);
