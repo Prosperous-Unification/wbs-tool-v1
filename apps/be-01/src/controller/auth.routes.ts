@@ -315,11 +315,13 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // keeps the newest {@link MAX_BROWSER_BINDINGS} and drops the oldest,
         // which is where the bound on concurrent logins per browser lives.
         //
-        // Proof: `lets the first tab finish a login a second tab started after
-        // it` fails with `Expected: 302 Received: 400` when this writes
-        // `browserBinding` alone, and `holds three concurrent logins per
-        // browser and drops the oldest` fails on the cookie value when the
-        // bound is removed.
+        // Proof: writing `browserBinding` alone reddens `lets the first tab
+        // finish a login a second tab started after it` at the cookie the
+        // second login leaves — `Expected: "binding-1.binding-2" Received:
+        // "binding-2"` — and, with that assertion deleted, at the late callback
+        // the browser actually loses: `Expected: 302 Received: 400`. It also
+        // reddens `holds three concurrent logins per browser and drops the
+        // oldest` with `Received: "binding-4"`, the whole bound gone with it.
         return empty(
           302,
           [
@@ -456,9 +458,11 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // all. That is the TASK-276 denial with a shorter URL, and it is
         // refused the same way — the bodiless 400, nothing cleared.
         //
-        // Proof: `refuses a stateless callback without discarding the logins in
-        // flight` fails on the `Set-Cookie` and then on the honest callback's
-        // `Expected: 302 Received: 400` when this clears unconditionally.
+        // Proof: clearing here unconditionally reddens `refuses a stateless
+        // callback without discarding the logins in flight` with `Received:
+        // "__Host-wbs_oidc=; … Max-Age=0"` against `toBeNull()`, and the case's
+        // derived cookie then costs the honest callback the login as well —
+        // that second assertion is what the derivation buys.
         if (bindings.length === 0) return empty(400, [clear('__Host-wbs_oidc')]);
         if (!state) return empty(400, []);
         // Every binding the browser holds is offered and the store decides

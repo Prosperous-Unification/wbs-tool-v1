@@ -554,8 +554,12 @@ describe('OIDC browser routes', () => {
    * from the previous response rather than written down, because the cookie's
    * value is now the thing under test.
    *
-   * Measured: with the login route writing `browserBinding` alone, this fails
-   * at the late callback with `Expected: 302 Received: 400`.
+   * Measured against the login route writing `browserBinding` alone: this fails
+   * first at the cookie the second login leaves behind, `Expected:
+   * "binding-1.binding-2" Received: "binding-2"`, because that assertion throws
+   * and ends the case. Delete those two assertions as well and it fails where a
+   * browser would suffer it, at the late callback: `Expected: 302 Received:
+   * 400`. Both were run; the loss is asserted at the cause and at the effect.
    */
   it('lets the first tab finish a login a second tab started after it', async () => {
     const sequence = [
@@ -683,9 +687,14 @@ describe('OIDC browser routes', () => {
     expect(stateless.headers.get('set-cookie')).toBeNull();
     expect(f.calls.exchange).toHaveLength(0);
 
+    // The second request carries what a browser would still be holding, taken
+    // from the first answer rather than written down — the shape TASK-276's
+    // sibling case arrived at, because re-sending the string unconditionally
+    // makes this assertion vacuous against a route that cleared the binding.
+    const cleared = (stateless.headers.get('set-cookie') ?? '').includes('__Host-wbs_oidc=;');
     const honest = await f.app.handle(
       new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
-        headers: cookieHeader('binding-1'),
+        headers: cookieHeader(cleared ? null : 'binding-1'),
       }),
     );
 
