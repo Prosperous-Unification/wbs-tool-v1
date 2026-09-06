@@ -10,8 +10,8 @@ describe('CI gate annotations', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wbs-ci-annotations-'));
     const log = join(dir, 'nx-gate.log');
     const valid = '::error file=valid.test.ts,line=2::real failure';
-    const injected =
-      '::error file=injected.test.ts,line=1::failure\r::add-mask::not-a-real-secret';
+    const located = '::error file=injected.test.ts,line=1::failure';
+    const injected = `${located}\r::add-mask::not-a-real-secret`;
 
     try {
       writeFileSync(log, `${injected}\n${valid}\n`);
@@ -24,7 +24,7 @@ describe('CI gate annotations', () => {
       // Proof: splitting only on CRLF/LF wrote the injected bare CR and its
       // suffix to stdout before this exact production invocation was fixed.
       expect(run.exitCode).toBe(0);
-      expect(new TextDecoder().decode(run.stdout)).toBe(`${valid}\n`);
+      expect(new TextDecoder().decode(run.stdout)).toBe(`${located}\n${valid}\n`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
