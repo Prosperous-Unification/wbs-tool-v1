@@ -92,7 +92,14 @@ export type ScheduleOptimizationFailedEvent = Extract<
   ProjectEvent,
   { type: 'schedule_optimization_failed' }
 >;
-export type OptimizationOutcomeEvent = ScheduleOptimizedEvent | ScheduleOptimizationFailedEvent;
+export type ScheduleOptimizationInfeasibleEvent = Extract<
+  ProjectEvent,
+  { type: 'schedule_optimization_infeasible' }
+>;
+export type OptimizationOutcomeEvent =
+  | ScheduleOptimizedEvent
+  | ScheduleOptimizationFailedEvent
+  | ScheduleOptimizationInfeasibleEvent;
 
 export interface RecordedOptimizedOutcome {
   readonly result: OutcomeWriteResult;
@@ -109,7 +116,7 @@ export function storeOptimizedOutcomeAndRecord(
 ): RecordedOptimizedOutcome {
   return db.transaction((tx) => {
     const result = storeOptimizedOutcomeIn(tx, write);
-    if (result !== 'stored' || write.outcome.kind === 'plan-infeasible') return { result };
+    if (result !== 'stored') return { result };
     const identity = {
       projectId: write.claim.projectId,
       generation: write.claim.generation,
@@ -121,11 +128,13 @@ export function storeOptimizedOutcomeAndRecord(
     const event: OptimizationOutcomeEvent =
       write.outcome.kind === 'ok'
         ? { type: 'schedule_optimized', ...identity }
-        : {
-            type: 'schedule_optimization_failed',
-            ...identity,
-            failureReason: write.outcome.reason,
-          };
+        : write.outcome.kind === 'failed'
+          ? {
+              type: 'schedule_optimization_failed',
+              ...identity,
+              failureReason: write.outcome.reason,
+            }
+          : { type: 'schedule_optimization_infeasible', ...identity };
     const subscription = subscriptionFor(write.claim.projectId);
     const recorded = eventLog.recordEventIn(tx, subscription, event, write.now);
     return { result, subscription, recorded, event };
@@ -439,6 +448,7 @@ export class OptimizationCoordinator {
       }
       if (scheduleInputHash(input) !== next.inputHash) {
         releaseSolverSlot(this.options.db, slot);
+        if (!(await this.options.enabledOf(next.entry.projectId))) continue;
         this.read({ projectId: next.entry.projectId, objective: next.entry.objective, input });
         continue;
       }
