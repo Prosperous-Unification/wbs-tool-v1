@@ -453,7 +453,7 @@ export interface SlotClaim {
 }
 
 /** The exact seat this writer still owns, or null after reclamation/replacement. */
-function heldSolverSlot(db: Reader, claim: SlotClaim): ReturnType<typeof toSolverSlotRow> | null {
+function heldSolverSlot(db: Reader, claim: SlotClaim): { readonly startedAt: number } | null {
   const stored = db
     .select()
     .from(solverSlot)
