@@ -1,94 +1,193 @@
+import { createHash } from 'node:crypto';
+
 import type { OidcConsumeResult, OidcTransactionStore } from './oidc-store';
 
 /**
- * **One browser, several logins, one cookie name** (TASK-272).
+ * **One browser, several logins, one cookie each** (TASK-272).
  *
  * `InMemoryOidcTransactionStore` addresses a transaction by the binding alone
- * and that is correct; what was not correct is that a browser could only
- * ever *hold* one. Two tabs starting a login share `__Host-wbs_oidc`, so the
- * second overwrites the first and the first tab's callback comes back carrying a
- * binding that is not its own. TASK-276 stopped that arrival from destroying
- * the second tab's login; it could not give the first tab back a cookie the
- * browser had already replaced. This module is that half: the cookie's **value**
- * becomes a bounded ordered list, so a browser offers every binding it still
+ * and that is correct; what was not correct is that a browser could only ever
+ * hold one. Two tabs starting a login shared `__Host-wbs_oidc`, so the second
+ * overwrote the first and the first tab's callback came back carrying a binding
+ * that was not its own. TASK-276 stopped that arrival from destroying the
+ * second tab's login; it could not give the first tab back a cookie the browser
+ * had already replaced. This module is that half: a login writes its binding
+ * under a name no other login uses, so a browser offers every binding it still
  * holds and the store decides which one the arriving `state` proves.
  *
- * **A cookie per login is the stronger shape and is not what this is** — said
- * plainly, because the first version of this paragraph claimed a security
- * objection it does not have. A per-login cookie *name*
- * (`__Host-wbs_oidc_<id>`) does let the arriving URL select which cookie the
- * browser is asked for, but what it selects is *which* proof is offered, never
- * what it is: the value stays `HttpOnly` and unguessable, the store still
- * compares the state, and naming a cookie the browser does not hold earns the
- * same refusal. Its real costs are a cookie jar that grows and a bound that has
- * to be kept by clearing names.
+ * **The first shape tried here was one cookie whose value was a bounded list**,
+ * and it is recorded because its cost is the reason for the names. A single
+ * cookie is a read-modify-write across a round trip: two logins starting at the
+ * same instant both read the same list and the later `Set-Cookie` wins, and a
+ * callback that writes back the list its own request carried erases any login
+ * started while it was in flight. Both are lost updates on an auth path and the
+ * peer review called the first one Important (TASK-272 r1). Distinct names have
+ * no lost update to have, because no two writers ever name the same cookie.
  *
- * Its real advantage is the one this shape does not have. A single cookie is a
- * read-modify-write across a round trip, so two logins starting at the same
- * instant can both read the same list and the later answer wins — a lost update
- * that costs the other login (peer review, TASK-272 r1, Important). Distinct
- * names make those writes independent, and moving to them is the recorded next
- * step for this task rather than a thing this comment can talk its way out of.
+ * **What distinct names cost, honestly.** The cookie jar grows with concurrent
+ * logins instead of one value growing, so the bound has to be kept by clearing
+ * names rather than by truncating a list — {@link selectBrowserBindings} does
+ * that, and it is the only place the number is enforced. The earlier version of
+ * this comment also claimed a security objection to per-login names that does
+ * not exist: deriving a name from the URL's `state` would let the arriving
+ * request select *which* proof is offered, never what it is. That objection is
+ * moot here anyway, because {@link browserBindingCookieName} derives the name
+ * from the binding and the callback reads every name it finds, so no part of
+ * the request chooses anything.
  *
- * Single-use is unmoved either way. It is still keyed by the binding and still
- * enforced in the store; only the transport becomes plural.
+ * **A deploy across this change costs in-flight logins one retry.** The old
+ * `__Host-wbs_oidc` is not this prefix, so a browser mid-login when the new
+ * code arrives offers nothing, is refused, and starts again; the orphan cookie
+ * is left to its five-minute `Max-Age` rather than cleared on every login
+ * forever.
+ *
+ * Single-use is unmoved throughout. It is still keyed by the binding and still
+ * enforced in the store; only the transport became plural.
  */
 export const MAX_BROWSER_BINDINGS = 3;
 
 /**
- * `.` because it cannot occur inside a binding and survives the cookie round
- * trip untouched: bindings are `randomBytes(32).toString('base64url')`
- * (`auth.routes.ts`), whose alphabet is `A-Za-z0-9-_`, and `encodeURIComponent`
- * leaves `.` unescaped, so what the browser sends back splits the same way it
- * was written.
+ * The name every in-flight login's cookie starts with, and the whole of what a
+ * callback needs to find them.
+ *
+ * `__Host-` is kept for what it has always bought: only this exact origin can
+ * set one, over TLS, with `Path=/` and no `Domain`, so a sibling host or a
+ * subdomain cannot write a binding into this browser's jar under any name.
  */
-const BINDING_SEPARATOR = '.';
+export const BROWSER_BINDING_COOKIE_PREFIX = '__Host-wbs_oidc_';
 
 /**
- * The bindings a browser is still holding, newest last.
+ * The cookie name a binding is written under: the prefix and 64 bits of the
+ * binding's SHA-256.
  *
- * Truncating to {@link MAX_BROWSER_BINDINGS} here and not only when writing is
- * deliberate: `__Host-` means only this origin can set the cookie, so an
- * oversized value is not an attack, but reading a bound the writer promised is
- * cheaper than trusting that nothing ever wrote more — and it caps how many
- * store lookups one callback can ask for at the number this module publishes.
+ * **Derived from the binding rather than drawn from `random()`,** so the name
+ * and the value are one fact instead of two that a callback would have to keep
+ * paired across a round trip. It makes the mapping a bijection anything can
+ * recompute — the login route knows which names it may clear, the callback
+ * knows which name held the binding it just spent — and it adds no new
+ * randomness to reason about.
+ *
+ * **It publishes nothing.** A binding is `randomBytes(32)`, so a truncated
+ * digest of one is neither reversible nor collidable in practice, and the name
+ * is `HttpOnly` alongside its value: script cannot read either. What the name
+ * would tell an observer who somehow saw it is that a login is in flight, which
+ * the request that carries it already said.
  */
-export function parseBrowserBindings(cookieValue: string | null): string[] {
-  if (cookieValue === null) return [];
+export function browserBindingCookieName(binding: string): string {
+  if (binding === '') throw new Error('OIDC browser binding must not be empty');
+  return `${BROWSER_BINDING_COOKIE_PREFIX}${createHash('sha256').update(binding).digest('hex').slice(0, 16)}`;
+}
+
+/** One login's cookie as the browser sent it back. */
+export interface HeldBrowserBinding {
+  /** The cookie's name, which is what a caller clears to evict this login. */
+  readonly cookieName: string;
+  /** The binding itself, decoded, which is what the store is addressed by. */
+  readonly binding: string;
+}
+
+/**
+ * Every binding cookie in a request, decoded.
+ *
+ * A value that will not decode is dropped rather than thrown on, matching
+ * `cookieValue`'s reading: a cookie nobody can decode is not a binding, and a
+ * `URIError` out of a route handler would be a 500 about a malformed request.
+ * The pair is dropped rather than reported because a caller cannot do anything
+ * with it but clear it, and {@link selectBrowserBindings} clears the names it
+ * is given — so an undecodable value is instead left to its own `Max-Age`,
+ * which is the same five minutes.
+ */
+export function browserBindingsIn(
+  cookies: Iterable<readonly [string, string]>,
+): HeldBrowserBinding[] {
+  const held: HeldBrowserBinding[] = [];
+  for (const [cookieName, raw] of cookies) {
+    if (!cookieName.startsWith(BROWSER_BINDING_COOKIE_PREFIX)) continue;
+    let binding: string;
+    try {
+      binding = decodeURIComponent(raw);
+    } catch {
+      continue;
+    }
+    if (binding !== '') held.push({ binding, cookieName });
+  }
+  return held;
+}
+
+/**
+ * What a request's binding cookies came to: the ones worth offering the store,
+ * and the ones the answer should clear.
+ */
+export interface BrowserBindingSelection {
+  /**
+   * The live bindings, oldest expiry first, at most {@link MAX_BROWSER_BINDINGS}
+   * of them.
+   */
+  readonly offered: HeldBrowserBinding[];
+  /** The names that address nothing and can be cleared on the way past. */
+  readonly surplus: HeldBrowserBinding[];
+}
+
+/**
+ * Decide which of a browser's binding cookies are live and which are litter.
+ *
+ * **The bound on concurrent logins lives here and nowhere else** (acceptance
+ * criterion 4). A cookie the browser holds is surplus when any of these is
+ * true, and each is a decision:
+ *
+ * - Its record is gone or expired. The binding can never address anything
+ *   again, so keeping it would spend a slot on nothing and cost the callback a
+ *   store lookup. The store is asked, not the cookie's own age: `expiresAt` is
+ *   the authoritative deadline and a browser cannot edit it.
+ * - Its name is not the one {@link browserBindingCookieName} gives its value.
+ *   Only this origin can write a `__Host-` cookie, so a mismatch is this app's
+ *   own older shape rather than an attack — but reading it would break the
+ *   bijection every clear below depends on.
+ * - It repeats a binding already held under another name, for the same reason.
+ * - It is older than the newest {@link MAX_BROWSER_BINDINGS}. Order comes from
+ *   the store's `expiresAt` and never from the name: a name carrying a
+ *   timestamp would be a second copy of a deadline the browser could edit, and
+ *   distinct names carry no order of their own. Since every login gets the same
+ *   TTL, expiry order is start order, which keeps the same rule the list shape
+ *   had — a person who abandons tabs loses the oldest login rather than the one
+ *   they are completing.
+ *
+ * **The bound is hard on the read side and best-effort on the write side.** A
+ * callback never asks the store for more than {@link MAX_BROWSER_BINDINGS}
+ * lookups whatever the jar holds, which is the resource bound that matters; the
+ * clears that keep the jar itself small are emitted by whichever answer
+ * happens to run next, and two logins starting at the same instant can leave a
+ * browser holding one more than the bound until then. That transient is the
+ * price of never blocking one login's write on another's, and the excess is
+ * unreachable — the read side drops it — rather than merely untidy.
+ */
+export function selectBrowserBindings(
+  store: OidcTransactionStore,
+  held: readonly HeldBrowserBinding[],
+  now: number,
+): BrowserBindingSelection {
+  const live: { entry: HeldBrowserBinding; expiresAt: number }[] = [];
+  const surplus: HeldBrowserBinding[] = [];
   const seen = new Set<string>();
-  for (const part of cookieValue.split(BINDING_SEPARATOR)) {
-    if (part !== '') seen.add(part);
-  }
-  return [...seen].slice(-MAX_BROWSER_BINDINGS);
-}
 
-/**
- * The list a new login leaves behind: the new binding last, the oldest dropped
- * once the browser is already holding {@link MAX_BROWSER_BINDINGS}.
- *
- * **The bound is on the cookie, not on the store.** The dropped binding's
- * record is left to expire rather than deleted, because this function is not
- * told which store holds it and because the browser is the only thing that
- * could still present it — a record nobody can address is already unreachable
- * and the TTL sweeps it. What the bound buys is that the cookie cannot grow
- * without limit and that a person who abandons tabs loses the *oldest* login
- * rather than the one they are completing.
- *
- * Throws when a binding contains the separator. It cannot happen with the
- * configured randomness, and the alternative — writing a value that reads back
- * as two bindings, neither of which addresses anything — would turn a
- * misconfigured `random` into logins that silently never complete.
- */
-export function withBrowserBinding(bindings: readonly string[], binding: string): string[] {
-  if (binding === '' || binding.includes(BINDING_SEPARATOR)) {
-    throw new Error('OIDC browser binding must not be empty or contain a separator');
+  for (const entry of held) {
+    if (seen.has(entry.binding) || entry.cookieName !== browserBindingCookieName(entry.binding)) {
+      surplus.push(entry);
+      continue;
+    }
+    seen.add(entry.binding);
+    const expiresAt = store.expiresAt(entry.binding);
+    if (expiresAt === null || expiresAt <= now) {
+      surplus.push(entry);
+      continue;
+    }
+    live.push({ entry, expiresAt });
   }
-  const kept = bindings.filter((held) => held !== binding);
-  return [...kept, binding].slice(-MAX_BROWSER_BINDINGS);
-}
 
-export function serializeBrowserBindings(bindings: readonly string[]): string {
-  return bindings.join(BINDING_SEPARATOR);
+  live.sort((left, right) => left.expiresAt - right.expiresAt);
+  const overflow = Math.max(0, live.length - MAX_BROWSER_BINDINGS);
+  for (const { entry } of live.slice(0, overflow)) surplus.push(entry);
+  return { offered: live.slice(overflow).map(({ entry }) => entry), surplus };
 }
 
 /**

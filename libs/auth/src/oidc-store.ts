@@ -31,6 +31,8 @@ export type OidcConsumeResult =
 export interface OidcTransactionStore {
   cleanupExpired(): number;
   consume(browserBinding: string, state: string): OidcConsumeResult;
+  /** When this binding's transaction dies, or `null` if it holds none. */
+  expiresAt(browserBinding: string): number | null;
   save(transaction: OidcTransactionInput): void;
 }
 
@@ -107,8 +109,8 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
    * second tab's live record, so the login being completed survives. The other
    * half was never a store-ordering question at all, because no ordering here
    * can give a tab back a cookie the browser has already replaced. It is fixed
-   * one layer out, in `oidc-binding.ts`: the cookie's value is now a bounded
-   * ordered list of bindings, and a callback offers every binding the browser
+   * one layer out, in `oidc-binding.ts`: each login now writes its binding
+   * under its own cookie name, and a callback offers every binding the browser
    * still holds so that **this** method decides which one the arriving state
    * proves. Nothing about single use moves — it is still keyed by the binding
    * and still enforced by the delete below; only the transport became plural,
@@ -144,6 +146,26 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
 
     this.records.delete(key);
     return { nonce: transaction.nonce, outcome: 'consumed', verifier: transaction.verifier };
+  }
+
+  /**
+   * The deadline a binding's record carries, for a caller deciding which of a
+   * browser's several in-flight logins to keep (`oidc-binding.ts`, TASK-272).
+   *
+   * **It reads and never writes**, which is the whole reason it is a second
+   * method rather than an argument to `consume`: ordering a browser's bindings
+   * must not spend, expire or delete any of them, and single use stays exactly
+   * where {@link consume} enforces it. An expired record is reported as it
+   * stands rather than swept here, because a sweep on a read would make the
+   * order a caller sees depend on how many times it looked.
+   *
+   * **It hands out nothing the caller did not already have.** The argument is
+   * the binding, which is `HttpOnly` and unguessable, and the answer is a
+   * timestamp this app chose; a caller that can ask already holds the cookie
+   * and could learn the same by consuming it, at the cost of the login.
+   */
+  expiresAt(browserBinding: string): number | null {
+    return this.records.get(digest(browserBinding))?.expiresAt ?? null;
   }
 
   cleanupExpired(): number {

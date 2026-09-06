@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  BROWSER_BINDING_COOKIE_PREFIX,
+  browserBindingCookieName,
+  browserBindingsIn,
   consumeBrowserBinding,
   MAX_BROWSER_BINDINGS,
-  parseBrowserBindings,
-  serializeBrowserBindings,
-  withBrowserBinding,
+  selectBrowserBindings,
 } from './oidc-binding';
 import { InMemoryOidcTransactionStore } from './oidc-store';
+
+/** What a browser would send back for these bindings, one cookie each. */
+function jarOf(bindings: readonly string[]): [string, string][] {
+  return bindings.map((binding) => [browserBindingCookieName(binding), binding]);
+}
 
 function storeWith(
   transactions: { binding: string; state: string }[],
@@ -26,31 +32,118 @@ function storeWith(
 }
 
 describe('browser binding cookie', () => {
-  it('reads the bindings a browser is holding, newest last', () => {
-    expect(parseBrowserBindings('binding-1.binding-2')).toEqual(['binding-1', 'binding-2']);
-    expect(parseBrowserBindings(null)).toEqual([]);
-    expect(parseBrowserBindings('')).toEqual([]);
+  /**
+   * The name is a function of the binding and of nothing else, which is what
+   * lets a login write without reading and a callback clear without a map.
+   */
+  it('gives every binding its own cookie name and no other binding that name', () => {
+    const first = browserBindingCookieName('binding-1');
+    const second = browserBindingCookieName('binding-2');
+
+    expect(first).toStartWith(BROWSER_BINDING_COOKIE_PREFIX);
+    expect(first).not.toBe(second);
+    expect(browserBindingCookieName('binding-1')).toBe(first);
+    // Nothing of the binding survives into the name a browser would send back.
+    expect(first).not.toContain('binding-1');
+    expect(() => browserBindingCookieName('')).toThrow(
+      'OIDC browser binding must not be empty',
+    );
   });
 
-  it('holds at most three logins per browser and drops the oldest', () => {
-    let bindings: string[] = [];
+  it('reads every binding cookie in a request and ignores everything else', () => {
+    const held = browserBindingsIn([
+      ...jarOf(['binding-1', 'binding-2']),
+      ['__Host-wbs_session', 'correlation-1'],
+      // The pre-TASK-272 shared name is not this prefix, so a browser mid-login
+      // across the deploy offers nothing rather than a value read as a binding.
+      ['__Host-wbs_oidc', 'binding-0'],
+      [`${BROWSER_BINDING_COOKIE_PREFIX}empty`, ''],
+      [`${BROWSER_BINDING_COOKIE_PREFIX}broken`, '%E0%A4%A'],
+    ]);
+
+    expect(held.map((entry) => entry.binding)).toEqual(['binding-1', 'binding-2']);
+    expect(held[0]?.cookieName).toBe(browserBindingCookieName('binding-1'));
+  });
+
+  /**
+   * TASK-272's fourth acceptance criterion: the bound on concurrent logins per
+   * browser is a number this module publishes and enforces, not the TTL.
+   */
+  it('offers at most three live logins and hands back the oldest to be cleared', () => {
+    let clock = 1_000;
+    const store = new InMemoryOidcTransactionStore({ now: () => clock, ttlMs: 5_000 });
     for (const binding of ['binding-1', 'binding-2', 'binding-3', 'binding-4']) {
-      bindings = withBrowserBinding(bindings, binding);
+      store.save({
+        browserBinding: binding,
+        nonce: `nonce-for-${binding}`,
+        state: `state-for-${binding}`,
+        verifier: `verifier-for-${binding}`,
+      });
+      clock += 10;
     }
 
+    const selected = selectBrowserBindings(
+      store,
+      browserBindingsIn(jarOf(['binding-1', 'binding-2', 'binding-3', 'binding-4'])),
+      clock,
+    );
+
     expect(MAX_BROWSER_BINDINGS).toBe(3);
-    expect(bindings).toEqual(['binding-2', 'binding-3', 'binding-4']);
-    expect(serializeBrowserBindings(bindings)).toBe('binding-2.binding-3.binding-4');
-    // The bound is enforced on the way in as well, so a cookie that somehow
-    // carried more cannot make one callback ask the store for more.
-    expect(parseBrowserBindings('b1.b2.b3.b4.b5')).toEqual(['b3', 'b4', 'b5']);
+    // Oldest expiry first, so the login that started first is the one dropped —
+    // the order comes from the store's `expiresAt`, never from the cookie.
+    expect(selected.offered.map((entry) => entry.binding)).toEqual([
+      'binding-2',
+      'binding-3',
+      'binding-4',
+    ]);
+    expect(selected.surplus.map((entry) => entry.cookieName)).toEqual([
+      browserBindingCookieName('binding-1'),
+    ]);
   });
 
-  it('refuses a binding that would read back as two', () => {
-    expect(() => withBrowserBinding([], 'first.second')).toThrow(
-      'OIDC browser binding must not be empty or contain a separator',
+  it('treats a dead record, a repeat and a name it did not write as litter', () => {
+    let clock = 1_000;
+    const store = new InMemoryOidcTransactionStore({ now: () => clock, ttlMs: 5_000 });
+    store.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+    clock = 4_000;
+    store.save({
+      browserBinding: 'binding-2',
+      nonce: 'nonce-2',
+      state: 'state-2',
+      verifier: 'verifier-2',
+    });
+    clock = 7_000;
+
+    const selected = selectBrowserBindings(
+      store,
+      browserBindingsIn([
+        // Expired: the store's deadline decides, and this one has passed.
+        ...jarOf(['binding-1', 'binding-2']),
+        // Never saved, so it addresses nothing and can never address anything.
+        ...jarOf(['binding-3']),
+        // The same binding under a second name, and a binding under a name this
+        // app would never have written for it: both break the one-name-per-login
+        // bijection every clear depends on, so neither is offered.
+        [`${BROWSER_BINDING_COOKIE_PREFIX}duplicate`, 'binding-2'],
+        [`${BROWSER_BINDING_COOKIE_PREFIX}renamed`, 'binding-4'],
+      ]),
+      clock,
     );
-    expect(() => withBrowserBinding([], '')).toThrow();
+
+    expect(selected.offered.map((entry) => entry.binding)).toEqual(['binding-2']);
+    expect(selected.surplus.map((entry) => entry.cookieName)).toEqual([
+      browserBindingCookieName('binding-1'),
+      browserBindingCookieName('binding-3'),
+      `${BROWSER_BINDING_COOKIE_PREFIX}duplicate`,
+      `${BROWSER_BINDING_COOKIE_PREFIX}renamed`,
+    ]);
+    // Reading the order must not spend, expire or delete anything.
+    expect(store.consume('binding-2', 'state-2').outcome).toBe('consumed');
   });
 
   /**
