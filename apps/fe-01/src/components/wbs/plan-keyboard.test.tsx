@@ -710,7 +710,9 @@ describe('Tab moves between the fields, from every cell', () => {
 
     // And out again. A date input is focused rather than selected: it has no
     // text caret to ask for.
-    expect(fireEvent.keyDown(screen.getByLabelText('Deadline for 010'), { key: 'Tab' })).toBe(false);
+    expect(fireEvent.keyDown(screen.getByLabelText('Deadline for 010'), { key: 'Tab' })).toBe(
+      false,
+    );
     expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
   });
 
