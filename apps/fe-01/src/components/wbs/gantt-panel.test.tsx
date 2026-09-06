@@ -7058,7 +7058,7 @@ describe('downloading the chart as a standalone .svg', () => {
      */
     const rightEdgeOf = (word: Element): number =>
       Number(word.getAttribute('x')) +
-      ((word.textContent ?? '').length * Number(word.getAttribute('font-size'))) / 2;
+      (word.textContent.length * Number(word.getAttribute('font-size'))) / 2;
 
     itDom('widens the file to its widest legend entry, so no name is drawn outside it', async () => {
       // TASK-281 AC #1, and the case both of TASK-271's review seats found
@@ -7099,9 +7099,12 @@ describe('downloading the chart as a standalone .svg', () => {
       expect(Number(doc.querySelector('rect')?.getAttribute('width'))).toBe(declared);
 
       // **Every name's right edge, not merely the last row's.** This is the
-      // watched negative's target: strike the `Math.max(minWidthPx, …)` in
-      // `layOutMarkerLegend` back to `minWidthPx` and the long entry is drawn
-      // past the file's own right edge.
+      // watched negative's target. With `Math.max(minWidthPx, …)` in
+      // `layOutMarkerLegend` struck back to `minWidthPx` the growth assertion
+      // above fails on `expected 1712 to be greater than 1712`, and with that
+      // line lifted as well so this one is reached, on `expected 1870 to be
+      // less than or equal to 1712` — 158px of name outside the file. Both
+      // watched 2026-09-06 on h2puni.
       const names = [...doc.querySelectorAll('[data-legend-name]')];
       expect(names.map((word) => word.textContent)).toEqual([long, 'Freeze']);
       for (const word of names) {
