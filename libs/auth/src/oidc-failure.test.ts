@@ -29,6 +29,23 @@ describe('classifyOidcFailure', () => {
       });
     });
 
+    it('calls every interaction the person did not complete a refusal', () => {
+      // One case per remaining refusal row, so the table's claim that each row
+      // is proven is true of all of them and not only the ones worth a sentence.
+      for (const value of [
+        'access_denied',
+        'login_required',
+        'consent_required',
+        'interaction_required',
+        'account_selection_required',
+      ]) {
+        expect(classifyOidcFailure(bodyError(value))).toEqual({
+          kind: 'refused',
+          reason: 'grant_refused',
+        });
+      }
+    });
+
     it('calls a failing provider unavailable even though it answered in OAuth shape', () => {
       // Without this row the outage this task exists to separate is answered
       // 401, which is the status quo with more ceremony.
@@ -174,10 +191,44 @@ describe('classifyOidcFailure', () => {
     });
 
     it('calls a refused connection and an expired certificate unavailable', () => {
-      for (const code of ['ECONNREFUSED', 'CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID']) {
+      for (const code of [
+        'ECONNREFUSED',
+        'EHOSTDOWN',
+        'CERT_HAS_EXPIRED',
+        'ERR_TLS_CERT_ALTNAME_INVALID',
+      ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'unavailable',
           reason: 'provider_unreachable',
+        });
+      }
+    });
+
+    it('calls an OpenSSL alert unavailable, including one it has never heard of', () => {
+      // A failed handshake is a real outage arm, and OpenSSL's alert names are
+      // an open family — so this row is a prefix, unlike the undici one. The
+      // last case is the point: an alert added tomorrow is still an alert.
+      for (const code of [
+        'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
+        'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
+        'ERR_SSL_WRONG_VERSION_NUMBER',
+        'ERR_SSL_SOMETHING_OPENSSL_ADDS_LATER',
+      ]) {
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'unavailable',
+          reason: 'provider_unreachable',
+        });
+      }
+    });
+
+    it('does not call our own dispatcher teardown an outage', () => {
+      // These three say something about this process, not about the provider,
+      // and the transport walk runs first — so listing them would have quietly
+      // overruled every other row in the file.
+      for (const code of ['UND_ERR_CLOSED', 'UND_ERR_DESTROYED', 'UND_ERR_ABORTED']) {
+        expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
+          kind: 'defect',
+          reason: 'unrecognised_failure',
         });
       }
     });
@@ -283,7 +334,12 @@ describe('classifyOidcFailure', () => {
         { code: 'OAUTH_AUTHORIZATION_RESPONSE_ERROR', error: 'ANY_THING' },
         new TypeError('fetch failed', { cause: { code: 'SOMETHING_NEW' } }),
       ]) {
-        expect(owned.has(classifyOidcFailure(thrown).reason)).toBe(true);
+        // Asserted exactly, then asserted against the union — the first catches
+        // a wrong arm, the second catches a slug nobody here wrote.
+        const failure = classifyOidcFailure(thrown);
+
+        expect(failure).toEqual({ kind: 'defect', reason: 'unrecognised_failure' });
+        expect(owned.has(failure.reason)).toBe(true);
       }
     });
   });

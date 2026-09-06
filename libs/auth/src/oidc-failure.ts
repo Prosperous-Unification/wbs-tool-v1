@@ -43,6 +43,16 @@ export type OidcFailureReason =
   | 'unrecognised_failure'
   | 'unreadable_failure';
 
+/**
+ * Thrown by the readers below when the value handed to the classifier will not
+ * let itself be read — a property getter that throws.
+ *
+ * It exists so the boundary can stay total *and* stay honest: a hostile getter
+ * and a regression inside this module both end as `defect`, but they end with
+ * different slugs, so one is not mistaken for the other in the log.
+ */
+class UnreadableValue extends Error {}
+
 export interface OidcFailure {
   /**
    * `refused` — the sign-in did not happen and re-trying it is the reader's
@@ -148,6 +158,13 @@ const OAUTH_ERROR_ENVELOPES: ReadonlySet<string> = new Set([
  * Enumerated rather than prefix-matched. `UND_ERR_` covers `UND_ERR_INVALID_ARG`
  * and `UND_ERR_NOT_SUPPORTED` as well as the timeouts — argument and programming
  * errors — so a prefix would let one of our own defects wear an outage's badge.
+ *
+ * Undici's *lifecycle* codes are deliberately absent for the same reason.
+ * `UND_ERR_CLOSED` and `UND_ERR_DESTROYED` mean this process tore its own
+ * dispatcher down, and `UND_ERR_ABORTED` can be a cancellation we asked for;
+ * none of the three is evidence about the provider, and because the transport
+ * walk runs before the OAuth table, listing them would have quietly overruled
+ * every other row. The timeouts below are the codes that do carry that evidence.
  */
 const TRANSPORT_CODES: ReadonlySet<string> = new Set([
   // Name resolution, connection, and socket.
@@ -158,6 +175,7 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
   'ECONNABORTED',
   'ETIMEDOUT',
   'EHOSTUNREACH',
+  'EHOSTDOWN',
   'ENETUNREACH',
   'ENETDOWN',
   'EPIPE',
@@ -167,9 +185,6 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
   'UND_ERR_HEADERS_TIMEOUT',
   'UND_ERR_BODY_TIMEOUT',
   'UND_ERR_SOCKET',
-  'UND_ERR_CLOSED',
-  'UND_ERR_DESTROYED',
-  'UND_ERR_ABORTED',
   'UND_ERR_REQ_RETRY',
   'UND_ERR_PRX_TLS',
   'UND_ERR_RES_CONTENT_LENGTH_MISMATCH',
@@ -192,24 +207,49 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
   'HOSTNAME_MISMATCH',
 ]);
 
-function stringProperty(value: unknown, key: string): string | undefined {
+/**
+ * The one prefix left, and the reason it is not the mistake the `UND_ERR_` one
+ * was.
+ *
+ * Node surfaces OpenSSL's alerts verbatim — `ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE`,
+ * `ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION`, and a long open tail of others — and
+ * every member of that family is a protocol failure between us and the far end.
+ * There is no argument error and no programming error hiding under it, which is
+ * exactly what made `UND_ERR_` unsafe, so an alert this list has never heard of
+ * is still an alert. `EPROTO` does not stand in for these: it is the errno, not
+ * the OpenSSL code, and the two arrive separately.
+ */
+const OPENSSL_ALERT_PREFIX = 'ERR_SSL_';
+
+function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
-  const read: unknown = (value as Record<string, unknown>)[key];
+  try {
+    return (value as Record<string, unknown>)[key];
+  } catch {
+    throw new UnreadableValue(key);
+  }
+}
+
+function stringProperty(value: unknown, key: string): string | undefined {
+  const read = readProperty(value, key);
   return typeof read === 'string' && read !== '' ? read : undefined;
 }
 
 function numberProperty(value: unknown, key: string): number | undefined {
-  if (typeof value !== 'object' || value === null) return undefined;
-  const read: unknown = (value as Record<string, unknown>)[key];
+  const read = readProperty(value, key);
   return typeof read === 'number' ? read : undefined;
+}
+
+function isTransportCode(code: string): boolean {
+  return TRANSPORT_CODES.has(code) || code.startsWith(OPENSSL_ALERT_PREFIX);
 }
 
 /** Walks `cause` for a transport code, since `fetch` buries it one or more levels down. */
 function transportCodeOf(value: unknown, depth = 0): string | undefined {
   if (depth > 4 || typeof value !== 'object' || value === null) return undefined;
   const code = stringProperty(value, 'code');
-  if (code !== undefined && TRANSPORT_CODES.has(code)) return code;
-  return transportCodeOf((value as { cause?: unknown }).cause, depth + 1);
+  if (code !== undefined && isTransportCode(code)) return code;
+  return transportCodeOf(readProperty(value, 'cause'), depth + 1);
 }
 
 /**
@@ -237,6 +277,11 @@ function classifyOAuthErrorResponse(error: unknown): OidcFailure {
  * this function is that the caller never has to narrow it itself. For the same
  * reason it cannot throw — a value whose property getter throws is a `defect`,
  * not an exception escaping the boundary that was supposed to contain one.
+ *
+ * The two ways of ending up there are kept apart. A value that would not be read
+ * is `unreadable_failure`; anything this module itself got wrong is
+ * `local_defect`, so a regression in here is not filed as someone else's hostile
+ * input.
  */
 export function classifyOidcFailure(error: unknown): OidcFailure {
   try {
@@ -247,7 +292,7 @@ export function classifyOidcFailure(error: unknown): OidcFailure {
     if (OAUTH_ERROR_ENVELOPES.has(code)) return classifyOAuthErrorResponse(error);
 
     return CODE_TABLE.get(code) ?? DEFECT('unrecognised_failure');
-  } catch {
-    return DEFECT('unreadable_failure');
+  } catch (thrown) {
+    return DEFECT(thrown instanceof UnreadableValue ? 'unreadable_failure' : 'local_defect');
   }
 }
