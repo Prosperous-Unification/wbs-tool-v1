@@ -1,10 +1,9 @@
-import type { Schedule } from '@wbs/domain';
 import { beforeEach, describe, expect, it } from 'bun:test';
 
 import type { DirectoryStore, ProjectStore, WriteStamp } from '../repository';
 import { inMemoryServices } from '../testing/harness';
 import { projectRow, testProjectService } from '../testing/project-fixture';
-import type { OptimizedScheduleAsk } from './optimized-schedule-reader';
+import type { OptimizedScheduleAsk, OptimizedScheduleRead } from './optimized-schedule-reader';
 import { WorkItemService, type WorkItemServiceOptions } from './work-item.service';
 
 /**
@@ -144,14 +143,21 @@ async function storedDeadline(id: string): Promise<string | null> {
  */
 function recordingReader(): {
   asks: OptimizedScheduleAsk[];
-  read: (ask: OptimizedScheduleAsk) => Schedule | null;
+  read: (ask: OptimizedScheduleAsk) => OptimizedScheduleRead;
 } {
   const asks: OptimizedScheduleAsk[] = [];
   return {
     asks,
     read: (ask: OptimizedScheduleAsk) => {
       asks.push(ask);
-      return null;
+      return {
+        inputHash: 'deadline-probe-input-hash',
+        generation: null,
+        contractVersion: '7+deadline-probe',
+        budgetMs: 60_000,
+        variants: { pri: { state: 'idle' }, time: { state: 'idle' } },
+        selectedSchedule: null,
+      };
     },
   };
 }
