@@ -1,5 +1,8 @@
 import type { BuiltSolverRequest } from '@wbs/contracts/solver/build-request';
-import { dispositionOfPreflightFailure } from '@wbs/contracts/solver/solver-failure-disposition';
+import {
+  dispositionOfExitCode,
+  dispositionOfPreflightFailure,
+} from '@wbs/contracts/solver/solver-failure-disposition';
 import type { Schedule } from '@wbs/domain';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 import { scheduleInputHash } from '@wbs/domain/canonical-schedule-input';
@@ -271,6 +274,13 @@ export class OptimizationCoordinator {
     return committed.result;
   }
 
+  /**
+   * The exit code is read through `dispositionOfExitCode` rather than collapsed
+   * onto `internal-error`, because a later-stage `INFEASIBLE` leaves the solver
+   * by exactly this path — non-zero, nothing on stdout — and spec.md requires
+   * that run to be recorded `invalid-output`. Kill evidence still wins over the
+   * code: a killed child's exit status is the signal's, not the entrypoint's.
+   */
   private async processOutcome(
     child: ReservedSolverChild,
     exit: { readonly code: number; readonly stdout: string },
@@ -278,14 +288,14 @@ export class OptimizationCoordinator {
     if (child.terminal === undefined) {
       return exit.code === 0
         ? { kind: 'response', stdout: exit.stdout }
-        : { kind: 'failed', reason: 'internal-error' };
+        : { kind: 'failed', reason: dispositionOfExitCode(exit.code) };
     }
     const terminal = await child.terminal;
     if (terminal.deadlineKilled) return { kind: 'failed', reason: 'timeout' };
     if (terminal.oomKilled) return { kind: 'failed', reason: 'oom' };
     return terminal.exitCode === 0
       ? { kind: 'response', stdout: exit.stdout }
-      : { kind: 'failed', reason: 'internal-error' };
+      : { kind: 'failed', reason: dispositionOfExitCode(terminal.exitCode) };
   }
 
   private async runReserved(request: ReservedSpawnRequest): Promise<void> {

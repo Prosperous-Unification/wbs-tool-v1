@@ -857,6 +857,26 @@ describe('OptimizationCoordinator read', () => {
         terminal: { exitCode: 1, deadlineKilled: false, oomKilled: false },
         expected: 'internal-error',
       },
+      // 64 and 70 are cli.py's own two refusals and they land on different
+      // reasons: 70 is the solver running and answering nothing, which is the
+      // only way a later-stage INFEASIBLE can leave the process, and spec.md
+      // requires that run to be recorded `invalid-output`. 64 is the request
+      // refused before solving, and every request is ours.
+      {
+        terminal: { exitCode: 70, deadlineKilled: false, oomKilled: false },
+        expected: 'invalid-output',
+      },
+      {
+        terminal: { exitCode: 64, deadlineKilled: false, oomKilled: false },
+        expected: 'internal-error',
+      },
+      // Kill evidence outranks the code. A child killed at its deadline exits
+      // non-zero too, and reading 70 out of a SIGKILL would report a stage the
+      // solver never reached.
+      {
+        terminal: { exitCode: 70, deadlineKilled: true, oomKilled: false },
+        expected: 'timeout',
+      },
     ] as const;
 
     for (const item of cases) {
