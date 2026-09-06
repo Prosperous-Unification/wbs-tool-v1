@@ -725,6 +725,31 @@ describe('work item routes', () => {
       kind: 'patchWorkItem',
     });
     expect(await firstRow(send, owner, project.id)).toMatchObject({ deadline: '2026-03-31' });
+
+    // The half that bites, and the one an owner-only gate would fail: on an
+    // **unrestricted** project the existing authorization lets any signed-in
+    // account edit a work item, so it must let that account set a deadline. The
+    // 403 above alone would pass under a new owner-only rule; this will not.
+    const open = await send('/api/projects', owner, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Open' }),
+    });
+    const { project: openProject } = (await open.json()) as { project: { id: string } };
+    const openId = await addWorkItem(send, owner, openProject.id, {
+      parentId: null,
+      name: 'Strip',
+    });
+
+    const byStranger = await command(send, stranger, openProject.id, {
+      kind: 'patchWorkItem',
+      workItemId: openId,
+      patch: { deadline: '2026-04-30' },
+    });
+
+    expect(byStranger.status).toBe(200);
+    expect(await firstRow(send, stranger, openProject.id)).toMatchObject({
+      deadline: '2026-04-30',
+    });
   });
 
   it('refuses a reason with no date, and takes the pair away together', async () => {

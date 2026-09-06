@@ -288,11 +288,12 @@ describe('every plan schedules identically across the migration', () => {
         // payload that gained one is not a payload that moved a date.
         // `lateBy` comes off beside it, by `work-item-deadline` 5.2 and for the
         // same reason, asserted null rather than dropped: no plan in this
-        // corpus can carry a deadline, so a slice reporting itself late would
-        // be the engine inventing a date. The column exists as of `b2bb095c`;
-        // what makes that true is that nothing reads or writes it — see
-        // `priority-band-identity.db.test.ts`, which asserts the same null for
-        // the same reason.
+        // corpus carries a deadline, so a slice reporting itself late would be
+        // the engine inventing a date. The column exists as of `b2bb095c` and is
+        // readable and writable as of slice 6; what keeps the claim true is that
+        // no replayed plan writes one and the plan read still passes the
+        // `NO_DEADLINES` placeholder — see `priority-band-identity.db.test.ts`,
+        // which asserts the same null for the same reason.
         slices: tree.slices.map(({ capacityTeamId, lateBy, ...slice }) => {
           if (slice.boundBy === 'capacity') {
             const owed = effectiveTeamOf(slice.workItemId);

@@ -478,10 +478,10 @@ describe('a priority ladder moves no date', () => {
         // oracle predates the field, so every slice now carries a key the
         // capture cannot have — a payload that gained a field, which is not a
         // payload that moved a date. Null is the assertion and not a
-        // convenience: no work item in these sixteen plans can carry a deadline
-        // at all, so a replay reporting any slice late would mean the engine
-        // had invented a date rather than read one. The column exists as of
-        // `b2bb095c` and is readable and writable as of slice 6 — what makes the
+        // convenience: no work item in these sixteen plans carries a deadline,
+        // so a replay reporting any slice late would mean the engine had
+        // invented a date rather than read one. The column exists as of
+        // `b2bb095c` and is readable and writable as of slice 6 — what keeps the
         // claim true is that no replayed plan writes one and the plan read still
         // passes the `NO_DEADLINES` placeholder.
         expect(lateBy).toBeNull();
