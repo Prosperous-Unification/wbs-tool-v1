@@ -3,7 +3,10 @@ import { describe, expect, it } from 'bun:test';
 import { buildApp } from '../app';
 import { AuthService } from '../service/auth.service';
 import { clockOf } from '../service/clock';
-import type { OptimizationCoordinator, OptimizationRetryResult } from '../service/optimization-coordinator';
+import type {
+  OptimizationCoordinator,
+  OptimizationRetryResult,
+} from '../service/optimization-coordinator';
 import { ProjectService } from '../service/project.service';
 import { inMemoryUsers, TEST_JWT_KEY, testAuthService } from '../testing/auth-fixture';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
