@@ -22,8 +22,8 @@ describe('CI gate annotations', () => {
         stderr: 'pipe',
       });
 
-      // Proof: splitting only on CRLF/LF wrote the injected bare CR and its
-      // suffix to stdout before this exact production invocation was fixed.
+      // Proof: splitting only on CRLF/LF while the control guard stayed active
+      // dropped `located`; this production invocation wrote only `${valid}\n`.
       expect(run.exitCode).toBe(0);
       expect(new TextDecoder().decode(run.stdout)).toBe(`${located}\n${valid}\n`);
     } finally {
@@ -42,6 +42,15 @@ describe('CI gate annotations', () => {
     );
 
     expect(selectErrorAnnotations(lines.join('\n'))).toEqual([]);
+  });
+
+  test('keeps literal tabs fail-closed while preserving encoded tabs', () => {
+    const rawTab = '::error file=raw-tab.test.ts,line=1::before\tafter';
+    const encodedTab = '::error file=encoded-tab.test.ts,line=2::before%09after';
+
+    // Policy: current gate producers do not require raw tabs, so keep the C0
+    // boundary closed while preserving the workflow-safe encoded spelling.
+    expect(selectErrorAnnotations(`${rawTab}\n${encodedTab}`)).toEqual([encodedTab]);
   });
 
   test('preserves the exact file and line command emitted by the failing assertion', () => {
