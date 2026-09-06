@@ -50,11 +50,11 @@ export type CalendarMarkerRefusal = 'not_found' | 'forbidden' | 'taken';
  */
 export type CalendarMarkerSubject = 'project' | 'marker';
 
-export type CalendarMarkerRefused = {
+export interface CalendarMarkerRefused {
   ok: false;
   reason: CalendarMarkerRefusal;
   about: CalendarMarkerSubject;
-};
+}
 
 export type CalendarMarkerOutcome = { ok: true; value: CalendarMarker } | CalendarMarkerRefused;
 

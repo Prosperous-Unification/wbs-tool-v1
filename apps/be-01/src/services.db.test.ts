@@ -221,7 +221,14 @@ describe('buildServices', () => {
       name: 'Strip',
     });
 
-    const withoutSeq = ({ seq: _seq, ...rest }: Record<string, unknown>) => rest;
+    // `delete` on a copy rather than a rest destructure, which lint reads as an
+    // unused binding — and `delete` is what keeps the surviving keys in their
+    // original order, which the `JSON.stringify` assertion below depends on.
+    const withoutSeq = (tree: Record<string, unknown>): Record<string, unknown> => {
+      const rest = { ...tree };
+      delete rest['seq'];
+      return rest;
+    };
 
     const unchangedExceptSeq = (
       after: Awaited<ReturnType<typeof services.workItems.tree>>,
