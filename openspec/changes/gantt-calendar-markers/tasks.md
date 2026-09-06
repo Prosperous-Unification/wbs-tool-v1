@@ -281,7 +281,7 @@ in both slices rather than implied by position.
       it the fault that separates "the table holds 20 entries" from "the
       validator measures against 20", and the deletion fault above cannot
       substitute for it because it moves the table rather than the loop.
-- [ ] 3.4 `validateCustomColor` wired into **all three** call sites — the be-01
+- [x] 3.4 `validateCustomColor` wired into **all three** call sites — the be-01
       create handler, the be-01 recolour handler and the composer — test: the
       controller test from 4.1 posts a sub-bar colour straight to the API,
       bypassing the composer, and asserts refusal with no row;
@@ -3770,3 +3770,38 @@ Gates on **h2puni** at the committed bytes, the `fe-01` test target: 88 files /
 **2303 passed** / 0 fail, up from 2301 by exactly these two, plus the zoned tier
 2 files / 3 passed. `fe-01:typecheck` rc 0, `fe-01:lint` rc 0, `prettier
 --check` rc 0 on both touched files before the suite ran.
+
+## Chunk 77 — 3.4's fourth case, and the slice closes (TASK-235 run 37, 2026-09-06)
+
+**3.4 is TICKED.** All four faults are now watched, at all three call sites.
+
+The case: `#ff0000` submitted through the composer's colour input, and the
+**rendered** refusal asserted to name `light:pointed+today` and `3:1`, with the
+create still suppressed.
+
+**The colour is the case.** `#ff0000` fails exactly one of the twenty backdrops
+— the light theme's pointed-row light under the today tint, 2.943:1, which is
+`marker-color.test.ts`'s own 19-of-20 row. A message naming the dark base could
+be produced by a composer that only knows about themes; this backdrop is the one
+a validator that composites the three tints over `--background` and stops there
+never builds at all.
+
+**The message assertions were moved out of chunk 76's sub-bar case into this
+one**, which is what makes the fourth fault precise. Chunk 76's case now asserts
+only that _something_ was said; _what_ was said is this case's subject.
+
+**Fourth fault watched, and it is a consumer fault rather than a removal**:
+`setComposerRefusal(verdict.message)` replaced by a fixed string with the
+request still suppressed (gate host only, restored, md5 `b4d16937` both hosts).
+**1 failed / 221 passed** — this case alone, on `expected 'That colour cannot be
+used.' to contain 'light:pointed+today'` — with every request-body assertion in
+the suite green, because a composer that suppresses correctly and explains
+nothing is exactly what those cannot see.
+
+**The four faults of 3.4, all watched:** the be-01 create-path call removed and
+the be-01 recolour-path call removed (both 2026-09-05); the composer's guard
+removed, failing on the outgoing body at chunk 76; and this one.
+
+Gates on **h2puni** at the committed bytes, the `fe-01` test target: 88 files /
+**2304 passed** / 0 fail, up from 2303 by exactly this one, plus the zoned tier
+2 files / 3 passed. `prettier --check` rc 0 before the suite ran.

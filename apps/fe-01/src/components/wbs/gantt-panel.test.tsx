@@ -7994,6 +7994,17 @@ describe('the composer creates the marker whose colour it previewed', () => {
    */
   const SUB_BAR = '#f0f0f0';
 
+  /**
+   * 3.3's 19-of-20 colour: `#ff0000` fails exactly one of the twenty backdrops,
+   * the light theme's pointed-row light under the today tint, at 2.943:1.
+   *
+   * Deliberate, and it is the whole of the fourth case: a message naming the
+   * dark base could be produced by a composer that only knows about themes, and
+   * this backdrop is the one a validator that composites the three tints over
+   * `--background` and stops there never builds at all.
+   */
+  const NINETEEN_OF_TWENTY = '#ff0000';
+
   itDom('keeps a sub-bar colour off the wire, and says which backdrop it failed over', () => {
     // Task 3.4's **third** call site, and until the composer grew a colour
     // input `validateCustomColor` had no fe-01 caller at all: both be-01 arms
@@ -8022,15 +8033,44 @@ describe('the composer creates the marker whose colour it previewed', () => {
     // save that did not happen.
     expect(document.querySelector('[data-marker-composer]')).not.toBeNull();
 
-    // And the refusal is the **validator's** sentence, not a fixed string. A
-    // composer that called the validator, suppressed the request and then
-    // rendered "invalid colour" would satisfy every assertion above while
-    // telling the reader nothing about which of the twenty grounds it failed
-    // over — which is what both composer scenarios require it to say.
+    // Something was said, and *what* it said is the next case's subject — kept
+    // apart deliberately, so the fault that guts the message reddens that case
+    // alone and leaves these three request assertions green.
+    expect(document.querySelector('[data-composer-refusal]')).not.toBeNull();
+  });
+
+  itDom('names the backdrop the colour failed over, in the validator’s own words', () => {
+    // 3.4's **fourth** case, and it is a different claim from the one above.
+    // "Nothing left the client" is not the whole composer contract: a composer
+    // that calls the validator, suppresses the request and then renders a
+    // generic "invalid colour" passes every request assertion in this suite
+    // while violating both composer scenarios, which require the reader to be
+    // told which fill the colour failed over. Round-12 Sol review, Important.
+    //
+    // The colour is `#ff0000` and the choice is the case: it fails **one** of
+    // the twenty backdrops, the light theme's pointed-row light under the today
+    // tint. A message naming the dark base could be produced by a composer that
+    // only knows about themes; this backdrop is the one a validator that
+    // composites the three tints over `--background` and stops there never
+    // builds at all.
+    const api = fakeProjectApi();
+    const creates = recordCalls(api, 'createCalendarMarker');
+    render(<OwnedMarkers api={api} newMarkerId={twoIds()} />);
+
+    fireEvent.click(cellAt(9));
+    fireEvent.change(screen.getByLabelText('Marker name'), { target: { value: 'Go live' } });
+    fireEvent.change(screen.getByLabelText('Marker colour'), {
+      target: { value: NINETEEN_OF_TWENTY },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the new calendar marker on 19 Aug' }));
+
     const said = document.querySelector('[data-composer-refusal]')?.textContent ?? '';
-    expect(said).toContain(SUB_BAR);
-    expect(said).toContain('light:base');
+    expect(said).toContain('light:pointed+today');
     expect(said).toContain('3:1');
+    // The suppression as well, because a composer that named the backdrop and
+    // sent the colour anyway would be a refusal the reader can read and the API
+    // cannot.
+    expect(creates).toEqual([]);
   });
 
   itDom('sends a colour the reader chose that clears the bar, and previews it first', () => {
