@@ -163,6 +163,42 @@ not assembled from the per-slice gates above.
 
 **Item G is not done on this.** G also wants the failure-proof table — for every
 negative the plan names, the fault injected, the test that observed it failing,
-and the result — and four implementation slices (8.6, 8.7, 8.8, plus 3.4 and
-7.4) are still open, so the table cannot be complete. What is recorded here is
-G's first clause at the head that closed 8.4 and 8.5.
+and the result. What is recorded here is G's first clause at the head that
+closed 8.4 and 8.5. **The reason this note originally gave for the table being
+impossible — that 8.6, 8.7, 8.8, 3.4 and 7.4 were still open — no longer holds;
+see the section below.**
+
+## Failure-proof table — opened (item G, second half)
+
+For every negative the plan names: the fault injected, the test that observed it
+failing, and the result. **This section is opened, not finished.** The rows
+below are run 37's six, which are the last implementation negatives this task's
+scope contains; every earlier slice's negative is recorded in its own `## Chunk`
+section in `tasks.md` and in `queue/status.log`, and transcribing them here is
+what G still owes.
+
+**The blocker G carried until now is gone.** The previous note on this file said
+the table could not be complete while 8.6, 8.7, 8.8, 3.4 and 7.4 were open.
+**3.4, 7.4 and 8.8 are now ticked** (run 37, chunks 74–77), and **8.6 and 8.7
+are deferred to TASK-271** by the scope boundary the main session set on
+2026-09-06 — the standalone SVG export, which no acceptance criterion names. So
+what remains for G is transcription, not measurement.
+
+| Slice   | Fault injected                                                                                                                       | Test that observed it                                   | Result                                                                                                                                                                                        |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8.8     | The `data-gantt-today-edge` block moved to after the marker-rule map in `marksOverLight` (295 bytes)                                 | `gantt-panel.test.tsx`, `fe-01` target                  | **2 failed / 217 passed** — 8.8's today case on `expected false to be true`, and 8.2's `is emitted after today's edge…` on the collapsed slot sequence. 8.8's **Saturday** case stayed green. |
+| 7.4     | `isIsoDate(body.date)` removed from `createProblem`'s create path                                                                    | `calendar-marker.controller.db.test.ts`, `be-01` target | **1563 pass / 4 fail** — 7.4's workday-number case at `expected 422, received 201` with the row written, plus 4.3's own three date rows. 7.4's second case stayed green.                      |
+| 3.4 (1) | The `validateCustomColor` call removed from the be-01 **create** path                                                                | `calendar-marker.controller.db.test.ts`                 | Watched 2026-09-05: the row written while the UI test stayed green.                                                                                                                           |
+| 3.4 (2) | The `validateCustomColor` call removed from the be-01 **recolour** arm only                                                          | `calendar-marker.controller.db.test.ts`                 | Watched 2026-09-05: **23 pass / 1 fail**, `200` where `422` was owed and `#ff0000` stored; the create's contrast case stayed green.                                                           |
+| 3.4 (3) | The composer's guard removed — the `if (composerColor !== null)` block, 276 bytes, and nothing else                                  | `gantt-panel.test.tsx`, `fe-01` target                  | **1 failed / 220 passed** — the sub-bar case alone, and on the **request**: `expected [ [ 'p1', { …(4) } ] ] to deeply equal []`.                                                             |
+| 3.4 (4) | `setComposerRefusal(verdict.message)` replaced by a fixed string, the request still suppressed — a **consumer** fault, not a removal | `gantt-panel.test.tsx`, `fe-01` target                  | **1 failed / 221 passed** — the backdrop-naming case alone, on `expected 'That colour cannot be used.' to contain 'light:pointed+today'`; every request-body assertion green.                 |
+
+Each fault was applied on the gate host only and restored, with the file's md5
+compared across both hosts afterwards: `235f3ff2` and `b4d16937` for
+`gantt-panel.tsx`, `1ecabd8d` for `calendar-marker.controller.ts`.
+
+**The whole-workspace gate above is at `7d627f18` and is now one head stale.**
+It has not been re-run since; the per-project gates at each committed head since
+then are recorded in `tasks.md`'s chunk sections. Re-running `run-many` belongs
+with the terminal gate, after the `origin/main` merge that PR 209 currently
+needs.
