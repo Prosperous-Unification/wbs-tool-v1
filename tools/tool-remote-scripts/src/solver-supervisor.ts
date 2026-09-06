@@ -81,7 +81,11 @@ export function assertSolverSupervisorMapping(
 ): void {
   const options = decodeSolverSupervisorConfigBytes(bytes);
   if (expected.env === 'prod') {
-    const mapped = options.imageFor({ id: '0'.repeat(64), name: expected.callerName, image: expected.image });
+    const mapped = options.imageFor({
+      id: '0'.repeat(64),
+      name: expected.callerName,
+      image: expected.image,
+    });
     // Proof: solver-supervisor.test.ts substitutes another digest for the
     // exact colour and then a different solver image for that valid caller.
     if (mapped !== expected.image) {
@@ -89,7 +93,11 @@ export function assertSolverSupervisorMapping(
     }
     return;
   }
-  const mapped = options.imageFor({ id: '0'.repeat(64), name: 'wbs-dev-src', image: 'wbs-dev-src:1' });
+  const mapped = options.imageFor({
+    id: '0'.repeat(64),
+    name: 'wbs-dev-src',
+    image: 'wbs-dev-src:1',
+  });
   // Proof: solver-supervisor.test.ts changes only the expected compatible
   // image and requires deployment refusal.
   if (mapped !== expected.solverImage) {
