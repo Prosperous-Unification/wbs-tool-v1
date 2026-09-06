@@ -322,14 +322,16 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
       so a non-date is `deadline_must_be_a_date` through the path that already
       existed. **That path answers 400, not the 422 this item first said**, and
       the sentence is corrected here rather than the code bent to it: the
-      requirement is the *existing* path, `asOptionalDate` throws `BadRequest`,
-      and the batch route's default for a malformed body is 400 — the same
-      status every other malformed field on this payload gets. Making the
-      deadline alone 422 would be a new path, which is what this item forbids.
-      Asserted by `refuses a deadline that is not a date, the way every other
-      malformed field is refused`; found by the round-1 Gemini seat, which read
-      `refusalFor` rather than the claim. The day-zero refusal is the **service's**, not the controller's —
-      it is the first layer holding the project as well as the payload — and it
+      requirement is the existing path, asOptionalDate throws BadRequest, and
+      the batch route's default for a malformed body is 400 — the same status
+      every other malformed field on this payload gets. Making the deadline
+      alone 422 would be a new path, which is what this item forbids. The case
+      that asserts it is the one named "refuses a deadline that is not a date,
+      the way every other malformed field is refused" in
+      work-item.controller.test.ts. Found by the round-1 Gemini seat, which read
+      refusalFor rather than the claim. The day-zero refusal is the
+      **service's**, not the controller's — it is the first layer holding the
+      project as well as the payload — and it
       answers 422 over the batch route's own 400 default through a new
       `UNPROCESSABLE` arm in `refusal-status.ts`, carrying `workItemId` and
       `projectDayZero` out through the batch runner's existing `detailOf`.
