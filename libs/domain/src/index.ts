@@ -1,5 +1,10 @@
 export * from './assumed-duration';
 export * from './capacity';
+// The read-time resolution of stored deadline dates to `schedule()`'s offsets,
+// beside `dependency-reach` rather than inside `leaf-constraints`: the fold is
+// TASK-219's and expands offsets down the tree, where this one only turns dates
+// into offsets and expands nothing.
+export * from './deadline-offsets';
 export * from './dependency-reach';
 // Moved out of `apps/be-01/src/service/` on 2026-09-02. Both were already pure —
 // neither imported anything at all — and both answer questions about a plan's

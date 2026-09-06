@@ -93,7 +93,7 @@ here.
       **Deviation, recorded rather than silent:** it landed under
       `dual-optimized-scheduler` as `leafDeadlinesOf(deadlines, index)` in
       `libs/domain/src/leaf-constraints.ts`, not as `effectiveDeadlines(rows,
-    deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
+  deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       rather than `null`-valued where no deadline exists, a separate walk sitting
       beside `leafFloorsOf` and deliberately not parameterised by comparator, and
       the file's own table spelling out why the floor, the deadline and
@@ -125,10 +125,10 @@ here.
 - [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
       earlier than its parent must be loosened to the parent's date. Measured on
       h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
-    deadline and every ancestor's` (the clause the red names), `lets an EARLIER
-    parent tighten a later child`, `takes the tighter ancestor when two of them
-    bind`, and `keeps a day-zero deadline, which is a real and very tight
-    constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
+  deadline and every ancestor's` (the clause the red names), `lets an EARLIER
+  parent tighten a later child`, `takes the tighter ancestor when two of them
+  bind`, and `keeps a day-zero deadline, which is a real and very tight
+  constraint`. Restored, md5 `6ad8e4d9` equal on both hosts.
 
 ## 4. `schedule()`'s seventh argument and the inclusive predicate
 
@@ -215,6 +215,32 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
 - [ ] 5.4 A project start moved past a stored deadline resolves
       `before-project-start` **at read time** and is reported late by the whole
       span — the stored value is not rewritten and the request is not rejected.
+      **The domain half is landed and the box stays open on the storage half.**
+      `deadlineOffsetsOf(projectStart, deadlines)` in
+      `libs/domain/src/deadline-offsets.ts` is the read-time resolution: every
+      entry decided by `deadlineOffsetOf`, keys carried through **as authored**
+      so the fold inside `schedule()` stays the only expansion, and
+      `before-project-start` read as `UNMEETABLE_DEADLINE_OFFSET = -1`.
+      **`-1` is a recorded assumption, not a number the design supplies** — the
+      design says "late by the whole span" in prose and settles no offset. It is
+      the encoding that makes that sentence true under 5.2's arithmetic:
+      `lastWorkdayOf` is at least `0` for every slice, so the row is late by
+      every workday it stands on plus the one it owed, and it sorts first under
+      5.1 with no special case. What falsifies it: a decision that such a row
+      reads a fixed label rather than a count — which changes the label and not
+      this offset, because the row is still late and still first.
+      **WATCHED RED W-5.4a** — drop the entry instead of resolving it: **4 fail
+      of 7**, and the two lateness cases read `null`, which is the row reported
+      **on time**. **WATCHED RED W-5.4b** — clamp to `0` instead: the same four,
+      and the difference is the symptom rather than the set. Under the clamp the
+      three-day case reads `2` for `3`, and `is late on day zero itself` reads
+      **on time** — the only fixture whose failure is a met date rather than a
+      wrong number, because a one-day item finishing on day zero meets every
+      offset a clamp can produce. Recorded this way rather than as two separable
+      reds, which is what a first reading of them claimed.
+      **What is still owed:** the be-01 read path that supplies those dates, and
+      with it the claims that the stored value is not rewritten and the request
+      is not rejected. Both wait on slice 1's column.
 
 ## 6. API, realtime, undo
 
