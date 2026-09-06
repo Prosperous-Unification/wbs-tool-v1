@@ -7289,10 +7289,7 @@ describe('downloading the chart as a standalone .svg', () => {
       );
       // So exactly two cells were reached, not one per day on the axis. Strike
       // the guard and offsets 3 and 4 arrive here too.
-      expect(cellClipIds(doc)).toEqual([
-        'gantt-marker-cell-clip-2',
-        'gantt-marker-cell-clip-5',
-      ]);
+      expect(cellClipIds(doc)).toEqual(['gantt-marker-cell-clip-2', 'gantt-marker-cell-clip-5']);
     });
   });
 });

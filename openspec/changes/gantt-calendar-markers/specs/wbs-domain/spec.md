@@ -526,7 +526,7 @@ chart is for.
 **Per chip drawn, not per marker** (2026-09-06, TASK-287). The clause above
 said "one row per marker" until this change, while `layOutMarkerLegend` has
 taken the drawn band since it was written; TASK-281's 12px case made the two
-contradict each other in writing by asserting a capped marker's *absence* from
+contradict each other in writing by asserting a capped marker's _absence_ from
 the legend. The band is what loses ties here, and deliberately: a legend is a
 **key to the picture**. Its stated job two sentences up is to turn the file's
 coloured shapes back into names, so a row whose swatch names a colour that is
@@ -540,7 +540,7 @@ A marker off the drawn horizon and a marker past its cell's share of
 concern and it is not the legend's to answer. On screen that cell carries a
 `+N` badge and a day card behind it; the export carries neither, so a capped
 marker leaves the download with nothing at all saying it was dropped. That is a
-gap in what the *picture* records, not in what the *key* names, and the fix for
+gap in what the _picture_ records, not in what the _key_ names, and the fix for
 it is the export's own overflow affordance rather than nameless legend rows —
 an undrawn entry has no swatch to show and no chip to point at, so a legend
 built from the full marker list would have to invent both.
