@@ -111,6 +111,42 @@ describe('InMemoryOidcTransactionStore', () => {
     expect(store.consume('browser-1', 'wrong-state')).toEqual({ outcome: 'expired' });
     expect(store.cleanupExpired()).toBe(0);
   });
+
+  /**
+   * `expiresAt` is the only thing a callback asks about a binding whose deadline
+   * has passed, because `selectBrowserBindings` no longer offers those to
+   * `consume` — so if it read without deleting, a dead login's nonce and
+   * verifier would stay resident until an unrelated `save` swept them (peer
+   * review, TASK-272 r2, Important).
+   */
+  it('reaps an expired transaction it is asked to order', () => {
+    let now = 1_000;
+    const store = new InMemoryOidcTransactionStore({ now: () => now, ttlMs: 5_000 });
+    store.save({
+      browserBinding: 'browser-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    expect(store.expiresAt('browser-1')).toBe(6_000);
+    expect(store.expiresAt('browser-2')).toBeNull();
+
+    now = 6_000;
+    expect(store.expiresAt('browser-1')).toBeNull();
+    // Nothing left for a sweep to find: the read above removed it.
+    expect(store.cleanupExpired()).toBe(0);
+    // …and a live transaction is not spent by being ordered.
+    now = 6_500;
+    store.save({
+      browserBinding: 'browser-3',
+      nonce: 'nonce-3',
+      state: 'state-3',
+      verifier: 'verifier-3',
+    });
+    expect(store.expiresAt('browser-3')).toBe(11_500);
+    expect(store.consume('browser-3', 'state-3').outcome).toBe('consumed');
+  });
 });
 
 describe('InMemoryTokenStore', () => {

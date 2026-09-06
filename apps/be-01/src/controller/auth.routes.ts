@@ -453,14 +453,18 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // can observe moves.
         const state = states[0];
         // **Every answer on this route clears names and sets none** (TASK-272).
-        // `settled` is the list of binding cookies this request proved are dead
-        // — the ones already addressing nothing when they arrived, and then the
-        // one this callback spent — and it is the complete cookie list of every
-        // answer below, refusals and success alike. A live login's cookie is never
-        // re-sent, which is what makes a callback unable to erase a login
-        // started while it was in flight: the answer names only cookies that
-        // are finished, and a name no answer mentions is left exactly as the
-        // login that wrote it left it, `Max-Age` included.
+        // `settled` is the complete cookie list of every answer below, refusals
+        // and success alike, and it holds exactly two kinds of name: what
+        // `selectBrowserBindings` returned as surplus — records already gone or
+        // expired, names that do not match their value, repeats, and the
+        // over-the-bound entries the read side has already made unreachable —
+        // and then the one this callback spent. Nothing in it is a login this
+        // browser could still finish.
+        //
+        // A live, reachable login's cookie is never re-sent, which is what makes
+        // a callback unable to erase a login started while it was in flight: a
+        // name no answer mentions is left exactly as the login that wrote it
+        // left it, `Max-Age` included.
         const held = selectBrowserBindings(
           options.transactions,
           browserBindingsIn(cookiesOf(req)),

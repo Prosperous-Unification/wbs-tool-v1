@@ -134,6 +134,13 @@ describe('browser binding cookie', () => {
     );
 
     expect(selected.offered.map((entry) => entry.binding)).toEqual(['binding-2']);
+    // Deciding the order reaps what it finds already dead. Before this function
+    // existed the callback offered every binding to `consume`, whose expiry arm
+    // deleted on sight; reading without deleting would have left `binding-1`'s
+    // nonce and verifier resident until an unrelated `save` swept them (peer
+    // review, TASK-272 r2, Important). `cleanupExpired` finding nothing to do is
+    // the proof that this call already did it.
+    expect(store.cleanupExpired()).toBe(0);
     expect(selected.surplus.map((entry) => entry.cookieName)).toEqual([
       browserBindingCookieName('binding-1'),
       browserBindingCookieName('binding-3'),

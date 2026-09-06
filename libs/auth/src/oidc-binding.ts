@@ -68,11 +68,15 @@ export const BROWSER_BINDING_COOKIE_PREFIX = '__Host-wbs_oidc_';
  * knows which name held the binding it just spent — and it adds no new
  * randomness to reason about.
  *
- * **It publishes nothing.** A binding is `randomBytes(32)`, so a truncated
- * digest of one is neither reversible nor collidable in practice, and the name
- * is `HttpOnly` alongside its value: script cannot read either. What the name
- * would tell an observer who somehow saw it is that a login is in flight, which
- * the request that carries it already said.
+ * **What it publishes, stated exactly.** The name is 64 bits of the binding's
+ * SHA-256, so it is a fingerprint rather than nothing: an observer who saw it
+ * would hold those 64 bits. That is not a weakening — SHA-256 is preimage
+ * resistant and the binding under it is 256 bits of `randomBytes`, so the name
+ * yields no path back to the value, and the name is `HttpOnly` beside its value
+ * anyway, so script can read neither. For the same reason the name/value
+ * mapping is one-to-one **in practice** rather than by construction: two
+ * distinct bindings collide with probability about 2^-64, and a collision would
+ * cost one browser one login, not any confusion between browsers.
  */
 export function browserBindingCookieName(binding: string): string {
   if (binding === '') throw new Error('OIDC browser binding must not be empty');
@@ -140,7 +144,10 @@ export interface BrowserBindingSelection {
  * - Its record is gone or expired. The binding can never address anything
  *   again, so keeping it would spend a slot on nothing and cost the callback a
  *   store lookup. The store is asked, not the cookie's own age: `expiresAt` is
- *   the authoritative deadline and a browser cannot edit it.
+ *   the authoritative deadline and a browser cannot edit it — and asking it
+ *   **reaps** a record already past that deadline, which is where a dead
+ *   login's `nonce` and `verifier` used to be freed before this function stood
+ *   between the callback and `consume` (peer review, TASK-272 r2, Important).
  * - Its name is not the one {@link browserBindingCookieName} gives its value.
  *   Only this origin can write a `__Host-` cookie, so a mismatch is this app's
  *   own older shape rather than an attack — but reading it would break the
@@ -154,13 +161,16 @@ export interface BrowserBindingSelection {
  *   had — a person who abandons tabs loses the oldest login rather than the one
  *   they are completing.
  *
- * **The bound is hard on the read side and best-effort on the write side.** A
- * callback never asks the store for more than {@link MAX_BROWSER_BINDINGS}
- * lookups whatever the jar holds, which is the resource bound that matters; the
- * clears that keep the jar itself small are emitted by whichever answer
- * happens to run next, and two logins starting at the same instant can leave a
- * browser holding one more than the bound until then. That transient is the
- * price of never blocking one login's write on another's, and the excess is
+ * **What the bound caps, exactly.** A callback never *consumes* against more
+ * than {@link MAX_BROWSER_BINDINGS} bindings whatever the jar holds — that cap
+ * is hard, and it is the one that matters, because consuming is the expensive
+ * and security-bearing operation. It is **not** a cap on the deadline lookups
+ * this function makes: those are one per distinct well-named cookie, bounded
+ * only by what the browser sends, which is itself bounded by the user agent's
+ * per-domain cookie cap. The clears that keep the jar small are emitted by
+ * whichever answer runs next, so two logins starting at the same instant can
+ * leave a browser holding one more than the bound until then. That transient is
+ * the price of never blocking one login's write on another's, and the excess is
  * unreachable — the read side drops it — rather than merely untidy.
  */
 export function selectBrowserBindings(

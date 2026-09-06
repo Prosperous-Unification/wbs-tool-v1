@@ -31,7 +31,10 @@ export type OidcConsumeResult =
 export interface OidcTransactionStore {
   cleanupExpired(): number;
   consume(browserBinding: string, state: string): OidcConsumeResult;
-  /** When this binding's transaction dies, or `null` if it holds none. */
+  /**
+   * When this binding's transaction dies, or `null` once it holds none —
+   * reaping the record if it is already past its deadline.
+   */
   expiresAt(browserBinding: string): number | null;
   save(transaction: OidcTransactionInput): void;
 }
@@ -149,15 +152,24 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
   }
 
   /**
-   * The deadline a binding's record carries, for a caller deciding which of a
-   * browser's several in-flight logins to keep (`oidc-binding.ts`, TASK-272).
+   * The deadline a binding's record carries, or `null` once there is none, for a
+   * caller deciding which of a browser's several in-flight logins to keep
+   * (`oidc-binding.ts`, TASK-272).
    *
-   * **It reads and never writes**, which is the whole reason it is a second
-   * method rather than an argument to `consume`: ordering a browser's bindings
-   * must not spend, expire or delete any of them, and single use stays exactly
-   * where {@link consume} enforces it. An expired record is reported as it
-   * stands rather than swept here, because a sweep on a read would make the
-   * order a caller sees depend on how many times it looked.
+   * **It never spends a live transaction**, which is the whole reason it is a
+   * second method rather than an argument to `consume`: ordering a browser's
+   * bindings must not consume any of them, and single use stays exactly where
+   * {@link consume} enforces it.
+   *
+   * **It does delete a record it finds already expired**, and that is not a
+   * convenience. This method is now the only thing a callback asks about a
+   * binding whose deadline has passed — before it existed the callback offered
+   * every binding to {@link consume}, whose expiry arm deleted on sight, so
+   * reading without deleting would leave a dead login's `nonce` and `verifier`
+   * resident until an unrelated `save` swept them (peer review, TASK-272 r2,
+   * Important). A dead record is dead for everyone and keeping one is a leak
+   * with no login left to protect, which is the same sentence {@link consume}
+   * and {@link InMemoryTokenStore.read} are written from.
    *
    * **It hands out nothing the caller did not already have.** The argument is
    * the binding, which is `HttpOnly` and unguessable, and the answer is a
@@ -165,7 +177,17 @@ export class InMemoryOidcTransactionStore implements OidcTransactionStore {
    * and could learn the same by consuming it, at the cost of the login.
    */
   expiresAt(browserBinding: string): number | null {
-    return this.records.get(digest(browserBinding))?.expiresAt ?? null;
+    const key = digest(browserBinding);
+    const transaction = this.records.get(key);
+    if (transaction === undefined) return null;
+    // Proof: `reaps an expired transaction it is asked to order` fails with
+    // `Expected: 0 Received: 1` from `cleanupExpired()` when this returns the
+    // stale deadline instead of removing it.
+    if (transaction.expiresAt <= this.now()) {
+      this.records.delete(key);
+      return null;
+    }
+    return transaction.expiresAt;
   }
 
   cleanupExpired(): number {
