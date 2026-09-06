@@ -50,11 +50,24 @@ function registeredRoutes(value: unknown): RegisteredRoute[] {
   });
 }
 
+interface ExchangeResult {
+  accessToken: string;
+  expiresIn: number;
+  refreshToken?: string;
+  idTokenClaims?: JwtClaims;
+}
+
 function fixture(
   idTokenClaims?: JwtClaims,
   routeOverrides: {
     passwordLoginEnabled?: boolean;
     passwordRegisterEnabled?: boolean;
+  } = {},
+  // Separate from `routeOverrides`, which is spread onto the options object:
+  // this replaces one method of the fake provider client, and the only case
+  // that uses it makes `exchange` reject (TASK-273).
+  clientOverrides: {
+    exchange?: (request: Request, checks: unknown) => Promise<ExchangeResult>;
   } = {},
 ) {
   const exchangeClaims = arguments.length === 0 ? claims : idTokenClaims;
@@ -90,6 +103,7 @@ function fixture(
       calls.revoke.push(token);
       return Promise.resolve();
     },
+    ...clientOverrides,
   };
   const transactions = new InMemoryOidcTransactionStore({ now: () => now, ttlMs: 300_000 });
   const tokens = new InMemoryTokenStore({ now: () => now });
@@ -644,6 +658,135 @@ describe('OIDC browser routes', () => {
 
     expect(honest.status).toBe(302);
     expect(f.calls.exchange).toHaveLength(1);
+  });
+
+  /**
+   * TASK-273. Clicking **Cancel** at the identity provider is the most ordinary
+   * thing a person can do in a login flow, and it came back as an untyped 500:
+   * the state matches, so every check above passed, `consume` spent the
+   * transaction, and `authorizationCodeGrant` then threw for the missing `code`
+   * into a handler that caught nothing.
+   *
+   * The transaction being spent is asserted rather than tolerated — no code
+   * will ever arrive for this state, so the record is dead and the second
+   * request here is what says so.
+   *
+   * **This case does not observe the 500 and cannot.** The fake client above
+   * resolves a token set for any query, so with the guard removed this handler
+   * completes the cancelled login and the case reads `Expected:
+   * "/?auth_error=access_denied" Received: "/"` — measured, not assumed. That
+   * is the sharper statement anyway: the fix is that an error callback never
+   * reaches the provider, which `f.calls.exchange` is here to say. The 500 is
+   * the real `authorizationCodeGrant`'s and it is reproduced by `answers a
+   * failed exchange with a typed refusal rather than a framework 500` below,
+   * the one case whose client actually rejects.
+   */
+  it('answers a cancelled login with a redirect to the sign-in page instead of a 500', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const cancelled = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?error=access_denied&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(cancelled.status).toBe(302);
+    expect(cancelled.headers.get('location')).toBe('/?auth_error=access_denied');
+    expect(f.calls.exchange).toHaveLength(0);
+    expect(cancelled.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
+
+    // The login is over, so the transaction went with it: a code arriving for
+    // the same state afterwards finds nothing to complete.
+    const late = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(late.status).toBe(400);
+    expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  it('sends a silent-login refusal back under its own name', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const refused = await f.app.handle(
+      new Request(
+        'https://dev.wbs.test/api/auth/okta/callback?error=login_required&state=state-1',
+        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+      ),
+    );
+
+    expect(refused.status).toBe(302);
+    expect(refused.headers.get('location')).toBe('/?auth_error=login_required');
+    expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  /**
+   * The `error` and `error_description` a callback carries are both written by
+   * the authorization server, and this app repeats one of them and never the
+   * other. An unrecognised code collapses to `provider_error` so the provider
+   * cannot choose the string on this origin's URL; the description is dropped
+   * outright, and is not logged either.
+   */
+  it('repeats no provider text the app does not publish', async () => {
+    const f = fixture();
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const opaque = await f.app.handle(
+      new Request(
+        'https://dev.wbs.test/api/auth/okta/callback?error=okta_policy_evaluation_failure&error_description=Call+support+on+555-0100&state=state-1',
+        { headers: { cookie: '__Host-wbs_oidc=binding-1' } },
+      ),
+    );
+
+    expect(opaque.status).toBe(302);
+    expect(opaque.headers.get('location')).toBe('/?auth_error=provider_error');
+    expect(opaque.headers.get('location')).not.toContain('555-0100');
+    expect(f.calls.exchange).toHaveLength(0);
+  });
+
+  /**
+   * The other half of TASK-273: a rejection out of `exchange` for any other
+   * reason — the provider unreachable, a `code` it will not honour, clock skew
+   * on the ID token — was the same untyped 500. It answers 401 with the binding
+   * cleared, which is what the verified-claims refusal below already answers,
+   * because a browser cannot act on the difference.
+   */
+  it('answers a failed exchange with a typed refusal rather than a framework 500', async () => {
+    const f = fixture(claims, {}, { exchange: () => Promise.reject(new Error('idp unreachable')) });
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const failed = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: { cookie: '__Host-wbs_oidc=binding-1' },
+      }),
+    );
+
+    expect(failed.status).toBe(401);
+    expect(failed.headers.get('set-cookie')).toContain('__Host-wbs_oidc=;');
   });
 
   it('exchanges once and sets hardened access and refresh-correlation cookies', async () => {
