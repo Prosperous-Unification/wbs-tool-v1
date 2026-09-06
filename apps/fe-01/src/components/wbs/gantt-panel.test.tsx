@@ -33,8 +33,8 @@ import {
   chartBelowTheFold,
   clampedGanttHeight,
   DAY_PX,
-  type DayPx,
   DAY_SCALES,
+  type DayPx,
   FALLBACK_GANTT_THEME,
   GANTT_CEILING_PX,
   GANTT_MIN_PX,
@@ -6734,9 +6734,9 @@ describe('downloading the chart as a standalone .svg', () => {
    *
    * **The trap this suite is written against.** The body rule lives inside the
    * live `<svg>`, which the file nests whole — so a download built with markers
-   * threaded through and the axis loop left alone draws a coloured line and
-   * *nothing that says what it is*. That state passes any count of rules and
-   * any check that the file "carries the markers"; what it delivers is the
+   * threaded through and the axis loop left alone draws a coloured line with
+   * nothing on the page that says what it is. That state passes any count of
+   * rules and any check that the file "carries the markers"; it delivers the
    * "unidentified coloured line" `spec.md` calls worse than no line at all.
    * Each case below is chosen so that state fails it.
    */
@@ -6820,7 +6820,7 @@ describe('downloading the chart as a standalone .svg', () => {
         expect(width).toBe(DAY_PX);
         const numberAt = dayNumbers[offset];
         expect(numberAt).toBeDefined();
-        expect(Number(chip.getAttribute('x'))).toBe(Number(numberAt?.getAttribute('x')) - width / 2);
+        expect(Number(chip.getAttribute('x'))).toBe(Number(numberAt.getAttribute('x')) - width / 2);
       }
     });
 

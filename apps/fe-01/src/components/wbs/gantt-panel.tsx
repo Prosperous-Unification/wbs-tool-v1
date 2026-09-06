@@ -1970,7 +1970,7 @@ function measureLabelGutterPx(words: readonly GutterWord[]): number {
  */
 function withStandaloneRuler<T>(
   purpose: string,
-  use: (measure: (word: GutterWord) => number) => T,
+  sizeWith: (measure: (word: GutterWord) => number) => T,
 ): T {
   const ruler = document.createElementNS(SVG_NS, 'svg');
   ruler.setAttribute('font-family', STANDALONE_FONT_FAMILY);
@@ -1984,7 +1984,7 @@ function withStandaloneRuler<T>(
   ruler.style.top = '0';
   document.body.appendChild(ruler);
   try {
-    return use((word) => {
+    return sizeWith((word) => {
       const text = svgText(word.x, 0, word.content, {
         fontSize: word.fontSize,
         fill: '#000',
