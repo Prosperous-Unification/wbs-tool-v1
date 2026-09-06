@@ -51,56 +51,51 @@ export function OptimizationIndicator({
     );
   }
 
-  if (variant.state === 'ready') {
-    return <p role="status">Schedule comparison unavailable</p>;
-  }
-  if (variant.state === 'failed' || variant.state === 'corrupt') {
-    return (
-      <p role="status" className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
-        Optimization unavailable · Retry
-      </p>
-    );
-  }
-  if (variant.state === 'plan-infeasible') {
-    const count = variant.items.length;
-    return (
-      <div className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
-        <p role="status">
-          Plan infeasible · {String(count)} Work item deadline{count === 1 ? '' : 's'}
+  switch (variant.state) {
+    case 'ready':
+      return <p role="status">Schedule comparison unavailable</p>;
+    case 'failed':
+    case 'corrupt':
+      return (
+        <p role="status" className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
+          Optimization unavailable · Retry
         </p>
-        <details>
-          <summary className="text-muted-foreground">Show affected work items</summary>
-          <ul className="mt-2 list-disc pl-5">
-            {variant.items.map((item) => (
-              <li key={`${item.ownerWorkItemId}:${item.boundWorkItemId}`}>
-                {item.ownerWorkItemId === item.boundWorkItemId
-                  ? workItemName(item.boundWorkItemId)
-                  : `${workItemName(item.ownerWorkItemId)} → ${workItemName(item.boundWorkItemId)}`}{' '}
-                · Work item deadline day {String(item.effectiveDeadlineOffset)}
-              </li>
-            ))}
-          </ul>
-        </details>
-      </div>
-    );
+      );
+    case 'plan-infeasible': {
+      const count = variant.items.length;
+      return (
+        <div className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
+          <p role="status">
+            Plan infeasible · {String(count)} Work item deadline{count === 1 ? '' : 's'}
+          </p>
+          <details>
+            <summary className="text-muted-foreground">Show affected work items</summary>
+            <ul className="mt-2 list-disc pl-5">
+              {variant.items.map((item) => (
+                <li key={`${item.ownerWorkItemId}:${item.boundWorkItemId}`}>
+                  {item.ownerWorkItemId === item.boundWorkItemId
+                    ? workItemName(item.boundWorkItemId)
+                    : `${workItemName(item.ownerWorkItemId)} → ${workItemName(item.boundWorkItemId)}`}{' '}
+                  · Work item deadline day {String(item.effectiveDeadlineOffset)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      );
+    }
+    case 'pending':
+    case 'retrying':
+    case 'idle':
+      return (
+        <p role="status" className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
+          Optimizing…
+        </p>
+      );
+    default: {
+      const exhaustive: never = variant;
+      void exhaustive;
+      return <p role="status">Schedule comparison unavailable</p>;
+    }
   }
-
-  if (variant.state === 'pending' || variant.state === 'retrying') {
-    return (
-      <p role="status" className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
-        Optimizing…
-      </p>
-    );
-  }
-  if (variant.state === 'idle') {
-    return (
-      <p role="status" className="bg-muted mb-3 rounded-md px-3 py-2 text-sm">
-        Optimizing…
-      </p>
-    );
-  }
-
-  const exhaustive: never = variant;
-  void exhaustive;
-  return <p role="status">Schedule comparison unavailable</p>;
 }
