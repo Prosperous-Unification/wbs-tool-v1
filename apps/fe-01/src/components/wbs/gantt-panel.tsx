@@ -2357,12 +2357,10 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     });
     dated.setAttribute('data-legend-date', entry.date);
     row.appendChild(dated);
-    const named = svgText(
-      dateX + entry.dateWidth + LEGEND_SWATCH_GAP_PX,
-      baseline,
-      entry.name,
-      { fontSize: LEGEND_FONT_SIZE_PX, fill: theme.foreground },
-    );
+    const named = svgText(dateX + entry.dateWidth + LEGEND_SWATCH_GAP_PX, baseline, entry.name, {
+      fontSize: LEGEND_FONT_SIZE_PX,
+      fill: theme.foreground,
+    });
     named.setAttribute('data-legend-name', entry.name);
     row.appendChild(named);
     root.appendChild(row);

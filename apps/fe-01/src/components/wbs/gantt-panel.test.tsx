@@ -6952,7 +6952,7 @@ describe('downloading the chart as a standalone .svg', () => {
       },
     );
 
-    itDom('shows the rules it names, one per occupied date, in that date\'s colour', async () => {
+    itDom("shows the rules it names, one per occupied date, in that date's colour", async () => {
       // The case the chip-and-legend pairing is vacuous about. Every assertion
       // above is satisfied by a file carrying chips, names, dates, swatches and
       // **zero** rules — 8.7 asserts rule *absence*, and nothing else here
