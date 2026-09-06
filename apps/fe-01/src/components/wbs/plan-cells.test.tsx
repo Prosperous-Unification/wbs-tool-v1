@@ -1262,6 +1262,124 @@ describe('the earliest-start cell', () => {
   });
 });
 
+describe('the work item deadline cell', () => {
+  /**
+   * One root row on a dated plan with every column shown.
+   *
+   * `showEveryColumn` because the deadline column is in
+   * `INITIAL_HIDDEN_COLUMNS` — it costs 84px the folded budget at 1280 does not
+   * have, so a reader turns it on in `Columns`. These tests are about the cell,
+   * not about the default column set; `table-frame.test.ts` owns that.
+   */
+  async function datedPlanWithDeadlineColumn() {
+    showEveryColumn();
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+    typeIntoDate('Project start date', '2026-08-06');
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').disabled).toBe(false);
+    });
+    return api;
+  }
+
+  /** Opens one row's deadline editor the way a reader does — Enter on the cell. */
+  const openDeadline = (number: string): HTMLInputElement => {
+    fireEvent.keyDown(screen.getByLabelText<HTMLInputElement>(`Deadline for ${number}`), {
+      key: 'Enter',
+    });
+    return screen.getByLabelText<HTMLInputElement>(`Deadline for ${number}`);
+  };
+
+  itDom('is the short date as text at rest, and an em-dash where nobody has said', async () => {
+    const api = await datedPlanWithDeadlineColumn();
+
+    expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('—');
+
+    const row = api.rows.at(0);
+    if (row === undefined) throw new Error('the plan has no row');
+    row.deadline = '2026-09-30';
+    click('Add work item');
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('30 Sep');
+    });
+    // The whole day is a hover away, the same bargain Not before, Start and End
+    // make in 84px and 52px.
+    expect(screen.getByLabelText('Deadline for 010').getAttribute('data-fact') ?? '').toContain(
+      '2026-09-30',
+    );
+  });
+
+  itDom('sends the day as the one field, with no reason beside it', async () => {
+    // **The pair rule is not carried across.** The floor one column over sends
+    // `startNoEarlierThan` and `startNoEarlierThanReason` together because
+    // be-01 refuses a reason with no date; a deadline has no reason column
+    // (`work-item-deadline` 1.1), so a request naming one here would be a key
+    // about a different constraint — and the `refuseDerivedFields` /
+    // `parsePatch` pair on be-01 answers an unknown-shaped patch, not a helpful
+    // one. Asserted as the whole patch and not with `toMatchObject`, which is
+    // what makes it a negative control.
+    const api = await datedPlanWithDeadlineColumn();
+    const patched = recordCalls(api, 'patchWorkItem', (_id, patch) => patch);
+
+    const editor = openDeadline('010');
+    fireEvent.change(editor, { target: { value: '2026-09-30' } });
+    fireEvent.blur(editor);
+
+    await waitFor(() => {
+      expect(patched).toEqual([{ deadline: '2026-09-30' }]);
+    });
+  });
+
+  itDom('clears with the single field, never the floor cell pair', async () => {
+    // Proof this matters: `setNotBefore`'s null arm sends two fields, and a
+    // deadline cell copied from it verbatim would send
+    // `startNoEarlierThanReason: null` here — quietly taking the words off the
+    // row's not-before every time somebody cleared its deadline.
+    const api = await datedPlanWithDeadlineColumn();
+    const row = api.rows.at(0);
+    if (row === undefined) throw new Error('the plan has no row');
+    row.deadline = '2026-09-30';
+    row.startNoEarlierThan = '2026-08-10';
+    row.startNoEarlierThanReason = 'the parts arrive then';
+    click('Add work item');
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').value).toBe('30 Sep');
+    });
+    const patched = recordCalls(api, 'patchWorkItem', (_id, patch) => patch);
+
+    const editor = openDeadline('010');
+    // A date input reports '' when it is cleared, which is "no deadline".
+    fireEvent.change(editor, { target: { value: '' } });
+    fireEvent.blur(editor);
+
+    await waitFor(() => {
+      expect(patched).toEqual([{ deadline: null }]);
+    });
+    expect(row.startNoEarlierThanReason).toBe('the parts arrive then');
+  });
+
+  itDom('will not open on a project with no start date', async () => {
+    // No day zero to resolve a deadline against, so be-01 applies none of them —
+    // the same state the floor renders disabled rather than opening an editor
+    // onto nothing.
+    showEveryColumn();
+    const api = fakeApi();
+    render(<WbsTable projectId="p1" api={api} />);
+    click('Add work item');
+    await screen.findByLabelText('Name of 010');
+    const patched = recordCalls(api, 'patchWorkItem', (_id, patch) => patch);
+
+    const cell = screen.getByLabelText<HTMLInputElement>('Deadline for 010');
+    expect(cell.disabled).toBe(true);
+    fireEvent.keyDown(cell, { key: 'Enter' });
+
+    expect(document.querySelectorAll('input[type="date"][data-cell]')).toHaveLength(0);
+    expect(patched).toEqual([]);
+  });
+});
+
 describe('names wrap and notes carry markdown', () => {
   /**
    * The wrapper the marker and the preview live on — the Name `<td>`'s only

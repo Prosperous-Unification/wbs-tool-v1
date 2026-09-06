@@ -673,15 +673,19 @@ describe('Tab moves between the fields, from every cell', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('Dev assignee for 010'));
   });
 
-  itDom('steps over the date cell until the plan is on a calendar', async () => {
-    // Without a project start date the earliest-start field is disabled: a Tab
-    // that stopped there would take the key and land nothing, which is a dead
-    // keystroke in the middle of every row.
+  itDom('steps over the date cells until the plan is on a calendar', async () => {
+    // Without a project start date **both** date fields are disabled: a Tab
+    // that stopped on one would take the key and land nothing, which is a dead
+    // keystroke in the middle of every row. Two of them since
+    // `work-item-deadline` 9.1 — the deadline cell is disabled by the same
+    // fact and for the same reason, so this walk is the negative control for
+    // both at once.
     await threeRoots();
     expect(screen.getByLabelText<HTMLInputElement>('Earliest start for 010').disabled).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>('Deadline for 010').disabled).toBe(true);
 
-    // Straight into the next row: the date is stepped over and it was the last
-    // cell of this one, now that the notes are written under the name.
+    // Straight into the next row: both dates are stepped over and they were the
+    // last cells of this one, now that the notes are written under the name.
     focusCaret('QA estimate for 010', 'end');
     tab();
     expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));
@@ -697,9 +701,16 @@ describe('Tab moves between the fields, from every cell', () => {
     tab();
     expect(document.activeElement).toBe(screen.getByLabelText('Earliest start for 010'));
 
+    // Then the deadline beside it, in the order the columns render: the two
+    // days a planner states, and only then the row below.
+    expect(fireEvent.keyDown(screen.getByLabelText('Earliest start for 010'), { key: 'Tab' })).toBe(
+      false,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText('Deadline for 010'));
+
     // And out again. A date input is focused rather than selected: it has no
     // text caret to ask for.
-    expect(fireEvent.keyDown(screen.getByLabelText('Earliest start for 010'), { key: 'Tab' })).toBe(
+    expect(fireEvent.keyDown(screen.getByLabelText('Deadline for 010'), { key: 'Tab' })).toBe(
       false,
     );
     expect(document.activeElement).toBe(screen.getByLabelText('Name of 020'));

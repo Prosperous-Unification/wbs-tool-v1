@@ -716,7 +716,7 @@ describe('how wide the steps make the table', () => {
     // assertions under it are only why it is true.
     expect(foldedTableMinWidth([], DATED)).toBe(1043);
     expect(foldedTableMinWidth(['step-dev', 'step-qa'], DATED)).toBe(1235);
-    expect(INITIAL_HIDDEN_COLUMNS).toEqual(['refs', 'team', 'service', 'type']);
+    expect(INITIAL_HIDDEN_COLUMNS).toEqual(['refs', 'team', 'service', 'type', 'deadline']);
     expect(DEFAULT_COLUMN_SET).toContain('tag');
     expect(DEFAULT_COLUMN_SET).not.toContain('team');
     expect(DEFAULT_COLUMN_SET).not.toContain('service');
@@ -805,7 +805,7 @@ describe('how wide the steps make the table', () => {
     expect(INITIAL_HIDDEN_COLUMNS).toContain('refs');
     expect(DEFAULT_COLUMN_SET).not.toContain('refs');
     expect(resetHiddenColumns(false)).toEqual(INITIAL_HIDDEN_COLUMNS);
-    expect(resetHiddenColumns(true)).toEqual(['team', 'service', 'type']);
+    expect(resetHiddenColumns(true)).toEqual(['team', 'service', 'type', 'deadline']);
   });
 
   it('subtracts what the reader has hidden, a whole step included', () => {
@@ -819,8 +819,10 @@ describe('how wide the steps make the table', () => {
     // column on, so the table is one column wider. Written as the whole hide-list
     // rather than as `['service']` because `DEFAULT_HIDDEN_COLUMNS` grew a third
     // member — a two-name list here would silently be showing Types as well, and
-    // the assertion would be about a reader nobody described.
-    expect(foldedTableMinWidth([], DATED, ['refs', 'service', 'type'])).toBe(
+    // the assertion would be about a reader nobody described. `deadline` is the
+    // fourth, added by `work-item-deadline` 9.1 for the same reason `type` was
+    // added: 84px the folded budget at 1280 does not have.
+    expect(foldedTableMinWidth([], DATED, ['refs', 'service', 'type', 'deadline'])).toBe(
       1043 + widthFor('team', DATED),
     );
     // A hidden step takes its folded column with it, and nothing else.
@@ -850,6 +852,7 @@ describe('how wide the steps make the table', () => {
       'step-qa',
       'final-total',
       'not-before',
+      'deadline',
       'start',
       'finish',
       'float',

@@ -139,7 +139,9 @@ it('recovers an unseen sequence gap through one anchored full read without anoth
   const tree = await api.tree('p1');
   api.tree = () => Promise.resolve({ ...tree, seq: initial + 2 });
   api.listCalendarMarkers = () =>
-    Promise.resolve([{ id: 'missed', name: 'Missed marker', date: '2026-09-06', color: null }]);
+    Promise.resolve([
+      { id: 'missed', name: 'Missed marker', date: '2026-09-06', color: '#2563eb' },
+    ]);
   await owner.invalidate({ resources: ['tree'], seq: initial + 2 });
   expect(owner.getSnapshot().markers.installed?.value.at(0)?.name).toBe('Missed marker');
   expect(owner.getSnapshot().acknowledged).toBe(initial + 2);
@@ -183,7 +185,7 @@ it('retains a new sequence gap that arrives while an anchored resync is reading 
       return markerRead.promise;
     }
     return Promise.resolve([
-      { id: 'after-gap', date: '2026-09-06', name: 'After gap', color: null },
+      { id: 'after-gap', date: '2026-09-06', name: 'After gap', color: '#2563eb' },
     ]);
   };
   const resync = owner.initialize();

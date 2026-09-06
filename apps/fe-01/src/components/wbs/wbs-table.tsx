@@ -785,11 +785,15 @@ export function WbsTable({
   const {
     setNotBefore,
     setNotBeforeReason,
+    setDeadline,
     setPriority,
     setParallelism,
     editingNotBefore,
     openNotBefore,
     closeNotBefore,
+    editingDeadline,
+    openDeadline,
+    closeDeadline,
   } = usePlanFields({ run, api, priorityBands, pushToast, gridElement });
   const {
     setTeamOf,
@@ -915,6 +919,7 @@ export function WbsTable({
     setFocusedCell,
     setNotBefore,
     setNotBeforeReason,
+    setDeadline,
     setPriority,
     priorityBands,
     setParallelism,
@@ -924,6 +929,9 @@ export function WbsTable({
     editingNotBefore,
     openNotBefore,
     closeNotBefore,
+    editingDeadline,
+    openDeadline,
+    closeDeadline,
     startDate,
     teams,
     tags,

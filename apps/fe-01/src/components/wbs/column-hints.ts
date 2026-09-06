@@ -124,6 +124,11 @@ const COLUMN_HINTS = new Map<string, string>([
       'its dependencies and its team can still push it later, never earlier.',
   ],
   [
+    'deadline',
+    'The last day this work item may finish on. It constrains nothing on its own — the plan ' +
+      'is built the same way and the row is reported late where it misses.',
+  ],
+  [
     'float',
     'Days this work item can slip before the plan’s end moves. A row marked critical has none: ' +
       'it is what sets the plan’s finish.',

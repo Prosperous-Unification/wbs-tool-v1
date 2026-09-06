@@ -148,7 +148,7 @@ function scenario(initialSeq = -1) {
     },
     commitMarker(name = 'Launch') {
       seq += 1;
-      markers = [{ id: 'launch', name, date: '2026-09-06', color: null }];
+      markers = [{ id: 'launch', name, date: '2026-09-06', color: '#2563eb' }];
       journal.push({ seq, message: { type: 'calendar_markers_changed' } });
     },
     async overtakeMarkerWithTree() {

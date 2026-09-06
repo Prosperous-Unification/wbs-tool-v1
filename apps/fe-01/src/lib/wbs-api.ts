@@ -269,6 +269,20 @@ export interface WorkItemView {
    */
   startNoEarlierThanReason: string | null;
   /**
+   * The last day this work item may finish on, or null where nobody has said.
+   *
+   * Date-only and nullable, like the floor above it, and **no reason column
+   * beside it** — that was slice 1.1's deliberate choice, and it is why
+   * clearing this is the one field and never a pair.
+   *
+   * Nothing here is computed from it: be-01 resolves the stored date against
+   * the project's start into the offsets the scheduler is given, and answers
+   * with {@link SliceView.lateBy}. A miss counted in this client would be a
+   * second implementation of the lateness one column away from the number the
+   * plan was actually built with.
+   */
+  deadline: string | null;
+  /**
    * How important this work is — 1 upward, smaller first — or null where
    * nobody has said.
    *
@@ -1163,8 +1177,17 @@ export interface CalendarMarkerView {
   id: string;
   date: IsoDate;
   name: string;
-  /** The reader's chosen hex triple, or null for the automatic colour. */
-  color: string | null;
+  /**
+   * The hex triple the marker is drawn in — never null.
+   *
+   * `null` is what the *store* holds for a marker nobody has recoloured, and
+   * `calendar-marker.routes.ts` resolves it to the automatic colour in
+   * `answered()` on the way out, so it never reaches the wire. Nullable here
+   * would be a client free to invent a second automatic-colour rule for an
+   * answer that cannot arrive (task 284); {@link NewCalendarMarkerView} keeps
+   * the nullable field, because asking for automatic is a request, not a read.
+   */
+  color: string;
 }
 
 /**
@@ -1345,6 +1368,20 @@ export interface ProjectApi {
        * no reason; at most 200 characters.
        */
       startNoEarlierThanReason?: string | null;
+      /**
+       * The last day this work item may finish on, `null` to take the deadline
+       * off, or absent to leave it.
+       *
+       * **Sent alone, never as a pair.** The floor above it clears in two
+       * fields because a reason with no date is a 400; a deadline has no
+       * reason column, so a request naming `startNoEarlierThanReason` beside
+       * this one would be sending a key about a different constraint.
+       *
+       * Refused with a 400 (`deadline_before_project_start`) for a day earlier
+       * than the project's own start date — the one deadline-specific refusal,
+       * and be-01's, because only it holds the project to compare against.
+       */
+      deadline?: string | null;
       /** An integer of 1 or more, or `null` to leave the work with no priority. */
       priority?: number | null;
       /**

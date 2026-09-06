@@ -2888,6 +2888,9 @@ function rowOf(parts: {
     dates: { startsOn: parts.startsOn, endsOn: parts.endsOn },
     startNoEarlierThan: parts.notBefore ?? null,
     startNoEarlierThanReason: null,
+    // No deadline: this file's fixtures are about where bars are drawn, and
+    // a deadline moves none of them.
+    deadline: null,
     serviceTeamId: null,
     teamIds: [],
     assignees: {},
@@ -4863,7 +4866,7 @@ describe('the dated axis cell is a control a keyboard can operate', () => {
     // count of zero everywhere would satisfy either case alone.
     drawnIn2026([
       { id: 'm-cut', date: CUTOVER, name: 'Cutover', color: AZURE },
-      { id: 'm-freeze', date: CUTOVER, name: 'Freeze', color: null },
+      { id: 'm-freeze', date: CUTOVER, name: 'Freeze', color: automaticColor('m-freeze') },
     ]);
 
     expect(cellAt(9).getAttribute('aria-label')).toBe('19 Aug, 2 calendar markers');
@@ -5200,16 +5203,21 @@ describe('a calendar marker is a chip in the axis band, placed by its date', () 
   });
 
   itDom('draws an automatic marker in the colour its own id decides', () => {
-    // `color: null` is *automatic* and it is what the database really stores
-    // for a marker nobody has recoloured — `schema.ts` derives the fill on the
-    // way out rather than materialising it. The resolution shipped with this
-    // chip, so it is asserted with it: without this case `?? automaticColor(id)`
-    // is a branch the application never proves it takes.
-    drawWithMarkers([{ id: 'm-auto', date: '2026-08-19', name: 'Freeze', color: null }]);
+    // *Automatic* is a fact about the store, not about the wire: `schema.ts`
+    // keeps `null` for a marker nobody has recoloured, and
+    // `calendar-marker.routes.ts` resolves it in `answered()` on the way out —
+    // so what arrives here is the resolved hex, which is what the fixture
+    // spells (task 284). The chip is asserted against `automaticColor` rather
+    // than against the fixture value so the case still names *which* colour an
+    // automatic marker is, and a resolution that drifted from the server's
+    // would fail here.
+    drawWithMarkers([
+      { id: 'm-auto', date: '2026-08-19', name: 'Freeze', color: automaticColor('m-auto') },
+    ]);
 
     const chip = chipFor('m-auto');
     expect(chip.style.backgroundColor).toBe(asRgb(automaticColor('m-auto')));
-    // Still chosen, on the resolved fill and not on the stored null.
+    // Still chosen, on the fill the server resolved.
     expect(chip.style.color).toBe(asRgb(labelInk(automaticColor('m-auto'))));
   });
 
@@ -7982,14 +7990,14 @@ describe('a day that already carries markers opens a sheet listing every one of 
     id: 'm-freeze',
     date: CUTOVER_DAY,
     name: 'Code freeze',
-    color: null,
+    color: automaticColor('m-freeze'),
   };
   /** On a different day, so it proves the sheet lists *this* date and not all. */
   const ELSEWHERE: CalendarMarkerView = {
     id: 'm-else',
     date: '2026-08-20',
     name: 'Retro',
-    color: null,
+    color: automaticColor('m-else'),
   };
 
   itDom('lists both markers on a doubly-marked day, and offers to add another', () => {
@@ -8693,11 +8701,11 @@ describe('the marker band caps each cell at its rung', () => {
    * one rung would leave the other two asserting nothing.
    */
   const markers: CalendarMarkerView[] = [
-    { id: 'a', date: '2026-08-10', name: 'A', color: null },
-    { id: 'b', date: '2026-08-10', name: 'B', color: null },
-    { id: 'c', date: '2026-08-10', name: 'C', color: null },
-    { id: 'd', date: '2026-08-10', name: 'D', color: null },
-    { id: 'e', date: '2026-08-11', name: 'E', color: null },
+    { id: 'a', date: '2026-08-10', name: 'A', color: automaticColor('a') },
+    { id: 'b', date: '2026-08-10', name: 'B', color: automaticColor('b') },
+    { id: 'c', date: '2026-08-10', name: 'C', color: automaticColor('c') },
+    { id: 'd', date: '2026-08-10', name: 'D', color: automaticColor('d') },
+    { id: 'e', date: '2026-08-11', name: 'E', color: automaticColor('e') },
   ];
 
   const drawnAt = (dayPx: 28 | 12 | 4): string[] =>
@@ -8736,7 +8744,7 @@ describe('the marker band caps each cell at its rung', () => {
     // undrawn and does not spend a cell's room either — capping after the
     // offsets were resolved would count it against a cell it was never on.
     const offHorizon: CalendarMarkerView[] = [
-      { id: 'z', date: '2026-09-01', name: 'Z', color: null },
+      { id: 'z', date: '2026-09-01', name: 'Z', color: automaticColor('z') },
       ...markers,
     ];
     expect(markersDrawnInBand(offHorizon, axis, 4).map(({ marker }) => marker.id)).toEqual([
@@ -8764,11 +8772,11 @@ describe('a crowded cell collapses to a count that lists the day', () => {
   const QUIET_AT = 3;
 
   const crowd: CalendarMarkerView[] = [
-    { id: 'm1', date: '2026-08-12', name: 'Alpha', color: null },
-    { id: 'm2', date: '2026-08-12', name: 'Bravo', color: null },
-    { id: 'm3', date: '2026-08-12', name: 'Charlie', color: null },
-    { id: 'm4', date: '2026-08-12', name: 'Delta', color: null },
-    { id: 'm5', date: '2026-08-13', name: 'Echo', color: null },
+    { id: 'm1', date: '2026-08-12', name: 'Alpha', color: automaticColor('m1') },
+    { id: 'm2', date: '2026-08-12', name: 'Bravo', color: automaticColor('m2') },
+    { id: 'm3', date: '2026-08-12', name: 'Charlie', color: automaticColor('m3') },
+    { id: 'm4', date: '2026-08-12', name: 'Delta', color: automaticColor('m4') },
+    { id: 'm5', date: '2026-08-13', name: 'Echo', color: automaticColor('m5') },
   ];
 
   const drawAt = (dayPx: 28 | 12 | 4): void => {

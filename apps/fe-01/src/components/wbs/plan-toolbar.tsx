@@ -326,6 +326,7 @@ export const COLUMN_LABELS: ReadonlyMap<string, string> = new Map([
   ['in-parallel', 'People at once'],
   ['final-total', 'Days'],
   ['not-before', 'Not before'],
+  ['deadline', 'Work item deadline'],
   ['start', 'Start'],
   ['finish', 'End'],
   ['float', 'Slack'],

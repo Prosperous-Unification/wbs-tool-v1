@@ -101,6 +101,7 @@ export interface PlanLiveValues {
   setFocusedCell: React.Dispatch<React.SetStateAction<string | null>>;
   setNotBefore: (id: string, day: string | null, reason?: string | null) => void;
   setNotBeforeReason: (id: string, typed: string) => void;
+  setDeadline: (id: string, day: string | null) => void;
   setPriority: (id: string, typed: string) => Promise<CommitOutcome>;
   priorityBands: PriorityBandView[];
   setParallelism: (id: string, typed: string) => Promise<CommitOutcome>;
@@ -110,6 +111,9 @@ export interface PlanLiveValues {
   editingNotBefore: string | null;
   openNotBefore: (rowId: string) => void;
   closeNotBefore: (rowId: string) => void;
+  editingDeadline: string | null;
+  openDeadline: (rowId: string) => void;
+  closeDeadline: (rowId: string) => void;
   startDate: string | null;
   teams: TeamView[];
   tags: TagView[];

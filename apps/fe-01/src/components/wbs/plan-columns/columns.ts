@@ -2,6 +2,7 @@ import { type StepView } from '@/lib/wbs-api';
 
 import type { PlanLive } from '../plan-live';
 import { createActionsColumn } from './actions';
+import { createDeadlineColumn } from './deadline';
 import { createDependsColumn } from './depends';
 import { createDragColumn } from './drag';
 import { createEstimatesColumns } from './estimates';
@@ -43,6 +44,7 @@ export function createPlanColumns(
       ...createEstimatesColumns({ steps, unfoldedSteps, live }),
       createFinalTotalColumn(),
       createNotBeforeColumn({ live }),
+      createDeadlineColumn({ live }),
       createStartColumn({ live }),
       createFinishColumn({ live }),
       createFloatColumn({ live }),

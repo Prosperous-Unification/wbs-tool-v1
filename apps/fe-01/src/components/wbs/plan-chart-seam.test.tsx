@@ -950,7 +950,7 @@ describe('the calendar markers the host owns', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Name of 010')).toHaveProperty('value', 'Marker tree arrived');
     });
-    release([{ id: 'covered', name: 'Covered marker', date: MONDAY, color: null }]);
+    release([{ id: 'covered', name: 'Covered marker', date: MONDAY, color: '#2563eb' }]);
     await waitFor(() => {
       expect(chip('covered')?.textContent).toBe('Covered marker');
     });

@@ -1,0 +1,83 @@
+import { automaticColor } from '@wbs/domain/marker-color';
+import { describe, expect, it } from 'vitest';
+
+import { fakeProjectApi } from './fake-project-api';
+
+/**
+ * The double's marker answers, held to the shape the real route can produce.
+ *
+ * `calendar-marker.routes.ts` resolves the automatic colour in `answered()` on
+ * the way out, so `color: null` is a request and never a response. The client
+ * used to carry its own `?? automaticColor(id)` beside that (task 284), which
+ * meant a fixture answering `null` still drew — the duplicate silently covered
+ * for a double laxer than the API. With the duplicate gone the only thing
+ * standing between "the fake answers null" and a marker drawn with no fill is
+ * this file, so the invariant is asserted here rather than left to the
+ * chart's own cases.
+ */
+describe('the fake answers markers the way be-01 does', () => {
+  it('answers a marker created automatic with the resolved colour, never null', async () => {
+    // The negative this is for: `color: marker.color ?? null` in
+    // `fake-project-api.ts` — the line this task removed. Restore it and this
+    // case fails on `expected null to be '#…'`, which is the whole point:
+    // without it, a fixture answering a shape be-01 cannot send passes every
+    // chart test and only production has no fallback left to survive it.
+    const api = fakeProjectApi();
+
+    const created = await api.createCalendarMarker('p1', {
+      markerId: 'm-auto',
+      date: '2026-08-19',
+      name: 'Freeze',
+      color: null,
+    });
+
+    expect(created.color).toBe(automaticColor('m-auto'));
+  });
+
+  it('answers the same resolved colour on the list read the panel draws from', async () => {
+    // The create answer and the list answer are two code paths onto one store,
+    // and the chart reads the second. A create that resolved while the list
+    // handed back what was stored would leave exactly one drawn mark unfilled.
+    const api = fakeProjectApi();
+    await api.createCalendarMarker('p1', {
+      markerId: 'm-auto',
+      date: '2026-08-19',
+      name: 'Freeze',
+      color: null,
+    });
+    await api.createCalendarMarker('p1', {
+      markerId: 'm-cut',
+      date: '2026-08-20',
+      name: 'Cutover',
+      color: '#0386a5',
+    });
+
+    const listed = await api.listCalendarMarkers('p1');
+
+    expect(listed.map((marker) => marker.color)).toEqual([automaticColor('m-auto'), '#0386a5']);
+    // Stated as its own assertion and not folded into the pair above: the pair
+    // would still pass if a later resolution answered `''`, and an empty fill
+    // is the failure this task exists to make impossible.
+    for (const marker of listed) expect(marker.color).not.toBe('');
+  });
+
+  it('resolves a recolour back to automatic, which is the one write that sends null', async () => {
+    // `recolorCalendarMarker(…, null)` is the reader handing a marker back to
+    // the automatic colour: `null` on the wire in, resolved colour in the
+    // answer. The fake keeping the `null` it was handed is the same laxness in
+    // the one place a test could still introduce it after the create path was
+    // fixed.
+    const api = fakeProjectApi();
+    await api.createCalendarMarker('p1', {
+      markerId: 'm-cut',
+      date: '2026-08-19',
+      name: 'Cutover',
+      color: '#0386a5',
+    });
+
+    const recoloured = await api.recolorCalendarMarker('p1', 'm-cut', null);
+
+    expect(recoloured.color).toBe(automaticColor('m-cut'));
+    expect(api.markers.map((marker) => marker.color)).toEqual([automaticColor('m-cut')]);
+  });
+});

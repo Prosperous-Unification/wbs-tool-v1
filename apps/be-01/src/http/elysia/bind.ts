@@ -72,14 +72,42 @@ function receivedMethodOf(raw: string, method: HttpMethod): HttpMethod | 'HEAD' 
  * The Elysia binder: a route list in, a mountable Elysia instance out.
  *
  * Everything a controller does is expressed against `../route`, and swapping
- * the framework means writing a sibling of this file. The framework itself is
- * imported only under `http/elysia/` — here and by `query-schemas.ts` — plus
- * `app.ts`, which mounts the result; nothing a route module imports reaches it,
- * which is the claim acceptance criterion #1 makes. The check is
- * `git grep -l elysia apps/be-01/src/controller`, scoped to the controllers and
- * expected to be **empty**. Widened to `apps/be-01/src` it matches this file,
- * `query-schemas.ts` and `app.ts` by design, so the unscoped command answers a
- * different question and always has matches.
+ * the framework means writing a sibling of this file. What enforces that is
+ * `eslint.config.js`, not the grep this comment used to name: three
+ * `@typescript-eslint/no-restricted-imports` blocks now participate, fencing
+ * `apps/be-01/src/**` for `bun:sqlite`, then `controller/**`, then the rest of
+ * `apps/be-01/src/**` for the framework, with `repository/db.ts` given back the
+ * one restriction it exists to satisfy. The framework exceptions are
+ * `http/elysia/**` (this file, `mount.ts`, `query-schemas.ts`,
+ * `body-doc-conformance.ts`),
+ * `app.ts`, which mounts the result, `openapi/openapi-plugin.ts`, which `app.ts`
+ * also mounts, and `binder.contract.test.ts` — which does not *name* the
+ * framework but imports this adapter on purpose, to run one route list through
+ * both binders.
+ *
+ * **The claim this comment makes is deliberately narrow, and the narrowness is
+ * the point.** What is enforced is: no *static* import or export specifier, in
+ * any module under `apps/be-01/src` outside those exceptions, resolves to the
+ * framework. Three things are outside that, measured rather than assumed
+ * (TASK-270 run 5, probes in `~/t270-probes/` on h2puni):
+ *
+ * - **Entry into the exempt modules is not itself fenced.** `import '../app'`
+ *   from a fenced module raises nothing, and it must not: `boot.ts` and a dozen
+ *   suites build the app on purpose. So a module can reach the framework in one
+ *   hop through `app.ts` or `openapi/openapi-plugin.ts`. Nothing under
+ *   `controller/` does, and `app.routes.test.ts` is what would notice.
+ * - **Dynamic loading is outside the rule.** `await import('elysia')` and
+ *   `require('elysia')` raise nothing; this rule reads static import and export
+ *   declarations. `export * from 'elysia'` *is* covered.
+ * - **The guarantee stops at this project's boundary.** ESLint matches specifier
+ *   strings, not a dependency graph, so a library that imported the framework
+ *   and was imported by a controller would pass. That edge belongs to
+ *   `@nx/enforce-module-boundaries`, which *is* graph-transitive.
+ *
+ * `git grep -l elysia apps/be-01/src/controller` remains a useful hand control
+ * and is expected to be **empty**; widened to `apps/be-01/src` it matches the
+ * exceptions above by design, so the unscoped command answers a different
+ * question and always has matches.
  *
  * Routes are registered through the **method-specific** calls rather than a
  * generic `.route()`, because `@elysiajs/openapi` builds its document from the
