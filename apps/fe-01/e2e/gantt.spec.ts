@@ -4436,3 +4436,189 @@ test.describe("a marker's rule against the bars, in pixels", () => {
     expect(marked === bare, 'the assumed bar hides the rule that passes under it').toBe(false);
   });
 });
+
+/**
+ * Slice 9.2c, the light pair's weekday half — the chip's **rendered** contrast.
+ *
+ * 3.2 proves the palette's eight literals against computed backdrops, and 8.1
+ * and 6.x read the chip's colour at the DOM seam. None of them sees what the
+ * compositor put on screen: a chip carrying `opacity: 0.5`, an alpha-bearing
+ * fill or an opacity-reducing ancestor passes every one of them while its
+ * composited colour falls under 3:1.
+ *
+ * **`measureInk` is the right precedent for the pipeline and the wrong oracle
+ * for this bar**, and both reasons are in its source. It returns `contrast`
+ * between a node's `color` and its composited ground — the 4.5:1 *label* bar —
+ * while the claim here is the chip **fill** against the header backdrop, two
+ * surfaces and a ratio it never forms. And its walk reads
+ * `getComputedStyle(ancestor).backgroundColor` alone
+ * (`apps/fe-01/e2e/measure-ink.ts:110-115`), breaking at the first layer with
+ * alpha 1: `opacity` is a separate property and group opacity is not a
+ * per-layer alpha, so the negative this slice exists for passes `measureInk`
+ * **unchanged**. A negative that cannot fail is how the Criticals before it
+ * were written, so the oracle here is the pixel the screenshot already carries.
+ */
+test.describe("a marker chip's contrast, as the compositor drew it", () => {
+  /** A clip of the page, as `page.screenshot` takes one. */
+  interface Shot {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }
+
+  /**
+   * The contrast between two clips of the page, each read at its **modal** RGB.
+   *
+   * Modal rather than mean because the chip carries its own label glyphs, and a
+   * mean of fill and ink is a colour neither of them is: the fill is the
+   * majority of the box and the mode is what a reader would call "the colour of
+   * that chip".
+   *
+   * Decoded in the page, per `apps/fe-01/e2e/hover-cards.spec.ts:148-158`'s
+   * pipeline — the two clips arrive as base64, `img.decode()` resolves before
+   * anything is drawn, and the canvas takes its size from `naturalWidth` and
+   * `naturalHeight` **before** `drawImage`, because a canvas left at its
+   * default 300×150 silently scales the pixels being counted.
+   *
+   * The transfer function is `measure-ink.ts:89-94`'s, spelled out again rather
+   * than imported: that module's export is the `color`-against-ground walk this
+   * slice's own docblock explains cannot answer this question, and copying the
+   * four lines it does share is cheaper than exporting a second entry point out
+   * of a helper whose subject is a different bar.
+   */
+  async function contrastBetween(page: Page, top: string, under: string): Promise<number> {
+    return page.evaluate(
+      async ([first, second]) => {
+        const modal = async (data: string): Promise<[number, number, number]> => {
+          const img = new Image();
+          img.src = `data:image/png;base64,${data}`;
+          await img.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const context = canvas.getContext('2d');
+          if (context === null) throw new Error('no 2d context to count pixels in');
+          context.drawImage(img, 0, 0);
+          const { data: pixels } = context.getImageData(0, 0, canvas.width, canvas.height);
+          const tally = new Map<string, number>();
+          for (let at = 0; at < pixels.length; at += 4) {
+            const key = `${String(pixels[at])},${String(pixels[at + 1])},${String(pixels[at + 2])}`;
+            tally.set(key, (tally.get(key) ?? 0) + 1);
+          }
+          let best = '';
+          let seen = -1;
+          for (const [key, count] of tally) {
+            if (count > seen) {
+              best = key;
+              seen = count;
+            }
+          }
+          const [red, green, blue] = best.split(',').map(Number);
+          return [red, green, blue];
+        };
+        const linear = (raw: number): number => {
+          const unit = raw / 255;
+          return unit <= 0.04045 ? unit / 12.92 : Math.pow((unit + 0.055) / 1.055, 2.4);
+        };
+        const luminance = (colour: [number, number, number]): number =>
+          0.2126 * linear(colour[0]) + 0.7152 * linear(colour[1]) + 0.0722 * linear(colour[2]);
+        const one = luminance(await modal(first));
+        const other = luminance(await modal(second));
+        const brighter = Math.max(one, other);
+        const dimmer = Math.min(one, other);
+        return (brighter + 0.05) / (dimmer + 0.05);
+      },
+      [top, under],
+    );
+  }
+
+  /**
+   * A weekday axis day with no marker on it, and one clear of the chip's own
+   * column.
+   *
+   * The weekend cells carry `bg-muted-foreground/10`
+   * (`gantt-panel.tsx:4704`) and the weekday ones nothing, so "of the same
+   * kind" is that class being absent from both the marked cell and the cell the
+   * backdrop is read from. Read off the page rather than computed from the plan
+   * start: which offsets fall on a Saturday is the calendar's business and it
+   * moves with `PLAN_START`.
+   */
+  async function weekdayDays(page: Page): Promise<number[]> {
+    return page.evaluate(() =>
+      [...document.querySelectorAll('[data-axis-day]')]
+        .filter((cell) => !cell.className.includes('bg-muted-foreground/10'))
+        .map((cell) => Number(cell.getAttribute('data-axis-day'))),
+    );
+  }
+
+  test('clears 3:1 against the weekday cell it stands on, in light', async ({ page }) => {
+    await seedPlan(page, 'marker-chip-contrast');
+    await openTheChart(page);
+
+    const weekdays = await weekdayDays(page);
+    // Two of them, and not adjacent: the chip is `maxWidth: dayPx` and stands
+    // at its own column's left edge, so the backdrop clip has to start a column
+    // clear of it or it photographs the chip it is the control for.
+    expect(weekdays.length, 'the fixture draws no pair of weekday cells').toBeGreaterThan(3);
+    const marked = weekdays[0];
+    const bare = weekdays[2];
+
+    await page.locator(`[data-axis-day="${String(marked)}"]`).click();
+    const composer = page.getByRole('dialog', { name: /^New calendar marker on / });
+    await expect(composer).toBeVisible();
+    await composer.getByLabel('Marker name').fill('Cut');
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/calendar-markers'),
+    );
+    await composer.getByRole('button', { name: /^Save the new calendar marker on / }).click();
+    await saved;
+
+    // The opaque case's park, for its reason — a hover-card over the header is
+    // a surface neither clip is supposed to contain.
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+    const chip = page.locator('[data-marker-chip]');
+    await expect(chip).toHaveCount(1);
+    const box = await chip.boundingBox();
+    if (box === null) throw new Error('the chip is not in the layout');
+    // Inset, for 9.2b's reason: the chip has `rounded-sm` corners and
+    // fractional edges, and a whole-pixel clip on them catches the header
+    // behind it — which would land in the tally as a colour the chip is not.
+    const shot: Shot = {
+      x: Math.round(box.x) + 2,
+      y: Math.round(box.y) + 1,
+      width: Math.round(box.width) - 4,
+      height: Math.round(box.height) - 2,
+    };
+    expect(shot.width, 'the chip is too narrow to photograph').toBeGreaterThan(2);
+    expect(shot.height, 'the chip is too short to photograph').toBeGreaterThan(2);
+
+    // The backdrop, **measured from the page** and not recomputed: an
+    // equal-sized box at the same height on a markerless weekday cell, so a
+    // theme change moves the chip and its ground together instead of leaving
+    // this case asserting against a literal nobody repaints.
+    const under = await page.evaluate(
+      ([offset, height, width]) => {
+        const cell = document.querySelector(`[data-axis-day="${String(offset)}"]`);
+        if (cell === null) throw new Error(`no axis cell at day ${String(offset)}`);
+        const at = cell.getBoundingClientRect();
+        return { x: Math.round(at.x) + 2, y: 0, width, height };
+      },
+      [bare, shot.height, shot.width],
+    );
+    const backdrop: Shot = { ...under, y: shot.y };
+
+    const ratio = await contrastBetween(
+      page,
+      (await page.screenshot({ clip: shot })).toString('base64'),
+      (await page.screenshot({ clip: backdrop })).toString('base64'),
+    );
+    expect(
+      ratio,
+      'the chip the compositor drew does not clear 3:1 against the weekday cell behind it',
+    ).toBeGreaterThanOrEqual(3);
+  });
+});
