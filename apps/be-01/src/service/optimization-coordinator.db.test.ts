@@ -945,3 +945,137 @@ describe('OptimizationCoordinator read', () => {
     expect(errors).toHaveLength(2);
   });
 });
+
+describe('OptimizationCoordinator Retry admission', () => {
+  const inputHash = scheduleInputHash(INPUT);
+
+  function generationWith(
+    path: string,
+    db: ReturnType<typeof openDrizzle>,
+    marker: 'failed' | 'corrupt' | 'plan-infeasible' | 'none',
+  ): number {
+    seedProject(path);
+    const generation = allocateGeneration(db, 'p-1', CONTRACT, inputHash, 2);
+    if (marker !== 'none') {
+      db.insert(optimizedScheduleCache)
+        .values({
+          projectId: 'p-1',
+          inputHash,
+          objective: 'pri',
+          contractVersion: CONTRACT,
+          budgetMs: BUDGET,
+          generation,
+          status: marker === 'corrupt' ? 'ok' : marker,
+          resultJson:
+            marker === 'corrupt'
+              ? '{"dtoVersion":'
+              : marker === 'plan-infeasible'
+                ? '{"dtoVersion":1,"items":[]}'
+                : null,
+          failureReason: marker === 'failed' ? 'timeout' : null,
+          createdAt: 3,
+        })
+        .run();
+    }
+    return generation;
+  }
+
+  const ask = (bodyHash = inputHash) => ({
+    projectId: 'p-1',
+    objective: 'pri' as const,
+    inputHash: bodyHash,
+    input: INPUT,
+  });
+
+  it('refuses a stale body before retryability and carries the current hash', () => {
+    const { path, db } = database();
+    generationWith(path, db, 'failed');
+    const calls: ReservedSpawnRequest[] = [];
+
+    expect(coordinator(db, calls).retry(ask('stale-hash'))).toEqual({
+      kind: 'stale-input-hash',
+      currentInputHash: inputHash,
+    });
+    expect(calls).toEqual([]);
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+  });
+
+  it('names a live miss pending instead of reporting it already-running', () => {
+    const { path, db } = database();
+    const generation = generationWith(path, db, 'none');
+    expect(
+      enqueueSolverRequest(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET,
+        enqueuedAt: 4,
+      }),
+    ).toEqual({ kind: 'queued' });
+
+    expect(coordinator(db, []).retry(ask())).toEqual({
+      kind: 'not-retryable',
+      state: 'pending',
+    });
+    // Proof: checking liveness before retryability returns `already-running`
+    // for this absent row; watched red on h2puni in TASK-268.
+  });
+
+  it.each([
+    { marker: 'none', state: 'idle' },
+    { marker: 'plan-infeasible', state: 'plan-infeasible' },
+  ] as const)('names an unlaunchable $state variant not-retryable', ({ marker, state }) => {
+    const { path, db } = database();
+    generationWith(path, db, marker);
+
+    expect(coordinator(db, []).retry(ask())).toEqual({ kind: 'not-retryable', state });
+    expect(db.select().from(solverSlot).all()).toEqual([]);
+  });
+
+  it.each(['failed', 'corrupt'] as const)(
+    'admits one %s Retry, coalesces the second, and retains the marker',
+    async (marker) => {
+      const { path, db } = database();
+      const generation = generationWith(path, db, marker);
+      const calls: ReservedSpawnRequest[] = [];
+      const instance = coordinator(db, calls);
+
+      expect(instance.retry(ask())).toEqual({
+        kind: 'accepted',
+        state: 'retrying',
+        generation,
+        inputHash,
+      });
+      expect(instance.retry(ask())).toEqual({ kind: 'already-running' });
+      await untilCalls(calls, 1);
+
+      expect(calls.map((call) => call.objective)).toEqual(['pri']);
+      expect(db.select().from(solverSlot).all()).toHaveLength(1);
+      expect(readOptimizedPair(db, calls[0].key).pri.kind).toBe(marker);
+    },
+  );
+
+  it('matches already-running on budget and admits beside a different-budget slot', () => {
+    const { path, db } = database();
+    const generation = generationWith(path, db, 'failed');
+    expect(
+      reserveSolverSlot(db, {
+        projectId: 'p-1',
+        contractVersion: CONTRACT,
+        generation,
+        objective: 'pri',
+        budgetMs: BUDGET + 1,
+        ownerId: 'other-budget',
+        attemptToken: 'other-budget-token',
+        now: 4,
+      }),
+    ).toMatchObject({ kind: 'reserved' });
+
+    expect(coordinator(db, []).retry(ask())).toMatchObject({
+      kind: 'accepted',
+      state: 'retrying',
+    });
+    expect(db.select().from(solverSlot).all()).toHaveLength(2);
+  });
+});
