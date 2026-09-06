@@ -108,52 +108,85 @@ describe('the stored bytes are the schedule, not an empty object', () => {
 });
 
 /**
- * Task 1.6(c): the no-op proof, and it does not have the shape the plan asked
- * for. The plan says "with the seventh argument defaulted to an empty map,
- * every existing corpus case SHALL produce a byte-identical schedule" — the
- * re-key must not be able to hide a placement change smuggled in with it.
+ * Task 4.3, and task 1.6(c) before it: **the no-op proof**. "With the seventh
+ * argument defaulted to an empty map, every existing corpus case SHALL produce
+ * a byte-identical schedule" — the seam must not be able to hide a placement
+ * change smuggled in with it.
  *
- * Run 11 recorded that `schedule()` had six parameters and that the seventh
- * canonical argument, `deadlines`, had not reached its signature, so (c) could
- * not be run at all. A seventh parameter has since arrived, and it is
- * `pinnedStarts` (task 4.9's optimized materialiser), not `deadlines`.
+ * Run 11 recorded that `schedule()` had six parameters, so (c) could not be run
+ * at all; the seventh that arrived next was `pinnedStarts` (task 4.9's
+ * optimized materialiser), not `deadlines`, and (c) was proven in the only form
+ * that code admitted. **`deadlines` is now genuinely the seventh argument and
+ * `pinnedStarts` the eighth**, so the plan's own sentence can finally be run
+ * literally, and it is, below.
  *
- * Measured, not assumed: an empty map is NOT a no-op for `pinnedStarts` and
- * cannot be made one. `schedule.ts:2303` reads `pinnedStarts === undefined` as
- * "this is Fast" and anything else as "a solver answered", then demands a start
- * for every node — so an empty map means "the solver returned no start for any
- * slice" and is refused with `ScheduleInvalidOptimizedStartError`. That refusal
- * is the design, not a gap: a partial answer is an answer to a different
- * question.
+ * The two arguments are deliberately not alike, and this is the file that says
+ * why:
  *
- * So (c) is proven in the only form the code admits, in two halves. The first
- * is the no-op the plan wanted: the seventh parameter's arrival moved no corpus
- * byte, proven by passing it explicitly as `undefined`. The second is why the
- * plan's own wording cannot be taken literally: the empty map is loud, so the
- * corpus can never be re-keyed through the optimized path by accident.
+ * - **`deadlines` empty is silent**, and must be: an empty map and an absent
+ *   map both mean "no work item is constrained", so the default is the whole of
+ *   the story and no caller can get the distinction wrong.
+ * - **`pinnedStarts` empty is loud**, and must be. Measured, not assumed: an
+ *   empty map is NOT a no-op for it and cannot be made one. `schedule.ts` reads
+ *   `pinnedStarts === undefined` as "this is Fast" and anything else as "a
+ *   solver answered", then demands a start for every node — so an empty map
+ *   means "the solver returned no start for any slice" and is refused with
+ *   `ScheduleInvalidOptimizedStartError`. A partial answer is an answer to a
+ *   different question.
+ *
+ * That asymmetry is why the order matters and why the third case below exists:
+ * the corpus can never be re-keyed through the optimized path by accident,
+ * because the optimized path cannot be entered by accident.
  */
-describe('the seventh parameter did not move a corpus byte', () => {
+describe('the seventh argument did not move a corpus byte', () => {
   const stored = STORED.cases;
 
-  it('reproduces every stored schedule with pinnedStarts passed as undefined', () => {
+  const corpusUnder = (
+    deadlines: ReadonlyMap<string, number> | undefined,
+  ): Record<string, unknown> => {
     const cases: Record<string, unknown> = {};
     for (const each of FAST_GOLDEN_CASES) {
       cases[each.name] = serializeSchedule(
-        schedule(
-          each.rows,
-          each.edges,
-          each.slices,
-          each.notBefore ?? new Map(),
-          each.poolSizes ?? new Map(),
-          each.reach ?? 'whole-item',
-          undefined,
-        ),
+        deadlines === undefined
+          ? schedule(
+              each.rows,
+              each.edges,
+              each.slices,
+              each.notBefore ?? new Map(),
+              each.poolSizes ?? new Map(),
+              each.reach ?? 'whole-item',
+            )
+          : schedule(
+              each.rows,
+              each.edges,
+              each.slices,
+              each.notBefore ?? new Map(),
+              each.poolSizes ?? new Map(),
+              each.reach ?? 'whole-item',
+              deadlines,
+            ),
       );
     }
-    expect(cases).toEqual(stored);
+    return cases;
+  };
+
+  /**
+   * Byte-for-byte, and not `toEqual`, because that is the wording of 4.3 and
+   * the two are not the same check: `toEqual` reads the structure and would
+   * accept a corpus whose keys were reordered or whose numbers changed type.
+   * `JSON.stringify` over both sides in `FAST_GOLDEN_CASES` order compares the
+   * characters the fixture actually stores.
+   */
+  it('reproduces every stored schedule byte for byte with deadlines empty', () => {
+    expect(FAST_GOLDEN_CASES.length).toBeGreaterThan(0);
+    expect(JSON.stringify(corpusUnder(new Map()))).toBe(JSON.stringify(stored));
   });
 
-  it('refuses an empty map on every case rather than treating it as Fast', () => {
+  it('produces the same bytes whether deadlines is stated empty or defaulted', () => {
+    expect(JSON.stringify(corpusUnder(new Map()))).toBe(JSON.stringify(corpusUnder(undefined)));
+  });
+
+  it('refuses an empty pinnedStarts on every case rather than treating it as Fast', () => {
     expect(FAST_GOLDEN_CASES.length).toBeGreaterThan(0);
     for (const each of FAST_GOLDEN_CASES) {
       expect(() =>
@@ -164,6 +197,7 @@ describe('the seventh parameter did not move a corpus byte', () => {
           each.notBefore ?? new Map(),
           each.poolSizes ?? new Map(),
           each.reach ?? 'whole-item',
+          new Map(),
           new Map(),
         ),
       ).toThrow(ScheduleInvalidOptimizedStartError);

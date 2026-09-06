@@ -2080,6 +2080,33 @@ export function schedule(
    */
   reach: DependencyReach = 'whole-item',
   /**
+   * The latest offset each work item may finish on, from a manual deadline.
+   *
+   * The **seventh** argument, which is the slot
+   * {@link ScheduleInput} has always declared for it: this parameter exists so
+   * the canonical hash tuple and the call it hashes are the same tuple, rather
+   * than one describing an argument the other does not take.
+   *
+   * Empty by default, and **defaulted rather than optional on purpose**. An
+   * empty map and an absent map mean the same thing here — no work item is
+   * constrained — so there is nothing for a reader to distinguish and no
+   * `undefined` arm to get wrong. That is the opposite of {@link pinnedStarts}
+   * below, where the two states are different questions and the distinction is
+   * load-bearing; the asymmetry is deliberate, not an oversight.
+   *
+   * A deadline expands down the tree the way a floor does — see
+   * `leafDeadlinesOf`, which takes each leaf the **earliest** of its own
+   * deadline and every ancestor's, where a floor takes the latest.
+   *
+   * **It changes no placement, here or ever.** A deadline is a statement about
+   * when work was wanted, not about when it may run: nothing below reads this
+   * map, and `fast-golden-corpus.test.ts` proves byte-for-byte that its arrival
+   * moved no scheduled offset. Slice 5 reads it to *order* ready slices and to
+   * report `Late by N workdays`; a deadline that pulled work earlier would be a
+   * wish the calendar granted, which is the one thing it must never be.
+   */
+  deadlines: ReadonlyMap<string, number> = new Map(),
+  /**
    * Task 4.9's `materialiseOptimized`: a start per slice key, or Fast's own.
    *
    * **This argument is the whole of the optimized materialiser.** Everything
