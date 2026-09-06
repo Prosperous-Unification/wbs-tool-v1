@@ -122,6 +122,59 @@ afterEach(() => {
 });
 
 describe('optimized outcome events', () => {
+  it('records and pushes both preflight failures without launching a process', async () => {
+    const { db } = database();
+    const pushed: OptimizationOutcomeEvent[] = [];
+    let launches = 0;
+    let token = 0;
+    const instance = new OptimizationCoordinator({
+      db,
+      contractVersion: CONTRACT,
+      solverVersion: '0.1.0',
+      budgetMs: BUDGET,
+      ownerId: 'blue',
+      now: () => 10,
+      attemptToken: () => `attempt-${String(token++)}`,
+      inputOf: () => Promise.resolve(INPUT),
+      enabledOf: () => Promise.resolve(true),
+      spawn: () => {
+        launches += 1;
+        throw new Error('preflight failure reached launcher');
+      },
+      eventLog: new DrizzleEventLogRepo(db),
+      pushRecorded: (_subscription, _recorded, event) => {
+        pushed.push(event);
+        return Promise.resolve();
+      },
+      onChildError: (error) => {
+        throw error;
+      },
+    });
+    const tooLate: ScheduleInput = {
+      ...INPUT,
+      notBefore: new Map([['w-1', 50_000_000]]),
+    };
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: tooLate })).toBeNull();
+    await instance.drain();
+    expect(launches).toBe(0);
+    expect(pushed).toHaveLength(2);
+    expect(pushed.map((event) => event.type)).toEqual([
+      'schedule_optimization_failed',
+      'schedule_optimization_failed',
+    ]);
+    expect(
+      pushed.every(
+        (event) =>
+          event.type === 'schedule_optimization_failed' &&
+          event.failureReason === 'horizon-overflow' &&
+          event.budgetMs === BUDGET,
+      ),
+    ).toBe(true);
+    // Proof: suppressing failure recording/pushing leaves this at zero events;
+    // passing preflight failures to `spawn` increments `launches` instead.
+  });
+
   it('records each typed failure with its full release identity and no schedule', async () => {
     const reasons: readonly SolverFailureReason[] = [
       'timeout',
