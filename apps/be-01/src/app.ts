@@ -208,9 +208,12 @@ export function mountedRouteLists(
     // registration order, `/:id/history` cannot be shadowed by anything that
     // route declares, and adjacency is what makes that checkable at a glance.
     historyRoutes(opts.auth, opts.history),
-    // After `projectRoutes` for `savedPlanRoutes`'s reason: every path here is
-    // one segment longer than anything that route list declares, so neither can
-    // shadow the other, and adjacency is what makes that checkable at a glance.
+    // `savedPlanRoutes`'s reason, without its adjacency: every marker path is
+    // one segment longer than anything `projectRoutes` declares and carries a
+    // literal `calendar-markers` segment, so neither can shadow the other
+    // wherever it sits. Several lists intervene and that is fine — the
+    // separation here is structural, not positional, which is the difference
+    // from the two comments above (Sol's Minor, run 38).
     calendarMarkerRoutes(opts.auth, opts.calendarMarkers),
     internalRoutes({
       secret: opts.internalAuthSecret,
