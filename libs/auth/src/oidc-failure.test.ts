@@ -166,19 +166,19 @@ describe('classifyOidcFailure', () => {
       });
     });
 
-    it('calls our own malformed request or unparseable input a defect', () => {
+    it('calls our own malformed request a defect', () => {
       expect(classifyOidcFailure({ code: 'OAUTH_INVALID_REQUEST' })).toEqual({
         kind: 'defect',
         reason: 'request_rejected',
-      });
-      expect(classifyOidcFailure({ code: 'OAUTH_PARSE_ERROR' })).toEqual({
-        kind: 'defect',
-        reason: 'local_defect',
       });
       expect(classifyOidcFailure({ code: 'OAUTH_UNSUPPORTED_OPERATION' })).toEqual({
         kind: 'defect',
         reason: 'local_defect',
       });
+      // `OAUTH_PARSE_ERROR` used to be asserted here on the strength of the
+      // library's documentation. On the path `exchange` takes it is the
+      // provider's response that will not parse, so it is not ours — see the
+      // case that traces where it comes from.
     });
 
     it('calls a code it has never seen a defect', () => {
