@@ -1312,7 +1312,8 @@ function scheduleFinish(schedule: Schedule): number {
   );
 }
 
-function schedulesHaveSameOrder(left: Schedule, right: Schedule): boolean {
+/** Compare the pairwise start relation of shared slices in real workdays. */
+export function schedulesHaveSameOrder(left: Schedule, right: Schedule): boolean {
   const shared = [...left.slices.keys()].filter((key) => right.slices.has(key)).sort();
   for (let first = 0; first < shared.length; first += 1) {
     for (let second = first + 1; second < shared.length; second += 1) {
