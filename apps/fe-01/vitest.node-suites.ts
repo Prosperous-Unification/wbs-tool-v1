@@ -50,5 +50,6 @@ export const NODE_SUITES: readonly string[] = [
   // puts it rather than special-cased.
   'src/lib/saved-plan-compare.test.ts',
   'src/test-tiers.test.ts',
+  'src/testing/fake-project-api.test.ts',
   'src/testing/record-calls.test.ts',
 ];
