@@ -318,6 +318,38 @@ export default [
       ],
     },
   },
+  // `repository/db.ts` is the one module the `bun:sqlite` message above points
+  // *at*: `openDatabase()` lives there and it is what sets and asserts WAL,
+  // busy_timeout and foreign_keys. Widening the fence to `src/**` above swept it
+  // in for the first time — it sits under neither `controller/` nor `http/` — and
+  // the gate caught it as the one red in `be-01:lint`.
+  //
+  // The carve-out is deliberately the *path* and not the whole rule: this block
+  // re-declares the framework patterns unchanged, so `db.ts` is still fenced
+  // against elysia, and only the restriction it exists to satisfy is lifted.
+  // Flat config replaces a rule's options per file rather than merging them,
+  // which is what makes that separation expressible at all — and it is why this
+  // block must stay after the one above.
+  {
+    files: ['apps/be-01/src/repository/db.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['elysia', 'elysia/*', '@elysiajs/*', '**/http/elysia/*'],
+              allowTypeImports: false,
+              message:
+                'be-01 is framework-free below app.ts — acceptance criterion #1 of the ' +
+                'be-01 refactor. This module is exempt from the bun:sqlite restriction ' +
+                'because it is openDatabase()’s own file, and from nothing else.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 
   // AGENTS.md R3: knowledge about a symbol lives in JSDoc on that symbol.
   //
