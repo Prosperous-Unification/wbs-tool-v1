@@ -52,7 +52,7 @@ function stubAuth(byToken: Record<string, AuthenticatedUser>): AuthService {
   } as unknown as AuthService;
 }
 
-function routes(auth: AuthService): Route[] {
+function routes(auth: AuthService, writes: string[] = []): Route[] {
   const guard = callerGuard(auth);
   return [
     { method: 'GET', path: '/probe/plain', handler: () => Promise.resolve(ok({ hello: 'world' })) },
@@ -66,6 +66,26 @@ function routes(auth: AuthService): Route[] {
       method: 'POST',
       path: '/probe/body',
       handler: ({ body }) => Promise.resolve(ok({ received: body })),
+    },
+    /**
+     * `POST /api/projects` in miniature: the same `typeof name !== 'string'`
+     * refusal, and a recorder standing in for `ProjectService.create`.
+     *
+     * The recorder is the point. A content-type clause that asserts only the
+     * status cannot tell a refusal apart from a write that happened and then
+     * answered the same number, which is exactly the divergence TASK-270 item 4
+     * was: both binders answering on `application/merge-patch+json`, one of them
+     * having called the service first.
+     */
+    {
+      method: 'POST',
+      path: '/probe/write',
+      handler: ({ body }) => {
+        const name = (body as { name?: unknown } | undefined)?.name;
+        if (typeof name !== 'string') return Promise.resolve(respond(422, { error: 'invalid_body' }));
+        writes.push(name);
+        return Promise.resolve(ok({ created: name }));
+      },
     },
     {
       method: 'DELETE',
@@ -189,7 +209,8 @@ function routes(auth: AuthService): Route[] {
 
 describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
   const auth = stubAuth({ 'alice-token': ALICE, 'scopeless-token': NO_SCOPES });
-  const app = bind(routes(auth));
+  const writes: string[] = [];
+  const app = bind(routes(auth, writes));
   const get = (path: string, headers: Record<string, string> = {}) =>
     app.handle(new Request(`http://localhost${path}`, { headers }));
 
@@ -219,6 +240,68 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     );
     expect(await res.json()).toEqual({ received: { name: 'Strip out' } });
   });
+
+  /**
+   * TASK-270 item 4, and the clause asserts the **service call**, not only the
+   * status, because the status is what hid the defect.
+   *
+   * `decodeBody` dispatched on `contentType.includes('json')` until this chunk,
+   * so every media type carrying the substring reached the JSON parser. Measured
+   * on h2puni at `39e53dda`, `POST /api/projects` with
+   * `application/merge-patch+json` and `{"name":"Sand"}`:
+   *
+   * ```
+   * content-type                   elysia                in-process
+   * application/merge-patch+json   422, no service call  200, create("Sand")
+   * application/not-json           422, no service call  200, create("Sand")
+   * ```
+   *
+   * Elysia's accepted set is five exact strings — `application/json`,
+   * `text/plain`, `application/x-www-form-urlencoded`,
+   * `application/octet-stream`, `multipart/form-data` — matched after the header
+   * is truncated at its first `;` (`elysia/dist/compose.mjs:423-433`, `:500`).
+   * Anything else parses nothing, the handler sees `undefined`, and its own
+   * check answers 422. The in-process binder now dispatches on the same
+   * normalisation, which is why `; charset=utf-8` still gets through.
+   */
+  it.each([
+    ['application/merge-patch+json'],
+    ['application/not-json'],
+    ['application/json-patch+json'],
+  ])('reaches no service on a %s body, under either binder', async (contentType) => {
+    writes.length = 0;
+    const res = await app.handle(
+      new Request('http://localhost/probe/write', {
+        method: 'POST',
+        headers: { 'content-type': contentType },
+        body: JSON.stringify({ name: 'Sand' }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: 'invalid_body' });
+    expect(writes).toEqual([]);
+  });
+
+  /**
+   * The control the clause above needs: the media types that *are* accepted
+   * still reach the service, so "no service call" is a property of the refused
+   * set rather than of a route that stopped working.
+   */
+  it.each([['application/json'], ['application/json; charset=utf-8']])(
+    'reaches the service on a %s body, under either binder',
+    async (contentType) => {
+      writes.length = 0;
+      const res = await app.handle(
+        new Request('http://localhost/probe/write', {
+          method: 'POST',
+          headers: { 'content-type': contentType },
+          body: JSON.stringify({ name: 'Sand' }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(writes).toEqual(['Sand']);
+    },
+  );
 
   /**
    * A route module's body is the fields, not the encoding they arrived in —

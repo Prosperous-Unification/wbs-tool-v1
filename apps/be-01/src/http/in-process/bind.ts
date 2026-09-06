@@ -136,6 +136,19 @@ async function withoutBody(res: Response): Promise<Response> {
  * and a throw for JSON that will not parse — the binder turns that throw into
  * the 400 the framework would have answered.
  *
+ * **The accepted set is the framework's five, matched exactly, and this is a
+ * closed defect rather than a style choice.** Until TASK-270 this function
+ * dispatched on `contentType.includes('json')`, which admitted every media type
+ * with `json` anywhere in it. Measured on h2puni at `39e53dda`:
+ * `POST /api/projects` with `content-type: application/merge-patch+json` and
+ * `{"name":"Sand"}` answered **422 with no service call** under `bindElysia`
+ * and **200, calling `projects.create("Sand", "u")`** here — the second binder
+ * admitting a route-visible write the production binder refuses. The arbitrary
+ * `application/not-json` diverged the same way. `mediaType` and the exact
+ * comparisons below close it, and the contract clause in
+ * `../binder.contract.test.ts` asserts the *service call* rather than only the
+ * status, because two matching 422s would otherwise hide exactly this.
+ *
  * **The two form media types are read, and that is a correction rather than a
  * feature.** The sentence that used to justify dropping them — "every route in
  * this app takes JSON or nothing" — was false. Measured against one route list
@@ -173,6 +186,25 @@ async function withoutBody(res: Response): Promise<Response> {
  * `apps/be-01/openapi.json` is the check that keeps them matching, diffed by
  * `openapi/openapi-document.test.ts`.
  */
+/**
+ * The request's media type, normalised the way the framework normalises it, so
+ * the two binders dispatch on the same string.
+ *
+ * Read out of `elysia/dist/compose.mjs:423-433` rather than guessed: the header
+ * is truncated at the **first `;`** — so `application/json; charset=utf-8`
+ * dispatches as `application/json` — and then compared **exactly**. No trimming
+ * and no lower-casing, which means `Application/JSON` reaches no parser under
+ * either binder. Reproducing the sloppiness rather than fixing it is the point:
+ * a binder that accepted more than the shipped one would let this suite pass a
+ * request production refuses.
+ */
+function mediaType(request: Request): string {
+  const header = request.headers.get('content-type');
+  if (header === null) return '';
+  const separator = header.indexOf(';');
+  return separator === -1 ? header : header.substring(0, separator);
+}
+
 async function decodeBody(request: Request): Promise<unknown> {
   // HEAD is here for the same reason GET is, and explicitly rather than by
   // falling through the content-type checks below: it reaches this function
@@ -180,11 +212,17 @@ async function decodeBody(request: Request): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'DELETE' || request.method === 'HEAD') {
     return undefined;
   }
-  const contentType = request.headers.get('content-type') ?? '';
-  if (contentType.includes('json')) {
+  const contentType = mediaType(request);
+  if (contentType === 'application/json') {
     const raw = await request.text();
     if (raw === '') return undefined;
     return JSON.parse(raw);
+  }
+  if (contentType === 'text/plain') {
+    return request.text();
+  }
+  if (contentType === 'application/octet-stream') {
+    return request.arrayBuffer();
   }
   // `formData()` reads both, and a file part stays a `File` rather than being
   // coerced to its name — which is what Elysia hands a handler too, so the
@@ -226,7 +264,10 @@ async function decodeBody(request: Request): Promise<unknown> {
   // It is one interlocking feature — file folding into a parsed object hangs
   // off the same code — and reproducing a third of it faithfully is worse than
   // recording it, so it belongs to whoever wants it, like the 405 above.
-  if (contentType.includes('form-urlencoded') || contentType.includes('multipart/form-data')) {
+  if (
+    contentType === 'application/x-www-form-urlencoded' ||
+    contentType === 'multipart/form-data'
+  ) {
     const form = await request.formData();
     return Object.fromEntries(
       [...new Set(form.keys())].map((key) => {
