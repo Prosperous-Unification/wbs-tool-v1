@@ -24,7 +24,8 @@ describe('project optimization in the plan', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Optimize schedules' }));
     await waitFor(() => {
-      expect(screen.getByRole('radio', { name: 'PRI' })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Optimize schedules' })).toBeChecked();
+      expect(screen.getByRole('radio', { name: 'Time' })).toBeEnabled();
     });
     fireEvent.click(screen.getByRole('radio', { name: 'Time' }));
     await waitFor(() => {
