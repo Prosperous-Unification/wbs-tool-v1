@@ -10,7 +10,15 @@ export interface RecordedEvent {
   createdAt: number;
 }
 
+export type EventLogTransaction = Parameters<Parameters<SQLiteBunDatabase['transaction']>[0]>[0];
+
 export interface EventLogRepo {
+  recordEventIn(
+    tx: EventLogTransaction,
+    subscription: string,
+    message: unknown,
+    createdAt: number,
+  ): RecordedEvent;
   recordEvent(subscription: string, message: unknown, createdAt: number): Promise<RecordedEvent>;
   rangeSince(subscription: string, sinceSeq: number): Promise<RecordedEvent[]>;
   oldestSeq(subscription: string): Promise<number | null>;
@@ -30,27 +38,36 @@ export interface EventLogRepo {
 export class DrizzleEventLogRepo implements EventLogRepo {
   constructor(private readonly db: SQLiteBunDatabase) {}
 
-  recordEvent(subscription: string, message: unknown, createdAt: number): Promise<RecordedEvent> {
+  recordEventIn(
+    tx: EventLogTransaction,
+    subscription: string,
+    message: unknown,
+    createdAt: number,
+  ): RecordedEvent {
     const payload = JSON.stringify(message);
-    const result = this.db.transaction((tx) => {
-      tx.run(sql`
+    tx.run(sql`
         INSERT INTO event_sequencer (subscription, next_seq) VALUES (${subscription}, 0)
         ON CONFLICT(subscription) DO NOTHING
       `);
-      const rows = tx.all<{ next_seq: number }>(
-        sql`UPDATE event_sequencer
+    const rows = tx.all<{ next_seq: number }>(
+      sql`UPDATE event_sequencer
             SET next_seq = next_seq + 1
             WHERE subscription = ${subscription}
             RETURNING next_seq - 1 AS next_seq`,
-      );
-      const seq = rows[0]?.next_seq ?? 0;
-      tx.run(sql`
+    );
+    const row = rows.at(0);
+    if (row === undefined) throw new Error(`event sequencer did not return ${subscription}`);
+    tx.run(sql`
         INSERT INTO event_log (subscription, seq, message, created_at)
-        VALUES (${subscription}, ${seq}, ${payload}, ${createdAt})
+        VALUES (${subscription}, ${row.next_seq}, ${payload}, ${createdAt})
       `);
-      return { subscription, seq, message, createdAt };
-    });
-    return Promise.resolve(result);
+    return { subscription, seq: row.next_seq, message, createdAt };
+  }
+
+  recordEvent(subscription: string, message: unknown, createdAt: number): Promise<RecordedEvent> {
+    return Promise.resolve(
+      this.db.transaction((tx) => this.recordEventIn(tx, subscription, message, createdAt)),
+    );
   }
 
   async rangeSince(subscription: string, sinceSeq: number): Promise<RecordedEvent[]> {

@@ -4,20 +4,22 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { openDrizzle } from './db';
+import { type Drizzle, openDrizzle } from './db';
 import { DrizzleEventLogRepo } from './event-log';
 import { runMigrations } from './migrate';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
 let dir: string;
+let db: Drizzle;
 let repo: DrizzleEventLogRepo;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'wbs-event-log-'));
   const path = join(dir, 'test.db');
   runMigrations(path, FOLDER);
-  repo = new DrizzleEventLogRepo(openDrizzle(path));
+  db = openDrizzle(path);
+  repo = new DrizzleEventLogRepo(db);
 });
 
 afterEach(() => {
@@ -78,6 +80,36 @@ describe('DrizzleEventLogRepo.recordEvent', () => {
 
     expect(await repo.rangeSince('project:a', -1)).toEqual([
       { subscription: 'project:a', seq: 0, message: { hello: 'world' }, createdAt: 5_000 },
+    ]);
+  });
+
+  it('writes inside the caller transaction, so its rollback removes the event and sequence', async () => {
+    expect(() =>
+      db.transaction((tx) => {
+        repo.recordEventIn(tx, 'project:a', { hello: 'world' }, 5_000);
+        throw new Error('injected crash');
+      }),
+    ).toThrow('injected crash');
+
+    expect(await repo.rangeSince('project:a', -1)).toEqual([]);
+    expect(await repo.latestSeq('project:a')).toBe(-1);
+  });
+
+  it('uses the transaction it was handed rather than opening one on the repository handle', async () => {
+    const callerPath = join(dir, 'caller.db');
+    runMigrations(callerPath, FOLDER);
+    const callerDb = openDrizzle(callerPath);
+    const callerRepo = new DrizzleEventLogRepo(callerDb);
+
+    callerDb.transaction((tx) => {
+      repo.recordEventIn(tx, 'project:a', { hello: 'caller' }, 6_000);
+    });
+
+    // Proof: replacing `tx.run`/`tx.all` in `recordEventIn` with `this.db`
+    // writes this event into `repo` instead, reversing both assertions.
+    expect(await repo.rangeSince('project:a', -1)).toEqual([]);
+    expect(await callerRepo.rangeSince('project:a', -1)).toEqual([
+      { subscription: 'project:a', seq: 0, message: { hello: 'caller' }, createdAt: 6_000 },
     ]);
   });
 });
