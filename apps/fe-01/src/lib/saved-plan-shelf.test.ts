@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { SavedPlanListEntryView } from './saved-plan-api';
+import type { SavedPlanListEntryView, SavedPlanListReply } from './saved-plan-api';
 import type { ShelfWatchDeps } from './saved-plan-shelf';
 import { readShelf, useSavedPlanShelf, watchShelf } from './saved-plan-shelf';
 
@@ -19,6 +19,15 @@ const ROW: SavedPlanListEntryView = {
   scheduleAbsentReason: null,
 };
 
+const listReply = (rows: readonly SavedPlanListEntryView[]) =>
+  Promise.resolve({
+    kind: 'success' as const,
+    representation: 'json' as const,
+    status: 200 as const,
+    headers: new Headers(),
+    body: { savedPlans: [...rows] },
+  });
+
 describe('reading a project’s shelf', () => {
   it('does not ask for a list a node cannot answer', async () => {
     // **The case that closes 6.4.** The probe and the sentence were both written
@@ -34,7 +43,7 @@ describe('reading a project’s shelf', () => {
     // still not redundant: it is the only thing that would catch a build that
     // answered `unavailable` and asked for the list anyway, which is a shape no
     // assertion on the return value can see.
-    const list = vi.fn(() => Promise.resolve([ROW]));
+    const list = vi.fn(() => listReply([ROW]));
     await expect(
       readShelf({ available: () => Promise.resolve(false), list }, 'p1'),
     ).resolves.toEqual({ kind: 'unavailable' });
@@ -42,7 +51,7 @@ describe('reading a project’s shelf', () => {
   });
 
   it('reads the rows once the node says it has the routes', async () => {
-    const list = vi.fn(() => Promise.resolve([ROW]));
+    const list = vi.fn(() => listReply([ROW]));
     await expect(
       readShelf({ available: () => Promise.resolve(true), list }, 'p1'),
     ).resolves.toEqual({ kind: 'ready', rows: [ROW] });
@@ -56,7 +65,7 @@ describe('reading a project’s shelf', () => {
     // that is merely behind a broken proxy.
     await expect(
       readShelf(
-        { available: () => Promise.reject(new Error('http_500')), list: () => Promise.resolve([]) },
+        { available: () => Promise.reject(new Error('http_500')), list: () => listReply([]) },
         'p1',
       ),
     ).resolves.toEqual({ kind: 'error', code: 'http_500' });
@@ -68,6 +77,24 @@ describe('reading a project’s shelf', () => {
         {
           available: () => Promise.resolve(true),
           list: () => Promise.reject(new Error('not_found')),
+        },
+        'p1',
+      ),
+    ).resolves.toEqual({ kind: 'error', code: 'not_found' });
+  });
+
+  it('reads a modeled list refusal through its shared discriminant', async () => {
+    await expect(
+      readShelf(
+        {
+          available: () => Promise.resolve(true),
+          list: () =>
+            Promise.resolve({
+              kind: 'refusal',
+              status: 404,
+              headers: new Headers(),
+              body: { error: 'not_found' },
+            }),
         },
         'p1',
       ),
@@ -116,7 +143,7 @@ describe('watching a project’s shelf', () => {
     watchShelf(
       {
         available: () => Promise.resolve(true),
-        list: () => Promise.resolve([ROW]),
+        list: () => listReply([ROW]),
         subscribe: stream.subscribe,
       },
       'p1',
@@ -135,7 +162,7 @@ describe('watching a project’s shelf', () => {
     // request and always right.
     const stream = fakeStream();
     const onState = vi.fn();
-    const list = vi.fn(() => Promise.resolve([ROW]));
+    const list = vi.fn(() => listReply([ROW]));
     watchShelf(
       { available: () => Promise.resolve(true), list, subscribe: stream.subscribe },
       'p1',
@@ -162,7 +189,7 @@ describe('watching a project’s shelf', () => {
     watchShelf(
       {
         available: () => Promise.resolve(false),
-        list: () => Promise.resolve([ROW]),
+        list: () => listReply([ROW]),
         subscribe: stream.subscribe,
       },
       'p1',
@@ -183,7 +210,7 @@ describe('watching a project’s shelf', () => {
     const { stop } = watchShelf(
       {
         available: () => Promise.resolve(true),
-        list: () => Promise.resolve([ROW]),
+        list: () => listReply([ROW]),
         subscribe: stream.subscribe,
       },
       'p1',
@@ -200,7 +227,7 @@ describe('watching a project’s shelf', () => {
     const { stop } = watchShelf(
       {
         available: () => Promise.resolve(true),
-        list: () => Promise.resolve([ROW]),
+        list: () => listReply([ROW]),
         subscribe: stream.subscribe,
       },
       'p1',
@@ -225,7 +252,7 @@ describe('watching a project’s shelf', () => {
     // refresh-identity case is the only other guard against it anywhere in the
     // file.
     const stream = fakeStream();
-    const list = vi.fn(() => Promise.resolve([ROW]));
+    const list = vi.fn(() => listReply([ROW]));
     const watch = watchShelf(
       { available: () => Promise.resolve(true), list, subscribe: stream.subscribe },
       'p1',
@@ -251,7 +278,7 @@ describe('watching a project’s shelf', () => {
     // of a reader who has gone.
     const stream = fakeStream();
     const available = vi.fn(() => Promise.resolve(true));
-    const list = vi.fn(() => Promise.resolve([ROW]));
+    const list = vi.fn(() => listReply([ROW]));
     const watch = watchShelf({ available, list, subscribe: stream.subscribe }, 'p1', vi.fn());
     await settled();
     watch.stop();
@@ -277,15 +304,13 @@ describe('watching a project’s shelf', () => {
     const stream = fakeStream();
     const onState = vi.fn();
     const stale: SavedPlanListEntryView = { ...ROW, id: 'stale', name: 'before the refresh' };
-    const pending: ((rows: SavedPlanListEntryView[]) => void)[] = [];
+    const pending: ((reply: SavedPlanListReply) => void)[] = [];
     const release = (rows: SavedPlanListEntryView[]) => {
       const next = pending.shift();
       if (!next) throw new Error('no read was in flight');
-      next(rows);
+      void listReply(rows).then(next);
     };
-    const list = vi.fn(
-      () => new Promise<SavedPlanListEntryView[]>((resolve) => pending.push(resolve)),
-    );
+    const list = vi.fn(() => new Promise<SavedPlanListReply>((resolve) => pending.push(resolve)));
     watchShelf(
       { available: () => Promise.resolve(true), list, subscribe: stream.subscribe },
       'p1',
@@ -304,7 +329,7 @@ describe('watching a project’s shelf', () => {
     // The newer question is answered first, the older one second.
     const newer = pending.pop();
     if (!newer) throw new Error('the second refresh never asked');
-    newer([ROW]);
+    await listReply([ROW]).then(newer);
     await settled();
     release([stale]);
     await settled();
@@ -339,7 +364,7 @@ describe('the shelf as React state', () => {
     const unsubscribe = vi.fn(() => {
       fire = undefined;
     });
-    const list = vi.fn(() => Promise.resolve([...rows]));
+    const list = vi.fn(() => listReply(rows));
     const deps: ShelfWatchDeps = {
       available: () => Promise.resolve(true),
       list,

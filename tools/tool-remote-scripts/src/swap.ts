@@ -807,7 +807,7 @@ async function execute(plan: SwapPlan, image: string, sha: string): Promise<void
           // GatewayMetrics never registers an OTel instrument for
           // activeConnections, so that gauge does not exist in the Prometheus
           // output today (verified by reading gateway-metrics.ts and
-          // otel-plugin.ts).
+          // observability/prometheus.ts).
           const target = containerName('gw', from ?? to);
           const res = await drain({
             activeConnections: () => activeConnections(target),

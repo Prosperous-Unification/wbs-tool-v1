@@ -63,7 +63,7 @@ test('checks deadline and slice lateness while retaining additive nested respons
     tagIds: [],
     serviceIds: [],
     typeIds: [],
-    externalRefs: [],
+    externalRefs: [{ id: 'ref', systemId: 'jira', url: 'https://example.test/issue/1' }],
     number: '010',
     estimates: { s: { optimistic: 1, realistic: 1, pessimistic: 1 } },
     rolledUp: false,
@@ -117,6 +117,24 @@ test('checks deadline and slice lateness while retaining additive nested respons
     { ...tree, workItems: [{ ...row, deadline: 3 }] },
     { ...tree, slices: [{ ...slice, lateBy: 'late' }] },
     { ...tree, workItems: [{ ...row, measures: { hours_actual: { s: '8' } } }] },
+    {
+      ...tree,
+      workItems: [
+        {
+          ...row,
+          externalRefs: [{ systemId: 'jira', url: 'https://example.test/issue/1' }],
+        },
+      ],
+    },
+    {
+      ...tree,
+      workItems: [
+        {
+          ...row,
+          externalRefs: [{ id: 1, systemId: 'jira', url: 'https://example.test/issue/1' }],
+        },
+      ],
+    },
   ])
     expect((await validateSchema(schema, altered)).issues).toBeDefined();
 });

@@ -273,10 +273,10 @@ export default [
   // matches specifier strings, not a dependency graph, so the guarantee stops
   // at this project's boundary. A cross-project edge is
   // `@nx/enforce-module-boundaries`' job, which *is* graph-transitive. Today
-  // the only library naming the framework is `libs/observability`, confined to
-  // `src/server/` behind the `@wbs/observability/server` subpath, and only
-  // `app.ts` imports it — controllers reach `@wbs/auth`, `@wbs/contracts`,
-  // `@wbs/domain` and `@wbs/validation`, none of which name it.
+  // no shared library names the framework. The observability metrics collector
+  // is framework-free; app composition and `http/elysia` own its HTTP routes.
+  // Controllers reach `@wbs/auth`, `@wbs/contracts`, `@wbs/domain` and
+  // `@wbs/validation`, none of which name Elysia.
   //
   // It repeats the `bun:sqlite` restriction for the controller block's reason:
   // flat config replaces a rule's options per file rather than merging them, so

@@ -8,8 +8,9 @@ import { workItemTree } from './work-item-response';
 const params = requestSchema(type({ id: 'string' }));
 // Proof: removing identity made the mounted unauthenticated project test receive 500 instead of 401.
 const readPolicies = [{ kind: 'identity', require: 'signed-in' }] as const;
-// Proof: weakening write scope made the mounted opened test receive 404 instead of 403;
-// removing Origin changed its invalid_origin refusal to insufficient_scope.
+// Proof: weakening write scope made the mounted opened test receive 404 instead of 403.
+// Removing identity made the complete production-route policy test receive 500 instead of 401
+// for postApiProjects; removing Origin made it receive 404 instead of 403 for patchApiProjectsById.
 const writePolicies = [
   { kind: 'origin', when: 'always-unsafe-with-session-cookie' },
   { kind: 'identity', require: 'write-scope' },

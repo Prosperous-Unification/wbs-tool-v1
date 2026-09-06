@@ -26,7 +26,6 @@ import {
   type DirectoryEffect,
   type DirectoryRefusal,
   directoryRefusalSentence,
-  directoryRefusedWith,
   type DirectoryRemoval,
   type DirectoryUsage,
   type DirectoryWrite,
@@ -39,6 +38,8 @@ import {
   type TeamView,
   type WorkItemTypeView,
 } from '@/lib/wbs-api';
+
+import { failureText } from '../wbs/plan-refusal';
 
 export interface DirectoryPageProps {
   token: string;
@@ -277,7 +278,7 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
   }, [directory]);
 
   const reportFailedRead = useCallback((thrown: unknown) => {
-    setProblem(directoryRefusedWith(thrown));
+    setProblem({ reason: 'refused', code: failureText(thrown, 'request_failed') });
   }, []);
 
   // Arrival.
@@ -346,7 +347,7 @@ export function DirectoryPage({ token, api: apiOverride, nav, account }: Directo
       try {
         await change();
       } catch (thrown: unknown) {
-        setProblem(directoryRefusedWith(thrown));
+        setProblem({ reason: 'refused', code: failureText(thrown, 'request_failed') });
       }
       try {
         await read();

@@ -2,6 +2,8 @@ import { type ReactNode, useEffect, useState } from 'react';
 
 import { type RefusalWords, sentenceForRefusal } from '@/lib/refusal';
 
+import { failureText } from './plan-refusal';
+
 export interface SettingsSection {
   /** Whether a write this section asked for is still in the air. */
   busy: boolean;
@@ -108,9 +110,7 @@ export function useSettingsSection(options: SettingsSectionOptions): SettingsSec
         await onChanged();
         return true;
       } catch (thrown: unknown) {
-        setProblem(
-          sentenceForRefusal(words, thrown instanceof Error ? thrown.message : 'request_failed'),
-        );
+        setProblem(sentenceForRefusal(words, failureText(thrown, 'request_failed')));
         return false;
       } finally {
         setBusy(false);

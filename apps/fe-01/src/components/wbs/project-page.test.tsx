@@ -2,7 +2,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SavedPlanListEntryView } from '@/lib/saved-plan-api';
+import type {
+  SavedPlanCompareReply,
+  SavedPlanListEntryView,
+  SavedPlanListReply,
+  SavedPlanRenameReply,
+  SavedPlanSaveReply,
+} from '@/lib/saved-plan-api';
 import type { CreatedProject, ProjectApi, ProjectListEntry } from '@/lib/wbs-api';
 import { DEFAULT_PERT_WEIGHTS_VIEW } from '@/lib/wbs-api';
 import { recordCalls } from '@/testing/record-calls';
@@ -30,11 +36,11 @@ function fakeProjects(
   return Object.assign(
     refusingApi({
       listProjects: () => Promise.resolve([...projects]),
-      openProject(id) {
+      openProject(id: string) {
         opened.push(id);
         return Promise.resolve();
       },
-      createProject(name) {
+      createProject(name: string) {
         const id = `p${String(projects.length + 1)}`;
         // Two shapes, as be-01 has them. The list gains a whole entry; the
         // response carries the project that was written and **no**
@@ -56,7 +62,7 @@ function fakeProjects(
         const created: CreatedProject = { id, name, restricted: false };
         return Promise.resolve(created);
       },
-      renameProject(id, name) {
+      renameProject(id: string, name: string) {
         renamed.push([id, name]);
         projects = projects.map((p) => (p.id === id ? { ...p, name } : p));
         return Promise.resolve();
@@ -196,6 +202,35 @@ const CHECKPOINT: SavedPlanListEntryView = {
   scheduleAbsentReason: null,
 };
 
+const savedPlanListReply = (rows: readonly SavedPlanListEntryView[]): SavedPlanListReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 200,
+  headers: new Headers(),
+  body: { savedPlans: [...rows] },
+});
+const savedPlanSaveReply = (): SavedPlanSaveReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 201,
+  headers: new Headers(),
+  body: { savedPlan: CHECKPOINT },
+});
+const savedPlanCompareReply = (): SavedPlanCompareReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 200,
+  headers: new Headers(),
+  body: { diff: { input: [], schedule: [] } },
+});
+const savedPlanRenameReply = (): SavedPlanRenameReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 200,
+  headers: new Headers(),
+  body: { savedPlanId: CHECKPOINT.id, name: CHECKPOINT.name },
+});
+
 /**
  * The shelf's wiring, faked — handed to **every** render in this file.
  *
@@ -210,11 +245,11 @@ const fakeSavedPlansDeps = (
   rows: readonly SavedPlanListEntryView[] = [CHECKPOINT],
 ): SavedPlansPanelDeps => ({
   available: () => Promise.resolve(true),
-  list: () => Promise.resolve([...rows]),
+  list: () => Promise.resolve(savedPlanListReply(rows)),
   subscribe: () => ({ unsubscribe: () => undefined }),
-  save: () => Promise.resolve({ outcome: 'saved', savedPlan: CHECKPOINT }),
-  compare: () => Promise.resolve({ outcome: 'compared', diff: { input: [], schedule: [] } }),
-  rename: () => Promise.resolve({ outcome: 'touched' }),
+  save: () => Promise.resolve(savedPlanSaveReply()),
+  compare: () => Promise.resolve(savedPlanCompareReply()),
+  rename: () => Promise.resolve(savedPlanRenameReply()),
 });
 
 const pageWith = (api: ProjectApi, savedPlansDeps: SavedPlansPanelDeps = fakeSavedPlansDeps()) =>
@@ -530,10 +565,11 @@ describe('the saved-plan shelf is on the project page', () => {
     const compared: [string, unknown][] = [];
     const deps: SavedPlansPanelDeps = {
       ...fakeSavedPlansDeps(),
-      list: (projectId: string) => Promise.resolve([projectId === 'p2' ? CHECKPOINT : OTHER]),
+      list: (projectId: string) =>
+        Promise.resolve(savedPlanListReply([projectId === 'p2' ? CHECKPOINT : OTHER])),
       compare: (projectId, left) => {
         compared.push([projectId, left]);
-        return Promise.resolve({ outcome: 'compared', diff: { input: [], schedule: [] } });
+        return Promise.resolve(savedPlanCompareReply());
       },
     };
     pageWith(fakeProjects(TWO), deps);

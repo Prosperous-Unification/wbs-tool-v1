@@ -1,5 +1,4 @@
-import { createLogger } from '@wbs/observability';
-import { observabilityPlugin } from '@wbs/observability/server';
+import { createLogger, type Logger, type MetricsScrape, scrapeMetrics } from '@wbs/observability';
 import { Elysia } from 'elysia';
 
 import { authOidcEndpoints } from './controller/auth-oidc-endpoints';
@@ -7,6 +6,7 @@ import { authPasswordEndpoints } from './controller/auth-password-endpoints';
 import { calendarMarkerRoutes } from './controller/calendar-marker.routes';
 import { directoryRoutes } from './controller/directory.routes';
 import { historyRoutes } from './controller/history.routes';
+import { infrastructureEndpoints } from './controller/infrastructure-endpoints';
 import { internalRoutes } from './controller/internal.routes';
 import type { OidcRouteOptions } from './controller/oidc-options';
 import { projectRoutes } from './controller/project.routes';
@@ -18,8 +18,6 @@ import { workItemRoutes } from './controller/work-item.routes';
 import { mountEndpoints } from './http/elysia/mount';
 import type { BoundEndpoint } from './http/endpoint';
 import { identityResolver } from './http/identity';
-import { matchPath } from './http/route';
-import { hasInvalidCookieOrigin, userFromHeaders } from './middleware/authenticated';
 import { openApiPlugin } from './openapi/openapi-plugin';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
@@ -157,11 +155,24 @@ export interface AppOptions {
    * for as long as the process happened to live.
    */
   deployedCommit?: () => string | null;
+  /** Overrides the process collector in tests while retaining the real shape boundary. */
+  metricsScrape?: () => Promise<MetricsScrape>;
   version?: string;
 }
 
+interface InfrastructureRuntime {
+  logger: Logger;
+  scrapeMetrics: () => Promise<MetricsScrape>;
+}
+
 /** Typed bindings mounted by the production app. */
-export function mountedEndpoints(opts: AppOptions) {
+export function mountedEndpoints(
+  opts: AppOptions,
+  runtime: InfrastructureRuntime = {
+    logger: createLogger({ service: 'be-01', version: opts.version }),
+    scrapeMetrics: opts.metricsScrape ?? (() => scrapeMetrics('be-01')),
+  },
+) {
   const passwordThrottle = new LoginThrottle({
     now: opts.oidc?.now,
     maxConcurrent: opts.maxConcurrentLogins ?? 8,
@@ -176,6 +187,15 @@ export function mountedEndpoints(opts: AppOptions) {
     announcements: opts.writes.announcements,
   });
   return [
+    // Proof: omitting health and metrics separately made app.routes.test.ts
+    // expect 40 local bindings and receive 39 for each injected fault.
+    ...infrastructureEndpoints({
+      migrationsApplied: opts.migrationsApplied,
+      probeDatabase: opts.probeDatabase,
+      deployedCommit: opts.deployedCommit,
+      logger: runtime.logger,
+      scrapeMetrics: runtime.scrapeMetrics,
+    }),
     ...authPasswordEndpoints(opts.auth, opts.oidc, passwordThrottle),
     // Proof: removing this spread made app.routes.test.ts receive 38 bindings
     // instead of the 42 required by the OIDC composition.
@@ -209,63 +229,17 @@ export function buildApp(opts: AppOptions) {
   // asserts on what a refused login writes down without a pino destination.
   const routedOptions: AppOptions =
     opts.oidc === undefined ? opts : { ...opts, oidc: { logger, ...opts.oidc } };
-  const endpoints: readonly BoundEndpoint[] = mountedEndpoints(routedOptions);
+  const endpoints: readonly BoundEndpoint[] = mountedEndpoints(routedOptions, {
+    logger,
+    scrapeMetrics: opts.metricsScrape ?? (() => scrapeMetrics('be-01')),
+  });
 
   return (
     new Elysia()
-      .use(observabilityPlugin({ service: 'be-01' }))
       .decorate('logger', logger)
       // The document comes from this configuration's mounted endpoint table, so
       // local auth does not advertise the four conditional OIDC operations.
       .use(openApiPlugin(endpoints.map(({ shape }) => shape)))
-      .onRequest(async ({ request, set }) => {
-        const path = new URL(request.url).pathname;
-        // Migrated routes own their policy order in mountEndpoints. This guard
-        // remains until Task 5.2 proves the complete production policy table
-        // before deleting the former legacy fallback.
-        if (
-          endpoints.some(
-            ({ shape }) =>
-              (shape.method === request.method ||
-                (request.method === 'HEAD' && shape.method === 'GET')) &&
-              matchPath(shape.path, path) !== null,
-          )
-        )
-          return undefined;
-        // Proof: reverting to exact paths invokes authentication once in both
-        // trailing-slash origin.integration.test.ts cases instead of zero times.
-        const passwordHandshake =
-          request.method === 'POST' &&
-          (matchPath('/api/auth/login', path) !== null ||
-            matchPath('/api/auth/register', path) !== null);
-        // Proof: origin.integration.test.ts receives 400 instead of 403 when
-        // the handshake check is removed, and 200 instead of 403 without the cookie check.
-        if (
-          (passwordHandshake && request.headers.get('origin') !== opts.appOrigin) ||
-          hasInvalidCookieOrigin(request, opts.appOrigin)
-        ) {
-          set.status = 403;
-          return { error: 'invalid_origin' };
-        }
-        if (requiresWriteScope(request)) {
-          // `onRequest` deliberately runs before Elysia parses and validates a
-          // body. A reader gets the authorization answer without letting an
-          // invalid body route around the write-scope boundary as a 422.
-          const requestIdentity = await userFromHeaders(
-            opts.auth,
-            Object.fromEntries(request.headers.entries()),
-          );
-          if (requestIdentity === null) {
-            set.status = 401;
-            return { error: 'unauthenticated' };
-          }
-          if (!requestIdentity.scopes.includes('write')) {
-            set.status = 403;
-            return { error: 'insufficient_scope' };
-          }
-        }
-        return undefined;
-      })
       .use(
         // Proof: mounting an empty table made “reaches every local path and method”
         // report postApiAuthRegister equal to the 404/NOT_FOUND router miss.
@@ -274,42 +248,5 @@ export function buildApp(opts: AppOptions) {
           resolveIdentity: identityResolver(opts.auth, opts.internalAuthSecret),
         }),
       )
-      .get('/health', ({ set }) => {
-        // On every answer, including the unhealthy ones. "Which commit is this
-        // wedged process at" is the first question a failed deploy raises, and
-        // an endpoint that only names the commit when all is well cannot answer
-        // it — the deploy poller reads this precisely when it does not yet know
-        // whether the reset it just made has taken effect.
-        const commit = opts.deployedCommit?.() ?? null;
-        if (!opts.migrationsApplied) {
-          set.status = 503;
-          return { status: 'migrating' as const, commit };
-        }
-        let schema: DatabaseHealth;
-        try {
-          schema = opts.probeDatabase();
-        } catch (err) {
-          // Caught and reported, not rethrown: a 500 from a health endpoint is
-          // indistinguishable at the gate from the process being wedged, and the
-          // operator reading the log needs to know which.
-          logger.error({ err }, 'health probe could not reach the database');
-          set.status = 503;
-          return { status: 'database_unreachable' as const, commit };
-        }
-        if (schema !== 'ok') {
-          set.status = 503;
-          return { status: schema, commit };
-        }
-        return { status: 'ok' as const, commit };
-      })
   );
-}
-
-const WRITE_METHODS = new Set(['DELETE', 'PATCH', 'POST', 'PUT']);
-
-/** User-facing domain writes; auth handshakes, internal RPC, and pure echo are not domain writes. */
-export function requiresWriteScope(request: Request): boolean {
-  if (!WRITE_METHODS.has(request.method)) return false;
-  const path = new URL(request.url).pathname;
-  return path.startsWith('/api/') && !path.startsWith('/api/auth/') && path !== '/api/smoke/echo';
 }

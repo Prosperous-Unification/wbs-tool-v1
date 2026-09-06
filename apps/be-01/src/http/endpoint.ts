@@ -158,7 +158,7 @@ export interface Endpoint<S extends EndpointShape> extends BindingOptions<S> {
 export type EndpointReply =
   | { ok: true; status: 200 | 201; body: unknown; headers?: readonly Header[] }
   | { ok: true; status: 204 | 302; body: typeof EMPTY; headers?: readonly Header[] }
-  | { ok: true; status: 200; text: string; headers?: readonly Header[] }
+  | { ok: true; status: 200 | 500; text: string; headers?: readonly Header[] }
   | { ok: false; status: RefusalStatus; body: Refusal; headers?: readonly Header[] };
 
 /**

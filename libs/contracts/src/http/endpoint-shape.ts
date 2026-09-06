@@ -25,7 +25,7 @@ export interface EmptyResponse {
 
 export interface TextResponse {
   kind: 'text';
-  status: 200;
+  status: 200 | 500;
   contentType: string;
 }
 

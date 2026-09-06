@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { unreachable } from '../../lib/http';
 import type {
   SavedPlanApi,
   SavedPlanListEntryView,
+  SavedPlanRenameReply,
   SavedPlanSideRef,
-  SavedPlanTouchResultView,
 } from '../../lib/saved-plan-api';
-import { httpSavedPlanApi } from '../../lib/saved-plan-api';
+import { httpSavedPlanApi, savedPlanFailureCode } from '../../lib/saved-plan-api';
 import { compareRefusal, resolveSideSchedules } from '../../lib/saved-plan-compare';
 import type { SaveDeps, SavedPlanSaveState } from '../../lib/saved-plan-save';
 import { browserSaveDeps, useSavedPlanSave } from '../../lib/saved-plan-save';
@@ -33,16 +34,15 @@ export interface SavedPlansPanelDeps extends ShelfWatchDeps, SaveDeps {
 /**
  * The three real answers, composed from the two factories that already exist.
  *
- * A factory for their reason — every one of them needs the token — and the
- * caller memoises the result, because it lands in two dependency arrays. Built
+ * A factory gives the caller one memoised identity for two dependency arrays. Built
  * by spreading rather than by hand so that a fourth dependency added to either
  * hook arrives here without this file being edited to notice.
  */
-export const browserSavedPlansDeps = (token: string): SavedPlansPanelDeps => ({
-  ...browserShelfDeps(token),
-  ...browserSaveDeps(token),
-  compare: (projectId, left, right) => httpSavedPlanApi(token).compare(projectId, left, right),
-  rename: (savedPlanId, name) => httpSavedPlanApi(token).rename(savedPlanId, name),
+export const browserSavedPlansDeps = (): SavedPlansPanelDeps => ({
+  ...browserShelfDeps(),
+  ...browserSaveDeps(),
+  compare: (projectId, left, right) => httpSavedPlanApi().compare(projectId, left, right),
+  rename: (savedPlanId, name) => httpSavedPlanApi().rename(savedPlanId, name),
 });
 
 /** One frozen empty shelf, so "no rows" has a stable identity. */
@@ -72,7 +72,19 @@ export function saveWords(state: SavedPlanSaveState): string | null {
   // Named rather than retried: `quota` carries be-01's sentence about the limit
   // that was reached, and inviting a retry would send the user at a button that
   // cannot work until they delete something.
-  if (state.kind === 'quota') return state.refusal;
+  if (state.kind === 'quota') {
+    const { allowed, asked, limit } = state.refusal;
+    switch (limit) {
+      case 'body_bytes':
+        return `This checkpoint needs ${String(asked)} bytes; the saved-body limit is ${String(allowed)} bytes.`;
+      case 'plan_count':
+        return `This would create ${String(asked)} saved plans; this project allows ${String(allowed)}.`;
+      case 'project_bytes':
+        return `This project would hold ${String(asked)} saved bytes; the project limit is ${String(allowed)}.`;
+      default:
+        return unreachable(limit);
+    }
+  }
   if (state.kind === 'error') return `The plan could not be saved (${state.code}).`;
   return null;
 }
@@ -81,23 +93,38 @@ export function saveWords(state: SavedPlanSaveState): string | null {
  * What a rename that did not simply work has to say, or `null` when it worked.
  *
  * 8.2's second half read the same way 8.5 reads the save half: each typed
- * outcome keeps its type all the way to the sentence, because be-01 already did
- * the work of telling them apart and printing the word in brackets throws it
- * away. `touched` says nothing — the new name is on the row, which is the
- * confirmation, and a line under it repeating what the reader can see is noise
- * on the only path that succeeds.
+ * refusal keeps its type all the way to the sentence. Success says nothing —
+ * the new name is on the row, which is the confirmation.
  *
  * `not_found` is the shelf being stale rather than the reader being wrong: the
  * plan was deleted between the ✎ and the Enter, so the sentence says so and the
  * refresh that follows takes the row away.
  */
-export function renameWords(result: SavedPlanTouchResultView): string | null {
-  if (result.outcome === 'touched') return null;
-  if (result.outcome === 'not_found') {
-    return 'That saved plan has been deleted, so it could not be renamed.';
+export function renameWords(
+  refusal: Extract<SavedPlanRenameReply, { kind: 'refusal' }>['body'],
+): string {
+  switch (refusal.error) {
+    case 'not_found':
+      // Proof: replacing this sentence with the generic refusal made the
+      // rendered panel test unable to find the deleted-plan sentence and show
+      // `The rename was refused (not_found).` instead.
+      return 'That saved plan has been deleted, so it could not be renamed.';
+    case 'forbidden':
+      return 'You cannot rename this saved plan.';
+    case 'snapshot_busy':
+      return 'This plan is being written to. Try renaming again in a moment.';
+    case 'invalid_params':
+    case 'unauthenticated':
+    case 'unsupported_body_version':
+    case 'invalid_query':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'invalid_json':
+    case 'invalid_body':
+      return `The rename was refused (${refusal.error}).`;
+    default:
+      return unreachable(refusal);
   }
-  if (result.outcome === 'forbidden') return 'You cannot rename this saved plan.';
-  return 'This plan is being written to. Try renaming again in a moment.';
 }
 
 /**
@@ -217,26 +244,44 @@ export function SavedPlansPanel({
     setComparison({ kind: 'loading' });
     void deps
       .compare(projectId, left, right)
-      .then((result): SavedPlanComparisonState => {
-        if (result.outcome === 'compared') {
-          return {
-            kind: 'ready',
-            left,
-            right,
-            diff: result.diff,
-            schedules: resolveSideSchedules(left, right, result.diff, rows),
-            rows,
-          };
+      .then((reply): SavedPlanComparisonState => {
+        switch (reply.kind) {
+          case 'success':
+            return {
+              kind: 'ready',
+              left,
+              right,
+              diff: reply.body.diff,
+              schedules: resolveSideSchedules(left, right, reply.body.diff, rows),
+              rows,
+            };
+          case 'failure':
+            return { kind: 'error', code: savedPlanFailureCode(reply.failure) };
+          case 'refusal':
+            // Proof: mapping corrupt to the generic error state rendered
+            // `The comparison could not be read (corrupt).`; the panel test
+            // expected the saved id and `body_missing` integrity reason.
+            switch (reply.body.error) {
+              case 'corrupt':
+                return {
+                  kind: 'unreadable',
+                  savedPlanId: reply.body.savedPlanId,
+                  refusal: reply.body.refusal.reason,
+                };
+              case 'not_found':
+                return { kind: 'gone', savedPlanId: reply.body.savedPlanId ?? null };
+              case 'invalid_params':
+              case 'unauthenticated':
+              case 'unsupported_body_version':
+              case 'invalid_body':
+              case 'invalid_query':
+                return { kind: 'error', code: reply.body.error };
+              default:
+                return unreachable(reply.body);
+            }
+          default:
+            return unreachable(reply);
         }
-        // 8.5, compare half: each typed refusal keeps its type all the way to
-        // the sentence. Flattened into `error` with a code in brackets — which
-        // is what this did until 2026-09-04 — the reader got `not_found (sp1)`
-        // for a plan a collaborator had deleted, and the API layer's typed
-        // union had been spent on a string.
-        if (result.outcome === 'corrupt') {
-          return { kind: 'unreadable', savedPlanId: result.savedPlanId, refusal: result.refusal };
-        }
-        return { kind: 'gone', savedPlanId: result.savedPlanId };
       })
       .catch(
         (fault: unknown): SavedPlanComparisonState => ({
@@ -291,9 +336,23 @@ export function SavedPlansPanel({
     setRenameRefusal(null);
     void deps
       .rename(savedPlanId, name)
-      .then((result) => {
-        setRenameRefusal(renameWords(result));
-        // On every outcome, not only on success. `not_found` means the shelf is
+      .then((reply) => {
+        switch (reply.kind) {
+          case 'success':
+            setRenameRefusal(null);
+            break;
+          case 'failure':
+            setRenameRefusal(
+              `The rename could not be sent (${savedPlanFailureCode(reply.failure)}).`,
+            );
+            break;
+          case 'refusal':
+            setRenameRefusal(renameWords(reply.body));
+            break;
+          default:
+            unreachable(reply);
+        }
+        // On every reply, not only on success. `not_found` means the shelf is
         // showing a row be-01 no longer has, which is exactly when a re-read is
         // worth making. A successful rename also broadcasts, but this local
         // refresh avoids waiting for the actor's own gateway round trip; the

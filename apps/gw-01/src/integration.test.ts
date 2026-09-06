@@ -48,6 +48,23 @@ describe('gw-01 /health', () => {
   });
 });
 
+describe('gw-01 /metrics', () => {
+  it('keeps the Prometheus representation after the shared Elysia plugin is removed', async () => {
+    for (const scrape of [
+      { status: 200 as const, text: 'gateway_connections 1\n' },
+      { status: 500 as const, text: '# scrape errors: collector unavailable\n' },
+    ]) {
+      const response = await buildApp({
+        ...OPTS,
+        metricsScrape: () => Promise.resolve(scrape),
+      }).handle(new Request('http://localhost/metrics'));
+      expect(response.status).toBe(scrape.status);
+      expect(response.headers.get('content-type')).toBe('text/plain; version=0.0.4');
+      expect(await response.text()).toBe(scrape.text);
+    }
+  });
+});
+
 describe('POST /internal/push', () => {
   it('rejects without auth', async () => {
     const app = buildApp(OPTS);

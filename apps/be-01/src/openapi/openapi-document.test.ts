@@ -14,9 +14,9 @@ describe('the generated shared OpenAPI document', () => {
       if (!isRecord(path)) throw new Error('generated document has a malformed path');
       operationCount += Object.values(path).filter((operation) => operation !== undefined).length;
     }
-    // Proof: publishing the full registry in this local-mode app produced 42
+    // Proof: publishing the full registry in this local-mode app produced 44
     // operations and advertised an OIDC callback whose request returned 404.
-    expect(operationCount).toBe(38);
+    expect(operationCount).toBe(40);
     expect(paths).not.toHaveProperty('/api/auth/okta/callback');
   });
   it('preserves operation names and omits operational routes until they have bindings', async () => {
@@ -28,8 +28,8 @@ describe('the generated shared OpenAPI document', () => {
       'postApiProjectsByIdCommands',
     );
     expect(paths).toHaveProperty(['/api/auth/login', 'post', 'operationId'], 'postApiAuthLogin');
-    expect(paths).not.toHaveProperty('/health');
-    expect(paths).not.toHaveProperty('/metrics');
+    expect(paths).toHaveProperty('/health.get.operationId', 'getHealth');
+    expect(paths).toHaveProperty('/metrics.get.operationId', 'getMetrics');
   });
   it('does not change descriptors after another app parses requests', async () => {
     const before = serialiseDocument(await documentFromApp(testApp()));

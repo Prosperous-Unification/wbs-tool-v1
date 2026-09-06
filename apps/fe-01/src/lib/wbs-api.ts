@@ -6,6 +6,36 @@
 // functions and no runtime dependency at all, which is the same bargain
 // `plan-export.ts` and `gantt-geometry.ts` already make with `effective-team`
 // and `workday`.
+import {
+  addStep as addStepShape,
+  applyDirectoryCommands,
+  applyProjectCommands,
+  type Client,
+  type ClientBoundaryFailure,
+  type ClientFailure,
+  type ClientInput,
+  type ClientReply,
+  createCalendarMarker as createCalendarMarkerShape,
+  createProject as createProjectShape,
+  getWorkItems,
+  listCalendarMarkers as listCalendarMarkersShape,
+  listExternalSystems as listExternalSystemsShape,
+  listPeople as listPeopleShape,
+  listProjects as listProjectsShape,
+  listServices as listServicesShape,
+  listTags as listTagsShape,
+  listTeams as listTeamsShape,
+  listWorkItemTypes as listWorkItemTypesShape,
+  patchProject as patchProjectShape,
+  readProject as readProjectShape,
+  recordProjectOpen,
+  redoProject as redoProjectShape,
+  removeCalendarMarker as removeCalendarMarkerShape,
+  removeStep as removeStepShape,
+  renameStep as renameStepShape,
+  undoProject as undoProjectShape,
+  updateCalendarMarker as updateCalendarMarkerShape,
+} from '@wbs/contracts';
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
 import type { PriorityBand } from '@wbs/domain/priority-band';
 // The second exception, and the cheaper one: `IsoDate` is `export type IsoDate =
@@ -15,6 +45,7 @@ import type { PriorityBand } from '@wbs/domain/priority-band';
 // a `string` on this seam would be the one place that claim is not written down.
 import type { IsoDate } from '@wbs/domain/workday';
 
+import { browserClient, unreachable } from './http';
 import { type RefusalWords, sentenceForRefusal } from './refusal';
 
 /**
@@ -474,6 +505,9 @@ export interface AssumedAssigneeFlipView {
 /** What removing a step would take with it, as be-01's refusal reports it. */
 export interface StepUsage {
   estimates: number;
+  actuals: number;
+  progress: number;
+  measures: number;
   /** Explicit assignments on this step. The assumed ones are in `assumedAssignees`. */
   assignments: number;
   assumedAssignees: AssumedAssigneeFlipView[];
@@ -794,8 +828,8 @@ export interface UsedProject {
  *
  * Both halves are always present and never optional. A confirmation reading
  * `usage.members` has to be able to tell "nobody" from "this payload does not
- * say", and an absent key says the second while meaning the first — which is
- * why {@link isDirectoryUsage} refuses a body missing either.
+ * say", and an absent key says the second while meaning the first. The shared
+ * endpoint response schema refuses a body missing either.
  */
 export interface DirectoryUsage {
   projects: UsedProject[];
@@ -807,9 +841,8 @@ export interface DirectoryUsage {
  *
  * `in_use` is a **modeled answer** rather than a thrown code, for the reason
  * {@link StepRemoval}'s is: the usage riding along with it is the whole value of
- * the refusal, and {@link send} throws the `error` field and drops every field
- * beside it. The next request is the same one with the cascade, and nobody can
- * agree to that without being shown what it takes.
+ * the refusal. The next request is the same one with the cascade, and nobody
+ * can agree to that without being shown what it takes.
  */
 export type DirectoryRemoval =
   | { ok: true }
@@ -1063,19 +1096,16 @@ export interface CreatedProject {
  * The sequence is what a socket resumes from, so it belongs to the read that
  * produced the rows: taken separately it would describe a different moment
  * than the tree on screen.
+ *
+ * The shared response owns every top-level field. Only rows and steps are
+ * adapted here because the UI keeps mutable label lists and a smaller step view.
  */
-export interface PlanRead {
+type PlanReadWire = Extract<ClientReply<typeof getWorkItems>, { kind: 'success' }>['body'];
+export interface PlanRead extends Omit<
+  PlanReadWire,
+  'workItems' | 'slices' | 'steps' | 'waitingForPerson' | 'waitingForCapacity'
+> {
   workItems: WorkItemView[];
-  seq: number;
-  scheduleError: 'cycle' | null;
-  /**
-   * Every slice the schedule placed, in be-01's own order — what the chart
-   * draws, where the rows carry the spans the columns show.
-   *
-   * Empty when `scheduleError` says the plan could not be scheduled at all,
-   * exactly as the rows' dates go: bars from a plan that no longer computes
-   * would be the same stale lie in a different shape.
-   */
   slices: SliceView[];
   /**
    * The steps the slices above were placed under, in the engine's own order.
@@ -1087,82 +1117,6 @@ export interface PlanRead {
    * dialog edit.
    */
   steps: StepView[];
-  /**
-   * The names of everybody an assignment on these rows points at.
-   *
-   * Not the directory — {@link ProjectApi.listPeople} is that, and the
-   * pickers offer from it. This is who is on the plan that just arrived, so a
-   * bar can be painted and labelled from one moment's answer.
-   */
-  assignedPeople: AssignedPersonView[];
-  /**
-   * How many of each team this plan may have at work at once, for the teams it
-   * has stated a number about.
-   *
-   * Carried on the tree rather than fetched separately, and for a stronger
-   * reason than `steps` has: the dates and bars in this very payload were
-   * computed **from** these numbers, so a second request at a second moment
-   * could put a capacity on screen that does not explain the bars beside it.
-   *
-   * A team with no entry is _unstated_ and bounds nothing. Which teams the plan
-   * is labelled with is a different question, answered by the rows — see
-   * `effectiveTeamOf`.
-   */
-  teamCapacities: TeamCapacityView[];
-  /**
-   * What this project calls its priority numbers — five rungs, most important
-   * first.
-   *
-   * Always five and never empty: a project that has never been configured reads
-   * as be-01's `DEFAULT_PRIORITY_BANDS`, so every priority on this plan resolves
-   * to exactly one label without this client holding a fallback of its own.
-   *
-   * **No date in this payload was computed from it.** The ladder names the
-   * numbers; the leveller orders on the numbers. What it does drive is every
-   * face — the Prio cell, the chart's bars, the cards and the export all read
-   * their label and their colour through the one resolution in
-   * `priority-band-style.ts`.
-   */
-  priorityBands: PriorityBandView[];
-  estimateMethod: EstimateMethod;
-  /**
-   * The arithmetic every figure in this payload came out of: the coefficients
-   * the PERT numbers were weighed by, and the rounding each step's figure was
-   * charged at.
-   *
-   * Reported for {@link depReach}'s reason — a client that guessed would
-   * describe the numbers in front of it with a formula they did not come from
-   * — and written through {@link ProjectApi.setEstimateArithmetic}.
-   */
-  pertWeights: PertWeightsView;
-  estimateRounding: EstimateRoundingView;
-  /**
-   * How far into a predecessor this plan's dependencies reach.
-   *
-   * **Every date in this payload was computed from it**, on be-01, and the
-   * chart draws a dependency arrow out of the slice it names — so it rides
-   * with the slices rather than being read separately. It is reported here
-   * and written through {@link ProjectApi.setDepReach}; nothing sends it with
-   * a read.
-   */
-  depReach: DependencyReach;
-  startDate: string | null;
-  /**
-   * The project row's own revision: its name, restriction, estimate method,
-   * start date and steps. It does not move when a work item does — each
-   * carries its own.
-   */
-  projectRevision: number;
-  /**
-   * Whether **this account** has anything to undo or redo on this project.
-   *
-   * Carried on the tree rather than asked for separately: the tree is
-   * already reread after every change this client makes and every event from
-   * anybody else, which is exactly when these can have moved. A second
-   * endpoint would be a second round trip at the same moments.
-   */
-  undoable: boolean;
-  redoable: boolean;
 }
 
 /**
@@ -1552,101 +1506,128 @@ export interface ProjectApi {
   removeDependency(id: string, predecessorId: string): Promise<void>;
 }
 
-/** The header the edge does not read; see `lib/api.ts` for why it is never `Authorization`. */
-const auth = (token: string) => ({ 'content-type': 'application/json', 'x-wbs-token': token });
+const WBS_SHAPES = [
+  addStepShape,
+  applyDirectoryCommands,
+  applyProjectCommands,
+  createCalendarMarkerShape,
+  createProjectShape,
+  getWorkItems,
+  listCalendarMarkersShape,
+  listExternalSystemsShape,
+  listPeopleShape,
+  listProjectsShape,
+  listServicesShape,
+  listTagsShape,
+  listTeamsShape,
+  listWorkItemTypesShape,
+  patchProjectShape,
+  readProjectShape,
+  recordProjectOpen,
+  redoProjectShape,
+  removeCalendarMarkerShape,
+  removeStepShape,
+  renameStepShape,
+  undoProjectShape,
+  updateCalendarMarkerShape,
+] as const;
 
-/**
- * Performs one caller's request; only a plan-refresh generation may share reads.
- * Proof: path-only sharing returned old-row to the later API owner in
- * `does not lend a pre-edit tree response to a later API owner`.
- */
-async function send<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, { ...init, headers: auth(token) });
-  const text = await res.text();
-  if (!res.ok) {
-    let code = `http_${String(res.status)}`;
-    try {
-      code = (JSON.parse(text) as { error?: string }).error ?? code;
-    } catch {
-      // A proxy error page rather than our JSON — the status is all there is.
-    }
-    throw new Error(code);
+type WbsShape = (typeof WBS_SHAPES)[number];
+export type WbsOperationId = WbsShape['operationId'];
+type RefusalFor<S extends WbsShape> = Extract<ClientReply<S>, { kind: 'refusal' }>['body'];
+type WbsProblemFor<S extends WbsShape> = S extends WbsShape
+  ?
+      | { kind: 'refusal'; operation: S['operationId']; refusal: RefusalFor<S> }
+      | { kind: 'failure'; operation: S['operationId']; failure: ClientFailure }
+  : never;
+
+/** A validated operation-specific refusal or failure at the shared client boundary. */
+export type WbsProblem = WbsProblemFor<WbsShape>;
+export type WbsRefusalFor<O extends WbsOperationId> = Extract<
+  WbsProblem,
+  { kind: 'refusal'; operation: O }
+>['refusal'];
+
+/** Keeps the endpoint correlation while preserving legacy Error callers. */
+export class WbsRequestError extends Error {
+  constructor(readonly problem: WbsProblem) {
+    super(problemCode(problem));
+    this.name = 'WbsRequestError';
   }
-  return (text === '' ? null : JSON.parse(text)) as T;
 }
 
-/**
- * One step along the undo stack, with be-01's two refusals read out of the 409
- * rather than turned into a thrown code.
- *
- * `send` throws the `error` field for every non-2xx, which loses the `detail`
- * beside it — and the detail is the whole value of a `stale_undo`: it names the
- * change that stood in the way. Anything that is not one of the two modeled
- * refusals still throws, through the same path as every other call.
- */
-async function stepStack(path: string, token: string): Promise<UndoResult> {
-  const res = await fetch(path, { method: 'POST', headers: auth(token) });
-  const text = await res.text();
-  if (res.status === 409) {
-    const body = JSON.parse(text) as { error?: string; detail?: string | null };
-    if (body.error === 'nothing_to_undo' || body.error === 'stale_undo') {
-      return { ok: false, reason: body.error, detail: body.detail ?? null };
-    }
+/** The header the edge reads instead of Authorization. */
+const auth = (token: string): HeadersInit => ({ 'x-wbs-token': token });
+
+export function wbsFailureCode(failure: ClientFailure): string {
+  switch (failure.code) {
+    case 'cancelled':
+    case 'invalid_request':
+    case 'invalid_response':
+      return failure.code;
+    case 'unexpected_status':
+      return `http_${String(failure.status)}`;
+    case 'transport':
+      return failure.cause instanceof Error ? failure.cause.message : 'request_failed';
   }
-  if (!res.ok) {
-    let code = `http_${String(res.status)}`;
-    try {
-      code = (JSON.parse(text) as { error?: string }).error ?? code;
-    } catch {
-      // A proxy error page rather than our JSON — the status is all there is.
-    }
-    throw new Error(code);
-  }
-  const body = JSON.parse(text) as { done: string; detail: string | null };
-  return { ok: true, done: body.done, detail: body.detail };
+  return unreachable(failure);
 }
 
-/**
- * Removes a step, reading be-01's `in_use` counts out of the 409 instead of
- * throwing the code alone.
- *
- * The same shape as {@link stepStack} and for the same reason: `send` throws the
- * `error` field and loses everything beside it, and here everything beside it is
- * what the confirmation is made of. Any other 409 — there is none today — still
- * throws through the ordinary path rather than being read as a refusal this
- * client understands.
- */
-async function removeStepAt(path: string, token: string): Promise<StepRemoval> {
-  const res = await fetch(path, { method: 'DELETE', headers: auth(token) });
-  const text = await res.text();
-  if (res.status === 409) {
-    const body = JSON.parse(text) as { error?: string; inUse?: StepUsage };
-    // Both halves are asked for. A refusal claiming to be `in_use` with no
-    // counts in it is a be-01 that has changed shape, and confirming a cascade
-    // from an empty confirmation is exactly the unknown this repository refuses
-    // to default through.
-    //
-    // Proof, both watched 2026-08-09. This branch deleted so the 409 falls to
-    // the throw below: `reads the counts out of the refusal rather than throwing
-    // the code` failed on `promise rejected "Error: in_use" instead of
-    // resolving`. The `inUse !== undefined` half dropped: `throws an in_use with
-    // no counts rather than confirming against nothing` failed on `promise
-    // resolved "{ ok: false, reason: 'in_use', …(1) }" instead of rejecting`.
-    if (body.error === 'in_use' && body.inUse !== undefined) {
-      return { ok: false, reason: 'in_use', inUse: body.inUse };
-    }
+/** Reads the shared reply discriminant exhaustively before a screen chooses its sentence. */
+function problemCode(problem: WbsProblem): string {
+  switch (problem.kind) {
+    case 'refusal':
+      return problem.refusal.error;
+    case 'failure':
+      return wbsFailureCode(problem.failure);
   }
-  if (!res.ok) {
-    let code = `http_${String(res.status)}`;
-    try {
-      code = (JSON.parse(text) as { error?: string }).error ?? code;
-    } catch {
-      // A proxy error page rather than our JSON — the status is all there is.
-    }
-    throw new Error(code);
-  }
-  return { ok: true };
+  return unreachable(problem);
 }
+
+type RejectedReply<S extends WbsShape> =
+  | Extract<ClientReply<S>, { kind: 'refusal' }>
+  | ClientBoundaryFailure;
+
+function throwReply<S extends WbsShape>(shape: S, reply: RejectedReply<S>): never {
+  // Proof: bypassing this shared failure arm made the malformed team-id production call
+  // resolve with `{ id: 7 }`; wbs-api.test.ts expected WbsRequestError invalid_response.
+  if (reply.kind === 'failure')
+    throw new WbsRequestError({
+      kind: 'failure',
+      operation: shape.operationId,
+      failure: reply.failure,
+    });
+  // The shared client validated this refusal against `shape`; this cast only restores
+  // the operation/body correlation TypeScript loses inside the generic helper.
+  throw new WbsRequestError({
+    kind: 'refusal',
+    operation: shape.operationId,
+    refusal: reply.body,
+  } as WbsProblem);
+}
+
+function jsonBody<S extends WbsShape, T>(
+  shape: S,
+  reply: { kind: 'success'; representation: 'json'; body: T } | RejectedReply<S>,
+): T {
+  if (reply.kind === 'success') return reply.body;
+  // This branch excluded the only success arm; generic Extract narrowing does not
+  // preserve that fact, while the runtime discriminant and shared client do.
+  return throwReply(shape, reply as RejectedReply<S>);
+}
+
+function emptyBody<S extends WbsShape>(
+  shape: S,
+  reply: { kind: 'success'; representation: 'empty' } | RejectedReply<S>,
+): void {
+  if (reply.kind === 'success') return;
+  // The success arm was returned above; see the JSON helper's identical boundary.
+  throwReply(shape, reply as RejectedReply<S>);
+}
+
+type ProjectCommand = ClientInput<typeof applyProjectCommands>['body']['commands'][number];
+type DirectoryCommand = ClientInput<typeof applyDirectoryCommands>['body']['commands'][number];
+type WbsClient = Client<typeof WBS_SHAPES>;
 
 /**
  * What a refused step change says out loud.
@@ -1679,120 +1660,6 @@ export const STEP_REFUSALS: RefusalWords = {
   otherwise: (code) => `The step could not be changed (${code}).`,
 };
 
-/** A JSON object, as far as anything read off the wire can be said to be one. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-/** A name or the absence of one — `null` is a value here, `undefined` is a missing field. */
-function isNameOrNobody(value: unknown): value is string | null {
-  return value === null || typeof value === 'string';
-}
-
-function isNamed(value: unknown): value is { id: string; name: string } {
-  return isRecord(value) && typeof value['id'] === 'string' && typeof value['name'] === 'string';
-}
-
-/**
- * One arm of {@link DirectoryEffect}, as it really arrives.
- *
- * Every arm the type declares is answered here, and the reason is a defect
- * found on dev 2026-08-21: this guard knew three of five, so a tag or a service
- * that labelled any row came back from be-01 with a correct
- * `409 in_use`+`usage`, failed the parse on its one `label_removed`, and fell
- * through to the throw below — the generic refusal banner, no confirmation
- * dialog, and therefore no way to reach the `?cascade=true` second ask. An
- * entry nothing could remove, from a payload nothing was wrong with.
- *
- * `capacity_released` was unknown to it too and had simply never been sent by a
- * case: a team on a project carrying a capacity would have been as unremovable
- * as the tag. `directory-page.tsx` has had a sentence for both arms since each
- * landed — the page could always *say* it, this could never *read* it.
- *
- * The arms are answered in the order the type declares them, and
- * `wbs-api.test.ts` sends one payload per arm off a `Record` keyed by the
- * union's own `kind`, so a sixth arm fails the typecheck there until it is
- * given one.
- */
-function isDirectoryEffect(value: unknown): value is DirectoryEffect {
-  if (!isRecord(value)) return false;
-  if (value['kind'] === 'label_nulled') return true;
-  if (value['kind'] === 'label_removed') return true;
-  if (value['kind'] === 'capacity_released') {
-    // Both fields checked, because the sentence prints both: a `size` that
-    // arrived as a string would reach the page as "no longer limited to 4 at a
-    // time" spelled from something that is not a number, and a missing
-    // `fromId` would take the inherited-limit sentence's whole subject with it.
-    return typeof value['size'] === 'number' && typeof value['fromId'] === 'string';
-  }
-  if (value['kind'] === 'assignment_dropped') return isNamed(value['step']);
-  if (value['kind'] === 'assumed_assignee_changed') {
-    // Both, and present: `undefined` fails this, so a payload that dropped the
-    // flip's "after" cannot be drawn as a flip to nobody.
-    return isNameOrNobody(value['assumedNow']) && isNameOrNobody(value['assumedAfter']);
-  }
-  return false;
-}
-
-function isUsedWorkItem(value: unknown): value is UsedWorkItem {
-  if (!isRecord(value)) return false;
-  const effects = value['effects'];
-  if (!Array.isArray(effects)) return false;
-  // `id` and `name` are checked here rather than through `isNamed`, which would
-  // narrow `value` to exactly those two and put `number` and `effects` beyond
-  // reach of the compiler.
-  const each: unknown[] = effects;
-  return (
-    typeof value['id'] === 'string' &&
-    typeof value['number'] === 'string' &&
-    typeof value['name'] === 'string' &&
-    each.every(isDirectoryEffect)
-  );
-}
-
-function isUsedProject(value: unknown): value is UsedProject {
-  if (!isRecord(value)) return false;
-  const workItems = value['workItems'];
-  if (!Array.isArray(workItems)) return false;
-  const each: unknown[] = workItems;
-  return (
-    typeof value['id'] === 'string' &&
-    typeof value['name'] === 'string' &&
-    each.every(isUsedWorkItem)
-  );
-}
-
-/**
- * Whether a 409's `usage` is the whole **directory usage** this client draws a
- * confirmation from.
- *
- * The whole shape, not a probe: `projects` and `members` both present, every
- * work item carrying the `number` and `name` the confirmation prints and the
- * `effects` it explains them by. A confirmation drawn from a payload this page
- * could only half read asks somebody to approve a cascade they were never
- * shown, which is the unknown this repository refuses to default through.
- */
-export function isDirectoryUsage(value: unknown): value is DirectoryUsage {
-  if (!isRecord(value)) return false;
-  const projects = value['projects'];
-  const members = value['members'];
-  if (!Array.isArray(projects) || !Array.isArray(members)) return false;
-  const eachProject: unknown[] = projects;
-  const eachMember: unknown[] = members;
-  return eachProject.every(isUsedProject) && eachMember.every(isNamed);
-}
-
-/** be-01's `error` field, or the status when the body was somebody else's error page. */
-function refusalCodeIn(text: string, status: number): string {
-  try {
-    const body: unknown = JSON.parse(text);
-    if (isRecord(body) && typeof body['error'] === 'string') return body['error'];
-  } catch {
-    // A proxy error page rather than our JSON — the status is all there is.
-  }
-  return `http_${String(status)}`;
-}
-
 /**
  * Why a directory write was refused, as this client has to phrase it.
  *
@@ -1803,11 +1670,6 @@ function refusalCodeIn(text: string, status: number): string {
 export type DirectoryRefusal =
   | { reason: 'taken'; survivingName: string }
   | { reason: 'refused'; code: string };
-
-/** The refusal a thrown directory call amounts to, code and all. */
-export function directoryRefusedWith(thrown: unknown): DirectoryRefusal {
-  return { reason: 'refused', code: thrown instanceof Error ? thrown.message : 'request_failed' };
-}
 
 /**
  * The leader of be-01's over-the-ceiling refusal code, whose tail is the
@@ -1832,8 +1694,8 @@ const BAND_LABEL_CODE = 'band_label_must_be_';
  * What any 5xx says, in this dialog's own words.
  *
  * `wbs-table.tsx`'s refusal helper has carried this arm since 2026-08-09, when
- * `http_500` reached the corner of the screen verbatim; `send` throws
- * `Error('http_502')` for a proxy error, so without it the grammatical fallback
+ * `http_500` reached the corner of the screen verbatim; a proxy error becomes
+ * `http_502` at the boundary, so without this arm the grammatical fallback
  * below prints a wire code into a dialog somebody is typing a number into. The
  * sentence never says "the server did not answer", because something did.
  */
@@ -1987,12 +1849,20 @@ export function directoryRefusalSentence(refusal: DirectoryRefusal): string {
  * `/api/people` is how a page and a picker come to disagree about what a person
  * is.
  */
-/** One command of a batch as the wire carries it — `kind` plus the write's fields. */
-type WireCommand = { kind: string } & Record<string, unknown>;
-
 /** What `POST …/commands` answers when it applied the batch. */
 interface BatchAnswer {
-  results: { index: number; ref?: string; id?: string; entity?: unknown }[];
+  results: {
+    index: number;
+    ref?: string;
+    id?: string;
+    entity?: {
+      id: string;
+      name: string;
+      kind?: PersonKindView;
+      serviceIds?: string[];
+      teamIds?: string[];
+    };
+  }[];
   undoable?: boolean;
   redoable?: boolean;
 }
@@ -2004,11 +1874,19 @@ interface BatchAnswer {
  * only one it can be, so the code alone is what the caller phrases.
  */
 async function postBatch(
-  path: string,
+  client: WbsClient,
   token: string,
-  commands: WireCommand[],
+  projectId: string,
+  commands: ProjectCommand[],
 ): Promise<BatchAnswer> {
-  return send<BatchAnswer>(path, token, { method: 'POST', body: JSON.stringify({ commands }) });
+  return jsonBody(
+    applyProjectCommands,
+    await client.postApiProjectsByIdCommands({
+      params: { id: projectId },
+      body: { commands },
+      headers: auth(token),
+    }),
+  );
 }
 
 /** The one result a batch of one produced. */
@@ -2023,10 +1901,27 @@ function onlyResult(answer: BatchAnswer): BatchAnswer['results'][number] {
  * `unknown`, because it is be-01's row of whatever shape the command's list
  * route shows; the caller names the shape at the boundary.
  */
-function entryOf(answer: BatchAnswer): unknown {
+function entryOf(answer: BatchAnswer): NonNullable<BatchAnswer['results'][number]['entity']> {
   const entity = onlyResult(answer).entity;
   if (entity === undefined) throw new Error('unexpected_response');
   return entity;
+}
+
+function personEntry(answer: BatchAnswer): PersonView {
+  const entity = entryOf(answer);
+  if (entity.kind === undefined || entity.teamIds === undefined)
+    throw new Error('unexpected_response');
+  return { id: entity.id, name: entity.name, kind: entity.kind, teamIds: entity.teamIds };
+}
+
+function teamEntry(answer: BatchAnswer): TeamView {
+  const entity = entryOf(answer);
+  return { id: entity.id, name: entity.name, serviceIds: entity.serviceIds };
+}
+
+function namedEntry(answer: BatchAnswer): TagView {
+  const entity = entryOf(answer);
+  return { id: entity.id, name: entity.name };
 }
 
 /** What a directory batch of one came to: applied, or one of the two worded refusals. */
@@ -2041,114 +1936,174 @@ type DirectoryBatch =
  * `taken` name (the survivor is named) and an `in_use` removal (the usage is
  * named). Both arrive as the batch refusal's own fields beside the code.
  */
-async function directoryBatch(token: string, command: WireCommand): Promise<DirectoryBatch> {
-  const res = await fetch('/api/directory/commands', {
-    method: 'POST',
+async function directoryBatch(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+): Promise<DirectoryBatch> {
+  const reply = await client.postApiDirectoryCommands({
+    body: { commands: [command] },
     headers: auth(token),
-    body: JSON.stringify({ commands: [command] }),
   });
-  const text = await res.text();
-  if (res.status === 409) {
-    const body: unknown = JSON.parse(text);
-    if (isRecord(body) && body['error'] === 'taken' && typeof body['name'] === 'string') {
-      return { outcome: 'taken', survivingName: body['name'] };
-    }
-    if (isRecord(body) && body['error'] === 'in_use' && isDirectoryUsage(body['usage'])) {
-      return { outcome: 'in_use', usage: body['usage'] };
-    }
+  if (reply.kind === 'failure') throwReply(applyDirectoryCommands, reply);
+  if (reply.kind === 'success') return { outcome: 'applied', answer: reply.body };
+  switch (reply.body.error) {
+    case 'taken':
+      return { outcome: 'taken', survivingName: reply.body.name };
+    case 'in_use':
+      return { outcome: 'in_use', usage: reply.body.usage };
+    default:
+      return throwReply(applyDirectoryCommands, reply);
   }
-  if (!res.ok) throw new Error(refusalCodeIn(text, res.status));
-  return { outcome: 'applied', answer: JSON.parse(text) as BatchAnswer };
 }
 
 /** A directory write whose caller wants the entry, or the `taken` refusal. */
-async function directoryWrite<T>(token: string, command: WireCommand): Promise<DirectoryWrite<T>> {
-  const batch = await directoryBatch(token, command);
+async function directoryWrite<T>(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+  read: (answer: BatchAnswer) => T,
+): Promise<DirectoryWrite<T>> {
+  const batch = await directoryBatch(client, token, command);
   if (batch.outcome === 'taken')
     return { ok: false, reason: 'taken', survivingName: batch.survivingName };
-  if (batch.outcome === 'in_use') throw new Error('in_use');
-  // The boundary: be-01's own row, of the shape the command's list route shows.
-  return { ok: true, entry: entryOf(batch.answer) as T };
+  if (batch.outcome === 'in_use')
+    throw new WbsRequestError({
+      kind: 'refusal',
+      operation: applyDirectoryCommands.operationId,
+      refusal: { error: 'in_use', at: 0, kind: command.kind, usage: batch.usage },
+    });
+  return { ok: true, entry: read(batch.answer) };
 }
 
 /** A directory create, which answers the new entry. */
-async function directoryCreate<T>(token: string, command: WireCommand): Promise<T> {
-  const batch = await directoryBatch(token, command);
-  if (batch.outcome !== 'applied') throw new Error(batch.outcome);
-  // The boundary: be-01's own row, of the shape the command's list route shows.
-  return entryOf(batch.answer) as T;
+async function directoryCreate<T>(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+  read: (answer: BatchAnswer) => T,
+): Promise<T> {
+  const batch = await directoryBatch(client, token, command);
+  if (batch.outcome !== 'applied')
+    throw new WbsRequestError({
+      kind: 'refusal',
+      operation: applyDirectoryCommands.operationId,
+      refusal:
+        batch.outcome === 'taken'
+          ? { error: 'taken', at: 0, kind: command.kind, name: batch.survivingName }
+          : { error: 'in_use', at: 0, kind: command.kind, usage: batch.usage },
+    });
+  return read(batch.answer);
 }
 
 /** A directory removal, or the `in_use` refusal with its usage. */
-async function directoryRemove(token: string, command: WireCommand): Promise<DirectoryRemoval> {
-  const batch = await directoryBatch(token, command);
+async function directoryRemove(
+  client: WbsClient,
+  token: string,
+  command: DirectoryCommand,
+): Promise<DirectoryRemoval> {
+  const batch = await directoryBatch(client, token, command);
   if (batch.outcome === 'in_use') return { ok: false, reason: 'in_use', usage: batch.usage };
-  if (batch.outcome === 'taken') throw new Error('taken');
+  if (batch.outcome === 'taken')
+    throw new WbsRequestError({
+      kind: 'refusal',
+      operation: applyDirectoryCommands.operationId,
+      refusal: { error: 'taken', at: 0, kind: command.kind, name: batch.survivingName },
+    });
   return { ok: true };
 }
 
 export function httpDirectoryApi(token: string): DirectoryApi {
+  const client = browserClient(WBS_SHAPES);
   return {
     async listPeople() {
-      const body = await send<{ people: PersonView[] }>('/api/people', token);
-      return body.people;
+      return jsonBody(listPeopleShape, await client.getApiPeople({ headers: auth(token) })).people;
     },
     async listTeams() {
-      const body = await send<{ teams: TeamView[] }>('/api/teams', token);
-      return body.teams;
+      return jsonBody(listTeamsShape, await client.getApiTeams({ headers: auth(token) })).teams;
     },
     addPerson: (name, teamIds) =>
-      directoryCreate<PersonView>(token, { kind: 'createPerson', name, teamIds: [...teamIds] }),
-    addTeam: (name) => directoryCreate<TeamView>(token, { kind: 'createTeam', name }),
-    patchPerson: (id, patch) =>
-      directoryWrite<PersonView>(token, { kind: 'patchPerson', personId: id, patch }),
-    patchTeam: (id, patch) =>
-      directoryWrite<TeamView>(token, { kind: 'patchTeam', teamId: id, patch }),
+      directoryCreate(
+        client,
+        token,
+        { kind: 'createPerson', name, teamIds: [...teamIds] },
+        personEntry,
+      ),
+    addTeam: (name) => directoryCreate(client, token, { kind: 'createTeam', name }, teamEntry),
+    patchPerson: (id, patch) => {
+      const { teamIds, ...fields } = patch;
+      return directoryWrite(
+        client,
+        token,
+        {
+          kind: 'patchPerson',
+          personId: id,
+          patch: { ...fields, ...(teamIds === undefined ? {} : { teamIds: [...teamIds] }) },
+        },
+        personEntry,
+      );
+    },
+    patchTeam: (id, patch) => {
+      const { serviceIds, ...fields } = patch;
+      return directoryWrite(
+        client,
+        token,
+        {
+          kind: 'patchTeam',
+          teamId: id,
+          patch: {
+            ...fields,
+            ...(serviceIds === undefined ? {} : { serviceIds: [...serviceIds] }),
+          },
+        },
+        teamEntry,
+      );
+    },
     async listTags() {
-      const body = await send<{ tags: TagView[] }>('/api/tags', token);
-      return body.tags;
+      return jsonBody(listTagsShape, await client.getApiTags({ headers: auth(token) })).tags;
     },
     async listServices() {
-      const body = await send<{ services: ServiceView[] }>('/api/services', token);
-      return body.services;
+      return jsonBody(listServicesShape, await client.getApiServices({ headers: auth(token) }))
+        .services;
     },
     async listWorkItemTypes() {
-      const body = await send<{ workItemTypes: WorkItemTypeView[] }>('/api/work-item-types', token);
-      return body.workItemTypes;
+      return jsonBody(
+        listWorkItemTypesShape,
+        await client['getApiWork-item-types']({ headers: auth(token) }),
+      ).workItemTypes;
     },
     async listExternalSystems() {
-      const body = await send<{ externalSystems: ExternalSystemView[] }>(
-        '/api/external-systems',
-        token,
-      );
-      return body.externalSystems;
+      return jsonBody(
+        listExternalSystemsShape,
+        await client['getApiExternal-systems']({ headers: auth(token) }),
+      ).externalSystems;
     },
     addWorkItemType: (name) =>
-      directoryCreate<WorkItemTypeView>(token, { kind: 'createWorkItemType', name }),
+      directoryCreate(client, token, { kind: 'createWorkItemType', name }, namedEntry),
     renameWorkItemType: (typeId, name) =>
-      directoryWrite<WorkItemTypeView>(token, {
-        kind: 'patchWorkItemType',
-        typeId,
-        name,
-      }),
+      directoryWrite(client, token, { kind: 'patchWorkItemType', typeId, name }, namedEntry),
     removeWorkItemType: (typeId, cascade) =>
-      directoryRemove(token, { kind: 'deleteWorkItemType', typeId, cascade }),
-    addService: (name) => directoryCreate<ServiceView>(token, { kind: 'createService', name }),
+      directoryRemove(client, token, { kind: 'deleteWorkItemType', typeId, cascade }),
+    addService: (name) =>
+      directoryCreate(client, token, { kind: 'createService', name }, namedEntry),
     renameService: (id, name) =>
-      directoryWrite<ServiceView>(token, { kind: 'patchService', serviceId: id, name }),
+      directoryWrite(client, token, { kind: 'patchService', serviceId: id, name }, namedEntry),
     removeService: (id, cascade) =>
-      directoryRemove(token, { kind: 'deleteService', serviceId: id, cascade }),
-    addTag: (name) => directoryCreate<TagView>(token, { kind: 'createTag', name }),
-    renameTag: (id, name) => directoryWrite<TagView>(token, { kind: 'patchTag', tagId: id, name }),
-    removeTag: (id, cascade) => directoryRemove(token, { kind: 'deleteTag', tagId: id, cascade }),
+      directoryRemove(client, token, { kind: 'deleteService', serviceId: id, cascade }),
+    addTag: (name) => directoryCreate(client, token, { kind: 'createTag', name }, namedEntry),
+    renameTag: (id, name) =>
+      directoryWrite(client, token, { kind: 'patchTag', tagId: id, name }, namedEntry),
+    removeTag: (id, cascade) =>
+      directoryRemove(client, token, { kind: 'deleteTag', tagId: id, cascade }),
     removePerson: (id, cascade) =>
-      directoryRemove(token, { kind: 'deletePerson', personId: id, cascade }),
+      directoryRemove(client, token, { kind: 'deletePerson', personId: id, cascade }),
     removeTeam: (id, cascade) =>
-      directoryRemove(token, { kind: 'deleteTeam', teamId: id, cascade }),
+      directoryRemove(client, token, { kind: 'deleteTeam', teamId: id, cascade }),
   };
 }
 
 export function httpProjectApi(token: string): ProjectApi {
+  const client = browserClient(WBS_SHAPES);
   /**
    * The directory client, spread into the answer below rather than delegated
    * method by method: the thirteen vocabulary members {@link ProjectApi} shares
@@ -2175,14 +2130,11 @@ export function httpProjectApi(token: string): ProjectApi {
     return found;
   };
   /** One plan command on `projectId`, as a batch of one. */
-  const command = (projectId: string, step: WireCommand): Promise<BatchAnswer> =>
-    postBatch(`/api/projects/${projectId}/commands`, token, [step]);
+  const command = (projectId: string, step: ProjectCommand): Promise<BatchAnswer> =>
+    postBatch(client, token, projectId, [step]);
   /** One command aimed at a work item, on the project that row belongs to. */
-  const onRow = (workItemId: string, step: WireCommand): Promise<BatchAnswer> =>
-    command(projectFor(workItemId), { ...step, workItemId });
-
-  /** The marker collection's path, once, because four calls spell it. */
-  const markersOf = (projectId: string): string => `/api/projects/${projectId}/calendar-markers`;
+  const onRow = (workItemId: string, step: ProjectCommand): Promise<BatchAnswer> =>
+    command(projectFor(workItemId), step);
 
   /**
    * The `PATCH` both edits go through, taking exactly the one field its caller
@@ -2193,10 +2145,13 @@ export function httpProjectApi(token: string): ProjectApi {
     markerId: string,
     change: { name: string } | { color: string | null },
   ): Promise<CalendarMarkerView> => {
-    const body = await send<{ marker: CalendarMarkerView }>(
-      `${markersOf(projectId)}/${markerId}`,
-      token,
-      { method: 'PATCH', body: JSON.stringify(change) },
+    const body = jsonBody(
+      updateCalendarMarkerShape,
+      await client['patchApiProjectsByIdCalendar-markersByMarkerId']({
+        params: { id: projectId, markerId },
+        body: change,
+        headers: auth(token),
+      }),
     );
     return body.marker;
   };
@@ -2204,54 +2159,109 @@ export function httpProjectApi(token: string): ProjectApi {
   return {
     ...directory,
     async listProjects() {
-      const body = await send<{ projects: ProjectListEntry[] }>('/api/projects', token);
-      return body.projects;
+      return jsonBody(listProjectsShape, await client.getApiProjects({ headers: auth(token) }))
+        .projects;
     },
     async createProject(name) {
-      const body = await send<{ project: CreatedProject }>('/api/projects', token, {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
+      const body = jsonBody(
+        createProjectShape,
+        await client.postApiProjects({ body: { name }, headers: auth(token) }),
+      );
       return body.project;
     },
     async openProject(id) {
-      await send(`/api/projects/${id}/opened`, token, { method: 'POST' });
+      emptyBody(
+        recordProjectOpen,
+        await client.postApiProjectsByIdOpened({ params: { id }, headers: auth(token) }),
+      );
     },
     async renameProject(id, name) {
-      await send(`/api/projects/${id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ name }),
-      });
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id },
+          body: { name },
+          headers: auth(token),
+        }),
+      );
     },
     async tree(projectId) {
-      const tree = await send<PlanRead>(`/api/projects/${projectId}/work-items`, token);
-      for (const row of tree.workItems) projectOf.set(row.id, projectId);
-      return tree;
+      const tree = jsonBody(
+        getWorkItems,
+        await client['getApiProjectsByIdWork-items']({
+          params: { id: projectId },
+          headers: auth(token),
+        }),
+      );
+      const plan: PlanRead = {
+        ...tree,
+        workItems: tree.workItems.map((row) => ({
+          ...row,
+          teamIds: [...row.teamIds],
+          tagIds: [...row.tagIds],
+          serviceIds: [...row.serviceIds],
+          typeIds: [...row.typeIds],
+          externalRefs: row.externalRefs.map((ref) => ({ ...ref })),
+        })),
+      };
+      for (const row of plan.workItems) projectOf.set(row.id, projectId);
+      return plan;
     },
-    undo(projectId) {
-      return stepStack(`/api/projects/${projectId}/undo`, token);
+    async undo(projectId) {
+      const reply = await client.postApiProjectsByIdUndo({
+        params: { id: projectId },
+        headers: auth(token),
+      });
+      if (reply.kind === 'failure') return throwReply(undoProjectShape, reply);
+      if (reply.kind === 'success')
+        return { ok: true, done: reply.body.done, detail: reply.body.detail };
+      if (reply.body.error === 'nothing_to_undo' || reply.body.error === 'stale_undo')
+        return { ok: false, reason: reply.body.error, detail: reply.body.detail };
+      return throwReply(undoProjectShape, reply);
     },
-    redo(projectId) {
-      return stepStack(`/api/projects/${projectId}/redo`, token);
+    async redo(projectId) {
+      const reply = await client.postApiProjectsByIdRedo({
+        params: { id: projectId },
+        headers: auth(token),
+      });
+      if (reply.kind === 'failure') return throwReply(redoProjectShape, reply);
+      if (reply.kind === 'success')
+        return { ok: true, done: reply.body.done, detail: reply.body.detail };
+      if (reply.body.error === 'nothing_to_undo' || reply.body.error === 'stale_undo')
+        return { ok: false, reason: reply.body.error, detail: reply.body.detail };
+      return throwReply(redoProjectShape, reply);
     },
     async assignPerson(workItemId, stepId, personId) {
-      await onRow(workItemId, { kind: 'setAssignee', stepId, personId });
+      await onRow(workItemId, { kind: 'setAssignee', workItemId, stepId, personId });
     },
     async setStartDate(projectId, startDate) {
-      await send(`/api/projects/${projectId}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ startDate }),
-      });
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: { startDate },
+          headers: auth(token),
+        }),
+      );
     },
     async listCalendarMarkers(projectId) {
-      const body = await send<{ markers: CalendarMarkerView[] }>(markersOf(projectId), token);
-      return body.markers;
+      return jsonBody(
+        listCalendarMarkersShape,
+        await client['getApiProjectsByIdCalendar-markers']({
+          params: { id: projectId },
+          headers: auth(token),
+        }),
+      ).markers;
     },
     async createCalendarMarker(projectId, marker) {
-      const body = await send<{ marker: CalendarMarkerView }>(markersOf(projectId), token, {
-        method: 'POST',
-        body: JSON.stringify(marker),
-      });
+      const body = jsonBody(
+        createCalendarMarkerShape,
+        await client['postApiProjectsByIdCalendar-markers']({
+          params: { id: projectId },
+          body: marker,
+          headers: auth(token),
+        }),
+      );
       return body.marker;
     },
     async renameCalendarMarker(projectId, markerId, name) {
@@ -2265,7 +2275,13 @@ export function httpProjectApi(token: string): ProjectApi {
       return editMarker(projectId, markerId, { color });
     },
     async deleteCalendarMarker(projectId, markerId) {
-      await send(`${markersOf(projectId)}/${markerId}`, token, { method: 'DELETE' });
+      emptyBody(
+        removeCalendarMarkerShape,
+        await client['deleteApiProjectsByIdCalendar-markersByMarkerId']({
+          params: { id: projectId, markerId },
+          headers: auth(token),
+        }),
+      );
     },
     async setTeamCapacity(projectId, teamId, size) {
       await command(projectId, { kind: 'setCapacity', teamId, size });
@@ -2274,47 +2290,74 @@ export function httpProjectApi(token: string): ProjectApi {
       await command(projectId, { kind: 'setPriorityBands', bands: [...bands] });
     },
     async setEstimateMethod(projectId, method) {
-      await send(`/api/projects/${projectId}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ estimateMethod: method }),
-      });
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: { estimateMethod: method },
+          headers: auth(token),
+        }),
+      );
     },
     async setEstimateArithmetic(projectId, arithmetic) {
-      await send(`/api/projects/${projectId}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify(arithmetic),
-      });
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: arithmetic,
+          headers: auth(token),
+        }),
+      );
     },
     async setDepReach(projectId, reach) {
-      await send(`/api/projects/${projectId}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ depReach: reach }),
-      });
+      jsonBody(
+        patchProjectShape,
+        await client.patchApiProjectsById({
+          params: { id: projectId },
+          body: { depReach: reach },
+          headers: auth(token),
+        }),
+      );
     },
     async steps(projectId) {
-      const body = await send<{ steps: StepView[] }>(`/api/projects/${projectId}`, token);
-      return body.steps;
+      return jsonBody(
+        readProjectShape,
+        await client.getApiProjectsById({ params: { id: projectId }, headers: auth(token) }),
+      ).steps.map(({ id, name }) => ({ id, name }));
     },
     async addStep(projectId, name) {
-      const body = await send<{ step: StepView }>(`/api/projects/${projectId}/steps`, token, {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
-      return body.step;
+      const { step } = jsonBody(
+        addStepShape,
+        await client.postApiProjectsByIdSteps({
+          params: { id: projectId },
+          body: { name },
+          headers: auth(token),
+        }),
+      );
+      return { id: step.id, name: step.name };
     },
     async renameStep(projectId, stepId, name) {
-      const body = await send<{ step: StepView }>(
-        `/api/projects/${projectId}/steps/${stepId}`,
-        token,
-        { method: 'PATCH', body: JSON.stringify({ name }) },
+      const { step } = jsonBody(
+        renameStepShape,
+        await client.patchApiProjectsByIdStepsByStepId({
+          params: { id: projectId, stepId },
+          body: { name },
+          headers: auth(token),
+        }),
       );
-      return body.step;
+      return { id: step.id, name: step.name };
     },
-    removeStep(projectId, stepId, cascade) {
-      return removeStepAt(
-        `/api/projects/${projectId}/steps/${stepId}${cascade ? '?cascade=true' : ''}`,
-        token,
-      );
+    async removeStep(projectId, stepId, cascade) {
+      const reply = await client.deleteApiProjectsByIdStepsByStepId({
+        params: { id: projectId, stepId },
+        ...(cascade ? { query: { cascade: 'true' } } : {}),
+        headers: auth(token),
+      });
+      if (reply.kind === 'failure') return throwReply(removeStepShape, reply);
+      if (reply.kind === 'success') return { ok: true };
+      if (reply.body.error === 'in_use')
+        return { ok: false, reason: 'in_use', inUse: reply.body.inUse };
+      return throwReply(removeStepShape, reply);
     },
     async createWorkItem(projectId, input) {
       const made = onlyResult(await command(projectId, { kind: 'createWorkItem', ...input }));
@@ -2323,10 +2366,24 @@ export function httpProjectApi(token: string): ProjectApi {
       return { id: made.id };
     },
     async patchWorkItem(id, patch) {
-      await onRow(id, { kind: 'patchWorkItem', patch });
+      const { teamIds, tagIds, serviceIds, typeIds, externalRefs, ...fields } = patch;
+      await onRow(id, {
+        kind: 'patchWorkItem',
+        patch: {
+          ...fields,
+          ...(teamIds === undefined ? {} : { teamIds: [...teamIds] }),
+          ...(tagIds === undefined ? {} : { tagIds: [...tagIds] }),
+          ...(serviceIds === undefined ? {} : { serviceIds: [...serviceIds] }),
+          ...(typeIds === undefined ? {} : { typeIds: [...typeIds] }),
+          ...(externalRefs === undefined
+            ? {}
+            : { externalRefs: externalRefs.map((ref) => ({ ...ref })) }),
+        },
+        workItemId: id,
+      });
     },
     async moveWorkItem(id, parentId, afterId) {
-      await onRow(id, { kind: 'moveWorkItem', parentId, afterId });
+      await onRow(id, { kind: 'moveWorkItem', workItemId: id, parentId, afterId });
     },
     async duplicateWorkItem(id) {
       const projectId = projectFor(id);
@@ -2340,14 +2397,15 @@ export function httpProjectApi(token: string): ProjectApi {
     async removeWorkItem(id, options) {
       await onRow(id, {
         kind: 'deleteWorkItem',
+        workItemId: id,
         ...(options?.strategy === undefined ? {} : { strategy: options.strategy }),
       });
     },
     async setEstimate(id, stepId, days) {
-      await onRow(id, { kind: 'setEstimate', stepId, days });
+      await onRow(id, { kind: 'setEstimate', workItemId: id, stepId, days });
     },
     async clearEstimate(id, stepId) {
-      await onRow(id, { kind: 'clearEstimate', stepId });
+      await onRow(id, { kind: 'clearEstimate', workItemId: id, stepId });
     },
     async freezeProject(projectId) {
       await command(projectId, { kind: 'freezeProject' });
@@ -2356,13 +2414,13 @@ export function httpProjectApi(token: string): ProjectApi {
       await command(projectId, { kind: 'unfreezeProject' });
     },
     async unfreezeWorkItem(id) {
-      await onRow(id, { kind: 'unfreezeWorkItem' });
+      await onRow(id, { kind: 'unfreezeWorkItem', workItemId: id });
     },
     async addDependency(id, predecessorId) {
-      await onRow(id, { kind: 'addDependency', predecessorId });
+      await onRow(id, { kind: 'addDependency', workItemId: id, predecessorId });
     },
     async removeDependency(id, predecessorId) {
-      await onRow(id, { kind: 'removeDependency', predecessorId });
+      await onRow(id, { kind: 'removeDependency', workItemId: id, predecessorId });
     },
   };
 }

@@ -603,7 +603,7 @@ describe('OIDC browser routes', () => {
 
   /**
    * TASK-269, the first half. `searchParams.get('state')` answers the **first**
-   * value of a repeated key and `RouteRequest.query` answers the **last**, so
+   * value of a repeated key and the former collapsed query answered the **last**, so
    * moving this handler onto the framework-free route shape silently changed
    * which string a duplicated `state` selected — and `consume` deleted the
    * record before it compared, so the wrong value burned a login that was about

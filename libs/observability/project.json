@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/observability/src",
   "projectType": "library",
-  "tags": ["scope:shared", "type:observability", "runtime:isomorphic"],
+  "tags": ["scope:shared", "type:observability", "ring:adapter", "runtime:bun"],
   "targets": {
     "lint": {
       "executor": "nx:run-commands",

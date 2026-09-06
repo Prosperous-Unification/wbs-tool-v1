@@ -1,19 +1,18 @@
 # observability
 
 The one logger and the one metrics seam, so three tiers' output can be read as
-one stream. `runtime:isomorphic`.
+one stream. `runtime:bun`; OpenTelemetry and pino are process adapters.
 
 ## Five files
 
 - **`logger.ts`** — `createLogger({ service })`, the pino logger every app
   builds from.
-- **`server/`** — `observabilityPlugin({ service })`, the Elysia plugin be-01 and
-  gw-01 mount first. A separate entry point (`@wbs/observability/server`)
-  because it is Bun's, and the barrel is isomorphic.
 - **`log-schema.ts`** — the fields a line may carry, so a query across tiers is
   written once.
 - **`serializers.ts`** — how an `err`, a request and a response are rendered.
 - **`metrics.ts`** — `Counter`, over the OpenTelemetry meter.
+- **`prometheus.ts`** — framework-free Prometheus collection for app-owned HTTP
+  endpoints.
 
 ## Refusals
 

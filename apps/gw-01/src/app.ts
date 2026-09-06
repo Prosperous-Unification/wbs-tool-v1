@@ -1,5 +1,5 @@
-import { createLogger } from '@wbs/observability';
-import { observabilityPlugin } from '@wbs/observability/server';
+import { PROMETHEUS_CONTENT_TYPE } from '@wbs/contracts';
+import { createLogger, type MetricsScrape, scrapeMetrics } from '@wbs/observability';
 import { systemTimers, type Timers } from '@wbs/runtime-portable';
 import { Elysia } from 'elysia';
 
@@ -96,6 +96,8 @@ export interface AppOptions {
    * still verifying when the next frame lands. The real keys stay the default.
    */
   verifier?: TokenVerifier;
+  /** Overrides the framework-free Prometheus collector in tests. */
+  metricsScrape?: () => Promise<MetricsScrape>;
 }
 
 export function buildApp(opts: AppOptions) {
@@ -121,7 +123,14 @@ export function buildApp(opts: AppOptions) {
 
   return (
     new Elysia({ adapter: gatewayAdapter })
-      .use(observabilityPlugin({ service: 'gw-01' }))
+      .get('/metrics', async ({ set }) => {
+        const scrape = await (opts.metricsScrape ?? (() => scrapeMetrics('gw-01')))();
+        set.status = scrape.status;
+        // Proof: omitting this header made integration.test.ts expect the
+        // Prometheus content type and receive null from the real gateway route.
+        set.headers['content-type'] = PROMETHEUS_CONTENT_TYPE;
+        return scrape.text;
+      })
       .decorate('logger', logger)
       .decorate('subs', subs)
       .decorate('metrics', metrics)

@@ -377,6 +377,9 @@ describe('the chord on the surface', () => {
 describe('removing a step', () => {
   const IN_USE: StepUsage = {
     estimates: 2,
+    actuals: 0,
+    progress: 0,
+    measures: 0,
     assignments: 1,
     assumedAssignees: [{ workItemId: 'w2', assumedNow: null, assumedAfter: 'p1' }],
   };
@@ -663,6 +666,9 @@ describe('the sentences on their own', () => {
     // what kind of thing is going, in the word every other face uses for it.
     const sentence = usageSentence('QA', {
       estimates: 2,
+      actuals: 0,
+      progress: 0,
+      measures: 0,
       assignments: 1,
       assumedAssignees: [],
     });
@@ -672,9 +678,16 @@ describe('the sentences on their own', () => {
   });
 
   it('names both counts, even the one that is zero', () => {
-    expect(usageSentence('QA', { estimates: 1, assignments: 0, assumedAssignees: [] })).toBe(
-      'Removing the step QA would delete 1 estimate and 0 assignments.',
-    );
+    expect(
+      usageSentence('QA', {
+        estimates: 1,
+        actuals: 0,
+        progress: 0,
+        measures: 0,
+        assignments: 0,
+        assumedAssignees: [],
+      }),
+    ).toBe('Removing the step QA would delete 1 estimate and 0 assignments.');
   });
 
   it('says who stops being assumed to do everything', () => {

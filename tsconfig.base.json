@@ -43,7 +43,6 @@
       "@wbs/domain/canonical-schedule-input": ["libs/domain/src/canonical-schedule-input.ts"],
       "@wbs/gw-01": ["apps/gw-01/src/index.ts"],
       "@wbs/observability": ["libs/observability/src/index.ts"],
-      "@wbs/observability/server": ["libs/observability/src/server/index.ts"],
       "@wbs/runtime-portable/testing": ["libs/runtime-portable/src/testing.ts"],
       "@wbs/runtime-portable": ["libs/runtime-portable/src/index.ts"],
       "@wbs/realtime": ["libs/realtime/src/index.ts"],

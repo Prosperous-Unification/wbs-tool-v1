@@ -18,6 +18,7 @@ import { httpProjectApi, type ProjectApi, type ProjectListEntry } from '@/lib/wb
 
 import { useClosedByPointerOutside } from './close-on-outside-pointer';
 import { type BesideAnchorRect, HoverCard } from './hover-card';
+import { failureText } from './plan-refusal';
 import { useRendererForViewport } from './plan-renderer';
 import { entryMeta, matchingProjects, projectCardMeta } from './project-picker';
 import {
@@ -444,8 +445,8 @@ export function ProjectPage({
    * and the comparison would refetch while somebody was typing a project name.
    */
   const savedPlans = useMemo(
-    () => savedPlansOverride ?? browserSavedPlansDeps(token),
-    [savedPlansOverride, token],
+    () => savedPlansOverride ?? browserSavedPlansDeps(),
+    [savedPlansOverride],
   );
   /**
    * Who else is in the selected project, and whether the socket saying so is
@@ -571,7 +572,7 @@ export function ProjectPage({
 
   useEffect(() => {
     void load().catch((e: unknown) => {
-      setError(e instanceof Error ? e.message : 'load_failed');
+      setError(failureText(e, 'load_failed'));
     });
   }, [load]);
 
@@ -638,7 +639,7 @@ export function ProjectPage({
         });
       })
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'create_failed');
+        setError(failureText(e, 'create_failed'));
       });
   };
 
@@ -664,11 +665,11 @@ export function ProjectPage({
       async () => {
         setRename(null);
         await load().catch((e: unknown) => {
-          setError(e instanceof Error ? e.message : 'load_failed');
+          setError(failureText(e, 'load_failed'));
         });
       },
       (e: unknown) => {
-        setError(e instanceof Error ? e.message : 'rename_failed');
+        setError(failureText(e, 'rename_failed'));
       },
     );
   };

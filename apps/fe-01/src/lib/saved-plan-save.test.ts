@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { SavedPlanListEntryView, SavedPlanSaveResult } from './saved-plan-api';
+import type { SavedPlanListEntryView, SavedPlanSaveReply } from './saved-plan-api';
 import type { SaveDeps } from './saved-plan-save';
 import { useSavedPlanSave } from './saved-plan-save';
 
@@ -19,6 +19,26 @@ const ROW: SavedPlanListEntryView = {
   scheduleAbsentReason: null,
 };
 
+const savedReply = (savedPlan: SavedPlanListEntryView): SavedPlanSaveReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 201,
+  headers: new Headers(),
+  body: { savedPlan },
+});
+const busyReply = (): SavedPlanSaveReply => ({
+  kind: 'refusal',
+  status: 503,
+  headers: new Headers(),
+  body: { error: 'snapshot_busy' },
+});
+const quotaReply = (): SavedPlanSaveReply => ({
+  kind: 'refusal',
+  status: 409,
+  headers: new Headers(),
+  body: { error: 'quota', refusal: { limit: 'plan_count', asked: 11, allowed: 10 } },
+});
+
 /**
  * A `save` whose answer is handed over when the case says so.
  *
@@ -30,16 +50,16 @@ const ROW: SavedPlanListEntryView = {
 const deferredSave = (): {
   deps: SaveDeps;
   calls: unknown[][];
-  settle(result: SavedPlanSaveResult): Promise<void>;
+  settle(reply: SavedPlanSaveReply): Promise<void>;
   reject(fault: unknown): Promise<void>;
 } => {
   const calls: unknown[][] = [];
-  let resolveWith: ((result: SavedPlanSaveResult) => void) | null = null;
+  let resolveWith: ((reply: SavedPlanSaveReply) => void) | null = null;
   let rejectWith: ((fault: unknown) => void) | null = null;
   const deps: SaveDeps = {
     save: (...args: unknown[]) => {
       calls.push(args);
-      return new Promise<SavedPlanSaveResult>((resolve, reject) => {
+      return new Promise<SavedPlanSaveReply>((resolve, reject) => {
         resolveWith = resolve;
         rejectWith = reject;
       });
@@ -91,7 +111,7 @@ describe('the Save plan action', () => {
     expect(fake.calls).toEqual([['p1']]);
     expect(held.result.current.state).toEqual({ kind: 'saving' });
 
-    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    await fake.settle(savedReply(ROW));
     expect(held.result.current.state).toEqual({ kind: 'saved', savedPlan: ROW });
   });
 
@@ -116,7 +136,7 @@ describe('the Save plan action', () => {
 
     // And the guard lifts once the first one lands — a hook that saves once per
     // mount would pass the assertion above and be useless.
-    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    await fake.settle(savedReply(ROW));
     act(() => {
       held.result.current.save();
     });
@@ -147,7 +167,7 @@ describe('the Save plan action', () => {
     });
 
     held.unmount();
-    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    await fake.settle(savedReply(ROW));
     expect(fake.calls).toEqual([['p1']]);
 
     // The checkpoint is written server-side either way — a plan the user asked
@@ -190,7 +210,7 @@ describe('the Save plan action', () => {
     expect(fake.calls).toHaveLength(1);
 
     // And the lock lifts when the request lands, not when a component does.
-    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    await fake.settle(savedReply(ROW));
     act(() => {
       replaced.result.current.save();
     });
@@ -216,7 +236,7 @@ describe('the Save plan action', () => {
     held.unmount();
 
     const replaced = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
-    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    await fake.settle(savedReply(ROW));
 
     expect(replaced.result.current.state).toEqual({ kind: 'saved', savedPlan: ROW });
   });
@@ -242,7 +262,7 @@ describe('the Save plan action', () => {
     });
     held.unmount();
 
-    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    await fake.settle(savedReply(ROW));
     const arrived = renderHook(() => useSavedPlanSave(fake.deps, 'p1'));
 
     expect(arrived.result.current.state).toEqual({ kind: 'saved', savedPlan: ROW });
@@ -303,7 +323,7 @@ describe('the Save plan action', () => {
 
     expect(fake.calls).toEqual([['p1'], ['p2']]);
     expect(two.result.current.state).toEqual({ kind: 'saving' });
-    await fake.settle({ outcome: 'saved', savedPlan: ROW });
+    await fake.settle(savedReply(ROW));
   });
 
   /**
@@ -316,7 +336,7 @@ describe('the Save plan action', () => {
     act(() => {
       heldBusy.result.current.save();
     });
-    await busy.settle({ outcome: 'snapshot_busy' });
+    await busy.settle(busyReply());
     expect(heldBusy.result.current.state).toEqual({ kind: 'busy' });
 
     const quota = deferredSave();
@@ -324,10 +344,10 @@ describe('the Save plan action', () => {
     act(() => {
       heldQuota.result.current.save();
     });
-    await quota.settle({ outcome: 'quota', refusal: 'ten saved plans per project' });
+    await quota.settle(quotaReply());
     expect(heldQuota.result.current.state).toEqual({
       kind: 'quota',
-      refusal: 'ten saved plans per project',
+      refusal: { limit: 'plan_count', asked: 11, allowed: 10 },
     });
   });
 

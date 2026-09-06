@@ -34,7 +34,9 @@ const numberedWorkItem = type({
   tagIds: type('string[]').readonly(),
   serviceIds: type('string[]').readonly(),
   typeIds: type('string[]').readonly(),
-  externalRefs: type({ systemId: 'string', url: 'string' }).array().readonly(),
+  // Proof: removing id made the direct production-client boundary test resolve a tree
+  // containing numeric external-reference ids instead of rejecting.
+  externalRefs: type({ id: 'string', systemId: 'string', url: 'string' }).array().readonly(),
   number: 'string',
   estimates: type({ '[string]': triple }),
   rolledUp: 'boolean',

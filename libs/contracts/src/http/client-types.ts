@@ -1,6 +1,9 @@
 import type { EndpointShape, ParamsOf } from './endpoint-shape';
 import type { SchemaShape } from './schema-shape';
 
+/** Header inputs available in both browser and Bun TypeScript libraries. */
+export type HttpHeaders = Headers | Record<string, string> | [string, string][];
+
 // Proof: widening params/query/body to records produced TS2578 in actual client call fixtures at lines 54/56/60.
 type Parameters<S extends EndpointShape> = keyof ParamsOf<S['path']> extends never
   ? { params?: never }
@@ -18,7 +21,7 @@ type Body<S extends EndpointShape> = S extends { body: SchemaShape<infer B> }
 export type ClientInput<S extends EndpointShape> = Parameters<S> &
   Query<S> &
   Body<S> & {
-    headers?: HeadersInit;
+    headers?: HttpHeaders;
     signal?: AbortSignal;
   };
 
@@ -27,12 +30,12 @@ export interface TransportInput {
   params: Record<string, string | undefined>;
   query: unknown;
   body: unknown;
-  headers?: HeadersInit;
+  headers?: HttpHeaders;
   signal?: AbortSignal;
 }
 
 /** Explicit representations let an in-process adapter translate its own empty sentinel. */
-export type TransportReply = { status: number; headers?: HeadersInit } & (
+export type TransportReply = { status: number; headers?: HttpHeaders } & (
   | { kind: 'json'; body: unknown }
   | { kind: 'text'; text: string }
   | { kind: 'empty' }

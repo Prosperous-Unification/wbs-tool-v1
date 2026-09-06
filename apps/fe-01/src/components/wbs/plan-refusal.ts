@@ -1,19 +1,409 @@
+import { unreachable } from '@/lib/http';
 import { type RefusalWords, sentenceForRefusal } from '@/lib/refusal';
+import {
+  wbsFailureCode,
+  type WbsOperationId,
+  type WbsProblem,
+  type WbsRefusalFor,
+  WbsRequestError,
+} from '@/lib/wbs-api';
+
+type RefusalOf<O extends WbsOperationId> = WbsRefusalFor<O>;
+
+function directoryReadCode(refusal: RefusalOf<'getApiPeople'>): string {
+  switch (refusal.error) {
+    case 'invalid_query':
+    case 'invalid_params':
+    case 'invalid_body':
+    case 'unauthenticated':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function projectCreateCode(refusal: RefusalOf<'postApiProjects'>): string {
+  switch (refusal.error) {
+    case 'invalid_query':
+    case 'invalid_params':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'invalid_json':
+    case 'invalid_body':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function projectOpenCode(refusal: RefusalOf<'postApiProjectsByIdOpened'>): string {
+  switch (refusal.error) {
+    case 'invalid_query':
+    case 'invalid_params':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'not_found':
+    case 'invalid_body':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function projectReadCode(refusal: RefusalOf<'getApiProjectsById'>): string {
+  switch (refusal.error) {
+    case 'invalid_body':
+    case 'invalid_query':
+    case 'invalid_params':
+    case 'unauthenticated':
+    case 'not_found':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function projectPatchCode(refusal: RefusalOf<'patchApiProjectsById'>): string {
+  switch (refusal.error) {
+    case 'invalid_query':
+    case 'invalid_params':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'invalid_json':
+    case 'invalid_body':
+    case 'not_found':
+    case 'forbidden':
+    case 'bad_start_date':
+    case 'bad_pert_weights':
+    case 'optimizer_unavailable':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function treeReadCode(refusal: RefusalOf<'getApiProjectsByIdWork-items'>): string {
+  switch (refusal.error) {
+    case 'invalid_params':
+    case 'invalid_query':
+    case 'invalid_body':
+    case 'invalid_json':
+    case 'unauthenticated':
+    case 'not_found':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function historyCode(refusal: RefusalOf<'postApiProjectsByIdUndo'>): string {
+  switch (refusal.error) {
+    case 'invalid_params':
+    case 'invalid_query':
+    case 'invalid_body':
+    case 'invalid_json':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'forbidden':
+    case 'not_found':
+    case 'nothing_to_undo':
+    case 'stale_undo':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function markerListCode(refusal: RefusalOf<'getApiProjectsByIdCalendar-markers'>): string {
+  switch (refusal.error) {
+    case 'invalid_params':
+    case 'invalid_query':
+    case 'invalid_json':
+    case 'invalid_body':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'forbidden':
+    case 'not_found':
+    case 'taken':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function markerWriteCode(refusal: RefusalOf<'postApiProjectsByIdCalendar-markers'>): string {
+  switch (refusal.error) {
+    case 'invalid_params':
+    case 'invalid_query':
+    case 'invalid_json':
+    case 'invalid_body':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'forbidden':
+    case 'not_found':
+    case 'taken':
+    case 'malformed':
+    case 'contrast':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function markerRemoveCode(
+  refusal: RefusalOf<'deleteApiProjectsByIdCalendar-markersByMarkerId'>,
+): string {
+  switch (refusal.error) {
+    case 'invalid_params':
+    case 'invalid_query':
+    case 'invalid_json':
+    case 'invalid_body':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'forbidden':
+    case 'not_found':
+    case 'taken':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function stepWriteCode(refusal: RefusalOf<'postApiProjectsByIdSteps'>): string {
+  switch (refusal.error) {
+    case 'name_required':
+    case 'invalid_query':
+    case 'invalid_params':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'forbidden':
+    case 'not_found':
+    case 'invalid_json':
+    case 'taken':
+    case 'invalid_body':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function stepRemoveCode(refusal: RefusalOf<'deleteApiProjectsByIdStepsByStepId'>): string {
+  switch (refusal.error) {
+    case 'invalid_query':
+    case 'invalid_params':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'forbidden':
+    case 'not_found':
+    case 'invalid_body':
+    case 'in_use':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function commandCode(refusal: RefusalOf<'postApiProjectsByIdCommands'>): string {
+  switch (refusal.error) {
+    case 'invalid_params':
+    case 'invalid_query':
+    case 'invalid_body':
+    case 'invalid_json':
+    case 'unauthenticated':
+    case 'invalid_origin':
+    case 'insufficient_scope':
+    case 'expected_object':
+    case 'number_is_derived':
+    case 'externalRefs_must_be_a_list':
+    case 'too_many_externalRefs':
+    case 'externalRefs_entry_needs_a_systemId':
+    case 'externalRefs_entry_needs_a_url':
+    case 'invalid_actual':
+    case 'invalid_measure':
+    case 'invalid_progress':
+    case 'invalid_estimate':
+    case 'cannot_send_both_teamIds_and_serviceTeamId':
+    case 'unknown_kind':
+    case 'unknown_strategy':
+    case 'commands_must_be_a_list':
+    case 'size_required':
+    case 'bands_required':
+    case 'bands_must_be_an_array':
+    case 'bands_must_number_5':
+    case 'bands_must_be_objects':
+    case 'band_start_must_be_a_whole_number_from_1':
+    case 'band_default_must_be_a_whole_number_from_1':
+    case 'band_label_must_be_1_to_40_characters':
+    case 'band_labels_must_differ':
+    case 'first_band_must_start_at_1':
+    case 'bands_must_start_in_increasing_order':
+    case 'band_default_must_be_inside_its_own_band':
+    case 'parentId_must_be_id_or_null':
+    case 'afterId_must_be_id_or_null':
+    case 'personId_must_be_id_or_null':
+    case 'serviceTeamId_must_be_id_or_null':
+    case 'name_must_be_text':
+    case 'notes_must_be_text':
+    case 'kind_must_be_text':
+    case 'startNoEarlierThanReason_must_be_text':
+    case 'stepId_must_be_text':
+    case 'metric_must_be_text':
+    case 'personId_must_be_an_id':
+    case 'workItemId_must_be_an_id':
+    case 'workItemRef_must_be_an_id':
+    case 'ref_must_be_an_id':
+    case 'parentRef_must_be_an_id':
+    case 'afterRef_must_be_an_id':
+    case 'personRef_must_be_an_id':
+    case 'predecessorId_must_be_an_id':
+    case 'predecessorRef_must_be_an_id':
+    case 'teamId_must_be_an_id':
+    case 'teamRef_must_be_an_id':
+    case 'tagId_must_be_an_id':
+    case 'tagRef_must_be_an_id':
+    case 'typeId_must_be_an_id':
+    case 'typeRef_must_be_an_id':
+    case 'serviceId_must_be_an_id':
+    case 'serviceRef_must_be_an_id':
+    case 'teamIds_must_be_a_list_of_ids':
+    case 'teamRefs_must_be_a_list_of_ids':
+    case 'tagIds_must_be_a_list_of_ids':
+    case 'tagRefs_must_be_a_list_of_ids':
+    case 'serviceIds_must_be_a_list_of_ids':
+    case 'serviceRefs_must_be_a_list_of_ids':
+    case 'typeIds_must_be_a_list_of_ids':
+    case 'typeRefs_must_be_a_list_of_ids':
+    case 'teamIds_must_be_at_most_10':
+    case 'teamRefs_must_be_at_most_10':
+    case 'serviceIds_must_be_at_most_10':
+    case 'serviceRefs_must_be_at_most_10':
+    case 'typeIds_must_be_at_most_10':
+    case 'typeRefs_must_be_at_most_10':
+    case 'tagIds_must_be_at_most_50':
+    case 'tagRefs_must_be_at_most_50':
+    case 'startNoEarlierThan_must_be_a_date':
+    case 'deadline_must_be_a_date':
+    case 'priority_must_be_a_whole_number_from_1':
+    case 'maxParallel_must_be_a_whole_number_from_1':
+    case 'size_must_be_a_whole_number_from_1':
+    case 'maxParallel_must_be_at_most_1000':
+    case 'size_must_be_at_most_1000':
+    case 'cascade_must_be_true_or_false':
+    case 'startNoEarlierThanReason_must_be_at_most_200_characters':
+    case 'too_many_commands':
+    case 'project_required':
+    case 'unknown_ref':
+    case 'missing_id':
+    case 'duplicate_ref':
+    case 'name_required':
+    case 'strategy_required':
+    case 'has_children':
+    case 'not_before_reason_needs_a_date':
+    case 'invalid_kind':
+    case 'nothing_to_change':
+    case 'forbidden':
+    case 'not_found':
+    case 'unknown_step':
+    case 'unknown_metric':
+    case 'unknown_person':
+    case 'unknown_team':
+    case 'unknown_tag':
+    case 'unknown_service':
+    case 'unknown_type':
+    case 'unknown_system':
+    case 'cycle':
+    case 'frozen':
+    case 'rolled_up':
+    case 'ancestor':
+    case 'too_large':
+    case 'taken':
+    case 'in_use':
+    case 'deadline_before_project_start':
+      return refusal.error;
+    default:
+      return unreachable(refusal);
+  }
+}
+
+function refusalCode(problem: Extract<WbsProblem, { kind: 'refusal' }>): string {
+  switch (problem.operation) {
+    case 'getApiPeople':
+    case 'getApiTeams':
+    case 'getApiTags':
+    case 'getApiServices':
+    case 'getApiWork-item-types':
+    case 'getApiExternal-systems':
+    case 'getApiProjects':
+      return directoryReadCode(problem.refusal);
+    case 'postApiProjects':
+      return projectCreateCode(problem.refusal);
+    case 'postApiProjectsByIdOpened':
+      return projectOpenCode(problem.refusal);
+    case 'getApiProjectsById':
+      return projectReadCode(problem.refusal);
+    case 'patchApiProjectsById':
+      return projectPatchCode(problem.refusal);
+    case 'getApiProjectsByIdWork-items':
+      return treeReadCode(problem.refusal);
+    case 'postApiProjectsByIdCommands':
+    case 'postApiDirectoryCommands':
+      return commandCode(problem.refusal);
+    case 'postApiProjectsByIdUndo':
+    case 'postApiProjectsByIdRedo':
+      return historyCode(problem.refusal);
+    case 'getApiProjectsByIdCalendar-markers':
+      return markerListCode(problem.refusal);
+    case 'postApiProjectsByIdCalendar-markers':
+    case 'patchApiProjectsByIdCalendar-markersByMarkerId':
+      return markerWriteCode(problem.refusal);
+    case 'deleteApiProjectsByIdCalendar-markersByMarkerId':
+      return markerRemoveCode(problem.refusal);
+    case 'postApiProjectsByIdSteps':
+    case 'patchApiProjectsByIdStepsByStepId':
+      return stepWriteCode(problem.refusal);
+    case 'deleteApiProjectsByIdStepsByStepId':
+      return stepRemoveCode(problem.refusal);
+    default:
+      return unreachable(problem);
+  }
+}
 
 /**
  * be-01's word for a rejected request, or `fallback` when it threw something
  * that is not an `Error`.
  *
- * The **code**, not a sentence: `send` throws the error word be-01 answered
- * with (or `http_<status>`), and the two callers left here want the word
- * itself. {@link refusalSentence} is what a toast says instead — see the note
- * on each call for why these two are not it.
+ * The **code**, not a sentence: the shared client preserves the validated
+ * refusal word (or a typed boundary-failure code), and the two callers left
+ * here want the word itself. {@link refusalSentence} is what a toast says
+ * instead — see the note on each call for why these two are not it.
  */
 export const failureText = (thrown: unknown, fallback: string): string =>
-  thrown instanceof Error ? thrown.message : fallback;
+  thrown instanceof WbsRequestError
+    ? (() => {
+        switch (thrown.problem.kind) {
+          case 'failure':
+            return wbsFailureCode(thrown.problem.failure);
+          case 'refusal':
+            return refusalCode(thrown.problem);
+          default:
+            return unreachable(thrown.problem);
+        }
+      })()
+    : thrown instanceof Error
+      ? thrown.message
+      : fallback;
 
 /**
- * How be-01 refuses a **malformed** request, in the words `send` throws.
+ * How be-01 refuses a **malformed** request, in the words the shared client keeps.
  *
  * A set rather than a match on `http_4\d\d`, which was the first shape and is
  * wrong: 401 and 403 are the same family and say nothing about the value that
@@ -23,8 +413,8 @@ export const failureText = (thrown: unknown, fallback: string): string =>
  *
  * Three entries, because a malformed body now arrives two ways:
  *
- * - `http_400` / `http_422` — a refusal carrying **no `error` field** for
- *   `send` to read, so the status is all it has. That was every schema refusal
+ * - `http_400` / `http_422` — an undeclared legacy refusal whose status is all
+ *   the boundary can keep. That was every schema refusal
  *   while the controllers declared TypeBox to Elysia, which answered them with
  *   its own validation report.
  * - `invalid_body` — be-01's own word, and what the migrated controllers

@@ -214,6 +214,8 @@ export function createPlanRefresh({
     () => disposed,
     publish,
   );
+  // Proof: replacing these per-resource generations with one host-wide generation made the
+  // mounted held-step overlap test lose "Renamed step" while its no-competing control passed.
   const resources: Record<RefreshResource, ResourceControl> = { tree, steps, directory, markers };
   let snapshot: PlanRefreshSnapshot = capture();
 

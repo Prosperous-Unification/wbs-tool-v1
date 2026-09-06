@@ -4,6 +4,7 @@ import {
   httpShapes,
   logoutOidcSession,
   refreshOidcSession,
+  type RequestPolicy,
   startOidcLogin,
 } from '@wbs/contracts';
 import { describe, expect, it, spyOn } from 'bun:test';
@@ -127,6 +128,101 @@ const REQUEST_BOUNDARY_ERRORS = new Set([
   'unauthorized',
   'insufficient_scope',
 ]);
+const PUBLIC_OPERATIONS = [
+  'getApiAuthLogin',
+  'getApiAuthMe',
+  'getApiAuthOktaCallback',
+  'getHealth',
+  'getMetrics',
+  'postApiAuthLogin',
+  'postApiAuthLogout',
+  'postApiAuthRefresh',
+  'postApiAuthRegister',
+  'postApiSmokeEcho',
+] as const;
+const SIGNED_IN_OPERATIONS = [
+  'getApiExternal-systems',
+  'getApiPeople',
+  'getApiProjects',
+  'getApiProjectsById',
+  'getApiProjectsByIdCalendar-markers',
+  'getApiProjectsByIdHistory',
+  'getApiProjectsByIdSaved-plans',
+  'getApiProjectsByIdSaved-plansCompare',
+  'getApiProjectsByIdWork-items',
+  'getApiSaved-plansById',
+  'getApiServices',
+  'getApiTags',
+  'getApiTeams',
+  'getApiWork-item-types',
+] as const;
+const READ_SCOPE_OPERATIONS = ['getApiProjectsByIdExport', 'getPlansBy-solutionBySlug'] as const;
+const WRITE_SCOPE_OPERATIONS = [
+  'deleteApiProjectsByIdCalendar-markersByMarkerId',
+  'deleteApiProjectsByIdStepsByStepId',
+  'deleteApiSaved-plansById',
+  'patchApiProjectsById',
+  'patchApiProjectsByIdCalendar-markersByMarkerId',
+  'patchApiProjectsByIdStepsByStepId',
+  'patchApiSaved-plansById',
+  'postApiDirectoryCommands',
+  'postApiProjects',
+  'postApiProjectsByIdCalendar-markers',
+  'postApiProjectsByIdCommands',
+  'postApiProjectsByIdOpened',
+  'postApiProjectsByIdRedo',
+  'postApiProjectsByIdSaved-plans',
+  'postApiProjectsByIdSteps',
+  'postApiProjectsByIdUndo',
+] as const;
+const INTERNAL_OPERATIONS = ['postInternalForward', 'postInternalResume'] as const;
+const ALWAYS_ORIGIN_OPERATIONS = ['postApiAuthLogin', 'postApiAuthRegister'] as const;
+const COOKIE_ORIGIN_OPERATIONS = [
+  'deleteApiProjectsByIdCalendar-markersByMarkerId',
+  'deleteApiProjectsByIdStepsByStepId',
+  'deleteApiSaved-plansById',
+  'getApiProjectsByIdHistory',
+  'patchApiProjectsById',
+  'patchApiProjectsByIdCalendar-markersByMarkerId',
+  'patchApiProjectsByIdStepsByStepId',
+  'patchApiSaved-plansById',
+  'postApiAuthLogout',
+  'postApiAuthRefresh',
+  'postApiDirectoryCommands',
+  'postApiProjects',
+  'postApiProjectsByIdCalendar-markers',
+  'postApiProjectsByIdCommands',
+  'postApiProjectsByIdOpened',
+  'postApiProjectsByIdRedo',
+  'postApiProjectsByIdSaved-plans',
+  'postApiProjectsByIdSteps',
+  'postApiProjectsByIdUndo',
+  'postApiSmokeEcho',
+] as const;
+const NO_ORIGIN_OPERATIONS = [
+  'getApiAuthLogin',
+  'getApiAuthMe',
+  'getApiAuthOktaCallback',
+  'getApiExternal-systems',
+  'getApiPeople',
+  'getApiProjects',
+  'getApiProjectsById',
+  'getApiProjectsByIdCalendar-markers',
+  'getApiProjectsByIdExport',
+  'getApiProjectsByIdSaved-plans',
+  'getApiProjectsByIdSaved-plansCompare',
+  'getApiProjectsByIdWork-items',
+  'getApiSaved-plansById',
+  'getApiServices',
+  'getApiTags',
+  'getApiTeams',
+  'getApiWork-item-types',
+  'getHealth',
+  'getMetrics',
+  'getPlansBy-solutionBySlug',
+  'postInternalForward',
+  'postInternalResume',
+] as const;
 
 async function reachabilityOptions(
   mode: 'local' | 'oidc',
@@ -252,6 +348,47 @@ function boundaryError(reply: WireReply): string | undefined {
   return typeof decoded.error === 'string' ? decoded.error : undefined;
 }
 
+function policyOperations(kind: 'identity' | 'origin', requirement: string): string[] {
+  return httpShapes
+    .filter((shape) =>
+      shape.policies.some((policy) =>
+        policy.kind === kind
+          ? (policy.kind === 'identity' ? policy.require : policy.when) === requirement
+          : false,
+      ),
+    )
+    .map((shape) => shape.operationId)
+    .sort();
+}
+
+function expectedPolicies(operationId: string): RequestPolicy[] {
+  const policies: RequestPolicy[] = [];
+  if (includesOperation(ALWAYS_ORIGIN_OPERATIONS, operationId))
+    policies.push({ kind: 'origin', when: 'always' });
+  if (includesOperation(COOKIE_ORIGIN_OPERATIONS, operationId))
+    policies.push({ kind: 'origin', when: 'always-unsafe-with-session-cookie' });
+  if (includesOperation(SIGNED_IN_OPERATIONS, operationId))
+    policies.push({ kind: 'identity', require: 'signed-in' });
+  if (includesOperation(READ_SCOPE_OPERATIONS, operationId))
+    policies.push({ kind: 'identity', require: 'read-scope' });
+  if (includesOperation(WRITE_SCOPE_OPERATIONS, operationId))
+    policies.push({ kind: 'identity', require: 'write-scope' });
+  if (includesOperation(INTERNAL_OPERATIONS, operationId))
+    policies.push({ kind: 'identity', require: 'internal' });
+  return policies;
+}
+
+function includesOperation(operations: readonly string[], operationId: string): boolean {
+  return operations.includes(operationId);
+}
+
+function requestWithHeaders(shape: (typeof httpShapes)[number], changes: HeadersInit): Request {
+  const request = requestFor(shape);
+  const headers = new Headers(request.headers);
+  for (const [name, value] of new Headers(changes)) headers.set(name, value);
+  return new Request(request, { headers });
+}
+
 /** Complements actual wire requests: each composition binds its exact shared shape set once. */
 it('binds each shared HTTP shape once in every configuration that owns it', () => {
   const localShapes = httpShapes.filter((shape) => !OIDC_SHAPES.has(shape));
@@ -267,6 +404,75 @@ it('binds each shared HTTP shape once in every configuration that owns it', () =
     for (const shape of shapes) {
       expect(endpoints.filter((endpoint) => endpoint.shape === shape)).toHaveLength(1);
     }
+  }
+});
+
+it('enforces the complete pinned identity and origin policy inventory on the production app', async () => {
+  const unauthenticated = buildApp({ ...options(), appOrigin: ORIGIN });
+  // Proof: adding a signed-in policy to health made this production request
+  // expect 200 and receive 500 because the public shape declares no auth refusal.
+  expect(await unauthenticated.handle(new Request(`${ORIGIN}/health`))).toHaveProperty(
+    'status',
+    200,
+  );
+  for (const operationId of [
+    ...SIGNED_IN_OPERATIONS,
+    ...READ_SCOPE_OPERATIONS,
+    ...WRITE_SCOPE_OPERATIONS,
+    ...INTERNAL_OPERATIONS,
+  ]) {
+    const shape = httpShapes.find((candidate) => candidate.operationId === operationId);
+    if (shape === undefined) throw new Error(`missing policy fixture: ${operationId}`);
+    const response = await unauthenticated.handle(
+      requestWithHeaders(shape, { 'x-internal-auth': '' }),
+    );
+    expect({ operationId, status: response.status }).toEqual({ operationId, status: 401 });
+  }
+
+  const composition = await reachabilityOptions('oidc');
+  const foreignOrigin = buildApp(composition.options);
+  for (const operationId of [
+    ...ALWAYS_ORIGIN_OPERATIONS,
+    ...COOKIE_ORIGIN_OPERATIONS.filter((candidate) => candidate !== 'getApiProjectsByIdHistory'),
+  ]) {
+    const shape = httpShapes.find((candidate) => candidate.operationId === operationId);
+    if (shape === undefined) throw new Error(`missing origin fixture: ${operationId}`);
+    const response = await foreignOrigin.handle(
+      requestWithHeaders(shape, {
+        origin: 'https://foreign.test',
+        cookie: '__Host-wbs_access=foreign-session',
+      }),
+    );
+    expect({ operationId, status: response.status }).toEqual({ operationId, status: 403 });
+  }
+
+  expect(policyOperations('identity', 'signed-in')).toEqual([...SIGNED_IN_OPERATIONS]);
+  expect(policyOperations('identity', 'read-scope')).toEqual([...READ_SCOPE_OPERATIONS]);
+  expect(policyOperations('identity', 'write-scope')).toEqual([...WRITE_SCOPE_OPERATIONS]);
+  expect(policyOperations('identity', 'internal')).toEqual([...INTERNAL_OPERATIONS]);
+  expect(policyOperations('origin', 'always')).toEqual([...ALWAYS_ORIGIN_OPERATIONS]);
+  expect(policyOperations('origin', 'always-unsafe-with-session-cookie')).toEqual([
+    ...COOKIE_ORIGIN_OPERATIONS,
+  ]);
+  const everyOperation = httpShapes.map((shape) => shape.operationId).sort();
+  expect(
+    [
+      ...PUBLIC_OPERATIONS,
+      ...SIGNED_IN_OPERATIONS,
+      ...READ_SCOPE_OPERATIONS,
+      ...WRITE_SCOPE_OPERATIONS,
+      ...INTERNAL_OPERATIONS,
+    ].sort(),
+  ).toEqual(everyOperation);
+  expect(
+    [...NO_ORIGIN_OPERATIONS, ...ALWAYS_ORIGIN_OPERATIONS, ...COOKIE_ORIGIN_OPERATIONS].sort(),
+  ).toEqual(everyOperation);
+  for (const shape of httpShapes) {
+    const actualPolicies: readonly RequestPolicy[] = shape.policies;
+    expect({ operationId: shape.operationId, policies: actualPolicies }).toEqual({
+      operationId: shape.operationId,
+      policies: expectedPolicies(shape.operationId),
+    });
   }
 });
 

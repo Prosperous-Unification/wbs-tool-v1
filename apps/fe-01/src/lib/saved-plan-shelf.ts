@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { SavedPlanListState } from '../components/wbs/saved-plan-list';
+import { unreachable } from './http';
 import { subscribeToProject } from './project-stream';
 import type { SavedPlanApi } from './saved-plan-api';
-import { httpSavedPlanApi, savedPlansAvailable } from './saved-plan-api';
+import { httpSavedPlanApi, savedPlanFailureCode, savedPlansAvailable } from './saved-plan-api';
 
 /**
  * The two questions a shelf read is made of, injected rather than imported.
@@ -44,7 +45,30 @@ export async function readShelf(deps: ShelfDeps, projectId: string): Promise<Sav
   // would make the second reachable only by accident.
   if (!available) return { kind: 'unavailable' };
   try {
-    return { kind: 'ready', rows: await deps.list(projectId) };
+    const reply = await deps.list(projectId);
+    switch (reply.kind) {
+      case 'success':
+        return { kind: 'ready', rows: reply.body.savedPlans };
+      case 'failure':
+        return { kind: 'error', code: savedPlanFailureCode(reply.failure) };
+      case 'refusal':
+        // Proof: mapping not_found to an empty successful shelf failed the
+        // production-path case: expected `error:not_found`, received
+        // `{kind:'ready',rows:[]}` (saved-plan-shelf.test.ts).
+        switch (reply.body.error) {
+          case 'invalid_params':
+          case 'unauthenticated':
+          case 'unsupported_body_version':
+          case 'not_found':
+          case 'invalid_body':
+          case 'invalid_query':
+            return { kind: 'error', code: reply.body.error };
+          default:
+            return unreachable(reply.body);
+        }
+      default:
+        return unreachable(reply);
+    }
   } catch (fault) {
     return { kind: 'error', code: codeOf(fault) };
   }
@@ -145,18 +169,17 @@ export function watchShelf(
 /**
  * The three real answers, wired to the modules that give them.
  *
- * A factory and not a constant because `list` needs the token, which is not
- * known until somebody has logged in. The caller therefore holds the identity of
- * what it passes to {@link useSavedPlanShelf} — see that hook's dependency note.
+ * A factory keeps one stable dependency object per mounted panel. HTTP and the
+ * project stream both authenticate with the serving origin's cookies.
  *
  * `sinceSeq: -1` is this subscriber's honest answer: a shelf read is a list of
  * saved plans, not a read of the project at a sequence, so there is no sequence
  * for it to resume from and nothing here ever calls `seen`. The plan client owns
  * that conversation on its own socket.
  */
-export const browserShelfDeps = (token: string): ShelfWatchDeps => ({
+export const browserShelfDeps = (): ShelfWatchDeps => ({
   available: savedPlansAvailable,
-  list: (projectId) => httpSavedPlanApi(token).list(projectId),
+  list: (projectId) => httpSavedPlanApi().list(projectId),
   subscribe: (projectId, onChange) => subscribeToProject({ projectId, sinceSeq: -1, onChange }),
 });
 
@@ -181,8 +204,8 @@ export const browserShelfDeps = (token: string): ShelfWatchDeps => ({
  *
  * **`deps` is in the dependency array, so a caller must hold its identity**
  * (`useMemo` over {@link browserShelfDeps}). Excluding it — via a ref, the usual
- * dodge — would buy immunity to a re-render loop at the price of a token change
- * that never reaches the socket, and would need `eslint-disable` to say so.
+ * dodge — would buy immunity to a re-render loop at the price of a replacement
+ * dependency implementation never reaching the socket.
  * Keeping it honest means the linter checks this array rather than trusting it.
  */
 export function useSavedPlanShelf(

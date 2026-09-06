@@ -1,7 +1,9 @@
+import type { Quota } from '@wbs/contracts';
 import { useCallback, useLayoutEffect, useState } from 'react';
 
+import { unreachable } from './http';
 import type { SavedPlanApi, SavedPlanListEntryView } from './saved-plan-api';
-import { httpSavedPlanApi } from './saved-plan-api';
+import { httpSavedPlanApi, savedPlanFailureCode } from './saved-plan-api';
 
 /**
  * The one question a save is made of, injected for {@link ShelfDeps}'s reason.
@@ -23,7 +25,7 @@ export interface SaveDeps {
  * out what was just written would be a second request for an answer already in
  * hand, and a slower confirmation than the user deserves.
  *
- * The two refusals stay separate for `SavedPlanSaveResult`'s reason: they are
+ * The two declared refusal variants stay separate because they are
  * said in different words. `busy` is "somebody else is writing, press it again";
  * `quota` names a limit and is not retryable, so a surface that merged them
  * would invite the user to hammer a button that cannot work.
@@ -33,7 +35,7 @@ export type SavedPlanSaveState =
   | { readonly kind: 'saving' }
   | { readonly kind: 'saved'; readonly savedPlan: SavedPlanListEntryView }
   | { readonly kind: 'busy' }
-  | { readonly kind: 'quota'; readonly refusal: string }
+  | { readonly kind: 'quota'; readonly refusal: Quota }
   | { readonly kind: 'error'; readonly code: string };
 
 /** {@link readShelf}'s rule, for the same reason: show what arrived, never erase it. */
@@ -253,10 +255,38 @@ export function useSavedPlanSave(
       return;
     }
     void request
-      .then((result): SavedPlanSaveState => {
-        if (result.outcome === 'saved') return { kind: 'saved', savedPlan: result.savedPlan };
-        if (result.outcome === 'snapshot_busy') return { kind: 'busy' };
-        return { kind: 'quota', refusal: result.refusal };
+      .then((reply): SavedPlanSaveState => {
+        switch (reply.kind) {
+          case 'success':
+            return { kind: 'saved', savedPlan: reply.body.savedPlan };
+          case 'failure':
+            return { kind: 'error', code: savedPlanFailureCode(reply.failure) };
+          case 'refusal':
+            // Proof: mapping snapshot_busy to error failed the production-path
+            // hook case: expected `{kind:'busy'}`, received
+            // `{kind:'error',code:'snapshot_busy'}` (saved-plan-save.test.ts).
+            switch (reply.body.error) {
+              case 'snapshot_busy':
+                return { kind: 'busy' };
+              case 'quota':
+                return { kind: 'quota', refusal: reply.body.refusal };
+              case 'invalid_params':
+              case 'unauthenticated':
+              case 'unsupported_body_version':
+              case 'not_found':
+              case 'invalid_query':
+              case 'invalid_origin':
+              case 'insufficient_scope':
+              case 'forbidden':
+              case 'invalid_json':
+              case 'invalid_body':
+                return { kind: 'error', code: reply.body.error };
+              default:
+                return unreachable(reply.body);
+            }
+          default:
+            return unreachable(reply);
+        }
       })
       .catch((fault: unknown): SavedPlanSaveState => ({ kind: 'error', code: codeOf(fault) }))
       .then(settle);
@@ -268,9 +298,9 @@ export function useSavedPlanSave(
 /**
  * The real answer, wired to the module that gives it.
  *
- * A factory for {@link browserShelfDeps}'s reason — `save` needs the token — and
- * the caller holds its identity, because it is in this hook's dependency array.
+ * A factory for {@link browserShelfDeps}'s identity reason; authentication is
+ * carried by the serving origin's cookies.
  */
-export const browserSaveDeps = (token: string): SaveDeps => ({
-  save: (projectId, name) => httpSavedPlanApi(token).save(projectId, name),
+export const browserSaveDeps = (): SaveDeps => ({
+  save: (projectId, name) => httpSavedPlanApi().save(projectId, name),
 });

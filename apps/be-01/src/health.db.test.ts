@@ -70,6 +70,11 @@ describe('GET /health', () => {
     });
     const res = await app.handle(new Request('http://localhost/health'));
     expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'dependency_unavailable',
+      status: 'migrating',
+      commit: null,
+    });
   });
 });
 
@@ -103,7 +108,11 @@ describe('/health tells the truth about the database', () => {
       const res = await app.handle(new Request('http://localhost/health'));
 
       expect(res.status).toBe(503);
-      expect((await res.json()) as { status: string }).toMatchObject({ status: 'schema_missing' });
+      expect(await res.json()).toEqual({
+        error: 'dependency_unavailable',
+        status: 'schema_missing',
+        commit: null,
+      });
       close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -169,8 +178,10 @@ describe('/health tells the truth about the database', () => {
     const res = await app.handle(new Request('http://localhost/health'));
 
     expect(res.status).toBe(503);
-    expect((await res.json()) as { status: string }).toMatchObject({
+    expect(await res.json()).toEqual({
+      error: 'dependency_unavailable',
       status: 'database_unreachable',
+      commit: null,
     });
   });
 });

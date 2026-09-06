@@ -576,6 +576,8 @@ export function usePlanRead({
         setTeamCapacities(tree.teamCapacities);
         setPriorityBands(tree.priorityBands);
         setScheduleError(tree.scheduleError);
+        // Proof: renaming the shared response field to `planningMethod` made this
+        // production screen fail with TS2339: `estimateMethod` does not exist on PlanRead.
         setEstimateMethod(tree.estimateMethod);
         setStartDate(tree.startDate);
       }

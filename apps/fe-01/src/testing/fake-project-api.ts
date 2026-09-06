@@ -1,3 +1,4 @@
+import { clientFromShapes, getWorkItems } from '@wbs/contracts';
 import type { DependencyReach } from '@wbs/domain/dependency-reach';
 import { automaticColor } from '@wbs/domain/marker-color';
 import { DEFAULT_PRIORITY_BANDS } from '@wbs/domain/priority-band';
@@ -13,6 +14,8 @@ import type {
   WorkItemView,
 } from '@/lib/wbs-api';
 import { DEFAULT_PERT_WEIGHTS_VIEW } from '@/lib/wbs-api';
+
+import { refusingApi } from './refusing-api';
 
 /**
  * The plan fixtures every fe-01 suite drives the table through.
@@ -286,7 +289,7 @@ export function fakeProjectApi(): ProjectApi & {
     for (const row of rows) row.rolledUp = rows.some((r) => r.parentId === row.id);
   }
 
-  return {
+  return refusingApi({
     rows,
     markers,
     stack,
@@ -364,12 +367,23 @@ export function fakeProjectApi(): ProjectApi & {
     createProject: (name: string) => Promise.resolve({ id: 'p1', name, restricted: false }),
     openProject: () => Promise.resolve(),
     renameProject: () => Promise.resolve(),
-    tree: () =>
+    tree: async (projectId) => {
       // The sequence advances with every mutation, the way be-01's does, so a
       // test that asserts what the stream was told is asserting something real.
-      Promise.resolve({
+      const plan = {
         workItems: rows.map((r) => ({
           ...r,
+          projectId,
+          position: rows.indexOf(r),
+          serviceId: null,
+          tagIds: [...(r.tagIds ?? [])],
+          serviceIds: [...(r.serviceIds ?? [])],
+          typeIds: [...(r.typeIds ?? [])],
+          externalRefs: (r.externalRefs ?? []).map((ref) => ({ ...ref })),
+          actuals: {},
+          progress: {},
+          state: 'not_started' as const,
+          measures: {},
           dependsOn: edges.filter((e) => e.successorId === r.id).map((e) => e.predecessorId),
           schedule: scheduleOf(r),
           // A parent carries the sum of its descendants' trios, per step and
@@ -401,6 +415,8 @@ export function fakeProjectApi(): ProjectApi & {
         })),
         seq,
         scheduleError: null,
+        waitingForPerson: 0,
+        waitingForCapacity: 0,
         // One per leaf and step, as be-01 places them: a parent has no work of
         // its own and gets none. The ids are this fake's, and opaque — the
         // table looks them up and never takes them apart.
@@ -431,11 +447,12 @@ export function fakeProjectApi(): ProjectApi & {
             width: 1,
             effort: scheduleOf(r).duration,
             capacityPredecessorIds: [],
+            lateBy: null,
           })),
         // On the read that carried the slices, as be-01 sends them: the chart
         // reads its steps and its names from here and not from the separate
         // `steps`/`listPeople` calls the pickers make.
-        steps: stepList.map((step) => ({ ...step })),
+        steps: stepList.map((step, position) => ({ ...step, projectId, position })),
         assignedPeople: people.map(({ id, name }) => ({ id, name })),
         // Present and empty, never absent: be-01 always sends it, so a fake that
         // left it out would let `teamsOnThePlan` be handed `undefined` here and
@@ -459,7 +476,27 @@ export function fakeProjectApi(): ProjectApi & {
         projectRevision: 0,
         undoable: stack.undoable,
         redoable: stack.redoable,
-      }),
+      };
+      const client = clientFromShapes([getWorkItems], () =>
+        Promise.resolve({ kind: 'json', status: 200, body: plan }),
+      );
+      const reply = await client['getApiProjectsByIdWork-items']({ params: { id: projectId } });
+      // Proof: omitting `serviceId` from `plan` made the direct fake read fail on
+      // `Error: fake_invalid_response`; fake-project-api.test.ts observed the boundary failure.
+      if (reply.kind === 'failure') throw new Error(`fake_${reply.failure.code}`);
+      if (reply.kind === 'refusal') throw new Error(reply.body.error);
+      return {
+        ...reply.body,
+        workItems: reply.body.workItems.map((row) => ({
+          ...row,
+          teamIds: [...row.teamIds],
+          tagIds: [...row.tagIds],
+          serviceIds: [...row.serviceIds],
+          typeIds: [...row.typeIds],
+          externalRefs: row.externalRefs.map((ref) => ({ ...ref })),
+        })),
+      };
+    },
     setDepReach(_projectId, reach) {
       depReach = reach;
       renumber();
@@ -638,7 +675,14 @@ export function fakeProjectApi(): ProjectApi & {
         return Promise.resolve({
           ok: false as const,
           reason: 'in_use' as const,
-          inUse: { estimates, assignments: holders.length, assumedAssignees: flipsFor(stepId) },
+          inUse: {
+            estimates,
+            actuals: 0,
+            progress: 0,
+            measures: 0,
+            assignments: holders.length,
+            assumedAssignees: flipsFor(stepId),
+          },
         });
       }
       for (const row of rows) {
@@ -870,5 +914,5 @@ export function fakeProjectApi(): ProjectApi & {
       renumber();
       return Promise.resolve(stackAnswer);
     },
-  };
+  });
 }

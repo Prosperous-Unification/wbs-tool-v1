@@ -119,7 +119,9 @@ export function documentFromShapes(shapes: readonly EndpointShape[]): ShapeDocum
             ? { [response.contentType]: { schema: { type: 'string' } satisfies JsonSchema } }
             : { 'application/json': { schema: response.schema.jsonSchema } };
       addResponse(responses, response.status, {
-        description: 'Success',
+        // Proof: describing every representation as success made
+        // infrastructure-shapes.test.ts expect "Failure" and receive "Success" for metrics 500.
+        description: response.status >= 400 ? 'Failure' : 'Success',
         ...(content === undefined ? {} : { content }),
       });
     }

@@ -3,14 +3,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   PlanDiffView,
-  SavedPlanCompareResult,
+  SavedPlanCompareReply,
   SavedPlanListEntryView,
-  SavedPlanSaveResult,
-  SavedPlanTouchResultView,
+  SavedPlanListReply,
+  SavedPlanRenameReply,
+  SavedPlanSaveReply,
 } from '../../lib/saved-plan-api';
 import { compareGoneWords, compareUnreadableWords } from './saved-plan-compare';
 import type { SavedPlansPanelDeps } from './saved-plans-panel';
-import { renameWords, SAVE_BUSY, SavedPlansPanel, saveWords } from './saved-plans-panel';
+import { SAVE_BUSY, SavedPlansPanel, saveWords } from './saved-plans-panel';
 
 // fe-01 tests require jsdom; only Vitest provides it. Skip under plain `bun test`.
 const hasDom = typeof document !== 'undefined';
@@ -27,6 +28,58 @@ const ROW: SavedPlanListEntryView = {
 };
 const NEWER: SavedPlanListEntryView = { ...ROW, id: 'sp2', name: 'after the re-plan' };
 const EMPTY_DIFF: PlanDiffView = { input: [], schedule: [] };
+const headers = () => new Headers();
+const listReply = (rows: readonly SavedPlanListEntryView[]): SavedPlanListReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 200,
+  headers: headers(),
+  body: { savedPlans: [...rows] },
+});
+const saveReply = (savedPlan: SavedPlanListEntryView): SavedPlanSaveReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 201,
+  headers: headers(),
+  body: { savedPlan },
+});
+const compareReply = (diff: PlanDiffView): SavedPlanCompareReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 200,
+  headers: headers(),
+  body: { diff },
+});
+const renameReply = (): SavedPlanRenameReply => ({
+  kind: 'success',
+  representation: 'json',
+  status: 200,
+  headers: headers(),
+  body: { savedPlanId: ROW.id, name: ROW.name },
+});
+const goneReply = (savedPlanId?: string): SavedPlanCompareReply => ({
+  kind: 'refusal',
+  status: 404,
+  headers: headers(),
+  body: savedPlanId === undefined ? { error: 'not_found' } : { error: 'not_found', savedPlanId },
+});
+const INTEGRITY = {
+  reason: 'body_missing' as const,
+  savedPlanId: ROW.id,
+  body: 'input' as const,
+};
+const corruptReply = (): SavedPlanCompareReply => ({
+  kind: 'refusal',
+  status: 422,
+  headers: headers(),
+  body: { error: 'corrupt', savedPlanId: ROW.id, refusal: INTEGRITY },
+});
+const renameGoneReply = (): SavedPlanRenameReply => ({
+  kind: 'refusal',
+  status: 404,
+  headers: headers(),
+  body: { error: 'not_found' },
+});
 
 /**
  * One panel's fake wiring.
@@ -39,17 +92,14 @@ const EMPTY_DIFF: PlanDiffView = { input: [], schedule: [] };
 const fakeDeps = (start: readonly SavedPlanListEntryView[] = [ROW]) => {
   let shelf = [...start];
   let fire: (() => void) | undefined;
-  const list = vi.fn(() => Promise.resolve([...shelf]));
-  const save = vi.fn(
-    (): Promise<SavedPlanSaveResult> => Promise.resolve({ outcome: 'saved', savedPlan: NEWER }),
-  );
+  const list = vi.fn(() => Promise.resolve(listReply(shelf)));
+  const save = vi.fn((): Promise<SavedPlanSaveReply> => Promise.resolve(saveReply(NEWER)));
   const compare = vi.fn(
-    (): Promise<SavedPlanCompareResult> =>
-      Promise.resolve({ outcome: 'compared', diff: EMPTY_DIFF }),
+    (): Promise<SavedPlanCompareReply> => Promise.resolve(compareReply(EMPTY_DIFF)),
   );
-  const rename = vi.fn((savedPlanId: string, name: string): Promise<SavedPlanTouchResultView> => {
+  const rename = vi.fn((savedPlanId: string, name: string): Promise<SavedPlanRenameReply> => {
     shelf = shelf.map((row) => (row.id === savedPlanId ? { ...row, name } : row));
-    return Promise.resolve({ outcome: 'touched' });
+    return Promise.resolve(renameReply());
   });
   const deps: SavedPlansPanelDeps = {
     available: () => Promise.resolve(true),
@@ -98,10 +148,12 @@ describe('what the save status line says', () => {
     // names the limit and does not, because no retry clears it. Merging them
     // would point the reader at a button that cannot succeed.
     expect(saveWords({ kind: 'busy' })).toBe(SAVE_BUSY);
-    expect(saveWords({ kind: 'quota', refusal: 'at the 50-plan limit' })).toBe(
-      'at the 50-plan limit',
-    );
-    expect(saveWords({ kind: 'quota', refusal: 'at the 50-plan limit' })).not.toBe(SAVE_BUSY);
+    const quota = {
+      kind: 'quota' as const,
+      refusal: { limit: 'plan_count' as const, asked: 51, allowed: 50 },
+    };
+    expect(saveWords(quota)).toContain('50');
+    expect(saveWords(quota)).not.toBe(SAVE_BUSY);
   });
 
   it('says nothing while idle or in flight', () => {
@@ -196,7 +248,7 @@ describe('the saved-plans panel', () => {
     const wiring = fakeDeps([NEWER, ROW]);
     let failing = false;
     const list = vi.fn(() =>
-      failing ? Promise.reject(new Error('boom')) : Promise.resolve([NEWER, ROW]),
+      failing ? Promise.reject(new Error('boom')) : Promise.resolve(listReply([NEWER, ROW])),
     );
     render(<SavedPlansPanel projectId="p1" deps={{ ...wiring.deps, list }} />);
     await flush();
@@ -248,16 +300,12 @@ describe('the saved-plans panel', () => {
     // unable to tell which of them holds the damaged one — be-01's reason for
     // putting `savedPlanId` on its 422, and worth nothing unless it is rendered.
     const wiring = fakeDeps([ROW]);
-    wiring.compare.mockResolvedValue({
-      outcome: 'corrupt',
-      savedPlanId: ROW.id,
-      refusal: 'stored_plan_unreadable',
-    });
+    wiring.compare.mockResolvedValue(corruptReply());
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
 
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('stored_plan_unreadable');
+    expect(alert.textContent).toContain('body_missing');
     expect(alert.textContent).toContain(ROW.id);
   });
   itDom('offers a refresh when the plan changes, and leaves the comparison alone', async () => {
@@ -271,13 +319,12 @@ describe('the saved-plans panel', () => {
       the same thing.
     */
     const wiring = fakeDeps([ROW]);
-    wiring.compare.mockResolvedValue({
-      outcome: 'compared',
-      diff: {
+    wiring.compare.mockResolvedValue(
+      compareReply({
         input: [{ category: 'notes', path: 'the first answer', left: 1, right: 2 }],
         schedule: [],
-      },
-    });
+      }),
+    );
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
     expect(screen.getByText('the first answer')).toBeTruthy();
@@ -286,13 +333,12 @@ describe('the saved-plans panel', () => {
     // The plan moved: a collaborator saved, and be-01 published on the plan's
     // stream. The next comparison would say something else.
     wiring.setShelf([NEWER, ROW]);
-    wiring.compare.mockResolvedValue({
-      outcome: 'compared',
-      diff: {
+    wiring.compare.mockResolvedValue(
+      compareReply({
         input: [{ category: 'notes', path: 'the second answer', left: 3, right: 4 }],
         schedule: [],
-      },
-    });
+      }),
+    );
     await act(async () => {
       wiring.broadcast();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -310,24 +356,22 @@ describe('the saved-plans panel', () => {
     // is worse than none: it tells the reader their diff is stale and gives
     // them no way out of it.
     const wiring = fakeDeps([ROW]);
-    wiring.compare.mockResolvedValue({
-      outcome: 'compared',
-      diff: {
+    wiring.compare.mockResolvedValue(
+      compareReply({
         input: [{ category: 'notes', path: 'the first answer', left: 1, right: 2 }],
         schedule: [],
-      },
-    });
+      }),
+    );
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
 
     wiring.setShelf([NEWER, ROW]);
-    wiring.compare.mockResolvedValue({
-      outcome: 'compared',
-      diff: {
+    wiring.compare.mockResolvedValue(
+      compareReply({
         input: [{ category: 'notes', path: 'the second answer', left: 3, right: 4 }],
         schedule: [],
-      },
-    });
+      }),
+    );
     await act(async () => {
       wiring.broadcast();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -355,7 +399,7 @@ describe('the saved-plans panel', () => {
       against the old flattening, which prints the id and the word both.
     */
     const wiring = fakeDeps([ROW]);
-    wiring.compare.mockResolvedValue({ outcome: 'not_found', savedPlanId: ROW.id });
+    wiring.compare.mockResolvedValue(goneReply(ROW.id));
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
 
@@ -372,7 +416,7 @@ describe('the saved-plans panel', () => {
     // with a gap: be-01 refused the project, which no choice among these
     // pickers can fix, so inviting one would send the reader round a loop.
     const wiring = fakeDeps([ROW]);
-    wiring.compare.mockResolvedValue({ outcome: 'not_found', savedPlanId: null });
+    wiring.compare.mockResolvedValue(goneReply());
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
 
@@ -386,16 +430,12 @@ describe('the saved-plans panel', () => {
     // sentence names the plan and the reason and sends the reader at the other
     // picker rather than at the same button again.
     const wiring = fakeDeps([ROW]);
-    wiring.compare.mockResolvedValue({
-      outcome: 'corrupt',
-      savedPlanId: ROW.id,
-      refusal: 'stored_plan_unreadable',
-    });
+    wiring.compare.mockResolvedValue(corruptReply());
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
 
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toBe(compareUnreadableWords(ROW.id, 'stored_plan_unreadable'));
+    expect(alert.textContent).toBe(compareUnreadableWords(ROW.id, 'body_missing'));
     expect(alert.textContent).not.toMatch(/try again|again in a moment/i);
     // The two refusals do not share a sentence: telling them apart is the whole
     // of 8.5, and one wording for both would make this suite green over it.
@@ -477,7 +517,7 @@ describe('the saved-plans panel', () => {
     // so the re-read is part of the answer: the row the reader was renaming is
     // gone, and the sentence and the refresh say so together.
     const wiring = fakeDeps([ROW]);
-    wiring.rename.mockResolvedValue({ outcome: 'not_found' });
+    wiring.rename.mockResolvedValue(renameGoneReply());
     render(<SavedPlansPanel projectId="p1" deps={wiring.deps} />);
     await flush();
     const readsBefore = wiring.list.mock.calls.length;
@@ -487,7 +527,9 @@ describe('the saved-plans panel', () => {
     fireEvent.keyDown(screen.getByLabelText('Saved plan name'), { key: 'Enter' });
     await flush();
 
-    expect(screen.getByText(renameWords({ outcome: 'not_found' }) ?? '')).toBeTruthy();
+    expect(
+      screen.getByText('That saved plan has been deleted, so it could not be renamed.'),
+    ).toBeTruthy();
     expect(wiring.list.mock.calls.length).toBeGreaterThan(readsBefore);
   });
 });

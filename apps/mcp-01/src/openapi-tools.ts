@@ -96,8 +96,9 @@ const excludes = (pattern: string, path: string): boolean =>
   pattern.endsWith('/*') ? path.startsWith(pattern.slice(0, -1)) : path === pattern;
 
 /** The exclusion entry covering this path, or none. */
-// Operational endpoints are not yet in the shared registry. Keep them excluded
-// if an explicit external document supplies them; they are not required matches.
+// Operational endpoints live in the shared registry but never become model tools.
+// They remain outside the required external exclusion set because they are optional
+// in documents supplied by older or third-party servers.
 // Proof: removing these deny paths exposed getHealth in the external-document production derivation test.
 const optionalOperationalPaths = ['/health', '/metrics'] as const;
 const exclusionFor = (path: string): string | undefined =>

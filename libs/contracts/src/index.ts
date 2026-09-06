@@ -10,6 +10,7 @@ export * from './http/directory-shapes';
 export * from './http/document-from-shapes';
 export * from './http/endpoint-shape';
 export * from './http/history-shapes';
+export * from './http/infrastructure-shapes';
 export * from './http/internal-http-shapes';
 export * from './http/project-response';
 export * from './http/project-shapes';

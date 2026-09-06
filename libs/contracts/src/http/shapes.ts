@@ -20,6 +20,7 @@ import {
   listWorkItemTypes,
 } from './directory-shapes';
 import { readHistory } from './history-shapes';
+import { health, metrics } from './infrastructure-shapes';
 import { forwardInternal, resumeInternal } from './internal-http-shapes';
 import {
   createProject,
@@ -50,6 +51,8 @@ import {
 
 /** Migrated HTTP declarations; legacy families join this table as their handlers migrate. */
 export const httpShapes = [
+  health,
+  metrics,
   registerPassword,
   loginPassword,
   readPasswordSession,

@@ -414,7 +414,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
       addTeam: (name: string) => {
         const existing = teams.find((team) => team.name.toLowerCase() === name.toLowerCase());
         if (existing !== undefined) return Promise.resolve({ ...existing });
-        const team = { id: `team-${name.toLowerCase()}`, name };
+        const team = { id: `team-${name.toLowerCase()}`, name, serviceIds: [] };
         teams.push(team);
         return Promise.resolve({ ...team });
       },
@@ -1526,7 +1526,7 @@ describe('what a card says about capacity', () => {
 
   itDom('names the team a row carries', async () => {
     await aPlan((rows, teams) => {
-      teams.push({ id: 't1', name: 'Billing' });
+      teams.push({ id: 't1', name: 'Billing', serviceIds: [] });
       rows[0].serviceTeamId = 't1';
       rows[0].teamIds = ['t1'];
     });
@@ -1545,7 +1545,7 @@ describe('what a card says about capacity', () => {
     // `expected undefined to be '↳ Billing'`: the inheriting card drew no team
     // line at all. Watched 2026-08-13.
     await aPlan((rows, teams) => {
-      teams.push({ id: 't1', name: 'Billing' });
+      teams.push({ id: 't1', name: 'Billing', serviceIds: [] });
       const [parent, child] = rows;
       parent.serviceTeamId = 't1';
       parent.teamIds = ['t1'];
@@ -1665,7 +1665,7 @@ describe('what a card says about capacity', () => {
     // stayed green through exactly that move, which is why all three
     // dimensions are stated here. Watched 2026-08-21.
     await aPlan((rows, teams, api) => {
-      teams.push({ id: 't1', name: 'Billing' });
+      teams.push({ id: 't1', name: 'Billing', serviceIds: [] });
       api.services.push({ id: 's1', name: 'Payments' });
       api.tags.push({ id: 'g1', name: 'regulatory' });
       rows[0].serviceTeamId = 't1';
@@ -2679,7 +2679,7 @@ describe('a filter on a phone', () => {
     const api = fakeApi();
     const { id } = await api.createWorkItem('p1', { parentId: null, name: 'Strip the hull' });
     await api.createWorkItem('p1', { parentId: null, name: 'Paint' });
-    api.teams.push({ id: 't1', name: 'Billing' });
+    api.teams.push({ id: 't1', name: 'Billing', serviceIds: [] });
     // By the id `create` answered with rather than by position: a fake whose
     // first row is not the row this labels is a fixture quietly filtering on
     // something else, and the label is the whole of what these two tests ask.
@@ -2770,7 +2770,7 @@ describe('setting a card’s team', () => {
     // Proof: watched RED on h2puni at test-only 197da4f — the sheet opened but
     // `Add a team to 010` was absent; 100/103 passed.
     const api = await aPhonePlan((_rows, teams) => {
-      teams.push({ id: 't1', name: 'Billing' });
+      teams.push({ id: 't1', name: 'Billing', serviceIds: [] });
     });
 
     fireEvent.click(teamFields()[0]);
@@ -2782,7 +2782,10 @@ describe('setting a card’s team', () => {
 
   itDom('opens the shared phone sheet with every selected team removable', async () => {
     await aPhonePlan((rows, teams) => {
-      teams.push({ id: 't1', name: 'Billing' }, { id: 't2', name: 'Platform' });
+      teams.push(
+        { id: 't1', name: 'Billing', serviceIds: [] },
+        { id: 't2', name: 'Platform', serviceIds: [] },
+      );
       rows[0].serviceTeamId = 't1';
       rows[0].teamIds = ['t1', 't2'];
     });
@@ -2797,7 +2800,7 @@ describe('setting a card’s team', () => {
   itDom('keeps the shared sheet and typed team open when the write is refused', async () => {
     await aPhonePlan(
       (_rows, teams) => {
-        teams.push({ id: 't1', name: 'Billing' });
+        teams.push({ id: 't1', name: 'Billing', serviceIds: [] });
       },
       1,
       { refusePatch: true },
@@ -2820,7 +2823,7 @@ describe('setting a card’s team', () => {
   itDom('blocks a pending team double tap and closes after it lands', async () => {
     const api = fakeApi();
     await api.createWorkItem('p1', { parentId: null });
-    api.teams.push({ id: 't1', name: 'Billing' });
+    api.teams.push({ id: 't1', name: 'Billing', serviceIds: [] });
     let patchCalls = 0;
     let land: (() => void) | undefined;
     api.patchWorkItem = async () => {
@@ -2860,7 +2863,10 @@ describe('setting a card’s team', () => {
       // `CreatablePicker` — which is the argument for not drawing a phone-shaped
       // list of its own, stated as a test rather than in a comment.
       const api = await aPhonePlan((_rows, teams) => {
-        teams.push({ id: 't1', name: 'claire qa billing' }, { id: 't2', name: 'QA' });
+        teams.push(
+          { id: 't1', name: 'claire qa billing', serviceIds: [] },
+          { id: 't2', name: 'QA', serviceIds: [] },
+        );
       });
 
       fireEvent.click(teamFields()[0]);
@@ -2914,7 +2920,10 @@ describe('setting a card’s team', () => {
     // `getByRole('button', { name: 'Clear Service or team for 020' })` after
     // focusing the combobox. Watched in jsdom, 2026-08-23.
     const api = await aPhonePlan((rows, teams) => {
-      teams.push({ id: 't-parent', name: 'Billing' }, { id: 't-child', name: 'Platform' });
+      teams.push(
+        { id: 't-parent', name: 'Billing', serviceIds: [] },
+        { id: 't-child', name: 'Platform', serviceIds: [] },
+      );
       const [parent, child] = rows;
       parent.serviceTeamId = 't-parent';
       parent.teamIds = ['t-parent'];

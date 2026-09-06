@@ -81,3 +81,54 @@ describe('the fake answers markers the way be-01 does', () => {
     expect(api.markers.map((marker) => marker.color)).toEqual([automaticColor('m-cut')]);
   });
 });
+
+describe('the fake uses the shared tree response shape', () => {
+  it('validates the read before handing it to a screen', async () => {
+    const api = fakeProjectApi();
+    const made = await api.createWorkItem('p1', {
+      parentId: null,
+      afterId: null,
+      name: 'Wire it',
+    });
+
+    const plan = await api.tree('p1');
+
+    expect(plan.workItems.find((row) => row.id === made.id)).toMatchObject({
+      name: 'Wire it',
+      tagIds: [],
+      serviceIds: [],
+      typeIds: [],
+      externalRefs: [],
+    });
+  });
+
+  it('validates a mutation before changing the in-memory project', async () => {
+    const api = fakeProjectApi();
+
+    await expect(api.addStep('p1', 7 as never)).rejects.toThrow('fake_invalid_request');
+
+    expect(await api.steps('p1')).toEqual([
+      { id: 'step-dev', name: 'Dev' },
+      { id: 'step-qa', name: 'QA' },
+    ]);
+  });
+
+  it('validates a modeled refusal before handing it to a screen', async () => {
+    const api = fakeProjectApi();
+    const made = await api.createWorkItem('p1', {
+      parentId: null,
+      name: 'Estimated work',
+    });
+    await api.setEstimate(made.id, 'step-dev', {
+      optimistic: 1,
+      realistic: 2,
+      pessimistic: 3,
+    });
+
+    await expect(api.removeStep('p1', 'step-dev', false)).resolves.toMatchObject({
+      ok: false,
+      reason: 'in_use',
+      inUse: { estimates: 1 },
+    });
+  });
+});
