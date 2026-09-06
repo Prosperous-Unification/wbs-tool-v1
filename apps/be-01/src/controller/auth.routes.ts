@@ -91,11 +91,14 @@ export function oidcRouteOptionsFromEnv(env: Record<string, string | undefined>)
  * failures for it — that was true when Elysia answered 422 for a schema
  * violation and it is true now that this function does.
  *
- * **The status stays 422.** It is the one thing about this check a client can
- * observe, and `credentials()` was `t.Object({ username: t.String(), password:
- * t.String() })`, so a missing or non-string field was a schema failure and
- * Elysia's 422. Answering 400 here would move a refusal the front end already
- * distinguishes from `{error:'invalid'}`.
+ * **The status stays 422**, and it is not the only thing a client observes.
+ * `credentials()` was `t.Object({ username: t.String(), password: t.String() })`,
+ * so a missing or non-string field was a schema failure and Elysia's 422, and
+ * answering 400 here would move a refusal the front end already distinguishes
+ * from `{error:'invalid'}`. The **body** did change: Elysia's own validation
+ * report became `{ error: 'invalid_body' }`, which is why
+ * `apps/fe-01/src/components/wbs/wbs-table.tsx` maps that code. Keeping the
+ * status is what let that be a one-line mapping rather than a new branch.
  *
  * **Unknown properties are dropped rather than refused**, as everywhere else on
  * this branch: Elysia stripped them before the handler saw the body, so this

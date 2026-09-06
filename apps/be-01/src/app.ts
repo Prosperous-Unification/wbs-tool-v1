@@ -157,7 +157,11 @@ export interface AppOptions {
  * dropped from this array would otherwise be invisible here too.
  *
  * **Order is behaviour, not style.** Elysia matches in registration order, and
- * two adjacencies below are load-bearing rather than tidy.
+ * two *relative* orders below are load-bearing rather than tidy — relative, not
+ * adjacent, which an earlier version of this note got wrong: `historyRoutes` is
+ * separated from `projectRoutes` by the step, work-item and directory lists and
+ * is still correct, because nothing between them declares a path that could
+ * shadow `/:id/history`. What must not move is the order itself.
  */
 export function mountedRouteLists(
   opts: AppOptions,

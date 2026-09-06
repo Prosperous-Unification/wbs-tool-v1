@@ -122,10 +122,13 @@ export function bindInProcess(routes: readonly Route[]): {
  * The third row above is **not** a divergence and is deliberately left alone:
  * both binders drop a JSON body sent with no content type.
  *
- * Still open, and not this function's to close: the four operations lost their
+ * **Closed since this note was written.** The four operations lost their
  * media-type *declarations* in the emitted document when the controllers
- * stopped declaring TypeBox. Behaviour now matches again; the document does
- * not.
+ * stopped declaring TypeBox, and `checkedBody` now emits all three — JSON,
+ * form-urlencoded and multipart — for every body in that class
+ * (`../body-doc.ts`). Behaviour and document match. The committed
+ * `apps/be-01/openapi.json` is the check that keeps them matching, diffed by
+ * `openapi/openapi-document.test.ts`.
  */
 async function decodeBody(request: Request): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'DELETE') return undefined;
