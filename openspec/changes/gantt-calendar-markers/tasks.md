@@ -3252,7 +3252,7 @@ already written down somewhere else in this plan:
   being told "no" while still looking at the thing that is gone.
 - **The read failure is said out loud.** A silent one is a chart that draws no
   markers and gives no reason, which is indistinguishable from a project that
-  has none — and that indistinguishability *is* the bug this chunk was found by.
+  has none — and that indistinguishability _is_ the bug this chunk was found by.
 
 **Six api doubles had to grow the read**, and that is the `refusingApi` proxy
 working as designed rather than collateral: it refuses anything a test did not
@@ -3286,7 +3286,7 @@ h2puni's playwright. Then 9.2 and the rest of section 9, then 8.4.
 
 **The `fixme` was taken off and the tier was run on h2puni's playwright. It got
 much further and failed somewhere new** — so it went back on, and 8.2a stays
-unticked with a *different* reason than chunk 53 recorded.
+unticked with a _different_ reason than chunk 53 recorded.
 
 **What the run proves, and it is the point of chunk 54:** the case now clicks a
 dated axis cell, fills `Marker name`, saves, and the `POST …/calendar-markers`
@@ -3325,6 +3325,6 @@ down rather than guessed at:
 **Next**: this needs the failure's own trace read
 (`apps/fe-01/test-results/gantt-the-marker-rule-meas-c0ebd-*/trace.zip` on
 h2puni, plus `test-failed-1.png`), not another guess. The question to answer
-first is what the thirteen columns *are* — the scroll offset changing between
+first is what the thirteen columns _are_ — the scroll offset changing between
 the two photographs is the leading candidate, and if it is, the clip has to be
 pinned to the scrollport rather than recomputed from a box that moves.
