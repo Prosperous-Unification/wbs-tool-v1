@@ -335,18 +335,3 @@ above, this closes 7.3 and 7.11.
   that case red, as recorded in the durable failure-announcement section.
 
 This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.
-
-## 2026-09-06T22:54:23Z — materialised real-domain order relation
-
-- Test-only head `4d2dc637` failed before collection because the existing
-  server-side `schedulesHaveSameOrder` seam was private. Exact green head
-  `91e74b4a` on h2puni, worktree
-  `/home/puni1/t268-r3-order-final.6MAUrW`, passed all five relation cases;
-  scoped Prettier, be-01 fast lint, and be-01 typecheck were green.
-- The cases cover uniform shift, broken and created ties, a zero-duration slice
-  crossing another start, and the fractional domain discriminator. Replacing
-  the real starts with 1/48-grid floors left the first four green and made only
-  the fractional case red (`true` expected, `false` received); the mutation was
-  restored and the worktree was clean.
-
-This closes 8.7. No build or autotest ran on the queue-worker box.

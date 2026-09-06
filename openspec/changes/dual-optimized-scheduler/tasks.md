@@ -3924,7 +3924,7 @@ workdays` per missed item — Fast's lateness is a report, never a verdict
       to prevent.
 - [ ] 8.6 A user-facing feature: file one lane-q Browser Use Cloud QA task after
       deploy.
-- [x] 8.7 `sameOrder(a, b)` is the exact relation, computed server-side on the
+- [ ] 8.7 `sameOrder(a, b)` is the exact relation, computed server-side on the
       **materialised** schedules and shipped as one boolean beside the
       day-count delta: it holds iff for every pair of slices present in both,
       `sign(startA(s) - startA(t)) === sign(startB(s) - startB(t))` compared in
