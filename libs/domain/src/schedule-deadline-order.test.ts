@@ -237,6 +237,34 @@ describe('minimum slack orders the ready set', () => {
     expect(planned(forward, 'a', DEV)).toMatchObject({ earliestStart: 0 });
     expect(planned(forward, 'b', DEV)).toMatchObject({ earliestStart: 2, boundBy: 'person' });
   });
+
+  it('refuses a NUL in either half of a slice key rather than merging two slices', () => {
+    // The other half of the same determinism claim, and the one the round-3
+    // review found: the comparator's last two rules are total only while two
+    // different work items cannot share a key, and `sliceKey` joins its halves
+    // with a NUL that nothing used to reject. A work item id ending in one and
+    // a step id beginning with one produce a single key from two different
+    // pairs, and each being its own group's only slice they also share
+    // `at === 0` — so `goesFirst` would be false both ways and the row order
+    // would decide again.
+    //
+    // Refused at the key rather than ordered around: the pair is also one row
+    // overwriting the other in `Schedule.slices`, so a plan that reached the
+    // comparator with it is already a plan with a slice missing.
+    const collide = () => sliceKey('a\u0000b', 'c');
+    expect(sliceKey('a', 'b')).toBe(sliceKey('a', 'b'));
+    expect(collide).toThrow(/neither a work item id nor a step id may contain a NUL/);
+    expect(() => sliceKey('a', 'b\u0000c')).toThrow(
+      /neither a work item id nor a step id may contain a NUL/,
+    );
+
+    // The scheduler refuses the plan rather than silently losing a row.
+    const rows = [item('a\u0000b'), item('x')];
+    const slices = [slice('a\u0000b', DEV, 2, 'kat'), slice('x', DEV, 2, 'kat')];
+    expect(() => withDeadlines(rows, slices, new Map())).toThrow(
+      /neither a work item id nor a step id may contain a NUL/,
+    );
+  });
 });
 
 /**

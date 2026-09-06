@@ -102,11 +102,27 @@ export type PoolSizes = ReadonlyMap<string, number>;
  * The key one slice is held under. Opaque: read {@link ScheduledSlice}'s own
  * `workItemId` and `stepId` rather than taking this apart.
  *
- * Separated by a NUL, which no id can contain, so no two pairs can collide by
- * running into each other. Written as an escape rather than typed: a literal
- * NUL in a source file makes git call the file binary.
+ * Separated by a NUL, so no two pairs can collide by running into each other.
+ * Written as an escape rather than typed: a literal NUL in a source file makes
+ * git call the file binary.
+ *
+ * **The separator is refused in the halves rather than assumed absent from
+ * them.** This doc used to say "which no id can contain", and nothing enforced
+ * it: both halves are plain `string`s and no boundary above here rejects the
+ * byte. A work item id ending in one and a step id beginning with one are two
+ * different slices of two different work items with a single key — they would
+ * overwrite each other in {@link Schedule.slices}, and, each being its own
+ * group's only slice, would both sit at `at === 0` and so tie in
+ * {@link SlicePriority}'s last two rules together, which is the exact
+ * ambiguity the key was added to close. Found by review 2026-09-06, against
+ * the claim rather than against the behaviour.
  */
 export function sliceKey(workItemId: string, stepId: string | null): string {
+  if (workItemId.includes('\u0000') || (stepId ?? '').includes('\u0000')) {
+    throw new Error(
+      `slice key: neither a work item id nor a step id may contain a NUL, and ${JSON.stringify(workItemId)} / ${JSON.stringify(stepId)} does`,
+    );
+  }
   return `${workItemId}\u0000${stepId ?? ''}`;
 }
 
@@ -1130,7 +1146,10 @@ interface SlicePriority {
    *
    * The pair is total, and each half covers what the other cannot. Two nodes
    * that tie on `at` are in different groups — `at` is the index within one —
-   * so they have different `workItemId` and different keys. Two nodes that tie
+   * so they have different `workItemId`, and therefore different keys, because
+   * {@link sliceKey} now **refuses** a NUL in either half rather than assuming
+   * one is absent; without that refusal two different pairs could run into
+   * each other across the separator and produce one key. Two nodes that tie
    * on the key are in one group, so they have different `at`. Without both,
    * `goesFirst(a, b)` and `goesFirst(b, a)` are false together, the eligible
    * set is a heap, and the order the rows arrived in decides who takes the
