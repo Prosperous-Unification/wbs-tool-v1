@@ -264,12 +264,13 @@ describe('classifyOidcFailure', () => {
         'ERR_SSL_TLSV1_ALERT_ACCESS_DENIED',
         // The same refusal aimed at a pre-shared key rather than a certificate.
         'ERR_SSL_TLSV1_ALERT_UNKNOWN_PSK_IDENTITY',
-        // RFC 6066's three alerts about a credential of ours the peer was handed
-        // a pointer to. All three are spelled with no `alert` in the reason
-        // string, so they arrive as `ERR_SSL_TLSV1_<NAME>`.
+        // RFC 6066 §5's two alerts about a credential of ours the peer was handed
+        // a pointer to. Both are spelled with no `alert` in the reason string,
+        // so they arrive as `ERR_SSL_TLSV1_<NAME>`. The third RFC 6066
+        // certificate alert, `bad_certificate_status_response`, is deliberately
+        // not here — see the case below.
         'ERR_SSL_TLSV1_CERTIFICATE_UNOBTAINABLE',
         'ERR_SSL_TLSV1_BAD_CERTIFICATE_HASH_VALUE',
-        'ERR_SSL_TLSV1_BAD_CERTIFICATE_STATUS_RESPONSE',
         // The spelling the rules were written against before this was measured.
         // Kept so a future OpenSSL that regularises the reason table does not
         // silently drop the row.
@@ -499,6 +500,28 @@ describe('classifyOidcFailure', () => {
           reason: 'provider_unreachable',
         });
       }
+    });
+
+    it('does not read a server OCSP alert as our credential being refused', () => {
+      // RFC 8446 §6.2 names the sender of `bad_certificate_status_response` as
+      // the client rejecting a server's OCSP response, and this code is the
+      // client. Receiving alert 113 is therefore the far end failing in a role
+      // it should not have taken, and it says nothing about a credential of
+      // ours. Filing it with the credential alerts would page an operator to
+      // check client credentials that were never in question — the misfiling
+      // this module exists to stop. It is still a recognised alert, so it takes
+      // the open-ended answer: evidence about the peer.
+      const failure = classifyOidcFailure(
+        new TypeError('fetch failed', {
+          cause: { code: 'ERR_SSL_TLSV1_BAD_CERTIFICATE_STATUS_RESPONSE' },
+        }),
+      );
+
+      expect(failure).toEqual({ kind: 'unavailable', reason: 'provider_unreachable' });
+      expect(failure.reason).not.toBe('client_authentication_failed');
+      // And it must still be recognised as an alert rather than falling out as
+      // an unread code, which is a different answer with a different move.
+      expect(failure.reason).not.toBe('unrecognised_failure');
     });
 
     it('does not admit a non-alert OpenSSL failure through the slash', () => {

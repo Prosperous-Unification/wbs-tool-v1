@@ -323,18 +323,23 @@ function alertNameOf(code: string): string | undefined {
  * typed anything wrong, every login fails, and waiting will not help. They take
  * the same `client_authentication_failed` slug.
  *
- * The last three are RFC 6066's alerts about a credential of ours that the peer
- * was handed a *pointer* to rather than the credential itself: §5's
+ * The last two are RFC 6066 §5's alerts about a credential of ours that the peer
+ * was handed a *pointer* to rather than the credential itself:
  * `certificate_unobtainable` is the peer failing to fetch our certificate from
- * the URL we supplied and `bad_certificate_hash_value` is that certificate not
- * matching the hash we supplied with it. `bad_certificate_status_response` is
- * the one worth stating plainly: RFC 8446 §6.2 names its sender as the client,
- * which is the role we play, so receiving it means a peer objected in a role it
- * should not have taken. It is filed here rather than given an arm of its own
- * because the answer is the same either way — nothing about the provider's
- * availability is established, nobody typed anything wrong, and only an
- * operator can act. None of the three can arrive at all unless a deployment
- * enabled an extension this project does not use, which is the same move.
+ * the URL we supplied, and `bad_certificate_hash_value` is that certificate not
+ * matching the hash we supplied with it. Both are about a credential we offered,
+ * neither can arrive unless a deployment enabled an extension this project does
+ * not use, and an operator rather than time has to act on either.
+ *
+ * **`bad_certificate_status_response` is deliberately not here**, though it is
+ * the third RFC 6066 alert and reads like the third member. RFC 8446 §6.2 names
+ * its sender as the *client* rejecting a server's OCSP response, and this code
+ * is the client — so receiving alert 113 is the far end failing in a role it
+ * should not have taken, and nothing in it says a credential of ours was
+ * refused. Filing it here would page an operator to check client credentials
+ * that were never in question, which is the exact misfiling this module exists
+ * to stop. It stays a recognised alert and takes the open-ended answer every
+ * other recognised alert takes: evidence about the peer, so `unavailable`.
  */
 const CLIENT_CREDENTIAL_ALERTS: ReadonlySet<string> = new Set([
   'BAD_CERTIFICATE',
@@ -348,7 +353,6 @@ const CLIENT_CREDENTIAL_ALERTS: ReadonlySet<string> = new Set([
   'UNKNOWN_PSK_IDENTITY',
   'CERTIFICATE_UNOBTAINABLE',
   'BAD_CERTIFICATE_HASH_VALUE',
-  'BAD_CERTIFICATE_STATUS_RESPONSE',
 ]);
 
 /**
