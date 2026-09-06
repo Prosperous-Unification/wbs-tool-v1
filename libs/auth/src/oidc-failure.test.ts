@@ -274,14 +274,16 @@ describe('classifyOidcFailure', () => {
       // credential was refused and nothing is going to change on its own, so
       // waiting — the `unavailable` move — would be advice that never comes
       // true. An operator has to change one side's TLS configuration.
-      // Every member quotes something we sent, which is what keeps it out of the
-      // `indeterminate` arm below.
+      // Every member quotes something we sent *and says what is wrong with it* —
+      // our version is unsupported, our ciphers too weak, our message missing a
+      // required extension or carrying a forbidden one. That is what keeps them
+      // out of the `indeterminate` arm below, where the alert reports only that
+      // two sets did not overlap.
       for (const code of [
         'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
         'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
         'ERR_SSL_TLSV13_ALERT_MISSING_EXTENSION',
         'ERR_SSL_TLSV1_ALERT_UNSUPPORTED_EXTENSION',
-        'ERR_SSL_TLSV1_ALERT_NO_APPLICATION_PROTOCOL',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'defect',
@@ -290,17 +292,21 @@ describe('classifyOidcFailure', () => {
       }
     });
 
-    it('calls a handshake failure indeterminate, because the alert names no party', () => {
+    it('calls an alert that reports no overlap indeterminate, because it names no party', () => {
       // RFC 5246 §7.2.2's alert 40 is "unable to negotiate an acceptable set of
-      // security parameters": an outcome, with no sentence about whose
-      // parameters. A provider node with the wrong chain and a cipher list of
-      // ours their new config stopped accepting both arrive here, and nothing
-      // in the evidence separates them. One case per version prefix, because the
+      // security parameters" and RFC 8446 §6.2's `NO_APPLICATION_PROTOCOL` is a
+      // client advertising only protocols the server does not support. Both name
+      // the outcome — the two sets did not overlap — and neither says whose set
+      // should have contained the other's. A provider node with the wrong chain,
+      // a rollout that dropped the protocol we offer, and a cipher or ALPN list
+      // of ours their new config stopped accepting all arrive here, and nothing
+      // in the evidence separates them. Three prefixes for alert 40 because the
       // rule is written against the alert and not against the OpenSSL family.
       for (const code of [
         'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV1_ALERT_HANDSHAKE_FAILURE',
         'ERR_SSL_TLSV13_ALERT_HANDSHAKE_FAILURE',
+        'ERR_SSL_TLSV1_ALERT_NO_APPLICATION_PROTOCOL',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'indeterminate',
@@ -440,6 +446,7 @@ describe('classifyOidcFailure', () => {
         'client_authentication_failed',
         'request_rejected',
         'local_defect',
+        'tls_negotiation_failed',
         'unrecognised_failure',
         'unreadable_failure',
       ]);
