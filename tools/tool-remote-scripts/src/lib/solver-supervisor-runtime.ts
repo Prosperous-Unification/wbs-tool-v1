@@ -1,14 +1,14 @@
 import { BunManagedContainerDriver } from './solver-supervisor-driver';
 import {
-  listenForSupervisorConnections,
-  type SupervisorUnixListenerOptions,
-} from './solver-supervisor-listener';
-import {
-  runManagedSolverAttempt,
   type ManagedContainerDriver,
+  runManagedSolverAttempt,
   type SupervisorLifecycleOptions,
   sweepManagedSolverOrphans,
 } from './solver-supervisor-lifecycle';
+import {
+  listenForSupervisorConnections,
+  type SupervisorUnixListenerOptions,
+} from './solver-supervisor-listener';
 import {
   hostSupervisorPeerDependencies,
   type SupervisorBackendInspector,

@@ -6,17 +6,17 @@ import type {
   ManagedDeadlineTimer,
   SupervisorAttemptChannel,
 } from './solver-supervisor-lifecycle';
-import type { SupervisorConnectionDependencies } from './solver-supervisor-service';
 import {
   SUPERVISOR_PROTOCOL_VERSION,
   type SupervisorReplyFrame,
   type SupervisorStartFrame,
 } from './solver-supervisor-protocol';
 import {
-  startSolverSupervisor,
   type SolverSupervisorDriver,
+  startSolverSupervisor,
   type SupervisorListen,
 } from './solver-supervisor-runtime';
+import type { SupervisorConnectionDependencies } from './solver-supervisor-service';
 
 const CALLER_ID = 'a'.repeat(64);
 const CONTAINER_ID = 'b'.repeat(64);
@@ -34,8 +34,9 @@ const FRAME: SupervisorStartFrame = {
   request: { wireVersion: 1, objective: 'pri' },
 };
 
-async function* noOutput(): AsyncGenerator<Uint8Array> {
+async function* output(...values: string[]): AsyncGenerator<Uint8Array> {
   await Promise.resolve();
+  for (const value of values) yield new TextEncoder().encode(value);
 }
 
 class FakeDriver implements SolverSupervisorDriver {
@@ -63,8 +64,8 @@ class FakeDriver implements SolverSupervisorDriver {
     this.events.push('attach');
     return Promise.resolve({
       closed: Promise.resolve(),
-      stdout: noOutput(),
-      stderr: noOutput(),
+      stdout: output(),
+      stderr: output(),
       write: () => Promise.resolve(),
     });
   }
