@@ -75,9 +75,8 @@ function stateOf(socket: Bun.Socket<SupervisorSocketState | undefined>): Supervi
 export function supervisorSocketHandler(
   options: SupervisorUnixListenerOptions,
   dependencies: SupervisorConnectionDependencies,
-): Bun.SocketHandler<SupervisorSocketState | undefined, 'uint8array'> {
+): Bun.SocketHandler<SupervisorSocketState | undefined> {
   return {
-    binaryType: 'uint8array',
     open(socket) {
       const input = new SupervisorSocketInput(options.maxInputBytes);
       const writer = new SupervisorSocketWriter(socket);
