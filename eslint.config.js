@@ -230,13 +230,25 @@ export default [
   // still too narrow — it left every other directory under `src/` (`service/`,
   // `repository/`, `openapi/`, `realtime/`) unfenced, so a controller importing
   // a service that imports the framework passed both blocks. **The fence is now
-  // the whole of `apps/be-01/src`, by exception rather than by inclusion**, and
-  // that is what makes AC 1 transitive *by construction*: every module on every
-  // import chain that begins in `controller/` and stays inside this project is
-  // covered, with no graph to walk and no second tool to maintain.
+  // the whole of `apps/be-01/src`, by exception rather than by inclusion** — so
+  // no module under `src/` can name the framework in a static specifier unless
+  // it is one of the four exceptions below, with no graph to walk and no second
+  // tool to maintain.
   //
-  // The exceptions are the entire list of modules under `src/` that name the
-  // framework — measured at `a2dd1153`, not assumed:
+  // **What that does NOT buy, because a review found the comment here claiming
+  // it did** (TASK-270 run 5, `queue/reviews/t270-r5-sol-3445accd.md`, measured
+  // with probes now in `~/t270-probes/` on h2puni): this is not transitivity in
+  // general. `import '../app'` from a fenced module raises nothing — and must
+  // not, since `boot.ts` and a dozen suites build the app on purpose — so the
+  // framework is one hop away through either exempt composition module.
+  // `await import('elysia')` and `require('elysia')` raise nothing either; this
+  // rule reads static import and export declarations only. The enforced claim
+  // is therefore the narrow one, which is what AC 1's second branch asks for:
+  // *no static specifier outside the exceptions resolves to the framework*.
+  // `app.routes.test.ts` and the `git grep` control cover what this cannot.
+  //
+  // The exceptions are the modules under `src/` that name the framework —
+  // measured at `a2dd1153`, not assumed — plus one that imports the adapter:
   //
   //     git grep -lE "from '(elysia|elysia/[^']*|@elysiajs/[^']*)'|\
   //     from '[^']*http/elysia/" -- apps/be-01/src
@@ -249,11 +261,18 @@ export default [
   //   meet the route list, and AC 1 has always named it.
   // - `openapi/openapi-plugin.ts` imports `@elysiajs/openapi` and is a plugin
   //   `app.ts` mounts, not a module on any controller's import path.
-  // - `http/binder.contract.test.ts` is AC 3's parameterised suite, whose whole
-  //   job is to run one route list through BOTH binders, so it imports
-  //   `./elysia/bind` on purpose. Measured, not guessed — it was the one file
-  //   in `http/` the narrower block reddened (`elysia/*` matches a
-  //   `./elysia/…` specifier).
+  // - `http/binder.contract.test.ts` does not name the framework; it names the
+  //   adapter. It is AC 3's parameterised suite, whose whole job is to run one
+  //   route list through BOTH binders, so it imports `./elysia/bind` on purpose.
+  //   Measured, not guessed — it was the one file in `http/` the narrower block
+  //   reddened (`elysia/*` matches a `./elysia/…` specifier, and a `../elysia/…`
+  //   one too).
+  //
+  // These four are exempt from **this block**, which means they are also exempt
+  // from the `bun:sqlite` path it repeats. They are not unrestricted: the
+  // `src/**` block above at `:147` still supplies them that same restriction,
+  // measured by probe. Only `repository/db.ts` is exempt from `bun:sqlite`
+  // outright, and that is by name in both blocks.
   // - `controller/**` is ignored *here* only because the block above already
   //   fences it with a message written for route authors. Flat config replaces
   //   a rule's options per file rather than merging them, so without this
