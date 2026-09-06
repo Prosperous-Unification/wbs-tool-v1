@@ -1,6 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; coordinator admission, restart-safe FIFO launch, generation reuse/eviction, and the transaction-owned event-log seam are landed. Next make a newly stored optimized outcome and its replay event one transaction, followed by one best-effort post-commit push. Do not merge or install the host service.
+Active TASK-220: `change/optimized-scheduler-coordinator`, PR 216; coordinator admission, restart-safe FIFO launch, generation reuse/eviction, and atomic `schedule_optimized` replay records with best-effort post-commit pushes are landed. Next reconcile the remaining owned 6.9 negative-proof matrix; failure events and Retry remain deferred. Do not merge or install the host service.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),

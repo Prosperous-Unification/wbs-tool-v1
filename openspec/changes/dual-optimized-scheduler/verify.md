@@ -35,3 +35,26 @@ the complete authoritative run recorded above.
 The seam is now explicit: transaction owners call `recordEventIn`, commit, and
 then make the best-effort socket push through `pushRecorded`; the convenience
 `publish` path composes one durable record with one push.
+
+## 2026-09-06T10:58:01Z — atomic optimized-result events
+
+- Head: `f14c6d2bd1f566c6813596d386e6920b636eb682`
+- Host: `h2puni`, clean exact-head checkout
+  `/home/puni1/t220-r25-final2.TsxGEY`
+- Command: `NX_DAEMON=false bunx nx run-many -t test lint typecheck
+  --projects=be-01 --parallel=1 --skip-nx-cache`, followed by scoped Prettier.
+- Verdict: exit 0; be-01 1,671 passed / 0 failed across 139 files, lint and
+  typecheck green, and all nine changed files formatted.
+- The focused event suite passed 3/0: two cold-result variants each recorded
+  and pushed once, a cache hit emitted nothing, an injected event-write crash
+  rolled the cache insert back, and a process stopping before the push still
+  left the event available through replay.
+- Watched negative: splitting the cache insert and event record into separate
+  transactions made the rollback proof fail 1/1: the cache count was 1 where
+  zero was required. The fault was reversed and the checkout returned clean.
+
+`schedule_optimized` now carries the full identity including `budgetMs`.
+`storeOptimizedOutcomeAndRecord` writes the cache row and replay record in one
+transaction only when a result is newly stored; the coordinator then invokes
+the already-recorded best-effort push. The deferred failure-event path will
+reuse the same transaction and push seam.

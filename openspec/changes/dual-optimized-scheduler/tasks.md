@@ -3768,7 +3768,7 @@ attemptToken)` predicate governs **worker-owned outcome writes only**;
       exactly one `schedule_optimization_failed` in the same transaction as its
       marker row, including for a pre-spawn `horizon-overflow` or
       `objective-overflow`.
-- [ ] 7.2 `schedule_optimized` added to `ProjectEvent` in
+- [x] 7.2 `schedule_optimized` added to `ProjectEvent` in
       `apps/be-01/src/service/broadcast.ts`, carrying `(projectId, generation,
 inputHash, objective, contractVersion, budgetMs)` (7.7). **The cache row
       and the `event_log` record are written in one SQLite transaction** and the
@@ -3821,7 +3821,7 @@ subscription, message, createdAt)` writes inside the caller's
 recorded, event)` buffers and pushes an already-recorded sequence
       without recording it twice; today `recordEvent` opens its own
       transaction and `publish` does both. `publish` becomes those two calls.
-- [ ] 7.9 The guarantee is narrowed in every artifact to **one durable replay
+- [x] 7.9 The guarantee is narrowed in every artifact to **one durable replay
       record plus one best-effort post-commit push** — `event_log` is a replay
       buffer consulted on resume, not a dispatched-and-acknowledged outbox,
       and a process can die after commit and before the push, so "delivered
