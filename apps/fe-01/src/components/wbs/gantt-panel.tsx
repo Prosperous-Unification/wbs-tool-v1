@@ -1872,8 +1872,12 @@ interface StandaloneGanttSvgInput {
    * halves of one file disagree — bars laid out at 4px a day under an axis
    * printed at 28 — which is precisely the drift a downloaded file cannot be
    * checked for after the fact.
+   *
+   * Typed as the rung and not as a `number`: the chips this file draws are
+   * resolved through {@link markersDrawnInBand}, whose per-cell cap is a table
+   * keyed by the ladder, and a width off the ladder has no entry in it.
    */
-  dayPx: number;
+  dayPx: DayPx;
   labels: readonly GanttRowLabel[];
   axis: readonly AxisDay[];
   drawnBars: readonly PlacedBar[];
