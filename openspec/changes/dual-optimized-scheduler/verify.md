@@ -92,3 +92,24 @@ green case stands in for another fence.
 
 This closes the coordinator/cache/event portion of 6.9b. Its checkbox remains
 open for the plan-read DTO's `idle` rendering, which belongs with slice 7.10.
+
+## 2026-09-06T11:51:04Z — plan-read optimizer state checkpoint
+
+- Head: `2600a3e9e646a529f912ce7d956c7065d536d91b`
+- Host: `h2puni`, worktree `/home/puni1/t220-r27.o9jpyv`
+- Gate: the full be-01 test run passed 1,675/0 across 140 files and typecheck
+  passed; after correcting one import-order-only lint finding, be-01 lint,
+  typecheck, and the corrected file's focused tests passed again.
+- Contract proofs cover all seven variant states, disabled and zero-work
+  identity without generation allocation, cold `pending`, metadata and Fast
+  fallback in `tree()`, and comparison presence only for a ready selected
+  variant.
+- Watched negative: dropping `budget_ms` from the live-slot predicate made a
+  failed row read `retrying` solely because a different-budget slot existed.
+  The focused remote test failed 0/1 with that exact mismatch; the predicate
+  was restored and the green gate above followed.
+
+This is the service/coordinator half of 7.10. Its checkbox stays open until the
+seven states are proven through the real controller payload, as that task
+explicitly requires. Likewise 6.9b stays open until its controller-level
+empty-plan payload proof lands.
