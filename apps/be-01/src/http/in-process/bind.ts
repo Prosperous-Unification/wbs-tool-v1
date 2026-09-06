@@ -377,6 +377,21 @@ function foldRepeats(entries: URLSearchParams): Record<string, unknown> {
   );
 }
 
+/**
+ * Whether this runtime has a global `File` at all.
+ *
+ * Elysia asks the same question twice — `typeof File==='undefined'?[]:…` and a
+ * guarded `isFile` (`adapter/web-standard/index.mjs:62-65` and `:81-84`) —
+ * because a runtime can expose `FormData` without it, and there an unguarded
+ * `instanceof` throws before the handler where the framework carries on. Bun
+ * has `File`, so nothing in the gate exercises the other branch; it is here
+ * because reproducing the parser means reproducing its guards, not the subset
+ * this runtime happens to reach.
+ */
+function hasFile(): boolean {
+  return typeof File !== 'undefined';
+}
+
 /** `__proto__`, `constructor`, `prototype` — bare, or as the `name` of a `name[0]`. */
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -430,7 +445,7 @@ function coerceSingle(value: FormDataEntryValue): unknown {
  */
 function foldFilesIntoObject(values: unknown[]): unknown {
   const stringValue = values.find((entry): entry is string => typeof entry === 'string');
-  const files = values.filter((entry): entry is File => entry instanceof File);
+  const files = hasFile() ? values.filter((entry): entry is File => entry instanceof File) : [];
   if (stringValue === undefined || files.length === 0 || stringValue.charCodeAt(0) !== 0x7b)
     return values;
   try {
@@ -456,30 +471,29 @@ function foldFilesIntoObject(values: unknown[]): unknown {
  * that crossed the service-call boundary — see `decodeBody` — and the other two
  * came with it because they share the loop.
  *
- * **The target is a plain `{}` and not `Object.create(null)`, and that is the
- * whole of the third rule.** `if (key in body) continue` is Elysia's
- * `if(c.body[key])continue`, and on a normally-parented object both spellings
- * are true of every key `Object.prototype` already answers — so a top-level
- * field literally named `__proto__`, `constructor` or `toString` is **skipped
- * before it is ever assigned**, under the framework and here. That is why the
- * measured table records `__proto__=x, ok=y` answering `{"ok":"y"}` under
- * Elysia while this binder, folding with `Object.fromEntries` onto a fresh
- * object, used to answer both fields. The named `DANGEROUS_KEYS` set below is a
- * second and explicit guard, which the framework applies only on the
- * nested-path branch where a walk could otherwise reach `constructor.prototype`.
+ * **The third rule has no parser in it: it is the target object.** The body is
+ * accumulated onto a plain `{}` and not `Object.create(null)`, so
+ * `if (body[key]) continue` — the framework's own line — is already true of
+ * every key `Object.prototype` answers, and a top-level field named
+ * `__proto__`, `constructor` or `toString` is **skipped before it is ever
+ * assigned**. That is why the measured table records `__proto__=x, ok=y`
+ * answering `{"ok":"y"}` under Elysia while this binder, folding with
+ * `Object.fromEntries` onto a fresh object, used to answer both fields.
+ * {@link DANGEROUS_KEYS} is a second and explicit guard, which the framework
+ * applies only on the nested-path branch where a walk could otherwise reach
+ * `constructor.prototype`.
  *
- * Iterating `new Set(form.keys())` rather than the raw keys costs nothing: a
- * key repeated in the form yields `getAll(key).length >= 2`, so its value is an
- * array and always truthy, and Elysia's guard skips the second visit for
- * exactly that reason. The keys Elysia does re-enter are the nested ones —
- * `a.b` writes `body.a.b` and never sets `body['a.b']`, so its guard cannot see
- * them — and a re-entry there re-reads the same `getAll` and walks to the same
- * slot, so it writes what the first pass wrote. Same answer, one pass.
+ * The iteration is Elysia's too — every occurrence in `form.keys()`, skipped on
+ * a truthy `body[key]` — rather than a de-duplicated pass. A `new Set` here read
+ * as an obvious equivalence and reviewed as a possible divergence twice, which
+ * is reason enough to stop having the argument: a path-shaped key never sets
+ * `body[theWholeKey]`, so the framework revisits it, and the port now revisits
+ * it identically instead of asking a reader to prove the revisit is inert.
  */
 function parseMultipart(form: FormData): Record<string, unknown> {
   const body: Record<string, unknown> = {};
-  for (const key of new Set(form.keys())) {
-    if (key in body) continue;
+  for (const key of form.keys()) {
+    if (body[key]) continue;
     const values = form.getAll(key);
     const finalValue = values.length === 1 ? coerceSingle(values[0]) : foldFilesIntoObject(values);
     if (!key.includes('.') && !key.includes('[')) {
@@ -506,7 +520,7 @@ function parseMultipart(form: FormData): Record<string, unknown> {
         existing === null ||
         typeof existing !== 'object' ||
         Array.isArray(existing) ||
-        existing instanceof File
+        (hasFile() && existing instanceof File)
       ) {
         slot[arrayKey.index] = reparentSlot(existing);
       }
