@@ -21,6 +21,7 @@ const CONFIG = JSON.stringify({
   maxMemoryLimitMb: 512,
   pidsLimit: 128,
   maxManagedContainers: 16,
+  devSourceSha: 'd'.repeat(40),
   images: [{ callerName: 'be-01-blue', callerImage: IMAGE, solverImage: IMAGE }],
 });
 

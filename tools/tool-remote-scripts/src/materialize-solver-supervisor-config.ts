@@ -7,6 +7,7 @@ export interface SolverSupervisorConfigArgs {
   blueImage: string;
   greenImage: string;
   devSolverImage: string;
+  devSourceSha: string;
   output: string;
   replace: boolean;
 }
@@ -45,7 +46,9 @@ export function parseSolverSupervisorConfigArgs(
       replace = true;
       continue;
     }
-    if (!['blue-image', 'green-image', 'dev-solver-image', 'output'].includes(name)) {
+    if (
+      !['blue-image', 'green-image', 'dev-solver-image', 'dev-source-sha', 'output'].includes(name)
+    ) {
       throw new Error(`unexpected argument ${raw}`);
     }
     if (options.has(name)) throw new Error(`duplicate --${name}`);
@@ -59,6 +62,7 @@ export function parseSolverSupervisorConfigArgs(
     blueImage: required(options, 'blue-image'),
     greenImage: required(options, 'green-image'),
     devSolverImage: required(options, 'dev-solver-image'),
+    devSourceSha: required(options, 'dev-source-sha'),
     output,
     replace,
   };
@@ -66,7 +70,10 @@ export function parseSolverSupervisorConfigArgs(
 
 /** Renders the complete host authority document and re-decodes it before use. */
 export function renderSolverSupervisorConfig(
-  images: Pick<SolverSupervisorConfigArgs, 'blueImage' | 'greenImage' | 'devSolverImage'>,
+  images: Pick<
+    SolverSupervisorConfigArgs,
+    'blueImage' | 'greenImage' | 'devSolverImage' | 'devSourceSha'
+  >,
 ): string {
   const config = {
     socketPath: SOLVER_SUPERVISOR_SOCKET,
@@ -74,6 +81,7 @@ export function renderSolverSupervisorConfig(
     maxMemoryLimitMb: 512,
     pidsLimit: 128,
     maxManagedContainers: 16,
+    devSourceSha: images.devSourceSha,
     images: [
       {
         callerName: 'be-01-blue',

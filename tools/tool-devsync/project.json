@@ -13,6 +13,7 @@
         "{workspaceRoot}/bin/dev-be-probe.sh",
         "{workspaceRoot}/bin/dev-mcp-preflight.sh",
         "{workspaceRoot}/bin/dev-mcp-probe.sh",
+        "{workspaceRoot}/deploy/dev-src/compose.yml",
         "{workspaceRoot}/apps/*/project.json",
         "{workspaceRoot}/libs/*/project.json",
         "{workspaceRoot}/tools/*/project.json",

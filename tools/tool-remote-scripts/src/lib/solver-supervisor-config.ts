@@ -7,9 +7,11 @@ const CONFIG_KEYS = [
   'maxMemoryLimitMb',
   'pidsLimit',
   'maxManagedContainers',
+  'devSourceSha',
   'images',
 ] as const;
 const SOCKET_PATH = /^\/run\/user\/[1-9][0-9]*\/wbs-solver\/supervisor\.sock$/;
+const COMMIT_SHA = /^[0-9a-f]{40}$/;
 
 function defect(message: string): Error {
   return new Error(`solver supervisor config: ${message}`);
@@ -52,6 +54,9 @@ export function decodeSolverSupervisorConfig(
     'maxManagedContainers',
     16,
   );
+  if (typeof config['devSourceSha'] !== 'string' || !COMMIT_SHA.test(config['devSourceSha'])) {
+    throw defect('devSourceSha must be a full lowercase commit SHA');
+  }
   const images = supervisorImagePolicy(config['images']);
 
   return {

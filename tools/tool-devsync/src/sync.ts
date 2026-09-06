@@ -13,11 +13,85 @@
  *
  * Run via: `bun tools/tool-devsync/src/sync.ts <sha>`.
  */
+import {
+  SOLVER_SUPERVISOR_BUN,
+  SOLVER_SUPERVISOR_BUNDLE,
+  SOLVER_SUPERVISOR_CONFIG,
+  SOLVER_SUPERVISOR_SERVICE,
+  SOLVER_SUPERVISOR_SOCKET,
+} from '@wbs/deploy-contract';
 import { $ } from 'bun';
 
 const SRC = '/home/puni1/wbs-dev/src';
 const CONTAINER = 'wbs-dev-src';
 const LOCK = '/home/puni1/wbs-dev/state/devsync.lock';
+const CONFIG_MAX_BYTES = 256 * 1024;
+export const SOLVER_COMPATIBILITY_PATHS = ['libs/solver-py', 'apps/be-01/Dockerfile'] as const;
+
+export interface DevSolverMapping {
+  sourceSha: string;
+  image: string;
+}
+
+/** Reads only the independent compatibility identity; the supervisor decodes the whole file. */
+export function devSolverMappingOf(text: string): DevSolverMapping {
+  const value = JSON.parse(text) as unknown;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('solver supervisor config root is not an object');
+  }
+  const config = value as Record<string, unknown>;
+  const sourceSha = config['devSourceSha'];
+  if (typeof sourceSha !== 'string' || !/^[0-9a-f]{40}$/.test(sourceSha)) {
+    throw new Error('solver supervisor config has no valid devSourceSha');
+  }
+  const images = config['images'];
+  if (!Array.isArray(images)) throw new Error('solver supervisor config images is not an array');
+  const devRules = images.filter(
+    (rule) =>
+      typeof rule === 'object' &&
+      rule !== null &&
+      !Array.isArray(rule) &&
+      (rule as Record<string, unknown>)['callerName'] === 'wbs-dev-src',
+  );
+  if (devRules.length !== 1) throw new Error('solver supervisor config needs one dev image rule');
+  const image = (devRules[0] as Record<string, unknown>)['solverImage'];
+  if (typeof image !== 'string' || !/^[^\s@]+@sha256:[0-9a-f]{64}$/.test(image)) {
+    throw new Error('solver supervisor config dev image is not digest-pinned');
+  }
+  return { sourceSha, image };
+}
+
+export function assertDevSolverSourceCompatible(changedPaths: readonly string[]): void {
+  if (changedPaths.length === 0) return;
+  throw new Error(
+    `dev solver mapping is stale for ${changedPaths.join(', ')}; publish the backend image and materialize a new supervisor config before deploying`,
+  );
+}
+
+async function preflightSolver(sha: string): Promise<void> {
+  const bytes = new Uint8Array(
+    await Bun.file(SOLVER_SUPERVISOR_CONFIG)
+      .slice(0, CONFIG_MAX_BYTES + 1)
+      .arrayBuffer(),
+  );
+  if (bytes.byteLength === 0 || bytes.byteLength > CONFIG_MAX_BYTES) {
+    throw new Error(
+      `solver supervisor config must contain 1 through ${String(CONFIG_MAX_BYTES)} bytes`,
+    );
+  }
+  const mapping = devSolverMappingOf(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  const changed = (
+    await $`git -C ${SRC} diff --name-only ${mapping.sourceSha} ${sha} -- ${SOLVER_COMPATIBILITY_PATHS}`.text()
+  )
+    .split('\n')
+    .filter((path) => path !== '');
+  assertDevSolverSourceCompatible(changed);
+  await $`systemctl --user is-active --quiet ${SOLVER_SUPERVISOR_SERVICE}`;
+  await $`test -S ${SOLVER_SUPERVISOR_SOCKET}`;
+  // Proof: sync.test.ts makes one solver source path differ and requires
+  // refusal before this exact host preflight can run.
+  await $`${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --preflight=dev --config=${SOLVER_SUPERVISOR_CONFIG} --solver-image=${mapping.image}`;
+}
 
 /**
  * Paths whose change a running dev environment cannot pick up by itself.
@@ -148,6 +222,7 @@ export async function sync(sha: string, options: { mcpEnvPath?: string } = {}): 
   const containerBefore = await fingerprint(RECREATE_PATHS);
 
   await $`git -C ${SRC} fetch --quiet origin`;
+  await preflightSolver(sha);
   await $`git -C ${SRC} reset --hard --quiet ${sha}`;
 
   // The reset is only believed once HEAD says so. `git reset` on a SHA the

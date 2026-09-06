@@ -16,6 +16,7 @@ const ARGS = {
   blueImage: BLUE,
   greenImage: GREEN,
   devSolverImage: DEV,
+  devSourceSha: 'd'.repeat(40),
   output: '/work/supervisor.json',
   replace: false,
 };
@@ -29,6 +30,7 @@ describe('solver supervisor config materialization', () => {
       maxMemoryLimitMb: number;
       pidsLimit: number;
       maxManagedContainers: number;
+      devSourceSha: string;
       images: { callerName: string; callerImage: string | null; solverImage: string }[];
     };
     expect(parsed).toEqual({
@@ -37,6 +39,7 @@ describe('solver supervisor config materialization', () => {
       maxMemoryLimitMb: 512,
       pidsLimit: 128,
       maxManagedContainers: 16,
+      devSourceSha: 'd'.repeat(40),
       images: [
         { callerName: 'be-01-blue', callerImage: BLUE, solverImage: BLUE },
         { callerName: 'be-01-green', callerImage: GREEN, solverImage: GREEN },
@@ -99,6 +102,7 @@ describe('parseSolverSupervisorConfigArgs', () => {
         `--blue-image=${BLUE}`,
         `--green-image=${GREEN}`,
         `--dev-solver-image=${DEV}`,
+        `--dev-source-sha=${'d'.repeat(40)}`,
         '--output=/work/supervisor.json',
         '--replace',
       ]),

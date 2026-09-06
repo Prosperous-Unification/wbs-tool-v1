@@ -1,10 +1,21 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'bun:test';
 
-import { assertMcpEnv, needsRestart, RECREATE_PATHS, RESTART_PATHS, sync } from './sync';
+import {
+  assertDevSolverSourceCompatible,
+  assertMcpEnv,
+  devSolverMappingOf,
+  needsRestart,
+  RECREATE_PATHS,
+  RESTART_PATHS,
+  SOLVER_COMPATIBILITY_PATHS,
+  sync,
+} from './sync';
+
+const DEV_IMAGE = `registry.example/wbs-be@sha256:${'a'.repeat(64)}`;
 
 describe('needsRestart', () => {
   it('does not restart when nothing in the manifest changed', () => {
@@ -105,6 +116,35 @@ describe('dev supervisor', () => {
       await readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
     ) as { scripts: Record<string, string> };
     expect(pkg.scripts['dev']).toContain('mcp-01');
+  });
+
+  it('binds the dev mapping to the solver sources and package image', () => {
+    expect(SOLVER_COMPATIBILITY_PATHS).toEqual(['libs/solver-py', 'apps/be-01/Dockerfile']);
+    expect(
+      devSolverMappingOf(
+        JSON.stringify({
+          devSourceSha: 'b'.repeat(40),
+          images: [{ callerName: 'wbs-dev-src', solverImage: DEV_IMAGE }],
+        }),
+      ),
+    ).toEqual({ sourceSha: 'b'.repeat(40), image: DEV_IMAGE });
+    expect(() => {
+      assertDevSolverSourceCompatible([]);
+    }).not.toThrow();
+    expect(() => {
+      assertDevSolverSourceCompatible(['libs/solver-py/src/wbs_solver/solve.py']);
+    }).toThrow(/mapping is stale.*publish the backend image/);
+  });
+
+  it('runs the solver preflight after fetch and before reset can deploy source', async () => {
+    const source = await readFile(new URL('./sync.ts', import.meta.url), 'utf8');
+    const fetchAt = source.indexOf('git -C ${SRC} fetch --quiet origin');
+    const preflightAt = source.indexOf('await preflightSolver(sha);');
+    const resetAt = source.indexOf('git -C ${SRC} reset --hard --quiet ${sha}');
+
+    expect(fetchAt).toBeGreaterThan(-1);
+    expect(preflightAt).toBeGreaterThan(fetchAt);
+    expect(resetAt).toBeGreaterThan(preflightAt);
   });
 });
 

@@ -36,6 +36,7 @@ interface ProjectTarget {
 
 interface ProjectConfig {
   name?: string;
+  tags?: string[];
   targets?: Record<string, ProjectTarget>;
 }
 
@@ -144,8 +145,9 @@ describe('every typecheck target compiles files', () => {
     expect(orphans).toBeEmpty();
   });
 
-  it('gives every project a typecheck target', async () => {
+  it('gives every TypeScript project a typecheck target', async () => {
     const missing = (await projectsOnDisk())
+      .filter(({ config }) => !config.tags?.includes('runtime:python'))
       .filter(({ config }) => config.targets?.['typecheck'] === undefined)
       .map(({ dir }) => dir);
     expect(missing).toBeEmpty();

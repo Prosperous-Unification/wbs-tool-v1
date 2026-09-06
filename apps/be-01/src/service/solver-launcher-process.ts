@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 /** The process boundary used by the optimizer's lifecycle launcher. */
 export interface SolverLauncherSpawnOptions {
   readonly cmd: readonly string[];
@@ -46,6 +48,23 @@ export function readInstalledSolverVersion(probe: SolverVersionProbe = bunVersio
   const version = new TextDecoder().decode(result.stdout).trim();
   if (version.length === 0) throw new Error('wbs-solver-launcher reported an empty version');
   return version;
+}
+
+/** Uses source metadata only for the source-run dev container, which has no Python install. */
+export function readRuntimeSolverVersion(
+  nodeEnv: string | undefined,
+  sourceMetadata?: string,
+  probe: SolverVersionProbe = bunVersionProbe,
+): string {
+  if (nodeEnv !== 'development') return readInstalledSolverVersion(probe);
+  const pyproject =
+    sourceMetadata ??
+    readFileSync(new URL('../../../../libs/solver-py/pyproject.toml', import.meta.url), 'utf8');
+  const versions = [...pyproject.matchAll(/^version = "([^"]+)"$/gm)].map((match) => match[1]);
+  if (versions.length !== 1) {
+    throw new Error('solver pyproject must contain exactly one non-empty project version');
+  }
+  return versions[0];
 }
 
 export interface SolverLauncherRequest {

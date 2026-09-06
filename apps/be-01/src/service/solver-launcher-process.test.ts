@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   readInstalledSolverVersion,
+  readRuntimeSolverVersion,
   type SolverLauncherProcess,
   type SolverLauncherSpawnOptions,
   spawnSolverLauncher,
@@ -58,6 +59,18 @@ describe('spawnSolverLauncher', () => {
       }),
     ).toBe('0.1.0');
     expect(seen).toEqual([['wbs-solver-launcher', '--version']]);
+  });
+
+  it('reads source metadata only for the source-run dev container', () => {
+    const probe = (): never => {
+      throw new Error('installed launcher must not run in source dev');
+    };
+    expect(readRuntimeSolverVersion('development', '[project]\nversion = "0.1.0"\n', probe)).toBe(
+      '0.1.0',
+    );
+    expect(() => readRuntimeSolverVersion('development', '[project]\n', probe)).toThrow(
+      /exactly one/,
+    );
   });
 
   it('spawns the lifecycle launcher with identity and absolute deadline only on argv', () => {

@@ -10,6 +10,7 @@ const CONFIG = {
   maxMemoryLimitMb: 512,
   pidsLimit: 128,
   maxManagedContainers: 16,
+  devSourceSha: 'd'.repeat(40),
   images: [{ callerName: 'be-01-blue', callerImage: BLUE, solverImage: SOLVER }],
 };
 
@@ -61,12 +62,16 @@ describe('the solver supervisor host config', () => {
       maxMemoryLimitMb: CONFIG.maxMemoryLimitMb,
       pidsLimit: CONFIG.pidsLimit,
       maxManagedContainers: CONFIG.maxManagedContainers,
+      devSourceSha: CONFIG.devSourceSha,
     };
     expect(() => decodeSolverSupervisorConfig(missing)).toThrow(/missing key images/);
     expect(() =>
       decodeSolverSupervisorConfig({ ...CONFIG, dockerSocket: '/var/run/docker.sock' }),
     ).toThrow(/unknown key dockerSocket/);
     expect(() => decodeSolverSupervisorConfig({ ...CONFIG, pidsLimit: 1.5 })).toThrow(/pidsLimit/);
+    expect(() => decodeSolverSupervisorConfig({ ...CONFIG, devSourceSha: 'main' })).toThrow(
+      /full lowercase commit SHA/,
+    );
     expect(() =>
       decodeSolverSupervisorConfig({
         ...CONFIG,
