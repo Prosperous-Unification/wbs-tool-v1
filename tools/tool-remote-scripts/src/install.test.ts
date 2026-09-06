@@ -171,7 +171,7 @@ describe('host-wide solver supervisor contract', () => {
       `${root}deploy/solver-supervisor/wbs-solver-supervisor.service`,
     ).text();
     expect(unit).toContain(
-      `ExecStart=${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} ${SOLVER_SUPERVISOR_CONFIG}`,
+      `ExecStart=${SOLVER_SUPERVISOR_BUN} ${SOLVER_SUPERVISOR_BUNDLE.remote} --config=${SOLVER_SUPERVISOR_CONFIG}`,
     );
     expect(unit).toContain('Restart=always');
     expect(unit).toContain(`RuntimeDirectory=${SOLVER_SUPERVISOR_RUNTIME_DIRECTORY}`);
