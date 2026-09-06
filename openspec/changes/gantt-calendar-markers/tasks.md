@@ -1831,7 +1831,10 @@ in both slices rather than implied by position.
       marker work landed and gated green while the running product drew nothing
       and `listCalendarMarkers` had no caller in fe-01 outside the fake. It is
       what held 8.2a's browser tier at `fixme`, and 9.2/9.2a/9.2b/9.2c/9.3 stood
-      behind the same gap.
+      behind the same gap. Chunk 55 confirms the unblocking in a browser: with
+      this slice in, 8.2a's case reaches the composer, saves, and the
+      `POST …/calendar-markers` lands — it now fails on its own ink measurement
+      instead, which is a different problem written up under chunk 55.
       Test: `apps/fe-01/src/components/wbs/plan-chart-seam.test.tsx`, five cases
       through the **real** panel in the **real** table — the list is drawn from
       the project's own read; a saved composer creates through `ProjectApi` and
@@ -3278,3 +3281,50 @@ chunk and is untouched by it.
 **Next**: 8.2a's `fixme` comes off — the browser tier now has a host that passes
 the props it was waiting for, so the case can be watched failing and passing on
 h2puni's playwright. Then 9.2 and the rest of section 9, then 8.4.
+
+## Chunk 55 — 8.2a's blocker moved, and it is no longer the host (TASK-235 run 27, 2026-09-06)
+
+**The `fixme` was taken off and the tier was run on h2puni's playwright. It got
+much further and failed somewhere new** — so it went back on, and 8.2a stays
+unticked with a *different* reason than chunk 53 recorded.
+
+**What the run proves, and it is the point of chunk 54:** the case now clicks a
+dated axis cell, fills `Marker name`, saves, and the `POST …/calendar-markers`
+it waits for **lands**. Chunk 53's failure was a 60s timeout on a request that
+never left the browser because `wbs-table.tsx` passed no `onCreateMarker`. That
+is gone. The marker is created through the real route and drawn by the real
+chart in a real browser, which is the first time any of this feature has been
+observed end to end.
+
+**Where it fails now** — `gantt.spec.ts:3901`, the set equality:
+
+```
+at 28px the marker paints 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+and the rule paints 5, 6
+```
+
+`ruleInk` is a contiguous run of two columns, which is what 8.2a's hairline
+assertion wants. What fails is `totalInk == ruleInk`: the marker adds ink in
+thirteen columns and only two of them are the rule.
+
+**Three things are known about it and none of them settle it**, so it is written
+down rather than guessed at:
+
+- The chip is **not** inside the clip by containment. `[data-gantt-marker-band]`
+  (`gantt-panel.tsx:4733`) is a **sibling before** `[data-gantt-chart]`
+  (`:4783`), not a child, so the body clip is the chart alone as the helper's
+  comment claims.
+- The extra ink is at the clip's **left edge**, columns 0–12, while
+  `MARKED_OFFSET` is 3 and `DAY_PX` is 28 — the chip would stand near x=84, not
+  at 0. So this is not simply the chip being photographed.
+- The body clip is x-clamped (`Math.max(chartBox.x, 0)`), so at the 28px rung a
+  horizontally scrolled chart is cropped and clip columns are not chart columns.
+  The rule landing at columns 5–6 rather than near 84 says the crop is real and
+  large.
+
+**Next**: this needs the failure's own trace read
+(`apps/fe-01/test-results/gantt-the-marker-rule-meas-c0ebd-*/trace.zip` on
+h2puni, plus `test-failed-1.png`), not another guess. The question to answer
+first is what the thirteen columns *are* — the scroll offset changing between
+the two photographs is the leading candidate, and if it is, the clip has to be
+pinned to the scrollport rather than recomputed from a box that moves.
