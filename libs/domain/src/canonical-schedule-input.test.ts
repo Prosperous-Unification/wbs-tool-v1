@@ -33,10 +33,10 @@ import { schedule, type Slice } from './schedule';
  *
  * 1.9's `parentId` reparenting and `stepId` identity swap are here; what is
  * still to land under 1.9 is 1.4's watched-red removal for **every** field 1.1
- * names, not only `reach` and the slice order. The
- * deadline case is TASK-241's to make green —
- * `deadlines` is declared-pending here, proved present in the string and
- * proved inert in the engine, never silently skipped.
+ * names, not only `reach` and the slice order. The deadline case is no longer
+ * declared-pending: `run` now hands `schedule()` all seven arguments, so
+ * `deadlines` is proved present in the string **and** exercised in the engine
+ * rather than asserted inert against a call that never received it.
  */
 
 const row = (
@@ -89,9 +89,27 @@ const BASE: ScheduleInput = {
   deadlines: new Map(),
 };
 
+/**
+ * Every canonical field, `deadlines` included, reaches the engine.
+ *
+ * `deadlines` was missing from this call while `schedule()` still took six
+ * parameters, and TASK-267 slice 4 added the seventh without reaching here. For
+ * as long as both were true the deadline case below asserted `toEqual` against
+ * an engine that had never been shown a deadline — a check that could not fail,
+ * which is the R5 failure the change's own notes name. Anything this helper
+ * drops makes the whole `run(...)` half of every case below vacuous.
+ */
 const run = (input: ScheduleInput): unknown =>
   serializeSchedule(
-    schedule(input.rows, input.edges, input.slices, input.notBefore, input.poolSizes, input.reach),
+    schedule(
+      input.rows,
+      input.edges,
+      input.slices,
+      input.notBefore,
+      input.poolSizes,
+      input.reach,
+      input.deadlines,
+    ),
   );
 
 const movesAPlacement = (name: string, mutated: ScheduleInput): void => {
@@ -487,6 +505,24 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
       expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(TIED));
       expect(run(mutated)).not.toEqual(run(TIED));
     });
+
+    /**
+     * The seventh argument, and it is no longer declared-pending.
+     *
+     * The case used to sit below among the deliberately-stricter mutations,
+     * reading "a deadline, which the engine cannot yet read (TASK-241)" and
+     * asserting `toEqual`, on the stated ground that `schedule()` took six
+     * parameters. TASK-267 slice 4 added the seventh and slice 5 gave it two
+     * readers — the leveler's slack ordering (`schedule.ts:2400`) and the
+     * `missed` count each scheduled slice reports (`schedule.ts:2565`) — so that
+     * ground expired. Its own comment named this move, and it is the measured
+     * one: with `deadlines` reaching `schedule()`, `b`'s day-3 date against its
+     * day-6 finish comes back a different serialized schedule.
+     */
+    movesAPlacement('a deadline the engine now reads', {
+      ...BASE,
+      deadlines: new Map([['b', 3]]),
+    });
   });
 
   /**
@@ -561,17 +597,29 @@ describe('canonicalScheduleInput / scheduleInputHash', () => {
     });
 
     /**
-     * The seventh argument, declared-pending for TASK-241. `schedule()` has six
-     * parameters today, so a deadline cannot move a placement here and this
-     * case asserts exactly that rather than pretending otherwise: present in
-     * the string, inert in the engine. When TASK-241 lands the field and Fast's
-     * earliest-effective-deadline tie-break, this case moves up to
-     * `movesAPlacement` and the `toEqual` below is the line that fails first.
+     * 7.1's **as-authored** key, and the one pair that can tell it apart from
+     * the leaf expansion.
+     *
+     * `p`'s only leaf is `a`, so `leafDeadlinesOf` folds a date written on the
+     * parent and the same date written on the leaf to the identical `{a: 3}`.
+     * The engine cannot tell them apart, and the `toEqual` records that it does
+     * not try to. Hashing the expansion would therefore hand both plans one
+     * cache key — and they are different plans, because the next edit separates
+     * them: move `b` under `p` and the parent-authored date binds `b` as well,
+     * while the leaf-authored one still binds only `a`. That is the edit
+     * `canonical-schedule-input.ts` says hashing the expansion would hide, and
+     * it is the direction that works: reparenting `a` **out** would not
+     * separate them, because `indexTree` makes a childless `p` its own leaf
+     * (`schedule.ts:396`) and the date would bind `p` — corrected here from the
+     * chunk-2 peer seat's Minor. Same schedule, different hash: the
+     * "deliberately stricter" category this file's header names.
      */
-    it('a deadline, which the engine cannot yet read (TASK-241)', () => {
-      const mutated: ScheduleInput = { ...BASE, deadlines: new Map([['b', 3]]) };
-      expect(run(mutated)).toEqual(run(BASE));
-      expect(scheduleInputHash(mutated)).not.toBe(scheduleInputHash(BASE));
+    it('a deadline authored on the parent rather than on its only leaf — one expansion, two plans', () => {
+      const onParent: ScheduleInput = { ...BASE, deadlines: new Map([['p', 3]]) };
+      const onLeaf: ScheduleInput = { ...BASE, deadlines: new Map([['a', 3]]) };
+
+      expect(run(onParent)).toEqual(run(onLeaf));
+      expect(scheduleInputHash(onParent)).not.toBe(scheduleInputHash(onLeaf));
     });
   });
 

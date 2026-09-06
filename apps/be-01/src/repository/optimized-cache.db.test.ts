@@ -475,17 +475,17 @@ describe('a payload the decoder refuses', () => {
   });
 });
 
-describe('a plan-infeasible row, as far as its codec exists', () => {
+describe('a plan-infeasible row, decoded by its own codec', () => {
   /**
    * Assumption A1 (schema.ts) reuses `result_json` for the infeasibility
    * certificate, and says a payload that fails to decode reads `corrupt` on
-   * exactly the rule an `ok` row obeys. `decodePlanInfeasible` belongs to the
-   * failure path and does not exist yet, so what is asserted here is the half
-   * A1 fixes and this layer can honestly check — the versioned envelope.
-   *
-   * **What falsifies the split:** a certificate whose offending-item list is
-   * malformed reads `plan-infeasible` today. Once the codec lands it must read
-   * `corrupt`, and the change is to `decodePayload`, not to any caller.
+   * exactly the rule an `ok` row obeys. `decodePlanInfeasible` has since landed
+   * beside the failure path, so all three cases below are now the whole of A1
+   * rather than its envelope half: the versioned envelope, and — in the third
+   * case — a certificate whose offending-item list is malformed, which the
+   * earlier envelope-only read served as `plan-infeasible` and which now reads
+   * `corrupt`. The tightening was a change to `decodePayload` and to no caller,
+   * exactly as the split predicted.
    */
   it('reads a versioned certificate as plan-infeasible and hands it over whole', () => {
     const db = tempDb();
@@ -557,6 +557,62 @@ describe('a plan-infeasible row, as far as its codec exists', () => {
       if (outcome.kind !== 'corrupt') throw new Error('unreachable');
       expect(outcome.reason).toMatch(/effectiveDeadlineOffset/);
       expect(storedRowCount(db.path)).toBe(1);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  /**
+   * tasks.md 8.7c: the stored row `status` and the DTO union are **different
+   * layers**, and `status` is the only thing that tells these two rows apart.
+   *
+   * Both rows below carry the **same bytes** in `result_json` — a well-formed
+   * certificate — and both satisfy the table's payload `CHECK`, which asks only
+   * that an `ok` row and a `plan-infeasible` row each have a non-NULL payload
+   * and no `failureReason`. So the database cannot distinguish them, and
+   * neither can the JSON. Only the discriminator can, and it does: `pri` is an
+   * `ok` row whose payload is not a schedule, which is precisely the definition
+   * of `corrupt`, while `time` is the same payload under the status that claims
+   * it and reads as a certificate.
+   *
+   * **Why this is the case worth writing.** If `plan-infeasible` had been
+   * modelled as "an `ok` row carrying an infeasible payload" rather than as its
+   * own status, these two rows would be one row, and the read would have to
+   * guess from the payload's shape whether a decode failure meant "the plan
+   * cannot be met" or "this row is damaged" — the one point the two must be
+   * told apart. Read side by side in a single pair so the discrimination is
+   * asserted on one read of one database rather than on two.
+   */
+  it('tells an ok row carrying a certificate from a plan-infeasible row carrying the same bytes', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      const payload = JSON.stringify({
+        dtoVersion: 1,
+        items: [{ ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 7 }],
+      });
+      for (const [objective, status] of [
+        ['pri', 'ok'],
+        ['time', 'plan-infeasible'],
+      ]) {
+        storeRow(db.path, {
+          objective,
+          generation,
+          status,
+          resultJson: payload,
+          failureReason: null,
+        });
+      }
+
+      const pair = read(db.path);
+
+      expect(pair.pri.kind).toBe('corrupt');
+      expect(pair.time.kind).toBe('plan-infeasible');
+      if (pair.time.kind !== 'plan-infeasible') throw new Error('unreachable');
+      expect(pair.time.certificate.items).toEqual([
+        { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 7 },
+      ]);
+      expect(storedRowCount(db.path)).toBe(2);
     } finally {
       db.cleanup();
     }
@@ -2131,6 +2187,59 @@ describe("4.2's injected spawner, asserted on the calls and not on the clock", (
       const afterEdit = recorder();
       readAndSpawn(db.path, afterEdit.spawn);
       expect(afterEdit.calls).toEqual([]);
+      expect(storedRowCount(db.path)).toBe(2);
+    } finally {
+      db.cleanup();
+    }
+  });
+
+  /**
+   * tasks.md 8.7's "never auto-respawned", which is the same guard as 4.5 on
+   * the seventh state and needs its own case for one reason: `failed` and
+   * `corrupt` are engine faults that a later release might legitimately want to
+   * retry, while `plan-infeasible` is a **correct answer about the user's own
+   * dates**. Re-solving it cannot change anything until a deadline is edited,
+   * and editing one moves the input hash and therefore the key — so an
+   * auto-respawn here is a solver process burned, once per open tab, to be told
+   * the same thing.
+   *
+   * `Proof:` the restored branch is `objectivesToAutoSpawn` in
+   * `optimized-schedule-cache.ts`, predicate widened from `kind === 'miss'`
+   * back to `kind !== 'ok'`. The certificate is asserted on every read as well
+   * as counted, so the case cannot pass by reading the row as `corrupt` and
+   * happening to spawn nothing for a different reason.
+   */
+  it('spawns nothing across ten reads against a plan-infeasible key, and keeps the row', () => {
+    const db = tempDb();
+    try {
+      const generation = prepared(db.path);
+      storeOk(db.path, generation, 'pri');
+      storeRow(db.path, {
+        objective: 'time',
+        generation,
+        status: 'plan-infeasible',
+        resultJson: JSON.stringify({
+          dtoVersion: 1,
+          items: [
+            { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 5 },
+          ],
+        }),
+        failureReason: null,
+      });
+
+      const perRead: SpawnRequest[][] = [];
+      for (let read = 0; read < 10; read += 1) {
+        const collaborator = recorder();
+        const pair = readAndSpawn(db.path, collaborator.spawn);
+        expect(pair.time.kind).toBe('plan-infeasible');
+        if (pair.time.kind !== 'plan-infeasible') throw new Error('unreachable');
+        expect(pair.time.certificate.items).toEqual([
+          { ownerWorkItemId: 'parent', boundWorkItemId: 'leaf', effectiveDeadlineOffset: 5 },
+        ]);
+        perRead.push(collaborator.calls);
+      }
+
+      expect(perRead.every((calls) => calls.length === 0)).toBe(true);
       expect(storedRowCount(db.path)).toBe(2);
     } finally {
       db.cleanup();

@@ -3019,7 +3019,8 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       Docker enforces per-container memory plus equal memory-swap. `RLIMIT_AS`
       remains a loose backstop only. `OOMKilled=true` in the terminal frame is
       the only generic native-failure evidence for `oom`; a deadline-timer kill
-      is `timeout`; another non-zero exit is `internal-error`.
+      is `timeout`; the entrypoint's own exit `70` is `invalid-output`; another
+      non-zero exit is `internal-error`.
       **Proven by** `solver-resource-limits.proc.test.ts` on h2puni: a real
       native allocation crosses the Docker limit, the terminal evidence stores
       exactly one `oom` marker, the coordinator survives, and the slot releases;

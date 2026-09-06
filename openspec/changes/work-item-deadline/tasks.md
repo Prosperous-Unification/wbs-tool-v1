@@ -416,13 +416,13 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
 
 ## 7. Canonical input, contract-version bump, retention scoping
 
-- [ ] 7.1 `deadlines` becomes the **seventh** canonical-input entry: `[workItemId,
+- [x] 7.1 `deadlines` becomes the **seventh** canonical-input entry: `[workItemId,
 deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       against `project.startDate`, keys **as-authored and not pre-expanded to
       leaves**. The parent-with-no-bound-leaf case is the test that pins the
       as-authored choice: its hash must change even though the fold emits no
       constraint.
-- [ ] 7.2 Four stale statements amended in the same commit. **Grep for the
+- [x] 7.2 Four stale statements amended in the same commit. **Grep for the
       literal `schedule(rows, edges, slices, notBefore, poolSizes, reach)`, not
       for "six"** — verified 2026-09-03, only one of the four uses the count
       word and the other three state the tuple literally, so a count-word grep
@@ -439,13 +439,13 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       arguments" sentence and its numbered list — **a workspace file, not a wbs
       one**, so a grep inside the wbs checkout will not see it.
       A stale tuple is a false statement about the hash, not a typo.
-- [ ] 7.2b **Do not amend the review ledger.** The round-1 row of
+- [x] 7.2b **Do not amend the review ledger.** The round-1 row of
       `notes/wbs-dual-optimized-scheduler-design.md`'s ledger reads "Canonical
       input rebuilt from `schedule()`'s actual six arguments" and is a record of
       what round 1 found and fixed. Rewriting it to seven makes it a false
       record. Amend normative text; never history. This is the one occurrence
       7.2's grep will surface that must be left alone.
-- [ ] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
+- [x] 7.3 `SCHEDULER_CONTRACT_VERSION` bumped, which re-keys the Fast golden
       corpus in the same commit and evicts every pre-existing cache row. There is
       **no** data migration of cached results.
       **Still 7, deliberately, and the corpus was regenerated under it by 5.2.**
@@ -493,9 +493,9 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       substitutes**: that constant answers "did the engine that computed this
       stored plan behave like the one running now", which this change does
       alter; this one keys a cache of results that cannot exist yet.
-- [ ] 7.4 `deadline` is **not** a new cache-key dimension. Assert the key columns
+- [x] 7.4 `deadline` is **not** a new cache-key dimension. Assert the key columns
       are still `(projectId, inputHash, objective, contractVersion, budgetMs)`.
-- [ ] 7.5 A **regression test**, not a rule change: run two contract versions
+- [x] 7.5 A **regression test**, not a rule change: run two contract versions
       against one SQLite file and assert both row sets survive a store on each
       side. **Do not add a retention requirement.** An earlier draft called this
       an existing latent defect; it is not — the rule already reads "allocating
@@ -505,18 +505,19 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       unscoped _title_ and ignored its scoped body. Adding a second requirement
       for behaviour a first one already owns is the divergence pattern these
       artifacts keep paying for; the test is worth having, the rule is not.
-- [ ] 7.6 **WATCHED RED W6** — omit the seventh argument from the hash. Two plans
+- [x] 7.6 **WATCHED RED W6** — omit the seventh argument from the hash. Two plans
       differing only in a deadline must collide on one cache row and the second
-      must read the first's schedule.
+      must read the first's schedule. Measured at `0e716cba`; see **W6, measured**
+      below.
 
 ## 8. Wire, `plan-infeasible`, revalidator, TASK-221 copy
 
-- [ ] 8.1 `deadlineUnits: integer | null` per slice in
+- [x] 8.1 `deadlineUnits: integer | null` per slice in
       `libs/contracts/solver/solver-wire.v1.json` — the **effective** deadline,
       already folded and already converted to `(D + 1) × quantum`, so Python
       never sees the tree. `null` is unconstrained. The schema is the single
       normative definition; prose does not restate its field list.
-- [ ] 8.2 **Every `<!-- wire-fields:slice -->` and `<!-- wire-fields:response -->`
+- [x] 8.2 **Every `<!-- wire-fields:slice -->` and `<!-- wire-fields:response -->`
       marker amended in the same commit as the schema.** The repository
       enumeration check compares the tagged lists against the schema's own
       `required` sets and fails on the symmetric difference — a partial edit is a
@@ -528,10 +529,10 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       zero-duration milestone one day late must be admitted as feasible. Every
       non-zero-duration fixture stays green under the substitution, so the test
       must be the milestone.
-- [ ] 8.5 Response `status: infeasible` joins the stage-status matrix as a
+- [x] 8.5 Response `status: infeasible` joins the stage-status matrix as a
       first-class outcome, distinct from `unknown`. `horizonUnits` is
       **unchanged** and is not tightened to the latest deadline.
-- [ ] 8.5b **`plan-infeasible` is FIRST-stage `INFEASIBLE` only, and the
+- [x] 8.5b **`plan-infeasible` is FIRST-stage `INFEASIBLE` only, and the
       standing "at any stage" rule must be amended in the same commit.** The
       dual-scheduler spec says `INFEASIBLE` SHALL be `invalid-output` **at any
       stage**, because Fast placed the same graph and every later stage's added
@@ -547,7 +548,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       new one wins, a later-stage engine failure is cached as "your deadlines
       cannot be met" with no Retry — at the moment the solver's own earlier
       stage proved a deadline-satisfying schedule exists. Test both stages.
-- [ ] 8.5c The cache schema's declared integrity admits a third status:
+- [x] 8.5c The cache schema's declared integrity admits a third status:
       `CHECK (status IN ('ok','failed'))` appears in `dual-optimized-scheduler`
       `design.md` and `tasks.md`, together with the CHECKs tying `ok` to a
       non-NULL `resultJson` and the inverse for `failed`. `plan-infeasible`
@@ -555,13 +556,13 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       in both files, in the same commit.
 - [ ] 8.6 **WATCHED RED W5** — map `infeasible` onto `unknown`. An infeasible
       plan must offer Retry.
-- [ ] 8.7 `plan-infeasible` stored beside `ok` and `failed`: cached under an
+- [x] 8.7 `plan-infeasible` stored beside `ok` and `failed`: cached under an
       identical key, never auto-respawned, payload naming every offending work
       item with its **effective** deadline plus both the item that **owns** the
       binding date and the item the constraint **fell on**. The
       ancestor-bound-leaf case is the test — a payload showing the leaf's own
       later date sends the user to edit a field that changes nothing.
-- [ ] 8.7b **`plan-infeasible` is a seventh `VariantState`, and the union is
+- [x] 8.7b **`plan-infeasible` is a seventh `VariantState`, and the union is
       enumerated in FIVE places.** Amend all five in the same commit:
       (1) `dual-optimized-scheduler/design.md`'s plan-read DTO bullet — the list
       that artifact calls "the one authority";
@@ -583,7 +584,7 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       sites of five and misses three — including site 5, the note's
       authoritative table, whose omission is the exact failure this item exists
       to prevent.
-- [ ] 8.7c The stored row status and the DTO union are **different layers** and
+- [x] 8.7c The stored row status and the DTO union are **different layers** and
       both get a value. `plan-infeasible` is a row status beside `ok` and
       `failed`, and is **not** an `ok` row carrying an infeasible payload:
       `corrupt` is defined as an `ok` row whose `resultJson` fails to decode, so
@@ -673,3 +674,267 @@ order`, with their tests. A repository assertion that no unqualified
 - [ ] 10.4 Cross-provider review of the shipped diff on the exact head, plus the
       Gemini seat, per AGENTS.md. Slice 1's prod-mode PR gets its own review
       before merge.
+
+## W6, measured
+
+7.6's watched red, run on h2puni at `0e716cba` with `NX_DAEMON=false`. Deleting
+`deadlines: sortedPairs(input.deadlines)` from `canonical-schedule-input.ts`
+takes `canonical-schedule-input.test.ts` from a green **26 pass / 0 fail** to
+**23 pass / 3 fail**, and the three reds are exactly the ones 7.6 names.
+
+| red case                                                             | what it catches                                                                                                                                                                                 |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a deadline the engine now reads`                                    | W6 itself: two plans differing only in `b`'s deadline hash equal, while `schedule()` places `b` and `c` in the opposite order — so the second plan reads the first's schedule off one cache row |
+| `a deadline authored on the parent rather than on its only leaf`     | 7.1's as-authored key collapses with the entry                                                                                                                                                  |
+| `puts every one of the seven arguments in the string, maps included` | the structural guard, catching the same hole a second way                                                                                                                                       |
+
+This is the same removal the 1.9 sweep recorded as `22 / 2` at `05b78008`. The
+third red is new because 7.1 added a case, and the first now reds on **both** of
+its assertions rather than on the hash alone, because the engine has read the
+field since TASK-267 slice 5. Tree restored clean after the probe.
+
+## 8.5 / 8.5b / 8.5c, measured
+
+**8.5 and 8.5b were already true on the wire and in Python; the sentence that
+had no implementation was the disposition.** The response schema admits
+`infeasible` as a first-class status distinct from `unknown`, `horizonUnits` is
+untouched by any deadline, `design.md` carries both `INFEASIBLE` rows, and
+`stage_disposition` returns `ROW_STOP_PLAN_INFEASIBLE` at stage 1 and
+`ROW_STOP_INVALID` after it — both stages asserted in `test_solve.py`, with the
+empty-stdout rule in `test_cli.py::UnencodableOutcomes`. What no code honoured
+was `spec.md`'s "the coordinator SHALL record that run as `invalid-output`",
+which `design.md`'s `INFEASIBLE, k > 1` row and the wire schema's response
+`$comment` each repeat: `processOutcome` mapped **every** non-zero exit onto
+`internal-error`. `dispositionOfExitCode` now splits `cli.py`'s two refusals —
+`70` (ran, could not answer) is `invalid-output`, `64` (request refused before
+solving) stays `internal-error` — and `cli.py`'s EXIT CODES docstring, which
+stated the old blanket rule twelve lines above a handler stating the new one,
+is amended in the same commit.
+
+Measured at `1bf4f1c2`: targeted 32/0, `libs/contracts` 261/0, `apps/be-01`
+1840/0. Three controls, each reverted after measuring — reverting the
+coordinator call gives 15/1, exactly the terminal-evidence case; returning
+`internal-error` unconditionally gives 30/2, exactly the two new assertions;
+moving `cli.py`'s `EXIT_INTERNAL` from 70 to 71 gives 15/1, exactly the
+non-circularity case that reads the codes out of the entrypoint.
+
+**8.5c was a live divergence in one direction only.** `tasks.md` 3.1 and the
+shipped table both carried `plan-infeasible` in the status CHECK and as a third
+payload disjunct; `design.md`'s Cache identity bullet still declared `status`
+(`'ok' | 'failed'`) and `CHECK (status IN ('ok','failed'))`. Nothing failed,
+because no assertion read that bullet — the identical guard for
+`failure_reason` lives in `solver-failure-disposition.test.ts` and is why that
+vocabulary never drifted. The bullet is amended and
+`optimizer-rows.db.test.ts` now parses it, so the status vocabulary and the
+payload rule cannot drift from `OPTIMIZED_SCHEDULE_STATUSES` again.
+
+**Left for 8.7, found here:** the same bullet says "a row satisfies a read iff
+`status='ok'`", which a `plan-infeasible` row also has to satisfy or it would
+auto-respawn. It is qualified to "a read for a schedule" here rather than
+rewritten, because the read rule is 8.7's to state. **Now stated and proved
+below** — the bullet's "never auto-respawn" clause had no case reading it.
+
+## 8.7, measured
+
+**Every part of 8.7 but two had already landed across runs 1–3, and what was
+missing was not code.** The row status, the payload column and both CHECKs
+(8.5c), the codec, `evaluateSolverOutcome`'s refusal of an empty certificate,
+`storeOptimizedOutcomeAndRecord` writing the row and deliberately emitting no
+event, the reader's seventh variant and `objectivesToAutoSpawn` filtering on
+`kind === 'miss'` alone are all shipped. The two holes were both **assertions
+for sentences 8.7 states in its own words**, and each is the kind that ships
+silently because the surrounding code is already right.
+
+**Hole 1 — the ancestor-bound leaf, which is the case 8.7 names as _the_
+test.** `planInfeasibleResultOf`'s existing case gave the parent day 8 and leaf
+`b` day 5, so the tighter date was always the leaf's own: the fold could have
+been "prefer the leaf" and passed. The new fixture puts the two owners in
+conflict in both directions at once — leaf `late` carries day 12 under a parent
+saying 5, leaf `own` carries day 3 under the same parent — so an implementation
+that always names the ancestor fails the second row and one that always names
+the leaf fails the first. The second new case asserts the offsets are
+`leafDeadlinesOf`'s own answer rather than a second opinion: that function is
+what `buildSolverRequest` hands CP-SAT and what `schedule()` measures `lateBy`
+against, and `planInfeasibleResultOf` re-folds the tree to carry the owner
+along, which is exactly the shape `schedule.ts` warns produces two answers.
+
+**Hole 2 — "never auto-respawned" had no case.** 4.5's ten-reads guard covers
+`failed` and `corrupt`; `plan-infeasible` is a different argument for the same
+rule and the stronger one. `failed` and `corrupt` are engine faults a later
+release might legitimately retry; `plan-infeasible` is a **correct answer about
+the user's own dates**, so re-solving cannot change it until a deadline is
+edited — and editing one moves the input hash and therefore the key. The new
+case reads the row ten times, asserts the certificate on every read so it
+cannot pass by degrading to `corrupt`, and counts zero spawns.
+
+Measured at `b4da37cf` on h2puni: `libs/contracts` **263/0** (261 before),
+`apps/be-01` **1844/0**, and `nx typecheck` green for both projects — it caught
+`toBe(folded.get(id))` narrowing `number | undefined` against `number`, the
+same TS2769 class as PR 262's, fixed by putting the fold on the left, which is
+also the right direction because the fold is the source and the certificate is
+the copy.
+
+Three controls, each reverted after measuring:
+
+| control | mutation                                               | result   |
+| ------- | ------------------------------------------------------ | -------- |
+| A       | the fold's `<` flipped to `>`                          | 260 / 3  |
+| B       | the fold's `<` weakened to `!==`, i.e. last write wins | 261 / 2  |
+| C       | `plan-infeasible` rejoins `objectivesToAutoSpawn`      | 1843 / 1 |
+
+**B and C are the exclusive ones.** A reddens the pre-existing fold case too,
+so it proves the direction matters but not that the new fixture adds anything.
+B leaves the old case green — with `deadlines` iterated in insertion order its
+expected rows survive last-write-wins — and reddens exactly the two new
+contracts cases. C reddens exactly the one new be-01 case and leaves 4.5's
+`failed` and `corrupt` guards untouched, because it widens the predicate by the
+single member 8.7 adds rather than back to `kind !== 'ok'`.
+
+**Stale prose corrected in the same commit.** `decodePayload` and its test's
+`describe` both still said `decodePlanInfeasible` "does not exist yet" and that
+the row was decoded to its envelope only, while the code called the codec and a
+third case already asserted a malformed item list reading `corrupt`. The
+comments recorded the falsification the split predicted; the code had met it.
+
+## 8.7b, measured
+
+**Site 5 was the gap, exactly as 8.7b predicted, and the other four already
+carried `plan-infeasible` in whatever form each is written in.** Sites 1–3 are
+member enumerations and each lists seven. Sites 4 and 5 are **not** member
+lists and never were: 8.3–8.4 enumerate _indicator renderings_ (a comparison
+for `ready`, `Optimizing…` for `pending` and `retrying`, the Retry control for
+`failed` and `corrupt`, the count wording for `plan-infeasible`, nothing on
+screen for `idle`), and §3.2 enumerates _events_, keyed by what happened rather
+than by which state resulted. Saying those two were "at seven" would be a
+category error — Sol's r4 review of PR 266 read the earlier wording that way
+and called it, correctly. What each is checked for is whether the member this
+task adds has a rendering and a row, and it now does in both. Verified by the member-name search this item mandates — the
+lines naming `corrupt` together with `idle`, across both changes and the
+workspace note — rather than by the count word:
+
+| site | artifact                                                         | state found                                                      |
+| ---- | ---------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 1    | `dual-optimized-scheduler/design.md` plan-read DTO bullet        | seven, with `plan-infeasible` carrying owner and bound ids       |
+| 2    | `.../specs/scheduler-optimization/spec.md` plan-read requirement | seven, in the normative "SHALL be one of"                        |
+| 3    | `.../tasks.md` 7.10                                              | "one of seven", and `plan-infeasible` in the proof-state list    |
+| 4    | `.../tasks.md` 8.3–8.4                                           | a rendering for every member, this one's included, in both items |
+| 5    | `notes/wbs-dual-optimized-scheduler-design.md` §3.2              | **five rows missing** — amended here                             |
+
+Site 5's table now carries the first-stage `INFEASIBLE` row (a
+`plan-infeasible` row plus certificate in one transaction, with **which event it
+emits recorded as OPEN and owned by `TASK-313`**, the shipped coordinator
+emitting none), the later-stage row that stays `failed` + `invalid-output`, the
+two settled-read rows that spawn nothing, and the explicit Retry refusal. Its
+review-ledger rows are untouched, per 7.2b.
+
+**That row first landed asserting no event at all, and this paragraph went on
+describing it that way after the note itself had stopped.** Sol's Critical 2
+below withdrew the claim and the note was amended with it (`3560e9e1` wrote the
+row, `8ef0f2ab` replaced its event cell with the open question), while this
+measured section — which describes what was written rather than re-reading it —
+kept the sentence the amendment had already replaced. It is the divergence trap
+one more time, inside the item whose whole subject is that trap, and the lesson
+is narrower than "check five sites": **a measured section is itself a site**,
+because it restates a claim in prose that no member-name search will find.
+
+**The search found a sixth site 8.7b does not name, and it was wrong in two
+places rather than one.** `design.md`'s Retry evaluation order, step (2),
+listed the states a `not-retryable` covers as "`ready`, `pending` and `idle`"
+while `spec.md`'s own ordering already read "`ready`, `pending`, `idle` and
+`plan-infeasible`" — and **the gate sentence later in the same bullet carried
+the same short list**, which the first pass missed while amending the order
+four clauses above it. Sol's r4 review found it; both are amended now. One
+bullet enumerating the same set twice is the divergence trap operating inside a
+single paragraph. Two normative artifacts, one instantiating list short by
+the member this task adds — the same shape as the `solver_slot.lifecycle`
+omission `design.md` records at the stored-enum boundary, where the blanket
+rule covered the column and the instantiating list did not. Amended in the same
+commit. **8.7b's list of five is therefore a floor, not a ceiling:** the member
+names find sites the item's own enumeration missed, which is the second time
+that has been true of this union.
+
+No test changes, so no gate counts: this chunk is two documents. The union it
+describes is asserted by 8.7's own cases and by
+`work-item.controller.test.ts`'s variant fixtures, both green at `cc9da8f8`.
+
+## 8.7c, measured
+
+**The two resolutions are now read side by side, off one database, in one
+pair.** Both rows carry the **same bytes** in `result_json` — a well-formed
+certificate — and both satisfy the table's payload `CHECK`, which asks only
+that an `ok` row and a `plan-infeasible` row each have a non-NULL payload and
+no `failureReason`. So neither the database nor the JSON can tell them apart.
+`status` can, and does: `pri` is an `ok` row whose payload is not a schedule,
+which is precisely the definition of `corrupt`, and `time` is the same payload
+under the status that claims it, which reads as a certificate.
+
+Measured at `d9fcbb4d` on h2puni: `apps/be-01` **1845/0**. One control, reverted
+after measuring — **1844 / 1, exactly the new case.** The mutation is the
+modelling 8.7c forbids, written out rather than approximated: the `ok` branch of
+`decodePayload`, on a schedule decode failure, tries `decodePlanInfeasible`
+before giving up, so an `ok` row carrying an infeasible payload resolves to
+`plan-infeasible`. Every other `corrupt` case stays green under it, because
+their payloads are truncated JSON or a schedule with a wrong `dtoVersion` and
+fail the certificate codec too — which is the point: the defect is invisible
+except on the one row where both codecs could plausibly apply, and that row is
+this case.
+
+## Sol's r4 review of PR 266, and the Critical it found in shipped code
+
+Verified artifact `queue/reviews/t241-r4-c23-sol.md`, seat `openai/gpt-5.6-sol`,
+**REQUEST-CHANGES 2C / 1I / 1M** at exact head `e0d52cac`.
+
+- **Critical 1 — the measured section's wording, fixed above.** It said "four of
+  the five sites were already at seven", which is a category error for sites 4
+  and 5: one enumerates indicator renderings and the other enumerates events,
+  and neither is a member list. Corrected rather than defended.
+- **Important 1 — a second short list in the same `design.md` bullet, fixed
+  above.** The first pass amended the Retry evaluation order and left the gate
+  sentence four clauses later still reading "`ready`, `pending` or `idle`".
+- **Minor 1 — agreed and already recorded.** `objectivesToRetry` is permissive
+  and safe today only because nothing calls it; the refusal belongs in 7.11's
+  route, after the stale-hash and state checks and before liveness admission.
+  That is now this task's recorded position on 8.7d's layering question.
+- **Critical 2 is real, is in shipped code rather than in this diff, and is
+  filed as `TASK-313` (lane e, p1).** `spec.md`'s realtime requirement says the
+  guarantee is "one durable replay record **per newly stored outcome**". A
+  `plan-infeasible` row is a newly stored outcome, and
+  `optimization-coordinator.ts:107` returns before writing any `event_log` row
+  for it. A client already on screen therefore sits on `Optimizing…`
+  indefinitely, because the failure indicator is event-driven (8.8) and no
+  event ever arrives; only a refetch moves it. The row itself is correct and a
+  cold load renders the state correctly — this is the live-client half alone.
+  **`plan-infeasible` needs an event, and which one is a real design question:**
+  `schedule_optimization_failed` carries a `failureReason` it has none of, and
+  `schedule_optimized` promises a schedule. The §3.2 table's "no event" claim is
+  withdrawn pending that decision rather than left standing as intent.
+
+### Why this PR merges while `TASK-313` is still open
+
+Critical 2 held PR 266 back for a run, and the hold was right at the time: an
+artifact change that writes a defect down as intent is not separable from the
+defect. It is separable now, and the difference is one sentence, not a
+judgement call.
+
+- **The defect is not in this diff and is already on `main`.** 266 is three
+  files — one `optimized-cache.db.test.ts` case, one line of
+  `dual-optimized-scheduler/design.md` adding this member to the two
+  `not-retryable` enumerations inside that bullet, and this document. Every
+  line Critical 2 names is in `optimization-coordinator.ts`, which 266 does not
+  open. Holding 266 removes nothing: a `plan-infeasible` row leaves a live
+  client on `Optimizing…` at `350ee08c` with 266 merged and without it alike.
+- **The only coupling was ratification, and it is gone.** The one place this
+  task's artifacts asserted the missing event as design was the §3.2 table row
+  in the workspace note and this document's description of that row; the note
+  was amended at `8ef0f2ab` and the description is corrected in this commit. A
+  member-name search across `openspec/` for `plan-infeasible` beside
+  `event` or `emit` now returns nothing that claims the outcome emits none.
+- **Blocking further would invert what the block is for.** 8.7b's own subject is
+  that a stale enumeration ships silently; keeping the corrected enumeration out
+  of `main` while the stale one stays in it is the failure mode this item was
+  written to catch.
+
+`TASK-313` stays `p1` and queued in lane e, unticked and unmerged with this PR:
+it owns choosing the event, amending the realtime contract, the FE subscriber
+and `readScopeFor`, and proving it against 7.9's crash case. Nothing here
+discharges any of that.

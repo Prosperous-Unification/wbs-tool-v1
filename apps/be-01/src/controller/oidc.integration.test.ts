@@ -3,6 +3,7 @@ import {
   browserBindingCookieName,
   InMemoryOidcTransactionStore,
   InMemoryTokenStore,
+  OidcCallbackRefused,
 } from '@wbs/auth';
 import { describe, expect, it } from 'bun:test';
 
@@ -1217,7 +1218,14 @@ describe('OIDC browser routes', () => {
    * layer down.
    */
   it('answers a failed exchange with a typed refusal rather than a framework 500', async () => {
-    const failure = new Error('idp unreachable');
+    // The provider answered in OAuth's error shape and said the grant is no
+    // good — the arm this case has always been about, now said in the shape
+    // `classifyOidcFailure` reads rather than as a bare `Error`, which
+    // TASK-277 classifies as a defect and no longer answers 401.
+    const failure = Object.assign(new Error('idp refused the code'), {
+      code: 'OAUTH_RESPONSE_BODY_ERROR',
+      error: 'invalid_grant',
+    });
     // The override records before it rejects. Replacing `exchange` outright
     // would take the fixture's counter with it, and a 401 returned from
     // anywhere *before* the exchange would then satisfy a case whose name says
@@ -1253,8 +1261,298 @@ describe('OIDC browser routes', () => {
     expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_access=');
     expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_session=');
     expect(f.logs).toHaveLength(1);
+    // `info`, not `error`: a spent or wrong code is something a person did,
+    // and a flood of them must not bury the one line an operator is looking
+    // for. The error-callback branch splits its levels the same way.
+    expect(f.logs[0]?.level).toBe('info');
+    expect(f.logs[0]?.fields).toEqual({
+      err: failure,
+      oidc_failure_kind: 'refused',
+      oidc_failure_reason: 'grant_refused',
+    });
+  });
+
+  /**
+   * AC #2 and AC #3, one arm per case.
+   *
+   * Each drives the whole route — a real callback, a real transaction, the
+   * fixture's own `exchange` rejecting with the shape the arm is reached by —
+   * and asserts three things: the status the caller gets, the level the
+   * operator is paged (or not paged) at, and the two flat fields an outage is
+   * grepped by. Nothing here names an `openid-client` class; the shapes are
+   * the ones a provider or a socket really produces.
+   *
+   * **The bodies are asserted empty in every arm.** AC #2 says no provider
+   * text reaches the browser, and each rejection below carries a distinctive
+   * string in its message precisely so the assertion is not vacuous.
+   */
+  const arms = [
+    {
+      name: 'an unreachable provider',
+      kind: 'unavailable',
+      reason: 'provider_unreachable',
+      level: 'error',
+      status: 503,
+      // What `fetch` really throws: the code is on the cause, not the top.
+      failure: Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND idp.example.test'), {
+          code: 'ENOTFOUND',
+        }),
+      }),
+    },
+    {
+      name: 'a TLS handshake that names no party',
+      kind: 'indeterminate',
+      reason: 'tls_negotiation_failed',
+      // `warn`, not `error`: the far end was reachable and objected, and
+      // nothing in that evidence says whose move it is. Paging an operator
+      // about a provider outage on it would be a claim the alert cannot make.
+      level: 'warn',
+      status: 503,
+      failure: Object.assign(new Error('write EPROTO handshake failure'), {
+        code: 'ERR_SSL_TLSV1_ALERT_HANDSHAKE_FAILURE',
+      }),
+    },
+    {
+      name: 'a failure this project does not recognise',
+      kind: 'defect',
+      reason: 'unrecognised_failure',
+      level: 'error',
+      // The distinguishable path AC #2 asks for, and not a return of what
+      // TASK-273 closed: that was *every* failure arriving as an untyped 500
+      // with nothing written down. This is the one arm that means the
+      // deployment is wrong, and it arrives with a reason slug.
+      status: 500,
+      failure: new Error('secret-provider-prose nobody classified'),
+    },
+  ] as const;
+
+  for (const arm of arms) {
+    it(`answers ${arm.name} with ${String(arm.status)} and logs the classification`, async () => {
+      const attempts: unknown[] = [];
+      const f = fixture(
+        claims,
+        {},
+        {
+          exchange: (request, checks) => {
+            attempts.push({ request, checks });
+            return Promise.reject(arm.failure);
+          },
+        },
+      );
+      f.transactions.save({
+        browserBinding: 'binding-1',
+        nonce: 'nonce-1',
+        state: 'state-1',
+        verifier: 'verifier-1',
+      });
+
+      const failed = await f.app.handle(
+        new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+          headers: cookieHeader(jarOf('binding-1')),
+        }),
+      );
+
+      expect(failed.status).toBe(arm.status);
+      expect(attempts).toHaveLength(1);
+      // The login is over in every arm, including the two that say come back
+      // later: the code is spent and the next attempt starts a new transaction.
+      expect(retires(failed, 'binding-1')).toBe(true);
+      expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_access=');
+      expect(failed.headers.get('set-cookie')).not.toContain('__Host-wbs_session=');
+      // No provider text reaches the browser — asserted against the string each
+      // rejection carries rather than against emptiness alone.
+      expect(await failed.text()).toBe('');
+
+      expect(f.logs).toHaveLength(1);
+      expect(f.logs[0]?.level).toBe(arm.level);
+      expect(f.logs[0]?.fields).toEqual({
+        err: arm.failure,
+        oidc_failure_kind: arm.kind,
+        oidc_failure_reason: arm.reason,
+      });
+    });
+  }
+
+  /**
+   * Peer pass 19, Important: without this branch a caller who has started one
+   * legitimate login holds a valid `state` and binding, and a callback with
+   * that state and no `code` reaches `exchange`, rejects as
+   * `OAUTH_INVALID_RESPONSE`, and is classified `defect` → 500. That would let
+   * a caller choose the status and the alert bucket reserved for "this
+   * deployment is wrong".
+   *
+   * `f.calls.exchange` is the load-bearing assertion: a 400 returned from
+   * anywhere *after* the provider was reached would satisfy the status alone.
+   */
+  for (const [name, query] of [
+    ['no code at all', 'state=state-1'],
+    ['an empty code', 'code=&state=state-1'],
+    // Peer pass 20, Important: a parameter from a response mode this app never
+    // asks for. `oauth4webapi` refuses each of these before any provider
+    // request, as a code the classifier does not table, so each was a
+    // caller-chosen `defect` 500 until this branch existed.
+    ['a hybrid-flow response parameter', 'code=c&state=state-1&response=x'],
+    ['an implicit-flow id_token', 'code=c&state=state-1&id_token=x'],
+    ['an implicit-flow token', 'code=c&state=state-1&token=x'],
+  ] as const) {
+    it(`refuses a callback with ${name} without reaching the provider`, async () => {
+      const f = fixture();
+      f.transactions.save({
+        browserBinding: 'binding-1',
+        nonce: 'nonce-1',
+        state: 'state-1',
+        verifier: 'verifier-1',
+      });
+
+      const malformed = await f.app.handle(
+        new Request(`https://dev.wbs.test/api/auth/okta/callback?${query}`, {
+          headers: cookieHeader(jarOf('binding-1')),
+        }),
+      );
+
+      expect(malformed.status).toBe(400);
+      expect(f.calls.exchange).toHaveLength(0);
+      expect(retires(malformed, 'binding-1')).toBe(true);
+      expect(await malformed.text()).toBe('');
+      expect(f.logs).toHaveLength(1);
+      // `info`, matching the invalid-grant refusal: every one of these is
+      // wholly caller-authored, so a caller could otherwise choose how loud the
+      // log gets. (Peer pass 20, Minor.)
+      expect(f.logs[0]?.level).toBe('info');
+    });
+  }
+
+  // An outage is greppable without reading stack text: the whole point of AC
+  // #3, asserted as a reader would actually use it. `JSON.stringify` over the
+  // recorded fields stands in for the log stream a `grep` would run against.
+  it('makes an outage greppable by a field rather than by stack text', async () => {
+    const f = fixture(
+      claims,
+      {},
+      {
+        exchange: () =>
+          Promise.reject(
+            Object.assign(new TypeError('fetch failed'), {
+              cause: Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), {
+                code: 'ECONNREFUSED',
+              }),
+            }),
+          ),
+      },
+    );
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(jarOf('binding-1')),
+      }),
+    );
+
+    const line = JSON.stringify(f.logs[0]?.fields ?? {});
+    expect(line).toContain('"oidc_failure_kind":"unavailable"');
+    expect(line).toContain('"oidc_failure_reason":"provider_unreachable"');
+  });
+
+  /**
+   * The route's half of the fifth malformed callback. The adapter refuses a
+   * callback whose `iss` is not the issuer discovery resolved to — it is the one
+   * such refusal the route cannot make itself, because the issuer identifier
+   * only exists after discovery — and rejects with a type this project owns.
+   *
+   * **What this asserts is that the owned rejection does not reach the
+   * classifier.** Before it did: the library refused the same callback as
+   * `OAUTH_INVALID_RESPONSE`, which the classifier deliberately does not table,
+   * so it landed in `defect` — a 500 and an `error`-level log that a caller
+   * holding their own state and binding could choose to trigger. The answer now
+   * is the one the other four malformed callbacks already get.
+   *
+   * The client here is a fake, so the *decision* is not what is under test —
+   * `refuseCallbackFromAnotherIssuer`'s own cases own that. What is under test is
+   * that the route recognises the rejection.
+   */
+  for (const reason of ['issuer_mismatch', 'issuer_missing'] as const) {
+    it(`answers a callback the adapter refused (${reason}) with 400 and not a defect 500`, async () => {
+      const f = fixture(
+        claims,
+        {},
+        { exchange: () => Promise.reject(new OidcCallbackRefused(reason)) },
+      );
+      f.transactions.save({
+        browserBinding: 'binding-1',
+        nonce: 'nonce-1',
+        state: 'state-1',
+        verifier: 'verifier-1',
+      });
+
+      const res = await f.app.handle(
+        new Request(
+          'https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1&iss=https%3A%2F%2Fevil.test',
+          {
+            headers: cookieHeader(jarOf('binding-1')),
+          },
+        ),
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.headers.get('location')).toBeNull();
+      // No provider or library text reaches the browser in this arm either.
+      expect(await res.text()).toBe('');
+      expect(retires(res, 'binding-1')).toBe(true);
+      // Caller-authored input, so a caller cannot choose how loud the log gets —
+      // the same principle as the other four malformed-callback branches.
+      expect(f.logs).toHaveLength(1);
+      expect(f.logs[0]?.level).toBe('info');
+      expect(f.logs[0]?.fields).toEqual({ oidc_callback_refusal: reason });
+      // And the classifier never saw it: a `defect` line would carry these.
+      const line = JSON.stringify(f.logs[0]?.fields ?? {});
+      expect(line).not.toContain('oidc_failure_kind');
+      expect(line).not.toContain('evil.test');
+    });
+  }
+
+  /**
+   * The negative control for the branch above, and the reason `exchange` awaits
+   * `config()` before it compares anything: a provider that is down during
+   * discovery must still be an outage. If the refusal branch ever widened to
+   * catch every rejection, this case would go 400 and green would be a lie.
+   */
+  it('still answers a discovery outage 503 rather than the callback refusal 400', async () => {
+    const f = fixture(
+      claims,
+      {},
+      {
+        exchange: () =>
+          Promise.reject(
+            Object.assign(new TypeError('fetch failed'), {
+              cause: Object.assign(new Error('getaddrinfo EAI_AGAIN puni.okta.com'), {
+                code: 'EAI_AGAIN',
+              }),
+            }),
+          ),
+      },
+    );
+    f.transactions.save({
+      browserBinding: 'binding-1',
+      nonce: 'nonce-1',
+      state: 'state-1',
+      verifier: 'verifier-1',
+    });
+
+    const res = await f.app.handle(
+      new Request('https://dev.wbs.test/api/auth/okta/callback?code=c&state=state-1', {
+        headers: cookieHeader(jarOf('binding-1')),
+      }),
+    );
+
+    expect(res.status).toBe(503);
     expect(f.logs[0]?.level).toBe('error');
-    expect(f.logs[0]?.fields).toEqual({ err: failure });
+    expect(JSON.stringify(f.logs[0]?.fields ?? {})).toContain('"oidc_failure_kind":"unavailable"');
   });
 
   it('exchanges once and sets hardened access and refresh-correlation cookies', async () => {

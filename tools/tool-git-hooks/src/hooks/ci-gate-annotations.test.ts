@@ -22,8 +22,8 @@ describe('CI gate annotations', () => {
         stderr: 'pipe',
       });
 
-      // Proof: splitting only on CRLF/LF wrote the injected bare CR and its
-      // suffix to stdout before this exact production invocation was fixed.
+      // Proof: splitting only on CRLF/LF while the control guard stayed active
+      // dropped `located`; this production invocation wrote only `${valid}\n`.
       expect(run.exitCode).toBe(0);
       expect(new TextDecoder().decode(run.stdout)).toBe(`${located}\n${valid}\n`);
     } finally {
@@ -42,6 +42,16 @@ describe('CI gate annotations', () => {
     );
 
     expect(selectErrorAnnotations(lines.join('\n'))).toEqual([]);
+  });
+
+  test('keeps literal tabs fail-closed while preserving printable percent spellings', () => {
+    const rawTab = '::error file=raw-tab.test.ts,line=1::before\tafter';
+    const percentSpellings =
+      '::error file=percent-spellings.test.ts,line=2::before%0A%0D%25%09after';
+
+    // Policy: Bun can emit raw tabs, so this may cost an inline annotation;
+    // the gate verdict and uploaded log remain. Keep the full C0 boundary.
+    expect(selectErrorAnnotations(`${rawTab}\n${percentSpellings}`)).toEqual([percentSpellings]);
   });
 
   test('preserves the exact file and line command emitted by the failing assertion', () => {
