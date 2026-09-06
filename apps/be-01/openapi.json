@@ -243,6 +243,90 @@
         "operationId": "getApiProjectsByIdExport"
       }
     },
+    "/api/projects/{id}/optimization/retry": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "description": "The failed or corrupt optimization variant to retry.\n\nThe schema here is documentation, not validation. This route checks its own body: the fields named here are checked and everything else is ignored, and a body that is not an object, or that names one of these fields with the wrong type, answers 422 with `{ \"error\": \"invalid_body\" }`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "objective",
+                  "inputHash"
+                ],
+                "properties": {
+                  "objective": {
+                    "type": "string",
+                    "enum": [
+                      "pri",
+                      "time"
+                    ]
+                  },
+                  "inputHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "objective",
+                  "inputHash"
+                ],
+                "properties": {
+                  "objective": {
+                    "type": "string",
+                    "enum": [
+                      "pri",
+                      "time"
+                    ]
+                  },
+                  "inputHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "objective",
+                  "inputHash"
+                ],
+                "properties": {
+                  "objective": {
+                    "type": "string",
+                    "enum": [
+                      "pri",
+                      "time"
+                    ]
+                  },
+                  "inputHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "postApiProjectsByIdOptimizationRetry"
+      }
+    },
     "/api/projects/{id}": {
       "get": {
         "parameters": [
