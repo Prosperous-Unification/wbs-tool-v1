@@ -296,6 +296,37 @@ export function noContent(): RouteResponse {
  * the patterns in this app carry none, `//` stays a miss, and `/` itself is left
  * alone so the root path does not normalise to the empty string.
  */
+/**
+ * One path segment, decoded — or left exactly as it arrived where it cannot be.
+ *
+ * `decodeURIComponent` **throws** `URIError` on malformed percent encoding, and
+ * `matchPath` is called outside the in-process binder's `try`, so
+ * `/probe/echo/%ZZ` rejected the promise out of `handle()` instead of answering
+ * at all. Elysia does not: it decodes with `fast-decode-uri-component`, which
+ * returns `null` rather than throwing, and **measured at this head both binders
+ * match the route and Elysia answers 200 with the parameter as `null`.**
+ *
+ * So the fix is agreement on the answer, not a refusal: the route matches under
+ * both binders, the handler runs under both, and a segment this app cannot
+ * decode is handed over raw. Raw and not `null`, because {@link
+ * RouteRequest.params} is `Record<string, string>` and widening it to carry a
+ * framework's failure value would put that case in front of every handler in
+ * the app; `%ZZ` reaches a repository lookup that answers `not_found`, which is
+ * what Elysia's `null` reaches too.
+ *
+ * The remaining difference is the parameter's *value* under a request no client
+ * sends deliberately, which `binder.contract.test.ts` records in the same
+ * excluded category as Elysia's own 404 body and its malformed-JSON refusal:
+ * the status is the route module's and both binders give it.
+ */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function matchPath(pattern: string, pathname: string): Record<string, string> | null {
   const expected = pattern.split('/');
   const actual = (
@@ -310,7 +341,7 @@ export function matchPath(pattern: string, pathname: string): Record<string, str
       // 404 rather than resolve to a project whose id is the empty string,
       // which every repository would then look up and answer `not_found` to.
       if (given === '') return null;
-      params[segment.slice(1)] = decodeURIComponent(given);
+      params[segment.slice(1)] = decodeSegment(given);
     } else if (segment !== given) {
       return null;
     }

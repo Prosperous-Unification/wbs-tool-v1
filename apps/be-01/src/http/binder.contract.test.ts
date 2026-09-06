@@ -345,6 +345,31 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
   });
 
   /**
+   * Malformed percent encoding in a parameter segment, which the peer terminal
+   * review found by reading and this clause settled by measuring.
+   *
+   * `decodeURIComponent` throws `URIError`, and `matchPath` is called outside
+   * `bindInProcess`'s `try`, so `/probe/echo/%ZZ` **rejected the promise out of
+   * `handle()`** — not a refusal, no answer at all. Elysia decodes with
+   * `fast-decode-uri-component`, which returns `null` instead of throwing.
+   *
+   * Probed rather than reasoned about, and the reading decided the fix:
+   * `elysia 200 {"id":null,"mode":null}`, `in-process URIError`. Elysia
+   * **matches the route** and runs the handler, so making the in-process binder
+   * 404 would have been a second divergence dressed as a fix. `matchPath` now
+   * hands an undecodable segment over raw and both answer 200.
+   *
+   * The status is asserted and the parameter's value is not, for the reason the
+   * 422 clause below states: the status is the route module's and both binders
+   * give it, while `null` versus `'%ZZ'` for a request no client sends
+   * deliberately is the framework's own reading.
+   */
+  it('answers a malformed percent-encoded parameter rather than throwing', async () => {
+    const res = await get('/probe/echo/%ZZ');
+    expect(res.status).toBe(200);
+  });
+
+  /**
    * The second divergence this branch found, and the decision about it: a query
    * schema's refusal agrees on **status** and is not asserted to agree on body.
    *
