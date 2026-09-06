@@ -170,11 +170,11 @@ describe('the solver supervisor runtime composition', () => {
         return Promise.resolve();
       },
     };
-    await dependencies.run(
-      FRAME,
-      channel,
-      { id: CALLER_ID, name: 'wbs-dev-src', image: 'wbs-dev-src:1' },
-    );
+    await dependencies.run(FRAME, channel, {
+      id: CALLER_ID,
+      name: 'wbs-dev-src',
+      image: 'wbs-dev-src:1',
+    });
     expect(mapped).toEqual(['wbs-dev-src:wbs-dev-src:1']);
     expect(driver.events.slice(6)).toEqual([
       'peer-inspect:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
