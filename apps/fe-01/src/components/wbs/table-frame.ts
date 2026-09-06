@@ -375,6 +375,18 @@ const COLUMN_WIDTHS = new Map<string, number>([
   ['start', DATE_COLUMN_WIDTH],
   ['finish', DATE_COLUMN_WIDTH],
   ['float', 56],
+  // The work item deadline, at the width a short date needs — the same 84 the
+  // floor beside it uses where rows set days ({@link NOT_BEFORE_WITH_DAYS}, the
+  // literal repeated because that constant is declared below this map and a
+  // reference here would read it before it is initialised).
+  //
+  // One width and not the floor's pair of them, because this column is in
+  // {@link INITIAL_HIDDEN_COLUMNS}: the floor narrows to 56 on a project that
+  // sets no day because it is on screen whether or not anybody wanted it, and a
+  // column a reader turned on in `Columns` is one they mean to put dates in.
+  // The default table is therefore the table it was, to the pixel, and the
+  // folded-width budget at 1280 does not move.
+  ['deadline', 84],
   // No `notes`: a work item's notes are typed under its name, in the Name
   // cell, and the column they had of their own is gone. 260px of a table that
   // has to lose about 500 to stop scrolling sideways at 1280.
@@ -460,7 +472,18 @@ export const FIXED_COLUMNS: readonly string[] = [...COLUMN_WIDTHS.keys(), ...PLA
  * 1259`; `team` struck from here, on `expected 1187 to be 1067`. Watched,
  * 2026-08-28.
  */
-export const INITIAL_HIDDEN_COLUMNS: readonly string[] = ['refs', 'team', 'service', 'type'];
+export const INITIAL_HIDDEN_COLUMNS: readonly string[] = [
+  'refs',
+  'team',
+  'service',
+  'type',
+  // The work item deadline, hidden for the same reason `type` is: the folded
+  // table has 29px of slack at 1280 and this column is 84, so on by default it
+  // would overflow the budget test measures — and a deadline is a thing a
+  // minority of rows carry. `work-item-deadline` 9.1 asks for the cell, not for
+  // a column every project pays width for.
+  'deadline',
+];
 
 /** The one-time column target chosen by the full-table Reset layout action. */
 export function resetHiddenColumns(hasAnyExternalRefs: boolean): readonly string[] {
@@ -512,6 +535,10 @@ export function hideableColumnIds(stepIds: readonly string[]): readonly string[]
     ...stepIds,
     'final-total',
     'not-before',
+    // Between the floor and the computed dates, which is where the table renders
+    // it: the two days a planner states about a row sit together, and the days
+    // be-01 worked out follow them.
+    'deadline',
     'start',
     'finish',
     'float',

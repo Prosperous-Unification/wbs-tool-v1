@@ -667,6 +667,10 @@ export function fakeProjectApi(): ProjectApi & {
         maxParallel: 1,
         startNoEarlierThan: null,
         startNoEarlierThanReason: null,
+        // No deadline on a row nobody has given one, and no reason field beside
+        // it — the deadline column has none, which is why the table's clear is
+        // one field where the floor's is a pair.
+        deadline: null,
         // A duplicate `teamIds` sat here until 2026-08-18, and a duplicate
         // `startNoEarlierThanReason` until 2026-09-02 — both harmless, and both
         // only possible because nothing typechecked this file. Moving it here,

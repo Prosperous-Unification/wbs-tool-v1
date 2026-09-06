@@ -18,6 +18,7 @@ import {
   type ComponentProps,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -531,6 +532,11 @@ const POPOVER_COLUMNS: ReadonlySet<string> = new Set([
   'type',
   'actions',
   'not-before',
+  // The deadline cell's editor, for the reason one line up: the same
+  // {@link DATE_EDITOR_WIDTH} field opening in an 84px column. A date column
+  // that took the editor and skipped this set would clip it at the cell edge —
+  // the fault this set's own sentence names.
+  'deadline',
   // The ref cell's hover card, which is the whole list of links hanging off a
   // 40px column: without the exemption it is cut at the cell edge and a reader
   // sees five characters of a URL.
@@ -2794,6 +2800,82 @@ function PlanRow({
       {children}
     </tr>
   );
+}
+
+/**
+ * Which row of one date column is being edited, and the focus that owes it.
+ *
+ * One id and never a set, which is the whole of "at most one editor in this
+ * column": every other row shows the short date as text, and a native date
+ * input is {@link DATE_EDITOR_WIDTH} of furniture an 84px column has no room
+ * for. It is also what took `not-before` from 146px to 84 — the column had to
+ * hold an editor on every row until 2026-08-09.
+ *
+ * Written once and taken by both date columns rather than declared twice.
+ * `not-before` and `deadline` want the identical three things and differ only
+ * in which column id they ask the grid for, and a second copy of the focus
+ * effect below is the kind that gets a fix applied to one of them: the effect
+ * is the subtle half, not the state.
+ *
+ * The effect puts the focus where opening or closing has just moved it, in both
+ * directions at once, because both need the same thing and cannot have it any
+ * sooner — the element to focus is rendered by the very pass that mounted or
+ * unmounted the editor. An `autoFocus` would cover the opening half and nothing
+ * at all of the closing half, which is the half the contract is about.
+ */
+function useDateCellEditor(
+  columnId: string,
+  gridElement: RefObject<HTMLElement | null>,
+): { editing: string | null; open: (rowId: string) => void; close: (rowId: string) => void } {
+  const [editing, setEditing] = useState<string | null>(null);
+  /**
+   * The row owed the focus back, once the editor closing on it has actually
+   * gone from the DOM — a ref and an effect rather than a call, because the
+   * cell to focus does not exist yet at the moment the editor asks to close.
+   */
+  const owedFocus = useRef<string | null>(null);
+
+  /** Opens the editor on one row's cell in this column, closing any other. */
+  const open = useCallback((rowId: string) => {
+    setEditing(rowId);
+  }, []);
+
+  /**
+   * Closes the editor and gives the cell it was on the focus back.
+   *
+   * The way out — {@link DateField}'s `onExit` — is not branched on here, and
+   * that is deliberate: the day has been sent or it has not, by then, and the
+   * editor closes either way. What the two answers are for is the editor's own
+   * suppression of the blur an Escape causes, which is `date-field.tsx`'s.
+   */
+  const close = useCallback((rowId: string) => {
+    owedFocus.current = rowId;
+    setEditing((open_) => (open_ === rowId ? null : open_));
+  }, []);
+
+  useEffect(() => {
+    const grid = gridElement.current;
+    if (grid === null) return;
+    if (editing !== null) {
+      const editor = cellIn(grid, { rowId: editing, columnId });
+      // Gone before the focus reached it — a peer deleted the row, or a search
+      // narrowed it away. A modeled absence: there is nothing to focus.
+      if (editor !== undefined) focusCellAt(editor, 'all');
+      return;
+    }
+    const rowId = owedFocus.current;
+    if (rowId === null) return;
+    owedFocus.current = null;
+    // Only where nothing else has claimed it. `Ctrl/⌘ + Enter` from this cell
+    // commits, closes **and** moves to the next row — putting the focus back on
+    // the cell it left would undo the chord.
+    if (document.activeElement !== null && document.activeElement !== document.body) return;
+    const cell = cellIn(grid, { rowId, columnId });
+    if (cell === undefined) return;
+    focusCellAt(cell, 'all');
+  }, [editing, columnId, gridElement]);
+
+  return { editing, open, close };
 }
 
 /**
@@ -6576,6 +6658,30 @@ export function WbsTable({
   );
 
   /**
+   * Sets or clears one work item's deadline — the last day it may finish on.
+   *
+   * **The single field, and deliberately not the floor's pair one function
+   * up.** `setNotBefore` clears in two fields because be-01 refuses a reason
+   * with no date to be about; a deadline has no reason column beside it, which
+   * was slice 1.1's choice, so `{ deadline: null }` is the whole of the clear
+   * and a request naming `startNoEarlierThanReason` here would be sending a key
+   * about a different constraint. Copying the pair across is the mistake this
+   * comment exists to stop.
+   *
+   * Nothing is guarded here. A day before the project's own start is refused by
+   * be-01 with `deadline_before_project_start`, and it is left refused there:
+   * this client holds no project start to compare against on this path, and a
+   * client-side rule the server also keeps is how the two come to disagree —
+   * the doctrine {@link setPriority} writes down.
+   */
+  const setDeadline = useCallback(
+    (id: string, day: string | null) => {
+      void run(() => api.patchWorkItem(id, { deadline: day }));
+    },
+    [api, run],
+  );
+
+  /**
    * Sets or clears the words about one work item's "not before" day.
    *
    * A sentence, not a state. It moves no date and reaches no other row — the
@@ -6691,74 +6797,20 @@ export function WbsTable({
   );
 
   /**
-   * The row whose earliest-start cell is being edited, or none.
-   *
-   * One id rather than a set, which is the whole of "at most one editor on the
-   * page": every other row's cell is the short date as text, and a native date
-   * input is 138px of furniture the 84px column has no room for. It is also
-   * what took `not-before` from 146px to 84 — the column had to hold an editor
-   * on every row until 2026-08-09.
+   * The two date columns a planner types into, each with at most one open
+   * editor — see {@link useDateCellEditor} for why the state and its focus
+   * effect are written once and taken twice.
    */
-  const [editingNotBefore, setEditingNotBefore] = useState<string | null>(null);
-
-  /**
-   * The row whose earliest-start cell is owed the focus back, once the editor
-   * closing on it has actually gone from the DOM.
-   *
-   * A ref and an effect rather than a call, because the cell to focus does not
-   * exist yet at the moment the editor asks to close: it is rendered by the
-   * same pass that unmounts the editor.
-   */
-  const notBeforeOwedFocus = useRef<string | null>(null);
-
-  /** Opens the editor on one row's earliest-start cell, closing any other. */
-  const openNotBefore = useCallback((rowId: string) => {
-    setEditingNotBefore(rowId);
-  }, []);
-
-  /**
-   * Closes the editor and gives the cell it was on the focus back.
-   *
-   * The way out — {@link DateField}'s `onExit` — is not branched on here, and
-   * that is deliberate: the day has been sent or it has not, by then, and the
-   * editor closes either way. What the two answers are for is the editor's own
-   * suppression of the blur an Escape causes, which is `date-field.tsx`'s.
-   */
-  const closeNotBefore = useCallback((rowId: string) => {
-    notBeforeOwedFocus.current = rowId;
-    setEditingNotBefore((editing) => (editing === rowId ? null : editing));
-  }, []);
-
-  /**
-   * Puts the focus where opening or closing an editor has just moved it.
-   *
-   * Both directions in one effect, because both need the same thing and cannot
-   * have it any sooner: the element to focus is rendered by the very pass that
-   * mounted or unmounted the editor. An `autoFocus` would cover the opening
-   * half and nothing at all of the closing half, which is the half the
-   * contract is about.
-   */
-  useEffect(() => {
-    const grid = gridElement.current;
-    if (grid === null) return;
-    if (editingNotBefore !== null) {
-      const editor = cellIn(grid, { rowId: editingNotBefore, columnId: 'not-before' });
-      // Gone before the focus reached it — a peer deleted the row, or a search
-      // narrowed it away. A modeled absence: there is nothing to focus.
-      if (editor !== undefined) focusCellAt(editor, 'all');
-      return;
-    }
-    const rowId = notBeforeOwedFocus.current;
-    if (rowId === null) return;
-    notBeforeOwedFocus.current = null;
-    // Only where nothing else has claimed it. `Ctrl/⌘ + Enter` from this cell
-    // commits, closes **and** moves to the next row — putting the focus back on
-    // the cell it left would undo the chord.
-    if (document.activeElement !== null && document.activeElement !== document.body) return;
-    const cell = cellIn(grid, { rowId, columnId: 'not-before' });
-    if (cell === undefined) return;
-    focusCellAt(cell, 'all');
-  }, [editingNotBefore]);
+  const {
+    editing: editingNotBefore,
+    open: openNotBefore,
+    close: closeNotBefore,
+  } = useDateCellEditor('not-before', gridElement);
+  const {
+    editing: editingDeadline,
+    open: openDeadline,
+    close: closeDeadline,
+  } = useDateCellEditor('deadline', gridElement);
 
   /** Replaces a work item's own team set, whole. */
   const setTeamOf = useCallback(
@@ -7309,6 +7361,7 @@ export function WbsTable({
     setFocusedCell,
     setNotBefore,
     setNotBeforeReason,
+    setDeadline,
     setPriority,
     priorityBands,
     setParallelism,
@@ -7318,6 +7371,9 @@ export function WbsTable({
     editingNotBefore,
     openNotBefore,
     closeNotBefore,
+    editingDeadline,
+    openDeadline,
+    closeDeadline,
     startDate,
     teams,
     tags,
@@ -10110,6 +10166,135 @@ export function WbsTable({
                   />
                 )}
               </span>
+            );
+          },
+        }),
+        column.display({
+          id: 'deadline',
+          // Abbreviated for the same reason `Not bef.` is: 84px. The sentence
+          // is on the `<th>` (`column-hints.ts`), where every column's is.
+          header: () => <span>Due</span>,
+          cell: ({ row }) => {
+            const day = row.original.deadline;
+            // No reason to read beside it. The floor's cell holds two boxes
+            // because a not-before carries words; `work-item-deadline` 1.1 gave
+            // the deadline no reason column, so this cell is one box and its
+            // clear is one field — see {@link setDeadline}.
+            //
+            // Without a project start date there is no day zero to resolve a
+            // deadline against and be-01 applies none of them, exactly as it
+            // ignores the floor. A rendered disabled state rather than an editor
+            // that opens onto nothing.
+            const noCalendar = live.current.startDate === null;
+            const editing = live.current.editingDeadline === row.original.id;
+            const open = (): void => {
+              if (noCalendar) return;
+              live.current.openDeadline(row.original.id);
+            };
+            const close = (): void => {
+              live.current.closeDeadline(row.original.id);
+            };
+            return editing ? (
+              <DateField
+                aria-label={`Deadline for ${row.original.number}`}
+                data-deadline={row.original.id}
+                data-cell={cellKey(row.original.id, 'deadline')}
+                data-hint="The last day this work item may finish on. It does not move the plan; a plan that misses it says so."
+                onKeyDown={(e) => {
+                  // Enter closes the editor, after `DateField`'s own handler has
+                  // already sent the day — its handler is first, deliberately,
+                  // so a `Ctrl/⌘ + Enter` that moves to the next row has saved
+                  // this one on the way out.
+                  if (e.key === 'Enter') close();
+                  // Alt+arrow is taken before the native date input's segment
+                  // stepper sees it, exactly as in every other date cell; the
+                  // arrows themselves stay with the segment under the caret,
+                  // which is why {@link onArrowKey} is absent here.
+                  live.current.onAltMove(e, row.original, 'deadline');
+                  live.current.onCommandKey(e, row.original, 'deadline');
+                  live.current.onTabKey(e, row.original.id, 'deadline');
+                }}
+                // Every way out, and not only Escape — which is where this cell
+                // is simpler than the floor beside it. That one asks its wrapper
+                // about `focusout` because a blur there may be somebody reaching
+                // for the reason box under the date; there is no second box
+                // here, so a blur is an exit and `onExit` can be believed.
+                onExit={() => {
+                  close();
+                }}
+                // Wider than its column, on purpose — see {@link DATE_EDITOR_WIDTH}.
+                style={{
+                  position: 'relative',
+                  zIndex: 10,
+                  width: DATE_EDITOR_WIDTH,
+                  boxSizing: 'border-box',
+                  font: 'inherit',
+                }}
+                value={day ?? ''}
+                commit={(typed) => {
+                  // A date input reports '' when cleared, which is the caller
+                  // saying "no deadline" rather than "an empty date".
+                  live.current.setDeadline(row.original.id, typed === '' ? null : typed);
+                }}
+              />
+            ) : (
+              /*
+              The day at rest, and still a cell of the keyboard grid: Tab lands
+              here, the arrows land here, and `editableGrid` finds it because it
+              is an `<input>` carrying `data-cell` — which is also why it is not
+              `readOnly`, an attribute that selector deliberately excludes.
+              Nothing is ever typed into it: a keystroke opens the editor
+              instead, which is what `onChange` is doing here.
+            */
+              <input
+                aria-label={`Deadline for ${row.original.number}`}
+                disabled={noCalendar}
+                data-deadline={row.original.id}
+                data-cell={cellKey(row.original.id, 'deadline')}
+                data-fact={
+                  noCalendar
+                    ? 'Set the project start date first — without one there are no dates to hold a deadline against.'
+                    : [
+                        day === null ? null : `${day}.`,
+                        'The last day this work item may finish on. It does not move the plan; a plan that misses it says so.',
+                      ]
+                        .filter((part) => part !== null)
+                        .join(' ')
+                }
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  font: 'inherit',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: noCalendar ? 'not-allowed' : 'text',
+                }}
+                // An em-dash for a row with no deadline, which reads as "none"
+                // rather than as a cell that failed to load.
+                value={day === null ? '—' : shortIsoDate(day, new Date())}
+                onChange={open}
+                // `click`, not `mousedown`: React flushes a discrete update
+                // inside the `mousedown` dispatch, so the editor mounts and the
+                // at-rest input is gone before Chromium performs that event's
+                // default action — focusing the node it hit-tested. Focusing a
+                // detached node moves focus to `<body>`, which blurs the editor,
+                // which is an exit, which closes it: the click does nothing at
+                // all. The floor's cell carries the same note and the same
+                // measurement.
+                onClick={open}
+                onKeyDown={(e) => {
+                  // A bare Enter opens the editor; a chord is the table's and is
+                  // left to it, which is why the modifiers are asked about first.
+                  if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+                    e.preventDefault();
+                    open();
+                    return;
+                  }
+                  live.current.onAltMove(e, row.original, 'deadline');
+                  live.current.onCommandKey(e, row.original, 'deadline');
+                  live.current.onTabKey(e, row.original.id, 'deadline');
+                }}
+              />
             );
           },
         }),

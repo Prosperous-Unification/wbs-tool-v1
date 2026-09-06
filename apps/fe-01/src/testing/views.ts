@@ -39,6 +39,7 @@ export function workItemView(overrides: Partial<WorkItemView> = {}): WorkItemVie
     dates: null,
     startNoEarlierThan: null,
     startNoEarlierThanReason: null,
+    deadline: null,
     priority: null,
     maxParallel: 1,
     teamIds: [],
