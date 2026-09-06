@@ -281,3 +281,21 @@ of presenting a worker attempt token.
 
 This is the durable overwrite half of 7.3/7.11. The strict-order admission
 transaction and HTTP route remain before either slice can be ticked.
+
+## 2026-09-06T22:28:32Z — atomic Retry admission
+
+- Red head `fe57f5da` on h2puni specified stale-input, retryability, live-key,
+  and budget-key ordering; all seven new cases failed at the absent `retry`
+  seam while the existing 16 coordinator cases passed.
+- Exact green head `9810c133` on h2puni, worktree
+  `/home/puni1/t268-r3-admission-pass.z69Olx`: the coordinator, cache, and
+  queue files passed 93/93 tests with 429 assertions; scoped Prettier, be-01
+  lint, and be-01 typecheck were green. No build or autotest ran on the
+  queue-worker box.
+- One SQLite transaction now applies stale hash → terminal retryability →
+  exact full-key liveness → capacity admission. Failed/corrupt markers remain
+  authoritative while a reserved or durable-FIFO Retry runs, and concurrent
+  identical asks coalesce without launching twice.
+
+This closes the coordinator half of 7.3/7.11. The authenticated HTTP route and
+its response mapping remain.
