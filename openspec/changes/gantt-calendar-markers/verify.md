@@ -137,3 +137,32 @@ each is the _only_ place a colour of that shape exists:
 and stopping there** — both are named by surfaces the pointed row's opaque
 light contributes — which is what makes them the cases that prove the validator
 measures the whole table rather than the base pair.
+
+## Whole-workspace gate — first recording (item G, half)
+
+`bunx nx run-many -t test lint typecheck`, run on **h2puni** in `~/t235-gate`
+with `NX_DAEMON=false NODE_OPTIONS=--max-old-space-size=3072 --skip-nx-cache`
+at `7d627f18`, 2026-09-06T08:40:07Z:
+
+```
+NX   Running targets test, lint, typecheck for 22 projects
+…
+NX   Successfully ran targets test, lint, typecheck for 22 projects
+```
+
+`fe-01`'s two vitest projects inside that run: **88 files / 2299 passed** and
+**2 files / 3 passed**, 0 failed. `be-01` at the same bytes, measured
+separately in the same session: **127 files / 1565 passed**, 0 failed. Lint
+reports one problem workspace-wide — the pre-existing
+`wbs-table.tsx:4748` `react-hooks/exhaustive-deps` warning, **0 errors**.
+
+**A whole-workspace run, and not the sum of the per-project ones**, per
+`LLM_README.md`: six import-sort errors reached `main` on 2026-08-30 green in
+every per-project run. That is why this line is recorded from `run-many` and
+not assembled from the per-slice gates above.
+
+**Item G is not done on this.** G also wants the failure-proof table — for every
+negative the plan names, the fault injected, the test that observed it failing,
+and the result — and four implementation slices (8.6, 8.7, 8.8, plus 3.4 and
+7.4) are still open, so the table cannot be complete. What is recorded here is
+G's first clause at the head that closed 8.4 and 8.5.
