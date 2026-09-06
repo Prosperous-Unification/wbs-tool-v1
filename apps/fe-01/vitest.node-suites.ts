@@ -27,6 +27,7 @@ export const NODE_SUITES: readonly string[] = [
   'src/components/wbs/gantt-geometry.test.ts',
   'src/components/wbs/initials.test.ts',
   'src/components/wbs/marker-rule-density.test.ts',
+  'src/components/wbs/marker-rule-ink.test.ts',
   'src/components/wbs/mention.test.ts',
   'src/components/wbs/name-notes.test.ts',
   'src/components/wbs/plan-completeness.test.ts',
