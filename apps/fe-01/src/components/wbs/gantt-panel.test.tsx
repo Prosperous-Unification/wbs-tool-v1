@@ -6916,14 +6916,26 @@ describe('downloading the chart as a standalone .svg', () => {
       // same picture. The rule needs no work to travel (it is inside the nested
       // `<svg>`) and the chip needs all of it, which is why one case asserts
       // both halves.
+      //
+      // **The fixture carries two markers the screen does not draw**, and they
+      // are what gives this case a negative rather than a tautology. At 4px a
+      // cell holds one chip, so the second marker on offset 33 is capped out;
+      // offset 400 is off the drawn horizon entirely. An export that walked
+      // `markers` itself instead of asking the band would draw nine chips over
+      // a screen showing seven — and would name all nine in its legend, which
+      // is a legend naming two colours that are nowhere in the picture.
       const packed = [30, 31, 32, 33, 34, 35, 36];
       renderMarked(
-        packed.map((offset) => ({
-          id: `m-${String(offset)}`,
-          date: dayAt(offset),
-          name: `Day ${String(offset)}`,
-          color: AZURE,
-        })),
+        [
+          ...packed.map((offset) => ({
+            id: `m-${String(offset)}`,
+            date: dayAt(offset),
+            name: `Day ${String(offset)}`,
+            color: AZURE,
+          })),
+          { id: 'm-33-second', date: dayAt(33), name: 'Second on 33', color: CORAL },
+          { id: 'm-far', date: dayAt(400), name: 'Past the horizon', color: CORAL },
+        ],
         FENCE_RUNG_PX,
       );
       const panel = document.querySelector('[data-gantt-panel]');
