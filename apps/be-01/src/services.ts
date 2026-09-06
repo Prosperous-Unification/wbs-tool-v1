@@ -208,14 +208,20 @@ export function buildServices(opts: ServicesOptions): BeServices {
       capacity: capacityStore,
       broadcast: announcements,
     }),
-    // No broadcaster yet, and that is this slice rather than an omission: task
-    // 4.1 is the routes, and slice 9 is where a marker write announces itself.
-    // A service handed one it never publishes through would read as a route
-    // that already fans out.
+    // The same broadcaster again, and this argument is load-bearing in a way
+    // the others are not: `CalendarMarkerServiceOptions.broadcast` is optional
+    // and `announce` calls it through `?.`, so a service built without one
+    // announces nothing and throws nothing. Every marker route test, service
+    // test and HTTP assertion stayed green for the whole of slices 4 and 9
+    // while the deployed process published no marker event at all (TASK-279).
+    // Nothing but wiring can catch that, which is why `services.db.test.ts` ›
+    // "announces a marker write through the shared broadcaster" drives a real
+    // write through the real `buildServices` and reads the event back.
     calendarMarkers: new CalendarMarkerService({
       clock,
       projects: projectStore,
       markers: calendarMarkerStore,
+      broadcast: announcements,
     }),
     // The same broadcaster again, for the capacity service's reason: a ladder
     // event takes its place in the project's one sequence, so a client resuming
