@@ -40,11 +40,7 @@ export function OptimizationSettingsPanel({
     }
   }
 
-  const selected = value.enabled
-    ? value.engine === 'fast'
-      ? 'fast'
-      : value.objective
-    : 'fast';
+  const selected = value.enabled ? (value.engine === 'fast' ? 'fast' : value.objective) : 'fast';
 
   return (
     <div aria-busy={writing} className="space-y-4">

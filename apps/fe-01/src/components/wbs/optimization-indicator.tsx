@@ -23,10 +23,7 @@ function comparisonWords(comparison: NonNullable<PlanOptimizationView['compariso
 }
 
 /** One current-state sentence for the optimized schedule selected by the project. */
-export function OptimizationIndicator({
-  optimization,
-  workItemName,
-}: OptimizationIndicatorProps) {
+export function OptimizationIndicator({ optimization, workItemName }: OptimizationIndicatorProps) {
   if (!optimization.enabled || optimization.engine === 'fast') return null;
   const variant = optimization.variants[optimization.objective];
 

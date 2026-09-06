@@ -1,10 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  OptimizationSettingsPanel,
-  type OptimizationSettingsProps,
-} from './optimization-settings';
+import { OptimizationSettingsPanel, type OptimizationSettingsProps } from './optimization-settings';
 
 const hasDom = typeof document !== 'undefined';
 const itDom = hasDom ? it : it.skip;
@@ -65,18 +62,15 @@ describe('project optimization settings', () => {
       { enabled: true, engine: 'optimized', objective: 'pri' },
       { scheduleEngine: 'optimized', scheduleObjective: 'time' },
     ],
-  ] as const)(
-    'maps %s to the persisted engine and objective',
-    async (label, before, patch) => {
-      const { setSettings, onChanged } = mounted(before);
+  ] as const)('maps %s to the persisted engine and objective', async (label, before, patch) => {
+    const { setSettings, onChanged } = mounted(before);
 
-      fireEvent.click(screen.getByRole('radio', { name: label }));
-      await settle();
+    fireEvent.click(screen.getByRole('radio', { name: label }));
+    await settle();
 
-      expect(setSettings).toHaveBeenCalledWith(patch);
-      expect(onChanged).toHaveBeenCalledOnce();
-    },
-  );
+    expect(setSettings).toHaveBeenCalledWith(patch);
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
 
   itDom('follows an incoming project read instead of keeping a local selector', () => {
     const { view } = mounted({ enabled: true, engine: 'fast', objective: 'pri' });
