@@ -617,9 +617,9 @@ order`, with their tests. A repository assertion that no unqualified
 
 ## 9. UI
 
-- [ ] 9.1 The **Work item deadline** cell on any row, leaf or parent, nullable
+- [x] 9.1 The **Work item deadline** cell on any row, leaf or parent, nullable
       and date-only, using the existing date-cell affordances.
-- [ ] 9.2 The `Late by N workdays` label per missed slice, reading the number
+- [x] 9.2 The `Late by N workdays` label per missed slice, reading the number
       computed in 5.2 rather than recomputing it in the view.
 - [ ] 9.3 `Plan infeasible · N work item deadlines` with the offending items
       listed on demand, Fast still on screen and usable, **no toast and no
