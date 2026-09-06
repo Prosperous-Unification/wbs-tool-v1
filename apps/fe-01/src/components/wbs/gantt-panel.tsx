@@ -2102,11 +2102,15 @@ interface StandaloneLegend {
  *
  * **Why grow and not truncate.** The cheaper shape is to cut the name to the
  * room it has, ellipsis included, which is what the live chip does with
- * `maxWidth: dayPx`. `spec.md` forbids it here: "Every marker name SHALL appear
- * as text in the exported markup", explicitly rejecting a tooltip because it is
- * invisible in a printed page or a rasterised copy — and a truncation is that
- * refusal with the characters gone rather than hidden. The download is the
- * artefact with no pointer, so it is the one that has to carry the whole name.
+ * `maxWidth: dayPx`. `spec.md` forbids it here: "Every name the legend names
+ * SHALL appear as text in the exported markup", explicitly rejecting a tooltip
+ * because it is invisible in a printed page or a rasterised copy — and a
+ * truncation is that refusal with the characters gone rather than hidden. The
+ * download is the artefact with no pointer, so it is the one that has to carry
+ * the whole name. The clause reads "the legend names" and not "every marker"
+ * since TASK-287: a row that exists is a row that is drawn whole, which is a
+ * statement about *this* function and says nothing about the membership
+ * question above.
  */
 function layOutMarkerLegend(
   band: readonly { readonly marker: CalendarMarkerView }[],
@@ -2320,9 +2324,13 @@ function buildStandaloneGanttSvg(input: StandaloneGanttSvgInput): SVGSVGElement 
     // **One rounded cell, square joins inside it** (TASK-287 AC #3). Each
     // share used to carry its own `rx="2"`, so where two shares met, the left
     // one's right corners and the right one's left corners were both rounded
-    // and the page showed through the notch between them — a seam the screen
-    // does not have, because on screen a crowded cell is chips in a flex row
-    // and not a split rect. `rx` has no per-corner spelling, so the rounding
+    // and the page showed through the notch between them. The seam belongs to
+    // the split and to nothing else: the live band never splits a cell — its
+    // chips are absolutely positioned at the same `left: offset * dayPx` under
+    // the same `maxWidth: dayPx` and simply overlap, which the day card is
+    // there to resolve — so there is no screen behaviour to copy here, only an
+    // artefact of the export's own answer to having no day card.
+    // `rx` has no per-corner spelling, so the rounding
     // moves off the share and onto the cell: the shares are drawn square and
     // clipped to one rounded rect the width of the whole day. A day with a
     // single share is unchanged by construction — its share *is* the cell, so

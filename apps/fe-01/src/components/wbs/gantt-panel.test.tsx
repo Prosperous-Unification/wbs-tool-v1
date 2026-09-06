@@ -7113,8 +7113,10 @@ describe('downloading the chart as a standalone .svg', () => {
           expect(rightEdgeOf(word)).toBeLessThanOrEqual(declared);
         }
         // And the whole name is in the file, uncut: `spec.md` requires every
-        // marker name to appear as text in the exported markup, which is why the
-        // document grows instead of the name shrinking.
+        // name the legend names to appear as text in the exported markup, which
+        // is why the document grows instead of the name shrinking. Both markers
+        // here are drawn, so the clause's TASK-287 narrowing to drawn chips
+        // leaves this case exactly where it was.
         expect(names[0].textContent).toHaveLength(long.length);
       },
     );
