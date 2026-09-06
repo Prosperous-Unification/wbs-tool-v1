@@ -131,7 +131,8 @@ jobs:
           gate_status=$?
           tail -n 200 nx-gate.log
           annotation_status=0
-          bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts nx-gate.log || annotation_status=$?
+          TASK_289_HELPER_FAULT=1 \
+            bun run tools/tool-git-hooks/src/hooks/ci-gate-annotations.ts nx-gate.log || annotation_status=$?
           if [ "$gate_status" -ne 0 ]; then
             exit "$gate_status"
           fi

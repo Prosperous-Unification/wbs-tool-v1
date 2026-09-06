@@ -104,6 +104,9 @@ async function main(): Promise<void> {
   if (!path || unexpected) {
     throw new Error('usage: bun run ci-gate-annotations.ts <nx-gate.log>');
   }
+  if (process.env.TASK_289_HELPER_FAULT === '1') {
+    throw new Error('TASK-289 watched helper fault');
+  }
 
   const annotations = await readErrorAnnotations(path);
   if (annotations.length > 0) process.stdout.write(`${annotations.join('\n')}\n`);
