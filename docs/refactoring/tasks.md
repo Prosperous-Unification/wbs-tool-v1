@@ -10,16 +10,16 @@ Each implementation change keeps ordered slices and fresh evidence in its own
 ## Execution queue
 
 - [x] Create isolated worktree and branch; install locked dependencies.
-- [ ] Establish baseline tests and current collision inventory.
-- [ ] W4-4: extract table modules while preserving the live cell contract.
+- [x] Establish baseline unit tests and current collision inventory (full gates pending).
+- [ ] W4-4: table modules committed (`281144a9`), 601 concept tests and review passed; full gates pending.
 - [ ] R1: plan refresh coordinator; after W4-4, before client migration.
-- [ ] R2: team removal revisions and audit stamps; before R6/store migration.
-- [ ] R3: authentication storage fault boundary; before auth endpoint migration.
+- [ ] R2: team removal revisions and audit stamps — implementation/review/typecheck done (`e9141949`); full gate pending.
+- [ ] R3: authentication storage fault boundary — implementation/review/typecheck done (`271500c4`); full gate pending.
 - [ ] R4: validate WebSocket ingress; before R7/R9 gateway edits.
-- [ ] R5: reserve login capacity; after R3, before auth endpoint migration.
-- [ ] R6: project-scoped assignments and assigned names; after R2.
+- [ ] R5: login admission committed (`47167984`), 131 scoped tests/review/typecheck passed; full gate pending.
+- [ ] R6: scoped queries committed (`20801719`), scoped tests/review/typecheck passed; full gate pending.
 - [ ] R7: project-scoped presence delivery; after R4.
-- [ ] R8: bounded replay-buffer sweep; before store/runtime extraction.
+- [ ] R8: bounded replay sweep committed (`5793763e`), 31 scoped tests/review passed; full gate pending.
 - [ ] R9: bounded gateway transport deadlines; after gateway/auth owners release files.
 - [ ] R10: measured viewport rendering and search isolation; after W4-4/R1.
 - [ ] HTTP Wave 0: reconcile landed features and routes; inventory collision paths.

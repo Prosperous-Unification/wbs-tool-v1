@@ -31,3 +31,9 @@ An initial index fault using a raw NOT INDEXED table expression failed in Drizzl
 ## Scope and limits
 
 No migration is needed: project reads use work_item_project_id_id, assignment's primary key, and person's primary key. Existing subset compatibility uses one indexed query per distinct requested work item; whole-project tree and capture paths use the joined project projection. Directory capture remains global deliberately, preserving saved-plan history. No load-latency or memory-budget claim was measured.
+
+Parent checkpoint: `bunx nx typecheck be-01 --skip-nx-cache` (source and spec
+projects) passed with R5/R6 held unchanged. Log:
+`/private/tmp/wbs-refactoring-r5-r6-typecheck.log`. Independent review approved
+after the saved-plan capture JSDoc correction; scoped re-review found no remaining
+findings. Implementation committed as `20801719`; full workspace gate pending.

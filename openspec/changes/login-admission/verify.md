@@ -1,6 +1,6 @@
 ## Verification
 
-Base: R3 commit `271500c4`, branch `refactoring`. No commits or deployment in this slice.
+Base: R3 commit `271500c4`, branch `refactor/planned-project`. No commits or deployment in this slice.
 
 - Initial mounted auth tests: **15 pass / 10 fail**. Held-20 requests admitted all twenty; injected global-cap options were ignored; invalid limits did not throw; an unexpected verifier error became 401.
 - Final scoped run: `bun test apps/be-01/src/controller/auth.integration.test.ts apps/be-01/src/controller/oidc.integration.test.ts apps/be-01/src/service/auth-service-null-password.test.ts apps/be-01/src/service/login-throttle.test.ts apps/be-01/src/app.routes.test.ts apps/be-01/src/http/binder.contract.test.ts` — **131 pass / 0 fail**, 308 assertions, 4.50s.
@@ -8,7 +8,7 @@ Base: R3 commit `271500c4`, branch `refactoring`. No commits or deployment in th
 - `bunx eslint` on `app.ts`, `controller/{auth.routes,auth.integration.test}.ts`, `service/{auth.service,login-throttle,login-throttle.test}.ts` — **exit 0**. An earlier pass caught the controller test importing the Elysia dialect directly; injected-clock lifetime tests now use the existing in-process binder over the production auth route. Admission, global cap and error-lifetime tests exercise `buildApp.handle`.
 - Prettier check on all six changed TypeScript files and this change — **exit 0**.
 - `bunx openspec validate login-admission --strict --json` — **exit 0, valid**, zero issues. The CLI subsequently printed an optional telemetry DNS failure for `edge.openspec.dev`; validation had completed successfully.
-- Workspace, full backend and browser gates remain deferred to parent integration while other agents edit. The separate test TypeScript project was not compiled. No library files changed in R5.
+- Workspace, full backend and browser gates remain deferred to parent integration while other agents edit. The root TypeScript command above references and compiles both source and spec projects. No library files changed in R5.
 
 The fixed full auth file has **31 passing tests**. Every injected fault below returned exit 1; the mutation runner restored each production file before the next mutation. All fixed-source suites passed after the injections. Logs: `/tmp/refactoring-r5-{red,windows,lifetime,restored,typecheck,mutation-summary}.log` and `/tmp/refactoring-r5-fault-*.log`.
 
