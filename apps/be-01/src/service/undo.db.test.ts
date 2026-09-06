@@ -648,6 +648,16 @@ describe('undoing each kind of change', () => {
 
     expect(expectDone(await undone())).toBe('edit “Strip”');
     expect((await rows()).at(0)?.deadline).toBeNull();
+
+    // And forward again, which is the half `revertTo` is **not** on: redo
+    // replays the journalled `forward` patch and never reads `before`. Both
+    // directions, because 6.3 names both — redo of a set restores the date,
+    // redo of the clear restores `null`.
+    expect(expectDone(await workItems.redo(projectId, ownerId))).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.deadline).toBe('2026-03-31');
+
+    expect(expectDone(await workItems.redo(projectId, ownerId))).toBe('edit “Strip”');
+    expect((await rows()).at(0)?.deadline).toBeNull();
   });
 
   it('restores a legacy singleton delete journal that has no teamIds', async () => {

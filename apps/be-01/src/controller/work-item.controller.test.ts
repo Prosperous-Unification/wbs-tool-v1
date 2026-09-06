@@ -659,6 +659,31 @@ describe('work item routes', () => {
     expect(await firstRow(send, token, projectId)).toMatchObject({ deadline: '2026-03-02' });
   });
 
+  it('refuses a deadline that is not a date, the way every other malformed field is refused', async () => {
+    // 6.1's other half, and the one the plan text got wrong: a non-`IsoDate`
+    // goes through the **existing** malformed-payload path, and that path
+    // answers **400**, not 422 — `asOptionalDate` throws `BadRequest` and the
+    // batch route's own default is 400. Asserted rather than assumed, because
+    // "the existing path" is the requirement and its status is whatever the
+    // existing path already says. See `tasks.md` 6.1, corrected against this.
+    const { token, send, projectId } = await setup();
+    const id = await addWorkItem(send, token, projectId, { parentId: null, name: 'Strip' });
+
+    const malformed = await command(send, token, projectId, {
+      kind: 'patchWorkItem',
+      workItemId: id,
+      patch: { deadline: 'the end of March' },
+    });
+
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({
+      error: 'deadline_must_be_a_date',
+      at: 0,
+      kind: 'patchWorkItem',
+    });
+    expect(await firstRow(send, token, projectId)).toMatchObject({ deadline: null });
+  });
+
   it('lets a caller who may edit a work item set its deadline, and nobody else', async () => {
     // 6.2: the authority is the existing work-item write authority and no new
     // one is introduced. Both directions in one case, because only the pair

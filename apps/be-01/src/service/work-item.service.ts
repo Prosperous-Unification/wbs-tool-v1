@@ -1064,8 +1064,10 @@ function revertTo(before: LabelledWorkItem, patch: WorkItemPatch): WorkItemPatch
   // No pair to reconstruct — the deadline has no reason column beside it — so
   // this is the scalar rule the priority below it keeps: name the field the
   // forward named, restore the value it had, and leave every other field alone.
-  // Redo of a clear puts `null` back and redo of a set puts the date back,
-  // because `before.deadline` is whichever of the two it actually was.
+  // `before.deadline` is whichever of the two the row actually held, so the
+  // inverse of a set is the prior date or `null` and the inverse of a clear is
+  // the date. **Redo does not come through here at all** — it replays the
+  // journalled `forward` patch — which is why 6.3's case presses both.
   if (patch.deadline !== undefined) out.deadline = before.deadline;
   if (patch.priority !== undefined) out.priority = before.priority;
   if (patch.serviceTeamId !== undefined) out.serviceTeamId = before.serviceTeamId;
@@ -1960,7 +1962,8 @@ export class WorkItemService {
     // plain `<` is what would let the two drift.
     //
     // Proof: this refusal deleted, and `refuses a deadline before the project
-    // starts, naming day zero` fails on `Expected: 422, Received: 200` — the
+    // starts, naming the row and day zero` fails on `Expected: 422, Received:
+    // 200` — the
     // row takes a date that no placement of the work can meet and every later
     // read of the project reports it late by a span nobody asked for.
     //

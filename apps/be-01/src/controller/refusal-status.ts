@@ -34,9 +34,11 @@ const CONFLICTS = new Set([
  * body was malformed, and a caller that fixed the syntax would send the same
  * request again; 422 says the syntax was fine and the value is the problem.
  *
- * `deadline_before_project_start` is the first: a date the whole project ends
- * before, which `work-item-deadline` 6.1 names as the only deadline-specific
- * rejection. It is not a {@link CONFLICTS} member — nothing about it is a state
+ * `deadline_before_project_start` is the first: a deadline falling before the
+ * project's day zero, so no placement of the work could meet it. It is what
+ * `work-item-deadline` 6.1 names as the only deadline-specific rejection, and it
+ * is decided in `WorkItemService.patch` rather than at the controller, which
+ * holds the payload but not the project. It is not a {@link CONFLICTS} member — nothing about it is a state
  * that may pass on its own, and the same body sent an hour later is refused
  * identically unless somebody moves the project.
  */

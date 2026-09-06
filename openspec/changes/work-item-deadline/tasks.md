@@ -314,13 +314,21 @@ earliestFinish`, whole workdays), then earliest effective deadline, then
 ## 6. API, realtime, undo
 
 - [x] 6.1 `deadline` joins the work-item PATCH payload as a nullable `IsoDate`.
-      Non-`IsoDate` → `422` through the **existing** malformed-payload path;
+      Non-`IsoDate` → refused through the **existing** malformed-payload path;
       `deadlineOffsetOf` returning `before-project-start` → `422` naming the
       offending work item and the project's day zero, which is the **only**
       deadline-specific rejection; `null` clears it.
       Done: `parsePatch` reads it with `asOptionalDate`, the floor's own reader,
       so a non-date is `deadline_must_be_a_date` through the path that already
-      existed. The day-zero refusal is the **service's**, not the controller's —
+      existed. **That path answers 400, not the 422 this item first said**, and
+      the sentence is corrected here rather than the code bent to it: the
+      requirement is the *existing* path, `asOptionalDate` throws `BadRequest`,
+      and the batch route's default for a malformed body is 400 — the same
+      status every other malformed field on this payload gets. Making the
+      deadline alone 422 would be a new path, which is what this item forbids.
+      Asserted by `refuses a deadline that is not a date, the way every other
+      malformed field is refused`; found by the round-1 Gemini seat, which read
+      `refusalFor` rather than the claim. The day-zero refusal is the **service's**, not the controller's —
       it is the first layer holding the project as well as the payload — and it
       answers 422 over the batch route's own 400 default through a new
       `UNPROCESSABLE` arm in `refusal-status.ts`, carrying `workItemId` and
@@ -397,15 +405,17 @@ deadlineOffset]` sorted by id, offsets resolved by `deadlineOffsetOf`
       `fast-golden-corpus.test.ts` asserts in two directions — the stored bytes
       reproduce, and the stored `contractVersion` equals the constant — and
       regenerating at 7 satisfies both, so the guard is not being worked around.
-      What makes 7 still true is measurable rather than argued: **no work item
-      can carry a deadline yet.** Slice 1 landed at `b2bb095c`, so the column
-      is now there — the reason this holds moved with it and the claim did not.
-      Nothing reads or writes it: `WORK_ITEM_COLUMNS` in
-      `apps/be-01/src/repository/work-item.ts` does not name `deadline`, so no
-      row is selected with one or written with one, and the plan read hands
-      `schedule()` the `NO_DEADLINES` placeholder. So `deadlines` is empty for
-      every real plan, every new comparison ties, and no cached row can have
-      been computed from a date that could not be stored. The bump's blast radius is also this
+      What makes 7 still true is measurable rather than argued, and the
+      measurement has now moved twice. It first read "no work item can carry a
+      deadline yet", true until slice 1 landed the column at `b2bb095c`. It then
+      read "nothing reads or writes it", true until slice 6 landed the write path
+      — `WORK_ITEM_COLUMNS` names `deadline` as of that slice and a work item can
+      carry one. **The reason that survives both is the plan read**: it still
+      hands `schedule()` the `NO_DEADLINES` placeholder, so `deadlines` is empty
+      for every real plan whatever the column holds, every new comparison ties,
+      and no cached row can have been computed from a date the engine was
+      handed. That reason expires with 3.4/4.2, which is the slice that must
+      re-examine this item rather than inherit it. The bump's blast radius is also this
       slice's own: seven `libs/contracts/solver` request fixtures pinned by
       `wire-contract-version.test.ts`, `revalidate-solver-result.test.ts` and
       `libs/solver-py`, all of them slice 7/8 artifacts TASK-219 owns. Splitting

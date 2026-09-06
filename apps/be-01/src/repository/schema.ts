@@ -459,9 +459,9 @@ export const workItem = sqliteTable(
      * position in this object is not its position in the table anyway, since
      * `ALTER TABLE ADD COLUMN` appends.
      *
-     * **Stored as authored, and no later edit will rewrite it** — a rule about
-     * the writes the later slices add, since at this head there are none. A
-     * project start moved past a stored deadline is to resolve
+     * **Stored as authored, and no later edit rewrites it.** The writes exist
+     * as of slice 6 and this is the rule they keep. A project start moved past a
+     * stored deadline is to resolve
      * `before-project-start` at **read** time and the row is to be reported
      * late by the whole span; the value is to be left alone and the request
      * that moved the project is not to be rejected. It is written down here,

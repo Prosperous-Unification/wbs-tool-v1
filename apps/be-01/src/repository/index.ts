@@ -663,11 +663,13 @@ export interface WorkItemPatch {
    * The last day this work may finish on, or `null` to take the deadline off.
    *
    * **No pair rule and no second field**: the floor above has a reason column to
-   * stay consistent with and this has nothing, so the only refusal a deadline
-   * can meet is the controller's — a non-`IsoDate` through the existing
-   * malformed-payload path, and a date before the project's day zero, which
-   * `deadlineOffsetOf` reports as `before-project-start`. Neither is decided
-   * here: this store takes any `IsoDate` or `null`.
+   * stay consistent with and this has nothing, so this store takes any
+   * `IsoDate` or `null` and refuses neither. Two layers above it do. The
+   * **controller** refuses a value that is not an `IsoDate`, through the same
+   * malformed-payload path the floor uses — a 400, like every other malformed
+   * field. The **service** refuses a date before the project's day zero, which
+   * is where that check has to live because it is the first layer holding the
+   * project as well as the payload; that one is a 422.
    */
   deadline?: IsoDate | null;
   /**
