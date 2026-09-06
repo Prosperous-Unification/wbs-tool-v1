@@ -227,6 +227,78 @@ describe.each(BINDERS)('route contract under the %s binder', (_name, bind) => {
     expect(await res.json()).toEqual({ received: { name: 'Sand' } });
   });
 
+  /**
+   * Sol's Important 2, and the probe moved the finding: it reported repeated
+   * **query** keys and repeated **form** fields as one divergence and cited
+   * `parse-query.mjs:129-130` for both. That function is real and that line
+   * does array — but it is allocated as the **body** parser
+   * (`compose.mjs:978`, `allocateIf('parseQuery,', hasBody)`). The query is
+   * built by its sibling `parseQueryFromURL`, whose arraying branch is gated
+   * on a per-key map the composer derives from `ArrayQuery` schema metadata
+   * (`compose.mjs:320-328`); no route in this app declares an array-typed
+   * query parameter, so the map is never passed and the last `else` — a plain
+   * `result[key] = value` — is what runs. The clause below the form ones pins
+   * that, so the agreement is measured rather than assumed the next time
+   * somebody reads the same line.
+   *
+   * Measured on h2puni at `cf2c0307`, elysia 1.4.28, before the fix:
+   *
+   * ```
+   * request                        elysia              in-process
+   * ?tag=a&tag=b                   {"tag":"b"}         {"tag":"b"}
+   * urlencoded  t=a&t=b&t=c        {"t":["a","b","c"]} {"t":"c"}
+   * multipart   t=a, t=b           {"t":["a","b"]}     {"t":"b"}
+   * ```
+   *
+   * Elysia wins the disagreement for the same reason it won the 405 and the
+   * two form media types: the shipped app runs on Elysia, so its answer is the
+   * behaviour a refactor claiming to change nothing has to keep.
+   */
+  it.each([
+    ['x-www-form-urlencoded', () => 'tag=a&tag=b', 'application/x-www-form-urlencoded'],
+    [
+      'multipart/form-data',
+      () => {
+        const form = new FormData();
+        form.append('tag', 'a');
+        form.append('tag', 'b');
+        return form;
+      },
+      undefined,
+    ],
+  ])('carries every value of a repeated %s field', async (_label, makeBody, contentType) => {
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', {
+        method: 'POST',
+        ...(contentType === undefined ? {} : { headers: { 'content-type': contentType } }),
+        body: makeBody(),
+      }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: ['a', 'b'] } });
+  });
+
+  /**
+   * The control the clause above needs: a field given once stays the string a
+   * handler compares against, rather than becoming a one-element array. Every
+   * `typeof value !== 'string'` refusal in the controllers reads this.
+   */
+  it('leaves a form field given once as a bare value', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/probe/body', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: 'tag=a&name=Sand',
+      }),
+    );
+    expect(await res.json()).toEqual({ received: { tag: 'a', name: 'Sand' } });
+  });
+
+  /** The query half of the same finding, which measured as agreement. */
+  it('answers a repeated query key with its last value', async () => {
+    const res = await get('/probe/echo/7?mode=first&mode=last');
+    expect(await res.json()).toEqual({ id: '7', mode: 'last' });
+  });
+
   it('answers a 204 with no body at all', async () => {
     const res = await app.handle(
       new Request('http://localhost/probe/gone/7', { method: 'DELETE' }),

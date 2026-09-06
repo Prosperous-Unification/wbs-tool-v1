@@ -62,9 +62,19 @@ export function bindInProcess(routes: readonly Route[]): {
           method,
           path: url.pathname,
           params,
-          // Last value wins on a repeated key, which is what Elysia's own query
-          // parser does; asserting the same rule here keeps a handler reading a
-          // duplicated parameter from answering two different things.
+          // Last value wins on a repeated key, and unlike the form body below
+          // that really is what Elysia does — measured, because the obvious
+          // reading of its source says otherwise. `parse-query.mjs` has a line
+          // that arrays a repeated key unconditionally, but that is
+          // `parseQuery`, allocated as the **body** parser
+          // (`compose.mjs:978`). The query is built by `parseQueryFromURL`,
+          // whose arraying branch is gated on a per-key map the composer
+          // derives from `ArrayQuery` schema metadata (`compose.mjs:320-328`);
+          // no route here declares an array-typed query parameter, so the map
+          // is never passed and its plain `result[key] = value` runs. A route
+          // that declared one would move Elysia and not this line — which is
+          // why `binder.contract.test.ts` pins the agreement rather than
+          // trusting this paragraph.
           query: Object.fromEntries(url.searchParams),
           headers: Object.fromEntries(request.headers),
           body: undefined,
@@ -142,8 +152,50 @@ async function decodeBody(request: Request): Promise<unknown> {
   // coerced to its name — which is what Elysia hands a handler too, so the
   // `typeof value !== 'string'` refusals in the controllers answer 422 for it
   // under either binder instead of writing a filename into a column.
+  //
+  // **A repeated field is every value, not the last one.** `Object.fromEntries`
+  // over the entries collapses a duplicate key and Elysia does not, which was a
+  // live disagreement on the four operations that accept these media types.
+  // Measured on h2puni at `cf2c0307` before this loop replaced it:
+  //
+  // ```
+  // body                     elysia                 in-process
+  // t=a&t=b&t=c              {"t":["a","b","c"]}    {"t":"c"}
+  // multipart t=a, t=b       {"t":["a","b"]}        {"t":"b"}
+  // ```
+  //
+  // Elysia reaches the same answer down two different paths — `parseQuery` for
+  // urlencoded, the adapter's `formData()` literal for multipart — and both
+  // give a key seen once its bare value and a key seen again an array, which is
+  // the rule reproduced here. `Object.fromEntries` is kept over an assigning
+  // loop on purpose: it defines own properties, so a field literally named
+  // `__proto__` lands as data rather than reaching the prototype setter.
+  //
+  // **Three multipart-only rules are NOT reproduced, and they are measured
+  // rather than assumed.** Elysia's `formData()` literal also JSON-parses a
+  // single value that opens with `{` or `[`, builds nested objects and arrays
+  // out of dotted and bracketed key paths, and drops dangerous keys outright:
+  //
+  // ```
+  // multipart body           elysia                 in-process
+  // tag={"a":1}              {"tag":{"a":1}}        {"tag":"{\"a\":1}"}
+  // t[0]=a, t[1]=b           {"t":["a","b"]}        {"t[0]":"a","t[1]":"b"}
+  // __proto__=x, ok=y        {"ok":"y"}             {"__proto__":"x","ok":"y"}
+  // ```
+  //
+  // Under urlencoded the first two agree with this binder and only the third
+  // differs, because that path is `parseQuery` and has none of the machinery.
+  // It is one interlocking feature — file folding into a parsed object hangs
+  // off the same code — and reproducing a third of it faithfully is worse than
+  // recording it, so it belongs to whoever wants it, like the 405 above.
   if (contentType.includes('form-urlencoded') || contentType.includes('multipart/form-data')) {
-    return Object.fromEntries(await request.formData());
+    const form = await request.formData();
+    return Object.fromEntries(
+      [...new Set(form.keys())].map((key) => {
+        const values = form.getAll(key);
+        return [key, values.length === 1 ? values[0] : values];
+      }),
+    );
   }
   return undefined;
 }
