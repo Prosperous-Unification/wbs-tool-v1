@@ -225,6 +225,11 @@ describe('classifyOidcFailure', () => {
       for (const code of [
         'ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR',
         'ERR_SSL_TLSV1_ALERT_SOMETHING_OPENSSL_ADDS_LATER',
+        // `DECODE_ERROR` reads like a protocol violation of ours and is not
+        // filed as one: RFC 8446 §6.2 says it should never be seen between
+        // proper implementations "except when messages were corrupted in the
+        // network", and corruption is neither end being wrong.
+        'ERR_SSL_TLSV1_ALERT_DECODE_ERROR',
         // Not alerts, but still about what came back over the wire — one case
         // per enumerated member, so removing any of them turns this red.
         'ERR_SSL_WRONG_VERSION_NUMBER',
@@ -280,7 +285,6 @@ describe('classifyOidcFailure', () => {
       // of the `indeterminate` arm below. One case per member of the rule.
       for (const code of [
         'ERR_SSL_TLSV1_ALERT_ILLEGAL_PARAMETER',
-        'ERR_SSL_TLSV1_ALERT_DECODE_ERROR',
         'ERR_SSL_TLSV1_ALERT_UNEXPECTED_MESSAGE',
         'ERR_SSL_TLSV13_ALERT_MISSING_EXTENSION',
         'ERR_SSL_TLSV1_ALERT_UNSUPPORTED_EXTENSION',
@@ -311,6 +315,7 @@ describe('classifyOidcFailure', () => {
         'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
         'ERR_SSL_TLSV1_ALERT_INSUFFICIENT_SECURITY',
         'ERR_SSL_TLSV1_ALERT_NO_APPLICATION_PROTOCOL',
+        'ERR_SSL_TLSV1_ALERT_UNRECOGNIZED_NAME',
       ]) {
         expect(classifyOidcFailure(new TypeError('fetch failed', { cause: { code } }))).toEqual({
           kind: 'indeterminate',

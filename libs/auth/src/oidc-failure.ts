@@ -282,18 +282,25 @@ const CLIENT_CREDENTIAL_ALERT =
  * something of ours". Every alert here is RFC 8446 §6.2 asserting that the
  * received handshake was malformed against the specification itself:
  * `ILLEGAL_PARAMETER` is "a field in the handshake was incorrect or inconsistent
- * with other fields", `DECODE_ERROR` is a message whose field was out of range
- * or whose length was wrong, `UNEXPECTED_MESSAGE` is a message that had no
- * business being sent at that point, and `MISSING_EXTENSION` and
- * `UNSUPPORTED_EXTENSION` are an extension that had to be present or must not
- * have been. A conforming peer cannot provoke any of them by changing its own
- * configuration, which is what makes them ours and not a shared outcome.
+ * with other fields", `UNEXPECTED_MESSAGE` is a message that had no business
+ * being sent at that point, and `MISSING_EXTENSION` and `UNSUPPORTED_EXTENSION`
+ * are an extension that had to be present or must not have been. A conforming
+ * peer cannot provoke any of them by changing its own configuration, which is
+ * what makes them ours and not a shared outcome.
+ *
+ * **`DECODE_ERROR` is deliberately absent, though it reads like the clearest
+ * member of the list.** RFC 8446 §6.2 attaches an exception to it that the
+ * others do not carry: it "should never be observed in communication between
+ * proper implementations, except when messages were corrupted in the network".
+ * A corrupted message is neither end being wrong, so filing it here would page
+ * an operator for a failure nobody caused. It keeps the open-ended alert
+ * default, which is where `RECORD_OVERFLOW` sits for the same stated reason.
  *
  * They take `local_defect` rather than the credential slug because nothing about
  * our identity was refused, and an operator rather than time has to act.
  */
 const LOCAL_PROTOCOL_VIOLATION_ALERT =
-  /_ALERT_(ILLEGAL_PARAMETER|DECODE_ERROR|UNEXPECTED_MESSAGE|MISSING_EXTENSION|UNSUPPORTED_EXTENSION)$/;
+  /_ALERT_(ILLEGAL_PARAMETER|UNEXPECTED_MESSAGE|MISSING_EXTENSION|UNSUPPORTED_EXTENSION)$/;
 
 /**
  * The alerts that report an empty intersection between two conforming ends,
@@ -307,10 +314,13 @@ const LOCAL_PROTOCOL_VIOLATION_ALERT =
  * section's server requiring ciphers more secure than the client's, which RFC
  * 8446 §6.2 restates as no overlap between the two parameter sets; and
  * `NO_APPLICATION_PROTOCOL` is a client advertising only protocols the server
- * does not support. Every one of them is emitted, unchanged, by a provider
- * rollout that raised or narrowed its own requirements while we changed nothing
- * — and by a list of ours that was always too narrow. The alert does not say
- * which happened, so neither does this module.
+ * does not support. `UNRECOGNIZED_NAME` is the same shape one layer out: the
+ * server has no configuration under the name our `server_name` extension asked
+ * for, which is equally an issuer hostname of ours that was wrong and a provider
+ * rollout that stopped serving that hostname. Every one of them is emitted,
+ * unchanged, by a provider rollout that raised or narrowed its own requirements
+ * while we changed nothing — and by a list or a name of ours that was always
+ * wrong. The alert does not say which happened, so neither does this module.
  *
  * A provider node brought up with the wrong certificate chain and a
  * half-finished TLS rollout across their fleet reach here too, before any HTTP
@@ -332,7 +342,7 @@ const LOCAL_PROTOCOL_VIOLATION_ALERT =
  * being behind, and an operator's move.
  */
 const CAPABILITY_MISMATCH_ALERT =
-  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|NO_APPLICATION_PROTOCOL)$/;
+  /_ALERT_(HANDSHAKE_FAILURE|PROTOCOL_VERSION|INSUFFICIENT_SECURITY|NO_APPLICATION_PROTOCOL|UNRECOGNIZED_NAME)$/;
 
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
