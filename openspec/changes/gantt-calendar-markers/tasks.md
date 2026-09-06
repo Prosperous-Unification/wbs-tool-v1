@@ -1612,6 +1612,21 @@ in both slices rather than implied by position.
       is 8.2a's jsdom half, and the mechanism is the attribute. The attribute is what an implementer can get wrong; the
       painted run is what a reader sees, and neither tier can stand for the
       other.
+      **BLOCKED, and not on anything in this slice** (watched 2026-09-06T02:24:36Z
+      on h2puni). The browser tier is written and its harness reaches the
+      composer — the axis cell opens it and `Marker name` takes the text — and
+      then the save times out, because `wbs-table.tsx:12043` renders
+      `<GanttPanel>` with thirteen props and **no marker prop among them**:
+      nothing supplies `markers` and nothing supplies `onCreateMarker`, so the
+      composer's Save reports upward into an absent handler and every axis cell
+      still reads `no calendar markers` afterwards. The marker layer is wired in
+      jsdom, where each test passes those props itself, and nowhere else. **No
+      slice in this plan owns that host wiring**, and 9.2, 9.2a, 9.2b, 9.2c and
+      9.3 are blocked behind exactly the same gap. The tier is therefore held at
+      `test.fixme` with the failure recorded at its own definition; it is not to
+      be unblocked by a fixture that injects markers past the app, since a
+      browser tier reached through a back door proves nothing about the
+      product.
 - [x] 8.3 `MARKER_RULE_MAX_PER_100PX` and the 4px suppression — the constant is
       **6**, and the measure is `occupiedDatesInViewport / viewportWidthPx * 100`
       compared with `>` (`design.md` §3: 100px is 25 days at that rung, so six is
