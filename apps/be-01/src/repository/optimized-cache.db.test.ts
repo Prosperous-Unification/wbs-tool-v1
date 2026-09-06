@@ -980,7 +980,10 @@ describe("4.1's conditional write, with all four conditions composed", () => {
   } as const;
 
   /** The seat the writer holds, exactly as the coordinator reserves it. */
-  function reserve(path: string, over: { attemptToken?: string } = {}): void {
+  function reserve(
+    path: string,
+    over: { attemptToken?: string; startedAt?: number } = {},
+  ): void {
     const db = openDatabase(path);
     try {
       db.run(
@@ -990,7 +993,7 @@ describe("4.1's conditional write, with all four conditions composed", () => {
             cancel_requested_at, admitted_deadline_at)
          VALUES ('p-1', '${CONTRACT}', 1, 'pri', ${String(BUDGET)},
                  '${CLAIM.ownerId}', '${over.attemptToken ?? CLAIM.attemptToken}',
-                 'running', 4242, 1, 1, NULL, 99)`,
+                 'running', 4242, ${String(over.startedAt ?? 1)}, 1, NULL, 99)`,
       );
     } finally {
       db.close();
@@ -1032,7 +1035,12 @@ describe("4.1's conditional write, with all four conditions composed", () => {
   function commit(
     path: string,
     outcome: OutcomeToStore,
-    over: { attemptToken?: string; generation?: number; admittedCancelEpoch?: number } = {},
+    over: {
+      attemptToken?: string;
+      generation?: number;
+      admittedCancelEpoch?: number;
+      now?: number;
+    } = {},
   ): OutcomeWriteResult {
     return storeOptimizedOutcome(openDrizzle(path), {
       claim: {
@@ -1043,7 +1051,7 @@ describe("4.1's conditional write, with all four conditions composed", () => {
       inputHash: HASH,
       admittedCancelEpoch: over.admittedCancelEpoch ?? 0,
       outcome,
-      now: 1_700,
+      now: over.now ?? 1_700,
     });
   }
 
@@ -1296,6 +1304,59 @@ describe("4.1's conditional write, with all four conditions composed", () => {
       db.cleanup();
     }
   });
+
+  it.each(['failed', 'corrupt'] as const)(
+    'overwrites one older %s marker from a newer admitted Retry, exactly once',
+    (marker) => {
+      const db = tempDb();
+      try {
+        admitted(db.path);
+        if (marker === 'failed') {
+          expect(commit(db.path, { kind: 'failed', reason: 'timeout' }, { now: 7 })).toBe('stored');
+        } else {
+          storeRow(db.path, {
+            objective: 'pri',
+            generation: 1,
+            status: 'ok',
+            resultJson: '{"dtoVersion":',
+            failureReason: null,
+          });
+        }
+        const beforeRetry = read(db.path).pri;
+        expect(beforeRetry.kind).toBe(marker);
+
+        const raw = openDatabase(db.path);
+        try {
+          raw.run(`DELETE FROM solver_slot WHERE project_id = 'p-1'`);
+        } finally {
+          raw.close();
+        }
+        reserve(db.path, { attemptToken: 'tok-retry', startedAt: 8 });
+        const replacement = solverResult(realPlan());
+
+        expect(
+          commit(db.path, { kind: 'ok', result: replacement }, { attemptToken: 'tok-retry', now: 9 }),
+        ).toBe('stored');
+        expect(
+          commit(db.path, { kind: 'failed', reason: 'internal-error' }, {
+            attemptToken: 'tok-retry',
+            now: 10,
+          }),
+        ).toBe('already-recorded');
+
+        const afterRetry = read(db.path).pri;
+        expect(afterRetry.kind).toBe('ok');
+        if (afterRetry.kind !== 'ok') throw new Error('the Retry replacement was not stored');
+        expect(afterRetry.result).toEqual(replacement);
+        expect(afterRetry.createdAt).toBe(9);
+        expect(storedRowCount(db.path)).toBe(1);
+        // Proof: restoring insert-only `onConflictDoNothing` leaves the first expectation red on
+        // `Expected: "stored" / Received: "already-recorded"`; watched on h2puni in TASK-268.
+      } finally {
+        db.cleanup();
+      }
+    },
+  );
 
   /**
    * tasks.md 4.11b on the **production write path**: the guard's two arms, the
