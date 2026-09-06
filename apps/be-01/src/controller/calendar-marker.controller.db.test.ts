@@ -311,7 +311,11 @@ describe('the calendar-marker routes', () => {
    * response would pass equally against a create that materialised the fill.
    */
   it('resolves an automatic colour on the way out and still stores none', async () => {
-    const made = await create('owner', { markerId: SEEDED, date: '2026-09-14', name: 'Site visit' });
+    const made = await create('owner', {
+      markerId: SEEDED,
+      date: '2026-09-14',
+      name: 'Site visit',
+    });
     expect(made.status).toBe(201);
     const fill = automaticColor(SEEDED);
     expect(((await made.json()) as { marker: { color: string } }).marker.color).toBe(fill);

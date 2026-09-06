@@ -1,4 +1,10 @@
-import { automaticColor, isHexTriple, isIsoDate, isMarkerName, validateCustomColor } from '@wbs/domain';
+import {
+  automaticColor,
+  isHexTriple,
+  isIsoDate,
+  isMarkerName,
+  validateCustomColor,
+} from '@wbs/domain';
 
 import { tableRefusedBody } from '../http/body-doc';
 import { callerGuard } from '../http/caller';
