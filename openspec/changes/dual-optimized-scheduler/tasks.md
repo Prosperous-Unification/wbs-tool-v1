@@ -3426,7 +3426,7 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       is what makes the guard load-bearing rather than decorative. Nothing in
       `model.py` was widened or clamped.
 
-- [ ] 5.11 Packaging into the deployed artifact: the Dagger/image path installs
+- [x] 5.11 Packaging into the deployed artifact: the Dagger/image path installs
       the pinned Python runtime and the locked OR-Tools environment, copies
       the package and **both** its console scripts — the solve entrypoint
       `wbs-solver` and the lifecycle launcher `wbs-solver-launcher` (6.2b) —
@@ -3448,6 +3448,13 @@ status: 'optimal' | 'feasible' | 'unknown' }` and
       smoke test still passes and the launcher-path proof must fail. A missing
       supervisor, stale prod mapping, incompatible dev mapping, or socket-file
       mount instead of directory mount must fail deployment before swap.
+      **Proved on TASK-268 / PR 253:** the built image completed the direct
+      entrypoint and the authenticated host-supervisor launcher path through a
+      real Docker child. Removing only the launcher made that path fail while
+      direct solve stayed green; removing the package made both executables
+      absent and the supervisor path fail closed. The proof also caught stale
+      local-registry digest selection, pre-start Docker attach, reply ordering,
+      and missing request EOF. The host install remains deliberately unperformed.
 
 ## 6. OptimizationCoordinator — admission, spawn, cancel, restart
 
