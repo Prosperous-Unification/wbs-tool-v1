@@ -21,6 +21,13 @@ const CALENDAR_MARKER = '20260905090000_add_calendar_marker';
 // rather than computed, so a third folder arriving here is a red test and not
 // a silently widened rollback.
 const PREVIOUS = '20260904140000_add_project_settings';
+/**
+ * The folder stamped after this one, landed by TASK-219 on 2026-09-06. A
+ * rollback to {@link PREVIOUS} reverses it too, newest first, so it heads the
+ * list below. Named rather than filtered out, so the list stays the literal
+ * answer `rollbackTo` gave.
+ */
+const READ_ORDER_INDEX = '20260906003000_add_work_item_read_order_index';
 
 const wrote: WriteStamp = { at: 1, by: 'owner' };
 
@@ -141,7 +148,7 @@ describe('20260905090000_add_calendar_marker', () => {
     //       `migrate-down.db.test.ts`.
     //   (b) the same file emptied — the lint still passes, because a file
     //       exists, and *this* case fails instead: the rollback reports
-    //       `[CALENDAR_MARKER]` while `calendar_marker` is still in
+    //       it reversed `CALENDAR_MARKER` while `calendar_marker` is still in
     //       `sqlite_master`. That gap between the two is why the empty file is
     //       a separate mutation and not a restatement of the first.
     runMigrations(path, FOLDER);
@@ -150,7 +157,7 @@ describe('20260905090000_add_calendar_marker', () => {
 
     const reversed = rollbackTo(path, FOLDER, PREVIOUS);
 
-    expect(reversed).toEqual([CALENDAR_MARKER]);
+    expect(reversed).toEqual([READ_ORDER_INDEX, CALENDAR_MARKER]);
     const afterRollback = tableNames(path);
     expect(afterRollback).not.toContain('calendar_marker');
     // Nothing else moved: the forward migration is additive, so its reversal

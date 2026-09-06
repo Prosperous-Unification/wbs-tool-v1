@@ -262,7 +262,11 @@ describe('the work item type vocabulary', () => {
     if (outcome.ok || outcome.reason !== 'in_use') throw new Error('the removal was not refused');
     // `DirectoryUsageRows` is the flat repository shape — the service is what
     // folds it into a per-project tree — so the row is read off `workItems`.
-    expect(outcome.usage.workItems.map((each) => each.id)).toEqual([itemId, childId]);
+    // Sorted, not written in the order the rows were made: TASK-219 gave this
+    // read an `ORDER BY work_item.id` (ADR 0016) and the two ids here are
+    // random uuids, so insertion order passed only when the draw happened to
+    // agree with it.
+    expect(outcome.usage.workItems.map((each) => each.id)).toEqual([itemId, childId].sort());
     expect(outcome.usage.projects.map((each) => each.id)).toEqual([projectId]);
     expect(await repo.listWorkItemTypes()).toEqual([{ id: bug.id, name: 'Bug' }]);
   });
