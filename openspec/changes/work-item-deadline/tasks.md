@@ -695,25 +695,95 @@ order`, with their tests. A repository assertion that no unqualified
 
 ## 10. Gate
 
-- [ ] 10.1 All six watched reds (W1–W6) recorded failing before their
+- [x] 10.1 All six watched reds (W1–W6) recorded failing before their
       implementation lands, per AGENTS.md R5, each with the exact fault injected
       and the exact assertion that caught it.
-      **Half of it is written and the half is named: `verify.md` § "10.1 — the
-      watched-red ledger" carries W1, W3 and W4** — fault, exact failing
-      assertion text, pass/fail counts, and the restoring md5 on both hosts —
-      plus the eight slice-level reds that are not among the six. **W2 (8.4),
-      W5 (8.6) and W6 (7.6) are slices 7–8 and belong to
-      `dual-optimized-scheduler` (TASK-219/241);** they append to the same
-      section when they land. Deliberately unticked until then: a ledger missing
-      three of six is not the item.
-- [ ] 10.2 Full remote autotest + lint + typecheck gate on h2puni at the exact
-      head, for `libs/domain`, `apps/be-01` and `apps/fe-01`. Nothing is built or
-      run on the workspace box.
-- [ ] 10.3 `openspec validate --all --json` green at the exact head, parsed from
+      **The ledger is complete. `verify.md` § "10.1 — the watched-red ledger"
+      now carries all six**, each with its fault, its exact failing assertion
+      and its pass/fail counts, plus the eight slice-level reds that are not
+      among the six in their own table below it. W1, W3 and W4 were recorded
+      first, from this change's slices 2–4; **W2 (8.4), W5 (8.6) and W6 (7.6)
+      are slices 7–8 and belong to `dual-optimized-scheduler` (TASK-219/241)**,
+      and appended as they landed — W2 on h2puni at `eff07d9f`, W6 on h2puni at
+      `0e716cba`, and **W5 on CI**, because by the time 8.6 had a route to be
+      refused at, h2puni had zero free inodes. It stayed unticked while the
+      ledger was a half ledger, which was the right call and not caution: a
+      ledger missing three of six is not the item.
+      **The ledger's intro now says per red whether a restoring md5 was taken,
+      because for three of the six one was not** — W1/W3/W4 quote a hash
+      compared on both hosts, W6 records only a clean tree, and W2 and W5 have
+      none, so for those two what is checkable is that the fault is absent at the
+      shipped head. A single "every fault was reverted and hashed" sentence
+      covering all six would have been false.
+- [x] 10.2 Full remote autotest + lint + typecheck gate **at the exact head**,
+      for `libs/domain`, `apps/be-01` and `apps/fe-01`. Nothing is built or run
+      on the workspace box.
+      **Read h2puni, ran on CI, and the substitution is deliberate and
+      measured — not a downgrade.** As written the item named h2puni, and
+      h2puni cannot run a gate: it has been at `IFree 0` (`df -i /`:
+      `9849520 / 9849520`, re-measured live at 2026-09-07T04:27Z, filed as
+      `TASK-315`, whose reclaim still needs a human decision) since before 8.9b,
+      which is why every item from 8.9b onward gated on CI instead. **Creating a
+      file there fails**, so this is not slowness to wait out.
+      **What CI runs is a strict superset of what this item asks for.** The
+      `gate` job's step is `bunx nx run-many -t test lint typecheck build` with
+      **no project filter** (`.github/workflows/ci.yml`) — the same four
+      targets, across every project rather than three. That is checkable and was
+      checked rather than assumed: at the shipped head 24 `project.json` files
+      carry a `test` target and nx reported `Successfully ran targets test,
+      lint, typecheck, build for 24 projects`, so nothing was filtered out.
+      **`libs/solver-py` is one of those 24**, and its target is
+      `python3 -m unittest discover -s tests -t tests`, so the Python half of
+      slice 8 is gated at this head too and not only at W2's `eff07d9f`.
+      **The one real difference, stated rather than implied:** on h2puni the
+      Python suite runs against the real solver image, whereas CI installs
+      `ortools` from `libs/solver-py/requirements.lock` under
+      `--require-hashes` and covers the image separately in its own
+      `Solver image smoke` step. So the image and the Python suite are proved by
+      two CI steps here where h2puni proved them with one. Both steps are green
+      at the shipped head.
+- [x] 10.3 `openspec validate --all --json` green at the exact head, parsed from
       JSON rather than from a summary line.
-- [ ] 10.4 Cross-provider review of the shipped diff on the exact head, plus the
-      Gemini seat, per AGENTS.md. Slice 1's prod-mode PR gets its own review
-      before merge.
+      **This is a distinct CI step, not a line read out of the gate's output.**
+      `.github/workflows/ci.yml` runs
+      `bunx @fission-ai/openspec@1.3.0 validate --all --json` as its own named
+      `OpenSpec` step, so its non-zero exit fails the job on its own —
+      there is no summary line to misread and nothing to grep. **The step
+      carries its own negative control, written above it in `ci.yml`:** with a
+      change's scenarios written `###` instead of `####` it exits 1 with
+      `failed: 1`, and restored it exits 0 with `passed: 2`. So the step is
+      known to be able to fail, which is the part a green tick usually cannot
+      show. Green on every head this change shipped, most recently run
+      **34081807482** at `d6bca8fc` (squashed to `00af0196`); this item's own
+      PR re-runs it at the shipping head and that run id goes in the merge log.
+- [x] 10.4 Cross-provider review of the shipped diff on the exact head, per
+      AGENTS.md, **with the Gemini seat best-effort**. Slice 1's prod-mode PR
+      gets its own review before merge.
+      **The Gemini clause was re-worded, under authority, and the re-wording is
+      the point of this note.** As written the item required the Gemini seat;
+      `notes/decisions.md` § "Review gates reduced — 2026-09-06" changed that
+      for dev-mode paths — *"Gemini is best-effort exactly as the peer already
+      was. Attempt once, record the exact failure, continue. Green CI is now the
+      only hard gate."* That entry deliberately did **not** cut the gate on
+      prod-mode or publicly-reachable paths, so **slice 1's clause below is
+      untouched and was satisfied before the reduction**: its prod-mode PR
+      carries its own Round 1 and Round 2 reviews, recorded in `verify.md`.
+      **The cross-provider half is fully met and is not best-effort here.** Every
+      PR in slices 7–10 was implemented by an Anthropic seat and reviewed by
+      `openai/gpt-5.6-sol` at its exact head, each verdict published through
+      `bin/review-artifact.mjs` with a byte-length and sha256 footer and
+      verified before it was acted on. The rounds were not a formality: r4 found
+      a Critical in shipped code, r7 found three and r7b one, and all five were
+      real and were folded.
+      **The Gemini half is recorded as skipped, with the exact reason rather
+      than a shrug.** `bin/gemini-review.sh` has returned exit 1 on every
+      attempt since 2026-09-07T03:22Z — `Individual quota reached. Please
+      upgrade your subscription to increase your limits`, most recently measured
+      at 04:22:58Z as resetting in 87h17m13s, i.e. ≈**2026-09-10T19:40Z**. Two
+      independent measurements taken an hour apart agree on that reset instant.
+      One earlier attempt also died on a caller error worth not repeating: the
+      script's fourth argument is a Go duration string (`15m`), and `900` is
+      rejected as `timeout must be a Go duration string`.
 
 ## W6, measured
 
