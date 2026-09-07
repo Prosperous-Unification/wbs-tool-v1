@@ -2392,7 +2392,7 @@ function FilterFacets({
   return (
     <details ref={useClosedByPointerOutside()} data-facets className="relative">
       <summary
-        className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
+        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
         data-hint="Narrow the plan to the rows carrying these — the table, the chart and the cards together"
       >
         Filters{chosen > 0 ? ` (${String(chosen)})` : ''}
@@ -2592,7 +2592,7 @@ function ColumnsControl({
   return (
     <details ref={useClosedByPointerOutside()} data-columns className="relative">
       <summary
-        className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
+        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
         data-hint="Choose which columns are on the table. Number, Name and the row's controls always are."
       >
         Columns
@@ -2662,7 +2662,7 @@ function SavedViews({
   return (
     <details ref={useClosedByPointerOutside()} data-saved-views className="relative">
       <summary
-        className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
+        className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
         data-hint="Name the current filter, or pick one already named"
       >
         Views{views.length > 0 ? ` (${String(views.length)})` : ''}
@@ -11683,7 +11683,7 @@ export function WbsTable({
       */}
       <details ref={useClosedByPointerOutside()} data-export className="relative">
         <summary
-          className="border-input h-8 cursor-pointer select-none rounded-md border px-2 py-1 text-xs"
+          className="border-input h-8 cursor-pointer rounded-md border px-2 py-1 text-xs select-none"
           data-hint="Copy or download the plan — as a Markdown table, a Mermaid gantt, a CSV, or what is on screen"
         >
           Export
