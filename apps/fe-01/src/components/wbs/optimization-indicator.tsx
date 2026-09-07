@@ -1,4 +1,4 @@
-import { UNMEETABLE_DEADLINE_OFFSET } from '@wbs/domain/deadline-offsets';
+import { UNMEETABLE_DEADLINE_OFFSET } from '@wbs/domain';
 import { addWorkdays, withinDrift } from '@wbs/domain/workday';
 
 import type { PlanOptimizationView } from '@/lib/wbs-api';
