@@ -694,6 +694,7 @@ describe('OptimizationCoordinator read', () => {
     }
 
     expect(calls).toEqual([]);
+    // Proof: without the writer-owned enabled fence, this advances to generation 2.
     expect(readGeneration(db, 'p-1', CONTRACT)).toMatchObject({ generation, inputHash: oldHash });
     expect(db.select().from(solverQueue).all()).toEqual([]);
     expect(db.select().from(solverSlot).all()).toEqual([]);
@@ -1364,6 +1365,7 @@ describe('OptimizationCoordinator Retry admission', () => {
     } finally {
       contender.close();
     }
+    // Proof: with Drizzle's default DEFERRED transaction, Retry throws database-is-locked here.
     expect((contention as { code?: string } | undefined)?.code).toBe('SQLITE_BUSY');
     expect(calls).toHaveLength(1);
   });
