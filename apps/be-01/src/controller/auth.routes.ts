@@ -469,8 +469,11 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // `''`, and both answer the same 400. That is the same answer by a
         // shorter path than a length check: an empty state matches no saved
         // transaction, so `consume` answers `state_mismatch` and the refusal
-        // below returns the identical bodiless 400 clearing the identical
-        // surplus names. Nothing a caller can observe moves.
+        // below returns the same bodiless 400. Neither path clears a login this
+        // browser could still finish, which is the property worth having; the
+        // names cleared are the same surplus except at the deadline boundary,
+        // where a binding that outlived `selectBrowserBindings` and died before
+        // `consume` joins them (peer review, TASK-293 r1, Minor).
         const state = states[0];
         // **Every answer on this route clears names and sets none** (TASK-272).
         // `settled` is the complete cookie list of every answer below, refusals
