@@ -68,7 +68,8 @@ describe('durable dev poller', () => {
     ]);
 
     expect(failed.code).not.toBe(0);
-    expect(failed.stderr).toContain('install the managed Bun 1.3.14');
+    expect(failed.stderr).toContain('missing managed Bun 1.3.14');
+    expect(failed.stderr).toContain('install it with the poller pair');
     expect(failed.stderr).toContain('docs/runbook-dev-deploy.md');
   });
 
