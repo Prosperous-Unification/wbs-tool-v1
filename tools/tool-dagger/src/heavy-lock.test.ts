@@ -22,10 +22,7 @@ const roots: string[] = [];
 // Passing the value explicitly is not merely a fix for that: the wait budget is
 // half of what these cases are about, so a case that reads it from whoever
 // launched the runner is a case asserting a contract it does not control.
-function runWithTestLock(
-  lock: string,
-  waitSeconds: string,
-): ReturnType<typeof Bun.spawnSync> {
+function runWithTestLock(lock: string, waitSeconds: string): ReturnType<typeof Bun.spawnSync> {
   return Bun.spawnSync(
     [
       'bash',
@@ -124,46 +121,42 @@ describe('with-heavy-lock', () => {
     expect(refused.exitCode).toBe(75);
   });
 
-  it(
-    'queues for the wait budget instead of refusing, and takes the lock when the holder releases it',
-    async () => {
-      const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
-      roots.push(root);
-      const lock = join(root, 'heavy.lock');
+  it('queues for the wait budget instead of refusing, and takes the lock when the holder releases it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wbs-heavy-lock-'));
+    roots.push(root);
+    const lock = join(root, 'heavy.lock');
 
-      // The other half of the contract the case above pins, and the reason the
-      // inherited value was able to hide: with a budget set, contention is not
-      // an error, it is a queue. Nothing covered this, so the refusal case
-      // silently became the queueing case under the gate recipe and the only
-      // symptom was a timeout.
-      const holder = Bun.spawn([
-        'bash',
-        '-c',
-        'source "$1"; shift; with_heavy_lock "$@"',
-        'heavy-lock-holder',
-        LOCK_LIB,
-        lock,
-        '--',
-        'sleep',
-        '1',
-      ]);
-      await Bun.sleep(300);
+    // The other half of the contract the case above pins, and the reason the
+    // inherited value was able to hide: with a budget set, contention is not
+    // an error, it is a queue. Nothing covered this, so the refusal case
+    // silently became the queueing case under the gate recipe and the only
+    // symptom was a timeout.
+    const holder = Bun.spawn([
+      'bash',
+      '-c',
+      'source "$1"; shift; with_heavy_lock "$@"',
+      'heavy-lock-holder',
+      LOCK_LIB,
+      lock,
+      '--',
+      'sleep',
+      '1',
+    ]);
+    await Bun.sleep(300);
 
-      const started = Date.now();
-      // 30, not 6: the retry interval in `heavy-lock-lib.sh` is a fixed 5-second
-      // sleep, so the first retry lands at ~5s and a budget only just above it
-      // would turn a slow runner into a red.
-      const queued = runWithTestLock(lock, '30');
-      const elapsedMs = Date.now() - started;
-      await holder.exited;
+    const started = Date.now();
+    // 30, not 6: the retry interval in `heavy-lock-lib.sh` is a fixed 5-second
+    // sleep, so the first retry lands at ~5s and a budget only just above it
+    // would turn a slow runner into a red.
+    const queued = runWithTestLock(lock, '30');
+    const elapsedMs = Date.now() - started;
+    await holder.exited;
 
-      // Both halves are the assertion. Exit 0 alone would also pass if the
-      // holder had already died before the claim, which is the run this case
-      // would otherwise silently degrade into; the elapsed floor is what proves
-      // it actually waited, since the refusal path returns in milliseconds.
-      expect(queued.exitCode).toBe(0);
-      expect(elapsedMs).toBeGreaterThan(4000);
-    },
-    20_000,
-  );
+    // Both halves are the assertion. Exit 0 alone would also pass if the
+    // holder had already died before the claim, which is the run this case
+    // would otherwise silently degrade into; the elapsed floor is what proves
+    // it actually waited, since the refusal path returns in milliseconds.
+    expect(queued.exitCode).toBe(0);
+    expect(elapsedMs).toBeGreaterThan(4000);
+  }, 20_000);
 });
