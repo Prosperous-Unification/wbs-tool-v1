@@ -72,9 +72,18 @@ export MCP_EXPOSURE_EXPECTED
 # SC2029 is disabled for this command, not silenced globally: $SHA is meant to
 # expand here, on this machine. The remote has no such variable, and sending
 # this machine's HEAD is the entire purpose of the call.
+if ! read -r BUN_VERSION < "$(dirname "${BASH_SOURCE[0]}")/../.bun-version"; then
+  echo 'refusing: .bun-version is missing; restore the repository Bun pin before deploying' >&2
+  exit 1
+fi
+if [[ ! "$BUN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "refusing invalid .bun-version: $BUN_VERSION" >&2
+  exit 1
+fi
+
 # shellcheck disable=SC2029
 ssh h2puni \
-  "git -C /home/puni1/wbs-dev/src fetch --quiet origin && bash -s -- /home/puni1/wbs-dev/src /home/puni1/wbs-dev/bin /home/puni1/wbs-dev/bin/bun $SHA" \
+  "git -C /home/puni1/wbs-dev/src fetch --quiet origin && bash -s -- /home/puni1/wbs-dev/src /home/puni1/wbs-dev/bin /home/puni1/wbs-dev/bin/bun $SHA $BUN_VERSION" \
   < "$(dirname "${BASH_SOURCE[0]}")/dev-poll-sync.sh"
 
 # No credential is fetched or sent. Dev's edge password was removed 2026-08-06;
