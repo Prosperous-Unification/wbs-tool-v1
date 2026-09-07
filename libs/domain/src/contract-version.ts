@@ -21,9 +21,9 @@
  * scheduling argument, the `deadlineUnits` wire field and the materialiser all
  * changed together. `8` is a far narrower change and is for that reason more
  * dangerous to skip: `quantise` now snaps the `DRIFT` window in workday space
- * *before* multiplying by {@link SOLVER_QUANTUM} rather than only after. That
- * is the `snapWorkdays` and {@link SOLVER_QUANTUM} entries of the list above
- * and needs no new rule.
+ * **before** multiplying by {@link SOLVER_QUANTUM} rather than only after.
+ * That is the `snapWorkdays` and {@link SOLVER_QUANTUM} entries of the list
+ * above and needs no new rule.
  *
  * **The class that actually moves is narrower than `DRIFT` and saying otherwise
  * overstates it.** The old post-multiplication snap already cleaned a unit-space
