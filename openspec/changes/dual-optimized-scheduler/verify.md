@@ -382,7 +382,7 @@ work. Lane-q TASK-222 remains the independent post-deploy QA owner.
 - The first exact-head Anthropic review at `e138a8da` found one Critical: the
   legal `UNMEETABLE_DEADLINE_OFFSET` value `-1` reached `addWorkdays` and threw
   from React render. The corrected renderer names that state `Work item
-  deadline before project start`, and the stored-result decoder now rejects
+deadline before project start`, and the stored-result decoder now rejects
   offsets below the domain sentinel.
 - At exact source head `762b33c9` on h2puni, the three focused FE suites passed
   33/33 and the plan-infeasible DTO suite passed 4/4. Both FE typechecks,
