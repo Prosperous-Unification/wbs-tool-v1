@@ -2,8 +2,8 @@
   "contractVersion": 8,
   "cases": {
     "drift-above-a-whole-workday": {
-      "units": 48,
-      "rounded": false
+      "units": 49,
+      "rounded": true
     },
     "exact-multiple-the-double-overshoots": {
       "units": 104,
