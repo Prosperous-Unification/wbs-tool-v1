@@ -956,23 +956,23 @@ exactly that and arrived after the fact.
 search was for the string family rather than the count, the discipline 8.7b's
 sixth site established:
 
-| site | artifact | state found |
-| --- | --- | --- |
-| 1 | `dual-optimized-scheduler/.../spec.md` comparison-indicator requirement | all four old strings — the `SHALL` 8.9b names |
-| 2 | `dual-optimized-scheduler/.../spec.md` its "finishes earlier" scenario | `"Earlier by N days"` in the **THEN**, which 8.9b does not name |
-| 3 | `dual-optimized-scheduler/design.md` §2.2 restatement | the four sentences, quoted |
-| 4 | `dual-optimized-scheduler/proposal.md` | the indicator's To-state list |
-| 5 | `dual-optimized-scheduler/tasks.md` 8.3 | an **unticked** item still specifying the old four |
-| 6 | `work-item-deadline` `spec.md` §rename and `design.md` §TASK-221 | **renamed only two of the four** |
+| site | artifact                                                                | state found                                                     |
+| ---- | ----------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 1    | `dual-optimized-scheduler/.../spec.md` comparison-indicator requirement | all four old strings — the `SHALL` 8.9b names                   |
+| 2    | `dual-optimized-scheduler/.../spec.md` its "finishes earlier" scenario  | `"Earlier by N days"` in the **THEN**, which 8.9b does not name |
+| 3    | `dual-optimized-scheduler/design.md` §2.2 restatement                   | the four sentences, quoted                                      |
+| 4    | `dual-optimized-scheduler/proposal.md`                                  | the indicator's To-state list                                   |
+| 5    | `dual-optimized-scheduler/tasks.md` 8.3                                 | an **unticked** item still specifying the old four              |
+| 6    | `work-item-deadline` `spec.md` §rename and `design.md` §TASK-221        | **renamed only two of the four**                                |
 
-Site 6 is the one worth keeping. This task's own `SHALL` renamed `Same deadline
-+ …` and said nothing about `Earlier by N days` / `Later by N days`, so a
-component that qualified all four was **exceeding** its requirement, and a
-future reader reconciling the two could have narrowed the code back to the
-half-rename. Half a rename is the same ambiguity in a different sentence:
-"Earlier by 2 days" beside a **Work item deadline** column does not say which
-deadline moved. Both were widened to all four, with the reason recorded, rather
-than the code narrowed to them.
+Site 6 is the one worth keeping. This task's own `SHALL` renamed only the two
+"Same …" strings and said nothing about the earlier/later pair, so a component
+that qualified all four was **exceeding** its requirement, and a future reader
+reconciling the two could have narrowed the code back to the half-rename. Half a
+rename is the same ambiguity in a different sentence: "Earlier by 2 days" beside
+a **Work item deadline** column does not say which deadline moved. Both were
+widened to all four, with the reason recorded, rather than the code narrowed to
+them.
 
 Sites 2 and 5 are the enumeration lesson again — a scenario's **THEN** and
 another change's open task item are both places a literal string lives, and
