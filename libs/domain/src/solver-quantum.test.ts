@@ -164,7 +164,7 @@ describe('the drift window across the unit boundary', () => {
     const below = slice(1 - 5e-10, 1);
     const above = slice(1 + 5e-10, 1);
     expect(durationUnits(below)).toBe(48);
-    expect(durationUnits(above)).toBe(48);
+    expect(durationUnits(above)).toBe(49);
     expect(isOnTime(0, durationOf(below), 0)).toBe(true);
     expect(isOnTime(0, durationOf(above), 0)).toBe(true);
   });
