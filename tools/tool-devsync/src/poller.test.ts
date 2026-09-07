@@ -64,6 +64,7 @@ describe('durable dev poller', () => {
       installed,
       join(root, 'missing-bun'),
       'a'.repeat(40),
+      '1.3.14',
     ]);
 
     expect(failed.code).not.toBe(0);
@@ -89,9 +90,10 @@ describe('durable dev poller', () => {
     await chmod(fakeGit, 0o755);
     await chmod(fakeBun, 0o755);
 
-    const failed = await command(['bash', helper, source, installed, fakeBun, 'a'.repeat(40)], {
-      PATH: `${commands}:${process.env['PATH'] ?? ''}`,
-    });
+    const failed = await command(
+      ['bash', helper, source, installed, fakeBun, 'a'.repeat(40), '1.3.14'],
+      { PATH: `${commands}:${process.env['PATH'] ?? ''}` },
+    );
 
     expect(failed.code).toBe(17);
     expect(await readdir(installed)).toEqual([]);
@@ -136,13 +138,13 @@ describe('durable dev poller', () => {
     );
     await chmod(fakeBun, 0o755);
 
-    const failed = await command(['bash', helper, source, installed, fakeBun, broken], {
+    const failed = await command(['bash', helper, source, installed, fakeBun, broken, '1.3.14'], {
       POLL_TEST_SRC: source,
     });
     expect(failed.code).toBe(23);
     expect(await requireCommand(['git', '-C', source, 'rev-parse', 'HEAD'])).toBe(base);
 
-    const recovered = await command(['bash', helper, source, installed, fakeBun, fixed], {
+    const recovered = await command(['bash', helper, source, installed, fakeBun, fixed, '1.3.14'], {
       POLL_TEST_SRC: source,
     });
     expect(recovered).toEqual({ code: 0, stdout: '', stderr: '' });
@@ -200,14 +202,66 @@ esac
       RACE_STARTED: started,
       RACE_RELEASE: release,
     };
-    const first = command(['bash', helper, source, installed, fakeBun, firstSha], env);
-    const second = command(['bash', helper, source, installed, fakeBun, secondSha], env);
+    const first = command(['bash', helper, source, installed, fakeBun, firstSha, '1.3.14'], env);
+    const second = command(['bash', helper, source, installed, fakeBun, secondSha, '1.3.14'], env);
     const results = await Promise.all([first, second]);
 
     expect(results.map((result) => result.code)).toEqual([0, 0]);
     expect((await readFile(observations, 'utf8')).trim().split('\n').sort()).toEqual(
       [`${firstSha}:BROKEN`, `${secondSha}:FIXED`].sort(),
     );
+  });
+
+  it('runs byte-identical candidates when the same target overlaps itself', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wbs-dev-poller-same-sha-'));
+    const source = join(root, 'src');
+    const installed = join(root, 'bin');
+    const commands = join(root, 'commands');
+    const fakeGit = join(commands, 'git');
+    const fakeBun = join(root, 'bun');
+    const first = join(root, 'first');
+    const release = join(root, 'release');
+    const observations = join(root, 'observations');
+    const helper = new URL('../../../bin/dev-poll-sync.sh', import.meta.url).pathname;
+    const sha = 'd'.repeat(40);
+
+    await requireCommand(['mkdir', '-p', source, commands]);
+    await writeFile(
+      fakeGit,
+      `#!/usr/bin/env bash
+set -eu
+if mkdir "$RACE_FIRST" 2>/dev/null; then
+  while [ ! -e "$RACE_RELEASE" ]; do sleep 0.01; done
+else
+  : > "$RACE_RELEASE"
+fi
+printf 'SAME\\n'
+`,
+    );
+    await writeFile(
+      fakeBun,
+      '#!/usr/bin/env bash\nset -eu\nif [ "$1" = --version ]; then echo 1.3.14; exit 0; fi\nprintf "%s:%s\\n" "$2" "$(cat "$1")" >> "$POLL_OBSERVATIONS"\n',
+    );
+    await chmod(fakeGit, 0o755);
+    await chmod(fakeBun, 0o755);
+    const env = {
+      PATH: `${commands}:${process.env['PATH'] ?? ''}`,
+      POLL_OBSERVATIONS: observations,
+      RACE_FIRST: first,
+      RACE_RELEASE: release,
+    };
+
+    const runs = await Promise.all([
+      command(['bash', helper, source, installed, fakeBun, sha, '1.3.14'], env),
+      command(['bash', helper, source, installed, fakeBun, sha, '1.3.14'], env),
+    ]);
+
+    expect(runs.map(({ code }) => code)).toEqual([0, 0]);
+    expect((await readFile(observations, 'utf8')).trim().split('\n')).toEqual([
+      `${sha}:SAME`,
+      `${sha}:SAME`,
+    ]);
+    expect(await readFile(join(installed, `sync.${sha}.ts`), 'utf8')).toBe('SAME\n');
   });
 
   it('guards the canonical h2puni gate wiring for the real orphan process proof', async () => {
