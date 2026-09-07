@@ -16,6 +16,7 @@ import {
 
 const IMAGE = `registry.example/wbs-be@sha256:${'a'.repeat(64)}`;
 const SOCKET = '/run/user/1000/wbs-solver/supervisor.sock';
+const MEASURED_BUN_VERSIONS = ['1.2.20', '1.4.2'] as const;
 const CONFIG = JSON.stringify({
   socketPath: SOCKET,
   maxSearchWorkers: 2,
@@ -86,6 +87,10 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
 }
 
 describe('installSolverSupervisor', () => {
+  it('keeps every host version with recorded compatibility evidence', () => {
+    expect(SOLVER_SUPERVISOR_BUN_VERSIONS).toEqual(MEASURED_BUN_VERSIONS);
+  });
+
   it('rejects an invalid config before any remote command', async () => {
     const seen: string[] = [];
     const error = await rejectionOf(
@@ -129,7 +134,7 @@ describe('installSolverSupervisor', () => {
   // Membership alone is vacuous: without this, either entry could be dropped or
   // mistyped and no test would go red. Each listed version must reach the files
   // phase, which is the first step that touches the host.
-  it.each([...SOLVER_SUPERVISOR_BUN_VERSIONS])(
+  it.each([...MEASURED_BUN_VERSIONS])(
     'installs under measured-compatible Bun %s',
     async (version) => {
       const seen: string[] = [];

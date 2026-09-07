@@ -17,7 +17,7 @@ export const SOLVER_SUPERVISOR_BUN = '/usr/local/bin/bun';
  * Host Bun versions the supervisor bundle has been measured against on h2puni.
  *
  * It is a set and not a pin because 1.3.14 has never existed at
- * ${SOLVER_SUPERVISOR_BUN} on that host: it carries a 1.2.20 binary from
+ * /usr/local/bin/bun on that host: it carries a 1.2.20 binary from
  * 2025-08-10, and the only 1.3.14-named install was replaced with 1.4.2 on
  * 2026-09-05, so the equality check refused every real host and the rollout
  * could not be installed at all (TASK-321, TASK-325).
