@@ -1,9 +1,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProjectStreamDeps, SocketHandlers } from '@/lib/project-stream';
 import type { PlanOptimizationView } from '@/lib/wbs-api';
 import { DEV, fakeProjectApi } from '@/testing/fake-project-api';
 
+import { ProjectPage } from './project-page';
+import type { SavedPlansPanelDeps } from './saved-plans-panel';
 import { readScopeFor, type SubscriptionHandlers, WbsTable } from './wbs-table';
 
 const hasDom = typeof document !== 'undefined';
@@ -357,6 +360,61 @@ describe('project optimization in the plan', () => {
   ];
 
   /**
+   * A plan read whose optimizer variant can be failed, and whose next answer can
+   * be held open.
+   *
+   * Shared by the two cases below rather than written twice, because the thing
+   * they disagree about is the *wiring* between them — one drives the table
+   * directly, one drives the page that wires it — and a fixture that drifted
+   * would make that difference unreadable.
+   *
+   * Holding the read is the mechanism both of them turn on: while it is open the
+   * event has arrived and its consequence has not, which is the only window in
+   * which "the state came from the frame" and "the state came from the read"
+   * look different on screen.
+   */
+  function optimizerRead(fake: ReturnType<typeof fakeProjectApi>): {
+    failAndHoldTheNextRead: () => void;
+    releaseTheHeldRead: () => void;
+  } {
+    const readTree = fake.tree.bind(fake);
+    let failed = false;
+    let holdNextTree = false;
+    let releaseTree = (): void => {
+      throw new Error('the table never read the plan');
+    };
+    fake.tree = async (projectId) => {
+      if (holdNextTree) {
+        holdNextTree = false;
+        await new Promise<void>((resolve) => {
+          releaseTree = resolve;
+        });
+      }
+      return {
+        ...(await readTree(projectId)),
+        optimization: {
+          ...READY,
+          displayed: 'fast',
+          comparison: undefined,
+          variants: {
+            ...READY.variants,
+            pri: failed ? { state: 'failed', reason: 'timeout' } : { state: 'pending' },
+          },
+        } satisfies PlanOptimizationView,
+      };
+    };
+    return {
+      failAndHoldTheNextRead: () => {
+        failed = true;
+        holdNextTree = true;
+      },
+      releaseTheHeldRead: () => {
+        releaseTree();
+      },
+    };
+  }
+
+  /**
    * TASK-324 AC #2: the pin for **What an outcome event promises a client**.
    *
    * The requirement used to say a client reached `Optimization unavailable ·
@@ -397,32 +455,7 @@ describe('project optimization in the plan', () => {
   itDom('moves to Retry only when the plan read lands, and asks for no variant read', async () => {
     const fake = fakeProjectApi();
     await fake.createWorkItem('p1', { parentId: null, afterId: null, name: 'Launch' });
-    const readTree = fake.tree.bind(fake);
-    let failed = false;
-    let holdNextTree = false;
-    let releaseTree = (): void => {
-      throw new Error('the table never read the plan');
-    };
-    fake.tree = async (projectId) => {
-      if (holdNextTree) {
-        holdNextTree = false;
-        await new Promise<void>((resolve) => {
-          releaseTree = resolve;
-        });
-      }
-      return {
-        ...(await readTree(projectId)),
-        optimization: {
-          ...READY,
-          displayed: 'fast',
-          comparison: undefined,
-          variants: {
-            ...READY.variants,
-            pri: failed ? { state: 'failed', reason: 'timeout' } : { state: 'pending' },
-          },
-        } satisfies PlanOptimizationView,
-      };
-    };
+    const plan = optimizerRead(fake);
     const { api, calls } = recordingApi(fake);
     let notify: SubscriptionHandlers['onChange'] = () => {
       throw new Error('the table never subscribed');
@@ -438,8 +471,7 @@ describe('project optimization in the plan', () => {
     calls.length = 0;
     // The solve failed and stored its marker. The event is the only notice this
     // client gets, and the read it starts is held open underneath it.
-    failed = true;
-    holdNextTree = true;
+    plan.failAndHoldTheNextRead();
     act(() => {
       notify('schedule_optimization_failed');
     });
@@ -452,7 +484,7 @@ describe('project optimization in the plan', () => {
     expect(screen.queryByText(/Optimization unavailable/)).toBeNull();
 
     await act(async () => {
-      releaseTree();
+      plan.releaseTheHeldRead();
       // Inside the `act`, not after it: the held read resolves onto a `.then`
       // chain, and the state write at the end of that chain is the one React
       // has to flush here.
@@ -465,6 +497,159 @@ describe('project optimization in the plan', () => {
     expect(calls.filter((method) => method.startsWith('tree/'))).toEqual(['tree/1']);
     expect([...calls].sort()).toEqual([...READS_THE_FULL_SCOPE_MAKES].sort());
   });
+
+  /** The shelf, off: this case selects a project, and the panel that mounts with it is not the subject. */
+  const SHELF_OFF: SavedPlansPanelDeps = {
+    available: () => Promise.resolve(false),
+    list: () => Promise.resolve([]),
+    subscribe: () => ({ unsubscribe: () => undefined }),
+    save: () => Promise.reject(new Error('the shelf is off in this case')),
+    compare: () => Promise.reject(new Error('the shelf is off in this case')),
+    rename: () => Promise.reject(new Error('the shelf is off in this case')),
+  };
+
+  /**
+   * A socket the case drives by hand, in the shape `subscribeToProject` opens.
+   *
+   * The reconnect wiring is stubbed flat — nothing here closes a socket — so the
+   * scheduler is never reached; `project-stream.test.ts` is where backoff is
+   * tested and repeating it would be a second implementation of that file.
+   */
+  function fakeSocket(): { deps: ProjectStreamDeps; handlers: () => SocketHandlers } {
+    let opened: SocketHandlers | null = null;
+    return {
+      deps: {
+        openSocket: (_url, handlers) => {
+          opened = handlers;
+          return { send: () => undefined, close: () => undefined };
+        },
+        schedule: () => 0,
+        cancel: () => undefined,
+        random: () => 0,
+      },
+      handlers: () => {
+        if (opened === null) throw new Error('the page never opened a socket');
+        return opened;
+      },
+    };
+  }
+
+  /**
+   * What the optimization indicator is currently saying, and nothing else's
+   * `status`.
+   *
+   * Scoped rather than `getByRole('status')`, because the whole page is on
+   * screen here: the shelf, the gantt and the table each own a live region, and
+   * an unscoped query would either be ambiguous or — worse — settle on one of
+   * theirs and go quietly green.
+   */
+  function indicatorWords(): string {
+    const found = document.querySelectorAll('[data-optimization-indicator] [role="status"]');
+    if (found.length !== 1) {
+      throw new Error(
+        `expected one optimization indicator on screen, found ${String(found.length)}`,
+      );
+    }
+    return found[0]?.textContent ?? '';
+  }
+
+  /**
+   * TASK-324 AC #2, the composition the two cases above cannot make between
+   * them.
+   *
+   * They are halves. `project-stream.test.ts` proves the stream hands on a bare
+   * type and drops `failureReason`; the case above proves the table needs the
+   * plan read before it will say `Retry`. Both hold, and the requirement can
+   * still be broken **in the joint**, because neither of them runs the joint:
+   * the stream case supplies only the handlers it asserts on, and the table
+   * case supplies a `subscribe` of its own that never opens a stream at all.
+   *
+   * The implementation that is green under both of them is concrete (Sol
+   * review, 2026-09-07): give `ProjectStreamOptions` and `SubscriptionHandlers`
+   * an optional second callback, have the stream call it with the *whole*
+   * failure frame beside the existing `onChange(changedFactOf(…))`, forward it
+   * through the factory in `project-page.tsx`, and let the table render
+   * `Optimization unavailable · Retry` off `failureReason` the moment it
+   * arrives. Nothing above goes red: the stream case passes no such callback so
+   * its argument list is unchanged, and the table case's fake stream never
+   * invokes one. The client would be reading the variant's state out of a frame
+   * field, which is exactly what the requirement forbids.
+   *
+   * So this case owns the joint and only the joint. It hands the page a socket
+   * instead of a `subscribe`, which leaves every line between the frame and the
+   * screen — `receive`, `changedFactOf`, the factory, `readScopeFor`,
+   * `refreshOrMarkStale` — production code. A whole frame goes in one end,
+   * carrying the `failureReason` that would answer the question if anything were
+   * allowed to read it, and the plan read is held open. While it is held the
+   * indicator must still say `Optimizing…`: the second delivery path is red
+   * here, and it is red for the same reason the requirement exists.
+   *
+   * The recorded multiset comes along because the second half of the same rule
+   * — no variant-scoped read — has to survive the composition too. A read added
+   * to the factory rather than to the table would be invisible above and is
+   * visible here.
+   */
+  itDom(
+    'takes the failed variant from the plan read even when a whole frame carried it',
+    async () => {
+      const fake = fakeProjectApi();
+      await fake.createWorkItem('p1', { parentId: null, afterId: null, name: 'Launch' });
+      const plan = optimizerRead(fake);
+      const { api, calls } = recordingApi(fake);
+      const socket = fakeSocket();
+
+      render(
+        <ProjectPage token="t" api={api} savedPlansDeps={SHELF_OFF} streamDeps={socket.deps} />,
+      );
+      await waitFor(() => {
+        expect(indicatorWords()).toBe('Optimizing…');
+      });
+
+      // Selecting the project and the table's first read are not what this case
+      // is about.
+      calls.length = 0;
+      plan.failAndHoldTheNextRead();
+      act(() => {
+        socket.handlers().onOpen();
+        socket.handlers().onMessage(
+          JSON.stringify({
+            subscription: 'project:p1',
+            seq: 31,
+            message: {
+              type: 'schedule_optimization_failed',
+              projectId: 'p1',
+              generation: 4,
+              inputHash: 'same-input',
+              objective: 'pri',
+              contractVersion: '1.5+test',
+              budgetMs: 60_000,
+              // The fact a second delivery path would carry, and the exact reason
+              // the indicator renders. It must not reach a screen from here.
+              failureReason: 'timeout',
+            },
+          }),
+        );
+      });
+
+      // The frame has crossed every layer of the composition and the read it
+      // started has not answered.
+      await waitFor(() => {
+        expect(calls).toContain('tree/1');
+      });
+      expect(indicatorWords()).toBe('Optimizing…');
+
+      await act(async () => {
+        plan.releaseTheHeldRead();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(indicatorWords()).toBe('Optimization unavailable · Retry');
+      });
+      expect(calls.filter((method) => method.startsWith('tree/'))).toEqual(['tree/1']);
+      expect([...calls].sort()).toEqual([...READS_THE_FULL_SCOPE_MAKES].sort());
+    },
+  );
 
   /**
    * The three optimizer events named on this side, and what each of them reads.
