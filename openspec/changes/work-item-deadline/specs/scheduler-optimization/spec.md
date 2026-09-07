@@ -379,7 +379,7 @@ This change SHALL NOT restate or re-own cache retention. Retention is already sc
 
 ### Requirement: Project deadline and Work item deadline are distinguished in copy
 
-The schedule comparison indicator's project-finish strings SHALL be renamed from `Same deadline + reordered` and `Same deadline + same order` to `Same project deadline + reordered` and `Same project deadline + same order`. The per-item constraint SHALL always be written **Work item deadline**. Shipping an unqualified "Same deadline" beside a per-item deadline is the ambiguity this rename exists to prevent, so the rename SHALL land with this change rather than as a follow-up.
+All four of the schedule comparison indicator's project-finish strings SHALL name the deadline they mean: `Earlier by N days` and `Later by N days` SHALL be renamed to `Earlier project deadline by N days` and `Later project deadline by N days`, and `Same deadline + reordered` and `Same deadline + same order` to `Same project deadline + reordered` and `Same project deadline + same order`. The per-item constraint SHALL always be written **Work item deadline**. The earlier/later pair is included because the qualification is what makes the sentence answerable — a reader of "Earlier by 2 days" beside a **Work item deadline** column has no way to tell which deadline moved, and the two "Same …" strings alone would leave the indicator half qualified. Shipping an unqualified "Same deadline" beside a per-item deadline is the ambiguity this rename exists to prevent, so the rename SHALL land with this change rather than as a follow-up.
 
 #### Scenario: the comparison indicator names the project finish date
 

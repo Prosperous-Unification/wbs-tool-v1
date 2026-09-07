@@ -606,7 +606,7 @@ effectiveDeadlineOffset`, evaluated on the materialised schedule in the
 reordered` and `Same deadline + same order` → `Same project deadline + same
 order`, with their tests. A repository assertion that no unqualified
       "deadline" string remains in shipped UI copy.
-- [ ] 8.9b **The normative text mandating the old strings is amended in the same
+- [x] 8.9b **The normative text mandating the old strings is amended in the same
       commit**: `dual-optimized-scheduler/specs/scheduler-optimization/spec.md`,
       the comparison-indicator requirement ("SHALL report one of: … Same
       deadline + reordered, or Same deadline + same order"), and
@@ -615,6 +615,7 @@ order`, with their tests. A repository assertion that no unqualified
       7.2's sweep greps for the argument tuple — neither reaches these two
       lines, so without this item the merge leaves two SHALLs mandating
       different literal strings for one indicator.
+      **Done, and the divergence it predicted was already live on `main`.**
 
 ## 9. UI
 
@@ -938,3 +939,56 @@ judgement call.
 it owns choosing the event, amending the realtime contract, the FE subscriber
 and `readScopeFor`, and proving it against 7.9's crash case. Nothing here
 discharges any of that.
+
+## 8.9 / 8.9b, measured
+
+**The copy half of 8.9 shipped in a different change, and no normative artifact
+followed it.** `optimization-indicator.tsx` renders `Same project deadline +
+same order`, `Same project deadline + reordered`, `Earlier project deadline by N
+days` and `Later project deadline by N days`; it has since PR **246**
+(`9a1f79e7`, "add shared optimizer schedule selector"), which is neither this
+task nor TASK-221. So the state of `main` before this commit was a `SHALL`
+reading "the indicator SHALL report one of: Earlier by N days, …" against a
+component that renders none of those four literals. 8.9b was written to stop
+exactly that and arrived after the fact.
+
+**The two sites 8.9b names are six, and two of them are this task's own.** The
+search was for the string family rather than the count, the discipline 8.7b's
+sixth site established:
+
+| site | artifact | state found |
+| --- | --- | --- |
+| 1 | `dual-optimized-scheduler/.../spec.md` comparison-indicator requirement | all four old strings — the `SHALL` 8.9b names |
+| 2 | `dual-optimized-scheduler/.../spec.md` its "finishes earlier" scenario | `"Earlier by N days"` in the **THEN**, which 8.9b does not name |
+| 3 | `dual-optimized-scheduler/design.md` §2.2 restatement | the four sentences, quoted |
+| 4 | `dual-optimized-scheduler/proposal.md` | the indicator's To-state list |
+| 5 | `dual-optimized-scheduler/tasks.md` 8.3 | an **unticked** item still specifying the old four |
+| 6 | `work-item-deadline` `spec.md` §rename and `design.md` §TASK-221 | **renamed only two of the four** |
+
+Site 6 is the one worth keeping. This task's own `SHALL` renamed `Same deadline
++ …` and said nothing about `Earlier by N days` / `Later by N days`, so a
+component that qualified all four was **exceeding** its requirement, and a
+future reader reconciling the two could have narrowed the code back to the
+half-rename. Half a rename is the same ambiguity in a different sentence:
+"Earlier by 2 days" beside a **Work item deadline** column does not say which
+deadline moved. Both were widened to all four, with the reason recorded, rather
+than the code narrowed to them.
+
+Sites 2 and 5 are the enumeration lesson again — a scenario's **THEN** and
+another change's open task item are both places a literal string lives, and
+neither is a requirement sentence. `design.md`'s review-ledger row I1 is left
+untouched, per 7.2b.
+
+No test changes and no gate counts: this chunk is five documents plus one
+scenario line, and the strings it aligns to are already asserted by
+`optimization-indicator.test.tsx`, green on `main`.
+
+**8.9 stays open on its second half only.** The repository assertion that no
+unqualified "deadline" remains in shipped UI copy is not written, and the naive
+form of it does not work: a source-text scan for `/deadline/i` cannot tell a
+rendered sentence from `data-testid="deadline-cell"`, an identifier or a
+comment, so it either fails on its own fixtures or is narrowed until it proves
+nothing. The sound form asserts on **rendered** output — the components that
+render the word, mounted across their states, with every occurrence of
+"deadline" in `textContent` required to be preceded by `project` or `work item`.
+That is a code chunk with a gate, and it is what remains of 8.9.
