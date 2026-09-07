@@ -181,25 +181,25 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       _Write time_ is slice 6's service refusal:
       `work-item.service.ts` raises `deadline_before_project_start`,
       `refusal-status.ts` carries that one reason in its `UNPROCESSABLE` set,
-      and `work-item.controller.test.ts`'s `refuses a deadline before the
-      project starts, naming the row and day zero` asserts **422** with
-      `workItemId` and `projectDayZero: '2026-03-02'` in the body. Malformed
-      input never reaches storage.
-      _Read time_ is `deadline-plan-read.test.ts`'s `reports a project start
-      moved past a stored deadline late by the whole span`: the same resolution,
-      the opposite verdict — the move is accepted through `ProjectService.update`
+      and `work-item.controller.test.ts`'s case
+      `refuses a deadline before the project starts, naming the row and day zero`
+      asserts **422** with `workItemId` and `projectDayZero: '2026-03-02'` in the
+      body. Malformed input never reaches storage.
+      _Read time_ is `deadline-plan-read.test.ts`'s case
+      `reports a project start moved past a stored deadline late by the whole span`:
+      the same resolution, the opposite verdict — the move is accepted through
+      `ProjectService.update`
       (the layer that _could_ refuse it and is asked nothing about deadlines),
       the stored date still reads `'2026-03-04'` afterwards, and Fast reports
       the row `2`.
       _Solve time_ is `evaluateSolverOutcome`
       (`apps/be-01/src/service/solver-exit-outcome.ts`), and what closes this box
-      is a **paired** assertion inside `keeps classified process failures and
-      distinguishes solver no-answer states`: one identical
-      `{"wireVersion":1,"status":"infeasible"}` response line yields
+      is a **paired** assertion inside the case
+      `keeps classified process failures and distinguishes solver no-answer states`:
+      one identical `{"wireVersion":1,"status":"infeasible"}` response line yields
       `{ kind: 'failed', reason: 'invalid-output' }` for the undeadlined input
-      and `{ kind: 'plan-infeasible', certificate: { items: [{ ownerWorkItemId:
-      'w-1', boundWorkItemId: 'w-1', effectiveDeadlineOffset: 0 }] } }` for the
-      deadlined one. The pairing _is_ the distinction, and neither half means
+      and `{ kind: 'plan-infeasible', certificate: { items: [{ ownerWorkItemId: 'w-1', boundWorkItemId: 'w-1', effectiveDeadlineOffset: 0 }] } }`
+      for the deadlined one. The pairing _is_ the distinction, and neither half means
       anything alone: with no deadline in the input there is nothing legitimate
       for `INFEASIBLE` to be about, so the certificate is empty and the run is an
       engine defect; with one, the certificate names the offending row and its
@@ -209,10 +209,11 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       **The fourth position is deliberately not this boundary.** A _later_-stage
       `INFEASIBLE` never reaches the seam above — it leaves the solver non-zero
       with empty stdout, and `optimization-coordinator.ts` reads the exit code
-      through `dispositionOfExitCode` to record it `invalid-output`
-      (`classifies authenticated terminal evidence before evaluating solver
-      output`). That is 8.5b, and it is why "PRI/Time report infeasible" above
-      means the first stage only.
+      through `dispositionOfExitCode` to record it `invalid-output`, under the
+      case
+      `classifies authenticated terminal evidence before evaluating solver output`.
+      That is 8.5b, and it is why "PRI/Time report infeasible" above means the
+      first stage only.
       **What this box never covered, so nobody re-opens it for that:** W5 (8.6)
       — the fault injection that watches `infeasible` collapsed onto `unknown` —
       is slice 8's R5 obligation and 10.1's ledger entry, not a fourth clause
