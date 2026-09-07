@@ -68,8 +68,8 @@ legend SHALL name the export that carries the fields the diagram cannot.
 
 ### Requirement: A diagram is not drawn from a schedule that does not exist
 
-When the project's dependencies run in a circle, or when no slice has been
-scheduled yet, the export SHALL produce no `gantt` block at all and SHALL say
+The export SHALL produce no `gantt` block at all when the project's dependencies
+run in a circle, and none when no slice has been scheduled yet, and SHALL say
 which of the two it is. A project with no start date SHALL be drawn from a
 stated synthetic Monday rather than refused, and the export SHALL say so both in
 the comment block and in the legend. A work item with no name SHALL be given the
@@ -100,9 +100,9 @@ colon.
 
 ### Requirement: A chart that cannot be laid out is reported, not silence
 
-When the payload the export is built from names a role, a person or a slice the
-plan does not hold, the copy SHALL report that in the chart's own words rather
-than fail silently, because a click handler has no error boundary over it. The
+The copy SHALL report, in the chart's own words, a payload naming a role, a
+person or a slice the plan does not hold, rather than fail silently — a click
+handler has no error boundary over it and would otherwise do nothing at all. The
 clipboard's absence and its refusal SHALL be reported as they already are for
 the Markdown table.
 

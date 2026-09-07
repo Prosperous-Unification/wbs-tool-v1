@@ -139,7 +139,11 @@ describe('planToMermaid', () => {
 
   it('declares the format Mermaid needs and excludes the weekends the schedule already skips', () => {
     const text = planToMermaid(planOf([rowAt('010', 0, 2)], [sliceAt('s', '010', 0, 2)]), doc());
-    expect(diagramOf(text).filter((line) => !line.trimStart().startsWith('%%')).slice(0, 5)).toEqual([
+    expect(
+      diagramOf(text)
+        .filter((line) => !line.trimStart().startsWith('%%'))
+        .slice(0, 5),
+    ).toEqual([
       'gantt',
       '    title Rewire the shed',
       '    dateFormat YYYY-MM-DD',
@@ -221,7 +225,11 @@ describe('planToMermaid', () => {
 
   it('carries the pool and the priority into the section title, because a gantt has no other channel', () => {
     const rows = [
-      rowAt('010', 0, 2, { name: 'Strip', priority: 10, team: { state: 'named', name: 'Platform' } }),
+      rowAt('010', 0, 2, {
+        name: 'Strip',
+        priority: 10,
+        team: { state: 'named', name: 'Platform' },
+      }),
     ];
     const text = planToMermaid(planOf(rows, [sliceAt('a', '010', 0, 2)]), doc());
     expect(diagramOf(text)).toContain('    section 010 Strip · Platform · P10');
@@ -234,7 +242,9 @@ describe('planToMermaid', () => {
     const rows = [rowAt('010', 0, 2, { name: 'Payments: phase two' })];
     const text = planToMermaid(planOf(rows, [sliceAt('a', '010', 0, 2)]), doc());
     expect(diagramOf(text)).toContain('    section 010 Payments- phase two');
-    expect(tasksOf(text)).toEqual([{ name: 'Dev · unassigned', data: 't1, 2026-06-01, 2026-06-03' }]);
+    expect(tasksOf(text)).toEqual([
+      { name: 'Dev · unassigned', data: 't1, 2026-06-01, 2026-06-03' },
+    ]);
   });
 
   it('gives an unnamed row the tree’s own words, because Mermaid refuses a nameless section', () => {
@@ -346,7 +356,9 @@ describe('planToMermaid', () => {
       expect(legend).toContain(
         "- **Dependency arrows.** Mermaid's gantt draws none. This plan stores none either.",
       );
-      expect(legend).toContain('- **Start-no-earlier-than dates.** No row in this plan carries one.');
+      expect(legend).toContain(
+        '- **Start-no-earlier-than dates.** No row in this plan carries one.',
+      );
       expect(legend).toContain('- **Nothing at all draws:**');
     });
   });

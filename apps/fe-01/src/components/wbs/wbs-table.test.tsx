@@ -9689,39 +9689,42 @@ describe('sharing the plan', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  itDom('copies a collapsed branch’s children, which the chart on screen is not drawing', async () => {
-    const copied: string[] = [];
-    stubClipboard((text) => {
-      copied.push(text);
-      return Promise.resolve();
-    });
-    const api = fakeApi();
-    render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
-    click('Add work item');
-    await screen.findByLabelText('Name of 010');
-    pressNewItem('010');
-    await waitFor(() => {
-      expect(numbersOnScreen()).toEqual(['010', '020']);
-    });
-    pressTab('020');
-    await waitFor(() => {
-      expect(numbersOnScreen()).toEqual(['010', '010.1']);
-    });
-    click('Collapse 010');
-    await waitFor(() => {
-      expect(numbersOnScreen()).toEqual(['010']);
-    });
+  itDom(
+    'copies a collapsed branch’s children, which the chart on screen is not drawing',
+    async () => {
+      const copied: string[] = [];
+      stubClipboard((text) => {
+        copied.push(text);
+        return Promise.resolve();
+      });
+      const api = fakeApi();
+      render(<WbsTable projectId="p1" api={api} projectName="Rewire the shed" />);
+      click('Add work item');
+      await screen.findByLabelText('Name of 010');
+      pressNewItem('010');
+      await waitFor(() => {
+        expect(numbersOnScreen()).toEqual(['010', '020']);
+      });
+      pressTab('020');
+      await waitFor(() => {
+        expect(numbersOnScreen()).toEqual(['010', '010.1']);
+      });
+      click('Collapse 010');
+      await waitFor(() => {
+        expect(numbersOnScreen()).toEqual(['010']);
+      });
 
-    click('Copy as Mermaid');
+      click('Copy as Mermaid');
 
-    await waitFor(() => {
-      expect(toastTexts()).toEqual(['Copied as Mermaid.']);
-    });
-    // The row the chart on screen has dropped. An export built from the drawing
-    // would hand somebody a plan with this row missing and nothing saying so —
-    // `planForExport`'s rule, and the same answer.
-    expect(copied[0]).toContain('    section 010.1 ');
-  });
+      await waitFor(() => {
+        expect(toastTexts()).toEqual(['Copied as Mermaid.']);
+      });
+      // The row the chart on screen has dropped. An export built from the drawing
+      // would hand somebody a plan with this row missing and nothing saying so —
+      // `planForExport`'s rule, and the same answer.
+      expect(copied[0]).toContain('    section 010.1 ');
+    },
+  );
 
   itDom('says so when the page has no clipboard at all, on the Mermaid button too', async () => {
     await onePlannedRow();

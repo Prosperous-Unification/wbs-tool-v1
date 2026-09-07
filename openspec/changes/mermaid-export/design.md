@@ -11,7 +11,7 @@ Eleven things here are decisions rather than transcription.
 The brief named it and it is the right answer, but the honest half of this
 change is the accounting, so here it is in full.
 
-**Survives the trip.** Work item number, name and outline (the number *is* the
+**Survives the trip.** Work item number, name and outline (the number _is_ the
 outline; the diagram is flat exactly as the exported table is) · role · assignee
 · team · priority · start and finish as real dates on a real axis · weekends,
 because `excludes weekends` and because every date is a working day or the
@@ -20,19 +20,19 @@ width a slice actually ran at · that a slice is unestimated, as a milestone.
 
 **Cannot be drawn at all.**
 
-| Fact | Why Mermaid has no channel | What this export does |
-| --- | --- | --- |
-| Dependency arrows | The gantt syntax draws none. `after` *positions* a task; it is not an edge, and using it would replace be-01's dates with Mermaid's arithmetic | listed in the legend, one line per edge |
-| Capacity floors and person hand-offs | The chart draws a coloured line per wait; a gantt has no line between tasks | listed in the legend, in the chart's own `floorWords` verbatim |
-| Start-no-earlier-than carets | No mark for "cannot begin before here" | listed in the legend, with the date |
-| Slack on a non-critical row | `crit` is a boolean; there is no float channel | named in the legend's closing sentence |
-| One colour per assignee | Per-task colour needs CSS classes the gantt renderer does not take | assignee is in the task name instead; loss named |
-| People-at-once asked for vs given | Two numbers, one bar | the *given* width is in the task name; the asked-for one is named as lost |
-| Parent rows' spans | The chart has drawn no mark on a parent since `gantt-declutter` — so this is parity, not a loss | section titles carry the numbers |
-| The estimate trio | Hover text | named as lost; the table has it |
-| The Detail switch's dashed marks and `?` | A control, not a document | named as lost |
+| Fact                                     | Why Mermaid has no channel                                                                                                                     | What this export does                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Dependency arrows                        | The gantt syntax draws none. `after` _positions_ a task; it is not an edge, and using it would replace be-01's dates with Mermaid's arithmetic | listed in the legend, one line per edge                                   |
+| Capacity floors and person hand-offs     | The chart draws a coloured line per wait; a gantt has no line between tasks                                                                    | listed in the legend, in the chart's own `floorWords` verbatim            |
+| Start-no-earlier-than carets             | No mark for "cannot begin before here"                                                                                                         | listed in the legend, with the date                                       |
+| Slack on a non-critical row              | `crit` is a boolean; there is no float channel                                                                                                 | named in the legend's closing sentence                                    |
+| One colour per assignee                  | Per-task colour needs CSS classes the gantt renderer does not take                                                                             | assignee is in the task name instead; loss named                          |
+| People-at-once asked for vs given        | Two numbers, one bar                                                                                                                           | the _given_ width is in the task name; the asked-for one is named as lost |
+| Parent rows' spans                       | The chart has drawn no mark on a parent since `gantt-declutter` — so this is parity, not a loss                                                | section titles carry the numbers                                          |
+| The estimate trio                        | Hover text                                                                                                                                     | named as lost; the table has it                                           |
+| The Detail switch's dashed marks and `?` | A control, not a document                                                                                                                      | named as lost                                                             |
 
-**The failure mode this is written against** is a picture that *looks*
+**The failure mode this is written against** is a picture that _looks_
 complete. That is why the losses are stated twice — D6.
 
 ## D2 — one export, and it is the diagram; the table already exists
@@ -46,7 +46,7 @@ every field, every row. So the live question is only whether the new export
 **It does not.** With three roles that table is twenty columns wide; glued under
 a diagram in a README it renders as a horizontally-scrolling slab that buries
 the picture somebody pasted the block for. Two buttons, one document each: this
-one carries the *shape* and loses fields, its neighbour carries every field and
+one carries the _shape_ and loses fields, its neighbour carries every field and
 loses the shape.
 
 What makes that safe rather than a silent hole is that the legend **names the
@@ -61,7 +61,7 @@ that is not in scope and would make the table unobtainable on its own.
 
 `ganttPlan` is built from `shownRows`; the export builds its own from every row
 of the tree. Word for word `planForExport`'s reason: a collapse and a search are
-how *this* reader is looking at the plan, and an export carrying either hands
+how _this_ reader is looking at the plan, and an export carrying either hands
 somebody else a plan with rows missing and nothing saying so.
 
 The cost is one extracted function, `ganttRowOf`, so the panel and the export
@@ -82,7 +82,7 @@ and a file adds a step to it.
 ## D5 — sections are work items, tasks are role slices
 
 Mermaid has exactly one grouping channel. Spending it on assignees — the
-chart's *colour* channel — would scatter one work item's roles down the diagram
+chart's _colour_ channel — would scatter one work item's roles down the diagram
 and leave the reader unable to see a row at all. Spending it on top-level
 parents would put forty tasks in one band. So a section is a row and a task is
 a bar, which is what the chart's own y-axis is, and the two read as one picture.
@@ -91,7 +91,7 @@ Parents contribute no task, matching the chart since `gantt-declutter`.
 
 ## D6 — the losses are written twice, and the empty list is written too
 
-A `%%` comment survives a copy and is what the next reader of the *source* sees.
+A `%%` comment survives a copy and is what the next reader of the _source_ sees.
 It is invisible in a rendered diagram, and the render is exactly where "looks
 complete" happens. So the same losses are also a Markdown legend under the
 fence.

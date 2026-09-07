@@ -63,7 +63,12 @@ import {
 } from './estimate-draft';
 import { FoldedRoleCard } from './folded-role-card';
 import { GanttFaultBoundary } from './gantt-fault';
-import { GanttDataError, type GanttPlan, type GanttRow, type ServiceTeamLabel } from './gantt-geometry';
+import {
+  GanttDataError,
+  type GanttPlan,
+  type GanttRow,
+  type ServiceTeamLabel,
+} from './gantt-geometry';
 import { clampedGanttHeight, GANTT_CEILING_PX, GANTT_MIN_PX, GanttPanel } from './gantt-panel';
 import { HoverPreview } from './hover-preview';
 import { initialsOf } from './initials';
