@@ -142,9 +142,7 @@ describe('the hints say what changing the column does to the plan', () => {
    * for.
    */
   it('does not promise a deadline is taken first outside the contention it holds under', () => {
-    expect(hintFor('deadline', ON_CALENDAR)).toContain(
-      'competes for the same person or team slot',
-    );
+    expect(hintFor('deadline', ON_CALENDAR)).toContain('competes for the same person or team slot');
   });
 
   /**
