@@ -1546,6 +1546,77 @@ describe('the work item deadline cell', () => {
     expect(screen.queryByLabelText(IMPOSSIBLE_MARK)).toBeNull();
   });
 
+  itDom('still describes the cell once it is opened to be fixed', async () => {
+    // **The defect this case exists for**, from the peer review TASK-308
+    // shipped without: the three cases above assert against the input *at
+    // rest*, and none of them opens the editor. The editor is a different
+    // element — `DateField` replaces the at-rest input — and it carried
+    // neither attribute, while the mark itself lived inside the non-editing
+    // branch and so was not rendered at all. So the invalid state and its
+    // reason both disappeared at exactly the moment the reader had opened the
+    // cell in order to act on them.
+    //
+    // The mobile card had already answered this on its own face:
+    // `plan-cards.tsx` puts the sentence inside the open sheet because
+    // "`aria-describedby` on the trigger is announced on the way in rather
+    // than while the date box has focus". Same requirement, different
+    // mechanism — the table's editor replaces the cell in place, so what it
+    // needs is for the description to survive the swap.
+    await impossibleDeadlineCell();
+
+    const editor = openDeadline('010');
+    // The editor and not the at-rest input, asserted rather than assumed:
+    // `DateField` is the only one of the two that is `type="date"`, so this
+    // line is what stops the whole case from passing against the element the
+    // three above already cover.
+    expect(editor.type).toBe('date');
+
+    const describedBy = editor.getAttribute('aria-describedby');
+    if (describedBy === null) throw new Error('the open editor describes itself with nothing');
+    // Resolved to the node, not merely present — the same bar the at-rest case
+    // holds, and the one that matters most here: the mark used to be inside
+    // the branch this editor replaced, so an `aria-describedby` copied onto
+    // the editor without moving the mark would dangle and be announced as
+    // nothing.
+    expect(document.getElementById(describedBy)).toBe(screen.getByLabelText(IMPOSSIBLE_MARK));
+    // And it resolves to the *reason*, not to a bare invalid state: the
+    // description a reader hears is the mark's accessible name, which is the
+    // whole sentence about the project's first working day.
+    expect(document.getElementById(describedBy)?.getAttribute('aria-label')).toBe(IMPOSSIBLE_MARK);
+    expect(editor.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  itDom('opens an ordinary and an empty deadline cell with no invalid state', async () => {
+    // The negative control for the case above, and it is a different one from
+    // the at-rest negative control: hoisting the mark out of the ternary makes
+    // it easy to render the attributes unconditionally on the editor, which
+    // would pass every line of that case and be a lie on every other row. This
+    // is what keeps the fix a *state* rather than a constant.
+    const api = await datedPlanWithDeadlineColumn();
+
+    const empty = openDeadline('010');
+    expect(empty.type).toBe('date');
+    expect(empty.hasAttribute('aria-invalid')).toBe(false);
+    expect(empty.hasAttribute('aria-describedby')).toBe(false);
+    fireEvent.keyDown(empty, { key: 'Escape' });
+
+    const row = api.rows.at(0);
+    if (row === undefined) throw new Error('the plan has no row');
+    row.deadline = '2026-09-30';
+    click('Add work item');
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>('Work item deadline for 010').value).toBe(
+        '30 Sep',
+      );
+    });
+
+    const dated = openDeadline('010');
+    expect(dated.type).toBe('date');
+    expect(dated.hasAttribute('aria-invalid')).toBe(false);
+    expect(dated.hasAttribute('aria-describedby')).toBe(false);
+    expect(screen.queryByLabelText(IMPOSSIBLE_MARK)).toBeNull();
+  });
+
   itDom('marks nothing on a project with no start date', async () => {
     // With no day zero there is nothing for a date to fall before — the same
     // reasoning be-01's service applies, and the reason the disabled cell below
