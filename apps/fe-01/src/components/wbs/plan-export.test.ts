@@ -313,6 +313,8 @@ describe('the columns', () => {
       'Priority band',
       'Not before',
       'Not before because',
+      'Work item deadline',
+      'Work item deadline unreachable',
       'Starts',
       'Ends',
       'Slack',
