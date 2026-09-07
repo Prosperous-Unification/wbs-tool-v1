@@ -248,6 +248,12 @@ export interface BrowserBindingConsumeResult {
  *   the store's and is untouched.
  * - **`expired` outranks `missing`** for the same reason the store distinguishes
  *   them: it is the more specific true statement about what the browser had.
+ *
+ * Both are rarer here than they read. A caller that went through
+ * {@link selectBrowserBindings} has already had every dead record reaped and
+ * its cookie moved to `surplus`, so on the routes an expired binding is never
+ * offered; `expired` survives for a record that dies between the two calls, and
+ * for a caller that offers bindings this function never selected.
  */
 export function consumeBrowserBinding(
   store: OidcTransactionStore,
