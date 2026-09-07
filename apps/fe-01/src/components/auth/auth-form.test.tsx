@@ -64,7 +64,9 @@ const watchConsole = () => {
   return {
     expectSilent: () => {
       for (const [name, spy] of spies) {
-        expect(`console.${name} calls: ${spy.mock.calls.length}`).toBe(`console.${name} calls: 0`);
+        expect(`console.${name} calls: ${String(spy.mock.calls.length)}`).toBe(
+          `console.${name} calls: 0`,
+        );
       }
     },
   };
