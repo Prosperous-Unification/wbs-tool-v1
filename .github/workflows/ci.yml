@@ -245,17 +245,44 @@ jobs:
       # because every one of them is event-derived text a contributor can shape
       # — `github.base_ref` is the pull request's target branch in this
       # repository, and `inputs.base_ref` is whatever the dispatcher typed.
+      # Two boundary repairs from the same review (TASK-351):
+      #
+      # I3 — a pull request compares against `github.event.pull_request.base.sha`,
+      # the IMMUTABLE commit the merge was computed from, not against
+      # `origin/$PR_BASE_REF`, which is a branch name and moves. A rerun after
+      # the base branch is force-pushed would otherwise compare the same
+      # synthetic merge commit against a different merge base and report a
+      # result the branch never earned. The named ref is kept as a fallback for
+      # the one case the event payload cannot cover, and the fallback says so
+      # rather than being silent about which boundary it used.
+      #
+      # I4 — every `git` call that consumes one of these values terminates its
+      # option parsing with `--`. Quoting already stopped command injection, but
+      # a value beginning with `-` was still read as a flag, which produces a
+      # false red rather than a refusal. `--` costs nothing and is not a
+      # judgement call.
       - name: Corpus version lint
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_REF: ${{ github.base_ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           DISPATCH_BASE_REF: ${{ inputs.base_ref }}
         run: |
           set -euo pipefail
           case "$EVENT_NAME" in
             pull_request)
-              base="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+              if [ -n "$PR_BASE_SHA" ]; then
+                # `fetch-depth: 0` puts it in the checkout; fetch it explicitly
+                # if a shallower checkout ever lands here, and fail closed if it
+                # cannot be had rather than falling back silently.
+                git cat-file -e "$PR_BASE_SHA^{commit}" 2>/dev/null \
+                  || git fetch --no-tags origin "$PR_BASE_SHA"
+                base="$(git merge-base -- "$PR_BASE_SHA" HEAD)"
+              else
+                echo "pull_request carried no base.sha; falling back to the mutable origin/$PR_BASE_REF" >&2
+                base="$(git merge-base -- "origin/$PR_BASE_REF" HEAD)"
+              fi
               ;;
             push)
               base="$PUSH_BEFORE"
@@ -265,7 +292,7 @@ jobs:
                 echo "workflow_dispatch needs a base_ref input: this check compares two commits" >&2
                 exit 1
               fi
-              base="$(git merge-base "$DISPATCH_BASE_REF" HEAD)"
+              base="$(git merge-base -- "$DISPATCH_BASE_REF" HEAD)"
               ;;
             *)
               echo "corpus-version-lint has no boundary rule for event $EVENT_NAME" >&2
