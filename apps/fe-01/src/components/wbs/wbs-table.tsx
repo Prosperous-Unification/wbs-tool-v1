@@ -10258,6 +10258,18 @@ export function WbsTable({
             // question a reader brings to this cell is "why is this date
             // impossible".
             const impossible = deadlineBeforeProjectStart(live.current.startDate, day);
+            // The mark and the cell are siblings, and being adjacent in the DOM
+            // relates them for a reader looking at the row and for nobody else:
+            // the accessible description of the cell keyboard focus lands on is
+            // computed from that cell, so the grid announced the label and the
+            // date and never the reason the date cannot be met (TASK-296's
+            // review of the shipped diff; TASK-308). `aria-describedby` states
+            // the relationship, and it is `undefined` — not an id naming a node
+            // that is not there — on every ordinary and empty cell, because a
+            // dangling reference is announced as nothing while looking fixed.
+            const impossibleMarkId = impossible
+              ? `deadline-impossible-${row.original.id}`
+              : undefined;
             const editing = live.current.editingDeadline === row.original.id;
             const open = (): void => {
               if (noCalendar) return;
@@ -10328,6 +10340,12 @@ export function WbsTable({
               >
                 <input
                   aria-label={`Work item deadline for ${row.original.number}`}
+                  // Both are absent unless the date really is unmeetable: a cell
+                  // that always claimed `aria-invalid` would be a lie on every
+                  // other row, which is the half of TASK-308 its third case
+                  // guards rather than the half its first one asks for.
+                  aria-describedby={impossibleMarkId}
+                  aria-invalid={impossible ? true : undefined}
                   disabled={noCalendar}
                   data-deadline={row.original.id}
                   data-cell={cellKey(row.original.id, 'deadline')}
@@ -10414,6 +10432,13 @@ export function WbsTable({
                     // contradicts the two equal dates beside it.
                     aria-label={`Work item deadline for ${row.original.number} falls before the project's first working day`}
                     role="img"
+                    // What the cell's `aria-describedby` resolves to. The
+                    // description is computed from this node's accessible name,
+                    // which is the `aria-label` above and not the `!` — the
+                    // glyph is what a reader sees and the sentence is what a
+                    // reader hears, and this id is the only thing joining the
+                    // two announcements into one.
+                    id={impossibleMarkId}
                     data-deadline-impossible={row.original.id}
                     // Out of flow, so a marked row and an unmarked one lay out
                     // identically and the 84px column keeps its measurement.
