@@ -101,9 +101,27 @@ describe('the hints say what changing the column does to the plan', () => {
    */
   it('says a deadline moves the plan, both ways the two shipped engines move it', () => {
     const hint = hintFor('deadline', ON_CALENDAR);
-    expect(hint).toContain('scheduled first');
+    expect(hint).toContain('goes first');
     expect(hint).toContain('optimized plan');
     expect(hint).toContain('reported late');
+  });
+
+  /**
+   * Sol's Important 1 on the TASK-309 review, as its own case
+   * (`queue/reviews/t309-r1-sol.md`, 2026-09-07): the first rewrite said the
+   * closest to missing is *"scheduled first"* full stop, and `goesFirst` orders
+   * only slices **already** in the ready set — it "decides an order, never a
+   * date", so an item waiting on a dependency is not taken first however close
+   * to missing it is.
+   *
+   * Pinned separately from the case above rather than folded into it, because
+   * the two fail for different reasons: that one catches a sentence that stops
+   * naming Fast's effect at all, this one catches a sentence that names it
+   * without its window and so over-promises. The first draft of this hint
+   * passed that case and would have failed this one.
+   */
+  it('does not promise a deadline is taken first outside the window it competes in', () => {
+    expect(hintFor('deadline', ON_CALENDAR)).toContain('competes');
   });
 
   /**

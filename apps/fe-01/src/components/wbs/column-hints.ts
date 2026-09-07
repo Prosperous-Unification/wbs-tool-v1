@@ -59,9 +59,19 @@ export interface ColumnHintState {
  * it differently.** Fast's comparator (`libs/domain/src/schedule.ts`) asks
  * `slack` — the deadline minus the placement it would get with no deadline —
  * and then the effective deadline itself, *before* `priority`, so a date
- * reorders who takes a free person first. It decides an order and never a date:
- * a slice is still placed at the latest of its own floors, so a deadline cannot
- * pull work in front of its dependencies. The optimizing engines turn the same
+ * reorders who takes a free person first.
+ *
+ * **"Where work competes for one person" is load-bearing, and its absence from
+ * the first draft of this sentence was Sol's Important 1** on the TASK-309
+ * peer review (`queue/reviews/t309-r1-sol.md`, 2026-09-07). `goesFirst` orders
+ * only slices *already* admitted to the ready set, and the comparator's own
+ * docstring says it "decides an order, never a date": a slice is still placed
+ * at the latest of its own floors, so an item waiting on a dependency is not
+ * taken first however close to missing it is. A bare *"scheduled first"* read
+ * as a promise about dates — the same class of overstatement as the
+ * *"constrains nothing"* it replaced, in the other direction.
+ *
+ * The optimizing engines turn the same
  * date into `start + max(duration, 1) <= deadline`
  * (`libs/solver-py/src/wbs_solver/model.py`), a CP-SAT constraint whose
  * violation is a typed `plan-infeasible` the reader is shown by name —
@@ -79,9 +89,9 @@ export interface ColumnHintState {
  * the sentence has no room to say *work item* four times.
  */
 export const DEADLINE_EFFECT_HINT =
-  'The last day this work item may finish on. The work closest to missing is scheduled first; ' +
-  'an optimized plan is refused where it cannot make the date, and a row that misses is ' +
-  'reported late.';
+  'The last day this work item may finish on. Where work competes for one person, the closest ' +
+  'to missing goes first; an optimized plan is refused where it cannot make the date, and a row ' +
+  'that misses is reported late.';
 
 /**
  * The columns whose hint is the same sentence whatever the plan holds.
