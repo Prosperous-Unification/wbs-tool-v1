@@ -468,9 +468,12 @@ export function authRoutes(auth: AuthService, oidc?: OidcRouteOptions): Route[] 
         // problem: an absent key is `undefined` here and an empty `?state=` is
         // `''`, and both answer the same 400. That is the same answer by a
         // shorter path than a length check: an empty state matches no saved
-        // transaction, so `consume` returned `null` and the next line answered
-        // the identical 400 with the identical cleared cookie. Nothing a caller
-        // can observe moves.
+        // transaction, so `consume` answers `state_mismatch` and the refusal
+        // below returns the same bodiless 400. Neither path clears a login this
+        // browser could still finish, which is the property worth having; the
+        // names cleared are the same surplus except at the deadline boundary,
+        // where a binding that outlived `selectBrowserBindings` and died before
+        // `consume` joins them (peer review, TASK-293 r1, Minor).
         const state = states[0];
         // **Every answer on this route clears names and sets none** (TASK-272).
         // `settled` is the complete cookie list of every answer below, refusals
@@ -1009,8 +1012,14 @@ const OIDC_BINDING_TTL_SECONDS = 300;
  * `Max-Age` is set here once and never extended, because no other answer on
  * these routes re-sends a live binding — see {@link clearsFor}. The store's
  * `expiresAt` is the authoritative deadline and matches this one, so a cookie
- * outliving its record presents a binding `consume` answers `expired`, and the
- * next request past it clears the name.
+ * outliving its record presents a binding that is already dead when the next
+ * request reads it, and that request clears the name.
+ *
+ * **`consume` is not what notices.** Both routes run `selectBrowserBindings`
+ * first, and its `expiresAt` call reaps a record past its deadline and answers
+ * `null`, so the entry is returned as surplus and cleared without ever being
+ * offered to `consume` (TASK-272 r2; the outcome is `expired` only for a record
+ * that dies between those two calls).
  */
 function bindingCookie(binding: string): string {
   return cookie(browserBindingCookieName(binding), binding, OIDC_BINDING_TTL_SECONDS);

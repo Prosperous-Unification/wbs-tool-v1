@@ -241,6 +241,24 @@ Slices 8.1, 8.2, and 8.5 are closed. Retry remains a route owned by TASK-268,
 so the broader 8.3–8.4 checkboxes stay open rather than claiming an affordance
 whose backend does not yet exist; lane-q TASK-222 already owns post-deploy QA.
 
+## 2026-09-06T18:29:32Z — replacement CI after the browser assertion correction
+
+- The final correction was exact head
+  `8a9f0ae111f568ae8abede155ae0f4556d2d98e7`, `test: include optimization tab
+in browser assertion`; its only changed path was
+  `apps/fe-01/e2e/project-settings.spec.ts`.
+- Replacement CI run `34050973411` completed green at that exact head. Gate
+  job `101534415848` completed `SUCCESS` at `2026-09-06T18:24:49Z`; pixels job
+  `101534415694` completed `SUCCESS` at `2026-09-06T18:29:11Z`.
+- PR #246 then merged as
+  `9a1f79e7eb9fea3b72cc00acd622c2bb2c9d07ba` at the section timestamp above.
+
+This supersedes the prior section's statement that the exact-head gate was
+still only CI-pending. The corrected assertion expects all five Project
+Settings tabs, including Optimization; it records the browser-found stale
+four-tab expectation rather than leaving the verification record one commit
+behind the shipped tree.
+
 ## 2026-09-06T21:31:00Z — four independent eviction authorities
 
 - Head under test: `4a86476afb89dbcc6537fdea0e6c0bae1264d3b2`; host: `h2puni`,
@@ -335,3 +353,44 @@ above, this closes 7.3 and 7.11.
   that case red, as recorded in the durable failure-announcement section.
 
 This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.
+
+## 2026-09-07T02:01:44Z — optimization indicator accessibility follow-up
+
+- Implementation head `a333cf64` passed the three focused component suites on
+  `h2puni`: 3 files and 31 tests, all green. FE application and spec
+  typechecks, changed-file ESLint, scoped Prettier, and strict OpenSpec 1.3.0
+  validation also passed there. No build or autotest ran on the queue-worker
+  box.
+- The phone-width Playwright path passed at 390×844 using real Enter input,
+  the card renderer, disclosure accessibility assertions, and viewport-bound
+  checks. The first keyboard run passed 3/4 cases and exposed focus loss after
+  controlled radio rerenders; exact head `686230bc` restores focus before each
+  real ArrowRight/ArrowLeft input. Exact-head browser verification is delegated
+  to CI because the `h2puni` root filesystem exhausted its inodes before the
+  corrected rerun could create Vite's temporary config file.
+- Watched negatives proved the tolerance and shared rendering requirements:
+  replacing `withinDrift` with exact-zero comparison failed the epsilon case,
+  while removing stale qualifiers, real-date formatting, persistent live-region
+  identity, and compact fallback classes failed 7/21 indicator cases. Both
+  mutations were restored byte-for-byte before the green runs.
+
+This closes the TASK-294 follow-up clauses without claiming retry UI or backend
+work. Lane-q TASK-222 remains the independent post-deploy QA owner.
+
+## 2026-09-07T02:22:09Z — unmeetable-deadline render safety
+
+- The first exact-head Anthropic review at `e138a8da` found one Critical: the
+  legal `UNMEETABLE_DEADLINE_OFFSET` value `-1` reached `addWorkdays` and threw
+  from React render. The corrected renderer names that state `Work item
+deadline before project start`, and the stored-result decoder now rejects
+  offsets below the domain sentinel.
+- At exact source head `762b33c9` on h2puni, the three focused FE suites passed
+  33/33 and the plan-infeasible DTO suite passed 4/4. Both FE typechecks,
+  changed-file ESLint, scoped Prettier, and strict OpenSpec validation passed.
+- Two independent watched controls went red: bypassing the renderer's sentinel
+  branch threw through the focused unmeetable-deadline case (1/1 failed), and
+  weakening the DTO floor admitted `-2` and failed exactly the malformed-item
+  suite (3 passed, 1 failed). Both files were restored byte-for-byte.
+
+The branch was then merged with current `origin/main`; CI and the terminal
+re-review are the exact merged-head gates.

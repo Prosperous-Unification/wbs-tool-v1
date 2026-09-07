@@ -1158,9 +1158,17 @@ content of this pair.
 **8.7d had a coordinator proof and no route proof.**
 `optimization-coordinator.db.test.ts`'s `names an unlaunchable $state variant
 not-retryable` already drives a real `plan-infeasible` row through
-`coordinator.retry` and asserts both halves of the scenario's THEN: the
-decision is `{ kind: 'not-retryable', state: 'plan-infeasible' }` and
-`solverSlot` is still empty, so no process starts. But the scenario says
+`coordinator.retry` and asserts the first half of the scenario's THEN: the
+decision is `{ kind: 'not-retryable', state: 'plan-infeasible' }`.
+
+**Its second half was not sound and is fixed here (Sol r7 Critical 1).** That
+case asserted an empty `solver_slot` table and the closure draft read that as
+"no process starts" — but `spawn` runs **before** `bindSolverSlot`, so a
+regression that starts a child and then fails to bind leaves the table empty
+and the process real. The case now passes the spawn recorder it was
+discarding with `coordinator(db, [])` and asserts `calls` is empty as well.
+Two assertions because there are two facts: the recorder is about the process,
+the table is about the reservation. But the scenario says
 `POST /api/projects/:projectId/optimization/retry` **is called for it
 directly**, and the route is where a state name can be lost: `project.routes.ts`
 maps `not-retryable` to `409 { code, state: outcome.state }`, and until now the
@@ -1192,12 +1200,40 @@ a control here would promise a recovery the route answers `409` to.
 tested.** `optimization-indicator.test.tsx` renders the indicator alone; there
 is nothing else on screen to lose, so the clause is vacuously true there. It is
 asserted instead in `optimization-integration.test.tsx`, which renders the
-whole `WbsTable` over `fakeProjectApi` with a seeded row and an infeasible
-`pri` variant: the row's own editor is present, enabled, and still takes a
-keystroke, and `dialog`, `alert` and any Retry button are all absent from the
-**document** rather than from one component's markup. `alert` does double duty
-there — it is also the stale-tree banner — so its absence says the rows on
-screen are the current ones and not a copy the reader was warned about.
+whole `WbsTable` over `fakeProjectApi` with a seeded row, a project start date
+and an infeasible `pri` variant.
+
+**Both of that case's halves were first written too weak, and it took two Sol
+rounds to get each one honest.** _On screen_ was the row list, which an
+infeasible plan would keep even if Fast vanished. The first fix — the
+`Gantt chart` region — was no better and r7b said so: that `aria-label` sits on
+the section **unconditionally**, and the "nothing can be drawn" branch carries
+it too, so finding the region proves a shell. The assertion is a drawn
+**`[data-gantt-bar]`**, which is a Fast placement. It needs both a project
+start date and a cost on the row: no day zero is no coordinate system, and the
+chart filters every unestimated slice out at rest, so either omission would
+have put the clause back against an empty chart. Opening the chart through its
+own control is kept, so an affordance that stopped working fails here too.
+
+_Usable_ read the name input's own value back after a `change` — but
+`CellInput` is uncontrolled through `defaultValue`, so that asserts jsdom and
+not the table; the write starts on **blur** and lands in `api.patchWorkItem`.
+The case blurs and waits for `patchWorkItem(row.id, { name: 'Launch v2' })`.
+**It does not assert a reread, and the first draft's claim that it did was
+wrong** (r7b): the spy records the call as `run` enters `await action()`, while
+the refresh happens after, so a `waitFor` on the spy can pass before any reread
+lands — and the cell would read `Launch v2` either way, because
+`fireEvent.change` put it there. What is asserted instead is the fake's own
+row: the model behind the API says the write landed.
+
+`dialog`, `alert` and any Retry button are absent from the **document** rather
+than from one component's markup. The no-toast negative is
+`[data-toast]`, **not** `queryByRole('alert')` (Sol r7 Critical 3):
+`ToastStack` gives the alert role to error toasts only, deliberately, so an
+info toast is a toast an alert query cannot see and 9.3's clause is absolute.
+The alert query stays anyway, doing separate double duty — it is also the
+stale-tree banner, so its absence says the rows on screen are the current ones
+and not a copy the reader was warned about.
 
 **Neither ran on h2puni.** The host is still at 100% inodes (`df -i /`:
 `9849520 / 9849520`, `IFree 0`), so CI is the gate, with

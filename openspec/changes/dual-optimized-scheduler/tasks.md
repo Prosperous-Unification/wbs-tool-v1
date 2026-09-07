@@ -3898,8 +3898,16 @@ recorded, event)` buffers and pushes an already-recorded sequence
       `Optimization unavailable · Retry` on **both** the `failed` and the
       `corrupt` variant states (Sol r8 Critical 6 — the round-7 disposition
       added `corrupt` to spec.md and left this list at five states),
-      `Plan infeasible · N work item deadlines` on the `plan-infeasible` state
-      with **no** Retry control and the offending items listed on demand, and
+      `Plan infeasible · 1 Work item deadline` for the deliberate singular and
+      `Plan infeasible · N Work item deadlines` for every other count on the
+      `plan-infeasible` state, with **no** Retry control and the offending items
+      listed on demand. Every inconsistent optional-payload branch uses the
+      same compact container and says `Schedule comparison unavailable`; a
+      stale plan qualifies the selected state and any affected-item list rather
+      than presenting either as current. Real fractional differences retain
+      honest copy (`Earlier project deadline by 0.02 days` at `-1/48`), while
+      the shared workday drift tolerance collapses `-Number.EPSILON` to the
+      corresponding Same-project-deadline sentence. The remaining state is
       `Optimizing…` while the selected variant is admitted but not stored — with Fast on screen
       throughout, never a blank plan or a spinner over it. No toast, no modal,
       no timer retry, no second indicator. On `plan-infeasible` the indicator
@@ -3915,6 +3923,12 @@ workdays` per missed item — Fast's lateness is a report, never a verdict
       items on demand, and renders **no** Retry control while Fast stays on
       screen with its per-item `Late by N workdays` labels intact; a
       pending variant renders `Optimizing…` over Fast offsets;
+      stale pending and plan-infeasible variants visibly qualify their status;
+      an infeasible item prints its real Work item deadline date from the
+      project start and workday calendar, never the internal offset, while the
+      legal unmeetable sentinel says `Work item deadline before project start`;
+      a removed
+      row is named without exposing its raw id;
       no toast or modal role appears in the tree in any of those states; a
       toggle change issues the PATCH and **survives a remount** (proving it is
       persisted, not local); and an incoming `project_settings_changed` moves
@@ -3923,7 +3937,9 @@ workdays` per missed item — Fast's lateness is a report, never a verdict
       component state instead of the project row and watch 8.4's remount and
       incoming-event cases fail. `Proof:` comment names the reverted binding.
       Local-only controls are exactly the failure the persistence slice exists
-      to prevent.
+      to prevent. This closes only those two persistence/convergence clauses:
+      it is not evidence for 8.4's still-open Retry, state-copy, accessibility,
+      or responsive-renderer clauses.
 - [ ] 8.6 A user-facing feature: file one lane-q Browser Use Cloud QA task after
       deploy.
 - [ ] 8.7 `sameOrder(a, b)` is the exact relation, computed server-side on the

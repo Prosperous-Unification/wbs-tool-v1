@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 
+import type { PlanOptimizationView, PlanRead } from '../src/lib/wbs-api';
 import { createProject } from './create-project';
 
 /**
@@ -130,7 +131,7 @@ test.describe('the project settings control, in a browser', () => {
     await control.click();
     const dialog = page.getByRole('dialog', { name: 'Project settings' });
     await expect(dialog).toBeVisible();
-    // Five since `wbs-dual-optimized-scheduler`: `Optimization` follows
+    // Five since `dual-optimized-scheduler`: `Optimization` follows
     // `Estimating` as the final project-level scheduling section.
     await expect(dialog.getByRole('tab')).toHaveText([
       'Teams',
@@ -153,5 +154,125 @@ test.describe('the project settings control, in a browser', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     await expect(control).toBeFocused();
+  });
+
+  test('operates the optimization checkbox and schedule radios from the keyboard', async ({
+    page,
+  }) => {
+    await freshProject(page);
+    await page.getByRole('button', { name: 'Project settings' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Project settings' });
+    await dialog.getByRole('tab', { name: 'Optimization' }).click();
+
+    const optimization = dialog.getByRole('checkbox', { name: 'Optimize schedules' });
+    await optimization.focus();
+    await page.keyboard.press('Space');
+    await expect(optimization).toBeChecked();
+
+    const fast = dialog.getByRole('radio', { name: 'Fast' });
+    const priority = dialog.getByRole('radio', { name: 'PRI' });
+    const time = dialog.getByRole('radio', { name: 'Time' });
+    await expect(fast).toBeEnabled();
+    await fast.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(priority).toBeChecked();
+    await expect(priority).toBeEnabled();
+    await priority.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(time).toBeChecked();
+
+    // Proof: these are browser default actions. Synthetic jsdom key events do
+    // not toggle native controls, so deleting a control or breaking its native
+    // grouping makes this real-key path fail instead of leaving a decorative
+    // keydown assertion green.
+    await expect(time).toBeEnabled();
+    await time.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(priority).toBeChecked();
+  });
+
+  test('keeps the infeasible indicator inside a phone card plan and opens it by keyboard', async ({
+    page,
+  }) => {
+    await freshProject(page);
+    await page.getByRole('button', { name: 'Add work item' }).click();
+    await expect(page.getByLabel('Name of 010')).toBeVisible();
+    const longWorkItemName = 'Deadline'.repeat(24);
+    const name = page.getByLabel('Name of 010');
+    const nameSaved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().includes('/commands') &&
+        (response.request().postData() ?? '').includes('"kind":"patchWorkItem"') &&
+        response.ok(),
+    );
+    await name.fill(longWorkItemName);
+    await name.blur();
+    await nameSaved;
+    await expect(name).toHaveValue(longWorkItemName);
+
+    await page.route('**/api/projects/*/work-items', async (route) => {
+      const response = await route.fetch();
+      const plan = (await response.json()) as PlanRead;
+      const first = plan.workItems[0];
+      const optimization: PlanOptimizationView = {
+        enabled: true,
+        engine: 'optimized',
+        objective: 'pri',
+        inputHash: 'e2e-phone-infeasible',
+        generation: 1,
+        contractVersion: '1.5+e2e',
+        budgetMs: 60_000,
+        displayed: 'fast',
+        variants: {
+          pri: {
+            state: 'plan-infeasible',
+            items: [
+              {
+                ownerWorkItemId: first.id,
+                boundWorkItemId: first.id,
+                effectiveDeadlineOffset: 4,
+              },
+            ],
+          },
+          time: { state: 'idle' },
+        },
+      };
+      await route.fulfill({ response, json: { ...plan, startDate: '2026-09-07', optimization } });
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await expect(page.getByRole('article', { name: 'Work item 010' })).toBeVisible();
+
+    const indicator = page.locator('[data-optimization-indicator]');
+    await expect(indicator).toContainText('Plan infeasible · 1 Work item deadline');
+    const indicatorBox = await indicator.boundingBox();
+    expect(indicatorBox, 'the phone indicator has no rendered box').not.toBeNull();
+    expect(indicatorBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect((indicatorBox?.x ?? 0) + (indicatorBox?.width ?? 391)).toBeLessThanOrEqual(390);
+
+    const disclosure = page.getByText('Show affected work items');
+    await expect(disclosure).toHaveAccessibleName('Show affected work items');
+    await disclosure.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText(/Work item deadline 11 Sep/)).toBeVisible();
+    const affectedItem = page
+      .getByLabel('Affected work items')
+      .locator('li')
+      .filter({ hasText: longWorkItemName });
+    await expect(affectedItem).toBeVisible();
+    const overflow = await affectedItem.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+    expect(overflow.documentWidth).toBeLessThanOrEqual(overflow.viewportWidth);
+
+    const openBox = await indicator.boundingBox();
+    expect(openBox, 'the open phone indicator has no rendered box').not.toBeNull();
+    expect((openBox?.x ?? 0) + (openBox?.width ?? 391)).toBeLessThanOrEqual(390);
   });
 });

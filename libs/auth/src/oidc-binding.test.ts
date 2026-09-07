@@ -126,7 +126,7 @@ describe('browser binding cookie', () => {
         ...jarOf(['binding-3']),
         // The same binding under a second name, and a binding under a name this
         // app would never have written for it: both break the one-name-per-login
-        // one-name-per-login pairing every clear depends on, so neither is offered.
+        // pairing every clear depends on, so neither is offered.
         [`${BROWSER_BINDING_COOKIE_PREFIX}duplicate`, 'binding-2'],
         [`${BROWSER_BINDING_COOKIE_PREFIX}renamed`, 'binding-4'],
       ]),
@@ -147,7 +147,10 @@ describe('browser binding cookie', () => {
       `${BROWSER_BINDING_COOKIE_PREFIX}duplicate`,
       `${BROWSER_BINDING_COOKIE_PREFIX}renamed`,
     ]);
-    // Reading the order must not spend, expire or delete anything.
+    // Reading the order does delete — `binding-1`'s dead record was reaped
+    // above, which is what the `cleanupExpired()` assertion above proves.
+    // What it must never do is spend a *live* transaction: `binding-2` was
+    // ordered, offered, and is still here to be consumed exactly once.
     expect(store.consume('binding-2', 'state-2').outcome).toBe('consumed');
   });
 

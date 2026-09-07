@@ -11994,9 +11994,11 @@ export function WbsTable({
         <OptimizationIndicator
           optimization={chartRead.optimization}
           stale={treeMayBeStale}
+          projectStart={startDate}
+          today={new Date(todayForFloor)}
           workItemName={(id) => {
             const found = flat.find((row) => row.id === id);
-            return found?.name ?? id;
+            return found?.name ?? null;
           }}
         />
       )}

@@ -110,16 +110,20 @@ function runsIn(file: string, source: string): Run[] {
       ts.isTemplateTail(node) ||
       ts.isJsxText(node)
     ) {
-      // A quoted property name is the one string position that is never copy
-      // however it is spelled — `{ 'release deadline': 1 }` is an internal key
-      // no reader can reach, and it has whitespace, so no shape rule sees it.
+      // Quoted property names and module specifiers are the string positions
+      // that are never copy however they are spelled. Neither can reach a
+      // reader, and both may contain whitespace or punctuation, so no shape
+      // rule can distinguish them from prose.
       const isQuotedKey =
         ts.isPropertyAssignment(node.parent) ||
         ts.isPropertySignature(node.parent) ||
         ts.isEnumMember(node.parent)
           ? node.parent.name === node
           : false;
-      if (!isQuotedKey) {
+      const isModuleSpecifier =
+        (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent)) &&
+        node.parent.moduleSpecifier === node;
+      if (!isQuotedKey && !isModuleSpecifier) {
         const { line } = tree.getLineAndCharacterOfPosition(node.getStart(tree));
         runs.push({
           file,
@@ -241,6 +245,15 @@ describe('the scan, on sources written to fail it', () => {
     // is worse than it looks — it is what teaches a later author to weaken the
     // guard rather than fix the copy.
     const source = "const m = { 'release deadline': 1, id: 'deadline' };\n";
+    expect(runsIn('src/x.ts', source).flatMap(unqualifiedIn)).toEqual([]);
+  });
+
+  it('ignores a module specifier even when its path names a deadline module', () => {
+    const source = [
+      "import { offset } from '@wbs/domain/deadline-offsets';",
+      "export { offset } from './project deadline adapter';",
+      '',
+    ].join('\n');
     expect(runsIn('src/x.ts', source).flatMap(unqualifiedIn)).toEqual([]);
   });
 
