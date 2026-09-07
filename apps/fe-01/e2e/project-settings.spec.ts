@@ -257,7 +257,10 @@ test.describe('the project settings control, in a browser', () => {
     await disclosure.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByText(/Work item deadline 11 Sep/)).toBeVisible();
-    const affectedItem = page.getByText(new RegExp(longWorkItemName));
+    const affectedItem = page
+      .getByLabel('Affected work items')
+      .locator('li')
+      .filter({ hasText: longWorkItemName });
     await expect(affectedItem).toBeVisible();
     const overflow = await affectedItem.evaluate((element) => ({
       clientWidth: element.clientWidth,
