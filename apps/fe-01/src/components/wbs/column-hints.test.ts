@@ -88,7 +88,7 @@ describe('the hints say what changing the column does to the plan', () => {
    * The one hint that said a column does nothing while the scheduler was
    * already reading it. `schedule.ts`'s Fast comparator asks `slack` — the
    * deadline minus the deadline-free placement — and then `deadline` itself,
-   * *before* `priority`, so a deadline reorders who gets a person first; and
+   * ahead of `priority`, so a deadline reorders who gets a person first; and
    * `libs/solver-py/src/wbs_solver/model.py` turns the same date into
    * `start + max(duration, 1) <= deadline`, a CP-SAT constraint an optimized
    * plan is refused for breaking. Both are shipped: the optimizer's three

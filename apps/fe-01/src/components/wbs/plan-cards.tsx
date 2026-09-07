@@ -13,13 +13,13 @@ import type { Days, PriorityBandView, StepView } from '@/lib/wbs-api';
 import { ActionsMenu, type MenuAction } from './actions-menu';
 import { CellInput } from './cell-input';
 import type { CellRef } from './cell-navigation';
+import { DEADLINE_EFFECT_HINT } from './column-hints';
 import {
   type PickableEntry,
   PickerList,
   type PickerOption,
   pickerOptionId,
 } from './creatable-picker';
-import { DEADLINE_EFFECT_HINT } from './column-hints';
 import { DEADLINE_BEFORE_START, deadlineBeforeProjectStart } from './deadline-impossible';
 import { type PickerEntry, REFUSAL_SUFFIX } from './dep-picker';
 import { type CellElement, cellKey } from './editable-grid';
