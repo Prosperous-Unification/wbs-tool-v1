@@ -172,18 +172,53 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       case goes red on a fold that drops such an id. _Emits nothing_: the
       empty-map case goes red on a fold that seeds every leaf.
 
-- [ ] 3.4 The two impossible kinds are distinguished at their own boundaries:
+- [x] 3.4 The two impossible kinds are distinguished at their own boundaries:
       `before-project-start` at write time (slice 6) is malformed input;
       unreachable-but-well-formed is legitimate input that Fast reports late
       (slice 5) and PRI/Time report infeasible (slice 8).
-      **Two of the three boundaries stand as of 3.4/4.2 and the box stays open
-      on the third.** Write time is slice 6's service refusal (422, naming the
-      work item and the project's day zero). Read time is
-      `deadline-plan-read.test.ts`'s moved-start case: the same resolution, the
-      opposite verdict — the request is not rejected, the stored value is not
-      rewritten, and Fast reports the row late by the whole span. What is still
-      owed is the third clause, `plan-infeasible` from PRI/Time, which is slice
-      8 and TASK-219/241's; this item cannot be closed from inside this task.
+      **All three boundaries now stand; the third arrived with slice 8 and is
+      verified here at `96f037f9` rather than assumed from its checkbox.**
+      _Write time_ is slice 6's service refusal:
+      `work-item.service.ts` raises `deadline_before_project_start`,
+      `refusal-status.ts` carries that one reason in its `UNPROCESSABLE` set,
+      and `work-item.controller.test.ts`'s `refuses a deadline before the
+      project starts, naming the row and day zero` asserts **422** with
+      `workItemId` and `projectDayZero: '2026-03-02'` in the body. Malformed
+      input never reaches storage.
+      _Read time_ is `deadline-plan-read.test.ts`'s `reports a project start
+      moved past a stored deadline late by the whole span`: the same resolution,
+      the opposite verdict — the move is accepted through `ProjectService.update`
+      (the layer that _could_ refuse it and is asked nothing about deadlines),
+      the stored date still reads `'2026-03-04'` afterwards, and Fast reports
+      the row `2`.
+      _Solve time_ is `evaluateSolverOutcome`
+      (`apps/be-01/src/service/solver-exit-outcome.ts`), and what closes this box
+      is a **paired** assertion inside `keeps classified process failures and
+      distinguishes solver no-answer states`: one identical
+      `{"wireVersion":1,"status":"infeasible"}` response line yields
+      `{ kind: 'failed', reason: 'invalid-output' }` for the undeadlined input
+      and `{ kind: 'plan-infeasible', certificate: { items: [{ ownerWorkItemId:
+      'w-1', boundWorkItemId: 'w-1', effectiveDeadlineOffset: 0 }] } }` for the
+      deadlined one. The pairing _is_ the distinction, and neither half means
+      anything alone: with no deadline in the input there is nothing legitimate
+      for `INFEASIBLE` to be about, so the certificate is empty and the run is an
+      engine defect; with one, the certificate names the offending row and its
+      effective offset and the user is told their dates cannot be met. Both sit
+      beside `status: 'unknown'` → `no-solution` in the same case, which is 8.5's
+      "distinct from `unknown`" asserted rather than merely written down.
+      **The fourth position is deliberately not this boundary.** A _later_-stage
+      `INFEASIBLE` never reaches the seam above — it leaves the solver non-zero
+      with empty stdout, and `optimization-coordinator.ts` reads the exit code
+      through `dispositionOfExitCode` to record it `invalid-output`
+      (`classifies authenticated terminal evidence before evaluating solver
+      output`). That is 8.5b, and it is why "PRI/Time report infeasible" above
+      means the first stage only.
+      **What this box never covered, so nobody re-opens it for that:** W5 (8.6)
+      — the fault injection that watches `infeasible` collapsed onto `unknown` —
+      is slice 8's R5 obligation and 10.1's ledger entry, not a fourth clause
+      here. 3.4 claims the boundaries exist and are distinct, which the three
+      cases above assert directly; W5 claims the test guarding one of them can
+      fail. 3.4 does not wait on it.
 - [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
       earlier than its parent must be loosened to the parent's date. Measured on
       h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
