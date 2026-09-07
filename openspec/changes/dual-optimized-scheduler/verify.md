@@ -354,6 +354,43 @@ above, this closes 7.3 and 7.11.
 
 This closes 7.5 and 7.6. No build or autotest ran on the queue-worker box.
 
+## 2026-09-07T04:45:12Z — TASK-268 chunks 11–18 reconciliation
+
+The task log and the two canonical Anthropic review artifacts were reconciled here so the durable
+OpenSpec record covers the terminal implementation sequence rather than stopping before it:
+
+- **Chunk 11 (`d6e198e3`)** added the full-identity infeasible event in the outcome transaction and
+  rechecked optimization enablement before repairing a stale FIFO input. The test-only head failed
+  three new cases; the focused green was 30/30 with 203 assertions. Isolated mutations proved both
+  event rollback and the OFF-project generation/spawn refusal.
+- **Chunk 12 (`e87b4c60`, code head `26208ee3`)** regenerated the committed OpenAPI document after
+  CI correctly found the Retry operation missing. All five OpenAPI checks and scoped formatting
+  passed on h2puni.
+- **Chunk 13 (`3866ea42`)** made the browser source backend's deterministic caller id conform to the
+  exact 12-lowercase-hex production protocol. The old id failed the focused case and the repaired
+  seven-case suite passed.
+- **Chunk 14 (`5dd640d4`)** made installed solver mappings authoritative for every deploy target,
+  added the missing-config remedy and future-mapping refusal, and made the runbook's recursive
+  solver pathspec and publish/materialize/install/deploy order exact. The test-only head failed
+  three cases; 27/27 passed after repair.
+- **Chunk 15 (`d8f96d25`)** introduced the durable external poller and exact-commit candidate loader.
+  A broken candidate left HEAD at the base and a repaired successor advanced it; the combined
+  tool-devsync suite passed 48/48 without installing host state.
+- **Chunk 16 (`73df007a`)** recorded the decision to expose the Retry lifecycle action through MCP
+  and updated the intentional tool count and README after CI found the drift. The focused MCP file
+  passed 25/25 with 203 assertions.
+- **Chunk 17** recorded exact-head CI `34068782169` green for both `gate` and `pixels` at
+  `73df007a`; PR 253 remained open for the mandatory production review.
+- **Chunk 18 (`973ec21f`)** repaired all five Important findings from canonical review artifact
+  `task268-terminal-r3-opus.txt`: streamed first-use loader, isolated candidate/ref state, durable
+  managed Bun, post-create cleanup, and h2puni real-orphan gate wiring. The pre-fix focused run was
+  13 pass / 7 fail and the repair passed 20/20 with 52 assertions. The later exact-head approval
+  artifact `task268-terminal-r6-opus.txt` verified those blockers closed at `d802d705`; its nine
+  non-blocking follow-ups moved to TASK-312 rather than being silently claimed here.
+
+Every cited build, test, lint, typecheck, formatting, and mutation run above was performed on
+h2puni or CI. No build or autotest ran on the queue-worker box.
+
 ## 2026-09-07T02:01:44Z — optimization indicator accessibility follow-up
 
 - Implementation head `a333cf64` passed the three focused component suites on
