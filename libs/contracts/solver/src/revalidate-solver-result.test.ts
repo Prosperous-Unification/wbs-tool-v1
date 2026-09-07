@@ -134,10 +134,7 @@ describe('revalidateSolverResult refuses the request it cannot judge', () => {
       fastHint: { a: 0 },
     });
     for (const status of ['infeasible', 'unknown'] as const) {
-      rejects(
-        revalidateSolverResult(malformed, { wireVersion: 1, status }),
-        'malformed-request',
-      );
+      rejects(revalidateSolverResult(malformed, { wireVersion: 1, status }), 'malformed-request');
     }
     rejects(revalidateSolverResult(malformed, feasible({ a: 1 })), 'malformed-request');
   });
