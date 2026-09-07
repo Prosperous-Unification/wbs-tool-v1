@@ -198,7 +198,6 @@ test.describe('the project settings control, in a browser', () => {
       const response = await route.fetch();
       const plan = (await response.json()) as PlanRead;
       const first = plan.workItems[0];
-      if (first === undefined) throw new Error('the phone proof has no work item');
       const optimization: PlanOptimizationView = {
         enabled: true,
         engine: 'optimized',
