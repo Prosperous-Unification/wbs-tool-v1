@@ -17,9 +17,18 @@ if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
   exit 2
 fi
 
+if [ ! -x "$BUN" ]; then
+  echo "refusing: missing managed Bun 1.3.14 at $BUN; install the managed Bun 1.3.14 with the poller pair per docs/runbook-dev-deploy.md" >&2
+  exit 1
+fi
+if [ "$("$BUN" --version)" != '1.3.14' ]; then
+  echo "refusing: managed Bun at $BUN is not 1.3.14; reinstall it with the poller pair per docs/runbook-dev-deploy.md" >&2
+  exit 1
+fi
+
 mkdir -p "$BIN"
-SYNC_NEXT="$BIN/sync.next.ts"
-SYNC="$BIN/sync.ts"
+SYNC_NEXT=$(mktemp "$BIN/sync.${SHA}.XXXXXXXX.ts")
+SYNC="$BIN/sync.${SHA}.ts"
 
 # Reading from the fetched target, rather than the checkout's pre-reset tree,
 # is the recovery boundary. A broken target deployer can refuse this attempt,

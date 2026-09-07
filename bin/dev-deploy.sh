@@ -63,16 +63,19 @@ export MCP_EXPOSURE_EXPECTED
 # repaired target supplies the deployer that can land it without skipping any
 # sync.ts preflight or post-reset check.
 #
+# The candidate loader is streamed from this exact checkout, like the MCP
+# preflight above. The first deployment of this recovery path therefore cannot
+# depend on the helper already being installed on the host. Its managed Bun is
+# installed with the durable poller pair and checked by the loader before the
+# target tree is read.
+#
 # SC2029 is disabled for this command, not silenced globally: $SHA is meant to
 # expand here, on this machine. The remote has no such variable, and sending
 # this machine's HEAD is the entire purpose of the call.
 # shellcheck disable=SC2029
-ssh h2puni "bash -lc '
-  set -e
-  git -C /home/puni1/wbs-dev/src fetch --quiet origin
-  /home/puni1/wbs-dev/bin/dev-poll-sync.sh /home/puni1/wbs-dev/src \
-    /home/puni1/wbs-dev/bin bun $SHA
-'"
+ssh h2puni \
+  "git -C /home/puni1/wbs-dev/src fetch --quiet origin && bash -s -- /home/puni1/wbs-dev/src /home/puni1/wbs-dev/bin /home/puni1/wbs-dev/bin/bun $SHA" \
+  < "$(dirname "${BASH_SOURCE[0]}")/dev-poll-sync.sh"
 
 # No credential is fetched or sent. Dev's edge password was removed 2026-08-06;
 # these checks now reach the same thing a browser does, which is the point of

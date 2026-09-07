@@ -102,28 +102,35 @@ run under an older image.
 
 ### Durable poller recovery
 
-The poller and its candidate loader live outside the reset checkout. Their authoritative sources
-are `bin/dev-poll.sh` and `bin/dev-poll-sync.sh`; install both together after their reviewed commit
-lands on `main`:
+The poller, candidate loader, and its Bun 1.3.14 interpreter live outside the reset checkout. Their
+authoritative sources are `bin/dev-poll.sh` and `bin/dev-poll-sync.sh`; install the pair and a
+stable copy of the exact gate interpreter together after their reviewed commit lands on `main`:
 
 ```sh
 scp bin/dev-poll.sh h2puni:/home/puni1/wbs-dev/bin/poll.next.sh
 scp bin/dev-poll-sync.sh h2puni:/home/puni1/wbs-dev/bin/dev-poll-sync.next.sh
 ssh h2puni 'flock -n /home/puni1/wbs-dev/state/poll.lock sh -c \
-  "chmod 0755 /home/puni1/wbs-dev/bin/poll.next.sh \
+  "bun_source=\$(command -v bun) && \
+   test \"\$(\"\$bun_source\" --version)\" = 1.3.14 && \
+   install -m 0755 \"\$bun_source\" /home/puni1/wbs-dev/bin/bun.next && \
+   chmod 0755 /home/puni1/wbs-dev/bin/poll.next.sh \
     /home/puni1/wbs-dev/bin/dev-poll-sync.next.sh && \
+   mv /home/puni1/wbs-dev/bin/bun.next /home/puni1/wbs-dev/bin/bun && \
    mv /home/puni1/wbs-dev/bin/dev-poll-sync.next.sh \
     /home/puni1/wbs-dev/bin/dev-poll-sync.sh && \
    mv /home/puni1/wbs-dev/bin/poll.next.sh /home/puni1/wbs-dev/bin/poll.sh"'
 ```
 
 Puni1's existing every-minute crontab continues to run `/home/puni1/wbs-dev/bin/poll.sh`. Each tick
-fetches `origin/main`, extracts that exact target commit's `sync.ts` into the external bin directory,
-and runs it from there. If a target deployer throws before reset, the checkout stays put; a later
-fixed target supplies and executes its own repaired deployer on the next tick. The extracted tool
-still performs every solver, restart, recreate and post-reset HEAD check, while the outer poll lock
-and `/health` commit proof remain intact. Do not recover with a raw `git reset`; that bypasses the
-checks whose refusal is the reason the checkout did not move.
+fetches `origin/main`, resolves that named remote ref rather than the process-global `FETCH_HEAD`,
+extracts the exact target commit's `sync.ts` to a commit-named atomic candidate, and runs it with the
+managed interpreter. Different targets therefore cannot overwrite one another when a manual deploy
+overlaps a tick; `sync.ts`'s deploy lock still serializes the checkout mutation. If a target deployer
+throws before reset, the checkout stays put; a later fixed target supplies and executes its own
+repaired deployer on the next tick. The extracted tool still performs every solver, restart, recreate
+and post-reset HEAD check, while the outer poll lock and `/health` commit proof remain intact. Do not
+recover with a raw `git reset`; that bypasses the checks whose refusal is the reason the checkout did
+not move.
 
 Dev has **no edge password**. It was removed 2026-08-06: it was a second login on top of the
 app's own, and a browser that had cached a wrong credential for the realm could not be talked

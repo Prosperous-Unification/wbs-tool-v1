@@ -5,7 +5,7 @@ set -euo pipefail
 
 SRC=/home/puni1/wbs-dev/src
 BIN=/home/puni1/wbs-dev/bin
-BUN=/home/puni1/wbs-dark/.bun-1314/bin/bun
+BUN=/home/puni1/wbs-dev/bin/bun
 CONTAINER=wbs-dev-src
 LOG=/home/puni1/wbs-dev/logs/deploy.log
 LOCK=/home/puni1/wbs-dev/state/poll.lock
@@ -18,7 +18,7 @@ flock -n 9 || exit 0
 cd "$SRC"
 git fetch -q origin main
 local_sha=$(git rev-parse HEAD)
-remote_sha=$(git rev-parse FETCH_HEAD)
+remote_sha=$(git rev-parse refs/remotes/origin/main)
 [ "$local_sha" = "$remote_sha" ] && exit 0
 
 read_served_commit() {

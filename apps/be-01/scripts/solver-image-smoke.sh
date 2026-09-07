@@ -78,6 +78,9 @@ docker run --rm --name "$caller_name" \
   /app/libs/contracts/solver/fixtures/request/valid-quantised-baseline.json \
   "$attempt_token"
 
+# CI runs the portable launcher half above. The canonical h2puni gate sets this
+# flag because its puni1 user session owns the persistent systemd timer used by
+# the real supervisor-restart proof.
 if [ "${WBS_RUN_SOLVER_ORPHAN_PROC:-0}" = '1' ]; then
   orphan_registry_tag="$registry/wbs-be-01:solver-orphan"
   docker build \
