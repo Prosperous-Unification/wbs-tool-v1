@@ -172,7 +172,22 @@ describe('the constant is read as a number, not as bytes', () => {
     expect(found[0]).toContain(QUANTUM);
   });
 
-  it('refuses a decrease, so a downgrade cannot satisfy the check', () => {
+  it('refuses a decrease with the cases held still, which is the cache-key downgrade', () => {
+    // The whole tree is EIGHT except the constant: both fixtures are
+    // byte-identical, so every per-fixture rule below stays quiet and this
+    // reason can only come from the versions themselves.
+    const found = reasons(EIGHT, tree({ [CONTRACT_VERSION_PATH]: constantSource('7') }));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain('from 8');
+    expect(found[0]).toContain('to 7');
+  });
+
+  it('names the decrease and the moved cases apart, because either alone refuses', () => {
+    // This case used to be titled as the proof that a downgrade is refused,
+    // and it was not: the fixture moved in the same tree, so the fixture's own
+    // "did not increase" reason was the only one it could have been reading.
+    // The decrease is proved by the case above, with the cases held still;
+    // here both faults are present and each is named on its own line.
     const found = reasons(
       EIGHT,
       tree({
@@ -180,9 +195,10 @@ describe('the constant is read as a number, not as bytes', () => {
         [QUANTUM]: corpus(7, { drift: { units: 49 } }),
       }),
     );
-    expect(found).toHaveLength(1);
-    expect(found[0]).toContain('7');
-    expect(found[0]).toContain('8');
+    expect(found).toHaveLength(2);
+    expect(found[0]).toContain('from 8');
+    expect(found[0]).toContain('to 7');
+    expect(found[1]).toContain(QUANTUM);
   });
 
   it('fails closed when the declaration is absent at a revision', () => {
