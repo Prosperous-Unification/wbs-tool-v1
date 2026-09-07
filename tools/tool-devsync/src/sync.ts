@@ -145,7 +145,16 @@ export async function runDevSyncLock(
   sha: string,
   options: DevSyncLockOptions = {},
 ): Promise<number> {
-  const bunPath = options.bunPath ?? 'bun';
+  // `process.execPath`, never a bare `bun`. The child is the process that
+  // resets, installs, restarts and runs the solver preflight -- the parent
+  // only waits on it -- so the child is the run whose interpreter matters.
+  // `bin/dev-poll-sync.sh` refuses to start this tool unless the managed
+  // interpreter matches `.bun-version`, and a default of `'bun'` handed that
+  // decision back to PATH one process later. Measured on h2puni 2026-09-07:
+  // the poller's own binary was 1.4.2, `.bun-version` and CI pin 1.3.14, and
+  // every logged deploy footer said `Bun v1.2.20` -- the root-owned
+  // /usr/local/bin/bun the child resolved to.
+  const bunPath = options.bunPath ?? process.execPath;
   const flockPath = options.flockPath ?? 'flock';
   const lockPath = options.lockPath ?? LOCK;
   const scriptPath = options.scriptPath ?? import.meta.path;
