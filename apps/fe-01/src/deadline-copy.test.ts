@@ -10,15 +10,15 @@ import { describe, expect, it } from 'vitest';
  *
  * The standing scenario is `specs/scheduler-optimization/spec.md`'s "no
  * unqualified deadline copy remains" — every occurrence reads either
- * *project deadline* or *work item deadline*, because the two are different
+ * _project deadline_ or _work item deadline_, because the two are different
  * dates and a bare "deadline" beside a row does not say which one moved. A
  * pinned list of allowed exceptions cannot satisfy it; the scenario says
- * *every*.
+ * _every_.
  *
- * **The unit is one occurrence of the word inside one run of user-visible
+ * The unit is **one occurrence of the word inside one run of user-visible
  * text**, and it is declared here, once, because the review that produced this
- * item failed on exactly that: a count built over *distinct literal values*
- * was written up as an inventory of *occurrences*, and the two numbers
+ * item failed on exactly that: a count built over _distinct literal values_
+ * was written up as an inventory of _occurrences_, and the two numbers
  * disagreed inside one sentence.
  *
  * A run of user-visible text is what the TypeScript parser calls a string
@@ -30,13 +30,41 @@ import { describe, expect, it } from 'vitest';
  * also reaches the two kinds of copy the item's first measurement never
  * scanned — JSX text, and the `aria-label` a screen reader is the only reader
  * of.
+ *
+ * The boundary, **stated rather than implied: this checks literal copy in
+ * `apps/fe-01/src`.** Text that arrives at render as a value — a toast's
+ * `{toast.text}`, a thrown `{message}`, a refusal string from be-01 — is not a
+ * run and cannot be, because the source does not contain it. Those are be-01's
+ * and the fixtures' to qualify, and the scenario 8.9 answers is about the copy
+ * this app writes.
  */
 
-/** `apps/fe-01`, which is where both configs run — see `test-tiers.test.ts`. */
+/**
+ * `apps/fe-01`, which is where the suite runs.
+ *
+ * The cwd comes from the `cwd` of the `test` and `test:unit` targets in
+ * `apps/fe-01/project.json`, **not** from either config — neither
+ * `vitest.config.ts` nor `vitest.node.config.ts` sets `root`, and
+ * `test-tiers.test.ts`'s comment overstates that. Invoked through the targets
+ * this is `apps/fe-01`; invoked by hand from elsewhere the walk below finds
+ * the wrong tree, which the last three cases in this file turn into a failure
+ * rather than a silent green.
+ */
 const APP = process.cwd();
 
-/** One run of user-visible text, with the 1-based line it starts on. */
-type Run = { readonly file: string; readonly line: number; readonly text: string };
+/**
+ * One run of user-visible text, with the 1-based line it starts on.
+ *
+ * `shown` is what separates a run a reader sees from a run that names a value:
+ * JSX text, a JSX attribute's string, and a `+` operand are shown, and nothing
+ * about their shape can exempt them. See {@link couldBeCopy}.
+ */
+interface Run {
+  readonly file: string;
+  readonly line: number;
+  readonly text: string;
+  readonly shown: boolean;
+}
 
 /**
  * Every shipped source under `src`: the `.ts` and `.tsx` that are not suites.
@@ -82,8 +110,27 @@ function runsIn(file: string, source: string): Run[] {
       ts.isTemplateTail(node) ||
       ts.isJsxText(node)
     ) {
-      const { line } = tree.getLineAndCharacterOfPosition(node.getStart(tree));
-      runs.push({ file, line: line + 1, text: node.text });
+      // A quoted property name is the one string position that is never copy
+      // however it is spelled — `{ 'release deadline': 1 }` is an internal key
+      // no reader can reach, and it has whitespace, so no shape rule sees it.
+      const isQuotedKey =
+        ts.isPropertyAssignment(node.parent) ||
+        ts.isPropertySignature(node.parent) ||
+        ts.isEnumMember(node.parent)
+          ? node.parent.name === node
+          : false;
+      if (!isQuotedKey) {
+        const { line } = tree.getLineAndCharacterOfPosition(node.getStart(tree));
+        runs.push({
+          file,
+          line: line + 1,
+          text: node.text,
+          shown:
+            ts.isJsxText(node) ||
+            ts.isJsxAttribute(node.parent) ||
+            ts.isBinaryExpression(node.parent),
+        });
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -101,14 +148,28 @@ const HAS_OCCURRENCE = /\bdeadlines?\b/i;
 const QUALIFIER = /(?:project|work item)\s$/i;
 
 /**
+ * A bare lower-case token — `deadline`, `not-before`, `deadline_at`.
+ *
+ * This shape is what a column id, a cell key and an attribute name look like
+ * in this app, and it is never what copy looks like: copy is sentence-cased or
+ * has a space in it.
+ */
+const IDENTIFIER_TOKEN = /^[a-z][a-z0-9_-]*$/;
+
+/**
  * Whether a run can be copy at all.
  *
- * A run with no whitespace in it is skipped: `'deadline'` on its own is a
- * column id, an attribute name or a module path, never a sentence. This is the
- * only heuristic in the file, and it is the safe direction to be wrong in — a
- * bare word cannot be copy, while anything with a space in it is checked.
+ * The one exemption is {@link IDENTIFIER_TOKEN}, and **it does not apply to a
+ * run a reader is shown**. An earlier draft exempted every run with no
+ * whitespace instead, which let three real strings through:
+ * `<button>Deadline</button>`, `aria-label="Deadline"` and
+ * `'Move the ' + 'deadline'` — one-word copy is still copy, and a sentence
+ * split across `+` puts a word in a run of its own. `shown` is what keeps
+ * those three checked while `cellKey(id, 'deadline')` and `['deadline', 84]`
+ * stay out.
  */
-const couldBeCopy = (run: Run): boolean => /\s/.test(run.text) && HAS_OCCURRENCE.test(run.text);
+const couldBeCopy = (run: Run): boolean =>
+  HAS_OCCURRENCE.test(run.text) && (run.shown || !IDENTIFIER_TOKEN.test(run.text.trim()));
 
 /** The occurrences in one run that do not say which deadline they mean. */
 function unqualifiedIn(run: Run): string[] {
@@ -116,7 +177,7 @@ function unqualifiedIn(run: Run): string[] {
   const bare: string[] = [];
   for (const match of run.text.matchAll(OCCURRENCE)) {
     if (!QUALIFIER.test(run.text.slice(0, match.index))) {
-      bare.push(`${run.file}:${run.line} — ${run.text.trim()}`);
+      bare.push(`${run.file}:${String(run.line)} — ${run.text.trim()}`);
     }
   }
   return bare;
@@ -160,6 +221,37 @@ describe('the scan, on sources written to fail it', () => {
     // twice, and a measure over distinct values would call that one.
     const source = "const s = 'This deadline is early; move the deadline.';\n";
     expect(runsIn('src/x.ts', source).flatMap(unqualifiedIn)).toHaveLength(2);
+  });
+
+  it('reads one-word copy, which no shape rule may exempt', () => {
+    // Sol r6b Critical 1, as three cases. An earlier draft skipped every run
+    // with no whitespace in it, and each of these three went through it green
+    // while showing a reader a bare "deadline".
+    const asJsxText = 'const a = <button>Deadline</button>;\n';
+    const asAttribute = 'const a = <input aria-label="Deadline" />;\n';
+    const acrossAPlus = "const s = 'Move the ' + 'deadline';\n";
+    expect(runsIn('src/x.tsx', asJsxText).flatMap(unqualifiedIn)).toHaveLength(1);
+    expect(runsIn('src/x.tsx', asAttribute).flatMap(unqualifiedIn)).toHaveLength(1);
+    expect(runsIn('src/x.ts', acrossAPlus).flatMap(unqualifiedIn)).toHaveLength(1);
+  });
+
+  it('ignores a quoted key even when it reads like a sentence', () => {
+    // Sol r6b Important 1: `'release deadline'` has whitespace and fails the
+    // qualifier, so only its position says it is a key. A false positive here
+    // is worse than it looks — it is what teaches a later author to weaken the
+    // guard rather than fix the copy.
+    const source = "const m = { 'release deadline': 1, id: 'deadline' };\n";
+    expect(runsIn('src/x.ts', source).flatMap(unqualifiedIn)).toEqual([]);
+  });
+
+  it('ignores the column ids and cell keys this app is full of', () => {
+    const source = [
+      "const k = cellKey(row.original.id, 'deadline');",
+      "const widths = [['deadline', 84], ['not-before', 84]];",
+      "const column = { id: 'deadline', header: 'Due' };",
+      '',
+    ].join('\n');
+    expect(runsIn('src/x.ts', source).flatMap(unqualifiedIn)).toEqual([]);
   });
 
   it('ignores identifiers, member reads, keys and comments', () => {

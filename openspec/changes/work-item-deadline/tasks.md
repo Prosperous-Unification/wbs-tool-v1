@@ -602,10 +602,15 @@ effectiveDeadlineOffset`, evaluated on the materialised schedule in the
       `invalid-output` — a deadline-violating solver result is a broken engine,
       never an infeasible plan. `materialiseOptimized` is unchanged and
       `ScheduleFloor` gains **no** `boundBy: 'deadline'` member.
-- [ ] 8.9 TASK-221 copy: `Same deadline + reordered` → `Same project deadline +
+- [x] 8.9 TASK-221 copy: `Same deadline + reordered` → `Same project deadline +
 reordered` and `Same deadline + same order` → `Same project deadline + same
 order`, with their tests. A repository assertion that no unqualified
       "deadline" string remains in shipped UI copy.
+      **Closed both halves.** The rename shipped in PR 246 (`9a1f79e7`) and
+      8.9b brought the normative text to it; the assertion is
+      `apps/fe-01/src/deadline-copy.test.ts`, and closing it needed the five
+      remaining unqualified occurrences in `wbs-table.tsx` qualified first —
+      see "## 8.9, closed" below.
 - [x] 8.9b **The normative text mandating the old strings is amended in the same
       commit**: `dual-optimized-scheduler/specs/scheduler-optimization/spec.md`,
       the comparison-indicator requirement ("SHALL report one of: … Same
@@ -1027,3 +1032,83 @@ in **one declared unit** and includes JSX text and `aria-label`.
   exactly two honest closures: qualify all five unqualified occurrences, or
   amend that scenario to define a contextual exception precisely — and the
   second is a normative change, not an assertion.
+
+## 8.9, closed
+
+The first of the two honest closures above: **all five occurrences qualified**,
+not an exception list. The scenario says _every_, so a pinned list could not
+have closed it.
+
+| was                                                                      | is                                                              |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `wbs-table.tsx:2021` `This deadline falls before …; move the deadline …` | _work item deadline_, **both times** — one run, two occurrences |
+| `:10271` `Deadline for {n}` (editing cell)                               | `Work item deadline for {n}`                                    |
+| `:10330` `Deadline for {n}` (resting cell)                               | `Work item deadline for {n}`                                    |
+| `:10336` `… no dates to hold a deadline against.`                        | `… to hold a work item deadline against.`                       |
+| `:10415` `Deadline for {n} falls before …` (impossible mark)             | `Work item deadline for {n} falls before …`                     |
+
+Eighteen assertions in `plan-cells.test.tsx` and `plan-keyboard.test.tsx`
+follow the label; nothing asserted the two sentence strings.
+`optimization-indicator.tsx`'s six were already qualified and are untouched.
+
+**The assertion, and the unit it is measured in.**
+`apps/fe-01/src/deadline-copy.test.ts` declares the unit in the file rather
+than in prose about the file: **one occurrence of the word inside one run of
+user-visible text**, where a run is what the TypeScript parser calls a string
+literal, a template literal's fixed text, or JSX text. Taking runs from the
+parser and not from a regex over the source is the point — identifiers
+(`setDeadline`), member reads (`row.original.deadline`), keys and comments are
+not runs, so they are not occurrences and no exclusion list has to name them —
+and it reaches the two kinds of copy the withdrawn measurement never scanned,
+JSX text and `aria-label`. The one heuristic is that a run with no whitespace
+in it (`'deadline'`, a column id) cannot be a sentence.
+
+**The control is eight cases that run every time, and that is a deliberate
+choice over one watched red.** Six drive the scan over sources written to fail
+it: a bare `aria-label`, the same label qualified, JSX text both ways, one
+sentence saying the word twice (which a distinct-values measure would call
+one — this item's own Critical, as a case), identifiers and comments, and a
+qualifier split across a template hole. Two more stop the tree scan going
+vacuous: it must still find both components, and must still find the five
+occurrences **by their text**, since lines move and a citation that moves is
+exactly the fault the withdrawn count had. A watched red would have proved one
+of those eight once; these prove all eight on every run.
+
+**The peer found the hole in the first draft of that scan, and it was the
+whitespace rule.** Sol r6b (`queue/reviews/t241-r6b-sol.md`, 9173 bytes, sha256
+`8f17de33…`, REQUEST-CHANGES 1C / 1I / 1M at `c04abf5d`, all three folded).
+The draft skipped every run with no whitespace in it, on the argument that a
+bare word cannot be a sentence — and `<button>Deadline</button>`,
+`aria-label="Deadline"` and `'Move the ' + 'deadline'` all went through it
+green while showing a reader a bare "deadline". One-word copy is still copy.
+The exemption is now a lower-case identifier token _and_ a position a reader is
+not shown, so `cellKey(id, 'deadline')` and `['deadline', 84]` stay out while
+all three of those are checked. Important 1 was the mirror: `runsIn` collected
+every `StringLiteral` including a **quoted property name**, so an internal key
+`{ 'release deadline': 1 }` would have reddened the suite over copy no reader
+can reach — a false positive is what teaches a later author to weaken a guard.
+Quoted names are now excluded by position. Minor 1 corrected the cwd note: the
+`apps/fe-01` cwd comes from `project.json`'s targets, **not** from either
+config, and `test-tiers.test.ts` overstates that too.
+
+**Measured before pushing, not after.** A standalone parser scan over the
+committed tree reports **12 runs carrying 13 occurrences** — six in
+`optimization-indicator.tsx`, six in `wbs-table.tsx`, the extra occurrence
+being the impossible sentence saying the word twice — and **0 unqualified**.
+All twelve control expectations were checked against the same predicates
+before the suite was pushed.
+
+**No remote gate ran and the reason is a host, not a decision.** h2puni is at
+**100% inodes** — `df -i /` reports `9849520 / 9849520`, `IFree 0` — so `scp`
+of a branch bundle fails and `git fetch` inside the gate checkout dies on
+`unable to create temporary file: No space left on device`. CI is the gate.
+
+**A formatter trap that cost one CI cycle, and it is not `lefthook` this
+time.** A fresh worktree has no `node_modules`, so
+`prettier --check <worktree path>` run from the main checkout resolves
+`.prettierrc.json` beside the file and then cannot resolve
+`prettier-plugin-tailwindcss` from there — it **silently formats without the
+plugin** and reports clean, while `bunx nx format:check --all` in CI has the
+plugin and fails. It also reordered `select-none` in four `className` strings
+this change never touched. Symlink `node_modules` into the worktree before
+formatting; that also brings `lefthook` back onto `PATH`.
