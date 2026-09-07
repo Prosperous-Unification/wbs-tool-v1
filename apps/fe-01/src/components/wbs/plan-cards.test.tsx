@@ -2443,8 +2443,9 @@ function renderCards(
       // came from a plan, so none of them has a project start date behind it.
       // The date field draws its refusal and opens onto nothing, which is
       // exactly what these row-actions tests want it doing.
-      hasCalendar={false}
+      projectStart={null}
       setNotBefore={() => undefined}
+      setDeadline={() => undefined}
       setPriority={() => Promise.resolve('landed')}
       // Three props this stub predates, stubbed for the reason the teams and
       // dates above are: a suite that leaves a required prop out typechecks

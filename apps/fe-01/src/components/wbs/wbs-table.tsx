@@ -12120,12 +12120,13 @@ export function WbsTable({
           createTeam={(row, name, currentTeamIds) => {
             return createTeamFor(row.id, name, currentTeamIds);
           }}
-          // The `not-before` cell's own question and its own writer, handed to
-          // the face that had neither. `hasCalendar` is the cell's `noCalendar`
-          // read the positive way round: without a project start date be-01
-          // ignores the constraint, so both faces refuse rather than taking a
-          // date that would do nothing.
-          hasCalendar={startDate !== null}
+          // The `not-before` and `deadline` cells' own question, handed to the
+          // face that had neither. The **date** and not the boolean it used to
+          // be (TASK-291): the cards' `noCalendar` refusal only needs to know
+          // whether there is one, but `deadlineBeforeProjectStart` needs the day
+          // itself, and a boolean beside the value it came from is two facts
+          // about one thing that can disagree.
+          projectStart={startDate}
           // Both boxes in one call, which is what the third argument is for —
           // `setNotBefore` is the table's own writer widened, not a card-shaped
           // copy, so a date set on a phone reaches be-01 by the path a date set
@@ -12133,6 +12134,13 @@ export function WbsTable({
           // transaction is answered by one request.
           setNotBefore={(row, day, reason) => {
             setNotBefore(row.id, day, reason);
+          }}
+          // The Due cell's own writer, handed to the face that had none, and
+          // one field wide: `setDeadline` names `deadline` alone because slice
+          // 1.1 gave the deadline no reason column, and the pair above is the
+          // shape it must not be copied into.
+          setDeadline={(row, day) => {
+            setDeadline(row.id, day);
           }}
           // The Prio cell's own writer, handed to the face that had none — and
           // the string, not a parsed number, because `setPriority` is where
