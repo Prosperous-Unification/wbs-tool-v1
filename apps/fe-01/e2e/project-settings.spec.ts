@@ -176,6 +176,8 @@ test.describe('the project settings control, in a browser', () => {
     await fast.focus();
     await page.keyboard.press('ArrowRight');
     await expect(priority).toBeChecked();
+    await expect(priority).toBeEnabled();
+    await priority.focus();
     await page.keyboard.press('ArrowRight');
     await expect(time).toBeChecked();
 
@@ -183,6 +185,8 @@ test.describe('the project settings control, in a browser', () => {
     // not toggle native controls, so deleting a control or breaking its native
     // grouping makes this real-key path fail instead of leaving a decorative
     // keydown assertion green.
+    await expect(time).toBeEnabled();
+    await time.focus();
     await page.keyboard.press('ArrowLeft');
     await expect(priority).toBeChecked();
   });
