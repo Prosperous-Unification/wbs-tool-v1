@@ -43,6 +43,14 @@ import ts from 'typescript';
  * malformed JSON: each is an error naming what could not be read. None of them
  * is a skip.
  *
+ * **Two independent refusals, not one.** A fixture whose `cases` moved while the
+ * constant stood still is the rule this file was written for. A constant that
+ * moved *backwards* is a second rule, asked before any fixture is opened and
+ * answered whatever the fixtures say: reusing a retired version makes cache
+ * rows computed under its older meaning addressable again, and byte-identical
+ * corpora do not certify the meaning is unchanged — they sample a fixed handful
+ * of inputs and are silent about the rest. Both are reported when both hold.
+ *
  * **The ceiling, stated so the headers can match it.** A version increase made
  * in the same change for an unrelated reason lets this pass. That is not a
  * cache-safety hole — the corpus lands under a new version and the old rows are
@@ -309,6 +317,20 @@ export function lintCorpusVersion(boundary: Boundary, port: RevisionPort): Corpu
   }
 
   const issues: CorpusVersionIssue[] = [];
+  // Asked before any fixture is opened, and answered whatever they say. The
+  // per-fixture rule below only reaches the versions once a `cases` value has
+  // already moved, so a revision that lowers the constant with both corpora
+  // untouched used to return zero issues — the shape this check exists to
+  // refuse, arriving by the one door it was not watching.
+  if (headVersion < baseVersion)
+    issues.push({
+      reason:
+        `SCHEDULER_CONTRACT_VERSION went from ${String(baseVersion)} at ${base} to ` +
+        `${String(headVersion)} at ${head} — a decrease. Stored schedules are keyed on that ` +
+        'number, so reusing a version makes rows computed under its older meaning addressable ' +
+        'again. Identical fixture cases do not license that: the corpora sample a fixed handful ' +
+        `of inputs and say nothing about the rest. Move ${CONTRACT_VERSION_PATH} forward instead.`,
+    });
   for (const fixture of CORPUS_FIXTURES) {
     let before: string | null;
     let after: string | null;
