@@ -2680,11 +2680,7 @@ export function PlanCards({
                 two faces of one plan should find its facts in one order, and a
                 phone is not the surface that gets to re-argue it (TASK-291).
               */}
-              <CardDeadlineField
-                row={row}
-                projectStart={projectStart}
-                setDeadline={setDeadline}
-              />
+              <CardDeadlineField row={row} projectStart={projectStart} setDeadline={setDeadline} />
               <span data-card-span data-fact={cardSpanTitle(span)}>
                 {span.start.text} → {span.finish.text}
               </span>

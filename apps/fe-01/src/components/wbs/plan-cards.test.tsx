@@ -3270,7 +3270,9 @@ describe('setting a card’s work item deadline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(api.patched.slice(before)).toEqual([{ id: api.rows[0]?.id, deadline: DATED_PLAN.endsOn }]);
+      expect(api.patched.slice(before)).toEqual([
+        { id: api.rows[0]?.id, deadline: DATED_PLAN.endsOn },
+      ]);
     });
     // And the card says so, which is the half a patch alone does not prove.
     await waitFor(() => {
