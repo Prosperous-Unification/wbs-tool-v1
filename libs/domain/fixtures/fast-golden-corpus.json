@@ -1,5 +1,5 @@
 {
-  "contractVersion": 8,
+  "contractVersion": 9,
   "cases": {
     "chain-of-three": {
       "slices": [
@@ -278,7 +278,9 @@
             "personId": null,
             "boundBy": "capacity",
             "resourcePredecessorId": "a\u0000",
-            "capacityPredecessorIds": ["a\u0000"],
+            "capacityPredecessorIds": [
+              "a\u0000"
+            ],
             "capacityTeamId": "team",
             "lateBy": null
           }
@@ -778,7 +780,9 @@
             "personId": null,
             "boundBy": "capacity",
             "resourcePredecessorId": "b\u0000",
-            "capacityPredecessorIds": ["b\u0000"],
+            "capacityPredecessorIds": [
+              "b\u0000"
+            ],
             "capacityTeamId": "team",
             "lateBy": null
           }
