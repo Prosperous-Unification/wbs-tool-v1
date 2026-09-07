@@ -184,7 +184,9 @@ export function allocateGeneration(
   inputHash: string,
   now: number,
 ): number {
-  return db.transaction((tx) => allocateGenerationIn(tx, projectId, contractVersion, inputHash, now));
+  return db.transaction((tx) =>
+    allocateGenerationIn(tx, projectId, contractVersion, inputHash, now),
+  );
 }
 
 /** Allocates only while the project remains enabled in the same writer-owned snapshot. */

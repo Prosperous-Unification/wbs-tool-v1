@@ -21,10 +21,7 @@ import {
   reconcileOptimizationDrains,
   releaseSolverSlot,
 } from '../repository/optimization-drain';
-import {
-  allocateEnabledGeneration,
-  readGeneration,
-} from '../repository/optimization-generation';
+import { allocateEnabledGeneration, readGeneration } from '../repository/optimization-generation';
 import {
   dequeueSolverRequest,
   enqueueSolverRequest,
