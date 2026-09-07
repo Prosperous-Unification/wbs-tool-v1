@@ -1,6 +1,11 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-312 closes TASK-268's terminal-review follow-ups on `change/optimizer-terminal-review-minors` / PR 276. All nine AC implementations are landed; next is exact-head CI and production review. Real-Docker execution is blocked by h2puni's zero-free-inode container store, so CI is the current aggregate gate.
+TASK-364 restores the missing multi-team-engine OpenSpec record on
+`change/task-364-multi-team-record`. Current `main` already contains the engine
+and focused joint-capacity coverage through TASK-182 / PR #175; chunk 1 records
+that reconciliation at `d6f8983c`. Next: finish `design.md` and `verify.md`, run
+the OpenSpec and focused negative/green gates on h2puni, then open a replacement
+PR and close historical PR #67 after the replacement lands.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
