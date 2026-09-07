@@ -189,10 +189,6 @@ export function mountedRouteLists(
     authRoutes(opts.auth, opts.oidc),
     solutionRoutes(opts.auth, opts.projects),
     projectRoutes(opts.auth, opts.projects, opts.workItems, opts.optimizer),
-    // After `projectRoutes`, whose `/api/projects` paths it extends: the
-    // saved-plan collection is one segment longer than anything that
-    // route list declares, so neither can shadow the other, and adjacency is
-    // what makes that checkable at a glance.
     savedPlanRoutes(
       opts.auth,
       opts.savedPlans,

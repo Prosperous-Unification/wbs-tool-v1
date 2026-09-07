@@ -202,16 +202,14 @@ realProcessDescribe('solver supervisor orphan process boundaries', () => {
       expect(connection.db.select().from(solverSlot).all()).toHaveLength(1);
 
       await command(['docker', 'kill', callerOne]);
+      // Proof: without the supervisor's client-EOF kill, the following wait
+      // timed out at "EOF child removal" because managedOne stayed live.
       await until('EOF child removal', async () => !(await containerExists(managedOne)));
       expect(Date.now()).toBeLessThan(admission.childDeadlineAt);
       const rowsAfterCoordinatorDeath = connection.db.select().from(solverSlot).all();
+      // Proof: releasing the slot on client EOF made this receive zero rows.
       expect(rowsAfterCoordinatorDeath).toHaveLength(1);
       expect(rowsAfterCoordinatorDeath[0]?.lifecycle).toBe('running');
-      // Proof: dropping the supervisor EOF kill leaves managedOne live;
-      // releasing on client EOF instead makes this counted row disappear.
-      expect(Number(await containerExists(managedOne))).toBeLessThanOrEqual(
-        rowsAfterCoordinatorDeath.length,
-      );
       await stopHost(host);
       host = undefined;
 
