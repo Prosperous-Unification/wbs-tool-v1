@@ -45,9 +45,19 @@
  * silent**: it fails the suite, and the only way to green is to open the writer,
  * run it deliberately, and read a diff of the numbers that moved. The bump
  * itself remains the human obligation `contract-version.ts` documents — which is
- * the boundary this whole file exists to state rather than to hide. Making it
- * mechanical needs a change-aware check against the merge base, filed
- * separately.
+ * the boundary this whole file exists to state rather than to hide.
+ *
+ * **TASK-338 built the other half, and it lives outside the suite.** CI's
+ * `Corpus version lint` step reads this fixture at the change's base revision
+ * and at its head and refuses a change whose `cases` moved while
+ * `SCHEDULER_CONTRACT_VERSION` did not increase
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`). It is a step and
+ * not a case here because the question is about two commits and a test's
+ * subject is one tree. **Read the boundary above unchanged:** this file still
+ * forces a reading and not a bump, and what the pair now gives is that a
+ * regeneration cannot reach `main` under an unchanged number — not that the
+ * number was moved *for* this change, which a co-incidental bump also
+ * satisfies.
  *
  * **What this is not.** It is not a hash of `solver-quantum.ts`. A source hash
  * would have reddened for PR 281, and it would have reddened just as loudly for

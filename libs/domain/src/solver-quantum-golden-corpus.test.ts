@@ -48,9 +48,18 @@ import {
  * writer emits the *current* constant beside the *current* cases, so
  * regenerating without bumping is green. `fast-golden-corpus.ts` has the same
  * limit. What both files buy is that the change cannot be silent; the bump
- * itself is still the human obligation `contract-version.ts` documents, and a
- * mechanical version of it needs a check against the merge base, filed
- * separately.
+ * itself is still the human obligation `contract-version.ts` documents.
+ *
+ * **The check against the merge base exists now, and it is not in this suite.**
+ * TASK-338 added CI's `Corpus version lint`
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`), which reads both
+ * fixtures at the change's base revision and at its head and refuses `cases`
+ * that moved while `SCHEDULER_CONTRACT_VERSION` did not increase. It is a step
+ * rather than a case because the question is about two commits. **The sentence
+ * above still stands as written:** this file forces a reading, the lint forces
+ * co-versioning, and neither proves the bump was made *because* of the change —
+ * an increase in the same commit for an unrelated reason satisfies the lint,
+ * and the corpus lands under a new version either way.
  *
  * **What separates this from hashing the source**, which was the rejected
  * alternative, and it is measured rather than asserted because no test inside a

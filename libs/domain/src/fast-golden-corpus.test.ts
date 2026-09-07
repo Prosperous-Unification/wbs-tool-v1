@@ -26,6 +26,18 @@ import { schedule, ScheduleInvalidOptimizedStartError } from './schedule';
  * without a bump fails the second; a bump whose bytes were not regenerated
  * fails the first.
  *
+ * **What they do not close, and where that is closed instead.** Both compare
+ * this tree's fixture against this tree's computation, and
+ * `write-fast-golden-corpus.ts` writes the current constant beside the current
+ * cases — so regenerating after a semantic change, with the version left where
+ * it is, is green here. TASK-338 added CI's `Corpus version lint`
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`), which reads this
+ * fixture at the change's base revision and at its head and refuses `cases`
+ * that moved while `SCHEDULER_CONTRACT_VERSION` did not increase. It is a CI
+ * step and not a case here because the question is about two commits and this
+ * suite's subject is one tree. It proves the two moved together and not that
+ * the bump was made *because* of the change.
+ *
  * **What this guard is, and it is narrower than the paragraph above sounds.**
  * It is a value guard over the eight named plans in `FAST_GOLDEN_CASES` **as
  * `schedule()` renders them** — the comparison is `toEqual` over parsed JSON,

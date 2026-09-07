@@ -64,6 +64,32 @@
  * `ASSUMED_SLICE_WORKDAYS` moved. Stated so the next reader does not mistake the
  * fixture pin above for that proof.
  *
+ * **Since TASK-338 the number below is not only a human obligation.** CI's
+ * `Corpus version lint` step reads both golden fixtures at the change's base
+ * revision and at its head, and refuses a change whose stored `cases` moved
+ * while this constant did not INCREASE
+ * (`tools/tool-git-hooks/src/hooks/corpus-version-lint.ts`). What that buys and
+ * what it does not, stated exactly, because the last version of this paragraph
+ * was overstated and TASK-323 had to narrow it in place:
+ *
+ * - It cannot be routed around by how a change lands. The workflow triggers on
+ *   `pull_request`, on `push` to `main` and on `workflow_dispatch`, and the
+ *   boundary is chosen per event rather than inferred, so a multi-commit push
+ *   is compared against what `main` held before it and not against its own
+ *   penultimate commit.
+ * - It does NOT prove the bump was made *because* of the semantic change. A
+ *   version increase in the same change for an unrelated reason satisfies it.
+ *   That is not a cache-safety hole — the corpus lands under a new version and
+ *   the old rows are evicted either way — but the mechanism proves the two
+ *   moved together, and nothing about the author's reason.
+ * - It says nothing about the entries below that move neither eight plans nor
+ *   six slices. There is no fixture for those, so there is nothing for a
+ *   two-commit comparison to compare, and the next paragraph's last sentence
+ *   still stands.
+ * - There is no branch protection on this repository, so on a direct push to
+ *   `main` the step reports after the commit has landed. It is preventive by
+ *   merge discipline on pull requests and detective on direct pushes.
+ *
  * **Two corpora enforce this list, and neither enforces all of it.**
  * `fast-golden-corpus.ts` is a byte guard over eight named plans as
  * `schedule()` renders them, and its cases are aimed one apiece at the entries
@@ -78,7 +104,10 @@
  * slices as `durationUnits` renders them, and `1.0000000005` above is its first
  * case for the reason this comment already gives. Everything on the list that
  * moves neither eight plans nor six slices is still a human obligation, which
- * is what this paragraph exists to say out loud.
+ * is what this paragraph exists to say out loud. What the two of them now buy
+ * together with the lint above: a change that moves eight plans or six slices
+ * cannot reach `main` under an unchanged version number — the suite reddens
+ * until the writer is run, and the lint reddens until the number moves.
  */
 export const SCHEDULER_CONTRACT_VERSION = 8;
 
