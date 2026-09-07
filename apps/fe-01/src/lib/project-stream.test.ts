@@ -113,6 +113,57 @@ describe('subscribeToProject', () => {
     expect(changes).toBe(1);
   });
 
+  it('hands an optimizer outcome frame on as a bare type, dropping the failure reason', () => {
+    /*
+      TASK-324 AC #2, the half the table's own case cannot reach.
+
+      `optimization-integration.test.tsx` calls `onChange('schedule_optimization_failed')`
+      directly, so it starts *after* this boundary and can only prove that the
+      table needs the plan read. It cannot prove what a client is not given
+      (Sol review, 2026-09-07). The spec's rule — an outcome event is an
+      invalidation signal and the variant's new state comes from the ordinary
+      plan read, never from a field of the frame — is enforced here, in the one
+      place a whole frame exists.
+
+      `schedule_optimization_failed` is the event that makes this worth a case
+      rather than a repeat of the one below: unlike its two siblings, its
+      payload really does carry the answer. `failureReason` beside the identity
+      is, for the named objective, exactly the `{ state: 'failed', reason }` the
+      indicator would need. Delete the `type`-only projection in
+      `changedFactOf` and a caller could render `Optimization unavailable ·
+      Retry` off the wire without reading anything — the reading TASK-324
+      refused. The assertion is therefore on the *whole* argument list, not on
+      the type within it: a second parameter carrying the payload would be a
+      second delivery path, and that is precisely what the spec forbids.
+    */
+    const h = harness();
+    const delivered: unknown[][] = [];
+    subscribeToProject(
+      { projectId: PROJECT, sinceSeq: -1, onChange: (...args) => delivered.push(args) },
+      h.deps,
+    );
+    h.latest().handlers.onOpen();
+
+    h.latest().handlers.onMessage(
+      JSON.stringify({
+        subscription: SUBSCRIPTION,
+        seq: 31,
+        message: {
+          type: 'schedule_optimization_failed',
+          projectId: PROJECT,
+          generation: 4,
+          inputHash: 'same-input',
+          objective: 'pri',
+          contractVersion: '1.5+test',
+          budgetMs: 60_000,
+          failureReason: 'timeout',
+        },
+      }),
+    );
+
+    expect(delivered).toEqual([['schedule_optimization_failed']]);
+  });
+
   it('carries a collaborator’s saved-plan mutation through as its own changed fact', () => {
     /*
       TASK-255, AC #2 and #4. `saved_plans_changed` is an event type this file

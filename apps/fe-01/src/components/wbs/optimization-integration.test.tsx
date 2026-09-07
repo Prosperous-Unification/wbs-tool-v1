@@ -314,6 +314,12 @@ describe('project optimization in the plan', () => {
    * records whatever is reached for, so a dedicated variant read added later
    * arrives here as an unexpected name rather than as silence.
    *
+   * The **arity** is recorded beside the name, because a name alone cannot see
+   * the cheapest way to add a variant-scoped read: an overload of an existing
+   * one. `tree(projectId, objective)` records as one `tree` under a
+   * name-only recorder and is invisible; it records as `tree/2` here (Sol
+   * review, 2026-09-07).
+   *
    * `apply` binds `target`, not the proxy, so the fake's own state (`rows`,
    * `markers`) keeps working and every other test still sees `fakeProjectApi`
    * exactly as it was.
@@ -325,7 +331,7 @@ describe('project optimization in the plan', () => {
         const value = Reflect.get(target, property) as unknown;
         if (typeof property !== 'string' || typeof value !== 'function') return value;
         return (...args: unknown[]) => {
-          calls.push(property);
+          calls.push(`${property}/${String(args.length)}`);
           return (value as (...called: unknown[]) => unknown).apply(target, args);
         };
       },
@@ -333,17 +339,21 @@ describe('project optimization in the plan', () => {
     return { api: recorded, calls };
   }
 
-  /** Every read `refresh('all')` issues, plus the marker read the same scope starts. */
+  /**
+   * Every read `refresh('all')` issues, plus the marker read the same scope
+   * starts — as an exact multiset, in call order, so a duplicated vocabulary or
+   * marker read is red too and not only an unknown name.
+   */
   const READS_THE_FULL_SCOPE_MAKES = [
-    'tree',
-    'steps',
-    'listTeams',
-    'listTags',
-    'listServices',
-    'listWorkItemTypes',
-    'listExternalSystems',
-    'listPeople',
-    'listCalendarMarkers',
+    'tree/1',
+    'steps/1',
+    'listTeams/0',
+    'listTags/0',
+    'listServices/0',
+    'listWorkItemTypes/0',
+    'listExternalSystems/0',
+    'listPeople/0',
+    'listCalendarMarkers/1',
   ];
 
   /**
@@ -361,18 +371,27 @@ describe('project optimization in the plan', () => {
    * wrong:
    *
    * 1. **The indicator does not move while the plan read is in flight.** The
-   *    read is held open, so the event has arrived and nothing else has. A
-   *    client that rendered `Retry` from `failureReason` on the wire — the
-   *    third reading the spec now refuses — turns this red. Asserting only
-   *    that `Retry` eventually appears would pass under that reading too,
-   *    which is why the deferral is the case and not a detail of it.
-   * 2. **`tree` is called exactly once.** Not "one request": one
-   *    `refresh('all')` is nine of them. A second plan read would mean the
-   *    event and the indicator were racing.
-   * 3. **No tenth name.** The distinct methods reached after the event are
-   *    exactly the full-scope reads. Add `api.optimizationVariant(...)` beside
-   *    the plan read and this is red, which is the whole negative — a
-   *    `readScopeFor` assertion or a `tree` count would both stay green.
+   *    read is held open, so the event has arrived and nothing else has.
+   *    Asserting only that `Retry` eventually appears would pass under a client
+   *    that rendered it from the wire, which is why the deferral is the case
+   *    and not a detail of it.
+   * 2. **`tree` is called exactly once, with exactly one argument.** Not "one
+   *    request": one `refresh('all')` is nine of them.
+   * 3. **Nothing else.** The recorded calls are exactly the full-scope reads as
+   *    a multiset, by name and arity. Add `api.optimizationVariant(…)` beside
+   *    the plan read, or overload the existing read as
+   *    `tree(projectId, objective)`, and this is red — a `readScopeFor`
+   *    assertion or a bare `tree` count would stay green for both.
+   *
+   * **What this case cannot say** (Sol review, 2026-09-07). It calls `onChange`
+   * with a bare event name, so it begins *after* the stream boundary and never
+   * carries a `failureReason` at all. It therefore cannot prove that a client
+   * given the payload would not use it; the assertion that no field of the
+   * frame reaches a screen belongs where a whole frame exists, and lives in
+   * `project-stream.test.ts` — "hands an optimizer outcome frame on as a bare
+   * type, dropping the failure reason". The two cases meet at `onChange`: that
+   * one proves nothing but the type crosses it, this one proves the type alone
+   * does not move the indicator.
    */
   itDom('moves to Retry only when the plan read lands, and asks for no variant read', async () => {
     const fake = fakeProjectApi();
@@ -426,7 +445,7 @@ describe('project optimization in the plan', () => {
 
     // The event has been delivered and the read it started has not answered.
     await waitFor(() => {
-      expect(calls).toContain('tree');
+      expect(calls).toContain('tree/1');
     });
     expect(screen.getByRole('status')).toHaveTextContent('Optimizing…');
     expect(screen.queryByText(/Optimization unavailable/)).toBeNull();
@@ -442,8 +461,8 @@ describe('project optimization in the plan', () => {
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('Optimization unavailable · Retry');
     });
-    expect(calls.filter((method) => method === 'tree')).toHaveLength(1);
-    expect([...new Set(calls)].sort()).toEqual([...READS_THE_FULL_SCOPE_MAKES].sort());
+    expect(calls.filter((method) => method.startsWith('tree/'))).toEqual(['tree/1']);
+    expect([...calls].sort()).toEqual([...READS_THE_FULL_SCOPE_MAKES].sort());
   });
 
   /**
