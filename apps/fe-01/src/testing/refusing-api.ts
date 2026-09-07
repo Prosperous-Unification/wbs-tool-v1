@@ -1326,14 +1326,17 @@ function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
         { kind: 'createPerson', name, teamIds: [...teamIds] },
         (normalized) => addPersonAnswer(normalized.name, normalized.teamIds),
         (person) => ({ index: 0, entity: person }),
+        // A create answers the identity and not the memberships: `personEntity`
+        // in `work-item.routes.ts` is `{ id, name, kind }`, and the batch entity
+        // in `work-item-shapes.ts` declares `'teamIds?'`. Requiring `teamIds`
+        // here made the fake refuse the one shape be-01 sends — the same defect
+        // production carried until 732614df, which this stood in for.
         (validated) => {
-          if (validated.entity?.kind === undefined || validated.entity.teamIds === undefined)
-            throw new Error('fake_invalid_response');
+          if (validated.entity?.kind === undefined) throw new Error('fake_invalid_response');
           return {
             id: validated.entity.id,
             name: validated.entity.name,
             kind: validated.entity.kind,
-            teamIds: [...validated.entity.teamIds],
           };
         },
       );
