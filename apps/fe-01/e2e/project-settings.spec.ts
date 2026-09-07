@@ -197,6 +197,9 @@ test.describe('the project settings control, in a browser', () => {
     await freshProject(page);
     await page.getByRole('button', { name: 'Add work item' }).click();
     await expect(page.getByLabel('Name of 010')).toBeVisible();
+    const longWorkItemName = 'Deadline'.repeat(24);
+    await page.getByLabel('Name of 010').fill(longWorkItemName);
+    await expect(page.getByLabel('Name of 010')).toHaveValue(longWorkItemName);
 
     await page.route('**/api/projects/*/work-items', async (route) => {
       const response = await route.fetch();
@@ -244,6 +247,16 @@ test.describe('the project settings control, in a browser', () => {
     await disclosure.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByText(/Work item deadline 11 Sep/)).toBeVisible();
+    const affectedItem = page.getByText(new RegExp(longWorkItemName));
+    await expect(affectedItem).toBeVisible();
+    const overflow = await affectedItem.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+    expect(overflow.documentWidth).toBeLessThanOrEqual(overflow.viewportWidth);
 
     const openBox = await indicator.boundingBox();
     expect(openBox, 'the open phone indicator has no rendered box').not.toBeNull();

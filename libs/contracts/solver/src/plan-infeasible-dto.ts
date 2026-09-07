@@ -1,4 +1,4 @@
-import { indexTree } from '@wbs/domain';
+import { indexTree, UNMEETABLE_DEADLINE_OFFSET } from '@wbs/domain';
 import type { ScheduleInput } from '@wbs/domain/canonical-schedule-input';
 
 export const PLAN_INFEASIBLE_DTO_VERSION = 1;
@@ -57,8 +57,16 @@ function readItem(value: unknown, index: number): PlanInfeasibleItem {
     `items[${String(index)}]`,
   );
   const offset = item['effectiveDeadlineOffset'];
-  if (typeof offset !== 'number' || !Number.isSafeInteger(offset)) {
-    throw defect(`items[${String(index)}].effectiveDeadlineOffset is not a safe integer`);
+  // Proof: the DTO floor case fails if a corrupt offset below the domain's
+  // legal -1 sentinel is allowed through this boundary.
+  if (
+    typeof offset !== 'number' ||
+    !Number.isSafeInteger(offset) ||
+    offset < UNMEETABLE_DEADLINE_OFFSET
+  ) {
+    throw defect(
+      `items[${String(index)}].effectiveDeadlineOffset is not a safe integer at or above ${String(UNMEETABLE_DEADLINE_OFFSET)}`,
+    );
   }
   return {
     ownerWorkItemId: readId(item['ownerWorkItemId'], `items[${String(index)}].ownerWorkItemId`),

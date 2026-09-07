@@ -1,3 +1,4 @@
+import { UNMEETABLE_DEADLINE_OFFSET } from '@wbs/domain';
 import { addWorkdays, withinDrift } from '@wbs/domain/workday';
 
 import type { PlanOptimizationView } from '@/lib/wbs-api';
@@ -21,7 +22,10 @@ function days(value: number): string {
   return `${String(shown)} ${shown === 1 ? 'day' : 'days'}`;
 }
 
+/** Describe an optimized finish relative to Fast without exposing solver-scale float noise. */
 function comparisonWords(comparison: NonNullable<PlanOptimizationView['comparison']>): string {
+  // Proof: the -Number.EPSILON indicator case fails as "Earlier ... <0.01 day"
+  // when this check is replaced by exact zero, while -0.001 remains Earlier.
   if (withinDrift(comparison.deltaDays, 0)) {
     return comparison.sameOrder
       ? 'Same project deadline + same order'
@@ -31,6 +35,15 @@ function comparisonWords(comparison: NonNullable<PlanOptimizationView['compariso
     return `Earlier project deadline by ${days(comparison.deltaDays)}`;
   }
   return `Later project deadline by ${days(comparison.deltaDays)}`;
+}
+
+/** Render the stored deadline meaning without sending the legal -1 sentinel to addWorkdays. */
+function deadlineWords(projectStart: string | null, offset: number, today: Date): string {
+  // Proof: the unmeetable-deadline indicator case throws in render when this
+  // branch is removed and -1 reaches addWorkdays.
+  if (offset === UNMEETABLE_DEADLINE_OFFSET) return 'before project start';
+  if (projectStart === null || offset < UNMEETABLE_DEADLINE_OFFSET) return 'date unavailable';
+  return shortIsoDate(addWorkdays(projectStart, offset), today);
 }
 
 /** One current-state sentence for the optimized schedule selected by the project. */
@@ -112,12 +125,7 @@ export function OptimizationIndicator({
                   ? nameOf(affectedDeadline.boundWorkItemId)
                   : `${nameOf(affectedDeadline.ownerWorkItemId)} → ${nameOf(affectedDeadline.boundWorkItemId)}`}{' '}
                 · Work item deadline{' '}
-                {projectStart === null
-                  ? 'date unavailable'
-                  : shortIsoDate(
-                      addWorkdays(projectStart, affectedDeadline.effectiveDeadlineOffset),
-                      today,
-                    )}
+                {deadlineWords(projectStart, affectedDeadline.effectiveDeadlineOffset, today)}
               </li>
             ))}
           </ul>

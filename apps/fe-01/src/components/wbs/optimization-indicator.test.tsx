@@ -170,6 +170,59 @@ describe('schedule comparison indicator', () => {
     expect(screen.queryByText(/Migration → Migration/)).toBeNull();
   });
 
+  itDom('renders an unmeetable deadline without throwing in the plan', () => {
+    draw({
+      ...READY,
+      displayed: 'fast',
+      variants: {
+        ...READY.variants,
+        pri: {
+          state: 'plan-infeasible',
+          items: [
+            {
+              ownerWorkItemId: 'leaf',
+              boundWorkItemId: 'leaf',
+              effectiveDeadlineOffset: -1,
+            },
+          ],
+        },
+      },
+      comparison: undefined,
+    });
+
+    expect(screen.getByText('Migration · Work item deadline before project start')).toBeVisible();
+  });
+
+  itDom('keeps a missing project start as a safe degraded deadline', () => {
+    render(
+      <OptimizationIndicator
+        optimization={{
+          ...READY,
+          displayed: 'fast',
+          variants: {
+            ...READY.variants,
+            pri: {
+              state: 'plan-infeasible',
+              items: [
+                {
+                  ownerWorkItemId: 'leaf',
+                  boundWorkItemId: 'leaf',
+                  effectiveDeadlineOffset: 4,
+                },
+              ],
+            },
+          },
+          comparison: undefined,
+        }}
+        projectStart={null}
+        today={new Date(2026, 8, 7)}
+        workItemName={() => 'Migration'}
+      />,
+    );
+
+    expect(screen.getByText('Migration · Work item deadline date unavailable')).toBeVisible();
+  });
+
   itDom('qualifies stale infeasibility and never leaks a removed work-item id', () => {
     render(
       <OptimizationIndicator
@@ -210,7 +263,19 @@ describe('schedule comparison indicator', () => {
     const view = draw({
       ...READY,
       displayed: 'fast',
-      variants: { ...READY.variants, pri: { state: 'pending' } },
+      variants: {
+        ...READY.variants,
+        pri: {
+          state: 'plan-infeasible',
+          items: [
+            {
+              ownerWorkItemId: 'leaf',
+              boundWorkItemId: 'leaf',
+              effectiveDeadlineOffset: 4,
+            },
+          ],
+        },
+      },
       comparison: undefined,
     });
     const liveRegion = screen.getByRole('status');
