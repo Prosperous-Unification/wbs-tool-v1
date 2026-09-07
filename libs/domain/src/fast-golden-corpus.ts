@@ -22,6 +22,16 @@
  * The inputs are hand-written here rather than generated. A generator would put
  * a third copy of the engine's input rules in the repo, and a corpus whose
  * inputs are computed can drift from the plans it claims to describe.
+ *
+ * **That choice fixes this file's reach, so state it here rather than leaving a
+ * reader to infer it.** These are eight named plans, and the guard covers them
+ * **as `schedule()` renders them** — nothing wider. A semantic change is
+ * visible only if it moves one of these eight schedules, and a bump-list
+ * constant that lives off `schedule()`'s call graph is not visible at all:
+ * `schedule.ts` does not import `solver-quantum`, so `SOLVER_QUANTUM` cannot be
+ * observed from any case below, however its durations are chosen. See the
+ * boundary paragraph in `fast-golden-corpus.test.ts` for the measurement (PR
+ * 281) and for where that particular guard belongs instead.
  */
 
 import { SCHEDULER_CONTRACT_VERSION } from './contract-version';
