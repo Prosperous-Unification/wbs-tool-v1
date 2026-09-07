@@ -347,11 +347,26 @@ describe('project optimization in the plan', () => {
    * starts — as an exact multiset, so a duplicated vocabulary or marker read is
    * red too and not only an unknown name.
    *
-   * **Order is not asserted and is not meant to be.** Both sides are sorted
-   * before the comparison, because these reads are issued concurrently and
-   * pinning the sequence they happen to settle in would be a flake waiting for
-   * a slower machine. What survives sorting is the count of each name, which is
-   * the claim: no extra read, and no read gone missing.
+   * **Order is not asserted, and the reason is not the one it is tempting to
+   * give.** Both sides are sorted, so what survives is the count of each name:
+   * no extra read, and no read gone missing. It is *not* a guard against a
+   * fluctuating sequence — the recorder pushes when a method is entered, not
+   * when its promise settles, and the arguments of the `Promise.all` in
+   * `refresh` are evaluated in source order, so the recorded sequence is
+   * deterministic on any machine (Sol review, 2026-09-07). Sorting is a
+   * deliberate weakening: the claim being made is about *which* reads happen
+   * and how many, and the order they are issued in is not part of the
+   * requirement this file pins.
+   *
+   * **And it is a claim about `ProjectApi` calls, not about requests on the
+   * wire.** The recorder wraps the methods, so it sees a call enter `tree` and
+   * cannot see inside it: an `httpProjectApi.tree` that made a second HTTP
+   * request of its own would still record one `tree/1`. That is a real gap in
+   * the pin and it is stated here rather than papered over —
+   * `httpProjectApi.tree` makes exactly one `send` today
+   * (`wbs-api.ts:2331-2334`), so it is a regression the multiset would miss and
+   * not a defect it is hiding. Closing it needs an assertion at the transport
+   * boundary, which is a different fake and a different file.
    */
   const READS_THE_FULL_SCOPE_MAKES = [
     'tree/1',
