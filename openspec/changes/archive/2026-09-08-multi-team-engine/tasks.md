@@ -29,4 +29,4 @@ than PR #67.
       record directly under the archive.
 - [x] Run the focused remote green gate and a matching remote negative control.
 - [x] Validate the recovered OpenSpec record on h2puni.
-- [ ] Land TASK-364 through a new PR, then close historical PR #67.
+- [x] Land TASK-364 through PR #313, then close historical PR #67.

@@ -84,3 +84,20 @@ PR #67's branch recorded a full h2puni run at its then-current code head:
 
 Those numbers remain provenance for the original implementation and its fault
 table. They are not presented as fresh results for `main` or TASK-364.
+
+## 2026-09-08 coverage reconciliation
+
+The first recovered record overstated current coverage: the August branch had
+an alternating-pool case that required a second fixpoint round, while the
+current focused file did not. The case now lives in
+`libs/domain/src/schedule-joint-capacity.test.ts` on the current engine layout.
+
+- Green control: `bun test libs/domain/src/schedule-joint-capacity.test.ts`
+  reported **10 pass / 0 fail / 42 expect()**.
+- Negative control: replaced the fixpoint candidate update with an immediate
+  return of the first round. The new case received start day 3 and Alpha as the
+  binding team instead of day 6 and Beta; the file reported **9 pass / 1 fail /
+  40 expect()**.
+
+The production fault was restored before the green control. This closes the
+gap in D5's claim without importing the obsolete August implementation.
