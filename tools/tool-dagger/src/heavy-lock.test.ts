@@ -163,7 +163,7 @@ describe('with-heavy-lock', () => {
     // degrade into — and >4s is inconsistent with the refusal path, which returns
     // in milliseconds. What it does not do is establish that the contender
     // reached the retry branch, because holder readiness is a `Bun.sleep(300)`
-    // guess rather than a synchronisation point. TASK-376 replaces both with an
+    // guess rather than a synchronisation point. TASK-378 replaces both with an
     // observed retry.
     expect(queued.exitCode).toBe(0);
     expect(elapsedMs).toBeGreaterThan(4000);
