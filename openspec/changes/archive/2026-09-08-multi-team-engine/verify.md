@@ -63,7 +63,8 @@ At `21eb4c0b` with Bun 1.4.2:
   failed** (51 changes and 1 spec).
 
 The first scoped `nx format:check` named only this record's `verify.md`; its
-formatter output is folded in the next commit. The repository-wide
+formatter output was folded. At exact `ba462d54`, scoped `nx format:check`
+over all six changed paths passed, and OpenSpec again passed **52 / 0**. The repository-wide
 `nx format:check --all` also names 44 unrelated paths already present on the
 base, so it cannot serve as a clean task-specific verdict. Impact: a whole-tree
 format gate is red independent of this six-file documentation diff. Remedy:
