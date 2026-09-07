@@ -11,8 +11,14 @@ disposition is folded into the slice it changes and the superseded text is
 deleted, never appended as a new section. Slice 1 is the prod-mode migration and
 is isolated for that reason alone. Slices 2–5 are Fast and the domain. Slices
 6–8 are the seam this change amends in `dual-optimized-scheduler`. Slice 9 is the
-UI. Slice 10 is the gate. **A slice is not done until its remote gate on h2puni
-is green — no build or autotest runs on the workspace box.**
+UI. Slice 10 is the gate. **A slice is not done until its remote gate is green —
+no build or autotest runs on the workspace box.** That gate was h2puni for every
+slice up to 8.9b and has been **CI** since, because h2puni has had zero free
+inodes throughout and cannot create a file, let alone run
+`bin/h2puni-gate.sh`. **CI is not an equal substitute and 10.2 names what is
+lost** — chiefly the `WBS_RUN_SOLVER_ORPHAN_PROC=1` process-boundary proof,
+which is host-only and has not run since. The h2puni requirement is not waived,
+it is **owed**, and it is owed to `TASK-315`.
 
 **This change must land before TASK-219 (`wbs-optimized-scheduler-coordinator-cache`)
 starts.** It changes the canonical input, the cache identity, the solver wire and
@@ -722,8 +728,9 @@ order`, with their tests. A repository assertion that no unqualified
 - [x] 10.2 Full remote autotest + lint + typecheck gate **at the exact head**,
       for `libs/domain`, `apps/be-01` and `apps/fe-01`. Nothing is built or run
       on the workspace box.
-      **Read h2puni, ran on CI, and the substitution is deliberate and
-      measured — not a downgrade.** As written the item named h2puni, and
+      **Read h2puni, ran on CI, and the substitution is deliberate, measured,
+      and WEAKER — the word "downgrade" is the right one and an earlier draft
+      of this note denied it.** As written the item named h2puni, and
       h2puni cannot run a gate: it has been at `IFree 0` (`df -i /`:
       `9849520 / 9849520`, re-measured live at 2026-09-07T04:27Z, filed as
       `TASK-315`, whose reclaim still needs a human decision) since before 8.9b,
@@ -763,15 +770,21 @@ order`, with their tests. A repository assertion that no unqualified
       the four targets this item names are green at the exact head on CI, and
       one host-only proof outside those four targets is not being run at all
       until `TASK-315` frees h2puni.
-      **The exact head, spelled out, because r8 found the first version of this
-      item citing a run from a different one.** Every merged head of this change
-      has its own green `gate`; the latest is **34083621444** at `82a23a6b`.
-      A head that only ever reddened proves nothing, and `a8462cad` — this
-      branch's first head — is exactly that: it failed `Format`, so the gate
-      step never ran there and no claim in this item may cite it. This item's
-      own shipping head is re-gated on push and that run id goes in the merge
-      log, which is the only place a self-referential head can honestly be
-      recorded.
+      **"The exact head" is stated here as a RULE, not as a SHA, and that is
+      the fix for a trap this change has already sprung once.** `verify.md`
+      records slice 1's version of it: a gate table that named a SHA went stale
+      the moment a review fold changed three files under it, twice, and the
+      section was rewritten to state the rule instead. The same applies here and
+      more sharply, because **this item cannot name its own shipping head** —
+      the run id does not exist when the commit that would cite it is written.
+      **The rule: this change merges a head only when that head's own CI `gate`
+      and `pixels` jobs are green, with the head sha verified equal to the
+      green run's immediately before the merge and `origin/main` re-read after.**
+      Every one of this change's merges has followed it and each run id is in
+      the merge log; the most recent completed one is **34083621444** at
+      `82a23a6b`. **A head that only reddened may not be cited by anything
+      here**, and `a8462cad` — this branch's first head — is exactly that: it
+      failed `Format`, so the gate step never ran on it at all.
 - [ ] 10.3 `openspec validate --all --json` green at the exact head, parsed from
       JSON rather than from a summary line.
       **Half of this is true and the half that is missing is the half the item
