@@ -109,7 +109,7 @@
  * cannot reach `main` under an unchanged version number — the suite reddens
  * until the writer is run, and the lint reddens until the number moves.
  */
-export const SCHEDULER_CONTRACT_VERSION = 8;
+export const SCHEDULER_CONTRACT_VERSION = 9;
 
 /**
  * The composite the **wire** carries and the **cache key** stores, from one
