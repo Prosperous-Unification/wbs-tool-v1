@@ -42,17 +42,17 @@ skip, Linux solver 195, SO_PEERCRED 3/6, strict OpenSpec, independent review
 with no Critical or Important findings). **That evidence predates the current
 head.** Read from the run rather than the prose:
 
-| Run | Head | Result |
-|---|---|---|
+| Run                                                                                           | Head       | Result                                                                           |
+| --------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------- |
 | [34139211224](https://github.com/Prosperous-Unification/wbs-tool-v1/actions/runs/34139211224) | `0f2fefc5` | **failure** — `pixels shard 2/2`, then `pixels` on "Require every browser shard" |
-| 34126986014 | `e3b98468` | cancelled |
+| 34126986014                                                                                   | `e3b98468` | cancelled                                                                        |
 
 Two layout assertions fail, both in `apps/fe-01/e2e/layout.spec.ts`:
 
-1. `:1233` — *the table, measured by a browser › a step's figure lands at one x
-   whether or not the row is assigned* (36.2s)
-2. `:2721` — *the table, measured by a browser › opens the folded step's @
-   picker out past the bottom of a 96px cell* (36.0s)
+1. `:1233` — _the table, measured by a browser › a step's figure lands at one x
+   whether or not the row is assigned_ (36.2s)
+2. `:2721` — _the table, measured by a browser › opens the folded step's @
+   picker out past the bottom of a 96px cell_ (36.0s)
 
 `2 failed`, and `NX Running target e2e for project fe-01 failed`. The `[vite] ws
 proxy error: write EPIPE` lines in the same log are noise from the dev server
@@ -79,7 +79,7 @@ live.current.assigneeOn(row.original, step.id)`. So `assigneeOn` returned null
 for a row the fixture assigns.
 
 **2. `layout.spec.ts:2737` — the picker opens empty.**
-The preceding assertion passes: the listbox `QA assignee for 030` *is* visible
+The preceding assertion passes: the listbox `QA assignee for 030` _is_ visible
 with `@Kat` typed. Only `option "Add “Kat”"` is missing. That option is built in
 `use-estimate-drafts.ts:426` under `wanted !== '' && !exact`, in a
 `mentionOptions` whose first line is
