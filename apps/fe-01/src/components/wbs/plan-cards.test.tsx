@@ -337,6 +337,7 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
           serviceIds?: string[];
           startNoEarlierThan?: string | null;
           startNoEarlierThanReason?: string | null;
+          deadline?: string | null;
           priority?: number | null;
         },
       ) => {
@@ -372,6 +373,21 @@ function fakeApi(options: { refusePatch?: boolean; dated?: boolean } = {}): Proj
           }
           row.startNoEarlierThanReason = patch.startNoEarlierThanReason;
         }
+        // The deadline, stored — absent until TASK-291 and therefore silently
+        // dropped, which let a card look as though it had written a date the
+        // fake never kept. One field and no pair rule beside it: slice 1.1 gave
+        // the deadline no reason column.
+        //
+        // **What this deliberately does not model, stated rather than implied:**
+        // be-01 refuses a date before the project start with
+        // `deadline_before_project_start`, and that refusal is not kept here.
+        // The card sends the date unguarded on purpose (`setDeadline`'s own
+        // docstring: a client-side rule the server also keeps is how the two
+        // come to disagree), and a refusal no case in this file exercises would
+        // be unproven fixture behaviour standing in for a server's. The §2.3
+        // state the cards *do* read is a stored date the project has since moved
+        // past, which is arranged on the row rather than written through here.
+        if (patch.deadline !== undefined) row.deadline = patch.deadline;
         // Moved on the row and not only recorded, because half of what the
         // priority sheet's cases assert is what the *chip* says afterwards — a
         // fake that took the patch and left the row alone would let a write that
