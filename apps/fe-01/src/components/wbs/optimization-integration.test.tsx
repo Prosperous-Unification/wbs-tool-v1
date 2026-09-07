@@ -559,10 +559,14 @@ describe('project optimization in the plan', () => {
    * What the optimization indicator is currently saying, and nothing else's
    * `status`.
    *
-   * Scoped rather than `getByRole('status')`, because the whole page is on
-   * screen here: the shelf, the gantt and the table each own a live region, and
-   * an unscoped query would either be ambiguous or — worse — settle on one of
-   * theirs and go quietly green.
+   * Scoped rather than `getByRole('status')`, because this case mounts the
+   * whole page and not the table alone, and several components under it own a
+   * live region of their own — the shelf's save and rename lines, the gantt's
+   * fault note, the table's own empty-state. None of them happens to be
+   * rendered by the arrangement below, and that is the point: an unscoped query
+   * would be resting on that, and would start matching something else the first
+   * time somebody added a panel to the page. It also throws on more than one
+   * indicator rather than silently taking the first.
    */
   function indicatorWords(): string {
     const found = document.querySelectorAll('[data-optimization-indicator] [role="status"]');
