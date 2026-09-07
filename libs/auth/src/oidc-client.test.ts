@@ -233,11 +233,14 @@ describe('cacheWhileItSucceeds', () => {
  * discovery resolved to, or one carrying no `iss` where the server said it
  * always sends one.
  *
- * These arms are asserted here rather than through `browserOidcClientFromEnv`
- * because that factory cannot be exercised without a live authorization server
- * — `discovery()` performs a real request. The wiring from `exchange` to this
- * function is one line under `tsc`, and the answer the route gives its rejection
- * is asserted in `oidc.integration.test.ts`.
+ * These cases assert the decision and nothing else: they call the function with
+ * a metadata literal, so they say what a mismatched or missing `iss` means and
+ * say nothing about where `exchange` gets that metadata. That gap was measured
+ * rather than assumed — a control swapping the resolved Issuer Identifier for
+ * `AUTH_ISSUER_DISCOVERY_URL` left all of them green — and it is covered by
+ * `browserOidcClientFromEnv issuer wiring` below. The answer the route gives the
+ * rejection is asserted in `oidc.integration.test.ts`, against a fake
+ * `exchange`, so that file proves the handling and not the decision.
  */
 describe('refuseCallbackFromAnotherIssuer', () => {
   // Okta's shape, and the trap this whole check is built around: the discovery

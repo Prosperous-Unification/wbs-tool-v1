@@ -82,10 +82,14 @@ export function isOidcCallbackRefused(value: unknown): value is OidcCallbackRefu
 }
 
 /**
- * The decidable half of that refusal, separated so it can be asserted without a
- * live provider: {@link browserOidcClientFromEnv} cannot be exercised in a test
- * without reaching a real authorization server, so the arms are proven here and
- * the wiring is proven by the route's integration cases.
+ * The decidable half of that refusal, separated so each arm can be asserted
+ * against a metadata literal rather than a provider. It is one of three layers,
+ * and the split matters because a control showed two of them are not
+ * substitutes: the arms are proven here, the fact that `exchange` hands this
+ * function `serverMetadata()` rather than the configured discovery URL is proven
+ * through {@link browserOidcClientFromEnv}'s injected `discover`, and the answer
+ * the route gives the rejection is proven by an integration case whose
+ * `exchange` is a fake.
  *
  * **`metadata.issuer` is the Issuer Identifier, never
  * `AUTH_ISSUER_DISCOVERY_URL`.** The two are only required to be related, never
