@@ -798,18 +798,27 @@ comments recorded the falsification the split predicted; the code had met it.
 
 ## 8.7b, measured
 
-**Four of the five sites were already at seven; site 5 was the gap, exactly as
-8.7b predicted.** Verified by the member-name search this item mandates — the
+**Site 5 was the gap, exactly as 8.7b predicted, and the other four already
+carried `plan-infeasible` in whatever form each is written in.** Sites 1–3 are
+member enumerations and each lists seven. Sites 4 and 5 are **not** member
+lists and never were: 8.3–8.4 enumerate _indicator renderings_ (a comparison
+for `ready`, `Optimizing…` for `pending` and `retrying`, the Retry control for
+`failed` and `corrupt`, the count wording for `plan-infeasible`, nothing on
+screen for `idle`), and §3.2 enumerates _events_, keyed by what happened rather
+than by which state resulted. Saying those two were "at seven" would be a
+category error — Sol's r4 review of PR 266 read the earlier wording that way
+and called it, correctly. What each is checked for is whether the member this
+task adds has a rendering and a row, and it now does in both. Verified by the member-name search this item mandates — the
 lines naming `corrupt` together with `idle`, across both changes and the
 workspace note — rather than by the count word:
 
-| site | artifact                                                         | state found                                                   |
-| ---- | ---------------------------------------------------------------- | ------------------------------------------------------------- |
-| 1    | `dual-optimized-scheduler/design.md` plan-read DTO bullet        | seven, with `plan-infeasible` carrying owner and bound ids    |
-| 2    | `.../specs/scheduler-optimization/spec.md` plan-read requirement | seven, in the normative "SHALL be one of"                     |
-| 3    | `.../tasks.md` 7.10                                              | "one of seven", and `plan-infeasible` in the proof-state list |
-| 4    | `.../tasks.md` 8.3–8.4                                           | the indicator wording and its no-Retry rule in both           |
-| 5    | `notes/wbs-dual-optimized-scheduler-design.md` §3.2              | **five rows missing** — amended here                          |
+| site | artifact                                                         | state found                                                      |
+| ---- | ---------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 1    | `dual-optimized-scheduler/design.md` plan-read DTO bullet        | seven, with `plan-infeasible` carrying owner and bound ids       |
+| 2    | `.../specs/scheduler-optimization/spec.md` plan-read requirement | seven, in the normative "SHALL be one of"                        |
+| 3    | `.../tasks.md` 7.10                                              | "one of seven", and `plan-infeasible` in the proof-state list    |
+| 4    | `.../tasks.md` 8.3–8.4                                           | a rendering for every member, this one's included, in both items |
+| 5    | `notes/wbs-dual-optimized-scheduler-design.md` §3.2              | **five rows missing** — amended here                             |
 
 Site 5's table now carries the first-stage `INFEASIBLE` row (a
 `plan-infeasible` row plus certificate in one transaction, and **no** event),
@@ -817,11 +826,15 @@ the later-stage row that stays `failed` + `invalid-output`, the two settled-read
 rows that spawn nothing, and the explicit Retry refusal. Its review-ledger rows
 are untouched, per 7.2b.
 
-**The search found a sixth site 8.7b does not name, and it was wrong.**
-`design.md`'s Retry evaluation order, step (2), listed the states a
-`not-retryable` covers as "`ready`, `pending` and `idle`" while
-`spec.md`'s own ordering already read "`ready`, `pending`, `idle` and
-`plan-infeasible`". Two normative artifacts, one instantiating list short by
+**The search found a sixth site 8.7b does not name, and it was wrong in two
+places rather than one.** `design.md`'s Retry evaluation order, step (2),
+listed the states a `not-retryable` covers as "`ready`, `pending` and `idle`"
+while `spec.md`'s own ordering already read "`ready`, `pending`, `idle` and
+`plan-infeasible`" — and **the gate sentence later in the same bullet carried
+the same short list**, which the first pass missed while amending the order
+four clauses above it. Sol's r4 review found it; both are amended now. One
+bullet enumerating the same set twice is the divergence trap operating inside a
+single paragraph. Two normative artifacts, one instantiating list short by
 the member this task adds — the same shape as the `solver_slot.lifecycle`
 omission `design.md` records at the stored-enum boundary, where the blanket
 rule covered the column and the instantiating list did not. Amended in the same
@@ -854,3 +867,33 @@ their payloads are truncated JSON or a schedule with a wrong `dtoVersion` and
 fail the certificate codec too — which is the point: the defect is invisible
 except on the one row where both codecs could plausibly apply, and that row is
 this case.
+
+## Sol's r4 review of PR 266, and the Critical it found in shipped code
+
+Verified artifact `queue/reviews/t241-r4-c23-sol.md`, seat `openai/gpt-5.6-sol`,
+**REQUEST-CHANGES 2C / 1I / 1M** at exact head `e0d52cac`.
+
+- **Critical 1 — the measured section's wording, fixed above.** It said "four of
+  the five sites were already at seven", which is a category error for sites 4
+  and 5: one enumerates indicator renderings and the other enumerates events,
+  and neither is a member list. Corrected rather than defended.
+- **Important 1 — a second short list in the same `design.md` bullet, fixed
+  above.** The first pass amended the Retry evaluation order and left the gate
+  sentence four clauses later still reading "`ready`, `pending` or `idle`".
+- **Minor 1 — agreed and already recorded.** `objectivesToRetry` is permissive
+  and safe today only because nothing calls it; the refusal belongs in 7.11's
+  route, after the stale-hash and state checks and before liveness admission.
+  That is now this task's recorded position on 8.7d's layering question.
+- **Critical 2 is real, is in shipped code rather than in this diff, and is
+  filed as `TASK-311` (lane e, p1).** `spec.md`'s realtime requirement says the
+  guarantee is "one durable replay record **per newly stored outcome**". A
+  `plan-infeasible` row is a newly stored outcome, and
+  `optimization-coordinator.ts:107` returns before writing any `event_log` row
+  for it. A client already on screen therefore sits on `Optimizing…`
+  indefinitely, because the failure indicator is event-driven (8.8) and no
+  event ever arrives; only a refetch moves it. The row itself is correct and a
+  cold load renders the state correctly — this is the live-client half alone.
+  **`plan-infeasible` needs an event, and which one is a real design question:**
+  `schedule_optimization_failed` carries a `failureReason` it has none of, and
+  `schedule_optimized` promises a schedule. The §3.2 table's "no event" claim is
+  withdrawn pending that decision rather than left standing as intent.
