@@ -254,8 +254,8 @@ export interface BrowserBindingConsumeResult {
  * `expiresAt` and found live — and that check reaps what it finds dead — so on
  * the routes an expired binding is never offered; `expired` survives for a
  * record that dies between the two calls, and for a caller that offers bindings
- * this function never selected. That is not a claim that selection reaps
- * *every* dead record: a repeat or a misnamed cookie is surplus before
+ * this function never selected. That is not a claim that selection reaps every
+ * dead record it could: a repeat or a misnamed cookie is surplus before
  * `expiresAt` is reached, so its record waits for `cleanupExpired` or the next
  * `save` (peer review, TASK-293 r1, Minor).
  */
