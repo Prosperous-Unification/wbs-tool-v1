@@ -57,6 +57,16 @@ import {
  *   objective overflow        bound raised x1000          69/1  overflow case
  *   wire safe-integer rule    disabled                    69/1  wire-domain case
  *   baseline domain           disabled                    69/1  unbuildable request
+ *   deadline multiple (req.)  request-loop call removed  267/1  EVERY-response-status
+ *
+ * The last row was run on 2026-09-07 against the 268-test suite at `cc43b10e`,
+ * with the copy inside {@link revalidateOptimizedDeadlines} LEFT IN PLACE — so
+ * what went red is the request-loop call specifically, not the rule. Its pair
+ * is in `apps/be-01`: reverting `evaluateSolverOutcome` to the pre-TASK-329
+ * ordering turns that same input from `{ failed, internal-error }` back into a
+ * stored `plan-infeasible` certificate, 3/1 against its 4-test file. Two
+ * mutations because the defect had two ends, and either one alone leaves it
+ * open.
  *
  * The sweep ordering is the row worth reading twice: it fails BOTH exactly-met
  * neighbours and no violation case at all, which is what "the ordering, not the
