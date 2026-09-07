@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Session } from '@/lib/api';
@@ -31,6 +32,11 @@ const itDom = hasDom ? it : it.skip;
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Console spies are restored here, not at the end of each case that installs
+  // one: a case that fails before its own `mockRestore()` would otherwise leave
+  // `console.error` swallowed for every case after it, and the next reader
+  // would be debugging silence.
+  vi.restoreAllMocks();
   // The card reads its message out of the address, so a case that leaves one
   // behind would hand it to the next case. Restored here rather than per case.
   window.history.replaceState(null, '', '/');
@@ -39,6 +45,29 @@ afterEach(() => {
 /** Puts a refused SSO sign-in's code in the address, the way the callback does. */
 const arriveWith = (query: string) => {
   window.history.replaceState(null, '', `/${query}`);
+};
+
+/**
+ * Silences every console method and hands back the assertion that none was
+ * called.
+ *
+ * All five, not the two a first draft reaches for: `log`, `info` and `debug`
+ * are exactly where a "just checking what code we got" line survives review,
+ * and a card that narrates a refused sign-in to the console has published the
+ * code it went to the trouble of not rendering. An assertion over `error` and
+ * `warn` alone would let all three through.
+ */
+const watchConsole = () => {
+  const methods = ['error', 'warn', 'log', 'info', 'debug'] as const;
+  const spies = methods.map((name) => [name, vi.spyOn(console, name)] as const);
+  for (const [, spy] of spies) spy.mockImplementation(() => undefined);
+  return {
+    expectSilent: () => {
+      for (const [name, spy] of spies) {
+        expect(`console.${name} calls: ${spy.mock.calls.length}`).toBe(`console.${name} calls: 0`);
+      }
+    },
+  };
 };
 
 const response = (status: number, body: unknown) =>
@@ -210,31 +239,71 @@ describe('a refused SSO sign-in', () => {
   });
 
   itDom('names an unpublished provider failure without repeating it', () => {
-    arriveWith('?auth_error=provider_error');
-    render(<AuthForm onSignedIn={() => undefined} />);
+    /*
+     * The sentinel is the whole case. `?auth_error=provider_error` alone puts
+     * no provider-supplied words in the address, so a regression that started
+     * rendering `error_description` — or any other parameter the callback did
+     * not write — would pass a case whose own name forbids it. This address
+     * carries a provider-shaped string this app never writes, so the negative
+     * has something to be negative about.
+     */
+    const providerText = 'AADSTS50105: the signed-in user is not assigned to a role';
+    arriveWith(`?auth_error=provider_error&error_description=${encodeURIComponent(providerText)}`);
+    const { container } = render(<AuthForm onSignedIn={() => undefined} />);
 
     expect(
       screen.getByText('SSO sign-in did not complete. Try again, or sign in with a password.'),
     ).toBeDefined();
+    expect(container.textContent).not.toContain(providerText);
+    expect(container.textContent).not.toContain('AADSTS50105');
   });
 
   itDom('renders no SSO message for a code it does not publish', () => {
     // The backend collapses everything unrecognised into `provider_error`, so a
     // raw provider code can only reach the card if something forwarded it. The
     // card renders nothing for it, and says nothing about it in the console.
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const consoleWatch = watchConsole();
     arriveWith('?auth_error=okta_policy_evaluation_failure');
     render(<AuthForm onSignedIn={() => undefined} />);
 
     const slots = screen.getAllByRole('status');
     expect(slots).toHaveLength(1);
     expect(slots[0].className).toContain('min-h-5');
-    expect(consoleError).not.toHaveBeenCalled();
-    expect(consoleWarn).not.toHaveBeenCalled();
-    consoleError.mockRestore();
-    consoleWarn.mockRestore();
+    consoleWatch.expectSilent();
   });
+
+  /*
+   * `ssoErrorMessage` looks its code up with `Object.hasOwn`, and the comment
+   * above it says why: a bare lookup resolves `?auth_error=toString` through
+   * `Object.prototype` and hands a reader who just failed to sign in a
+   * function's source. Nothing proved that. The only unrecognised-code case
+   * above uses `okta_policy_evaluation_failure`, which is not a prototype
+   * property, so weakening the guard to `code in SSO_ERROR_MESSAGES` — or to a
+   * truthiness check on the lookup — left the whole suite green.
+   *
+   * These three are the keys a link could actually hand the card, and each
+   * fails differently once the guard goes: `toString` and `constructor` resolve
+   * to functions, `__proto__` to `Object.prototype` itself.
+   */
+  for (const code of ['toString', 'constructor', '__proto__']) {
+    itDom(`renders no SSO message for the prototype property ${code}`, () => {
+      const consoleWatch = watchConsole();
+      arriveWith(`?auth_error=${code}`);
+      const { container } = render(<AuthForm onSignedIn={() => undefined} />);
+
+      // One slot, the password form's own reserved line — the SSO paragraph is
+      // conditional, so a second `role="status"` means something rendered.
+      const slots = screen.getAllByRole('status');
+      expect(slots).toHaveLength(1);
+      expect(slots[0].className).toContain('min-h-5');
+      expect(slots[0].textContent).toBe('');
+      // The shapes a leaked prototype value takes once it reaches the DOM.
+      expect(container.textContent).not.toContain('[native code]');
+      expect(container.textContent).not.toContain('[object Object]');
+      expect(container.textContent).not.toMatch(/\bfunction\b/);
+      consoleWatch.expectSilent();
+    });
+  }
 
   itDom('renders the card exactly as before when there is no auth_error', () => {
     render(<AuthForm onSignedIn={() => undefined} />);
@@ -244,6 +313,37 @@ describe('a refused SSO sign-in', () => {
     expect(slots[0].className).toContain('min-h-5');
     expect(slots[0].textContent).toBe('');
     expect(screen.getByRole('link', { name: 'Continue with SSO' })).toBeDefined();
+  });
+
+  itDom('clears auth_error without taking history state, other parameters or the hash', () => {
+    /*
+     * `clearAuthError` passes `window.history.state` back and rebuilds the path
+     * from the parsed URL, and its own comment says the alternative would be a
+     * silent trap for whoever mounts this card under a router. The case that
+     * checked the clearing started from null state, no other parameter and no
+     * hash, so `replaceState(null, '', '/')` — which discards all three — passed
+     * it. This one seeds each of the three, so the weakened form cannot.
+     *
+     * `StrictMode` because the effect that clears runs twice under it and the
+     * initializer that reads runs before either: the message must survive the
+     * second pass, and the second `clearAuthError` must find nothing to do.
+     */
+    const routerState = { from: '/plan/7', key: 'wjq3' };
+    window.history.replaceState(routerState, '', '/?tab=plan&auth_error=access_denied#risks');
+    render(
+      <StrictMode>
+        <AuthForm onSignedIn={() => undefined} />
+      </StrictMode>,
+    );
+
+    expect(
+      screen.getByText(
+        'SSO sign-in was refused. If you did not cancel it, your account may not have access to this app.',
+      ),
+    ).toBeDefined();
+    expect(window.location.search).toBe('?tab=plan');
+    expect(window.location.hash).toBe('#risks');
+    expect(window.history.state).toEqual(routerState);
   });
 
   itDom('does not re-accuse the reader after a reload', () => {
