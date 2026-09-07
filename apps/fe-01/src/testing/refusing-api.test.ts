@@ -13,7 +13,7 @@ describe('refusingApi contract boundary', () => {
     await expect(api.tree('p1')).rejects.toThrow('fake_invalid_response');
   });
 
-  it('does not normalize a null optional tree list as an absent swap-window field', async () => {
+  it('does not normalize a null optional tree list as an absent compatibility field', async () => {
     const api = refusingApi({
       tree: () =>
         Promise.resolve(planRead({ workItems: [workItemView({ tagIds: null } as never)] })),
@@ -285,6 +285,16 @@ describe('refusingApi contract boundary', () => {
     await api.createWorkItem('p1', { parentId: null, name: undefined });
 
     expect(createWorkItem).toHaveBeenCalledWith('p1', { parentId: null });
+  });
+
+  it('keeps a stated delete options object present after its undefined strategy leaves the wire', async () => {
+    const removeWorkItem = vi.fn(() => Promise.resolve());
+    const api = refusingApi({ removeWorkItem });
+
+    const removal = api.removeWorkItem('work-1', { strategy: undefined });
+
+    expect(removeWorkItem).toHaveBeenCalledWith('work-1', { strategy: undefined });
+    await expect(removal).resolves.toBeUndefined();
   });
 
   it('reconstructs a project-command facade answer from the validated reply', async () => {

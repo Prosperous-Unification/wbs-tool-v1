@@ -34,7 +34,13 @@ import {
   updateCalendarMarker,
 } from '@wbs/contracts';
 
-import type { CalendarMarkerView, PlanRead, ProjectApi, WbsOperationId } from '@/lib/wbs-api';
+import type {
+  CalendarMarkerView,
+  DeleteOptions,
+  PlanRead,
+  ProjectApi,
+  WbsOperationId,
+} from '@/lib/wbs-api';
 
 /**
  * A {@link ProjectApi} whose every method refuses, except the ones a test
@@ -1154,11 +1160,20 @@ function checkedAnswers(answers: Partial<ProjectApi>): Partial<ProjectApi> {
           workItemId,
           ...(options?.strategy === undefined ? {} : { strategy: options.strategy }),
         },
-        (_normalizedProjectId, normalized) =>
-          removeWorkItemAnswer(
-            normalized.workItemId,
-            normalized.strategy === undefined ? undefined : { strategy: normalized.strategy },
-          ),
+        (_normalizedProjectId, normalized) => {
+          // The facade distinguishes an omitted options argument from a supplied
+          // object whose optional strategy leaves the JSON wire. Reconstruct only
+          // that container/key presence; the value still comes from validated input.
+          // Proof: reconstructing solely from normalized.strategy made the focused
+          // boundary spy receive undefined instead of { strategy: undefined }.
+          const normalizedOptions: DeleteOptions | undefined =
+            options === undefined
+              ? undefined
+              : Object.hasOwn(options, 'strategy')
+                ? { strategy: normalized.strategy }
+                : {};
+          return removeWorkItemAnswer(normalized.workItemId, normalizedOptions);
+        },
         () => VOID_COMMAND_RESULT,
       );
   }
