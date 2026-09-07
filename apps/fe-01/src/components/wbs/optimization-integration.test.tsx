@@ -361,11 +361,12 @@ describe('project optimization in the plan', () => {
    *
    * The requirement used to say a client reached `Optimization unavailable ·
    * Retry` "without refetching the variant", and the shipped client does start
-   * a plan read on that event. The reading that settles it — identity only on
-   * the wire, the indicator moves on the event alone, the new state arrives
-   * through the ordinary plan read, and no variant-scoped read exists — is a
-   * choice, so it needs a test rather than a sentence, or the next reader files
-   * this again.
+   * a plan read on that event. The reading that settles it binds the receiver
+   * and not the wire — this frame does carry a `failureReason` — so: the
+   * indicator moves on the event alone, the new state arrives through the
+   * ordinary plan read and never from a frame field, and no variant-scoped read
+   * exists. That is a choice, so it needs a test rather than a sentence, or the
+   * next reader files this again.
    *
    * Three assertions, and each one falsifies a different way of getting it
    * wrong:
