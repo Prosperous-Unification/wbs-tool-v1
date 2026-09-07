@@ -480,19 +480,23 @@ describe('configure.sh Caddyfile merge, executed', () => {
   });
 
   for (const state of HOST_STATES) {
-    it(`is reached by the shipped script, not merely runnable in isolation (${state.key})`, () => {
-      const run = runShippedScript(state);
-      // The stop is the htpasswd stub, so the script ran PAST the merge block
-      // and past the site.caddy seed to get here. Asserting the status pins
-      // where it stopped: any earlier failure carries a different one.
-      expect(run.status).toBe(STOP_STATUS);
-      expect(run.stderr).toBe('');
-      expect(run.siteCaddy).not.toBeNull();
-      expect(run.caddyfile).not.toBeNull();
-      expect(importsOf(run.caddyfile ?? '')).toEqual(
-        state.seedCaddyfile === undefined ? OWNED : [...OWNED, PRESERVED],
-      );
-    });
+    it(
+      `is reached by the shipped script, not merely runnable in isolation (${state.key})`,
+      () => {
+        const run = runShippedScript(state);
+        // The stop is the htpasswd stub, so the script ran PAST the merge block
+        // and past the site.caddy seed to get here. Asserting the status pins
+        // where it stopped: any earlier failure carries a different one.
+        expect(run.status).toBe(STOP_STATUS);
+        expect(run.stderr).toBe('');
+        expect(run.siteCaddy).not.toBeNull();
+        expect(run.caddyfile).not.toBeNull();
+        expect(importsOf(run.caddyfile ?? '')).toEqual(
+          state.seedCaddyfile === undefined ? OWNED : [...OWNED, PRESERVED],
+        );
+      },
+      HOST_SWEEP_TIMEOUT_MS,
+    );
   }
 
   it('runs the whole shipped file, and stops where this harness says it does', () => {
@@ -530,23 +534,27 @@ describe('configure.sh Caddyfile merge, executed', () => {
   ];
 
   for (const [label, wrap] of WRAPPERS) {
-    it(`writes no Caddyfile when the block is disconnected by ${label}`, () => {
-      const run = runShippedScript({
-        // A function replacer, not a string: `$$` and `$&` in a string
-        // replacement are substitution syntax, and the block is full of
-        // `$$` (`$caddyfile.tmp.$$`), which would silently corrupt it into a
-        // different mutation than the one named.
-        mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
-      });
-      // Same stop and the same downstream file as the control run: the script
-      // parsed, ran, and got exactly as far. The ONLY difference is the
-      // Caddyfile, which is what makes this a reachability result and not a
-      // restatement of "the mutated file is broken".
-      expect(run.status).toBe(STOP_STATUS);
-      expect(run.stderr).toBe('');
-      expect(run.siteCaddy).not.toBeNull();
-      expect(run.caddyfile).toBeNull();
-    });
+    it(
+      `writes no Caddyfile when the block is disconnected by ${label}`,
+      () => {
+        const run = runShippedScript({
+          // A function replacer, not a string: `$$` and `$&` in a string
+          // replacement are substitution syntax, and the block is full of
+          // `$$` (`$caddyfile.tmp.$$`), which would silently corrupt it into a
+          // different mutation than the one named.
+          mutate: (text) => text.replace(mergeBlock, () => wrap(mergeBlock)),
+        });
+        // Same stop and the same downstream file as the control run: the script
+        // parsed, ran, and got exactly as far. The ONLY difference is the
+        // Caddyfile, which is what makes this a reachability result and not a
+        // restatement of "the mutated file is broken".
+        expect(run.status).toBe(STOP_STATUS);
+        expect(run.stderr).toBe('');
+        expect(run.siteCaddy).not.toBeNull();
+        expect(run.caddyfile).toBeNull();
+      },
+      HOST_SWEEP_TIMEOUT_MS,
+    );
   }
 
   // The wrappers above disconnect the block unconditionally, so any host state
