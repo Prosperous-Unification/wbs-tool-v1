@@ -1,11 +1,6 @@
 # LLM_README — read this, then only the doc your task needs
 
-TASK-364 restores the missing multi-team-engine OpenSpec record on
-`change/task-364-multi-team-record`. Current `main` already contains the engine
-and focused joint-capacity coverage through TASK-182 / PR #175. The recovered
-archive is complete; h2puni watched the representative reserve fault red 8/1,
-then the restored suite green 9/0, with OpenSpec 52/52 and scoped formatting
-green. Next: open and land the replacement PR, then close historical PR #67.
+TASK-364 restored the archived multi-team-engine record in PR #313; its reconciled history and h2puni red/green evidence are in `openspec/changes/archive/2026-09-08-multi-team-engine/verify.md`.
 
 **wbs-tool-v1** — collaborative real-time WBS tool. `be-01` (API, Elysia+Drizzle+bun:sqlite, :3100),
 `gw-01` (WS gateway, :3200), `fe-01` (Vite+React, :80 in the image, :4200 under `vite dev`),
