@@ -7,7 +7,6 @@ import type {
   TeamWithServices,
   WorkItemType,
 } from '../repository';
-import type { Gate } from '../repository/gate';
 import type { DeferringBroadcaster, HeldAnnouncement } from './broadcast';
 import type { CapacityService } from './capacity.service';
 import type {
@@ -17,9 +16,9 @@ import type {
 } from './directory.service';
 import type { DirectoryService } from './directory.service';
 import type { DirectoryUsage } from './directory-usage';
-import type { OuterTransaction } from './outer-transaction';
 import { MOST_COMMANDS_IN_A_BATCH, type PlanCommand, type PlanCommandKind } from './plan-command';
 import type { PriorityBandService } from './priority-band.service';
+import type { Decision, UnitOfWork } from './unit-of-work';
 import type { WorkItemRefusal } from './work-item.service';
 import type { Collected, UndoOutcome, WorkItemService } from './work-item.service';
 
@@ -100,14 +99,13 @@ export interface PlanCommandRunnerOptions {
   directory: DirectoryService;
   capacity: CapacityService;
   priorityBands: PriorityBandService;
-  transactions: OuterTransaction;
   /**
-   * The source's write coordinator. The runner takes **one** turn for the whole
-   * batch; the services above write through stores built over {@link OPEN},
-   * because they are the batch's own and a second turn would wait for this one
-   * (D20, ADR 0015).
+   * What the batch is one of. It takes the source's one turn for the whole act
+   * and settles every write together (ADR 0015); the services above write
+   * through stores built over an already-open gate, because they are the
+   * batch's own and a second turn would wait for this one (D20).
    */
-  gate: Gate;
+  uow: UnitOfWork;
   /**
    * The broadcaster the directory, capacity and priority-band services publish
    * through, so this runner can hold their announcements until the batch has
@@ -148,7 +146,8 @@ class Refused extends Error {
 
 /**
  * Applies a {@link Command batch}: every step through the service it belongs
- * to, inside one {@link OuterTransaction}, behind one {@link Turn} at the {@link Write coordinator}, then
+ * to, as one {@link Unit of work} — one {@link Turn} at the source's write
+ * coordinator, and every write settled together — then
  * one journal entry and one broadcast — `plan-commands` D2–D4 and ADR 0007.
  *
  * Refs are the runner's: a create's id is remembered under its `ref`, and any
@@ -168,8 +167,8 @@ export class PlanCommandRunner {
 
   /**
    * A batch with no project: directory commands only, for the directory page
-   * and for a model editing the directory on its own. Same lock, same outer
-   * transaction, and nothing is journalled — the directory has no undo. A plan
+   * and for a model editing the directory on its own. Same turn, same unit of
+   * work, and nothing is journalled — the directory has no undo. A plan
    * command in it has no project to land in and refuses the batch as
    * `project_required` at its index.
    */
@@ -178,8 +177,8 @@ export class PlanCommandRunner {
   }
 
   /**
-   * The lock covers the transaction and nothing after it: the broadcast is a
-   * push to gw-01 over the network, and a lock held across it would let one
+   * The turn covers the unit of work and nothing after it: the broadcast is a
+   * push to gw-01 over the network, and a turn held across it would let one
    * slow gateway stall every write in the process. Proof:
    * `plan-commands.test.ts` › lets go of the write lock before the broadcast
    * leaves — with the announce inside `lock.run` the second batch waited on a
@@ -200,8 +199,8 @@ export class PlanCommandRunner {
    * watched 2026-09-02. That *symptom* is gone since TASK-256 made the queue
    * per-caller — two concurrent holds now each get their own — but the ordering
    * is unchanged and for a second reason the symptom never named: the hold has
-   * to open after `transactions.begin()` and close before the commit, so what it
-   * collects is exactly the writes the transaction is deciding on.
+   * to open inside the unit of work's act and close before its decision, so
+   * what it collects is exactly the writes that decision is about.
    */
   private async execute(
     projectId: string | null,
@@ -209,15 +208,22 @@ export class PlanCommandRunner {
     commands: readonly PlanCommand[],
   ): Promise<BatchOutcome> {
     const { announcements } = this.opts;
-    const done = await this.opts.gate.enter(
-      async (): Promise<{
-        applied: BatchOutcome | Collected<AppliedCommand[]>;
-        pending: HeldAnnouncement[];
-      }> => {
-        // Proof: admitting one extra command returned404 instead of400 in the mounted cap-order case.
-        const over = commands.at(MOST_COMMANDS_IN_A_BATCH);
-        if (over !== undefined) {
-          return {
+    interface Applied {
+      applied: BatchOutcome | Collected<AppliedCommand[]>;
+      pending: HeldAnnouncement[];
+    }
+    const done = await this.opts.uow.run<Applied>(async (): Promise<Decision<Applied>> => {
+      // Proof: admitting one extra command returned404 instead of400 in the mounted cap-order case.
+      const over = commands.at(MOST_COMMANDS_IN_A_BATCH);
+      if (over !== undefined) {
+        return {
+          // Nothing was written, so there is nothing to undo — but the unit of
+          // work opened for this act all the same, and `commit: false` is how
+          // it is told to close without keeping anything. The transaction is
+          // the unit of work's to open and to close; this method no longer
+          // decides *when*, only *whether*.
+          commit: false,
+          value: {
             applied: {
               ok: false,
               at: MOST_COMMANDS_IN_A_BATCH,
@@ -225,41 +231,35 @@ export class PlanCommandRunner {
               reason: 'too_many_commands',
             },
             pending: [],
-          };
-        }
-        const { workItems, transactions } = this.opts;
-        transactions.begin();
-        const held = await announcements.hold(
-          async (): Promise<BatchOutcome | Collected<AppliedCommand[]>> => {
-            try {
-              const collected = await workItems.collect(() =>
-                this.applyAll(projectId, actorId, commands),
-              );
-              if (projectId !== null) {
-                await workItems.recordCollected(projectId, actorId, collected.recordings);
-              }
-              return collected;
-            } catch (cause) {
-              transactions.rollback();
-              if (cause instanceof Refused) {
-                return {
-                  ok: false,
-                  at: cause.at,
-                  kind: cause.kind,
-                  ...cause.refusal,
-                };
-              }
-              throw cause;
-            }
           },
-        );
-        // A refusal already rolled the transaction back, so whatever it queued
-        // describes writes that are not there. Dropped rather than sent.
-        if ('ok' in held.result) return { applied: held.result, pending: [] };
-        transactions.commit();
-        return { applied: held.result, pending: held.pending };
-      },
-    );
+        };
+      }
+      const { workItems } = this.opts;
+      const held = await announcements.hold(
+        async (): Promise<BatchOutcome | Collected<AppliedCommand[]>> => {
+          try {
+            const collected = await workItems.collect(() =>
+              this.applyAll(projectId, actorId, commands),
+            );
+            if (projectId !== null) {
+              await workItems.recordCollected(projectId, actorId, collected.recordings);
+            }
+            return collected;
+          } catch (cause) {
+            if (cause instanceof Refused) {
+              return { ok: false, at: cause.at, kind: cause.kind, ...cause.refusal };
+            }
+            throw cause;
+          }
+        },
+      );
+      // A refusal rolls the unit of work back, so whatever it queued describes
+      // writes that will not be there. Dropped rather than sent.
+      if ('ok' in held.result) {
+        return { commit: false, value: { applied: held.result, pending: [] } };
+      }
+      return { commit: true, value: { applied: held.result, pending: held.pending } };
+    });
     const { applied, pending } = done;
     if ('ok' in applied) return applied;
     // Out of the lock and after the commit, which is what the whole hold is for.
@@ -281,34 +281,45 @@ export class PlanCommandRunner {
   }
 
   /**
-   * One undo or redo inside the outer transaction. A refusal rolls everything
-   * back — a batch inverse that failed at step three has taken steps one and
-   * two back too — and then discards the stale entry again, outside the
-   * transaction, because the service's own discard went with the rollback.
+   * One undo or redo as its own unit of work. A refusal rolls everything back —
+   * a batch inverse that failed at step three has taken steps one and two back
+   * too — and then discards the stale entry again through `afterRollback`,
+   * because the service's own discard went with the rollback.
    */
   private async walk(projectId: string, step: () => Promise<UndoOutcome>): Promise<UndoOutcome> {
-    const { transactions, workItems } = this.opts;
+    const { workItems } = this.opts;
     // The step's own broadcast is collected rather than sent, for the reason
-    // `execute` gives: the push happens after the lock is let go.
-    const walked = await this.opts.gate.enter(async () => {
-      transactions.begin();
-      let collected: Collected<UndoOutcome>;
-      try {
-        collected = await workItems.collect(step);
-      } catch (cause) {
-        transactions.rollback();
-        throw cause;
-      }
-      if (collected.result.ok) {
-        transactions.commit();
-        return collected;
-      }
-      transactions.rollback();
-      if (collected.result.entryId !== undefined) {
-        await workItems.discardEntry(collected.result.entryId);
-      }
-      return { ...collected, dirty: false };
-    });
+    // `execute` gives: the push happens after the turn is let go.
+    const walked = await this.opts.uow.run<Collected<UndoOutcome>>(
+      async (): Promise<Decision<Collected<UndoOutcome>>> => {
+        const collected = await workItems.collect(step);
+        if (collected.result.ok) return { commit: true, value: collected };
+        const entryId = collected.result.entryId;
+        return {
+          commit: false,
+          value: { ...collected, dirty: false },
+          // The discard the refusal owes, in the one window it can be made: the
+          // service's own went back with the rollback, and a discard issued
+          // after `run` returns would be a second batch queueing behind this
+          // one (D28).
+          //
+          // Through `workItems` rather than through the scope it is handed, and
+          // the two are the same objects: this runner's services are the batch
+          // graph, built over the **admitted** stores the unit of work hands
+          // out. What the public journal would do instead is ask the
+          // coordinator for the turn this `run` is still holding, which is a
+          // deadlock — the kit's (k) watches that through `scope.stores`. When
+          // the batch's graph is built per scope with its own collector (D24),
+          // this becomes `servicesOver(scope.stores, …).workItems`.
+          afterRollback:
+            entryId === undefined
+              ? undefined
+              : async () => {
+                  await workItems.discardEntry(entryId);
+                },
+        };
+      },
+    );
     if (walked.dirty) await workItems.announceTreeNow(projectId);
     return walked.result;
   }

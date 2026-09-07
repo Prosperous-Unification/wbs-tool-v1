@@ -15,22 +15,23 @@ import { ActualRepository } from '../repository/actual';
 import { CapacityRepository } from '../repository/capacity';
 import { CommandJournalRepository } from '../repository/command-journal';
 import type { Drizzle } from '../repository/db';
-import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
+import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
-import { OPEN } from '../repository/gate';
-import { WriteCoordinator } from '../repository/gate';
+import { OPEN, WriteCoordinator } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { PlanEventRepository } from '../repository/plan-event';
 import { PriorityBandRepository } from '../repository/priority-band';
 import { ProjectRepository } from '../repository/project';
 import { person, personTeam, service, serviceTeam, tag, workItemType } from '../repository/schema';
+import { sqliteUnitOfWork } from '../repository/sqlite-unit-of-work';
 import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository } from '../repository/work-item';
 import { WorkItemRepository } from '../repository/work-item';
+import { buildStores } from '../services';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { type Broadcaster, DeferringBroadcaster } from './broadcast';
 import { CapacityService } from './capacity.service';
@@ -137,8 +138,9 @@ beforeEach(async () => {
       bands: bandStore,
       broadcast: announcements,
     }),
-    transactions: drizzleOuterTransaction(db),
-    gate: new WriteCoordinator(),
+    // The real unit of work over this file's own connection: every case here
+    // is about what a batch leaves behind, which is the transaction's answer.
+    uow: sqliteUnitOfWork(db, new WriteCoordinator(), buildStores(db, OPEN)),
     announcements,
   };
   runner = new PlanCommandRunner(runnerOptions);

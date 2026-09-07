@@ -141,10 +141,13 @@ export function refuseToWaitForWriteLock(db: Drizzle): void {
 }
 
 /**
- * The transaction a command batch holds open around the stores' own — see
- * `service/outer-transaction.ts` for the contract and ADR 0007 for why it is
- * safe. Here rather than beside its interface because `drizzle-orm` is this
- * file's to import: the three statements are raw SQL on the one connection.
+ * A transaction held open around the stores' own, which nest inside it as
+ * savepoints (ADR 0007).
+ *
+ * A command batch no longer uses this: it is a {@link UnitOfWork}, and
+ * `sqlite-unit-of-work.ts` writes those three statements itself. What is left
+ * here is the **saved plan's** own use — its own connection, its own quota
+ * check inside the write — and `drizzleReadTransaction` beside it.
  */
 export function drizzleOuterTransaction(db: Drizzle): {
   begin(): void;

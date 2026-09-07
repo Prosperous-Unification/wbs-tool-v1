@@ -19,7 +19,6 @@ import { mountEndpoints } from './http/elysia/mount';
 import type { BoundEndpoint } from './http/endpoint';
 import { identityResolver } from './http/identity';
 import { openApiPlugin } from './openapi/openapi-plugin';
-import type { WriteCoordinator } from './repository/gate';
 import type { DatabaseHealth } from './repository/health-probe';
 import type { AuthService } from './service/auth.service';
 import type { DeferringBroadcaster } from './service/broadcast';
@@ -29,13 +28,13 @@ import type { DirectoryService } from './service/directory.service';
 import type { HistoryService } from './service/history.service';
 import { LoginThrottle } from './service/login-throttle';
 import type { OptimizationCoordinator } from './service/optimization-coordinator';
-import type { OuterTransaction } from './service/outer-transaction';
 import { PlanCommandRunner } from './service/plan-commands';
 import type { PriorityBandService } from './service/priority-band.service';
 import type { ProjectService } from './service/project.service';
 import type { ReplayOrchestrator } from './service/replay-orchestrator';
 import type { SavedPlanService } from './service/saved-plan.service';
 import type { StepService } from './service/step.service';
+import type { UnitOfWork } from './service/unit-of-work';
 import type { WorkItemService } from './service/work-item.service';
 import type { WritingServices } from './services';
 
@@ -128,16 +127,17 @@ export interface AppOptions {
    */
   probeDatabase: () => DatabaseHealth;
   /**
-   * What a command batch runs inside: the outer transaction on the one
-   * connection, the write coordinator it takes one turn at, and the batch's own
-   * service graph — `drizzleOuterTransaction(db)` and a `WriteCoordinator` in
+   * What a command batch runs inside: the source's unit of work and the batch's
+   * own service graph — `sqliteUnitOfWork(db, coordinator, admitted)` in
    * production, the counting fixture on in-memory stores. See
    * `service/plan-commands.ts`, ADR 0007 and ADR 0015.
    */
   writes: {
-    transactions: OuterTransaction;
-    /** The process's one write coordinator — see {@link ServicesOptions.gate}. */
-    gate: WriteCoordinator;
+    /**
+     * What a command batch is one of: one turn at the source's write
+     * coordinator and every write settled together (ADR 0015).
+     */
+    uow: UnitOfWork;
     /**
      * The services a batch writes through, built over stores that hold no turn
      * because the batch holds it for them (D20). These are **not** the services
@@ -195,8 +195,7 @@ export function mountedEndpoints(
     directory: opts.writes.batch.directory,
     capacity: opts.writes.batch.capacity,
     priorityBands: opts.writes.batch.priorityBands,
-    transactions: opts.writes.transactions,
-    gate: opts.writes.gate,
+    uow: opts.writes.uow,
     announcements: opts.writes.announcements,
   });
   return [

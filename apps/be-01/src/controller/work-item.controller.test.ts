@@ -516,11 +516,11 @@ describe('work item routes', () => {
     });
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'unknown_step', at: 1, kind: 'setEstimate' });
-    // The stores here are the in-memory fixtures, which no transaction can
-    // roll back; what this layer can prove is that the route opened one and
-    // rolled it back. That the rollback takes the create with it is
-    // `plan-commands.test.ts`'s, on real SQLite.
-    expect(writes.transactions.calls).toEqual(['begin', 'rollback']);
+    // The stores here are the in-memory fixtures, which no rollback can undo;
+    // what this layer can prove is that the route opened one unit of work and
+    // refused it. That the rollback takes the create with it is
+    // `plan-commands.test.ts`'s and the kit's, on real SQLite.
+    expect(writes.uow.calls).toEqual(['begin', 'rollback']);
   });
 
   it('applies a directory batch at its own route, no project in the path', async () => {

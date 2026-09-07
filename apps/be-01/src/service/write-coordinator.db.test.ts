@@ -8,7 +8,7 @@ import { ActualRepository } from '../repository/actual';
 import { CapacityRepository } from '../repository/capacity';
 import { CommandJournalRepository } from '../repository/command-journal';
 import type { Drizzle } from '../repository/db';
-import { drizzleOuterTransaction, openDrizzle } from '../repository/db';
+import { openDrizzle } from '../repository/db';
 import { DependencyRepository } from '../repository/dependency';
 import { DirectoryRepository } from '../repository/directory';
 import { EstimateRepository } from '../repository/estimate';
@@ -17,11 +17,13 @@ import { OPEN, WriteCoordinator } from '../repository/gate';
 import { runMigrations } from '../repository/migrate';
 import { PriorityBandRepository } from '../repository/priority-band';
 import { ProjectRepository } from '../repository/project';
+import { sqliteUnitOfWork } from '../repository/sqlite-unit-of-work';
 import { StepRepository } from '../repository/step';
 import { StepMeasureRepository } from '../repository/step-measure';
 import { StepProgressRepository } from '../repository/step-progress';
 import { UserRepository } from '../repository/user';
 import { SubtreeRepository, WorkItemRepository } from '../repository/work-item';
+import { buildStores } from '../services';
 import { recordingBroadcaster } from '../testing/broadcast-fixture';
 import { DeferringBroadcaster } from './broadcast';
 import { CapacityService } from './capacity.service';
@@ -140,6 +142,9 @@ beforeEach(async () => {
     journal: new CommandJournalRepository(db, OPEN),
     broadcast,
   });
+  // The batch's own stores, over an open gate: `sqliteUnitOfWork` holds the
+  // turn for them. The suspending work-item store above is one of these.
+  const admitted = { ...buildStores(db, OPEN), workItems: suspendingWorkItems };
   const announcements = new DeferringBroadcaster(broadcast);
   runner = new PlanCommandRunner({
     workItems,
@@ -154,8 +159,7 @@ beforeEach(async () => {
       bands: bandStore,
       broadcast: announcements,
     }),
-    transactions: drizzleOuterTransaction(db),
-    gate: coordinator,
+    uow: sqliteUnitOfWork(db, coordinator, admitted),
     announcements,
   });
   // The route's own service, built exactly as `buildServices` builds it: the

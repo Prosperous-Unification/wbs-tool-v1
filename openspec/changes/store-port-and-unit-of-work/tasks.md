@@ -48,34 +48,37 @@ itself holding. So `servicesOver` and the admitted graph land with the gate, and
 
 ## 2. The unit of work
 
-- [ ] 2.1 **The deadlock negative first (h).** `unit-of-work.db.test.ts` › `a store on the scope
+- [x] 2.1 **The deadlock negative first (h).** `unit-of-work.db.test.ts` › `a store on the scope
 does not wait for the turn its batch holds`: a `run` whose act writes through
       `scope.stores` must settle inside the case's timeout. Build the scope's stores over the
       **coordinator** rather than `OPEN` and watch it time out; that observed output is the
       proof comment's text.
-- [ ] 2.2 `UnitOfWork`, `Scope`, `Decision` in `service/unit-of-work.ts` (types) and
+- [x] 2.2 `UnitOfWork`, `Scope`, `Decision` in `service/unit-of-work.ts` (types) and
       `repository/sqlite-unit-of-work.ts` (the adapter, ADR 0015's sketch): one `enter`, then
       `BEGIN IMMEDIATE`, `act({ stores: admitted })`, `COMMIT`/`ROLLBACK`, `afterRollback`
       **outside** the transaction catch, `AggregateError` when the rollback fails too.
-- [ ] 2.3 Cases (a) three writes with the third refused, (b) the same throwing, (c) the
-      committed batch — each against both the SQLite adapter and an in-memory unit of work that
-      stages a clone and swaps it on commit. They live in
+- [x] 2.3 Cases (a) three writes with the third refused, (b) the same throwing, (c) the
+      committed batch, plus (h) and both halves of (k). They live in
       `apps/be-01/src/testing/kits/unit-of-work-conformance.ts` from the start, so slice 5 moves
-      a file rather than rewriting the cases.
+      a file rather than rewriting the cases. **Against SQLite only for now**: the second source
+      needs a memory unit of work that stages and swaps, and the in-memory fixtures hold private
+      arrays with no snapshot. That is slice 5's, where the memory source is tightened; the kit
+      takes a factory, so the second source is one call.
 - [x] 2.4 `servicesOver(stores, shared)` factored out of `buildServices`, so a batch's graph can
       be built over `scope.stores`. `buildServices` keeps building the shared half once — clock,
       throttle, replay buffer, optimizer wiring — and `services.db.test.ts` grows the assertion
       that two batches see **one** buffer and **two** collectors.
-- [ ] 2.5 `PlanCommandRunner.execute` and `walk` move onto `UnitOfWork.run`. `execute`'s refusal
+- [x] 2.5 `PlanCommandRunner.execute` and `walk` move onto `UnitOfWork.run`. `execute`'s refusal
       becomes `{ commit: false }`; `walk`'s stale-journal discard becomes `afterRollback`, using
       the journal on the scope it is handed. `OuterTransaction` and its `countingOuterTransaction`
       fixture are deleted, not left beside the new seam.
-- [ ] 2.6 **Case (k), the repair window.** Refuse an undo, discard its journal entry through the
-      repair scope while a second write waits, then let that write proceed. Three injected
-      faults, each watched: the **public** journal in the callback (deadlock — the turn is still
-      held), the **discarded** memory scope (the entry is still there afterwards), and a repair
-      that throws (the original error survives, no second rollback, later writes still proceed).
-- [ ] 2.7 The full be-01 suite, both tiers.
+- [x] 2.6 **Case (k), the repair window.** Two kit cases: the repair writes through the scope it
+      is handed and survives the rollback, and a repair that throws surfaces as itself with the
+      source still usable afterwards (no second `ROLLBACK` on a closed transaction). The
+      **discarded memory scope** fault waits for the memory source in slice 5. `walk`'s own
+      discard goes through the batch's `workItems`, which **is** the admitted graph — the note
+      is at the call site, and it becomes `servicesOver(scope.stores, …)` in slice 3.
+- [x] 2.7 The full be-01 suite, both tiers.
 
 ## 3. Announcements, the event log, and the history that is not in the batch
 

@@ -3,7 +3,7 @@ import type { Logger } from '@wbs/observability';
 import { buildApp } from './app';
 import type { OidcRouteOptions } from './controller/oidc-options';
 import { readDeployedCommit } from './deployed-commit';
-import { drizzleOuterTransaction, openConnection } from './repository/db';
+import { openConnection } from './repository/db';
 import { OPEN } from './repository/gate';
 import { WriteCoordinator } from './repository/gate';
 import { probeSchema } from './repository/health-probe';
@@ -131,8 +131,7 @@ export function bootBe01(opts: BootOptions): RunningBe {
     replay: services.replay,
     probeDatabase: () => probeSchema(db),
     writes: {
-      transactions: drizzleOuterTransaction(db),
-      gate: writeCoordinator,
+      uow: services.uow,
       // The batch's own services, over stores that hold no turn: the runner
       // takes the process's one turn for the whole batch, and a store of its
       // own that asked for another would wait for the batch itself.

@@ -16,6 +16,7 @@ import { type Gate, OPEN, type WriteCoordinator } from './repository/gate';
 import { PlanEventRepository } from './repository/plan-event';
 import { PriorityBandRepository } from './repository/priority-band';
 import { ProjectRepository } from './repository/project';
+import { sqliteUnitOfWork } from './repository/sqlite-unit-of-work';
 import { StepRepository } from './repository/step';
 import { StepMeasureRepository } from './repository/step-measure';
 import { StepProgressRepository } from './repository/step-progress';
@@ -39,6 +40,7 @@ import { ReplayBuffer } from './service/replay-buffer';
 import { ReplayOrchestrator } from './service/replay-orchestrator';
 import { RetentionTimer } from './service/retention-timer';
 import { StepService } from './service/step.service';
+import type { UnitOfWork } from './service/unit-of-work';
 import { WorkItemService } from './service/work-item.service';
 
 /**
@@ -112,6 +114,12 @@ export interface BeServices extends WritingServices {
    * rather than restating the wiring. Nothing publishes or writes through it.
    */
   gate: WriteCoordinator;
+  /**
+   * The source's unit of work: what `buildApp` gives `PlanCommandRunner` as
+   * `writes.uow`. One per process, over the same admitted stores {@link batch}
+   * is built from.
+   */
+  uow: UnitOfWork;
   auth: AuthService;
   /**
    * The batch's own service graph, built over stores that hold no turn because
@@ -386,6 +394,10 @@ export function buildServices(opts: ServicesOptions): BeServices {
     // The batch's own graph, over the admitted stores: its writes are already
     // the batch's, so nothing in it waits for the turn `UnitOfWork` holds.
     batch: servicesOver(admitted, { clock, broadcast: announcements, optimized: optimizer }),
+    // Built here because this is where the admitted stores are: the unit of
+    // work hands its act the same objects the batch's services write through,
+    // and a second set would be a scope nothing in the graph is holding.
+    uow: sqliteUnitOfWork(opts.db, opts.gate, admitted),
     history: new HistoryService({ projects: projectStore, events: planEventStore }),
     replay: new ReplayOrchestrator({ log: eventLog, buffer: replayBuffer }),
     retention: new RetentionTimer({

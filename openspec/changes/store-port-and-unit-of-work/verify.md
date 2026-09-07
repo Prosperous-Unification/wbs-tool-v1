@@ -22,17 +22,17 @@ Re-run 2026-09-08 against `main` @ `d2e14214`, over the file set the change decl
 
 ## Failure-proof table
 
-| Check                                                          | Fault injected                                                                    | Test that observed it | Observed |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------- | -------- |
-| A route write started during a batch is not rolled back (d)    | the gate removed from `StepRepository.add`                                        |                       |          |
-| Every public transactional write takes a turn (i)              | `OPEN` in place of the coordinator for one store                                  |                       |          |
-| A scope store does not wait for its own batch's turn (h)       | scope stores built over the coordinator instead of `OPEN`                         |                       |          |
-| The post-rollback repair reaches surviving state (k)           | the public journal in the callback; the discarded memory scope; a throwing repair |                       |          |
-| A committed event still leaves when the next batch refuses (l) | a shared ambient announcement slot                                                |                       |          |
-| A saved plan takes no turn and survives both outcomes (j)      | history tables put back inside the swapped clone                                  |                       |          |
-| `Scope` cannot enlist a saved plan                             | a `scope.stores.savedPlans` reference                                             | `tsc`                 |          |
-| A stub with no allowlist line                                  | a stubbed memory method left off the allowlist                                    |                       |          |
-| A runtime port with no adapter                                 | a service constructed without its port                                            | `tsc`                 |          |
+| Check                                                          | Fault injected                                                                      | Test that observed it                                                      | Observed                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A route write started during a batch is not rolled back (d)    | the gate removed from `StepRepository.add`                                          |                                                                            |                                                                                                                                                                                                                                                            |
+| Every public transactional write takes a turn (i)              | `OPEN` in place of the coordinator for one store                                    |                                                                            |                                                                                                                                                                                                                                                            |
+| A scope store does not wait for its own batch's turn (h)       | the SQLite fixture's `admitted` stores built over the coordinator instead of `OPEN` | `sqlite-unit-of-work.db.test.ts` (the whole kit)                           | **Hung**: `(a) makes none of a refused batch observable ... this test timed out after 3000ms`, and the run had to be killed. A deadlock's shape from outside is a timeout, which is why the fault is named in the comment rather than left to be inferred. |
+| The post-rollback repair reaches surviving state (k)           | a repair that throws                                                                | kit `(k) lets a failing repair surface as itself, with no second rollback` | Passes: the repair's own error reaches the caller and the next batch commits. The **public journal** and **discarded memory scope** faults wait for slice 5's memory source.                                                                               |
+| A committed event still leaves when the next batch refuses (l) | a shared ambient announcement slot                                                  |                                                                            |                                                                                                                                                                                                                                                            |
+| A saved plan takes no turn and survives both outcomes (j)      | history tables put back inside the swapped clone                                    |                                                                            |                                                                                                                                                                                                                                                            |
+| `Scope` cannot enlist a saved plan                             | a `scope.stores.savedPlans` reference                                               | `tsc`                                                                      |                                                                                                                                                                                                                                                            |
+| A stub with no allowlist line                                  | a stubbed memory method left off the allowlist                                      |                                                                            |                                                                                                                                                                                                                                                            |
+| A runtime port with no adapter                                 | a service constructed without its port                                              | `tsc`                                                                      |                                                                                                                                                                                                                                                            |
 
 ## Slice 1 — the gate and the two graphs
 
@@ -45,6 +45,20 @@ Re-run 2026-09-08 against `main` @ `d2e14214`, over the file set the change decl
 
 The whole-workspace gate is slice 6's, on a frozen tree. Nothing outside `apps/be-01`
 changed in this slice.
+
+## Slice 2 — the unit of work
+
+| Command                                             | When       | Result                                                                       |
+| --------------------------------------------------- | ---------- | ---------------------------------------------------------------------------- |
+| `bunx tsc --build --force apps/be-01/tsconfig.json` | 2026-09-08 | clean                                                                        |
+| `bun test` in `apps/be-01`                          | 2026-09-08 | **2002 pass, 1 skip, 0 fail**, 20,003 assertions, 116s (six kit cases added) |
+| `bunx eslint apps/be-01/src`                        | 2026-09-08 | clean                                                                        |
+
+Two failures found by the suite rather than by the compiler, both worth the record: the
+`countingUnitOfWork` fixture's scope throws by name when something asks it for a store, and
+`walk`'s first version reached for `scope.stores.journal` — so `answers 409 stale_undo naming
+what moved` and `leaves an undo whose step has gone refusing as stale` both went **500**
+instead of quietly writing somewhere nothing reads.
 
 ### One check that could not fail, deleted before it shipped
 
