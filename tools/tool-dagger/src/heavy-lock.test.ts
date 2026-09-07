@@ -8,7 +8,12 @@ const SCRIPT = join(import.meta.dir, '../../../bin/with-heavy-lock.sh');
 const LOCK_LIB = join(import.meta.dir, '../../../bin/heavy-lock-lib.sh');
 const roots: string[] = [];
 
-// **Every case states its own wait budget; none inherits one.**
+// **Every contender states its own wait budget rather than inheriting one.**
+//
+// The two `Bun.spawn` lock HOLDERS below deliberately still inherit it, and that
+// is safe for a reason worth stating rather than assuming: each holder is the
+// first claimant of its own `mkdtemp` lock, so it never reaches the wait loop at
+// all, and a child's environment cannot reach its sibling contender.
 //
 // `heavy-lock-lib.sh` reads `HEAVY_LOCK_WAIT_SECONDS` from the environment
 // (`${HEAVY_LOCK_WAIT_SECONDS:-0}`), and `bin/h2puni-gate.sh` exports nothing —
@@ -152,10 +157,14 @@ describe('with-heavy-lock', () => {
     const elapsedMs = Date.now() - started;
     await holder.exited;
 
-    // Both halves are the assertion. Exit 0 alone would also pass if the
-    // holder had already died before the claim, which is the run this case
-    // would otherwise silently degrade into; the elapsed floor is what proves
-    // it actually waited, since the refusal path returns in milliseconds.
+    // Both halves are the assertion, and the second is a floor on the CALL, not
+    // a proof of contention. Exit 0 alone would also pass if the holder had
+    // already died before the claim — the run this case would otherwise silently
+    // degrade into — and >4s is inconsistent with the refusal path, which returns
+    // in milliseconds. What it does not do is establish that the contender
+    // reached the retry branch, because holder readiness is a `Bun.sleep(300)`
+    // guess rather than a synchronisation point. TASK-376 replaces both with an
+    // observed retry.
     expect(queued.exitCode).toBe(0);
     expect(elapsedMs).toBeGreaterThan(4000);
   }, 20_000);
