@@ -3820,7 +3820,8 @@ inputHash, objective, contractVersion, budgetMs, failureReason)` and no
       screen sat at `Optimizing…` for ever and manual-only Retry was
       unreachable. A cache **hit** still emits nothing; a hit is not a new
       outcome. **Watched red:** both variants fail with no other event; the
-      client must reach `Optimization unavailable · Retry` with no refresh.
+      client must reach `Optimization unavailable · Retry` on the event alone,
+      with no manual refresh and no poll.
 - [x] 7.7 `budgetMs` joins both event identities. It is a cache-key column and
       changes neither hash nor generation, so without it a larger-budget
       result announced itself under the smaller-budget identity and a client
@@ -3963,7 +3964,10 @@ workdays` per missed item — Fast's lateness is a report, never a verdict
       pass under either rule. Client-side computation is forbidden, so client
       and server cannot label the same pair differently.
 - [ ] 8.8 The failure indicator is driven by `schedule_optimization_failed`
-      rather than by a refetch, and shows per variant.
+      rather than by a poll or a manual refresh, and shows per variant. The
+      event starts the ordinary plan read and there is no variant-scoped one —
+      the spec states that contract once, under **What an outcome event
+      promises a client**.
 - [ ] 8.9 The FE mirror in the same slice as the union change:
       `ScheduleFloor` in `apps/fe-01/src/lib/wbs-api.ts` and the exhaustive
       `floorWordsOf` switch in
