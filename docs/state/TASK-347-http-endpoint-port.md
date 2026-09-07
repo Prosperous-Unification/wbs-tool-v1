@@ -58,9 +58,42 @@ Two layout assertions fail, both in `apps/fe-01/e2e/layout.spec.ts`:
 proxy error: write EPIPE` lines in the same log are noise from the dev server
 being torn down, not the failure.
 
-Whether these two are caused by this branch or arrived with the `origin/main`
-merge is **not established here** — deciding that needs the same two specs run
-against `main` at the merged-in commit, which this dump does not do.
+### These are the branch's, not `main`'s
+
+`main` at `0adaf700` — the exact commit this branch merged in at `0f2fefc5` —
+is green, `gate: success` and `pixels: success` (run 34139366881). The same two
+specs pass there and fail here, so the branch owns them.
+
+### Neither is a pixel diff
+
+Both are DOM assertions, not screenshot comparisons, and both land on the
+folded step row's assignee UI. From the failure artifacts of run 34140957558:
+
+**1. `layout.spec.ts:1296` — the folded assignee never renders.**
+`rowOf('010').locator('[data-folded-assignee]')` resolved to 0 elements, 64
+polls across 30s. The DOM snapshot shows row 010's estimate cell as
+`"1/2/3 · 2 Dev for 010 …"` — the figure and the final are there, the `· XX`
+initials are not. That span is gated on `doing !== null` in
+`plan-columns/estimates.tsx:497`, where `doing =
+live.current.assigneeOn(row.original, step.id)`. So `assigneeOn` returned null
+for a row the fixture assigns.
+
+**2. `layout.spec.ts:2737` — the picker opens empty.**
+The preceding assertion passes: the listbox `QA assignee for 030` *is* visible
+with `@Kat` typed. Only `option "Add “Kat”"` is missing. That option is built in
+`use-estimate-drafts.ts:426` under `wanted !== '' && !exact`, in a
+`mentionOptions` whose first line is
+`if (open?.rowId !== row.id || open.stepId !== stepId) return []`. An open
+listbox with zero options is what that early return looks like from the outside.
+
+Both failures are the same shape: `live.current` reaching
+`plan-columns/estimates.tsx` without the assignee/mention state the folded cell
+reads. The suspect commit is `281144a9 refactor: split the plan table into
+concept modules`, which moved this rendering out of `wbs-table.tsx` into
+`plan-columns/estimates.tsx`; the branch also reshapes the `setAssignee`
+contract, dropping `personId` from `required` and adding `personRef:
+'unresolved'`. Which of the two is the cause is **not** proved here — that needs
+the two specs run, and nothing in this dump ran them.
 
 ## What remains
 
