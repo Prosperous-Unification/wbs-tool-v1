@@ -186,19 +186,17 @@ function parsePayload(
 /**
  * One row's payload, dispatched on the row's own `status`.
  *
- * **`plan-infeasible` is decoded only as far as its envelope, and that is a
- * stated hole rather than an oversight.** Assumption A1 (schema.ts) says the
- * row holds a versioned `PlanInfeasibleResult` discriminated by `status`, and
- * that a payload which fails to decode reads as `corrupt` on exactly the rule
- * an `ok` row obeys. The certificate type itself belongs to the failure path
- * (slice 7) and does not exist yet, so what is enforced here is the half A1
- * fixes and this layer can honestly check: valid JSON carrying a numeric
- * `dtoVersion`, which is the read fence both existing codecs already use.
- * The certificate's *contents* are unvalidated until that codec lands.
- * **What would falsify the split:** a `plan-infeasible` payload whose offending
- * item list is malformed reads `plan-infeasible` today and must read `corrupt`
- * once `decodePlanInfeasible` exists — so the case below asserts the envelope
- * rule only, and tightening it is a change to this function, not to its caller.
+ * **`plan-infeasible` is now decoded whole**, and the envelope-only read it
+ * replaced was a stated hole rather than an oversight. Assumption A1
+ * (schema.ts) says the row holds a versioned `PlanInfeasibleResult`
+ * discriminated by `status`, and that a payload which fails to decode reads as
+ * `corrupt` on exactly the rule an `ok` row obeys. Until the certificate's own
+ * codec landed this layer could honestly check only the half A1 fixes — valid
+ * JSON carrying a numeric `dtoVersion`, the read fence both other codecs use —
+ * and the predicted falsification was written down: a payload whose offending
+ * item list is malformed read `plan-infeasible` then and must read `corrupt`
+ * once `decodePlanInfeasible` existed. It does, this call is it, and the
+ * tightening was a change to this function and to no caller.
  */
 function decodePayload(
   status: 'ok' | 'plan-infeasible',

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,7 +12,13 @@ import {
   toSolverQueueRow,
   toSolverSlotRow,
 } from './optimizer-rows';
-import { optimizationGeneration, optimizedScheduleCache, solverQueue, solverSlot } from './schema';
+import {
+  optimizationGeneration,
+  OPTIMIZED_SCHEDULE_STATUSES,
+  optimizedScheduleCache,
+  solverQueue,
+  solverSlot,
+} from './schema';
 
 const FOLDER = new URL('../../drizzle', import.meta.url).pathname;
 
@@ -320,5 +326,54 @@ describe('a stored optimizer enum', () => {
     } finally {
       db.cleanup();
     }
+  });
+});
+
+/**
+ * The status vocabulary against the artifact that declares it.
+ *
+ * `plan-infeasible` reached `OPTIMIZED_SCHEDULE_STATUSES` and both CHECKs on
+ * the shipped table, and `tasks.md` 3.1 was amended with it, while
+ * `design.md`'s own Cache identity bullet still read `status` (`'ok' |
+ * 'failed'`) and `CHECK (status IN ('ok','failed'))`. Nothing failed, because
+ * no assertion anywhere read that bullet — the identical check for
+ * `failure_reason` exists one directory away in
+ * `solver-failure-disposition.test.ts` and is why that vocabulary never
+ * drifted.
+ *
+ * Non-circular for the same reason that one is: the expectation is parsed out
+ * of the design text and compared with the constant the table is built from,
+ * so the two can only agree by actually agreeing.
+ */
+describe('the cache status vocabulary is the one design.md declares', () => {
+  const DESIGN = readFileSync(
+    new URL('../../../../openspec/changes/dual-optimized-scheduler/design.md', import.meta.url),
+    'utf8',
+  );
+
+  it('matches the status CHECK constraint exactly, in order', () => {
+    const match = /CHECK \(status IN \(([^)]*)\)\)/.exec(DESIGN);
+    if (!match) throw new Error('design.md no longer declares a cache status CHECK constraint');
+    const declared = match[1].split(',').map((token) => token.trim().replace(/^'|'$/g, ''));
+    expect(OPTIMIZED_SCHEDULE_STATUSES.map(String)).toEqual(declared);
+  });
+
+  /**
+   * The payload half, and the reason 3.1 insists the two CHECKs move together:
+   * a status admitted by the first CHECK and absent from the second is a value
+   * the table declares legal and then refuses on every insert.
+   *
+   * MEASURED (control E, first attempt): asserting that the Cache identity
+   * bullet merely *mentions* each status gave **18 pass / 0 fail** with the
+   * `plan-infeasible` disjunct deleted, because the surrounding prose names the
+   * status too. An assertion that cannot fail for the reason it claims is worse
+   * than no assertion, so the design text now writes the CHECK out per status
+   * as SQL — the same form `tasks.md` 3.1 uses — and this reads the disjuncts.
+   */
+  it('gives every admitted status its own payload disjunct', () => {
+    const payload = /CHECK \(\(status='[\s\S]*?\)\)/.exec(DESIGN);
+    if (!payload) throw new Error('design.md no longer declares a cache payload CHECK constraint');
+    const disjuncts = [...payload[0].matchAll(/status='([^']*)'/g)].map((m) => m[1]);
+    expect(disjuncts).toEqual(OPTIMIZED_SCHEDULE_STATUSES.map(String));
   });
 });

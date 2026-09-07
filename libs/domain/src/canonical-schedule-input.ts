@@ -170,6 +170,13 @@ const sortedPairs = <V>(map: ReadonlyMap<string, V>): [string, V][] =>
  * | `reach` | 22 / 2 | depReach flipped to anchor-slice |
  * | `deadlines` | 22 / 2 | a deadline the engine cannot yet read (TASK-241) |
  *
+ * That last case has since been renamed `a deadline the engine now reads` and
+ * moved into `movesAPlacement` (TASK-241 slice 7.1): TASK-267 gave `schedule()`
+ * the seventh parameter and two readers for it, and the test helper that had
+ * been dropping it now passes it. The counts above are the measurement taken at
+ * `05b78008` and are left as measured; the row is the case that caught the
+ * removal, under the name it carried then.
+ *
  * The five two-fail rows are the field's own case plus `puts every one of the
  * seven arguments in the string, maps included`, the structural guard catching
  * the same hole a second way.

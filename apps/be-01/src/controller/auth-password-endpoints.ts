@@ -1,7 +1,7 @@
 import { loginPassword, readPasswordSession, registerPassword } from '@wbs/contracts';
 
 import { bind, type RequestFailure } from '../http/endpoint';
-import { userFromHeaders } from '../middleware/authenticated';
+import { cookiesIn, userFromHeaders } from '../middleware/authenticated';
 import { type AuthService, TOKEN_TTL_SECONDS } from '../service/auth.service';
 import type { LoginThrottle } from '../service/login-throttle';
 
@@ -131,9 +131,23 @@ export function authPasswordEndpoints(
     bind(readPasswordSession, async ({ request }) => {
       // Proof: catching authentication errors makes the mounted account-store outage receive 401 instead of 500.
       const user = await userFromHeaders(auth, Object.fromEntries(request.headers.entries()));
-      return user === null
+      if (user !== null)
+        return { ok: true, status: 200, body: { user: { ...user, scopes: [...user.scopes] } } };
+      const presentedCredential =
+        cookiesIn(request.headers.get('cookie') ?? undefined).has('__Host-wbs_access') ||
+        request.headers.has('authorization') ||
+        request.headers.has('x-wbs-token');
+      /*
+       * No browser session is an ordinary signed-out state. A credential that
+       * was presented still fails closed.
+       *
+       * Proof: treating every null user as anonymous made the mounted invalid
+       * bearer case receive 200 instead of 401; restoring the blanket refusal
+       * made the production anonymous case receive 401 instead of 200.
+       */
+      return presentedCredential
         ? { ok: false, status: 401, body: { error: 'invalid_token' } }
-        : { ok: true, status: 200, body: { user: { ...user, scopes: [...user.scopes] } } };
+        : { ok: true, status: 200, body: { user: null } };
     }),
   ] as const;
 }

@@ -130,6 +130,17 @@ describe('current session', () => {
       failure: { code: 'transport', cause },
     });
   });
+
+  it('reads the server’s explicit anonymous state without an error response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, { user: null }))),
+    );
+    await expect(me()).resolves.toMatchObject({
+      kind: 'success',
+      body: { user: null },
+    });
+  });
 });
 
 it('puts no credential in the websocket URL', () => {

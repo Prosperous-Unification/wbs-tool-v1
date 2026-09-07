@@ -17,7 +17,7 @@ const signedIn = responseSchema(
 );
 const scope = type("'read' | 'write' | 'editor'");
 const currentUser = responseSchema(
-  type({ user: { id: 'string', username: 'string', scopes: scope.array() } }),
+  type({ user: type({ id: 'string', username: 'string', scopes: scope.array() }).or('null') }),
 );
 
 /** Creates a password account and returns its local bearer or hardened browser session. */
@@ -71,7 +71,7 @@ export const loginPassword = defineEndpointShape({
   document: { summary: 'Start a session with a password account.' },
 });
 
-/** Resolves the current password or OIDC session without changing its historical refusal code. */
+/** Resolves the current password or OIDC session, including an explicit signed-out state. */
 export const readPasswordSession = defineEndpointShape({
   method: 'GET',
   path: '/api/auth/me',

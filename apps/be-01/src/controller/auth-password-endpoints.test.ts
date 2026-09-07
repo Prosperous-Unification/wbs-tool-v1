@@ -53,7 +53,7 @@ test('direct password bindings preserve service refusals and local bearer sessio
   ).toEqual({ ok: false, status: 401, body: { error: 'invalid_credentials' } });
 });
 
-test('direct me binding keeps credential absence modeled and store failures unexpected', async () => {
+test('direct me binding distinguishes signed out, invalid credentials and store failures', async () => {
   const users = inMemoryUsers();
   const auth = testAuthService(users);
   const endpoints = authPasswordEndpoints(auth, undefined, new LoginThrottle({ maxConcurrent: 8 }));
@@ -81,6 +81,12 @@ test('direct me binding keeps credential absence modeled and store failures unex
       request: { ...input.request, headers: new Headers({ authorization: 'Bearer invalid' }) },
     }),
   ).toEqual({ ok: false, status: 401, body: { error: 'invalid_token' } });
+  expect(
+    await endpoints[2].handle({
+      ...input,
+      request: { ...input.request, headers: new Headers() },
+    }),
+  ).toEqual({ ok: true, status: 200, body: { user: null } });
 
   const failure = new Error('account lookup unavailable');
   const lookup = spyOn(users, 'findById').mockRejectedValue(failure);

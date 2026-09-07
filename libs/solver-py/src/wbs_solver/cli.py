@@ -19,13 +19,27 @@ spawns the solve entrypoint directly.
 
 EXIT CODES
 ----------
-The coordinator distinguishes zero from non-zero and nothing finer: every
-non-zero exit is `internal-error` to it. The distinct values below exist for
-whoever is reading a log.
+The coordinator reads these values and dispositions them apart
+(`dispositionOfExitCode` in `libs/contracts/solver/src/
+solver-failure-disposition.ts`), so they are a contract rather than a log
+convenience.
 
   0   a response was written to stdout
   64  the request was refused before solving (framing, encoding, shape)
+      → `internal-error`: every request is built by `buildSolverRequest`, so a
+      request this entrypoint cannot read is a fault on the caller's side
   70  the solve could not answer
+      → `invalid-output`: the solver ran and returned nothing usable. This is
+      the only way a **later-stage** `INFEASIBLE` can leave the process — it
+      has no encoding on the wire, and spec.md's staged-lexicographic
+      requirement says the entrypoint "SHALL exit non-zero without emitting a
+      response, and the coordinator SHALL record that run as `invalid-output`"
+
+An earlier revision of this block said the coordinator "distinguishes zero from
+non-zero and nothing finer: every non-zero exit is `internal-error` to it". It
+was written before the response schema reserved `infeasible` for a stage-1
+proof, and it contradicted both the `SolveFailed` handler below and the three
+artifacts that name a disposition for the `INFEASIBLE, k > 1` row.
 
 **A non-zero exit writes nothing to stdout.** That is not tidiness: the
 response schema admits no "I failed" status, so a partial or invented message

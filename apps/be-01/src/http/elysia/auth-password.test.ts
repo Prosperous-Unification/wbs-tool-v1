@@ -123,8 +123,15 @@ test('mounted local register, login and me preserve JSON status and content type
     user: { ...session.user, scopes: ['read', 'write', 'editor'] },
   });
   const missing = await app.handle(new Request('https://backend.example/api/auth/me'));
-  expect(missing.status).toBe(401);
-  expect(await missing.json()).toEqual({ error: 'invalid_token' });
+  expect(missing.status).toBe(200);
+  expect(await missing.json()).toEqual({ user: null });
+  const invalid = await app.handle(
+    new Request('https://backend.example/api/auth/me', {
+      headers: { authorization: 'Bearer invalid' },
+    }),
+  );
+  expect(invalid.status).toBe(401);
+  expect(await invalid.json()).toEqual({ error: 'invalid_token' });
 });
 
 test('mounted request boundary distinguishes malformed JSON, shape errors and proxy metadata', async () => {

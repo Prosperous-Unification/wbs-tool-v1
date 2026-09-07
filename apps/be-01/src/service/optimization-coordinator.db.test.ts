@@ -857,6 +857,26 @@ describe('OptimizationCoordinator read', () => {
         terminal: { exitCode: 1, deadlineKilled: false, oomKilled: false },
         expected: 'internal-error',
       },
+      // 64 and 70 are cli.py's own two refusals and they land on different
+      // reasons: 70 is the solver running and answering nothing, which is the
+      // only way a later-stage INFEASIBLE can leave the process, and spec.md
+      // requires that run to be recorded `invalid-output`. 64 is the request
+      // refused before solving, and every request is ours.
+      {
+        terminal: { exitCode: 70, deadlineKilled: false, oomKilled: false },
+        expected: 'invalid-output',
+      },
+      {
+        terminal: { exitCode: 64, deadlineKilled: false, oomKilled: false },
+        expected: 'internal-error',
+      },
+      // Kill evidence outranks the code. A child killed at its deadline exits
+      // non-zero too, and reading 70 out of a SIGKILL would report a stage the
+      // solver never reached.
+      {
+        terminal: { exitCode: 70, deadlineKilled: true, oomKilled: false },
+        expected: 'timeout',
+      },
     ] as const;
 
     for (const item of cases) {
@@ -893,6 +913,46 @@ describe('OptimizationCoordinator read', () => {
         else expect(outcome).toMatchObject({ kind: 'failed', reason: item.expected });
       }
       expect(db.select().from(solverSlot).all()).toEqual([]);
+    }
+  });
+
+  /**
+   * The OTHER arm of `processOutcome`, and it needs its own case because the
+   * table above cannot reach it: every row there supplies `child.terminal`, so
+   * reverting the un-authenticated branch alone left both changed files green
+   * (Sol r3 c1 Minor 1). A supervisor that never sent a terminal frame leaves
+   * the raw exit as the only evidence there is, and `70` still has to mean the
+   * solver answered nothing.
+   */
+  it('reads the raw exit code when no terminal frame authenticates it', async () => {
+    const { path, db } = database();
+    seedProject(path);
+    const calls: ReservedSpawnRequest[] = [];
+    const instance = coordinator(
+      db,
+      calls,
+      'blue',
+      () => ({
+        pid: 500 + calls.length,
+        stdout: stream(FEASIBLE_RESPONSE),
+        stderr: stream(''),
+        exited: Promise.resolve(70),
+        verdict: () => undefined,
+        kill: () => undefined,
+      }),
+      runSolverChildLifecycle,
+    );
+
+    expect(instance.read({ projectId: 'p-1', objective: 'pri', input: INPUT })).toBeNull();
+    await instance.drain();
+    const pair = readOptimizedPair(db, {
+      projectId: 'p-1',
+      inputHash: scheduleInputHash(INPUT),
+      contractVersion: CONTRACT,
+      budgetMs: BUDGET,
+    });
+    for (const outcome of [pair.pri, pair.time]) {
+      expect(outcome).toMatchObject({ kind: 'failed', reason: 'invalid-output' });
     }
   });
 

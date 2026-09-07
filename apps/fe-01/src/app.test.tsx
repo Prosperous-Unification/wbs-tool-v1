@@ -53,6 +53,24 @@ describe('the app root', () => {
     expect(document.querySelector('[data-app-fault]')).toBeNull();
   });
 
+  itDom('shows sign-in quietly when the server reports no browser session', async () => {
+    me.mockResolvedValue({
+      kind: 'success',
+      representation: 'json',
+      status: 200,
+      body: { user: null },
+      headers: new Headers(),
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'WBS tool v2' })).toBeDefined();
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(logged).not.toHaveBeenCalled();
+  });
+
   itDom('offers sign-in when the session check fails', async () => {
     me.mockRejectedValue(new Error('network down'));
 

@@ -25,7 +25,7 @@ export const register = (username: string, password: string) =>
 export const login = (username: string, password: string) =>
   sessions.postApiAuthLogin({ body: { username, password } });
 
-/** Only invalid_token means signed out; outages and malformed replies stay distinct. */
+/** A null user or invalid_token means signed out; boundary failures stay distinct. */
 export const me = () => sessions.getApiAuthMe({});
 
 /** The access cookie authenticates the upgrade; the URL carries no credential. */

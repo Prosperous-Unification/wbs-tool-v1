@@ -72,7 +72,7 @@ function AppContent() {
       .then((reply) => {
         switch (reply.kind) {
           case 'success':
-            setSession({ token: '', user: reply.body.user });
+            if (reply.body.user !== null) setSession({ token: '', user: reply.body.user });
             return;
           case 'failure':
             setSessionError(failureMessage(reply.failure));

@@ -105,7 +105,10 @@ capacity while a container may remain live. This replaces
   path.
 - `OOMKilled=true` is the only generic native-process evidence classified
   `oom`; a supervisor deadline kill is `timeout`; a non-zero exit with neither
-  is `internal-error`. Exit text never guesses the class.
+  is `internal-error`, except the entrypoint's own `70`, which is
+  `invalid-output`. Exit text never guesses the class, and the numeric
+  carve-out is the entrypoint's declared code rather than a reading of the
+  exit's text.
 - `admittedDeadlineAt` remains 15 seconds later than `childDeadlineAt`, giving
   wait/inspect/report a full margin before SQLite may re-admit capacity.
 

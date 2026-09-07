@@ -41,8 +41,8 @@ function locatedErrorCommandOf(line: string): string | null {
     : nxPrefixLength !== null && line.startsWith(ERROR_PREFIX, nxPrefixLength)
       ? line.slice(nxPrefixLength)
       : null;
-  // Proof: retaining a bare CR let an otherwise located error append a second
-  // Actions command, while every other embedded C0/DEL fixture reached stdout.
+  // Proof: removing this guard made the direct C0/DEL selection case retain
+  // the first 20 of 31 forbidden fixtures while CR splitting remained active.
   if (!command || containsCommandControl(command)) return null;
 
   const separator = command.indexOf('::', ERROR_PREFIX.length);

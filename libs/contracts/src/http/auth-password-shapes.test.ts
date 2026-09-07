@@ -53,3 +53,11 @@ test('pins route-specific refusal status and error pairings', () => {
   ]);
   expect(readPasswordSession.refusals.map(({ status }) => status)).toEqual([400, 401]);
 });
+
+test('declares an explicit anonymous session while rejecting malformed success bodies', async () => {
+  const success = readPasswordSession.responses[0].schema;
+  expect(await validateSchema(success, { user: null })).toEqual({ value: { user: null } });
+  expect(
+    (await validateSchema(success, { user: { id: 'account', username: 'ada' } })).issues,
+  ).toBeDefined();
+});

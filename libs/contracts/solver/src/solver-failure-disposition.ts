@@ -133,6 +133,61 @@ const REVALIDATION_DISPOSITIONS: Readonly<Record<SolverRevalidationFailure, Solv
     'deadline-violated': 'invalid-output',
   };
 
+/**
+ * The solver process's own exit codes, verbatim from `libs/solver-py/src/
+ * wbs_solver/cli.py`'s EXIT CODES block. Named here because the coordinator has
+ * to turn one into a `failureReason` and a bare `70` at that call site is a
+ * number nobody can check against the entrypoint that produced it.
+ */
+export const SOLVER_EXIT_CODES = {
+  /** A response was written to stdout. Not a failure and never dispositioned. */
+  ok: 0,
+  /** The request was refused before solving: framing, encoding, shape. */
+  badRequest: 64,
+  /** The solve ran and could not answer. Nothing on stdout, by contract. */
+  solveFailed: 70,
+} as const;
+
+/**
+ * Post-run, from the exit code alone. This is the fourth seam, and the only one
+ * whose input is a number rather than a token, which is why it is not a member
+ * of `SOLVER_FAILURE_DISPOSITIONS` below — that array is keyed by diagnosis
+ * tokens and an exit code is not one.
+ *
+ * `solveFailed` is `invalid-output`, and that mapping is a requirement rather
+ * than a preference. A **later-stage** `INFEASIBLE` is the one solver outcome
+ * with no encoding on the wire (`solver-wire.v1.json`, the response
+ * `$comment`), so the entrypoint "SHALL exit non-zero without emitting a
+ * response, and the coordinator SHALL record that run as `invalid-output`"
+ * (`openspec/changes/dual-optimized-scheduler/specs/scheduler-optimization/
+ * spec.md`, the staged-lexicographic requirement; `design.md`'s `INFEASIBLE,
+ * k > 1` row says the same). `70` is the code that path takes, and it is the
+ * same disposition `empty-output` already earns from `PARSE_DISPOSITIONS`: the
+ * process ran and what came back was not one well-formed response line.
+ *
+ * `badRequest` is `internal-error` and is NOT a statement about the solver. The
+ * request was refused before solving, and every request is produced by
+ * `buildSolverRequest`, which is ours — the same argument
+ * `REVALIDATION_DISPOSITIONS` makes for `malformed-request`. Any other non-zero
+ * code is a process that died without reaching either exit, which is also not a
+ * solver answer.
+ *
+ * ASSUMPTION (run 3). `cli.py` used to state the opposite rule — "the
+ * coordinator distinguishes zero from non-zero and nothing finer: every
+ * non-zero exit is `internal-error` to it" — and that docstring is amended in
+ * this same commit. It was written before the response schema reserved
+ * `infeasible` for a stage-1 proof; the three artifacts that name a disposition
+ * for the later-stage row all name `invalid-output`, and a docstring is not one
+ * of them. FALSIFIED BY: a coordinator requirement naming `internal-error` for
+ * a solver that ran and answered nothing.
+ */
+export const dispositionOfExitCode = (code: number): SolverFailureReason => {
+  if (code === SOLVER_EXIT_CODES.ok) {
+    throw new Error('exit code 0 wrote a response; ask parseSolverResponse, not this seam');
+  }
+  return code === SOLVER_EXIT_CODES.solveFailed ? 'invalid-output' : 'internal-error';
+};
+
 export const dispositionOfParseFailure = (failure: SolverParseFailure): SolverFailureReason =>
   PARSE_DISPOSITIONS[failure];
 
