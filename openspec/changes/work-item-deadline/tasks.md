@@ -176,6 +176,7 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       `before-project-start` at write time (slice 6) is malformed input;
       unreachable-but-well-formed is legitimate input that Fast reports late
       (slice 5) and PRI/Time report infeasible (slice 8).
+<<<<<<< HEAD
       **All three boundaries now stand; the third arrived with slice 8 and is
       verified here at `96f037f9` rather than assumed from its checkbox.**
       _Write time_ is slice 6's service refusal:
@@ -220,6 +221,34 @@ deadlines)`. Every substantive clause holds — `Math.min` fold, **absent**
       here. 3.4 claims the boundaries exist and are distinct, which the three
       cases above assert directly; W5 claims the test guarding one of them can
       fail. 3.4 does not wait on it.
+=======
+      **Two of the three boundaries stand as of 3.4/4.2 and the box stays open
+      on the third.** Write time is slice 6's service refusal (422, naming the
+      work item and the project's day zero). Read time is
+      `deadline-plan-read.test.ts`'s moved-start case: the same resolution, the
+      opposite verdict — the request is not rejected, the stored value is not
+      rewritten, and Fast reports the row late by the whole span. What is still
+      owed is the third clause, `plan-infeasible` from PRI/Time, which is slice
+      8 and TASK-219/241's; this item cannot be closed from inside this task.
+      **The third boundary landed here and the box closes.** The sentence above
+      was written from TASK-219, for which slice 8 was someone else's; it is
+      TASK-241's, and 8.5b/8.7 are it. Each boundary now has a named referent
+      and they are three different verdicts on the same resolution:
+      `apps/be-01/src/controller/work-item.controller.test.ts:797` is write time
+      — `deadline_before_project_start`, refused, naming the work item and the
+      project's day zero;
+      `apps/be-01/src/service/deadline-plan-read.test.ts:260` ("reports a
+      project start moved past a stored deadline late by the whole span") is
+      read time — **not** refused, not rewritten, reported late; and
+      `apps/be-01/src/service/optimization-events.db.test.ts:236` is slice 8 —
+      a real `status: 'infeasible'` response over a deadlined input stores
+      `plan-infeasible` on both variants, emits
+      `schedule_optimization_infeasible` for each, and (8.6) is refused a
+      Retry. **Where that third referent stops:** its wire response is a
+      fixture, so it proves the pipeline's disposition of an infeasible answer
+      and not that CP-SAT finds this particular input infeasible — that is
+      8.3's hard constraint and W2, which are their own items and are closed.
+>>>>>>> origin/main
 - [x] 3.5 **WATCHED RED W4** — fold with `max` instead of `min`; a child dated
       earlier than its parent must be loosened to the parent's date. Measured on
       h2puni: 532 pass / **4 fail** — `keeps each leaf the EARLIEST of its own
@@ -590,8 +619,14 @@ contractVersion, inputHash)`. That draft had quoted the requirement's
       non-NULL `resultJson` and the inverse for `failed`. `plan-infeasible`
       carries a payload, so both the status CHECK and the payload CHECKs change,
       in both files, in the same commit.
-- [ ] 8.6 **WATCHED RED W5** — map `infeasible` onto `unknown`. An infeasible
+- [x] 8.6 **WATCHED RED W5** — map `infeasible` onto `unknown`. An infeasible
       plan must offer Retry.
+      **Measured on CI, because h2puni has no inodes** — see "## W5, measured"
+      below. The early measurement was withdrawn on purpose: it reddened the
+      classification seam alone, which is not this red's sentence. It now
+      reddens the plan's disposition too, and the assertion that says an
+      infeasible plan is refused a Retry rides on the rows a real infeasible
+      solve produced rather than on a row a fixture inserted.
 - [x] 8.7 `plan-infeasible` stored beside `ok` and `failed`: cached under an
       identical key, never auto-respawned, payload naming every offending work
       item with its **effective** deadline plus both the item that **owns** the
@@ -1256,3 +1291,55 @@ failures in `saved-plan-integrity.test.ts`, `solver-launcher-process.ts` and
 `solver-supervisor-client.ts` are a local `@types/node`/`bun-types`
 `ArrayBufferLike` mismatch in this checkout, are untouched by this change, and
 are not reproduced by CI's own typecheck target.
+
+## W5, measured
+
+**Where.** CI, not h2puni: the host is at 100% inodes (`df -i /`: `9849520 /
+9849520`, `IFree 0`, filed as `TASK-315`), so no gate can run there. CI fires on
+`pull_request` and `push: [main]` and not on a bare branch push, so the fault
+went up as a **draft PR that was closed and its branch deleted the moment the
+red was read** — PR 274, `red/t241-w5`, head `754eff8d`.
+
+**The fault.** In `apps/be-01/src/service/solver-exit-outcome.ts`, inside
+`if (response.status !== 'feasible')`, `infeasible` folded onto `unknown` before
+the `unknown` early return, exactly as the item words it:
+
+```ts
+const status = response.status === 'infeasible' ? ('unknown' as const) : response.status;
+if (status === 'unknown') return { kind: 'failed', reason: 'no-solution' };
+```
+
+**The red.** Gate run **34079393999**, failed tasks `be-01:test` and
+`be-01:lint`, two assertion failures:
+
+| where                                | expected                                       | received                                                                         |
+| ------------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `solver-exit-outcome.test.ts:116`    | `{ kind: 'failed', reason: 'invalid-output' }` | `reason: 'no-solution'`                                                          |
+| `optimization-events.db.test.ts:278` | two `schedule_optimization_infeasible` events  | two `schedule_optimization_failed`, each carrying `failureReason: 'no-solution'` |
+
+The second is the one the early measurement could not reach, and it is the
+sentence: those two events are the disposition of a **real** `status:
+'infeasible'` wire response over a deadlined input, and under the fault both
+variants become `failed` rows. `failed` is exactly what
+`optimization-coordinator.ts`'s retry admits — so an infeasible plan starts
+offering a Retry that re-solves an unchanged input for the same proof.
+
+**What the red does not show, stated rather than implied.** The refusal
+assertion added for this item sits _after_ that event assertion in the same
+case, so the case aborts before reaching it and the failure list names line 278
+rather than the refusal. The refusal's own proof is the green side: gate run
+**34079387465** on `change/deadline-w5-retry` at `2796ca13`, where
+`instance.retry(...)` answers `{ kind: 'not-retryable', state:
+'plan-infeasible' }` for both `pri` and `time` on those same two rows. The red
+proves the rows stop being `plan-infeasible`; the green proves that while they
+are, Retry refuses them.
+
+**The early measurement, and why it was not enough.** Substituting the same
+mapping at `4538b811` gave 1840 pass / 1 fail, the single failure being
+`evaluateSolverOutcome > keeps classified process failures and distinguishes
+solver no-answer states`. That proves the classification seam distinguishes the
+two statuses. It says nothing about Retry, because at that head the refusal had
+no route to be refused at — 8.7d did not exist — and
+`optimization-coordinator.db.test.ts`'s `generationWith` writes its
+`plan-infeasible` row **directly**, so no substitution inside
+`solver-exit-outcome.ts` can reach it.

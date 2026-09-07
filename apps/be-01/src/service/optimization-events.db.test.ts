@@ -304,6 +304,29 @@ describe('optimized outcome events', () => {
     } finally {
       raw.close();
     }
+
+    // 8.6 / WATCHED RED W5, and the reason the refusal is asserted *here*
+    // rather than only in `optimization-coordinator.db.test.ts`: that suite
+    // inserts the `plan-infeasible` row itself, so it proves the refusal for a
+    // row a fixture wrote and can say nothing about how the row got its status.
+    // This row is the one the solve above just produced from a real
+    // `status: 'infeasible'` response, through `evaluateSolverOutcome`. W5's
+    // substitution — `response.status === 'unknown' || === 'infeasible'` in
+    // `solver-exit-outcome.ts` — therefore reaches this line: the row becomes
+    // `failed`, `failed` is exactly what Retry admits, and an infeasible plan
+    // starts offering a Retry that re-solves an unchanged input for the same
+    // proof. That is W5's own sentence, and no test could carry it until 8.7d
+    // gave the refusal a route to be refused at.
+    for (const objective of ['pri', 'time'] as const) {
+      expect(
+        instance.retry({
+          projectId: 'p-1',
+          objective,
+          inputHash: scheduleInputHash(DEADLINED_INPUT),
+          input: DEADLINED_INPUT,
+        }),
+      ).toEqual({ kind: 'not-retryable', state: 'plan-infeasible' });
+    }
     // Proof: restoring the plan-infeasible early return in
     // `storeOptimizedOutcomeAndRecord` leaves both durable events and pushes absent.
   });
