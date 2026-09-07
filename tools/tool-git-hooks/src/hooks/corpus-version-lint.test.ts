@@ -388,7 +388,9 @@ describe('unreadable inputs fail closed, because a check that skips itself is th
     // deleted, so the parentheses are required to hold something: this fails
     // on `(…)` empty, which is exactly the regression worth catching. The
     // parser's exact wording is the engine's to choose and is not pinned.
-    expect(found[0]).toMatch(/is not valid JSON \(\S[^)]*\), so its cases could not be compared\.$/);
+    expect(found[0]).toMatch(
+      /is not valid JSON \(\S[^)]*\), so its cases could not be compared\.$/,
+    );
   });
 
   it('refuses a fixture whose cases key is missing', () => {
